@@ -1,4 +1,4 @@
-# pi-web-cn
+# @chainingintention/pi-web-cn
 
 ## 1.202606.1
 

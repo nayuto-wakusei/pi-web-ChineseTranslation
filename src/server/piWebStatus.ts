@@ -9,7 +9,7 @@ import type { PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, P
 import { parsePiWebComponentStatus } from "../shared/piWebStatusParsing.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 
-const PI_WEB_PACKAGE_NAME = "pi-web-cn";
+const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
 const PI_WEB_NPM_SOURCE = `npm:${PI_WEB_PACKAGE_NAME}`;
 const DEFAULT_VERSION = "0.0.0-dev";
 const LATEST_RELEASE_CACHE_MS = 6 * 60 * 60 * 1000;

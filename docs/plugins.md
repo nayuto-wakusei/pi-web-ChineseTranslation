@@ -155,7 +155,7 @@ After changing plugin enablement, reload the PI WEB browser tab. Already-loaded 
 
 ## Built-in plugins
 
-PI WEB ships core, discoverable plugins in the main `pi-web-cn` npm package. No separate `pi install` step is required: update PI WEB, reload the browser tab, and the bundled plugins appear in `/pi-web-plugins/manifest.json`.
+PI WEB ships core, discoverable plugins in the main `@chainingintention/pi-web-cn` npm package. No separate `pi install` step is required: update PI WEB, reload the browser tab, and the bundled plugins appear in `/pi-web-plugins/manifest.json`.
 
 Built-in plugins can be managed from **Settings → Plugins** or with the top-level `plugins` config key.
 
@@ -432,7 +432,7 @@ Notes:
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.
-- Only fields documented here and declared in `plugin-api.d.ts` are stable public plugin API. Unstable runtime fields are intentionally omitted from these types; if a plugin author chooses to depend on them, they must explicitly import unstable types from `pi-web-cn/plugin-api/unstable` and type-assert the context in their own code.
+- Only fields documented here and declared in `plugin-api.d.ts` are stable public plugin API. Unstable runtime fields are intentionally omitted from these types; if a plugin author chooses to depend on them, they must explicitly import unstable types from `@chainingintention/pi-web-cn/plugin-api/unstable` and type-assert the context in their own code.
 
 #### Keyboard shortcuts
 
@@ -694,8 +694,8 @@ PI WEB's `/api/...` HTTP and WebSocket routes are private implementation details
 If a plugin author deliberately chooses to depend on an unstable runtime field while a public helper is still being designed, make that decision explicit in code with a type-only unstable import and a local type assertion:
 
 ```ts
-import type { WorkspacePanelContext } from "pi-web-cn/plugin-api";
-import type { UnstableWorkspacePanelContext } from "pi-web-cn/plugin-api/unstable";
+import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { UnstableWorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api/unstable";
 
 function unstableContext(context: WorkspacePanelContext) {
   return context as WorkspacePanelContext & UnstableWorkspacePanelContext;
@@ -730,7 +730,7 @@ If you are an AI agent building or editing a PI WEB plugin, follow this checklis
 10. Add workspace labels for compact inline metadata.
 11. Return arrays from workspace label `items()`; return an empty array to render nothing.
 12. Use documented context helpers first: `files`, `terminal`, `host.requestRender`, `workspace`, `machine`, `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`.
-13. Do not fetch PI WEB `/api/...` endpoints directly. If an unstable runtime field is intentionally required, import the type from `pi-web-cn/plugin-api/unstable` and type-assert locally.
+13. Do not fetch PI WEB `/api/...` endpoints directly. If an unstable runtime field is intentionally required, import the type from `@chainingintention/pi-web-cn/plugin-api/unstable` and type-assert locally.
 14. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
 15. After local edits, tell the user to hard reload the browser and check the console for plugin errors.
 

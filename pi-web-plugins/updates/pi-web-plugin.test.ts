@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { html, svg } from "lit";
-import type { WorkspacePanelContext } from "pi-web-cn/plugin-api";
+import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin";
 
 describe("updates plugin Chinese display text", () => {
@@ -21,12 +21,12 @@ describe("updates plugin Chinese display text", () => {
     const rendered = serializeTemplate(panel?.render(context({
       state: {
         piWebStatus: {
-          packageName: "pi-web-cn",
+          packageName: "@chainingintention/pi-web-cn",
           generatedAt: "2026-06-05T00:00:00.000Z",
           messages: [{ id: "restart", severity: "warning", title: "需要重启", body: "服务版本不一致。" }],
-          release: { packageName: "pi-web-cn", updateAvailable: false, skipped: true },
+          release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false, skipped: true },
           commands: {
-            update: "npm i -g pi-web-cn",
+            update: "npm i -g @chainingintention/pi-web-cn",
             restart: "systemctl --user restart pi-web-ui-dev.service",
             restartWeb: "",
             restartSessiond: "",

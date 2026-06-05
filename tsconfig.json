@@ -27,8 +27,8 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "pi-web-cn/plugin-api": ["./src/plugin-api.ts"],
-      "pi-web-cn/plugin-api/unstable": ["./src/plugin-api/unstable.ts"]
+      "@chainingintention/pi-web-cn/plugin-api": ["./src/plugin-api.ts"],
+      "@chainingintention/pi-web-cn/plugin-api/unstable": ["./src/plugin-api/unstable.ts"]
     }
   },
   "include": [

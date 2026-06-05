@@ -1,4 +1,4 @@
-import type { WorkspacePanelContext } from "pi-web-cn/plugin-api";
+import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { TASKS_CONFIG_PATH, type WorkspaceTask } from "./config.js";
 import { runWorkspaceTaskInTerminal } from "./taskRunner.js";
 import { loadWorkspaceTasksConfig, tasksConfigRefreshHint, tasksConfigUnavailableMessage, type WorkspaceTasksConfigLoadResult } from "./workspaceTasksClient.js";

@@ -9,7 +9,7 @@ import { defaultPiWebConfigPath, defaultPiWebDataDir, examplePiWebConfig } from 
 import { packageVersion, printPiWebVersionReport } from "./piWebVersionReport.js";
 import { checkNodePtyDarwinSpawnHelper, formatNodePtyDarwinSpawnHelperCheck } from "./server/diagnostics/nodePtySpawnHelper.js";
 
-const PI_WEB_PACKAGE_NAME = "pi-web-cn";
+const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
 
 const systemdServiceDir = join(homedir(), ".config", "systemd", "user");
 const launchdServiceDir = join(homedir(), "Library", "LaunchAgents");
@@ -1051,7 +1051,7 @@ Usage:
   pi-web version
 
 Recommended install:
-  npm install -g pi-web-cn
+  npm install -g @chainingintention/pi-web-cn
   pi-web install
 
 Development service install from a checkout:

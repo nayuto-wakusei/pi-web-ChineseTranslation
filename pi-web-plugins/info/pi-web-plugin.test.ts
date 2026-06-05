@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { html, svg } from "lit";
-import type { WorkspacePanelContext } from "pi-web-cn/plugin-api";
+import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin";
 
 describe("info plugin Chinese display text", () => {

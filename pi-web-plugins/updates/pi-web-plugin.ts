@@ -1,5 +1,5 @@
 import type { TemplateResult } from "lit";
-import type { HtmlTemplateTag, PiWebComponentStatus, PiWebInstallationInfo, PiWebPlugin, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "pi-web-cn/plugin-api";
+import type { HtmlTemplateTag, PiWebComponentStatus, PiWebInstallationInfo, PiWebPlugin, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
 
 function messagesFor(state: PluginRuntimeState | undefined): PiWebStatusMessage[] {
   return state?.piWebStatus?.messages ?? [];

@@ -1,5 +1,5 @@
 {
-  "name": "pi-web-cn",
+  "name": "@chainingintention/pi-web-cn",
   "version": "1.202606.1",
   "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
   "license": "MIT",
