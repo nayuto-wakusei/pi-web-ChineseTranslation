@@ -92,12 +92,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jmfederico/pi-web.git"
+    "url": "git+https://github.com/nayuto-wakusei/pi-web-ChineseTranslation.git"
   },
   "bugs": {
-    "url": "https://github.com/jmfederico/pi-web/issues"
+    "url": "https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/issues"
   },
-  "homepage": "https://pi-web.dev/",
+  "homepage": "https://github.com/nayuto-wakusei/pi-web-ChineseTranslation#readme",
   "packageManager": "npm@11.11.0",
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0 <1",
