@@ -1,4 +1,33 @@
-# @jmfederico/pi-web
+﻿# @chainingintention/pi-web-cn
+
+## 1.202606.1
+
+### Patch Changes
+
+- 93b50e6: Replace add-machine browser prompts with a PI WEB form that asks for the remote URL first, suggests a machine name, and supports an optional bearer token.
+- 08f69d0: Document built-in PI WEB plugins, including configuration guidance for Workspace Tasks.
+- Translate bundled plugin display text into Chinese.
+- Document this fork as a Chinese translation plan for PI WEB plugin display content.
+- 159f533: Fix workspace selection in the web UI so local machine project and session loading no longer fails with `api is not defined`.
+- ccd4a76: Hide the Machines navigation section when only one machine is configured, align Machines list spacing with the other navigation sections, and add a remove action to remote machine rows.
+- 193c9d0: Show machine activity indicators when sessions or terminals are active on any workspace for that machine.
+- b5f8810: Add machine-scoped local project, workspace, file, and git API aliases as the next step toward machine federation.
+- 4495a26: Make the mobile Actions entry available from the top context controls and remove the redundant PI WEB navigation header on mobile.
+- 4548e5c: Use compact icons, initials, and inline badges for the mobile main tab bar so tabs are easier to fit without losing horizontal scrolling; let workspace panel plugins provide custom SVG tab icons; and add icons for bundled Info, Updates, and Tasks plugin panels.
+- e352dce: Fall back to the local machine when a bookmarked or restored remote machine is offline, and clear stale remote workspace route state.
+- bd8d1f1: Keep workspace tool tab icons visible in the desktop workspace panel and collapse tab names only in compact panel widths.
+- 08f69d0: Add plugin enablement settings so discovered PI WEB plugins can be disabled before the browser imports them.
+- e3533eb: Add documented plugin context helpers for machine-scoped workspace files and terminal commands, generate plugin API declarations from source, and move bundled plugins away from direct PI WEB API calls.
+- 8cd2bba: Keep the PWA refresh control menu visible above mobile tab navigation and workspace tab content.
+- b3bb732: Remember each machine's last selected project, workspace, session, and workspace tool when switching machines in the web UI.
+- a142f5e: Add remote machine federation so PI WEB can register trusted remote runtimes and proxy their projects, workspaces, sessions, files, git state, activity, and terminals through the current web server.
+- f1c8f1f: Clean up the workspace panel plugin context by removing the legacy `openTerminal` alias and moving render invalidation to `context.host.requestRender()`.
+- 4495a26: Add a deep-linked Settings UI for editing the active PI WEB config file and viewing registered keyboard shortcuts.
+- a58c211: Add shortcut preferences to the PI WEB config schema so keyboard shortcuts can be overridden or disabled by action id.
+- 0405b38: Add the first machine registry API and show the synthesized Local machine in the web UI as the foundation for machine federation.
+- be02c35: Rename the built-in Updates plugin id from `pi-web` to `updates` for clearer plugin configuration.
+- 08f69d0: Prevent redundant Workspace Tasks panel re-renders from resetting mobile scroll position or replacing task buttons mid-click, and show feedback for stale, cancelled, or already-starting tasks.
+- 08f69d0: Bundle Workspace Tasks with PI WEB as a built-in plugin for running `.pi-web/tasks.json` commands in workspace terminals.
 
 ## 1.202606.0
 

@@ -119,7 +119,7 @@ function normalizeModel(message: unknown): NonNullable<ChatLine["meta"]>["model"
 
 function normalizeBashExecution(message: unknown): ChatLine {
   const command = getString(message, "command") ?? "";
-  const lines = getBoolean(message, "excludeFromContext") === true ? ["excluded from context", "", `$ ${command}`] : [`$ ${command}`];
+  const lines = getBoolean(message, "excludeFromContext") === true ? ["不加入上下文", "", `$ ${command}`] : [`$ ${command}`];
   const output = getProperty(message, "output");
   if (output != null) lines.push("", stringifyPrimitive(output));
   const exitCode = getProperty(message, "exitCode");
@@ -127,7 +127,7 @@ function normalizeBashExecution(message: unknown): ChatLine {
   if (getBoolean(message, "cancelled") === true) lines.push("", "cancelled");
   if (getBoolean(message, "truncated") === true) lines.push("", "output truncated");
   const fullOutputPath = getString(message, "fullOutputPath");
-  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `full output: ${fullOutputPath}`);
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `完整输出：${fullOutputPath}`);
   return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
 }
 
@@ -285,7 +285,7 @@ export function summarizeArgs(args: unknown): string {
   if (path !== undefined) return path;
   if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
   const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
+  if (Array.isArray(edits)) return `${String(edits.length)} 处编辑`;
   const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
   return entries.map(([key, value]) => `${key}: ${shortValue(value)}`).join(" · ");
 }
@@ -293,7 +293,7 @@ export function summarizeArgs(args: unknown): string {
 function shortValue(value: unknown): string {
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
+  if (Array.isArray(value)) return `${String(value.length)} 项`;
   if (typeof value === "object" && value !== null) return "object";
   return "";
 }

@@ -26,8 +26,8 @@ export class FormattedText extends LitElement {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "code-copy-button";
-      button.title = "Copy code block";
-      button.setAttribute("aria-label", "Copy code block");
+      button.title = "复制代码块";
+      button.setAttribute("aria-label", "复制代码块");
       const icon = document.createElement("span");
       icon.setAttribute("aria-hidden", "true");
       icon.textContent = "⧉";
@@ -66,7 +66,7 @@ export class FormattedText extends LitElement {
   private setCopyButtonState(button: HTMLButtonElement, state: "idle" | "copied" | "failed"): void {
     const icon = button.querySelector("span");
     if (icon !== null) icon.textContent = state === "copied" ? "✓" : "⧉";
-    const label = state === "copied" ? "Copied code block" : state === "failed" ? "Failed to copy code block" : "Copy code block";
+    const label = state === "copied" ? "已复制代码块" : state === "failed" ? "复制代码块失败" : "复制代码块";
     button.title = label;
     button.setAttribute("aria-label", label);
   }

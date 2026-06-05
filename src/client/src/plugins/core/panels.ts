@@ -9,7 +9,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
   return [
     {
       id: "workspace.files",
-      title: "Files",
+      title: "文件",
       icon: renderBuiltinTabIcon("files"),
       order: 10,
       render: renderFiles,
@@ -24,7 +24,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
     },
     {
       id: "workspace.terminal",
-      title: "Terminal",
+      title: "终端",
       icon: renderBuiltinTabIcon("terminal"),
       order: 30,
       badge: (context) => context.activeTerminalCount > 0 ? context.activeTerminalCount : undefined,
@@ -36,13 +36,13 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
 function renderFiles(context: WorkspacePanelContext): TemplateResult {
   return html`
     <section class="toolbar">
-      <strong>Files</strong>
-      ${context.fileTreeStale ? html`<span class="stale">stale</span>` : null}
-      <button @click=${context.onRefreshFiles}>Refresh</button>
+      <strong>文件</strong>
+      ${context.fileTreeStale ? html`<span class="stale">过期</span>` : null}
+      <button @click=${context.onRefreshFiles}>刷新</button>
     </section>
     <section class="split">
       <div class="list tree">
-        ${context.fileTree.length === 0 ? html`<p class="muted">No files loaded.</p>` : context.fileTree.map((entry) => renderTreeEntry(context, entry, 0))}
+        ${context.fileTree.length === 0 ? html`<p class="muted">尚未加载文件。</p>` : context.fileTree.map((entry) => renderTreeEntry(context, entry, 0))}
       </div>
       <div class="viewer">
         ${renderFileViewer(context)}
@@ -71,13 +71,13 @@ function selectTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry): 
 
 function renderFileViewer(context: WorkspacePanelContext): TemplateResult {
   const file = context.selectedFileContent;
-  if (context.selectedFilePath === undefined || context.selectedFilePath === "") return html`<p class="muted">Select a file.</p>`;
-  if (file === undefined) return html`<p class="muted">Loading ${context.selectedFilePath}…</p>`;
+  if (context.selectedFilePath === undefined || context.selectedFilePath === "") return html`<p class="muted">请选择文件。</p>`;
+  if (file === undefined) return html`<p class="muted">正在加载 ${context.selectedFilePath}…</p>`;
   if (file.mediaType === "image") return renderImageViewer(context, file);
-  if (file.binary) return html`<p class="muted">Binary file: ${file.path} · ${formatFileSize(file.size)}</p>`;
+  if (file.binary) return html`<p class="muted">二进制文件：${file.path} · ${formatFileSize(file.size)}</p>`;
   loadCodeViewer();
   return html`
-    <div class="viewer-header"><strong>${file.path}</strong><small>${file.language ?? "text"}${file.truncated ? " · truncated" : ""}</small></div>
+    <div class="viewer-header"><strong>${file.path}</strong><small>${file.language ?? "文本"}${file.truncated ? " · 已截断" : ""}</small></div>
     <code-viewer .content=${file.content} .language=${file.language}></code-viewer>
   `;
 }
@@ -87,7 +87,7 @@ function renderImageViewer(context: WorkspacePanelContext, file: FileContentResp
   if (file.size > MAX_IMAGE_PREVIEW_BYTES) {
     return html`
       <div class="viewer-header"><strong>${file.path}</strong><small>${metadata}</small></div>
-      <p class="muted">Image too large to preview: ${formatFileSize(file.size)} · limit ${MAX_IMAGE_PREVIEW_LABEL}</p>
+      <p class="muted">图片过大，无法预览：${formatFileSize(file.size)} · 限制 ${MAX_IMAGE_PREVIEW_LABEL}</p>
     `;
   }
   const src = workspaceImagePreviewUrl(context.workspace.projectId, context.workspace.id, file.path, { modifiedAt: file.modifiedAt, machineId: context.machine.id });
@@ -109,14 +109,14 @@ function renderGit(context: WorkspacePanelContext): TemplateResult {
   return html`
     <section class="toolbar">
       <strong>Git</strong>
-      ${context.gitStale ? html`<span class="stale">stale</span>` : null}
-      <button @click=${context.onRefreshGit}>Refresh</button>
+      ${context.gitStale ? html`<span class="stale">过期</span>` : null}
+      <button @click=${context.onRefreshGit}>刷新</button>
     </section>
     <section class="split">
       <div class="list">
-        ${status === undefined ? html`<p class="muted">No status loaded.</p>` : !status.isGitRepo ? html`<p class="muted">Not a git repository.</p>` : html`
+        ${status === undefined ? html`<p class="muted">尚未加载状态。</p>` : !status.isGitRepo ? html`<p class="muted">不是 Git 仓库。</p>` : html`
           <p class="summary">${gitSummary(status)}</p>
-          ${status.files.length === 0 ? html`<p class="muted">No changes.</p>` : status.files.map((file) => html`
+          ${status.files.length === 0 ? html`<p class="muted">没有变更。</p>` : status.files.map((file) => html`
             <button class="row ${context.selectedDiffPath === file.path ? "selected" : ""}" @click=${() => { context.onSelectDiff(file.path); }}>
               <span>${stateLabel(file.index, file.workingTree)}</span>
               <span>${file.path}</span>
@@ -132,12 +132,12 @@ function renderGit(context: WorkspacePanelContext): TemplateResult {
 }
 
 function renderDiffViewer(context: WorkspacePanelContext): TemplateResult {
-  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">Select a changed file.</p>`;
+  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">请选择一个已变更文件。</p>`;
   const unstaged = context.selectedDiff;
   const staged = context.selectedStagedDiff;
-  if (unstaged === undefined || staged === undefined) return html`<p class="muted">Loading diff…</p>`;
+  if (unstaged === undefined || staged === undefined) return html`<p class="muted">正在加载 diff…</p>`;
   const diffs = [staged, unstaged].filter((diff) => diff.diff !== "");
-  if (diffs.length === 0) return html`<p class="muted">No staged or unstaged diff.</p>`;
+  if (diffs.length === 0) return html`<p class="muted">没有 staged 或 unstaged diff。</p>`;
   return html`
     <div class=${diffs.length === 1 ? "diffs single" : "diffs"}>
       ${diffs.map((diff) => renderDiffSection(diff))}
@@ -149,7 +149,7 @@ function renderDiffSection(diff: GitDiffResponse): TemplateResult {
   loadCodeViewer();
   return html`
     <section class="diff-section">
-      <div class="viewer-header"><strong>${diff.path ?? "diff"}</strong><small>${diff.staged ? "staged" : "unstaged"}${diff.truncated ? " · truncated" : ""}</small></div>
+      <div class="viewer-header"><strong>${diff.path ?? "diff"}</strong><small>${diff.staged ? "已暂存" : "未暂存"}${diff.truncated ? " · 已截断" : ""}</small></div>
       <code-viewer .content=${diff.diff} .language=${"diff"}></code-viewer>
     </section>
   `;
@@ -164,7 +164,7 @@ function loadTerminalPanel(): void {
 }
 
 function gitSummary(status: GitStatusResponse): string {
-  const branch = status.branch ?? "detached";
+  const branch = status.branch ?? "分离 HEAD";
   const ahead = status.ahead ?? 0;
   const behind = status.behind ?? 0;
   return ahead === 0 && behind === 0 ? branch : `${branch} · ↑${String(ahead)} ↓${String(behind)}`;

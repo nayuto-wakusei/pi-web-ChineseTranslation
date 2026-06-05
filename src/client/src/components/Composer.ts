@@ -24,10 +24,10 @@ export class Composer extends LitElement {
               this.send();
             }
           }}
-          placeholder="Message pi..."
+          placeholder="给 pi 发送消息..."
         ></textarea>
-        <button ?disabled=${this.disabled} @click=${() => { this.send(); }}>Send</button>
-        <button ?disabled=${this.disabled} @click=${() => this.onStopSession?.()}>Stop session</button>
+        <button ?disabled=${this.disabled} @click=${() => { this.send(); }}>发送</button>
+        <button ?disabled=${this.disabled} @click=${() => this.onStopSession?.()}>停止会话</button>
       </footer>
     `;
   }

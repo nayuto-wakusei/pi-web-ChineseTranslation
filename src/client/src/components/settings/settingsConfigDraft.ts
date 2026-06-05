@@ -30,7 +30,7 @@ export function configFromDraft(draft: ConfigDraft, baseConfig: PiWebConfigValue
   if (host !== "") config.host = host;
   if (port !== "") {
     const parsed = Number(port);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error("Port must be an integer from 1 to 65535.");
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error("端口必须是 1 到 65535 之间的整数。");
     config.port = parsed;
   }
   config.allowedHosts = draft.allowedHostsMode === "all" ? true : parseAllowedHostsText(draft.allowedHostsText);

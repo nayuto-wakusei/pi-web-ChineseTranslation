@@ -9,7 +9,7 @@ export class ConversationMeter extends LitElement {
   override render() {
     const position = clampPercent(this.positionPercent);
     const loaded = clampPercent(this.loadedPercent);
-    const label = `Message position: about ${String(Math.round(position))}% through conversation. ${String(Math.round(loaded))}% of messages loaded.`;
+    const label = `消息位置：约在会话 ${String(Math.round(position))}% 处。已加载 ${String(Math.round(loaded))}% 的消息。`;
     return html`
       <div
         class="meter"

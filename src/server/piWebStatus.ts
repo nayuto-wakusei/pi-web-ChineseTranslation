@@ -9,7 +9,7 @@ import type { PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, P
 import { parsePiWebComponentStatus } from "../shared/piWebStatusParsing.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 
-const PI_WEB_PACKAGE_NAME = "@jmfederico/pi-web";
+const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
 const PI_WEB_NPM_SOURCE = `npm:${PI_WEB_PACKAGE_NAME}`;
 const DEFAULT_VERSION = "0.0.0-dev";
 const LATEST_RELEASE_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -412,10 +412,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "update-available",
       severity: "info",
-      title: "PI WEB update available",
+      title: "PI WEB 有可用更新",
       body: commands.update === undefined
-        ? `PI WEB ${release.latestVersion} is available${installedVersion === undefined ? "" : `; installed version is ${installedVersion}`}. Update PI WEB, then restart the services or processes for this installation.`
-        : `PI WEB ${release.latestVersion} is available${installedVersion === undefined ? "" : `; installed version is ${installedVersion}`}. Run the update command to update PI WEB and restart its services.`,
+        ? `PI WEB ${release.latestVersion} 已可用${installedVersion === undefined ? "" : `；当前已安装版本是 ${installedVersion}`}。更新 PI WEB 后，请重启此安装对应的服务或进程。`
+        : `PI WEB ${release.latestVersion} 已可用${installedVersion === undefined ? "" : `；当前已安装版本是 ${installedVersion}`}。运行更新命令来更新 PI WEB 并重启服务。`,
       ...optionalMessageCommand(commands.update),
     });
   }
@@ -425,10 +425,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "web-stale",
       severity: "warning",
-      title: "Web/UI service restart needed",
+      title: "Web/UI 服务需要重启",
       body: command === undefined
-        ? `The Web/UI service is running ${formatVersion(components.web.runtimeVersion)}, but ${formatVersion(components.web.installedVersion)} is installed. Restart the Web/UI service or process to use the installed version.`
-        : `The Web/UI service is running ${formatVersion(components.web.runtimeVersion)}, but ${formatVersion(components.web.installedVersion)} is installed. Restart the service to use the installed version.`,
+        ? `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启 Web/UI 服务或进程即可使用已安装版本。`
+        : `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启服务即可使用已安装版本。`,
       ...optionalMessageCommand(command),
     });
   }
@@ -437,10 +437,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "sessiond-unavailable",
       severity: "warning",
-      title: "Session daemon version unavailable",
+      title: "会话守护进程版本不可用",
       body: commands.status === undefined
-        ? `PI WEB could not check the session daemon version${components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}`}. Check the session daemon service or process that runs this installation.`
-        : `PI WEB could not check the session daemon version${components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}`}`,
+        ? `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}。`}请检查运行此安装的会话守护进程服务或进程。`
+        : `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}`}`,
       ...optionalMessageCommand(commands.status),
     });
   } else if (components.sessiond.stale) {
@@ -448,10 +448,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "sessiond-stale",
       severity: "warning",
-      title: "Session daemon restart needed",
+      title: "会话守护进程需要重启",
       body: command === undefined
-        ? `The session daemon is running ${formatVersion(components.sessiond.runtimeVersion)}, but ${formatVersion(components.sessiond.installedVersion)} is installed. Restart the session daemon service or process to use the installed version.`
-        : `The session daemon is running ${formatVersion(components.sessiond.runtimeVersion)}, but ${formatVersion(components.sessiond.installedVersion)} is installed. Restart the daemon to use the installed version.`,
+        ? `会话守护进程正在运行 ${formatVersion(components.sessiond.runtimeVersion)}，但已安装 ${formatVersion(components.sessiond.installedVersion)}。重启会话守护进程服务或进程即可使用已安装版本。`
+        : `会话守护进程正在运行 ${formatVersion(components.sessiond.runtimeVersion)}，但已安装 ${formatVersion(components.sessiond.installedVersion)}。重启会话守护进程即可使用已安装版本。`,
       ...optionalMessageCommand(command),
     });
   }

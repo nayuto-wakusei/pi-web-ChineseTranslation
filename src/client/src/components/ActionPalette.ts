@@ -22,7 +22,7 @@ export class ActionPalette extends LitElement {
           <header>
             <input
               .value=${this.queryText}
-              placeholder="Search actions..."
+              placeholder="搜索操作..."
               @input=${(event: Event) => {
                 if (event.target instanceof HTMLInputElement) {
                   this.queryText = event.target.value;
@@ -30,10 +30,10 @@ export class ActionPalette extends LitElement {
                 }
               }}
             >
-            <button title="Close" @click=${() => this.onCancel?.()}>×</button>
+            <button title="关闭" @click=${() => this.onCancel?.()}>×</button>
           </header>
           <div class="options">
-            ${actions.length === 0 ? html`<div class="empty">No actions found.</div>` : actions.map((action, index) => html`
+            ${actions.length === 0 ? html`<div class="empty">未找到操作。</div>` : actions.map((action, index) => html`
               <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @click=${() => { this.run(action); }}>
                 <span class="main">
                   <strong>${action.title}</strong>

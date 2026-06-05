@@ -52,13 +52,13 @@ export class WorkspacePanel extends LitElement {
   override render() {
     const workspace = this.workspace;
     if (workspace === undefined) return this.renderEmptyState(this.emptyState ?? {
-      title: "Select a workspace",
-      body: "Choose a workspace to inspect files, Git, or terminals.",
+      title: "选择工作区",
+      body: "选择工作区来查看文件、Git 或终端。",
     });
     const context = this.panelContext;
     if (context === undefined) return this.renderEmptyState({
-      title: "Workspace tools unavailable",
-      body: "Try selecting the workspace again.",
+      title: "工作区工具不可用",
+      body: "请尝试重新选择工作区。",
     });
     const visiblePanels = this.panels;
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
@@ -85,8 +85,8 @@ export class WorkspacePanel extends LitElement {
         </div>
       </header>
       ${selectedPanel === undefined ? this.renderEmptyState({
-        title: "No workspace tools available",
-        body: "No tools are available for this workspace.",
+        title: "没有可用的工作区工具",
+        body: "此工作区没有可用工具。",
       }) : html`
         <div class="panel-content">
           ${selectedPanel.render(context)}

@@ -80,6 +80,19 @@ describe("PluginRegistry", () => {
     expect(registry.getWorkspacePanels()[0]?.icon).toBeDefined();
   });
 
+  it("exposes Chinese display labels for the core plugin", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+
+    expect(corePlugin.name).toBe("PI WEB 核心");
+    expect(registry.getWorkspacePanels().map((panel) => panel.title)).toEqual(["文件", "Git", "终端"]);
+
+    const actions = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
+    expect(actions.find((action) => action.id === "core:actions.show")).toMatchObject({ title: "显示操作", group: "通用" });
+    expect(actions.find((action) => action.id === "core:workspace.refresh-files")).toMatchObject({ title: "刷新文件", group: "工作区" });
+    expect(actions.find((action) => action.id === "core:session.start")).toMatchObject({ title: "启动会话", group: "会话" });
+  });
+
   it("rejects duplicate ids within the same namespace", () => {
     const registry = new PluginRegistry();
 
@@ -224,13 +237,13 @@ describe("PluginRegistry", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "themes", plugin: themePackPlugin });
 
-    expect(registry.getThemes().map((theme) => ({ id: theme.id, colorScheme: theme.colorScheme }))).toEqual([
-      { id: "themes:pi-web-dark", colorScheme: "dark" },
-      { id: "themes:pi-web-light", colorScheme: "light" },
-      { id: "themes:classic", colorScheme: "dark" },
+    expect(registry.getThemes().map((theme) => ({ id: theme.id, name: theme.name, description: theme.description, colorScheme: theme.colorScheme }))).toEqual([
+      { id: "themes:pi-web-dark", name: "PI WEB 深色", description: "PI WEB 深色配色。", colorScheme: "dark" },
+      { id: "themes:pi-web-light", name: "PI WEB 浅色", description: "PI WEB 浅色配色。", colorScheme: "light" },
+      { id: "themes:classic", name: "PI WEB 经典", description: "原始 PI WEB 深色配色。", colorScheme: "dark" },
     ]);
-    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, light: pair.light, dark: pair.dark }))).toEqual([
-      { id: "themes:pi-web", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
+    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, name: pair.name, description: pair.description, light: pair.light, dark: pair.dark }))).toEqual([
+      { id: "themes:pi-web", name: "PI WEB", description: "跟随系统浅色/深色偏好使用 PI WEB 主题。", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
     ]);
   });
 

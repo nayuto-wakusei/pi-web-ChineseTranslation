@@ -14,12 +14,12 @@ export class SettingsShortcutsPanel extends LitElement {
     return html`
       <div class="section-heading">
         <div>
-          <h2>Keyboard shortcuts</h2>
-          <p>Review registered app actions and the shortcut config that will become editable here. Manual config entries use action ids and can override a default shortcut or set it to <code>null</code> to disable it.</p>
+          <h2>键盘快捷键</h2>
+          <p>查看已注册的应用操作和快捷键配置。手动配置项使用 action id，可以覆盖默认快捷键，或设置为 <code>null</code> 以禁用。</p>
         </div>
       </div>
-      <div class="shortcut-note">Config key: <code>shortcuts</code>. Example: <code>{ "core:view.chat": "mod+1", "core:session.stop": null }</code></div>
-      ${groups.length === 0 ? html`<div class="loading-card">No actions registered.</div>` : groups.map((group) => html`
+      <div class="shortcut-note">配置键：<code>shortcuts</code>。示例：<code>{ "core:view.chat": "mod+1", "core:session.stop": null }</code></div>
+      ${groups.length === 0 ? html`<div class="loading-card">没有已注册操作。</div>` : groups.map((group) => html`
         <section class="shortcut-group">
           <h3>${group.name}</h3>
           <div class="shortcut-list">
@@ -43,7 +43,7 @@ export class SettingsShortcutsPanel extends LitElement {
           <small class="shortcut-id">${action.id}</small>
         </div>
         <div class="shortcut-value">
-          ${shortcut !== undefined && shortcut !== "" ? html`<kbd>${formatShortcut(shortcut)}</kbd>` : html`<span class="unassigned">${state === "disabled" ? "Disabled" : "Unassigned"}</span>`}
+          ${shortcut !== undefined && shortcut !== "" ? html`<kbd>${formatShortcut(shortcut)}</kbd>` : html`<span class="unassigned">${state === "disabled" ? "已禁用" : "未分配"}</span>`}
           <small class=${state}>${shortcutStateLabel(state)}</small>
         </div>
       </div>
@@ -92,14 +92,14 @@ type ShortcutState = "default" | "custom" | "disabled" | "unassigned";
 function shortcutGroups(actions: AppAction[]): { name: string; actions: AppAction[] }[] {
   const grouped = new Map<string, AppAction[]>();
   for (const action of [...actions].sort(compareActions)) {
-    const group = action.group ?? "Other";
+    const group = action.group ?? "其他";
     grouped.set(group, [...(grouped.get(group) ?? []), action]);
   }
   return [...grouped.entries()].map(([name, groupActions]) => ({ name, actions: groupActions }));
 }
 
 function compareActions(left: AppAction, right: AppAction): number {
-  return (left.group ?? "Other").localeCompare(right.group ?? "Other") || left.title.localeCompare(right.title);
+  return (left.group ?? "其他").localeCompare(right.group ?? "其他") || left.title.localeCompare(right.title);
 }
 
 function shortcutPreference(actionId: string, shortcuts: PiWebShortcutConfig | undefined): string | null | undefined {
@@ -116,9 +116,9 @@ function shortcutState(action: AppAction, shortcuts: PiWebShortcutConfig | undef
 
 function shortcutStateLabel(state: ShortcutState): string {
   switch (state) {
-    case "default": return "Default";
-    case "custom": return "Config override";
-    case "disabled": return "Config disabled";
-    case "unassigned": return "No default";
+    case "default": return "默认";
+    case "custom": return "配置覆盖";
+    case "disabled": return "配置禁用";
+    case "unassigned": return "无默认值";
   }
 }

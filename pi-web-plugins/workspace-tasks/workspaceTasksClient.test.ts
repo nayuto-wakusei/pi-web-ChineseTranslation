@@ -33,8 +33,8 @@ describe("workspace tasks client", () => {
 
     await expect(loadWorkspaceTasksConfig(files)).resolves.toEqual({
       kind: "missing",
-      message: "No workspace tasks configured here.",
-      hint: `${TASKS_CONFIG_PATH} is optional. Create it in this workspace if you want custom tasks.`,
+      message: "这里还没有配置工作区任务。",
+      hint: `${TASKS_CONFIG_PATH} 是可选文件。如果需要自定义任务，请在当前工作区创建它。`,
     });
   });
 
@@ -43,9 +43,9 @@ describe("workspace tasks client", () => {
 
     await expect(loadWorkspaceTasksConfig(files)).resolves.toMatchObject({
       kind: "unavailable",
-      message: "Could not load workspace tasks.",
-      hint: `Fix ${TASKS_CONFIG_PATH}, then click Refresh.`,
-      detail: `Unable to read ${TASKS_CONFIG_PATH}: nope`,
+      message: "无法加载工作区任务。",
+      hint: `修复 ${TASKS_CONFIG_PATH} 后点击刷新。`,
+      detail: `无法读取 ${TASKS_CONFIG_PATH}: nope`,
     });
   });
 
@@ -58,7 +58,7 @@ describe("workspace tasks client", () => {
 
     await expect(loadWorkspaceTasksConfig(files)).resolves.toMatchObject({
       kind: "unavailable",
-      detail: "Config version must be 1",
+      detail: "配置 version 必须是 1",
     });
   });
 });

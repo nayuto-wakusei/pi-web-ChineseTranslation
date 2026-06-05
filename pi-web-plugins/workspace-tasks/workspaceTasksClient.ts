@@ -1,9 +1,9 @@
 import { TASKS_CONFIG_PATH, parseTasksConfigText, type WorkspaceTasksConfig } from "./config.js";
 
-export const tasksConfigMissingMessage = "No workspace tasks configured here.";
-export const tasksConfigMissingHint = `${TASKS_CONFIG_PATH} is optional. Create it in this workspace if you want custom tasks.`;
-export const tasksConfigUnavailableMessage = "Could not load workspace tasks.";
-export const tasksConfigRefreshHint = `Fix ${TASKS_CONFIG_PATH}, then click Refresh.`;
+export const tasksConfigMissingMessage = "这里还没有配置工作区任务。";
+export const tasksConfigMissingHint = `${TASKS_CONFIG_PATH} 是可选文件。如果需要自定义任务，请在当前工作区创建它。`;
+export const tasksConfigUnavailableMessage = "无法加载工作区任务。";
+export const tasksConfigRefreshHint = `修复 ${TASKS_CONFIG_PATH} 后点击刷新。`;
 
 const missingWorkspaceFileError = "Path does not exist";
 
@@ -28,11 +28,11 @@ export async function loadWorkspaceTasksConfig(files: WorkspaceTasksFileReader):
     file = await files.readFile(TASKS_CONFIG_PATH);
   } catch (error) {
     if (errorMessage(error) === missingWorkspaceFileError) return missing();
-    return unavailable(`Unable to read ${TASKS_CONFIG_PATH}: ${formatUnknownError(error)}`);
+    return unavailable(`无法读取 ${TASKS_CONFIG_PATH}: ${formatUnknownError(error)}`);
   }
 
-  if (file.binary) return unavailable(`${TASKS_CONFIG_PATH} must be a text file`);
-  if (file.truncated) return unavailable(`${TASKS_CONFIG_PATH} is too large and was truncated`);
+  if (file.binary) return unavailable(`${TASKS_CONFIG_PATH} 必须是文本文件`);
+  if (file.truncated) return unavailable(`${TASKS_CONFIG_PATH} 过大，内容已被截断`);
 
   const result = parseTasksConfigText(file.content);
   if (!result.ok) return unavailable(result.error);

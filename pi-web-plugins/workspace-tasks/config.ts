@@ -26,24 +26,24 @@ export function parseTasksConfigText(text: string): ParseTasksConfigResult {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    return { ok: false, error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, error: `JSON 无效: ${error instanceof Error ? error.message : String(error)}` };
   }
   return parseTasksConfig(parsed);
 }
 
 export function parseTasksConfig(value: unknown): ParseTasksConfigResult {
-  if (!isRecord(value)) return invalid("Config must be an object");
-  if (value["version"] !== TASKS_CONFIG_VERSION) return invalid("Config version must be 1");
+  if (!isRecord(value)) return invalid("配置必须是对象");
+  if (value["version"] !== TASKS_CONFIG_VERSION) return invalid("配置 version 必须是 1");
 
   const tasks = value["tasks"];
-  if (!Array.isArray(tasks)) return invalid("Config tasks must be an array");
+  if (!Array.isArray(tasks)) return invalid("配置 tasks 必须是数组");
 
   const ids = new Set<string>();
   const parsedTasks: WorkspaceTask[] = [];
   for (const [index, task] of tasks.entries()) {
     const parsedTask = parseTask(task, index);
     if (!parsedTask.ok) return parsedTask;
-    if (ids.has(parsedTask.task.id)) return invalid(`Duplicate task id: ${parsedTask.task.id}`);
+    if (ids.has(parsedTask.task.id)) return invalid(`任务 id 重复: ${parsedTask.task.id}`);
     ids.add(parsedTask.task.id);
     parsedTasks.push(parsedTask.task);
   }
@@ -56,12 +56,12 @@ type ParseTaskResult =
   | { ok: false; error: string };
 
 function parseTask(value: unknown, index: number): ParseTaskResult {
-  const label = `Task ${String(index + 1)}`;
-  if (!isRecord(value)) return invalid(`${label} must be an object`);
+  const label = `任务 ${String(index + 1)}`;
+  if (!isRecord(value)) return invalid(`${label} 必须是对象`);
 
   const id = requireNonEmptyString(value, "id", label);
   if (!id.ok) return id;
-  if (!taskIdPattern.test(id.value)) return invalid(`${label} id must match ${taskIdPattern.source}`);
+  if (!taskIdPattern.test(id.value)) return invalid(`${label} id 必须匹配 ${taskIdPattern.source}`);
 
   const title = requireNonEmptyString(value, "title", label);
   if (!title.ok) return title;
@@ -76,7 +76,7 @@ function parseTask(value: unknown, index: number): ParseTaskResult {
   if (!group.ok) return group;
 
   const confirm = value["confirm"];
-  if (confirm !== undefined && typeof confirm !== "boolean") return invalid(`${label} confirm must be a boolean`);
+  if (confirm !== undefined && typeof confirm !== "boolean") return invalid(`${label} confirm 必须是布尔值`);
 
   return {
     ok: true,
@@ -101,14 +101,14 @@ type OptionalStringFieldResult =
 
 function requireNonEmptyString(record: Record<string, unknown>, key: string, label: string): StringFieldResult {
   const value = record[key];
-  if (typeof value !== "string" || value.trim() === "") return invalid(`${label} ${key} must be a non-empty string`);
+  if (typeof value !== "string" || value.trim() === "") return invalid(`${label} ${key} 必须是非空字符串`);
   return { ok: true, value };
 }
 
 function optionalNonEmptyString(record: Record<string, unknown>, key: string, label: string): OptionalStringFieldResult {
   const value = record[key];
   if (value === undefined) return { ok: true, value: undefined };
-  if (typeof value !== "string" || value.trim() === "") return invalid(`${label} ${key} must be a non-empty string when provided`);
+  if (typeof value !== "string" || value.trim() === "") return invalid(`${label} ${key} 提供时必须是非空字符串`);
   return { ok: true, value };
 }
 

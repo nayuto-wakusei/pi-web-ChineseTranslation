@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 set -eu
 
-npm install -g @jmfederico/pi-web
+npm install -g @chainingintention/pi-web-cn
 pi-web install

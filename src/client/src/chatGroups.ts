@@ -37,14 +37,25 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
 }
 
 export function summarizeChatGroup(messages: ChatLine[]): string {
-  if (messages.every((message) => message.source === "compaction")) return `${String(messages.length)} history compaction ${messages.length === 1 ? "summary" : "summaries"}`;
-  if (messages.every((message) => message.source === "branch_summary")) return `${String(messages.length)} branch ${messages.length === 1 ? "summary" : "summaries"}`;
+  if (messages.every((message) => message.source === "compaction")) return `${String(messages.length)} 条历史压缩摘要`;
+  if (messages.every((message) => message.source === "branch_summary")) return `${String(messages.length)} 条分支摘要`;
   const counts = messages.reduce<Record<string, number>>((acc, message) => {
     acc[message.role] = (acc[message.role] ?? 0) + 1;
     return acc;
   }, {});
-  const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${role}`).join(" · ");
-  return `${String(messages.length)} ${messages.length === 1 ? "event" : "events"}${details !== "" ? ` · ${details}` : ""}`;
+  const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${roleLabel(role)}`).join(" · ");
+  return `${String(messages.length)} 个事件${details !== "" ? ` · ${details}` : ""}`;
+}
+
+function roleLabel(role: string): string {
+  if (role === "user") return "用户";
+  if (role === "assistant") return "助手";
+  if (role === "system") return "系统";
+  if (role === "tool") return "工具";
+  if (role === "toolResult") return "工具结果";
+  if (role === "bash") return "Shell";
+  if (role === "skill") return "技能";
+  return role;
 }
 
 function isReadablePart(message: ChatLine, part: ChatPart): boolean {

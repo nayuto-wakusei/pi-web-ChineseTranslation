@@ -340,13 +340,13 @@ export class TerminalPanel extends LitElement {
         this.writeTerminalOutput(terminal, message.data, message.replay === true);
       }
       if (message.type === "exit") {
-        terminal.writeln(`\r\n[process exited${message.exitCode === undefined ? "" : ` with code ${String(message.exitCode)}`}]`);
+        terminal.writeln(`\r\n[进程已退出${message.exitCode === undefined ? "" : `，退出码 ${String(message.exitCode)}`}]`);
         this.terminals = this.terminals.map((item) => item.id === terminalId ? { ...item, exited: true, ...(message.exitCode === undefined ? {} : { exitCode: message.exitCode }) } : item);
         void this.loadCommandRuns();
       }
-      if (message.type === "error") terminal.writeln(`\r\n[terminal error: ${message.message}]`);
+      if (message.type === "error") terminal.writeln(`\r\n[终端错误：${message.message}]`);
     } catch (error) {
-      terminal.writeln(`\r\n[terminal error: ${error instanceof Error ? error.message : String(error)}]`);
+      terminal.writeln(`\r\n[终端错误：${error instanceof Error ? error.message : String(error)}]`);
     }
   }
 
@@ -441,10 +441,10 @@ export class TerminalPanel extends LitElement {
         <section class="command-run-notice running">
           <div>
             <strong>${run.title}</strong>
-            <p>Command is running. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> or use the button to cancel.</p>
+            <p>命令正在运行。按 <kbd>Ctrl</kbd>+<kbd>C</kbd> 或使用按钮取消。</p>
             <code>${run.command}</code>
           </div>
-          <button class="danger" ?disabled=${cancelling} @click=${() => { void this.cancelCommandRun(run); }}>${cancelling ? "Cancel sent…" : "Cancel command"}</button>
+          <button class="danger" ?disabled=${cancelling} @click=${() => { void this.cancelCommandRun(run); }}>${cancelling ? "已发送取消…" : "取消命令"}</button>
         </section>
       `;
     }
@@ -454,10 +454,10 @@ export class TerminalPanel extends LitElement {
         <section class=${`command-run-notice ${run.status}`}>
           <div>
             <strong>${commandRunCompletionLabel(run)}</strong>
-            <p>Output is preserved. Continue in a shell to inspect or run follow-up commands.</p>
+            <p>输出已保留。可继续进入 shell 查看或运行后续命令。</p>
             <code>${run.command}</code>
           </div>
-          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? "Starting shell…" : "Continue in shell"}</button>
+          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? "正在启动 shell…" : "在 shell 中继续"}</button>
         </section>
       `;
     }
@@ -490,8 +490,8 @@ export class TerminalPanel extends LitElement {
       <button
         type="button"
         class=${this.softKeysEnabled ? "soft-keys-toggle selected" : "soft-keys-toggle"}
-        title=${this.softKeysEnabled ? "Hide terminal soft keys" : "Show terminal soft keys"}
-        aria-label=${this.softKeysEnabled ? "Hide terminal soft keys" : "Show terminal soft keys"}
+        title=${this.softKeysEnabled ? "隐藏终端快捷键" : "显示终端快捷键"}
+        aria-label=${this.softKeysEnabled ? "隐藏终端快捷键" : "显示终端快捷键"}
         aria-pressed=${String(this.softKeysEnabled)}
         @click=${() => { this.toggleSoftKeys(); }}
       >
@@ -499,7 +499,7 @@ export class TerminalPanel extends LitElement {
           <rect x="3" y="5" width="18" height="14" rx="2"></rect>
           <path d="M7 9h.01M10 9h.01M13 9h.01M16 9h.01M7 12h.01M10 12h.01M13 12h.01M16 12h.01M8 16h8"></path>
         </svg>
-        <span>Keys</span>
+        <span>按键</span>
       </button>
     `;
   }
@@ -521,16 +521,16 @@ export class TerminalPanel extends LitElement {
           ${this.renderSoftKeysToggle()}
           ${this.terminals.map((terminal) => html`
             <button class=${this.selectedId === terminal.id ? "selected" : ""} @click=${() => { this.selectTerminal(terminal.id); }}>
-              <span>${terminal.name}${terminal.exited ? " · exited" : ""}</span>
+              <span>${terminal.name}${terminal.exited ? " · 已退出" : ""}</span>
               <small @click=${(event: Event) => { void this.closeTerminal(terminal.id, event); }}>×</small>
             </button>
           `)}
-          <button class="new" ?disabled=${this.workspace === undefined} @click=${() => { void this.startTerminal(); }}>+ Shell</button>
+          <button class="new" ?disabled=${this.workspace === undefined} @click=${() => { void this.startTerminal(); }}>+ 终端</button>
         </div>
         ${this.error === undefined ? null : html`<p class="error">${this.error}</p>`}
         ${this.renderCommandRunNotice()}
         ${this.shouldShowSoftKeys() ? this.renderSoftKeys() : null}
-        ${this.loading ? html`<p class="muted">Loading terminals…</p>` : null}
+        ${this.loading ? html`<p class="muted">正在加载终端…</p>` : null}
         <div class="terminal-host"></div>
       </section>
     `;
@@ -593,18 +593,18 @@ function isCommandRunPending(run: TerminalCommandRun): boolean {
 }
 
 function commandRunCompletionLabel(run: TerminalCommandRun): string {
-  if (run.status === "succeeded") return `Command succeeded${run.exitCode === undefined ? "" : ` with exit code ${String(run.exitCode)}`}`;
-  return `Command failed${run.exitCode === undefined ? "" : ` with exit code ${String(run.exitCode)}`}`;
+  if (run.status === "succeeded") return `命令已成功${run.exitCode === undefined ? "" : `，退出码 ${String(run.exitCode)}`}`;
+  return `命令失败${run.exitCode === undefined ? "" : `，退出码 ${String(run.exitCode)}`}`;
 }
 
 function parseServerMessage(data: string): ServerTerminalMessage {
   const value: unknown = JSON.parse(data);
-  if (!isRecord(value)) return { type: "error", message: "Invalid terminal message" };
+  if (!isRecord(value)) return { type: "error", message: "无效的终端消息" };
   const record = value;
   if (record["type"] === "output" && typeof record["data"] === "string") return { type: "output", data: record["data"], ...(typeof record["replay"] === "boolean" ? { replay: record["replay"] } : {}) };
   if (record["type"] === "exit") return { type: "exit", ...(typeof record["exitCode"] === "number" ? { exitCode: record["exitCode"] } : {}) };
   if (record["type"] === "error" && typeof record["message"] === "string") return { type: "error", message: record["message"] };
-  return { type: "error", message: "Invalid terminal message" };
+  return { type: "error", message: "无效的终端消息" };
 }
 
 export function filterTerminalInput(data: string): string {

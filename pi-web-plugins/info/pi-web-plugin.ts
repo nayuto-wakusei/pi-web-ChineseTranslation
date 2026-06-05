@@ -1,18 +1,18 @@
-import type { PiWebPlugin } from "@jmfederico/pi-web/plugin-api";
+import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "Info Plugin",
+  name: "信息插件",
   activate: ({ html, svg }) => ({
     contributions: {
       actions: [
         {
           id: "workspace.show-path",
-          title: "Show Current Workspace Path",
-          group: "Info",
+          title: "显示当前工作区路径",
+          group: "信息",
           enabled: (context) => context.state.selectedWorkspace !== undefined,
           run: (context) => {
-            const path = context.state.selectedWorkspace?.path ?? "No workspace selected";
+            const path = context.state.selectedWorkspace?.path ?? "未选择工作区";
             window.alert(path);
           },
         },
@@ -21,13 +21,13 @@ const plugin: PiWebPlugin = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "git" : "folder", title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "git" : "文件夹", title: context.workspace.path }],
         },
       ],
       workspacePanels: [
         {
           id: "workspace.info",
-          title: "Info",
+          title: "信息",
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"></circle>
@@ -37,9 +37,9 @@ const plugin: PiWebPlugin = {
           `,
           order: 1000,
           render: (context) => html`
-            <section class="toolbar"><strong>Info</strong></section>
+            <section class="toolbar"><strong>信息</strong></section>
             <section class="viewer">
-              <p><strong>Workspace</strong></p>
+              <p><strong>工作区</strong></p>
               <p class="muted">${context.workspace.label}</p>
               <p class="muted">${context.workspace.path}</p>
             </section>

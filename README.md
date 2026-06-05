@@ -1,8 +1,10 @@
 # PI WEB
 
+This fork is a translation plan for PI WEB. Its goal is to translate the plugin's displayed content into Chinese while preserving the upstream functionality.
+
 [![CI](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/@jmfederico/pi-web)](https://www.npmjs.com/package/@jmfederico/pi-web)
-[![Node.js](https://img.shields.io/node/v/@jmfederico/pi-web)](package.json)
+[![npm version](https://img.shields.io/npm/v/%40chainingintention%2Fpi-web-cn)](https://www.npmjs.com/package/@chainingintention/pi-web-cn)
+[![Node.js](https://img.shields.io/node/v/%40chainingintention%2Fpi-web-cn)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pi Coding Agent](https://img.shields.io/badge/Pi-Coding%20Agent-6f42c1)](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
 
@@ -139,7 +141,7 @@ See the full [Plugin API](docs/plugins.md) for contribution types, package metad
 Recommended install uses npm plus native per-user services.
 
 ```bash
-npm install -g @jmfederico/pi-web
+npm install -g @chainingintention/pi-web-cn
 pi-web install
 ```
 
@@ -178,7 +180,7 @@ curl -fsSL https://raw.githubusercontent.com/jmfederico/pi-web/main/install.sh |
 PI WEB is also published as a Pi package. Installing it through Pi exposes a `/pi-web` command inside Pi:
 
 ```bash
-pi install npm:@jmfederico/pi-web
+pi install npm:@chainingintention/pi-web-cn
 ```
 
 Then in Pi:

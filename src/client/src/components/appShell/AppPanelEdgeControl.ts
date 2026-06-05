@@ -8,8 +8,8 @@ export class AppPanelEdgeControl extends LitElement {
   @property({ reflect: true }) side: PanelEdgeSide = "navigation";
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property() controls = "";
-  @property() expandLabel = "Expand panel";
-  @property() collapseLabel = "Collapse panel";
+  @property() expandLabel = "展开面板";
+  @property() collapseLabel = "折叠面板";
   @property({ attribute: false }) onToggle?: () => void;
 
   override render() {

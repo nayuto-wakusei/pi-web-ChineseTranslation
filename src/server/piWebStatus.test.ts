@@ -34,7 +34,7 @@ describe("PI WEB status", () => {
 
     const status = await getPiWebVersionStatus(daemon);
 
-    expect(status.packageName).toBe("@jmfederico/pi-web");
+    expect(status.packageName).toBe("@chainingintention/pi-web-cn");
     expect(status.components.web.component).toBe("web");
     expect(status.components.sessiond.runtimeVersion).toBe("1.202605.7");
     expect(status).not.toHaveProperty("release");
@@ -49,15 +49,18 @@ describe("PI WEB status", () => {
       installedVersion: "1.202605.8",
       stale: true,
       available: true,
-      installation: { kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user", path: "/tmp/pi-web" },
+      installation: { kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user", path: "/tmp/pi-web" },
     });
 
     const status = await getPiWebStatus(daemon);
 
     expect(status.release.skipped).toBe(true);
     expect(status.components.sessiond.stale).toBe(true);
-    expect(status.components.sessiond.installation).toMatchObject({ kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user" });
-    expect(status.messages.map((message) => message.id)).toContain("sessiond-stale");
+    expect(status.components.sessiond.installation).toMatchObject({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user" });
+    expect(status.messages.find((message) => message.id === "sessiond-stale")).toMatchObject({
+      title: "会话守护进程需要重启",
+      body: "会话守护进程正在运行 1.202605.7，但已安装 1.202605.8。重启会话守护进程服务或进程即可使用已安装版本。",
+    });
   });
 
   it("suggests native systemd commands for local development services", async () => {

@@ -19,10 +19,10 @@ describe("machineBaseUrlValidationMessage", () => {
   });
 
   it("explains invalid machine URLs", () => {
-    expect(machineBaseUrlValidationMessage("")).toBe("Remote PI WEB URL is required.");
-    expect(machineBaseUrlValidationMessage("devbox.local:8504")).toBe("Use an http:// or https:// URL.");
-    expect(machineBaseUrlValidationMessage("ftp://devbox.example.test")).toBe("Use an http:// or https:// URL.");
-    expect(machineBaseUrlValidationMessage("https://user@devbox.example.test")).toBe("Do not include credentials in the machine URL.");
-    expect(machineBaseUrlValidationMessage("https://devbox.example.test?q=1")).toBe("Do not include a query string or fragment.");
+    expect(machineBaseUrlValidationMessage("")).toBe("必须填写远程 PI WEB URL。");
+    expect(machineBaseUrlValidationMessage("devbox.local:8504")).toBe("请使用 http:// 或 https:// URL。");
+    expect(machineBaseUrlValidationMessage("ftp://devbox.example.test")).toBe("请使用 http:// 或 https:// URL。");
+    expect(machineBaseUrlValidationMessage("https://user@devbox.example.test")).toBe("机器 URL 中不要包含凭据。");
+    expect(machineBaseUrlValidationMessage("https://devbox.example.test?q=1")).toBe("不要包含查询字符串或片段。");
   });
 });

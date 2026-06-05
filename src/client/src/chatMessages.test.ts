@@ -74,7 +74,7 @@ describe("chat message normalization", () => {
       truncated: true,
       fullOutputPath: "/tmp/out.log",
     })).toEqual([
-      textMessage("bash", "excluded from context\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\nfull output: /tmp/out.log"),
+      textMessage("bash", "不加入上下文\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\n完整输出：/tmp/out.log"),
     ]);
   });
 });
