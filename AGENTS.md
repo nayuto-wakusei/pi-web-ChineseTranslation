@@ -1,5 +1,7 @@
 # Agent Notes
 
+This project is a fork whose purpose is to translate the plugin's displayed content into Chinese.
+
 This project is expected to run locally using split systemd user services:
 
 - `pi-web-sessiond.service` runs `npm run start:sessiond` in non-autoreload, non-auto-restart mode.

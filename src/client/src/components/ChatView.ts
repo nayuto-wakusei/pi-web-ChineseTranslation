@@ -17,12 +17,12 @@ const shortTimestampFormatter = new Intl.DateTimeFormat(undefined, { month: "sho
 const fullTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
 const partialStreamNoticeBodies = [
-  "You opened this chat while the assistant was already replying. The complete answer will appear shortly.",
-  "We joined mid-sentence. Holding the curtain until the full reply is ready.",
-  "The assistant started before this tab arrived. We’ll show the full answer when it lands.",
-  "Catching the reply in one piece — no spoilers, no half-answers.",
-  "The tokens are still assembling themselves. Full answer incoming.",
-  "We arrived fashionably late to this response. The complete version will appear soon.",
+  "你打开此会话时助手已经在回复。完整答案很快会显示。",
+  "当前标签页接入得稍晚，完整回复准备好后会显示。",
+  "助手已先开始回复，完整答案到达后会显示。",
+  "正在等待完整回复，避免显示不完整内容。",
+  "回复仍在生成中，完整答案即将显示。",
+  "正在同步这次回复，稍后会显示完整版本。",
 ] as const;
 
 function randomPartialStreamNoticeBody(): string {
@@ -215,12 +215,12 @@ export class ChatView extends LitElement {
     return html`
       <aside class="queued-messages" aria-live="polite">
         <div class="queued-header">
-          <strong>Queued messages</strong>
-          <small>${queued.length} pending · Stop clears the queue</small>
+          <strong>排队消息</strong>
+          <small>${queued.length} 条待处理 · 停止会清空队列</small>
         </div>
         ${queued.map((message, index) => html`
           <div class="queued-message">
-            <span class="queued-kind">${message.kind === "steer" ? "Steer" : "Follow-up"} ${String(index + 1)}</span>
+            <span class="queued-kind">${message.kind === "steer" ? "引导" : "跟进"} ${String(index + 1)}</span>
             <formatted-text .text=${message.text}></formatted-text>
           </div>
         `)}
@@ -231,16 +231,16 @@ export class ChatView extends LitElement {
   private renderSessionActivity() {
     if (this.isReceivingPartialStream) return html`
       <aside class="session-activity receiving" aria-live="polite">
-        <strong>Catching up…</strong>
+        <strong>正在同步…</strong>
         <span>${this.currentPartialStreamNoticeBody()}</span>
       </aside>
     `;
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
-        <strong>Compacting history…</strong>
-        <span>The agent is summarizing earlier context. New prompts will be queued until compaction finishes.</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
+        <strong>正在压缩历史…</strong>
+        <span>助手正在总结早前上下文。压缩完成前，新提示会排队等待。</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息已排队</small>` : null}
       </aside>
     `;
   }
@@ -267,7 +267,7 @@ export class ChatView extends LitElement {
   private activityText(state: string): string {
     const activity = this.activity;
     if (activity === undefined) return state;
-    if (state !== "idle" && activity.phase === "idle") return state;
+    if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
     return activity.detail !== undefined && activity.detail !== "" ? `${activity.label}: ${activity.detail}` : activity.label;
   }
 
@@ -293,15 +293,15 @@ export class ChatView extends LitElement {
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>Loading earlier messages…</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>正在加载更早的消息…</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>Load earlier messages</button>
-        <span>Scroll up to load earlier messages</span>
+        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>加载更早的消息</button>
+        <span>向上滚动加载更早的消息</span>
         ${range}
       </div>
     `;
-    if (this.messages.length) return html`<div class="history-boundary"><span>Beginning of session</span>${range}</div>`;
+    if (this.messages.length) return html`<div class="history-boundary"><span>会话开始</span>${range}</div>`;
     return null;
   }
 
@@ -310,7 +310,7 @@ export class ChatView extends LitElement {
     const from = this.messageStart + 1;
     const to = this.loadedRawMessageEnd();
     const total = Math.max(this.messageTotal, to);
-    return html`<small>Showing messages ${from}–${to} of ${total}</small>`;
+    return html`<small>显示消息 ${from}–${to} / ${total}</small>`;
   }
 
   private loadedRawMessageEnd(): number {
@@ -339,7 +339,7 @@ export class ChatView extends LitElement {
       ${this.renderScrollMarker(this.groupScrollMarkerId(endIndex))}
       <details class=${defaultOpen ? "msg event-group live" : "msg event-group"} data-index=${startIndex} data-scroll-anchor-id=${this.groupAnchorKey(startIndex)} ?open=${open} @toggle=${(event: Event) => { this.onGroupToggle(disclosureKey, event, defaultOpen); }}>
         <summary>
-          <b class="label">${defaultOpen ? "live events" : "events"}</b>
+          <b class="label">${defaultOpen ? "实时事件" : "事件"}</b>
           <span>${summarizeChatGroup(messages)}</span>
         </summary>
         <div class="group-body">
@@ -366,7 +366,7 @@ export class ChatView extends LitElement {
     const expanded = this.expandedMetaKey === key;
     return html`
       <div class="msg-header">
-        <b class="label">${message.role}</b>
+        <b class="label">${roleLabel(message.role)}</b>
         <div class="msg-header-trailing">
           ${this.renderMessageActions(message, key)}
           <span class=${expanded ? "msg-meta expanded" : "msg-meta"} role="button" tabindex="0" title=${meta.full} aria-label=${meta.full} aria-expanded=${String(expanded)} @click=${() => { this.expandedMetaKey = expanded ? undefined : key; }} @keydown=${(event: KeyboardEvent) => { this.onMetaKeydown(event, key, expanded); }}>${meta.short}</span>
@@ -379,8 +379,8 @@ export class ChatView extends LitElement {
     if (!this.isCopyableMessage(message)) return null;
     const copied = this.copiedMessageKey === key;
     return html`
-      <div class="msg-actions" aria-label="Message actions">
-        <button type="button" class="msg-action" title=${copied ? "Copied" : "Copy message"} aria-label=${`${copied ? "Copied" : "Copy"} ${message.role} message`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
+      <div class="msg-actions" aria-label="消息操作">
+        <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${roleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
           <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
         </button>
       </div>
@@ -434,13 +434,13 @@ export class ChatView extends LitElement {
     const timestamp = message.meta?.timestamp;
     const model = this.modelLabel(message);
     if (timestamp === undefined && model === undefined) {
-      const empty = { short: "no info", full: "No Pi message metadata available" };
+      const empty = { short: "无信息", full: "没有可用的 Pi 消息元数据" };
       this.messageMetaCache.set(message, empty);
       return empty;
     }
     const time = timestamp === undefined ? undefined : this.formatTimestamp(timestamp);
     const parts = [time?.short, model].filter((part): part is string => part !== undefined && part !== "");
-    const fullParts = [time?.full, model === undefined ? undefined : `Model: ${model}`].filter((part): part is string => part !== undefined && part !== "");
+    const fullParts = [time?.full, model === undefined ? undefined : `模型：${model}`].filter((part): part is string => part !== undefined && part !== "");
     const label = { short: parts.join(" · "), full: fullParts.join(" · ") };
     this.messageMetaCache.set(message, label);
     return label;
@@ -463,25 +463,25 @@ export class ChatView extends LitElement {
   private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
     if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
-    if (part.type === "thinking") return html`<details class="part"><summary>thinking</summary><formatted-text .text=${part.text}></formatted-text></details>`;
+    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
-        <summary><b>[skill]</b> ${part.name}</summary>
+        <summary><b>[技能]</b> ${part.name}</summary>
         <small>${part.location}</small>
         <formatted-text .text=${part.content}></formatted-text>
       </details>
     `;
     if (part.type === "skillRead") return html`
       <div class="part skill-read">
-        <strong>Loaded ${part.name}</strong>
-        <small>read ${part.path}</small>
+        <strong>已加载 ${part.name}</strong>
+        <small>读取 ${part.path}</small>
       </div>
     `;
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>
-        <summary>${part.isError ? "✖" : "✓"} ${part.toolName} result</summary>
+        <summary>${part.isError ? "✖" : "✓"} ${part.toolName} 结果</summary>
         <formatted-text .text=${part.text}></formatted-text>
       </details>
     `;
@@ -801,4 +801,24 @@ export class ChatView extends LitElement {
   }
 
   static override styles = chatStyles;
+}
+
+function roleLabel(role: string): string {
+  if (role === "user") return "用户";
+  if (role === "assistant") return "助手";
+  if (role === "system") return "系统";
+  if (role === "tool") return "工具";
+  if (role === "toolResult") return "工具结果";
+  if (role === "bash") return "Shell";
+  if (role === "skill") return "技能";
+  return role;
+}
+
+function activityStateLabel(state: string): string {
+  if (state === "compacting") return "正在压缩";
+  if (state === "bash") return "Shell 运行中";
+  if (state === "running") return "运行中";
+  if (state === "queued") return "已排队";
+  if (state === "idle") return "空闲";
+  return state;
 }

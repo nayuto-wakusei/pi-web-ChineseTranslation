@@ -1,10 +1,10 @@
-import type { PiWebPlugin } from "@jmfederico/pi-web/plugin-api";
+import type { PiWebPlugin } from "pi-web-cn/plugin-api";
 import { TASKS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "Workspace Tasks",
+  name: "工作区任务",
   activate: ({ pluginId, html, svg }) => {
     defineTasksPanelElement();
 
@@ -13,9 +13,9 @@ const plugin: PiWebPlugin = {
         actions: [
           {
             id: "workspace.open-tasks",
-            title: "Open Workspace Tasks",
-            description: `Open the workspace Tasks tab. Configure tasks in ${TASKS_CONFIG_PATH}.`,
-            group: "Workspace",
+            title: "打开工作区任务",
+            description: `打开工作区任务标签页。在 ${TASKS_CONFIG_PATH} 中配置任务。`,
+            group: "工作区",
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
@@ -26,7 +26,7 @@ const plugin: PiWebPlugin = {
         workspacePanels: [
           {
             id: "workspace.tasks",
-            title: "Tasks",
+            title: "任务",
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 6h11"></path>

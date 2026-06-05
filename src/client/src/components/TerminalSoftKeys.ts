@@ -62,7 +62,7 @@ export class TerminalSoftKeys extends LitElement {
 
   override render() {
     return html`
-      <div class="terminal-soft-keys" role="toolbar" aria-label="Terminal soft keys">
+      <div class="terminal-soft-keys" role="toolbar" aria-label="终端快捷键">
         ${TERMINAL_SOFT_KEYS.map((key) => html`
           <button
             type="button"

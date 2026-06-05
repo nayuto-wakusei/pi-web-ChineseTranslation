@@ -58,10 +58,10 @@ export class ProjectList extends LitElement {
                   <span class="action-name">${project.name}</span><small>${this.renderActivity(project)}${project.path}</small>
                 </div>
                 <div class="action-menu">
-                  <button class="action-menu-toggle" title="Project actions" aria-label=${`Actions for ${project.name}`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id, event.currentTarget); }}>⋯</button>
+                  <button class="action-menu-toggle" title="项目操作" aria-label=${`${project.name} 的操作`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id, event.currentTarget); }}>⋯</button>
                   ${this.openMenuProjectId === project.id ? html`
                     <div class="action-menu-panel" style=${this.menuStyle}>
-                      <button title="Close project" @click=${() => { this.close(project); }}>Close</button>
+                      <button title="关闭项目" @click=${() => { this.close(project); }}>关闭</button>
                     </div>
                   ` : null}
                 </div>
@@ -74,15 +74,15 @@ export class ProjectList extends LitElement {
   }
 
   private renderHeading() {
-    if (!this.collapsible) return "Projects";
-    const selectedSummary = this.selected?.name ?? "No project selected";
+    if (!this.collapsible) return "项目";
+    const selectedSummary = this.selected?.name ?? "未选择项目";
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Projects</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.projects.length}</small></button>`;
+    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 项目</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.projects.length}</small></button>`;
   }
 
   private renderActivity(project: Project) {
     const kind = projectActivityIndicator(project, this.workspacesByProjectId[project.id] ?? [], this.activities);
-    return renderActivityIndicator(kind, kind === "terminal" ? "Project terminal active" : "Project active") ?? "";
+    return renderActivityIndicator(kind, kind === "terminal" ? "项目终端活跃" : "项目活跃") ?? "";
   }
 
   private toggleMenu(projectId: string, target: EventTarget | null) {
@@ -96,7 +96,7 @@ export class ProjectList extends LitElement {
 
   private close(project: Project) {
     this.openMenuProjectId = undefined;
-    if (confirm(`Close ${project.name}?\n\nThis only removes it from PI WEB; it will not change the project folder.`)) this.onClose?.(project);
+    if (confirm(`关闭 ${project.name}？\n\n这只会从 PI WEB 中移除它，不会修改项目文件夹。`)) this.onClose?.(project);
   }
 
   static override styles = listStyles;

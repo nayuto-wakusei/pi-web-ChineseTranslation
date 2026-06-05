@@ -61,18 +61,18 @@ describe("workspace tasks config", () => {
     expect(parseTasksConfigText("{")).toMatchObject({ ok: false });
     expect(parseTasksConfigText(JSON.stringify({ version: 2, tasks: [] }))).toEqual({
       ok: false,
-      error: "Config version must be 1",
+      error: "配置 version 必须是 1",
     });
   });
 
   it("rejects missing, empty, or duplicate required fields", () => {
     expect(parseTasksConfigText(JSON.stringify({ version: 1 }))).toEqual({
       ok: false,
-      error: "Config tasks must be an array",
+      error: "配置 tasks 必须是数组",
     });
     expect(parseTasksConfigText(JSON.stringify({ version: 1, tasks: [{ id: "", title: "T", command: "cmd" }] }))).toEqual({
       ok: false,
-      error: "Task 1 id must be a non-empty string",
+      error: "任务 1 id 必须是非空字符串",
     });
     expect(parseTasksConfigText(JSON.stringify({
       version: 1,
@@ -82,18 +82,18 @@ describe("workspace tasks config", () => {
       ],
     }))).toEqual({
       ok: false,
-      error: "Duplicate task id: one",
+      error: "任务 id 重复: one",
     });
   });
 
   it("rejects invalid optional field types", () => {
     expect(parseTasksConfigText(JSON.stringify({ version: 1, tasks: [{ id: "one", title: "One", command: "cmd", confirm: "yes" }] }))).toEqual({
       ok: false,
-      error: "Task 1 confirm must be a boolean",
+      error: "任务 1 confirm 必须是布尔值",
     });
     expect(parseTasksConfigText(JSON.stringify({ version: 1, tasks: [{ id: "one", title: "One", command: "cmd", group: "" }] }))).toEqual({
       ok: false,
-      error: "Task 1 group must be a non-empty string when provided",
+      error: "任务 1 group 提供时必须是非空字符串",
     });
   });
 });

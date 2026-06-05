@@ -18,14 +18,14 @@ export class SettingsPluginsPanel extends LitElement {
     return html`
       <div class="section-heading">
         <div>
-          <h2>Plugins</h2>
-          <p>Enable or disable discovered PI WEB plugins. Changes apply after reloading the browser tab; already-loaded plugin code is not unloaded from the current page.</p>
+          <h2>插件</h2>
+          <p>启用或禁用已发现的 PI WEB 插件。更改会在重新加载浏览器标签页后生效；当前页面已加载的插件代码不会被卸载。</p>
         </div>
-        <button class="secondary" ?disabled=${this.loading} @click=${() => { void this.onReload?.(); }}>Reload</button>
+        <button class="secondary" ?disabled=${this.loading} @click=${() => { void this.onReload?.(); }}>重新加载</button>
       </div>
       ${this.renderMessages()}
-      <div class="plugin-note">Config key: <code>plugins</code>. Plugins are enabled unless their entry sets <code>enabled</code> to <code>false</code>.</div>
-      ${this.loading && plugins.length === 0 ? html`<div class="loading-card">Loading plugins…</div>` : plugins.length === 0 ? html`<div class="loading-card">No external or bundled plugins discovered.</div>` : html`
+      <div class="plugin-note">配置键：<code>plugins</code>。除非条目将 <code>enabled</code> 设置为 <code>false</code>，插件默认启用。</div>
+      ${this.loading && plugins.length === 0 ? html`<div class="loading-card">正在加载插件…</div>` : plugins.length === 0 ? html`<div class="loading-card">未发现外部或内置插件。</div>` : html`
         <div class="plugin-list">
           ${plugins.map((plugin) => this.renderPlugin(plugin))}
         </div>
@@ -35,13 +35,13 @@ export class SettingsPluginsPanel extends LitElement {
 
   private renderMessages(): TemplateResult | null {
     if (this.error !== "") return html`<div class="message error-message">${this.error}</div>`;
-    if (this.savedMessage !== "") return html`<div class="message success-message">${this.savedMessage} Reload the browser tab to apply plugin changes.</div>`;
+    if (this.savedMessage !== "") return html`<div class="message success-message">${this.savedMessage} 重新加载浏览器标签页以应用插件更改。</div>`;
     return null;
   }
 
   private renderPlugin(plugin: PiWebPluginInfo): TemplateResult {
     const configured = this.configResponse?.config.plugins?.[plugin.id];
-    const configuredState = configured?.enabled === false ? "Config disabled" : configured?.enabled === true ? "Config enabled" : "Default enabled";
+    const configuredState = configured?.enabled === false ? "配置已禁用" : configured?.enabled === true ? "配置已启用" : "默认启用";
     return html`
       <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
@@ -51,7 +51,7 @@ export class SettingsPluginsPanel extends LitElement {
         </div>
         <label class="toggle">
           <input type="checkbox" .checked=${plugin.enabled} ?disabled=${this.saving} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
-          <span>${plugin.enabled ? "Enabled" : "Disabled"}</span>
+          <span>${plugin.enabled ? "已启用" : "已禁用"}</span>
         </label>
       </article>
     `;

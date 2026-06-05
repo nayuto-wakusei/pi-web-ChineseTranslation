@@ -27,17 +27,17 @@ export class SettingsGeneralPanel extends LitElement {
     return html`
       <div class="section-heading">
         <div>
-          <h2>General configuration</h2>
-          <p>Update the JSON config file PI WEB is using. Host and port changes are saved immediately, but require the web service to restart before the running server binds to the new address.</p>
+          <h2>通用配置</h2>
+          <p>更新 PI WEB 正在使用的 JSON 配置文件。Host 和端口会立即保存，但需要重启 Web 服务后，运行中的服务器才会绑定到新地址。</p>
         </div>
-        <button class="secondary" ?disabled=${this.loading} @click=${() => { void this.onReload?.(); }}>Reload</button>
+        <button class="secondary" ?disabled=${this.loading} @click=${() => { void this.onReload?.(); }}>重新加载</button>
       </div>
       ${this.renderMessages()}
-      ${config === undefined && this.loading ? html`<div class="loading-card">Loading configuration…</div>` : html`
+      ${config === undefined && this.loading ? html`<div class="loading-card">正在加载配置…</div>` : html`
         <div class="config-path-card">
-          <span>Config file</span>
-          <code>${config?.path ?? "Unknown"}</code>
-          <small>${config?.exists === true ? "Existing file" : "This file will be created on save"}</small>
+          <span>配置文件</span>
+          <code>${config?.path ?? "未知"}</code>
+          <small>${config?.exists === true ? "已有文件" : "保存时会创建此文件"}</small>
         </div>
         <form class="config-form" @submit=${(event: Event) => { void this.saveConfig(event); }}>
           <label class="field">
@@ -46,7 +46,7 @@ export class SettingsGeneralPanel extends LitElement {
               ${this.renderOverrideBadge("host")}
             </span>
             <input .value=${this.draft.host} placeholder="127.0.0.1" autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateDraft({ host: inputValue(event) }); }}>
-            <small>Address the web server should bind to. Leave empty to use PI WEB's default.</small>
+            <small>Web 服务器应绑定的地址。留空则使用 PI WEB 默认值。</small>
           </label>
 
           <label class="field">
@@ -55,26 +55,26 @@ export class SettingsGeneralPanel extends LitElement {
               ${this.renderOverrideBadge("port")}
             </span>
             <input .value=${this.draft.port} inputmode="numeric" pattern="[0-9]*" placeholder="8504" autocomplete="off" @input=${(event: Event) => { this.updateDraft({ port: inputValue(event) }); }}>
-            <small>TCP port from 1 to 65535. Leave empty to use PI WEB's default.</small>
+            <small>TCP 端口，范围 1 到 65535。留空则使用 PI WEB 默认值。</small>
           </label>
 
           <div class="field">
             <span class="field-heading">
-              <span>Allowed hosts</span>
+              <span>允许的 hosts</span>
               ${this.renderOverrideBadge("allowedHosts")}
             </span>
             <select .value=${this.draft.allowedHostsMode} @change=${(event: Event) => { this.updateDraft({ allowedHostsMode: selectValue(event) === "all" ? "all" : "list" }); }}>
-              <option value="list">Only listed hosts</option>
-              <option value="all">Allow every host</option>
+              <option value="list">仅允许列出的 hosts</option>
+              <option value="all">允许所有 host</option>
             </select>
             <textarea .value=${this.draft.allowedHostsText} ?disabled=${this.draft.allowedHostsMode === "all"} rows="4" placeholder="example.local&#10;192.168.1.20" spellcheck="false" @input=${(event: Event) => { this.updateDraft({ allowedHostsText: textAreaValue(event) }); }}></textarea>
-            <small>Enter one host per line, or choose “Allow every host” to write <code>true</code>.</small>
+            <small>每行输入一个 host，或选择“允许所有 host”写入 <code>true</code>。</small>
           </div>
 
           ${this.renderEffectiveConfig()}
 
           <footer class="form-actions">
-            <button class="primary" ?disabled=${this.loading || this.saving}>${this.saving ? "Saving…" : "Save config"}</button>
+            <button class="primary" ?disabled=${this.loading || this.saving}>${this.saving ? "正在保存…" : "保存配置"}</button>
           </footer>
         </form>
       `}
@@ -90,18 +90,18 @@ export class SettingsGeneralPanel extends LitElement {
 
   private renderOverrideBadge(key: keyof PiWebConfigEnvOverrides): TemplateResult | null {
     if (this.configResponse?.envOverrides[key] !== true) return null;
-    return html`<span class="override-badge">environment override</span>`;
+    return html`<span class="override-badge">环境变量覆盖</span>`;
   }
 
   private renderEffectiveConfig(): TemplateResult {
     const effective = this.configResponse?.effectiveConfig ?? {};
     return html`
-      <section class="effective-card" aria-label="Effective configuration summary">
-        <h3>Effective after environment overrides</h3>
+      <section class="effective-card" aria-label="最终生效配置摘要">
+        <h3>环境变量覆盖后的生效配置</h3>
         <dl>
-          <div><dt>Host</dt><dd>${effective.host ?? html`<span class="muted">127.0.0.1 default</span>`}</dd></div>
-          <div><dt>Port</dt><dd>${effective.port ?? html`<span class="muted">8504 default</span>`}</dd></div>
-          <div><dt>Allowed hosts</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
+          <div><dt>Host</dt><dd>${effective.host ?? html`<span class="muted">默认 127.0.0.1</span>`}</dd></div>
+          <div><dt>端口</dt><dd>${effective.port ?? html`<span class="muted">默认 8504</span>`}</dd></div>
+          <div><dt>允许的 hosts</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
         </dl>
       </section>
     `;
@@ -168,9 +168,9 @@ export class SettingsGeneralPanel extends LitElement {
 }
 
 function formatAllowedHosts(value: PiWebConfigValues["allowedHosts"]): string | TemplateResult {
-  if (value === true) return "Any host";
-  if (Array.isArray(value)) return value.length === 0 ? html`<span class="muted">None listed</span>` : value.join(", ");
-  return html`<span class="muted">Unset</span>`;
+  if (value === true) return "任意 host";
+  if (Array.isArray(value)) return value.length === 0 ? html`<span class="muted">未列出</span>` : value.join(", ");
+  return html`<span class="muted">未设置</span>`;
 }
 
 function inputValue(event: Event): string {

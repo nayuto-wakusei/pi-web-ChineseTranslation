@@ -40,9 +40,9 @@ export class ToolExecutionView extends LitElement {
           </div>
         </div>
 
-        ${previewMismatch ? html`<p class="notice">Applied diff differs from the preview.</p>` : null}
+        ${previewMismatch ? html`<p class="notice">实际应用的 diff 与预览不同。</p>` : null}
         ${errorText === undefined || errorText === "" ? null : html`<pre class="error-text">${errorText}</pre>`}
-        ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error") : this.renderDiffBody(visibleDiff, actualDiff === undefined ? "Preview diff" : "Applied diff")}
+        ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error") : this.renderDiffBody(visibleDiff, actualDiff === undefined ? "预览 diff" : "已应用 diff")}
         ${!edit && visibleDiff === undefined && (bodyText === undefined || bodyText === "") ? html`<p class="muted">${execution.summary}</p>` : null}
       </section>
     `;
@@ -52,7 +52,7 @@ export class ToolExecutionView extends LitElement {
     if (text === undefined || text === "") return null;
     return html`
       <details class="text-body" ?open=${open}>
-        <summary>Result</summary>
+        <summary>结果</summary>
         <pre>${text}</pre>
       </details>
     `;
@@ -66,16 +66,16 @@ export class ToolExecutionView extends LitElement {
       <details class="diff-details" ?open=${this.diffOpen} @toggle=${(event: Event) => { this.onDiffToggle(event); }}>
         <summary>
           <span>${label}</span>
-          <small>${String(lines.length)} ${lines.length === 1 ? "line" : "lines"}</small>
+          <small>${String(lines.length)} 行</small>
         </summary>
         <div class="diff-toolbar">
-          <span>${truncated ? `Showing ${String(visibleLines.length)} of ${String(lines.length)} lines` : "Full diff"}</span>
-          <button type="button" @click=${() => { void this.copyDiff(diff); }}>${this.copied ? "Copied" : "Copy diff"}</button>
+          <span>${truncated ? `显示 ${String(visibleLines.length)} / ${String(lines.length)} 行` : "完整 diff"}</span>
+          <button type="button" @click=${() => { void this.copyDiff(diff); }}>${this.copied ? "已复制" : "复制 diff"}</button>
         </div>
         <pre class="diff" aria-label=${label}><code class="diff-content">${visibleLines.map((line) => html`<span class=${diffLineClass(line)}>${line}</span>`)}</code></pre>
         ${truncated ? html`
           <button class="show-more" type="button" @click=${() => { this.showFullDiff = true; }}>
-            Show all ${String(lines.length)} diff lines
+            显示全部 ${String(lines.length)} 行 diff
           </button>
         ` : null}
       </details>
@@ -147,8 +147,8 @@ function pathFromArgs(args: unknown): string | undefined {
 function editCountLabel(execution: ToolExecutionPart): string | undefined {
   if (execution.toolName !== "edit") return undefined;
   const edits = getProperty(execution.args, "edits");
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
-  if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return "1 edit";
+  if (Array.isArray(edits)) return `${String(edits.length)} 处编辑`;
+  if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return "1 处编辑";
   return undefined;
 }
 
@@ -191,10 +191,10 @@ function statusIcon(status: ToolExecutionPart["status"]): string {
 }
 
 function statusLabel(status: ToolExecutionPart["status"]): string {
-  if (status === "success") return "done";
-  if (status === "error") return "failed";
-  if (status === "running") return "running";
-  return "pending";
+  if (status === "success") return "完成";
+  if (status === "error") return "失败";
+  if (status === "running") return "运行中";
+  return "等待中";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

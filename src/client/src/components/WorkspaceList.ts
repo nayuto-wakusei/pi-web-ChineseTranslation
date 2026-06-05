@@ -76,15 +76,15 @@ export class WorkspaceList extends LitElement {
   }
 
   private renderHeading() {
-    if (!this.collapsible) return "Workspaces";
-    const selectedSummary = this.selected === undefined ? "No workspace selected" : `${this.selected.label}${this.selected.isMain ? " · main" : ""} · ${this.selected.path}`;
+    if (!this.collapsible) return "工作区";
+    const selectedSummary = this.selected === undefined ? "未选择工作区" : `${this.selected.label}${this.selected.isMain ? " · 主工作区" : ""} · ${this.selected.path}`;
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Workspaces</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.workspaces.length}</small></button>`;
+    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 工作区</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.workspaces.length}</small></button>`;
   }
 
   private renderActivity(workspace: Workspace): TemplateResult | undefined {
     const kind = workspaceActivityIndicator(workspaceActivityFor(workspace, this.activities));
-    return renderActivityIndicator(kind, kind === "terminal" ? "Workspace terminal active" : "Workspace active");
+    return renderActivityIndicator(kind, kind === "terminal" ? "工作区终端活跃" : "工作区活跃");
   }
 
   private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
@@ -92,7 +92,7 @@ export class WorkspaceList extends LitElement {
       <span class="workspace-primary">
         ${this.renderActivity(workspace)}
         <span class="workspace-primary-label">${label}</span>
-        ${this.isDeleting(workspace) ? html`<span class="workspace-status">Deleting…</span>` : null}
+        ${this.isDeleting(workspace) ? html`<span class="workspace-status">正在删除…</span>` : null}
       </span>
       ${items.length === 0 ? null : html`
         <small class="workspace-secondary">
@@ -109,8 +109,8 @@ export class WorkspaceList extends LitElement {
       <div class="action-menu">
         <button
           class="action-menu-toggle"
-          title="Workspace actions and details"
-          aria-label=${`Actions and details for ${label}`}
+          title="工作区操作和详情"
+          aria-label=${`${label} 的操作和详情`}
           aria-expanded=${String(open)}
           aria-controls=${menuId}
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(workspace.id, event.currentTarget); }}
@@ -130,7 +130,7 @@ export class WorkspaceList extends LitElement {
     const deleting = this.isDeleting(workspace);
     return html`
       <div class="workspace-menu-actions">
-        <button class="danger" title=${deleting ? "Workspace deletion in progress" : "Delete workspace"} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "Deleting…" : "Delete workspace"}</button>
+        <button class="danger" title=${deleting ? "正在删除工作区" : "删除工作区"} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "正在删除…" : "删除工作区"}</button>
       </div>
     `;
   }
@@ -139,16 +139,16 @@ export class WorkspaceList extends LitElement {
     return html`
       <dl class="workspace-menu-details">
         <div class="workspace-detail-row">
-          <dt>${workspace.branch === undefined ? "Workspace" : "Branch"}</dt>
+          <dt>${workspace.branch === undefined ? "工作区" : "分支"}</dt>
           <dd>${label}</dd>
         </div>
         <div class="workspace-detail-row">
-          <dt>Path</dt>
+          <dt>路径</dt>
           <dd title=${workspace.path}>${workspace.path}</dd>
         </div>
         ${items.length === 0 ? null : html`
           <div class="workspace-detail-row">
-            <dt>Details</dt>
+            <dt>详情</dt>
             <dd><span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span></dd>
           </div>
         `}
@@ -193,7 +193,7 @@ export class WorkspaceList extends LitElement {
 }
 
 function workspacePrimaryLabel(workspace: Workspace): string {
-  return `${workspace.branch ?? workspace.label}${workspace.isMain ? " · main" : ""}`;
+  return `${workspace.branch ?? workspace.label}${workspace.isMain ? " · 主工作区" : ""}`;
 }
 
 function canDeleteWorkspace(workspace: Workspace): boolean {

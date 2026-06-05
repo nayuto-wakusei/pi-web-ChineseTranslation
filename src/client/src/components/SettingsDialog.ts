@@ -36,19 +36,19 @@ export class SettingsDialog extends LitElement {
   override render(): TemplateResult {
     return html`
       <div class="backdrop" @mousedown=${() => this.onClose?.()}>
-        <section class="settings-shell" role="dialog" aria-modal="true" aria-label="PI WEB settings" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+        <section class="settings-shell" role="dialog" aria-modal="true" aria-label="PI WEB 设置" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header class="settings-header">
             <div>
-              <span class="eyebrow">Settings</span>
+              <span class="eyebrow">设置</span>
               <h1>PI WEB</h1>
             </div>
-            <button class="close-button" title="Close settings" aria-label="Close settings" @click=${() => this.onClose?.()}>×</button>
+            <button class="close-button" title="关闭设置" aria-label="关闭设置" @click=${() => this.onClose?.()}>×</button>
           </header>
           <div class="settings-body">
-            <nav class="settings-nav" aria-label="Settings sections">
-              ${this.renderNavButton("general", "General", "Server config")}
-              ${this.renderNavButton("plugins", "Plugins", "Enable and disable")}
-              ${this.renderNavButton("shortcuts", "Keyboard", "Shortcuts")}
+            <nav class="settings-nav" aria-label="设置分区">
+              ${this.renderNavButton("general", "通用", "服务器配置")}
+              ${this.renderNavButton("plugins", "插件", "启用和禁用")}
+              ${this.renderNavButton("shortcuts", "键盘", "快捷键")}
             </nav>
             <main class="settings-content">
               ${this.renderActiveSection()}
@@ -112,7 +112,7 @@ export class SettingsDialog extends LitElement {
       this.configResponse = config;
       this.pluginsResponse = plugins;
     } catch (error) {
-      this.error = `Failed to load settings: ${errorMessage(error)}`;
+      this.error = `加载设置失败：${errorMessage(error)}`;
     } finally {
       this.loading = false;
     }
@@ -143,7 +143,7 @@ export class SettingsDialog extends LitElement {
       this.onConfigSaved?.(response.config);
       this.showSavedMessage();
     } catch (error) {
-      this.error = `Failed to save config: ${errorMessage(error)}`;
+      this.error = `保存配置失败：${errorMessage(error)}`;
     } finally {
       this.saving = false;
     }
@@ -153,15 +153,15 @@ export class SettingsDialog extends LitElement {
     try {
       this.pluginsResponse = await pluginsApi.plugins();
     } catch (error) {
-      this.error = `Failed to refresh plugins: ${errorMessage(error)}`;
+      this.error = `刷新插件失败：${errorMessage(error)}`;
     }
   }
 
   private showSavedMessage(): void {
-    this.savedMessage = "Config saved.";
+    this.savedMessage = "配置已保存。";
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = window.setTimeout(() => {
-      if (this.savedMessage === "Config saved.") this.savedMessage = "";
+      if (this.savedMessage === "配置已保存。") this.savedMessage = "";
       this.savedMessageTimer = undefined;
     }, 3000);
   }

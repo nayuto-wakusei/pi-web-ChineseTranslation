@@ -80,7 +80,7 @@ export class SessionList extends LitElement {
           <div class="list-body">
             ${activeRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0))}
             ${archivedRows.length > 0 ? html`
-              <h2 class="subheading"><button class="section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} Archived</span><small>${archivedRows.length}</small></button></h2>
+              <h2 class="subheading"><button class="section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} 已归档</span><small>${archivedRows.length}</small></button></h2>
               ${this.archivedExpanded ? archivedRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0)) : null}
             ` : null}
           </div>
@@ -90,12 +90,12 @@ export class SessionList extends LitElement {
   }
 
   private renderHeading(sessionCount: number) {
-    if (!this.collapsible) return html`<h2>Sessions <button ?disabled=${!this.canStart} @click=${() => this.onStart?.()}>+</button></h2>`;
-    const selectedSummary = this.selected === undefined ? "No session selected" : sessionLabel(this.selected);
+    if (!this.collapsible) return html`<h2>会话 <button ?disabled=${!this.canStart} @click=${() => this.onStart?.()}>+</button></h2>`;
+    const selectedSummary = this.selected === undefined ? "未选择会话" : sessionLabel(this.selected);
     const selectedTitle = this.selected?.path ?? selectedSummary;
     return html`
       <h2>
-        <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Sessions</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${sessionCount}</small></button>
+        <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 会话</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${sessionCount}</small></button>
         <button ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>
       </h2>
     `;
@@ -114,20 +114,20 @@ export class SessionList extends LitElement {
         @keydown=${(event: KeyboardEvent) => { activateSelectableRowFromKeyboard(event, () => this.onSelect?.(session)); }}
       >
         <div class="action-main">
-          <span class="action-name">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">depth ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">parent unavailable</span>` : null}</span><small>${this.renderStatus(session)}${String(session.messageCount)} messages</small>
+          <span class="action-name">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderStatus(session)}${String(session.messageCount)} 条消息</small>
         </div>
         <div class="action-menu">
-          <button class="action-menu-toggle" title="Session actions" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
+          <button class="action-menu-toggle" title="会话操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
           ${this.openMenuSessionId === session.id ? html`
             <div class="action-menu-panel" style=${this.menuStyle}>
-              ${session.parentSessionPath !== undefined ? html`<button title="Detach from parent" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>Detach from parent</button>` : null}
+              ${session.parentSessionPath !== undefined ? html`<button title="从父会话分离" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>从父会话分离</button>` : null}
               ${isCachedNewSessionInfo(session)
-                ? html`<button title="Delete browser-cached new session" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>Delete</button>`
+                ? html`<button title="删除浏览器缓存的新会话" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>删除</button>`
                 : session.archived === true
-                  ? html`<button title="Restore session" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>Restore</button>`
+                  ? html`<button title="恢复会话" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>恢复</button>`
                   : html`
-                    <button title="Archive session" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>
-                    ${descendantCount > 0 ? html`<button title="Archive this session and its descendants" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>Archive with descendants (${descendantCount})</button>` : null}
+                    <button title="归档会话" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>归档</button>
+                    ${descendantCount > 0 ? html`<button title="归档此会话及其子会话" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>连同子会话归档（${descendantCount}）</button>` : null}
                   `}
             </div>
           ` : null}
@@ -137,8 +137,7 @@ export class SessionList extends LitElement {
   }
 
   private confirmArchiveWithDescendants(session: SessionInfo, descendantCount: number): void {
-    const noun = descendantCount === 1 ? "descendant session" : "descendant sessions";
-    if (confirm(`Archive “${sessionLabel(session)}” and ${String(descendantCount)} ${noun}?`)) this.onArchiveWithDescendants?.(session);
+    if (confirm(`归档“${sessionLabel(session)}”及 ${String(descendantCount)} 个子会话？`)) this.onArchiveWithDescendants?.(session);
   }
 
   private toggleMenu(sessionId: string, target: EventTarget | null) {
@@ -163,9 +162,9 @@ export class SessionList extends LitElement {
   }
 
   private renderStatus(session: SessionInfo) {
-    if (isCachedNewSessionInfo(session)) return "new · ";
-    if (session.archived === true) return "read-only · ";
-    return renderActivityIndicator(isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "session" : undefined, "Session active") ?? "";
+    if (isCachedNewSessionInfo(session)) return "新建 · ";
+    if (session.archived === true) return "只读 · ";
+    return renderActivityIndicator(isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "session" : undefined, "会话活跃") ?? "";
   }
 
   static override styles = listStyles;

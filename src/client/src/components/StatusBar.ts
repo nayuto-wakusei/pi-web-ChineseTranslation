@@ -15,23 +15,23 @@ export class StatusBar extends LitElement {
 
   override render() {
     const status = this.status;
-    if (status === undefined) return html`<div class="bar muted">No session status yet</div>`;
+    if (status === undefined) return html`<div class="bar muted">暂无会话状态</div>`;
     const context = status.contextUsage;
     const contextText = context
       ? context.percent == null
-        ? `context ${formatTokenCount(context.contextWindow)}`
+        ? `上下文 ${formatTokenCount(context.contextWindow)}`
         : `${context.percent.toFixed(1)}%/${formatTokenCount(context.contextWindow)}`
-      : "context unknown";
+      : "上下文未知";
     const tokens = status.tokens;
     return html`
       <div class="bar">
-        <span>${this.machine?.name ?? "Local"}</span>
-        <span>${renderWorkspaceLabel(this.workspace?.label ?? "workspace", this.workspaceLabelItems, this.workspace?.path)}</span>
+        <span>${this.machine?.name ?? "本机"}</span>
+        <span>${renderWorkspaceLabel(this.workspace?.label ?? "工作区", this.workspaceLabelItems, this.workspace?.path)}</span>
         <span>↑${formatTokenCount(tokens.input)}</span>
         <span>↓${formatTokenCount(tokens.output)}</span>
         <span>${contextText}</span>
         <span>${formatCost(status.cost)}</span>
-        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} queued</span>` : null}
+        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} 条排队</span>` : null}
       </div>
     `;
   }

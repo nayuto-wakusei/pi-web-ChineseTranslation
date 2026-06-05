@@ -27,7 +27,7 @@ export class AuthDialog extends LitElement {
         <section @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.dialogTitle(state)}</strong>
-            <button title="Close" @click=${() => { this.cancel(); }}>×</button>
+            <button title="关闭" @click=${() => { this.cancel(); }}>×</button>
           </header>
           ${this.renderBody(state)}
         </section>
@@ -41,11 +41,11 @@ export class AuthDialog extends LitElement {
 
   private dialogTitle(state: AuthDialogState): string {
     switch (state.step) {
-      case "method": return "Configure provider authentication";
-      case "providers": return state.authType === undefined ? "Select provider authentication" : state.authType === "oauth" ? "Select subscription provider" : "Select API key provider";
-      case "apiKey": return `API key for ${state.provider.name}`;
-      case "oauth": return `Login to ${state.flow.providerName}`;
-      case "logout": return "Remove stored provider authentication";
+      case "method": return "配置提供商认证";
+      case "providers": return state.authType === undefined ? "选择提供商认证" : state.authType === "oauth" ? "选择订阅提供商" : "选择 API key 提供商";
+      case "apiKey": return `${state.provider.name} 的 API key`;
+      case "oauth": return `登录 ${state.flow.providerName}`;
+      case "logout": return "移除已保存的提供商认证";
     }
   }
 
@@ -53,21 +53,21 @@ export class AuthDialog extends LitElement {
     switch (state.step) {
       case "method": return html`
         <div class="options">
-          <button @click=${() => { this.onChooseMethod?.("oauth"); }}><span>Use a subscription</span><small>ChatGPT Plus/Pro, Claude Pro/Max, or GitHub Copilot</small></button>
-          <button @click=${() => { this.onChooseMethod?.("api_key"); }}><span>Use an API key</span><small>Store an API key in pi auth.json</small></button>
+          <button @click=${() => { this.onChooseMethod?.("oauth"); }}><span>使用订阅</span><small>ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot</small></button>
+          <button @click=${() => { this.onChooseMethod?.("api_key"); }}><span>使用 API key</span><small>将 API key 存入 pi auth.json</small></button>
         </div>
       `;
-      case "providers": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">No providers available.</div>` : state.providers.map((provider) => this.renderProviderButton(provider))}</div>`;
+      case "providers": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有可用提供商。</div>` : state.providers.map((provider) => this.renderProviderButton(provider))}</div>`;
       case "apiKey": return html`
         <div class="form">
-          <p>Enter the API key for <strong>${state.provider.name}</strong>. It will be stored by pi in <code>auth.json</code>.</p>
+          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会由 pi 存入 <code>auth.json</code>。</p>
           <input type="password" autocomplete="off" placeholder="API key" .value=${state.value} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onApiKeyInput?.(event.target.value); }}>
           ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
-          <div class="actions"><button @click=${() => { this.cancel(); }}>Cancel</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? "Saving…" : "Save API key"}</button></div>
+          <div class="actions"><button @click=${() => { this.cancel(); }}>取消</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? "正在保存…" : "保存 API key"}</button></div>
         </div>
       `;
       case "oauth": return this.renderOAuth(state);
-      case "logout": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">No stored credentials. Environment variables and models.json settings are unchanged.</div>` : state.providers.map((provider) => html`
+      case "logout": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有已保存的凭据。环境变量和 models.json 设置不会变化。</div>` : state.providers.map((provider) => html`
         <button @click=${() => { this.onLogoutProvider?.(provider.id); }}><span>${provider.name}</span><small>${provider.id} · ${authTypeLabel(provider.authType)}</small></button>
       `)}</div>`;
     }
@@ -89,23 +89,23 @@ export class AuthDialog extends LitElement {
     return html`
       <div class="form">
         ${flow.auth !== undefined ? html`
-          <p>Open this authorization link:</p>
+          <p>打开此授权链接：</p>
           <p><a href=${flow.auth.url} target="_blank" rel="noreferrer">${flow.auth.url}</a></p>
           ${flow.auth.instructions !== undefined ? html`<p class="warning">${flow.auth.instructions}</p>` : null}
-        ` : html`<p>Starting login flow…</p>`}
+        ` : html`<p>正在启动登录流程…</p>`}
         ${flow.progress.length > 0 ? html`<ul class="progress">${flow.progress.map((line) => html`<li>${line}</li>`)}</ul>` : null}
         ${prompt !== undefined ? html`
           <label>${prompt.message}</label>
           <input .value=${state.inputValue ?? ""} placeholder=${prompt.placeholder ?? ""} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onOAuthInput?.(event.target.value); }}>
-          <div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>Cancel</button><button class="primary" ?disabled=${state.responding === true} @click=${() => { this.onOAuthRespond?.(); }}>Submit</button></div>
+          <div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>取消</button><button class="primary" ?disabled=${state.responding === true} @click=${() => { this.onOAuthRespond?.(); }}>提交</button></div>
         ` : null}
         ${select !== undefined ? html`
           <p>${select.message}</p>
           <div class="inline-options">${select.options.map((option) => html`<button @click=${() => { this.onOAuthRespond?.(option.value); }}>${option.label}</button>`)}</div>
         ` : null}
         ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
-        ${flow.status === "error" || flow.status === "cancelled" ? html`<div class="error-text">${flow.error ?? flow.status}</div><div class="actions"><button @click=${() => { this.cancel(); }}>Close</button></div>` : null}
-        ${prompt === undefined && select === undefined && flow.status === "running" ? html`<div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>Cancel</button></div>` : null}
+        ${flow.status === "error" || flow.status === "cancelled" ? html`<div class="error-text">${flow.error ?? flowStatusLabel(flow.status)}</div><div class="actions"><button @click=${() => { this.cancel(); }}>关闭</button></div>` : null}
+        ${prompt === undefined && select === undefined && flow.status === "running" ? html`<div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>取消</button></div>` : null}
       </div>
     `;
   }
@@ -163,7 +163,7 @@ export class AuthDialog extends LitElement {
 }
 
 function authTypeLabel(authType: "oauth" | "api_key"): string {
-  return authType === "oauth" ? "subscription" : "API key";
+  return authType === "oauth" ? "订阅" : "API key";
 }
 
 function focusKey(state: AuthDialogState | undefined): string | undefined {
@@ -175,13 +175,19 @@ function focusKey(state: AuthDialogState | undefined): string | undefined {
 function statusLabel(provider: AuthProviderOption): string {
   if (provider.status.source === undefined) return "";
   switch (provider.status.source) {
-    case "stored": return "✓ configured";
-    case "environment": return `✓ env${provider.status.label === undefined ? "" : `: ${provider.status.label}`}`;
-    case "runtime": return "✓ runtime";
-    case "fallback": return "✓ custom key";
+    case "stored": return "✓ 已配置";
+    case "environment": return `✓ 环境变量${provider.status.label === undefined ? "" : `: ${provider.status.label}`}`;
+    case "runtime": return "✓ 运行时";
+    case "fallback": return "✓ 自定义 key";
     case "models_json_key": return "✓ models.json key";
     case "models_json_command": return "✓ models.json command";
     default: return "";
   }
+}
+
+function flowStatusLabel(status: string): string {
+  if (status === "cancelled") return "已取消";
+  if (status === "error") return "错误";
+  return status;
 }
 

@@ -530,7 +530,7 @@ export class PiWebApp extends LitElement {
         view: "core:workspace.terminal",
       }, false, { selectedTerminalId: options?.terminalId }, "core:workspace.terminal");
       if (selectedMachineId(this.state) !== machineId) {
-        this.setState({ error: "Machine not found for terminal command run" });
+        this.setState({ error: "未找到用于运行终端命令的机器" });
         return;
       }
     }
@@ -737,8 +737,8 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="navigation"
         controls="navigation-panel"
-        expandLabel="Expand navigation panel"
-        collapseLabel="Collapse navigation panel"
+        expandLabel="展开导航面板"
+        collapseLabel="折叠导航面板"
         .collapsed=${this.panelCollapse.navigationPanelCollapsed}
         .onToggle=${() => { this.panelCollapse.toggleNavigationPanel(); }}
       ></app-panel-edge-control>
@@ -750,8 +750,8 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="workspace"
         controls="workspace-panel"
-        expandLabel="Expand workspace panel"
-        collapseLabel="Collapse workspace panel"
+        expandLabel="展开工作区面板"
+        collapseLabel="折叠工作区面板"
         .collapsed=${this.panelCollapse.workspacePanelCollapsed}
         .onToggle=${() => { this.panelCollapse.toggleWorkspacePanel(); }}
       ></app-panel-edge-control>
@@ -836,45 +836,45 @@ export class PiWebApp extends LitElement {
     const project = this.state.selectedProject;
     if (this.state.isLoadingProjects) {
       return {
-        title: "Loading projects…",
-        body: "Looking for projects you have added to PI WEB.",
+        title: "正在加载项目…",
+        body: "正在查找你已添加到 PI WEB 的项目。",
       };
     }
     if (project === undefined) {
       return this.state.projects.length === 0
         ? {
-            title: "No projects yet",
-            body: "Use Actions → Add Project to add a folder. Workspace tools will appear here after you choose a workspace.",
+            title: "还没有项目",
+            body: "使用“操作”→“添加项目”添加文件夹。选择工作区后，工作区工具会显示在这里。",
           }
         : {
-            title: "Select a project",
-            body: "Choose a project from the sidebar, then select a workspace to inspect files, Git, or terminals.",
+            title: "选择项目",
+            body: "从侧边栏选择一个项目，然后选择工作区来查看文件、Git 或终端。",
           };
     }
     if (this.state.isLoadingWorkspaces) {
       return {
-        title: "Loading workspaces…",
-        body: `Preparing workspace tools for ${project.name}.`,
+        title: "正在加载工作区…",
+        body: `正在为 ${project.name} 准备工作区工具。`,
       };
     }
     if (this.state.workspaces.length === 0) {
       return {
-        title: "No workspaces found",
-        body: `${project.name} does not have any available workspaces. Try selecting the project again or re-adding it.`,
+        title: "未找到工作区",
+        body: `${project.name} 没有可用工作区。请尝试重新选择项目或重新添加它。`,
       };
     }
     return {
-      title: "Select a workspace",
-      body: `Choose a workspace in ${project.name} to inspect files, Git, or terminals.`,
+      title: "选择工作区",
+      body: `选择 ${project.name} 中的工作区来查看文件、Git 或终端。`,
     };
   }
 
   private sessionEmptyMessage(): string {
-    if (this.state.isLoadingProjects) return "Loading projects…";
-    if (this.state.selectedWorkspace !== undefined) return "Select or start a session.";
-    if (this.state.selectedProject !== undefined) return "Select a workspace to start a session.";
-    if (this.state.projects.length === 0) return "Add a project to start a session.";
-    return "Select a project and workspace to start a session.";
+    if (this.state.isLoadingProjects) return "正在加载项目…";
+    if (this.state.selectedWorkspace !== undefined) return "选择或启动一个会话。";
+    if (this.state.selectedProject !== undefined) return "选择工作区以开始会话。";
+    if (this.state.projects.length === 0) return "添加项目以开始会话。";
+    return "选择项目和工作区以开始会话。";
   }
 
   private mobilePanelBadge(panel: QualifiedWorkspacePanelContribution): unknown {
@@ -993,35 +993,35 @@ export class PiWebApp extends LitElement {
   private async deleteWorkspace(workspace = this.state.selectedWorkspace): Promise<void> {
     if (workspace === undefined) return;
     if (!canDeleteWorkspace(workspace)) {
-      this.setState({ error: "Only secondary Git worktrees can be deleted" });
+      this.setState({ error: "只能删除次级 Git worktree" });
       return;
     }
     if (isWorkspaceDeletionPending(this.state, workspace)) return;
     const label = workspace.branch ?? workspace.label;
-    const confirmed = confirm(`Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${workspace.path}\n\nThe Git branch will not be deleted.`);
+    const confirmed = confirm(`删除工作区 ${label}？\n\n这会运行 git worktree remove 并删除：\n${workspace.path}\n\nGit 分支不会被删除。`);
     if (!confirmed) return;
 
     const machineId = selectedMachineId(this.state);
     try {
       const mainWorkspace = await this.mainWorkspaceForProject(workspace.projectId);
       if (mainWorkspace === undefined) {
-        this.setState({ error: "Project main workspace not found" });
+        this.setState({ error: "未找到项目主工作区" });
         return;
       }
       if (selectedMachineId(this.state) !== machineId) return;
       const handle = await this.terminalCommandRunsForOrigin("core", machineId).runCommand({
         workspace: mainWorkspace,
-        title: `Delete workspace: ${label}`,
+        title: `删除工作区：${label}`,
         command: `git worktree remove ${shellQuote(workspace.path)}`,
         open: true,
         metadata: workspaceDeletionMetadata(workspace),
       });
       this.recordWorkspaceDeletionRun(handle.run, machineId);
       void handle.completed.then((run) => this.handleCompletedWorkspaceDeletionRun(run, machineId)).catch((error: unknown) => {
-        if (selectedMachineId(this.state) === machineId) this.setState({ error: `Workspace deletion failed. See terminal output. ${errorMessage(error)}` });
+        if (selectedMachineId(this.state) === machineId) this.setState({ error: `工作区删除失败。请查看终端输出。${errorMessage(error)}` });
       });
     } catch (error) {
-      if (selectedMachineId(this.state) === machineId) this.setState({ error: `Failed to start workspace deletion: ${errorMessage(error)}` });
+      if (selectedMachineId(this.state) === machineId) this.setState({ error: `启动工作区删除失败：${errorMessage(error)}` });
     }
   }
 
@@ -1059,7 +1059,7 @@ export class PiWebApp extends LitElement {
         if (!isWorkspaceDeletionRunPending(run)) await this.handleCompletedWorkspaceDeletionRun(run, machineId);
       }
     } catch (error) {
-      console.warn("Failed to refresh workspace deletion runs", error);
+      console.warn("刷新工作区删除任务失败", error);
     } finally {
       this.refreshingWorkspaceDeletionRuns = false;
       this.updateWorkspaceDeletionPolling();
@@ -1095,7 +1095,7 @@ export class PiWebApp extends LitElement {
     }
 
     if (run.status === "failed") {
-      this.setState({ error: "Workspace deletion failed. See terminal output." });
+      this.setState({ error: "工作区删除失败。请查看终端输出。" });
       this.updateWorkspaceDeletionPolling();
     }
   }
@@ -1111,7 +1111,7 @@ export class PiWebApp extends LitElement {
 
   private async removeMachine(machine: Machine | undefined = this.state.selectedMachine): Promise<void> {
     if (machine === undefined || machine.kind === "local") return;
-    if (!window.confirm(`Remove ${machine.name}?\n\nThis only removes it from this PI WEB gateway.`)) return;
+    if (!window.confirm(`移除 ${machine.name}？\n\n这只会将它从当前 PI WEB 网关中移除。`)) return;
     const wasSelected = this.state.selectedMachine?.id === machine.id;
     if (wasSelected) this.rememberCurrentMachineNavigation();
     const fallback = await this.machines.deleteMachine(machine, { selectFallback: !wasSelected });
@@ -1131,7 +1131,7 @@ export class PiWebApp extends LitElement {
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(`Action failed: ${action.id}`, error);
-        this.setState({ error: `Action failed: ${message}` });
+        this.setState({ error: `操作失败：${message}` });
       });
   }
 
@@ -1141,13 +1141,13 @@ export class PiWebApp extends LitElement {
     const currentId = this.state.status?.model?.id;
     this.setState({
       modelDialog: {
-        title: "Select Model",
+        title: "选择模型",
         ...(currentProvider !== undefined && currentId !== undefined ? { selectedValue: `${currentProvider}/${currentId}` } : {}),
         options: models.map((model) => {
           const provider = model.provider ?? "";
           const id = model.id ?? "";
           const isCurrent = provider === currentProvider && id === currentId;
-          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ current" : ""}`, description: provider };
+          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ 当前" : ""}`, description: provider };
         }),
       },
     });
@@ -1167,12 +1167,12 @@ export class PiWebApp extends LitElement {
     const autoValue = this.themePreference.auto ? THEME_AUTO_OFF_VALUE : THEME_AUTO_ON_VALUE;
     this.setState({
       themeDialog: {
-        title: "Select Theme",
+        title: "选择主题",
         selectedValue: selectedThemeId === undefined ? autoValue : `${THEME_OPTION_PREFIX}${selectedThemeId}`,
         options: [
           {
             value: autoValue,
-            label: `Auto ${this.themePreference.auto ? "✓ on" : "off"}`,
+            label: `自动 ${this.themePreference.auto ? "✓ 开" : "关"}`,
             description: this.autoThemeDescription(resolution),
           },
           ...themes.map((theme) => ({
@@ -1228,23 +1228,23 @@ export class PiWebApp extends LitElement {
   }
 
   private autoThemeDescription(resolution: ThemePreferenceResolution): string {
-    if (!this.themePreference.auto) return "Follow the system light/dark preference when the selected theme has a pair.";
-    if (resolution.selectedTheme === undefined) return "Follow the system light/dark preference when the selected theme has a pair.";
-    if (resolution.selectedThemePair === undefined) return "On, but the selected theme has no light/dark pair, so it will stay selected.";
-    return `On · ${resolution.selectedThemePair.name} follows the system ${this.systemPrefersLight() ? "light" : "dark"} preference.`;
+    if (!this.themePreference.auto) return "当所选主题有亮/暗配对时，跟随系统偏好。";
+    if (resolution.selectedTheme === undefined) return "当所选主题有亮/暗配对时，跟随系统偏好。";
+    if (resolution.selectedThemePair === undefined) return "已开启，但所选主题没有亮/暗配对，因此会保持当前选择。";
+    return `已开启 · ${resolution.selectedThemePair.name} 跟随系统${this.systemPrefersLight() ? "浅色" : "深色"}偏好。`;
   }
 
   private themeOptionLabel(theme: QualifiedThemeContribution, selectedThemeId: QualifiedContributionId | undefined): string {
     const markers = [
-      ...(theme.id === selectedThemeId ? ["selected"] : []),
-      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? ["active"] : []),
+      ...(theme.id === selectedThemeId ? ["已选择"] : []),
+      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? ["当前"] : []),
     ];
     return markers.length === 0 ? theme.name : `${theme.name} ✓ ${markers.join(" · ")}`;
   }
 
   private themeOptionDescription(theme: QualifiedThemeContribution): string {
     const parts: string[] = [theme.colorScheme];
-    if (this.themePairForTheme(theme.id) !== undefined) parts.push("auto pair");
+    if (this.themePairForTheme(theme.id) !== undefined) parts.push("自动配对");
     if (theme.description !== undefined) parts.push(theme.description);
     return parts.join(" · ");
   }
@@ -1254,9 +1254,9 @@ export class PiWebApp extends LitElement {
     const current = this.state.status?.thinkingLevel ?? "off";
     this.setState({
       thinkingDialog: {
-        title: "Select Thinking Level",
+        title: "选择思考级别",
         selectedValue: current,
-        options: levels.map((level) => ({ value: level, label: `${level}${level === current ? " ✓ current" : ""}`, description: thinkingDescription(level) })),
+        options: levels.map((level) => ({ value: level, label: `${thinkingLevelLabel(level)}${level === current ? " ✓ 当前" : ""}`, description: thinkingDescription(level) })),
       },
     });
   }
@@ -1299,8 +1299,8 @@ export class PiWebApp extends LitElement {
 
   private mobileMainTabs(): AppMobileMainTab[] {
     return [
-      { id: "navigation", label: "Sessions", icon: "navigation", className: "navigation-tab" },
-      { id: "chat", label: "Chat", icon: "chat" },
+      { id: "navigation", label: "会话", icon: "navigation", className: "navigation-tab" },
+      { id: "chat", label: "聊天", icon: "chat" },
       ...this.visibleWorkspacePanels().map((panel): AppMobileMainTab => {
         const icon = panel.icon ?? this.mobilePanelIcon(panel);
         return {
@@ -1431,11 +1431,22 @@ function isThinkingLevel(value: string): value is ThinkingLevel {
 
 function thinkingDescription(level: ThinkingLevel): string {
   switch (level) {
-    case "off": return "No reasoning";
-    case "minimal": return "Very brief reasoning (~1k tokens)";
-    case "low": return "Light reasoning (~2k tokens)";
-    case "medium": return "Moderate reasoning (~8k tokens)";
-    case "high": return "Deep reasoning (~16k tokens)";
-    case "xhigh": return "Maximum reasoning (~32k tokens)";
+    case "off": return "不使用推理";
+    case "minimal": return "极简推理（约 1k tokens）";
+    case "low": return "轻量推理（约 2k tokens）";
+    case "medium": return "中等推理（约 8k tokens）";
+    case "high": return "深度推理（约 16k tokens）";
+    case "xhigh": return "最大推理（约 32k tokens）";
+  }
+}
+
+function thinkingLevelLabel(level: ThinkingLevel): string {
+  switch (level) {
+    case "off": return "关闭";
+    case "minimal": return "极简";
+    case "low": return "低";
+    case "medium": return "中";
+    case "high": return "高";
+    case "xhigh": return "超高";
   }
 }

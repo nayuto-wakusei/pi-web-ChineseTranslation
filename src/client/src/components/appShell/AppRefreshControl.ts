@@ -31,7 +31,7 @@ export class AppRefreshControl extends LitElement {
   }
 
   override render() {
-    const label = this.isRefreshing ? "Refreshing app data. Long-press for reload options." : "Refresh app data. Long-press for reload options.";
+    const label = this.isRefreshing ? "正在刷新应用数据。长按可打开重载选项。" : "刷新应用数据。长按可打开重载选项。";
     return html`
       <button
         class=${`app-refresh-button${this.isRefreshing ? " refreshing" : ""}`}
@@ -142,8 +142,8 @@ export class AppRefreshControl extends LitElement {
     menu.setAttribute("role", "menu");
     menu.setAttribute("style", this.menuStyle);
     menu.replaceChildren(
-      this.createPortalMenuButton("Refresh app data", () => { this.refresh(); }),
-      this.createPortalMenuButton("Full page reload", () => { this.reload(); }),
+      this.createPortalMenuButton("刷新应用数据", () => { this.refresh(); }),
+      this.createPortalMenuButton("完整重载页面", () => { this.reload(); }),
     );
     menu.addEventListener("click", this.onPortalMenuClick);
     if (!menu.isConnected) ownerDocument.body.append(menu);

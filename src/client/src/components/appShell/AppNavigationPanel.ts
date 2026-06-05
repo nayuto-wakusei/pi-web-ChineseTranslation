@@ -58,7 +58,7 @@ export class AppNavigationPanel extends LitElement {
         <strong>PI WEB</strong>
         <div class="header-actions">
           ${this.refreshControl}
-          <button title="Show Actions" aria-label="Show Actions" @click=${() => { this.onShowActions?.(); }}>Actions</button>
+          <button title="显示操作" aria-label="显示操作" @click=${() => { this.onShowActions?.(); }}>操作</button>
         </div>
       </header>
       ${shouldShowMachinesSection(this.machines) ? html`

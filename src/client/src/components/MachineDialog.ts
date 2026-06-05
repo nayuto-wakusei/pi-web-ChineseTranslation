@@ -95,32 +95,32 @@ export class MachineDialog extends LitElement {
         <section @click=${(event: Event) => { event.stopPropagation(); }}>
           <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
             <header>
-              <strong>Add machine</strong>
-              <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="Close">×</button>
+              <strong>添加机器</strong>
+              <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
             </header>
             <div class="body">
               ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
               <label>
-                Remote PI WEB URL
+                远程 PI WEB URL
                 <input name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" autofocus />
               </label>
-              <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? "Enter the reachable base URL first, including http:// or https://."}</small>
+              <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? "先输入可访问的基础 URL，包含 http:// 或 https://。"}</small>
               ${hasUrl ? html`
                 <label>
-                  Machine name
-                  <input name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || "Dev Box"} autocomplete="off" />
+                  机器名称
+                  <input name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || "开发机"} autocomplete="off" />
                 </label>
-                <small class="hint">Suggested from the URL. Edit it to use a friendlier sidebar label.</small>
+                <small class="hint">根据 URL 自动建议。可以改成更友好的侧栏名称。</small>
                 <label>
-                  Bearer token <span class="optional">optional</span>
-                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="Leave blank if the remote machine does not require one" autocomplete="off" />
+                  Bearer token <span class="optional">可选</span>
+                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="如果远程机器不需要 token，可留空" autocomplete="off" />
                 </label>
-                <small class="hint">Paste only the token value; PI WEB sends it as an Authorization: Bearer header.</small>
-              ` : html`<p class="hint intro">After you enter a URL, PI WEB will suggest a machine name and let you add an optional bearer token.</p>`}
+                <small class="hint">只粘贴 token 值；PI WEB 会通过 Authorization: Bearer 请求头发送。</small>
+              ` : html`<p class="hint intro">输入 URL 后，PI WEB 会建议机器名称，并允许添加可选的 bearer token。</p>`}
             </div>
             <footer>
-              <button type="button" @click=${() => { this.onCancel?.(); }}>Cancel</button>
-              <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? "Adding…" : "Add machine"}</button>
+              <button type="button" @click=${() => { this.onCancel?.(); }}>取消</button>
+              <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? "正在添加…" : "添加机器"}</button>
             </footer>
           </form>
         </section>
@@ -161,16 +161,16 @@ export function suggestedMachineNameFromUrl(value: string): string {
 
 export function machineBaseUrlValidationMessage(value: string): string | undefined {
   const raw = value.trim();
-  if (raw === "") return "Remote PI WEB URL is required.";
+  if (raw === "") return "必须填写远程 PI WEB URL。";
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return "Enter a valid URL including http:// or https://.";
+    return "请输入包含 http:// 或 https:// 的有效 URL。";
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return "Use an http:// or https:// URL.";
-  if (url.username !== "" || url.password !== "") return "Do not include credentials in the machine URL.";
-  if (url.search !== "" || url.hash !== "") return "Do not include a query string or fragment.";
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "请使用 http:// 或 https:// URL。";
+  if (url.username !== "" || url.password !== "") return "机器 URL 中不要包含凭据。";
+  if (url.search !== "" || url.hash !== "") return "不要包含查询字符串或片段。";
   return undefined;
 }
 

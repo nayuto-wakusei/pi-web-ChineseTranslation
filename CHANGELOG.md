@@ -1,4 +1,4 @@
-# @jmfederico/pi-web
+# pi-web-cn
 
 ## 1.202606.0
 

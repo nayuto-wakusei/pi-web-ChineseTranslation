@@ -27,8 +27,8 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@jmfederico/pi-web/plugin-api": ["./src/plugin-api.ts"],
-      "@jmfederico/pi-web/plugin-api/unstable": ["./src/plugin-api/unstable.ts"]
+      "pi-web-cn/plugin-api": ["./src/plugin-api.ts"],
+      "pi-web-cn/plugin-api/unstable": ["./src/plugin-api/unstable.ts"]
     }
   },
   "include": [

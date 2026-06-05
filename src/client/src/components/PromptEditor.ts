@@ -69,16 +69,16 @@ export class PromptEditor extends LitElement {
     return html`
       <footer class=${shellMode ? "shell-mode" : ""}>
         <div class="editor-wrap">
-          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="Message pi" aria-disabled=${this.disabled ? "true" : "false"}></div>
-          ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
-          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
+          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
+          ${shellMode ? html`<div class="mode-hint">Shell 命令${inputMode.excludeFromContext ? " · 不加入上下文" : ""}</div>` : null}
+          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
           ${this.renderCompactStatus()}
-          <button ?disabled=${this.disabled} title=${queuesInput ? "Queue until the current activity finishes" : "Send message"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "Queue" : "Send"}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="Steer the current response before the next model call" @click=${() => { this.send("steer"); }}>Steer</button>` : null}
-          <button ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "Stop current work and clear queued messages" : "Nothing running"} @click=${() => this.onStop?.()}>Stop</button>
+          <button ?disabled=${this.disabled} title=${queuesInput ? "当前活动结束后排队发送" : "发送消息"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "排队" : "发送"}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="在下一次模型调用前引导当前回复" @click=${() => { this.send("steer"); }}>引导</button>` : null}
+          <button ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} @click=${() => this.onStop?.()}>停止</button>
         </div>
       </footer>
     `;
@@ -91,12 +91,12 @@ export class PromptEditor extends LitElement {
   private renderCompactStatus() {
     const status = this.status;
     if (status === undefined) return null;
-    const model = status.model?.id ?? "no model";
+    const model = status.model?.id ?? "未选择模型";
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
-      <div class="compact-status" aria-label="Session status">
-        <button class="select-model" title="Select model" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking" title="Select thinking level" @click=${() => this.onSelectThinking?.()}>think ${status.thinkingLevel ?? "off"}</button>
+      <div class="compact-status" aria-label="会话状态">
+        <button class="select-model" title="选择模型" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+        <button class="select-thinking" title="选择思考级别" @click=${() => this.onSelectThinking?.()}>思考 ${thinkingLevelLabel(status.thinkingLevel)}</button>
       </div>
     `;
   }
@@ -115,7 +115,7 @@ export class PromptEditor extends LitElement {
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of((view) => inputAssistanceContentAttributes(view.state.sliceDoc(0, view.state.selection.main.head))),
-          placeholder("Message pi... Use / for commands, @ for tracked files, @ space for all files"),
+          placeholder("给 pi 发送消息... 使用 / 输入命令，使用 @ 引用跟踪文件，使用 @ 空格查看全部文件"),
           this.editableCompartment.of(EditorView.editable.of(!this.disabled)),
           this.readOnlyCompartment.of(EditorState.readOnly.of(this.disabled)),
           EditorView.updateListener.of((update) => {
@@ -313,6 +313,16 @@ function emptySlashCommands(): SlashCommand[] {
 
 function emptyFileSuggestions(): FileSuggestion[] {
   return [];
+}
+
+function thinkingLevelLabel(level: string | undefined): string {
+  if (level === undefined || level === "off") return "关闭";
+  if (level === "minimal") return "极简";
+  if (level === "low") return "低";
+  if (level === "medium") return "中";
+  if (level === "high") return "高";
+  if (level === "xhigh") return "超高";
+  return level;
 }
 
 const proseInputAssistanceAttributes: Record<string, string> = {

@@ -56,7 +56,7 @@ export class MachineList extends LitElement {
 
   private renderMachine(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status ?? "unknown";
-    const statusLabel = status === "online" ? "online" : status === "offline" ? "offline" : status === "error" ? "error" : "unknown";
+    const statusLabel = status === "online" ? "在线" : status === "offline" ? "离线" : status === "error" ? "错误" : "未知";
     const hasRemoveAction = canRemoveMachine(machine) && this.onRemove !== undefined;
     return html`
       <div
@@ -67,7 +67,7 @@ export class MachineList extends LitElement {
         @keydown=${(event: KeyboardEvent) => { this.handleMachineKeydown(event, machine); }}
       >
         <div class="action-main">
-          <span class="action-name machine-primary">${this.renderActivity(machine)}<span class="machine-primary-label">${machine.name}</span></span><small>${machine.kind === "local" ? "Local Pi Web" : machine.baseUrl ?? "Remote Pi Web"} · ${statusLabel}</small>
+          <span class="action-name machine-primary">${this.renderActivity(machine)}<span class="machine-primary-label">${machine.name}</span></span><small>${machine.kind === "local" ? "本机 Pi Web" : machine.baseUrl ?? "远程 Pi Web"} · ${statusLabel}</small>
         </div>
         ${hasRemoveAction ? this.renderMachineMenu(machine) : null}
       </div>
@@ -78,7 +78,7 @@ export class MachineList extends LitElement {
     const status = this.statuses[machine.id]?.status ?? machine.status;
     if (status === "offline" || status === "error") return undefined;
     const kind = machineActivityIndicator(this.activities[machine.id]);
-    return renderActivityIndicator(kind, kind === "terminal" ? "Machine terminal active" : "Machine active");
+    return renderActivityIndicator(kind, kind === "terminal" ? "机器终端活跃" : "机器活跃");
   }
 
   private renderMachineMenu(machine: Machine) {
@@ -88,15 +88,15 @@ export class MachineList extends LitElement {
       <div class="action-menu">
         <button
           class="action-menu-toggle"
-          title="Machine actions"
-          aria-label=${`Actions for ${machine.name}`}
+          title="机器操作"
+          aria-label=${`${machine.name} 的操作`}
           aria-expanded=${String(open)}
           aria-controls=${menuId}
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(machine.id, event.currentTarget); }}
         >⋯</button>
         ${open ? html`
           <div class="action-menu-panel machine-menu-panel" id=${menuId} style=${this.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-            <button class="danger" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>
+            <button class="danger" title=${`移除 ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>移除</button>
           </div>
         ` : null}
       </div>
@@ -104,10 +104,10 @@ export class MachineList extends LitElement {
   }
 
   private renderHeading() {
-    if (!this.collapsible) return "Machines";
-    const selectedSummary = this.selected?.name ?? "No machine selected";
+    if (!this.collapsible) return "机器";
+    const selectedSummary = this.selected?.name ?? "未选择机器";
     const selectedTitle = this.selected?.baseUrl ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Machines</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.machines.length}</small></button>`;
+    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 机器</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.machines.length}</small></button>`;
   }
 
   private toggleMenu(machineId: string, target: EventTarget | null): void {

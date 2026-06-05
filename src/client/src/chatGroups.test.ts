@@ -73,14 +73,14 @@ describe("groupChatMessages", () => {
 
 describe("summarizeChatGroup", () => {
   it("summarizes special event groups", () => {
-    expect(summarizeChatGroup([{ ...text("assistant", "a"), source: "compaction" }])).toBe("1 history compaction summary");
+    expect(summarizeChatGroup([{ ...text("assistant", "a"), source: "compaction" }])).toBe("1 条历史压缩摘要");
     expect(summarizeChatGroup([
       { ...text("assistant", "a"), source: "branch_summary" },
       { ...text("assistant", "b"), source: "branch_summary" },
-    ])).toBe("2 branch summaries");
+    ])).toBe("2 条分支摘要");
   });
 
   it("summarizes mixed groups by role counts", () => {
-    expect(summarizeChatGroup([text("tool", "a"), text("system", "b"), text("tool", "c")])).toBe("3 events · 2 tool · 1 system");
+    expect(summarizeChatGroup([text("tool", "a"), text("system", "b"), text("tool", "c")])).toBe("3 个事件 · 2 工具 · 1 系统");
   });
 });
