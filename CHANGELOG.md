@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.4
+
+### Patch Changes
+
+- 709854c: Hide the core terminal entrypoints when PI WEB is opened in management embed mode.
+
 ## 1.202606.1
 
 ### Patch Changes
