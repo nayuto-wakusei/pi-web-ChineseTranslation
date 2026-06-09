@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment } from "./managementSandbox.js";
+import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment } from "./managementSandbox.js";
 
 describe("management sandbox environment", () => {
   it("does not inherit host secrets into managed Python", () => {
@@ -45,6 +45,22 @@ describe("management sandbox environment", () => {
       "-",
     ]));
     expect(invocation.args).not.toEqual(expect.arrayContaining(["--dev-bind", "/", "/"]));
+  });
+
+  it("detects host bubblewrap permission failures that should fall back", () => {
+    expect(bubblewrapUnavailableReason("bwrap: setting up uid map: Permission denied")).toBe("setting up uid map: Permission denied");
+    expect(bubblewrapUnavailableReason("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted")).toBe("Failed RTM_NEWADDR: Operation not permitted");
+    expect(bubblewrapUnavailableReason("Python exited with code 1")).toBeUndefined();
+  });
+
+  it("fallback prelude blocks common Python filesystem and process bypass APIs", () => {
+    const prelude = createManagedPythonFallbackPrelude("/workspace");
+
+    expect(prelude).toContain("builtins.open = open");
+    expect(prelude).toContain("io.open = open");
+    expect(prelude).toContain("pathlib.Path.open");
+    expect(prelude).toContain("os.open = _pi_web_blocked_os_path");
+    expect(prelude).toContain("subprocess.Popen = _pi_web_blocked_process");
   });
 });
 

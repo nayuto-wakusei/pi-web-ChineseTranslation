@@ -40,7 +40,7 @@ import { fallbackSessionName, generateShortSessionName } from "./sessionNameGene
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
-import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
+import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
 import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 
 function noop(): void {
@@ -274,12 +274,37 @@ async function runManagedPython(options: RunManagedPythonOptions): Promise<{ con
     env: options.env,
     readOnlyPaths: await readableBubblewrapPaths(),
   });
+  const result = await runPythonProcess({ command: invocation.command, args: invocation.args, cwd: root, env: options.env, code: options.code, timeoutMs: options.timeoutMs, signal: options.signal });
+  const unavailable = bubblewrapUnavailableReason(result.output);
+  if (unavailable !== undefined) {
+    return runManagedPythonFallback({ pythonExecutable: options.pythonExecutable, cwd: root, code: options.code, timeoutMs: options.timeoutMs, env: options.env, signal: options.signal });
+  }
+  return pythonToolResult(result.code, result.output);
+}
+
+async function runManagedPythonFallback(options: Omit<RunManagedPythonOptions, "bubblewrapExecutable">): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
+  const code = `${createManagedPythonFallbackPrelude(options.cwd)}\n${options.code}`;
+  const result = await runPythonProcess({ command: options.pythonExecutable, args: ["-I", "-"], cwd: options.cwd, env: options.env, code, timeoutMs: options.timeoutMs, signal: options.signal });
+  return pythonToolResult(result.code, result.output);
+}
+
+interface PythonProcessOptions {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  code: string;
+  timeoutMs: number;
+  signal: AbortSignal | undefined;
+}
+
+async function runPythonProcess(options: PythonProcessOptions): Promise<{ code: number | null; output: string }> {
   return new Promise((resolvePromise, reject) => {
     if (options.signal?.aborted === true) {
       reject(new Error("Operation aborted"));
       return;
     }
-    const child = spawn(invocation.command, invocation.args, { cwd: root, env: options.env, stdio: ["pipe", "pipe", "pipe"], shell: false });
+    const child = spawn(options.command, options.args, { cwd: options.cwd, env: options.env, stdio: ["pipe", "pipe", "pipe"], shell: false });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -303,11 +328,15 @@ async function runManagedPython(options: RunManagedPythonOptions): Promise<{ con
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
       const output = truncateToolOutput([stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== "").join("\n"));
-      const prefix = codeValue === 0 ? "" : `Python exited with code ${String(codeValue)}\n`;
-      resolvePromise({ content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined });
+      resolvePromise({ code: codeValue, output });
     });
     child.stdin.end(options.code);
   });
+}
+
+function pythonToolResult(codeValue: number | null, output: string): { content: { type: "text"; text: string }[]; details: undefined } {
+  const prefix = codeValue === 0 ? "" : `Python exited with code ${String(codeValue)}\n`;
+  return { content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined };
 }
 
 async function readableBubblewrapPaths(): Promise<string[]> {
