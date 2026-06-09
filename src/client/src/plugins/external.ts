@@ -1,3 +1,4 @@
+import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
 
 interface PluginManifestEntry {
@@ -9,7 +10,11 @@ interface PluginManifest {
   plugins: PluginManifestEntry[];
 }
 
-export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifest.json"): Promise<PiWebPluginRegistration[]> {
+export interface LoadExternalPluginsOptions {
+  machineId?: string;
+}
+
+export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifest.json", options: LoadExternalPluginsOptions = {}): Promise<PiWebPluginRegistration[]> {
   const manifest = await fetchPluginManifest(manifestUrl);
   if (manifest === undefined) return [];
 
@@ -19,7 +24,11 @@ export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifes
       const moduleUrl = new URL(entry.module, new URL(manifestUrl, window.location.href)).toString();
       const module: unknown = await import(/* @vite-ignore */ moduleUrl);
       const plugin = parsePluginModule(module, moduleUrl);
-      registrations.push({ id: entry.id, plugin });
+      registrations.push({
+        id: options.machineId === undefined ? entry.id : machineScopedPluginId(options.machineId, entry.id),
+        plugin,
+        ...(options.machineId === undefined ? {} : { machineId: options.machineId, sourcePluginId: entry.id }),
+      });
     } catch (error) {
       console.warn(`Failed to load PI WEB plugin ${entry.module}`, error);
     }

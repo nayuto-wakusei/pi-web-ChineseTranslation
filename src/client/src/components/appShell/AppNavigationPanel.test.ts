@@ -3,12 +3,12 @@ import type { Machine } from "../../api";
 import { shouldShowMachinesSection } from "./AppNavigationPanel";
 
 describe("shouldShowMachinesSection", () => {
-  it("hides the machines section when there is no machine choice", () => {
+  it("hides machine navigation when there is no machine choice", () => {
     expect(shouldShowMachinesSection([])).toBe(false);
     expect(shouldShowMachinesSection([machine("local")])).toBe(false);
   });
 
-  it("shows the machines section when there are multiple machines", () => {
+  it("shows machine navigation when there are multiple machines", () => {
     expect(shouldShowMachinesSection([machine("local"), machine("remote-a")])).toBe(true);
   });
 });

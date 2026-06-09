@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 
-export type NavigationSection = "machines" | "projects" | "workspaces" | "sessions";
+export const NAVIGATION_SECTION_ORDER = ["machines", "projects", "workspaces", "sessions"] as const;
+export type NavigationSection = (typeof NAVIGATION_SECTION_ORDER)[number];
 export type ExpandedNavigationSection = NavigationSection | "none" | undefined;
 
 export interface NavigationSelectionState {
@@ -19,8 +20,9 @@ export function expandedNavigationSection(expanded: ExpandedNavigationSection, s
   return expanded ?? defaultNavigationSection(state);
 }
 
-export function isNavigationSectionCollapsed(section: NavigationSection, options: { isMobileLayout: boolean; expanded: ExpandedNavigationSection; state: NavigationSelectionState }): boolean {
-  return options.isMobileLayout && expandedNavigationSection(options.expanded, options.state) !== section;
+export function isNavigationSectionCollapsed(section: NavigationSection, options: { isMobileLayout: boolean; expanded: ExpandedNavigationSection; state: NavigationSelectionState; collapsedSections?: readonly NavigationSection[] | undefined }): boolean {
+  if (options.isMobileLayout) return expandedNavigationSection(options.expanded, options.state) !== section;
+  return options.collapsedSections?.includes(section) ?? false;
 }
 
 export function toggleNavigationSection(expanded: ExpandedNavigationSection, section: NavigationSection, options: { isMobileLayout: boolean; state: NavigationSelectionState }): ExpandedNavigationSection {
@@ -32,8 +34,20 @@ export function expandNavigationSection(expanded: ExpandedNavigationSection, sec
   return isMobileLayout ? section : expanded;
 }
 
-export class MobileNavigationController implements ReactiveController {
+export function toggleCollapsedNavigationSection(collapsedSections: readonly NavigationSection[], section: NavigationSection): NavigationSection[] {
+  const collapsed = new Set(collapsedSections);
+  if (collapsed.has(section)) collapsed.delete(section);
+  else collapsed.add(section);
+  return orderedNavigationSections(collapsed);
+}
+
+export function nextNavigationSection(section: NavigationSection): NavigationSection | undefined {
+  return NAVIGATION_SECTION_ORDER[NAVIGATION_SECTION_ORDER.indexOf(section) + 1];
+}
+
+export class NavigationSectionsController implements ReactiveController {
   private expanded: ExpandedNavigationSection;
+  private collapsedSections: readonly NavigationSection[] = [];
 
   hostConnected(): void {
     return;
@@ -56,15 +70,30 @@ export class MobileNavigationController implements ReactiveController {
       isMobileLayout: this.isMobileLayout(),
       expanded: this.expanded,
       state: this.getState(),
+      collapsedSections: this.collapsedSections,
     });
   }
 
   toggle(section: NavigationSection): void {
-    this.setExpanded(toggleNavigationSection(this.expanded, section, { isMobileLayout: this.isMobileLayout(), state: this.getState() }));
+    if (this.isMobileLayout()) {
+      this.setExpanded(toggleNavigationSection(this.expanded, section, { isMobileLayout: true, state: this.getState() }));
+      return;
+    }
+    this.setCollapsedSections(toggleCollapsedNavigationSection(this.collapsedSections, section));
   }
 
   expand(section: NavigationSection): void {
-    this.setExpanded(expandNavigationSection(this.expanded, section, this.isMobileLayout()));
+    if (this.isMobileLayout()) {
+      this.setExpanded(expandNavigationSection(this.expanded, section, true));
+      return;
+    }
+    this.setCollapsedSections(this.collapsedSections.filter((collapsedSection) => collapsedSection !== section));
+  }
+
+  advanceAfterSelection(section: NavigationSection): void {
+    if (!this.isMobileLayout()) return;
+    const next = nextNavigationSection(section);
+    if (next !== undefined) this.expand(next);
   }
 
   open(section: NavigationSection, openNavigationView: () => void): void {
@@ -78,4 +107,19 @@ export class MobileNavigationController implements ReactiveController {
     this.expanded = expanded;
     this.host.requestUpdate();
   }
+
+  private setCollapsedSections(collapsedSections: readonly NavigationSection[]): void {
+    if (navigationSectionListsEqual(this.collapsedSections, collapsedSections)) return;
+    this.collapsedSections = collapsedSections;
+    this.host.requestUpdate();
+  }
+}
+
+function orderedNavigationSections(sections: Iterable<NavigationSection>): NavigationSection[] {
+  const sectionSet = new Set(sections);
+  return NAVIGATION_SECTION_ORDER.filter((section) => sectionSet.has(section));
+}
+
+function navigationSectionListsEqual(first: readonly NavigationSection[], second: readonly NavigationSection[]): boolean {
+  return first.length === second.length && first.every((section, index) => section === second[index]);
 }

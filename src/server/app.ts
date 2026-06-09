@@ -15,12 +15,14 @@ import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
+import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { registerConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
 import { getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
+import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
@@ -124,6 +126,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
 
   app.get<{ Params: { pluginId: string; "*": string } }>("/pi-web-plugins/:pluginId/*", async (request, reply) => {
+    if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply)) return;
+
     const asset = await piWebPlugins.readAsset(request.params.pluginId, request.params["*"]);
     if (asset === undefined) return reply.code(404).send({ error: "Plugin asset not found" });
     return reply.type(asset.contentType).send(asset.content);
@@ -135,6 +139,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerConfigRoutes(app, deps.config);
 
   registerMachineRoutes(app, machines);
+  registerMachinePluginProxyRoutes(app, machines);
 
   registerLocalProjectRoutes(app, projects, workspaces, "/api", managementEmbed);
   registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
@@ -147,6 +152,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerGitRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
   registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
   registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
+  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
 
   registerLocalFileSuggestionRoutes(app, "/api", managementEmbed);
   registerLocalFileSuggestionRoutes(app, "/api/machines/local", managementEmbed);

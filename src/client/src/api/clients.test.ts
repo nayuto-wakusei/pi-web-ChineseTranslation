@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { terminalsApi } from "./clients";
+import { terminalsApi, workspacesApi } from "./clients";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -30,6 +30,17 @@ afterEach(() => {
 });
 
 describe("machine-scoped terminal command-run API", () => {
+  it("deletes workspaces through the selected machine scope", async () => {
+    const fetchMock = stubJsonFetch(commandRun);
+
+    await workspacesApi.deleteWorkspace("p 1", "w/1", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1");
+    expect(init?.method).toBe("DELETE");
+  });
+
   it("creates command runs through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
 
@@ -40,6 +51,17 @@ describe("machine-scoped terminal command-run API", () => {
     expect(url).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/terminal-command-runs");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(requestBody(init))).toEqual({ origin: "core", title: "Build", command: "npm test", metadata: {} });
+  });
+
+  it("closes all workspace terminals through the selected machine scope", async () => {
+    const fetchMock = stubJsonFetch({ closed: true });
+
+    await terminalsApi.closeWorkspaceTerminals("p 1", "w/1", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/terminals");
+    expect(init?.method).toBe("DELETE");
   });
 
   it("lists, reads, and cancels command runs through the selected machine scope", async () => {

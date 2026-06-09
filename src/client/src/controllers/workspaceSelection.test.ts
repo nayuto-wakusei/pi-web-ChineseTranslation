@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../api";
-import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace } from "./workspaceSelection";
+import type { KeyValueStorage } from "./sessionStorageMemory";
+import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, SessionStorageWorkspaceSelectionMemory } from "./workspaceSelection";
 
 describe("selectPreferredWorkspace", () => {
   it("prefers an explicit target workspace", () => {
@@ -45,6 +46,35 @@ describe("InMemoryWorkspaceSelectionMemory", () => {
   });
 });
 
+describe("SessionStorageWorkspaceSelectionMemory", () => {
+  it("persists the latest selected workspace per project", () => {
+    const storage = memoryStorage();
+    const memory = new SessionStorageWorkspaceSelectionMemory(storage);
+
+    memory.rememberWorkspace({ ...testWorkspace("feature"), projectId: "local:p1" });
+    memory.rememberWorkspace({ ...testWorkspace("other"), projectId: "remote:p1" });
+
+    const restored = new SessionStorageWorkspaceSelectionMemory(storage);
+
+    expect(restored.latestWorkspaceId("local:p1")).toBe("feature");
+    expect(restored.latestWorkspaceId("remote:p1")).toBe("other");
+
+    restored.forgetProject("local:p1");
+
+    expect(new SessionStorageWorkspaceSelectionMemory(storage).latestWorkspaceId("local:p1")).toBeUndefined();
+    expect(new SessionStorageWorkspaceSelectionMemory(storage).latestWorkspaceId("remote:p1")).toBe("other");
+  });
+});
+
 function testWorkspace(id: string): Workspace {
   return { id, projectId: "project", path: `/tmp/project/${id}`, label: id, isMain: id === "main", isGitRepo: true, isGitWorktree: id !== "main" };
+}
+
+function memoryStorage(seed: Record<string, string> = {}): KeyValueStorage {
+  const values = new Map(Object.entries(seed));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+  };
 }

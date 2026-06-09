@@ -462,6 +462,20 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("rejects malformed prompt text before opening the runtime", async () => {
+    const fake = fakeRuntime("prompt-session");
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.prompt("prompt-session", undefined)).rejects.toThrow("Prompt text is required");
+
+    expect(fake.calls.prompt).toEqual([]);
+    await service.dispose();
+  });
+
   it("includes queued message details in session status", async () => {
     const fake = fakeRuntime("status-session", {
       messages: [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }],

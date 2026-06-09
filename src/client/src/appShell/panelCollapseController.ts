@@ -23,6 +23,18 @@ export class PanelCollapseController implements ReactiveController {
     this.host.requestUpdate();
   }
 
+  expandNavigationPanel(): void {
+    if (!this.navigationPanelCollapsed) return;
+    this.navigationPanelCollapsed = false;
+    this.host.requestUpdate();
+  }
+
+  expandWorkspacePanel(): void {
+    if (!this.workspacePanelCollapsed) return;
+    this.workspacePanelCollapsed = false;
+    this.host.requestUpdate();
+  }
+
   shellClass(mainView: AppState["mainView"]): string {
     return [
       "shell",

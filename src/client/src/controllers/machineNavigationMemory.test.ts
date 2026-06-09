@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { initialAppState, type AppState } from "../appState";
 import type { Machine, Project, SessionInfo, Workspace } from "../api";
-import { emptyMachineNavigationSnapshot, InMemoryMachineNavigationMemory, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot } from "./machineNavigationMemory";
+import type { KeyValueStorage } from "./sessionStorageMemory";
+import { emptyMachineNavigationSnapshot, InMemoryMachineNavigationMemory, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory } from "./machineNavigationMemory";
 
 describe("InMemoryMachineNavigationMemory", () => {
   it("remembers independent navigation snapshots per machine", () => {
@@ -27,6 +28,38 @@ describe("InMemoryMachineNavigationMemory", () => {
     if (snapshot !== undefined) snapshot.surface.selectedFilePath = "changed.ts";
 
     expect(memory.latest("local")?.surface.selectedFilePath).toBe("README.md");
+  });
+});
+
+describe("SessionStorageMachineNavigationMemory", () => {
+  it("persists independent navigation snapshots in per-tab storage", () => {
+    const storage = memoryStorage();
+    const memory = new SessionStorageMachineNavigationMemory(storage);
+
+    memory.remember({ machineId: "local", projectId: "local-project", surface: { selectedFilePath: "README.md" } });
+    memory.remember({ machineId: "remote", projectId: "remote-project", workspaceId: "remote-workspace", sessionId: "remote-session", surface: {} });
+
+    const restored = new SessionStorageMachineNavigationMemory(storage);
+
+    expect(restored.latest("local")?.projectId).toBe("local-project");
+    expect(restored.latest("remote")?.workspaceId).toBe("remote-workspace");
+
+    restored.forget("local");
+
+    expect(new SessionStorageMachineNavigationMemory(storage).latest("local")).toBeUndefined();
+    expect(new SessionStorageMachineNavigationMemory(storage).latest("remote")?.projectId).toBe("remote-project");
+  });
+
+  it("ignores malformed stored snapshots", () => {
+    const storage = memoryStorage({
+      "pi-web:machine-navigation:v1": JSON.stringify({ version: 1, entries: [["local", { machineId: "local", tool: "bad", surface: { selectedFilePath: "README.md" } }], ["remote", { projectId: "missing-machine", surface: {} }]] }),
+    });
+
+    const memory = new SessionStorageMachineNavigationMemory(storage);
+
+    expect(memory.latest("local")?.tool).toBeUndefined();
+    expect(memory.latest("local")?.surface.selectedFilePath).toBe("README.md");
+    expect(memory.latest("remote")).toBeUndefined();
   });
 });
 
@@ -115,4 +148,13 @@ function workspace(id: string, projectId: string): Workspace {
 
 function session(id: string): SessionInfo {
   return { id, path: `/tmp/project/.pi/sessions/${id}`, cwd: "/tmp/project", created: "now", modified: "now", messageCount: 0, firstMessage: "" };
+}
+
+function memoryStorage(seed: Record<string, string> = {}): KeyValueStorage {
+  const values = new Map(Object.entries(seed));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+  };
 }

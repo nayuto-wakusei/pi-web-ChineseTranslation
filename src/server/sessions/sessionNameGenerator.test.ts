@@ -15,4 +15,8 @@ describe("sessionNameGenerator", () => {
     expect(fallbackSessionName('<skill name="x" location="/x">\nDo x\n</skill>\n\nCheck the UI now'))
       .toBe("Check the UI now");
   });
+
+  it("skips fallback names when the first request is missing", () => {
+    expect(fallbackSessionName(undefined)).toBeUndefined();
+  });
 });

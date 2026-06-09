@@ -28,6 +28,16 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
     }
   });
 
+  app.delete<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
+    try {
+      const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
+      return await proxyJson(daemon, "DELETE", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, reply);
+    } catch (error) {
+      requestFailed(reply, error);
+      return undefined;
+    }
+  });
+
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: { name?: string; cols?: number; rows?: number } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
     try {
       if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });

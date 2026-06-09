@@ -4,8 +4,9 @@ import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { isSessionActive } from "../../../shared/activity";
 import { actionMenuPanelStyle } from "./actionMenu";
-import { renderActivityIndicator } from "./activityBadge";
-import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
+import { renderActionActivityIndicator } from "./activityBadge";
+import type { KeyboardNavigableSection } from "./navigationFocus";
+import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
 
 function sessionLabel(session: SessionInfo): string {
@@ -20,7 +21,7 @@ interface SessionRow {
 }
 
 @customElement("session-list")
-export class SessionList extends LitElement {
+export class SessionList extends LitElement implements KeyboardNavigableSection {
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
@@ -32,6 +33,9 @@ export class SessionList extends LitElement {
   @property({ attribute: false }) onStart?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onArchivedCollapsed?: () => void;
+  @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
+  @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
+  @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
   @state() private openMenuSessionId: string | undefined;
   @state() private menuStyle = "";
   @state() private archivedExpanded = false;
@@ -68,6 +72,11 @@ export class SessionList extends LitElement {
     if ((changed.has("selected") || changed.has("sessions") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
   }
 
+  async focusSelectedOrFirst(): Promise<boolean> {
+    await this.updateComplete;
+    return focusSelectedOrFirstSelectableRow(this.renderRoot, { fallbackSelector: ".section-toggle, h2 button:not([disabled])" });
+  }
+
   override render() {
     const activeRows = sessionRowsForActiveTree(this.sessions);
     const activeIds = new Set(activeRows.map((row) => row.session.id));
@@ -95,7 +104,7 @@ export class SessionList extends LitElement {
     const selectedTitle = this.selected?.path ?? selectedSummary;
     return html`
       <h2>
-        <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 会话</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${sessionCount}</small></button>
+        <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 会话</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${sessionCount}</small></button>
         <button ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>
       </h2>
     `;
@@ -111,10 +120,11 @@ export class SessionList extends LitElement {
         tabindex="0"
         title=${session.path}
         @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(session)); }}
-        @keydown=${(event: KeyboardEvent) => { activateSelectableRowFromKeyboard(event, () => this.onSelect?.(session)); }}
+        @keydown=${(event: KeyboardEvent) => { this.handleSessionKeydown(event, session); }}
       >
         <div class="action-main">
-          <span class="action-name">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderStatus(session)}${String(session.messageCount)} 条消息</small>
+          <span class="action-name">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderSessionMetaPrefix(session)}${String(session.messageCount)} 条消息</small>
+          ${this.renderActivity(session)}
         </div>
         <div class="action-menu">
           <button class="action-menu-toggle" title="会话操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
@@ -134,6 +144,15 @@ export class SessionList extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  private handleSessionKeydown(event: KeyboardEvent, session: SessionInfo): void {
+    handleSelectableRowKeyboard(event, {
+      activate: () => this.onSelect?.(session),
+      previousSection: this.onFocusPreviousSection === undefined ? undefined : () => { void this.onFocusPreviousSection?.(); },
+      nextSection: this.onFocusNextSection === undefined ? undefined : () => { void this.onFocusNextSection?.(); },
+      cancel: this.onCancelKeyboardNavigation === undefined ? undefined : () => { void this.onCancelKeyboardNavigation?.(); },
+    });
   }
 
   private confirmArchiveWithDescendants(session: SessionInfo, descendantCount: number): void {
@@ -161,10 +180,15 @@ export class SessionList extends LitElement {
     this.renderRoot.querySelector<HTMLElement>(".action-row.selected")?.scrollIntoView({ block: "nearest" });
   }
 
-  private renderStatus(session: SessionInfo) {
+  private renderSessionMetaPrefix(session: SessionInfo) {
     if (isCachedNewSessionInfo(session)) return "新建 · ";
     if (session.archived === true) return "只读 · ";
-    return renderActivityIndicator(isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "session" : undefined, "会话活跃") ?? "";
+    return "";
+  }
+
+  private renderActivity(session: SessionInfo) {
+    if (isCachedNewSessionInfo(session) || session.archived === true) return undefined;
+    return renderActionActivityIndicator(isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "session" : undefined, "会话活跃");
   }
 
   static override styles = listStyles;

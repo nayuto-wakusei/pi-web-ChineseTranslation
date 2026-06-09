@@ -43,7 +43,9 @@ export async function generateShortSessionName<TApi extends Api>(modelRegistry: 
   return cleanSessionName(finalMessage === undefined ? streamedText : textFromAssistant(finalMessage));
 }
 
-export function fallbackSessionName(firstMessage: string): string | undefined {
+export function fallbackSessionName(firstMessage: unknown): string | undefined {
+  if (typeof firstMessage !== "string") return undefined;
+
   return cleanSessionName(firstMessage
     .replace(/<skill name="[^"]+" location="[^"]+">[\s\S]*?<\/skill>/g, "")
     .replace(/```[\s\S]*?```/g, " ")

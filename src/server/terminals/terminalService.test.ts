@@ -4,6 +4,20 @@ import { TerminalService } from "./terminalService";
 const terminalIt = process.platform === "win32" ? it.skip : it;
 
 describe("TerminalService command runs", () => {
+  terminalIt("closes all terminal records for a cwd", () => {
+    const service = new TerminalService();
+    try {
+      const terminal = service.create({ cwd: process.cwd() });
+
+      service.closeForCwd(process.cwd());
+
+      expect(service.get(terminal.id)).toBeUndefined();
+      expect(service.list(process.cwd())).toEqual([]);
+    } finally {
+      service.dispose();
+    }
+  });
+
   terminalIt("tracks dedicated terminal command runs through completion", async () => {
     const service = new TerminalService();
     try {

@@ -12,6 +12,8 @@ export type SvgTemplateTag = (strings: TemplateStringsArray, ...values: unknown[
 export interface PiWebPluginRegistration {
   id: PluginId;
   plugin: PiWebPlugin;
+  machineId?: string;
+  sourcePluginId?: PluginId;
 }
 
 export interface PiWebPlugin {
@@ -45,8 +47,24 @@ export interface PluginMachine {
   kind: Machine["kind"];
 }
 
-export interface WorkspacePanelFiles {
+export interface WorkspaceFiles {
   readFile(path: string): Promise<FileContentResponse>;
+}
+
+export type WorkspacePanelFiles = WorkspaceFiles;
+
+export interface WorkspaceHost {
+  requestRender(): void;
+}
+
+export type WorkspacePanelHost = WorkspaceHost;
+
+export interface WorkspaceContext {
+  machine: PluginMachine;
+  workspace: Workspace;
+  state: AppState;
+  files: WorkspaceFiles;
+  host: WorkspaceHost;
 }
 
 export type WorkspaceTerminalCommandInput = Omit<RunTerminalCommandInput, "workspace">;
@@ -54,10 +72,6 @@ export type WorkspaceTerminalCommandInput = Omit<RunTerminalCommandInput, "works
 export interface WorkspacePanelTerminal {
   open(options?: { terminalId?: string | undefined }): void;
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
-}
-
-export interface WorkspacePanelHost {
-  requestRender(): void;
 }
 
 export interface PiWebUnstableRuntimeContext {
@@ -112,15 +126,16 @@ export interface PluginAction {
 export interface QualifiedPluginAction extends AppAction {
   pluginId: PluginId;
   localId: LocalContributionId;
+  machineId?: string;
 }
 
-export interface WorkspacePanelContext {
-  machine: PluginMachine;
-  workspace: Workspace;
-  state: AppState;
-  files: WorkspacePanelFiles;
+export interface WorkspacePanelContext extends WorkspaceContext {
   terminal: WorkspacePanelTerminal;
-  host: WorkspacePanelHost;
+  /**
+   * @deprecated Runtime-only compatibility alias for pre-v2 plugins. Use `terminal.open()` instead.
+   * This is intentionally not part of the public `@jmfederico/pi-web/plugin-api` declarations.
+   */
+  openTerminal?: (options?: { terminalId?: string | undefined }) => void;
   piWebUnstable?: Pick<PiWebUnstableRuntimeContext, "terminalCommandRuns">;
   fileTree: FileTreeEntry[];
   expandedDirs: Record<string, FileTreeEntry[]>;
@@ -159,12 +174,15 @@ export interface QualifiedWorkspacePanelContribution extends WorkspacePanelContr
   id: QualifiedContributionId;
   pluginId: PluginId;
   localId: LocalContributionId;
+  machineId?: string;
 }
 
-export interface WorkspaceLabelContext {
+export interface WorkspaceLabelContext extends WorkspaceContext {
   machine: PluginMachine;
   workspace: Workspace;
   state: AppState;
+  files: WorkspaceFiles;
+  host: WorkspaceHost;
 }
 
 export type WorkspaceLabelItem = WorkspaceLabelTextItem | WorkspaceLabelLinkItem | WorkspaceLabelRenderItem;
@@ -272,4 +290,5 @@ export interface QualifiedWorkspaceLabelContribution extends WorkspaceLabelContr
   id: QualifiedContributionId;
   pluginId: PluginId;
   localId: LocalContributionId;
+  machineId?: string;
 }

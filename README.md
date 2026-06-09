@@ -106,7 +106,7 @@ PI WEB keeps its own state intentionally small:
 
 ## Machine federation
 
-The Machines section lets one PI WEB instance act as a gateway to other PI WEB runtimes. Register a remote machine from **Actions → Add Machine** with the remote PI WEB base URL, for example a Tailscale, WireGuard, SSH tunnel, or trusted reverse-proxy URL. The browser continues talking to the local PI WEB origin; project, workspace, file, git, session, activity, and terminal HTTP/WebSocket traffic is proxied server-to-server.
+The Machines section lets one PI WEB instance act as a gateway to other PI WEB runtimes. Register a remote machine from **Actions → Add Machine** with the remote PI WEB base URL, for example a URL reachable over NetBird, Tailscale, WireGuard, an SSH tunnel, or a trusted reverse proxy. The browser continues talking to the local PI WEB origin; project, workspace, file, git, session, activity, and terminal HTTP/WebSocket traffic is proxied server-to-server. See the [Fleet guide](https://pi-web.dev/machines.html) for setup, trust model, and troubleshooting details.
 
 Remote model-provider credentials and OAuth state stay on the target machine. API-key provider configuration can be proxied, but OAuth login should be completed by opening the remote PI WEB directly. Register remote machines only when you trust the endpoint and the network path: adding a machine gives this PI WEB server permission to contact that URL with the optional bearer token you configured.
 

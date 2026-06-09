@@ -61,7 +61,18 @@ export class SettingsDialog extends LitElement {
 
   private renderActiveSection(): TemplateResult {
     if (this.section === "shortcuts") {
-      return html`<settings-shortcuts-panel .actions=${this.actions} .configResponse=${this.configResponse}></settings-shortcuts-panel>`;
+      return html`
+        <settings-shortcuts-panel
+          .actions=${this.actions}
+          .configResponse=${this.configResponse}
+          .loading=${this.loading}
+          .saving=${this.saving}
+          .error=${this.error}
+          .savedMessage=${this.savedMessage}
+          .onReload=${() => this.loadConfig()}
+          .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
+        ></settings-shortcuts-panel>
+      `;
     }
     if (this.section === "plugins") {
       return html`

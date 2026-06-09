@@ -52,6 +52,11 @@ export class TerminalService {
       .map(toInfo);
   }
 
+  closeForCwd(cwd: string): void {
+    if (cwd === "") throw new Error("cwd is required");
+    for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd)) this.close(terminal.id);
+  }
+
   create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo {
     if (options.managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
     return this.createTerminal({ ...options, shellArgs: [] });

@@ -3,6 +3,11 @@ import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionService } from "./piSessionService.js";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 
+interface PromptRequestBody {
+  text?: unknown;
+  streamingBehavior?: unknown;
+}
+
 export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/sessions`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
@@ -90,9 +95,9 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
-  app.post<{ Params: { sessionId: string }; Body: { text: string; streamingBehavior?: "steer" | "followUp" } }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
+  app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
     try {
-      await sessions.prompt(request.params.sessionId, request.body.text, request.body.streamingBehavior, managementContextFromHeaders(request.headers));
+      await sessions.prompt(request.params.sessionId, request.body?.text, request.body?.streamingBehavior, managementContextFromHeaders(request.headers));
       return { accepted: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });

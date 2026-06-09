@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
+import { activateSelectableRow, activateSelectableRowFromKeyboard, handleSelectableRowKeyboard } from "./selectableRow";
 
 describe("selectable row activation", () => {
   it("activates rows from non-interactive click targets", () => {
@@ -38,10 +38,30 @@ describe("selectable row activation", () => {
     expect(action).not.toHaveBeenCalled();
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
+
+  it("routes row keyboard navigation to adjacent section callbacks", () => {
+    const nextSection = vi.fn();
+    const event = keyboardEventWithPath("ArrowRight", matchTarget(() => false));
+
+    expect(handleSelectableRowKeyboard(event, { activate: vi.fn(), nextSection })).toBe(true);
+
+    expect(nextSection).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+  });
+
+  it("routes Escape row keyboard navigation to cancel", () => {
+    const cancel = vi.fn();
+    const event = keyboardEventWithPath("Escape", matchTarget(() => false));
+
+    expect(handleSelectableRowKeyboard(event, { activate: vi.fn(), cancel })).toBe(true);
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
 
 type EventWithPath = Pick<Event, "composedPath">;
-type KeyboardEventWithPath = EventWithPath & Pick<KeyboardEvent, "key" | "preventDefault">;
+type KeyboardEventWithPath = EventWithPath & Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">;
 type MatchTarget = EventTarget & Pick<Element, "matches">;
 
 function matchTarget(matches: Element["matches"]): MatchTarget {
@@ -53,5 +73,5 @@ function eventWithPath(target: MatchTarget): EventWithPath {
 }
 
 function keyboardEventWithPath(key: string, target: MatchTarget): KeyboardEventWithPath {
-  return { key, preventDefault: vi.fn<() => void>(), composedPath: () => [target] };
+  return { key, preventDefault: vi.fn<() => void>(), stopPropagation: vi.fn<() => void>(), composedPath: () => [target] };
 }

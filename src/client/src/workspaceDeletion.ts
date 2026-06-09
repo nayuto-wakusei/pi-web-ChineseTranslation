@@ -1,18 +1,8 @@
+import { workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, targetWorkspaceIdMetadataKey, targetWorkspacePathMetadataKey } from "../../shared/workspaceDeletion";
 import type { AppState } from "./appState";
 import type { TerminalCommandRun, Workspace } from "./api";
 
-export const workspaceDeleteOperation = "workspace.delete";
-export const workspaceDeleteOperationMetadataKey = "pi.operation";
-export const targetWorkspaceIdMetadataKey = "target.workspaceId";
-export const targetWorkspacePathMetadataKey = "target.workspacePath";
-
-export function workspaceDeletionMetadata(workspace: Workspace): Record<string, string> {
-  return {
-    [workspaceDeleteOperationMetadataKey]: workspaceDeleteOperation,
-    [targetWorkspaceIdMetadataKey]: workspace.id,
-    [targetWorkspacePathMetadataKey]: workspace.path,
-  };
-}
+export { targetWorkspaceIdMetadataKey, targetWorkspacePathMetadataKey, workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, workspaceDeletionMetadata } from "../../shared/workspaceDeletion";
 
 export function workspaceDeletionRunFilter(projectId?: string): { projectId?: string; metadata: Record<string, string> } {
   return {

@@ -108,8 +108,24 @@ export interface Workspace {
   isGitWorktree: boolean;
 }
 
-export interface WorkspacePanelFiles {
+export interface WorkspaceFiles {
   readFile(path: string): Promise<FileContentResponse>;
+}
+
+export type WorkspacePanelFiles = WorkspaceFiles;
+
+export interface WorkspaceHost {
+  requestRender(): void;
+}
+
+export type WorkspacePanelHost = WorkspaceHost;
+
+export interface WorkspaceContext {
+  machine: PluginMachine;
+  workspace: Workspace;
+  state?: PluginRuntimeState;
+  files: WorkspaceFiles;
+  host: WorkspaceHost;
 }
 
 export interface WorkspaceTerminalCommandInput {
@@ -124,17 +140,8 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
-export interface WorkspacePanelHost {
-  requestRender(): void;
-}
-
-export interface WorkspacePanelContext {
-  machine: PluginMachine;
-  workspace: Workspace;
-  state?: PluginRuntimeState;
-  files: WorkspacePanelFiles;
+export interface WorkspacePanelContext extends WorkspaceContext {
   terminal: WorkspacePanelTerminal;
-  host: WorkspacePanelHost;
 }
 
 export type WorkspacePanelIcon = TemplateResult;
@@ -149,10 +156,12 @@ export interface WorkspacePanelContribution {
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 
-export interface WorkspaceLabelContext {
+export interface WorkspaceLabelContext extends WorkspaceContext {
   machine: PluginMachine;
   workspace: Workspace;
   state?: PluginRuntimeState;
+  files: WorkspaceFiles;
+  host: WorkspaceHost;
 }
 
 export type WorkspaceLabelItem = WorkspaceLabelTextItem | WorkspaceLabelLinkItem | WorkspaceLabelRenderItem;
@@ -203,4 +212,3 @@ export interface ThemePairContribution {
   light: LocalContributionId;
   dark: LocalContributionId;
 }
-

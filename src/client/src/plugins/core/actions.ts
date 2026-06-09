@@ -18,6 +18,7 @@ export function createCoreActions(): PluginAction[] {
       id: "prompt.focus",
       title: "聚焦提示词输入框",
       description: "将键盘焦点移动到消息编辑器",
+      shortcut: "mod+g c",
       group: "通用",
       enabled: (context) => context.state.selectedSession !== undefined,
       run: (context) => { context.focusPrompt(); },
@@ -88,13 +89,6 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => { context.piWebUnstable?.openSettings?.(); },
     },
     {
-      id: "app.refresh-data",
-      title: "刷新应用数据",
-      description: "刷新会话、状态、活动和当前工作区界面，不重新加载页面",
-      group: "通用",
-      run: (context) => context.refreshAppData(),
-    },
-    {
       id: "app.reload-page",
       title: "完整重载页面",
       description: "重新加载 PI WEB 浏览器页面",
@@ -106,7 +100,7 @@ export function createCoreActions(): PluginAction[] {
       title: "转到聊天",
       shortcut: "mod+1",
       group: "导航",
-      run: (context) => { context.selectMainView("chat"); },
+      run: (context) => { context.focusPrompt(); },
     },
     {
       id: "view.files",

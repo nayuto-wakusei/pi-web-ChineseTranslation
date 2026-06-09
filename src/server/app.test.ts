@@ -12,6 +12,7 @@ import { MachineService } from "./machines/machineService.js";
 import { MachineStore } from "./machines/machineStore.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+import { machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
 import type { Project, Workspace } from "./types.js";
 
@@ -163,16 +164,20 @@ describe("buildApp", () => {
     remoteClient = fakeRemoteClient({ request });
 
     const createBody = { origin: "core", title: "Build", command: "npm test", metadata: { "pi.operation": "test" } };
+    const deleteWorkspaceResponse = await app.inject({ method: "DELETE", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1` });
     const createResponse = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/terminal-command-runs`, payload: createBody });
     const listResponse = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/terminal-command-runs?projectId=p1&statuses=running` });
     const getResponse = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/terminal-command-runs/run1` });
     const cancelResponse = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/terminal-command-runs/run1/cancel` });
+    const closeWorkspaceTerminalsResponse = await app.inject({ method: "DELETE", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/terminals` });
     const continueResponse = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/terminals/t1/continue` });
 
+    expect(deleteWorkspaceResponse.json()).toEqual({ method: "DELETE", path: "/api/projects/p1/workspaces/w1" });
     expect(createResponse.json()).toEqual({ method: "POST", path: "/api/projects/p1/workspaces/w1/terminal-command-runs" });
     expect(listResponse.json()).toEqual({ method: "GET", path: "/api/terminal-command-runs?projectId=p1&statuses=running" });
     expect(getResponse.json()).toEqual({ method: "GET", path: "/api/terminal-command-runs/run1" });
     expect(cancelResponse.json()).toEqual({ method: "POST", path: "/api/terminal-command-runs/run1/cancel" });
+    expect(closeWorkspaceTerminalsResponse.json()).toEqual({ method: "DELETE", path: "/api/projects/p1/workspaces/w1/terminals" });
     expect(continueResponse.json()).toEqual({ method: "POST", path: "/api/projects/p1/workspaces/w1/terminals/t1/continue" });
     expect(request).toHaveBeenCalledWith("POST", "/api/projects/p1/workspaces/w1/terminal-command-runs", createBody);
   });
@@ -237,6 +242,8 @@ describe("buildApp", () => {
       payload: { origin: "core", title: "Build", command: "npm test", metadata: { "pi.operation": "test" } },
     });
 
+    const closeTerminalsResponse = await app.inject({ method: "DELETE", url: `/api/machines/local/projects/${project.id}/workspaces/${workspace.id}/terminals` });
+
     expect(terminalResponse.statusCode).toBe(200);
     expect(terminalResponse.json()).toEqual({
       method: "POST",
@@ -251,6 +258,8 @@ describe("buildApp", () => {
         metadata: { "pi.operation": "test" },
       },
     });
+    expect(closeTerminalsResponse.statusCode).toBe(200);
+    expect(closeTerminalsResponse.json()).toEqual({ method: "DELETE", path: `/terminals?cwd=${encodeURIComponent(projectDir)}` });
     expect(sessionDaemonRequests[1]).toEqual({
       method: "POST",
       path: "/terminal-command-runs",
@@ -264,6 +273,7 @@ describe("buildApp", () => {
         metadata: { "pi.operation": "test" },
       },
     });
+    expect(sessionDaemonRequests[2]).toEqual({ method: "DELETE", path: `/terminals?cwd=${encodeURIComponent(projectDir)}` });
   });
 
   it("serves local projects and workspaces through machine-scoped aliases", async () => {
@@ -354,6 +364,76 @@ describe("buildApp", () => {
 
     const missingResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/fake/missing.js" });
     expect(missingResponse.statusCode).toBe(404);
+  });
+
+  it("rewrites and proxies remote machine plugin manifests and assets", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const requestJson = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: { plugins: [{ id: "remote-tools", module: "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123", source: "local", scope: "local" }] },
+    }));
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/javascript", "set-cookie": "secret=1" },
+      body: Readable.from(["export default {};"]),
+    }));
+    remoteClient = fakeRemoteClient({ requestJson, request });
+
+    const manifestResponse = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/pi-web-plugins/manifest.json` });
+    const scopedPluginId = machineScopedPluginId(remote.id, "remote-tools");
+    expect(manifestResponse.statusCode).toBe(200);
+    expect(manifestResponse.json()).toEqual({
+      plugins: [{ id: "remote-tools", module: `/pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local" }],
+    });
+    expect(requestJson).toHaveBeenCalledWith("GET", "/pi-web-plugins/manifest.json", undefined, { timeoutMs: 10000 });
+
+    const assetResponse = await app.inject({ method: "GET", url: `/pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123` });
+    expect(assetResponse.statusCode).toBe(200);
+    expect(assetResponse.headers["content-type"]).toContain("application/javascript");
+    expect(assetResponse.headers["set-cookie"]).toBeUndefined();
+    expect(assetResponse.body).toBe("export default {};");
+    expect(request).toHaveBeenCalledWith("GET", "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123");
+  });
+
+  it("drops unsafe remote machine plugin manifest modules", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    remoteClient = fakeRemoteClient({
+      requestJson: vi.fn(() => Promise.resolve({
+        statusCode: 200,
+        headers: { "content-type": "application/json" },
+        body: {
+          plugins: [
+            { id: "safe-tools", module: "nested/pi-web-plugin.js?v=1", source: "local", scope: "local" },
+            { id: "traversal-tools", module: "..%2F..%2Fapi%2Fconfig", source: "local", scope: "local" },
+            { id: "wrong-root", module: "/pi-web-plugins/other/pi-web-plugin.js", source: "local", scope: "local" },
+          ],
+        },
+      })),
+    });
+
+    const manifestResponse = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/pi-web-plugins/manifest.json` });
+
+    expect(manifestResponse.statusCode).toBe(200);
+    expect(manifestResponse.json()).toEqual({
+      plugins: [{ id: "safe-tools", module: `/pi-web-plugins/${machineScopedPluginId(remote.id, "safe-tools")}/nested/pi-web-plugin.js?v=1`, source: "local", scope: "local" }],
+    });
+  });
+
+  it("rejects remote machine plugin asset traversal before proxying", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const request = vi.fn(() => Promise.resolve({ statusCode: 200, headers: {}, body: Readable.from([]) }));
+    remoteClient = fakeRemoteClient({ request });
+    const scopedPluginId = machineScopedPluginId(remote.id, "remote-tools");
+
+    const response = await app.inject({ method: "GET", url: `/pi-web-plugins/${scopedPluginId}/..%2F..%2Fapi%2Fconfig` });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Invalid remote PI WEB plugin asset path" });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("returns stable errors for invalid project requests", async () => {

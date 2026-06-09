@@ -1,11 +1,13 @@
+import { html } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SessionInfo, Workspace } from "../api";
+import type { FileContentResponse, SessionInfo, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
+import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { corePlugin } from "./core";
 import { PluginRegistry } from "./registry";
 import { themePackPlugin } from "./themes";
-import type { PluginRuntimeContext, ThemeTokens } from "./types";
+import type { PluginRuntimeContext, ThemeTokens, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "./types";
 
 const originalWindow = globalThis.window;
 
@@ -195,17 +197,17 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["refreshGit"]);
   });
 
-  it("routes app refresh, reload, and settings actions through the runtime context", () => {
+  it("routes app reload and settings actions through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });
     const { context, calls } = createContext();
     const actions = registry.getActions(context);
 
-    void actions.find((candidate) => candidate.id === "core:app.refresh-data")?.run();
+    expect(actions.some((candidate) => candidate.id === "core:app.refresh-data")).toBe(false);
     void actions.find((candidate) => candidate.id === "core:app.reload-page")?.run();
     void actions.find((candidate) => candidate.id === "core:settings.open")?.run();
 
-    expect(calls).toEqual(["refreshAppData", "reloadPage", "openSettings"]);
+    expect(calls).toEqual(["reloadPage", "openSettings"]);
   });
 
   it("exposes terminal navigation as a shortcut-backed action", () => {
@@ -240,6 +242,7 @@ describe("PluginRegistry", () => {
 
     expect(shortcuts).toEqual([
       ["core:actions.show", "mod+k"],
+      ["core:prompt.focus", "mod+g c"],
       ["core:settings.open", "mod+,"],
       ["core:view.chat", "mod+1"],
       ["core:view.files", "mod+2"],
@@ -318,15 +321,204 @@ describe("PluginRegistry", () => {
       },
     });
 
-    expect(registry.getWorkspaceLabelItems(initialAppState(), workspace)).toEqual([
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("local", workspace))).toEqual([
       { type: "link", text: "web", href: "http://localhost:5173" },
       { type: "text", text: "last" },
     ]);
+  });
+
+  it("passes workspace label file and host helpers to callbacks", () => {
+    const registry = new PluginRegistry();
+    const workspace = testWorkspace();
+    const readFile = vi.fn<WorkspaceFiles["readFile"]>(() => Promise.resolve(testFileContent("docker/development.be-go.local.env")));
+    const requestRender = vi.fn<WorkspaceHost["requestRender"]>();
+    const visible = vi.fn<(context: WorkspaceLabelContext) => boolean>(() => true);
+    const items = vi.fn<(context: WorkspaceLabelContext) => WorkspaceLabelItem[]>((context) => {
+      void context.files.readFile("docker/development.be-go.local.env");
+      context.host.requestRender();
+      return [{ type: "text", text: context.machine.id }];
+    });
+    const context = createWorkspaceLabelContext("remote-1", workspace, { files: { readFile }, host: { requestRender } });
+
+    registry.register({
+      id: "example",
+      plugin: {
+        apiVersion: 1,
+        name: "Example",
+        activate: () => ({
+          contributions: {
+            workspaceLabels: [{ id: "env", visible, items }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getWorkspaceLabelItems(context)).toEqual([{ type: "text", text: "remote-1" }]);
+    expect(visible).toHaveBeenCalledWith(context);
+    expect(items).toHaveBeenCalledWith(context);
+    expect(readFile).toHaveBeenCalledWith("docker/development.be-go.local.env");
+    expect(requestRender).toHaveBeenCalledOnce();
+  });
+
+  it("only exposes machine-scoped plugin contributions for their machine", () => {
+    const registry = new PluginRegistry();
+    const pluginId = machineScopedPluginId("remote-1", "project-tools");
+    const workspace = testWorkspace();
+    registry.register({
+      id: pluginId,
+      machineId: "remote-1",
+      sourcePluginId: "project-tools",
+      plugin: {
+        apiVersion: 1,
+        name: "Project Tools",
+        activate: () => ({
+          contributions: {
+            actions: [{ id: "do-thing", title: "Do Thing", run: () => undefined }],
+            workspacePanels: [{ id: "workspace.tools", title: "Tools", render: () => html`<p>Tools</p>` }],
+            workspaceLabels: [{ id: "badge", items: () => [{ type: "text", text: "remote" }] }],
+            themes: [{ id: "remote-theme", name: "Remote Theme", colorScheme: "dark", tokens: testThemeTokens() }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getActions(createContext().context).map((action) => action.id)).not.toContain(`${pluginId}:do-thing`);
+    expect(registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id)).toContain(`${pluginId}:do-thing`);
+
+    const panel = registry.getWorkspacePanels().find((candidate) => candidate.id === `${pluginId}:workspace.tools`);
+    expect(panel?.visible?.(createWorkspacePanelContext("local"))).toBe(false);
+    expect(panel?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(true);
+
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("local", workspace))).toEqual([]);
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("remote-1", workspace))).toEqual([{ type: "text", text: "remote" }]);
+    expect(registry.getThemes()).toEqual([]);
+  });
+
+  it("prefers gateway plugins over remote plugins with the same source id", () => {
+    const registry = new PluginRegistry();
+    const remotePluginId = machineScopedPluginId("remote-1", "shared-tools");
+    const workspace = testWorkspace();
+    registry.register({
+      id: remotePluginId,
+      machineId: "remote-1",
+      sourcePluginId: "shared-tools",
+      plugin: {
+        apiVersion: 1,
+        name: "Remote Shared Tools",
+        activate: () => ({
+          contributions: {
+            actions: [{ id: "remote-action", title: "Remote Action", run: () => undefined }],
+            workspacePanels: [{ id: "workspace.remote", title: "Remote", render: () => html`<p>Remote</p>` }],
+            workspaceLabels: [{ id: "remote-label", items: () => [{ type: "text", text: "remote" }] }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id)).toContain(`${remotePluginId}:remote-action`);
+
+    registry.register({
+      id: "shared-tools",
+      plugin: {
+        apiVersion: 1,
+        name: "Gateway Shared Tools",
+        activate: () => ({
+          contributions: {
+            actions: [{ id: "gateway-action", title: "Gateway Action", run: () => undefined }],
+            workspacePanels: [{ id: "workspace.gateway", title: "Gateway", render: () => html`<p>Gateway</p>` }],
+            workspaceLabels: [{ id: "gateway-label", items: () => [{ type: "text", text: "gateway" }] }],
+          },
+        }),
+      },
+    });
+
+    const remoteActions = registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id);
+    expect(remoteActions).toContain("shared-tools:gateway-action");
+    expect(remoteActions).not.toContain(`${remotePluginId}:remote-action`);
+
+    const panels = registry.getWorkspacePanels();
+    expect(panels.find((panel) => panel.id === `${remotePluginId}:workspace.remote`)?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(false);
+    expect(panels.find((panel) => panel.id === "shared-tools:workspace.gateway")?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(true);
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("remote-1", workspace))).toEqual([{ type: "text", text: "gateway" }]);
+  });
+
+  it("does not activate remote duplicates when the gateway plugin is already registered", () => {
+    const registry = new PluginRegistry();
+    const remoteActivate = vi.fn(() => ({ contributions: { actions: [{ id: "remote-action", title: "Remote Action", run: () => undefined }] } }));
+    registry.register({ id: "shared-tools", plugin: { apiVersion: 1, name: "Gateway Shared Tools", activate: () => ({ contributions: {} }) } });
+
+    registry.register({
+      id: machineScopedPluginId("remote-1", "shared-tools"),
+      machineId: "remote-1",
+      sourcePluginId: "shared-tools",
+      plugin: { apiVersion: 1, name: "Remote Shared Tools", activate: remoteActivate },
+    });
+
+    expect(remoteActivate).not.toHaveBeenCalled();
   });
 });
 
 function testWorkspace(patch: Partial<Workspace> = {}): Workspace {
   return { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false, ...patch };
+}
+
+function createWorkspaceLabelContext(machineId: string, workspace = testWorkspace(), helpers: Partial<Pick<WorkspaceLabelContext, "files" | "host">> = {}): WorkspaceLabelContext {
+  const files: WorkspaceFiles = helpers.files ?? { readFile: vi.fn<WorkspaceFiles["readFile"]>(() => Promise.resolve(testFileContent())) };
+  const host: WorkspaceHost = helpers.host ?? { requestRender: vi.fn<WorkspaceHost["requestRender"]>() };
+  return {
+    machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
+    workspace,
+    state: { ...initialAppState(), selectedMachine: testMachine(machineId) },
+    files,
+    host,
+  };
+}
+
+function createWorkspacePanelContext(machineId: string): WorkspacePanelContext {
+  const workspace = testWorkspace();
+  return {
+    machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
+    workspace,
+    state: { ...initialAppState(), selectedMachine: testMachine(machineId) },
+    files: { readFile: vi.fn() },
+    terminal: { open: vi.fn(), runCommand: vi.fn() },
+    host: { requestRender: vi.fn() },
+    fileTree: [],
+    expandedDirs: {},
+    selectedFilePath: undefined,
+    selectedFileContent: undefined,
+    fileTreeStale: false,
+    gitStatus: undefined,
+    selectedDiffPath: undefined,
+    selectedDiff: undefined,
+    selectedStagedDiff: undefined,
+    gitStale: false,
+    activeTerminalCount: 0,
+    selectedTerminalId: undefined,
+    terminalAutoStart: false,
+    onRefreshFiles: vi.fn(),
+    onExpandDir: vi.fn(),
+    onSelectFile: vi.fn(),
+    onRefreshGit: vi.fn(),
+    onSelectDiff: vi.fn(),
+    onSelectTerminal: vi.fn(),
+  };
+}
+
+function testFileContent(path = "README.md"): FileContentResponse {
+  return {
+    path,
+    encoding: "utf8",
+    size: 0,
+    modifiedAt: "2026-05-20T00:00:00.000Z",
+    content: "",
+    truncated: false,
+    binary: false,
+  };
+}
+
+function testMachine(id: string) {
+  return { id, name: id, kind: id === "local" ? "local" as const : "remote" as const, createdAt: "2026-05-20T00:00:00.000Z", updatedAt: "2026-05-20T00:00:00.000Z" };
 }
 
 function testSession(patch: Partial<SessionInfo> = {}): SessionInfo {

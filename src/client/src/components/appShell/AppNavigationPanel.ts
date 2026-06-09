@@ -1,11 +1,17 @@
 import { LitElement, css, html } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, query } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
 import type { WorkspaceLabelItem } from "../../plugins/types";
+import type { NavigationSection } from "../../appShell/navigationState";
+import { NAVIGATION_SECTION_ORDER } from "../../appShell/navigationState";
+import type { KeyboardNavigableSection } from "../navigationFocus";
 import "../MachineList";
+import "../MachineSwitcher";
 import "../ProjectList";
 import "../WorkspaceList";
 import "../SessionList";
+
+export type NavigationFocusTarget = NavigationSection | "chat";
 
 @customElement("app-navigation-panel")
 export class AppNavigationPanel extends LitElement {
@@ -27,6 +33,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
   @property({ attribute: false }) refreshControl: unknown;
   @property({ type: Boolean, reflect: true }) collapsible = false;
+  @property({ type: Boolean, reflect: true }) compact = false;
   @property({ type: Boolean }) machinesCollapsed = false;
   @property({ type: Boolean }) projectsCollapsed = false;
   @property({ type: Boolean }) workspacesCollapsed = false;
@@ -51,17 +58,47 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onArchivedCollapsed?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectMachine?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onRemoveMachine?: (machine: Machine) => void | Promise<void>;
+  @property({ attribute: false }) onFocusNavigationTarget?: (target: NavigationFocusTarget) => void | Promise<void>;
+  @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
+
+  @query("machine-list") private machineList?: KeyboardNavigableSection;
+  @query("machine-switcher") private machineSwitcher?: KeyboardNavigableSection;
+  @query("project-list") private projectList?: KeyboardNavigableSection;
+  @query("workspace-list") private workspaceList?: KeyboardNavigableSection;
+  @query("session-list") private sessionList?: KeyboardNavigableSection;
+
+  async focusSection(section: NavigationSection): Promise<boolean> {
+    await this.updateComplete;
+    switch (section) {
+      case "machines": return await this.focusNavigableSection(this.compact ? this.machineList : this.machineSwitcher);
+      case "projects": return await this.focusNavigableSection(this.projectList);
+      case "workspaces": return await this.focusNavigableSection(this.workspaceList);
+      case "sessions": return await this.focusNavigableSection(this.sessionList);
+    }
+  }
 
   override render() {
     return html`
       <header>
         <strong>PI WEB</strong>
+        ${shouldShowMachinesSection(this.machines) ? html`
+          <machine-switcher
+            .machines=${this.machines}
+            .selected=${this.selectedMachine}
+            .statuses=${this.machineStatuses}
+            .activities=${this.machineActivities}
+            .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
+            .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}
+            .onFocusNextSection=${() => { this.focusNextFrom("machines"); }}
+            .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
+          ></machine-switcher>
+        ` : null}
         <div class="header-actions">
           ${this.refreshControl}
           <button title="显示操作" aria-label="显示操作" @click=${() => { this.onShowActions?.(); }}>操作</button>
         </div>
       </header>
-      ${shouldShowMachinesSection(this.machines) ? html`
+      ${this.compact && shouldShowMachinesSection(this.machines) ? html`
         <machine-list
           .machines=${this.machines}
           .selected=${this.selectedMachine}
@@ -72,6 +109,8 @@ export class AppNavigationPanel extends LitElement {
           .onToggleCollapsed=${() => { this.onToggleMachines?.(); }}
           .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
           .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}
+          .onFocusNextSection=${() => { this.focusNextFrom("machines"); }}
+          .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
         ></machine-list>
       ` : null}
       <project-list
@@ -84,6 +123,9 @@ export class AppNavigationPanel extends LitElement {
         .onToggleCollapsed=${() => { this.onToggleProjects?.(); }}
         .onSelect=${(project: Project) => this.onSelectProject?.(project)}
         .onClose=${(project: Project) => this.onCloseProject?.(project)}
+        .onFocusPreviousSection=${() => { this.focusPreviousFrom("projects"); }}
+        .onFocusNextSection=${() => { this.focusNextFrom("projects"); }}
+        .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></project-list>
       <workspace-list
         .workspaces=${this.workspaces}
@@ -96,6 +138,9 @@ export class AppNavigationPanel extends LitElement {
         .onToggleCollapsed=${() => { this.onToggleWorkspaces?.(); }}
         .onSelect=${(workspace: Workspace) => this.onSelectWorkspace?.(workspace)}
         .onDelete=${(workspace: Workspace) => this.onDeleteWorkspace?.(workspace)}
+        .onFocusPreviousSection=${() => { this.focusPreviousFrom("workspaces"); }}
+        .onFocusNextSection=${() => { this.focusNextFrom("workspaces"); }}
+        .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></workspace-list>
       <session-list
         .sessions=${this.sessions}
@@ -114,30 +159,71 @@ export class AppNavigationPanel extends LitElement {
         .onRestore=${(session: SessionInfo) => this.onRestoreSession?.(session)}
         .onDelete=${(session: SessionInfo) => this.onDeleteCachedNewSession?.(session)}
         .onDetachParent=${(session: SessionInfo) => this.onDetachParentSession?.(session)}
+        .onFocusPreviousSection=${() => { this.focusPreviousFrom("sessions"); }}
+        .onFocusNextSection=${() => { this.focusNextFrom("sessions"); }}
+        .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></session-list>
     `;
   }
 
+  private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {
+    if (section === undefined) return false;
+    return await section.focusSelectedOrFirst();
+  }
+
+  private focusPreviousFrom(section: NavigationSection): void {
+    const target = previousVisibleNavigationTarget(section, this.machines);
+    if (target !== undefined) void this.onFocusNavigationTarget?.(target);
+  }
+
+  private focusNextFrom(section: NavigationSection): void {
+    void this.onFocusNavigationTarget?.(nextVisibleNavigationTarget(section, this.machines));
+  }
+
+  private cancelKeyboardNavigation(): void {
+    void this.onCancelKeyboardNavigation?.();
+  }
+
   static override styles = css`
     :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-    :host([collapsible]) { flex: 1 1 auto; }
+    :host([compact]) { flex: 1 1 auto; }
     header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
-    :host([collapsible]) header { display: none; }
-    .header-actions { display: flex; align-items: center; gap: 8px; }
+    header strong { flex: 0 0 auto; }
+    machine-switcher { flex: 1 1 auto; min-width: 0; }
+    :host([compact]) header { display: none; }
+    .header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
     machine-list, project-list, workspace-list { flex: 0 0 auto; max-height: 26%; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
     session-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-    :host([collapsible]) machine-list,
-    :host([collapsible]) project-list,
-    :host([collapsible]) workspace-list,
-    :host([collapsible]) session-list { flex: 1 1 auto; max-height: none; min-height: 0; overflow: hidden; }
-    :host([collapsible]) machine-list[collapsed],
-    :host([collapsible]) project-list[collapsed],
-    :host([collapsible]) workspace-list[collapsed],
-    :host([collapsible]) session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
+    machine-list[collapsed],
+    project-list[collapsed],
+    workspace-list[collapsed],
+    session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
+    :host([compact]) machine-list,
+    :host([compact]) project-list,
+    :host([compact]) workspace-list,
+    :host([compact]) session-list { flex: 1 1 auto; max-height: none; min-height: 0; overflow: hidden; }
+    :host([compact]) machine-list[collapsed],
+    :host([compact]) project-list[collapsed],
+    :host([compact]) workspace-list[collapsed],
+    :host([compact]) session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   `;
 }
 
 export function shouldShowMachinesSection(machines: readonly Machine[]): boolean {
   return machines.length > 1;
+}
+
+function previousVisibleNavigationTarget(section: NavigationSection, machines: readonly Machine[]): NavigationSection | undefined {
+  const sections = visibleNavigationSections(machines);
+  return sections[sections.indexOf(section) - 1];
+}
+
+function nextVisibleNavigationTarget(section: NavigationSection, machines: readonly Machine[]): NavigationFocusTarget {
+  const sections = visibleNavigationSections(machines);
+  return sections[sections.indexOf(section) + 1] ?? "chat";
+}
+
+function visibleNavigationSections(machines: readonly Machine[]): NavigationSection[] {
+  return NAVIGATION_SECTION_ORDER.filter((section) => section !== "machines" || shouldShowMachinesSection(machines));
 }

@@ -56,7 +56,7 @@ export const appStyles = css`
   @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
     :host { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
   }
-  .shell { --navigation-panel-width: 340px; --workspace-panel-width: minmax(360px, 42vw); display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(420px, 1fr) 1px var(--workspace-panel-width); height: 100%; min-height: 0; }
+  .shell { --navigation-panel-size: 340px; --workspace-panel-size: minmax(360px, 42vw); --navigation-panel-width: var(--navigation-panel-size); --workspace-panel-width: var(--workspace-panel-size); display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(320px, 1fr) 1px var(--workspace-panel-width); height: 100%; min-height: 0; }
   aside { grid-column: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
@@ -75,14 +75,6 @@ export const appStyles = css`
   .context-item { flex: 0 0 auto; min-width: 0; display: flex; }
   .context-actions { position: absolute; top: 6px; right: 0; bottom: 6px; z-index: 3; display: flex; align-items: center; padding: 0 8px 0 0; pointer-events: none; }
   .context-actions::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; z-index: 0; width: 26px; background: var(--pi-bg); pointer-events: none; }
-  .app-refresh { position: relative; z-index: 1; display: flex; align-items: center; pointer-events: auto; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-  .app-refresh, .app-refresh * { -webkit-user-select: none; user-select: none; }
-  .app-refresh-button { box-sizing: border-box; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 999px; padding: 0; line-height: 1; touch-action: manipulation; -webkit-touch-callout: none; }
-  .app-refresh-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  .app-refresh-button.refreshing .app-refresh-icon { animation: app-refresh-spin .8s linear infinite; }
-  .app-refresh-menu { position: fixed; z-index: 10000; box-sizing: border-box; min-width: min(170px, calc(100vw - 16px)); overflow: auto; padding: 4px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); box-shadow: 0 8px 24px var(--pi-shadow); overflow-wrap: anywhere; }
-  .app-refresh-menu button { display: block; width: 100%; border: 0; background: transparent; color: var(--pi-text); text-align: left; white-space: normal; overflow-wrap: anywhere; }
-  .app-refresh-menu button:hover, .app-refresh-menu button:focus { background: var(--pi-selection-bg); }
   .context-chip { flex: 0 0 auto; min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 8px; font: inherit; text-align: left; }
   .context-chip:hover { background: var(--pi-surface-hover); }
   .context-chip:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
@@ -155,7 +147,6 @@ export const appStyles = css`
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
   .error { padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }
-  @keyframes app-refresh-spin { to { transform: rotate(360deg); } }
 `;
 
 export const workspacePanelStyles = css`
@@ -186,10 +177,7 @@ export const workspacePanelStyles = css`
   .empty-state h2 { margin: 0; color: var(--pi-text); font-size: 15px; line-height: 1.3; }
   .empty-state p { margin: 0; line-height: 1.45; }
   small, .muted { color: var(--pi-muted); }
-  header small { flex: 0 0 auto; min-width: max-content; overflow: visible; text-overflow: clip; white-space: nowrap; }
-  header .workspace-label { width: max-content; max-width: none; overflow: visible; }
-  header .workspace-label-base, header .workspace-label-item, header .workspace-label-render { overflow: visible; text-overflow: clip; }
-  @media (max-width: 1180px) { .tabs { display: none; } }
+  @media (max-width: 1180px) { header { display: none; } }
   .workspace-label { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; }
   .workspace-label-base, .workspace-label-item, .workspace-label-render { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .workspace-label-item, .workspace-label-render, .workspace-label-separator { color: var(--pi-muted); }
@@ -240,12 +228,11 @@ export const listStyles = css`
   .action-row:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; border-radius: 8px; }
   .action-row.selected .action-main, .action-row.selected .action-menu-toggle { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
   .action-row.archived .action-main { color: var(--pi-muted); }
-  .action-main { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid var(--pi-border); border-top-right-radius: 0; border-bottom-right-radius: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px 7px calc(9px + var(--depth, 0) * 16px); text-align: left; }
+  .action-main { position: relative; box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid var(--pi-border); border-top-right-radius: 0; border-bottom-right-radius: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 22px 7px calc(9px + var(--depth, 0) * 16px); text-align: left; }
   .action-name { display: -webkit-box; max-height: 2.5em; overflow: hidden; overflow-wrap: anywhere; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .action-row:not(.selected):hover .action-main { background: var(--pi-surface-hover); }
   .workspace-row .action-main { border-radius: 8px 0 0 8px; }
   .workspace-primary { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
-  .workspace-primary .activity-indicator { flex: 0 0 auto; margin-right: 0; }
   .workspace-primary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workspace-status { flex: 0 0 auto; color: var(--pi-warning); font-size: 12px; }
   .workspace-secondary { margin-top: 3px; }
@@ -259,6 +246,8 @@ export const listStyles = css`
   .workspace-detail-row dd { min-width: 0; margin: 0; overflow-wrap: anywhere; white-space: normal; }
   .tree-marker { color: var(--pi-dim); margin-right: 5px; }
   .badge { display: inline-block; margin-left: 5px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; }
+  .action-activity { position: absolute; top: 5px; right: 6px; z-index: 1; display: grid; place-items: center; width: 10px; height: 10px; }
+  .action-activity .activity-indicator { margin: 0; vertical-align: 0; }
   .activity-indicator { display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--pi-success); animation: pulse 1s ease-in-out infinite; vertical-align: 1px; }
   .activity-indicator.session { border-radius: 50%; background: var(--pi-success); }
   .activity-indicator.terminal { border-radius: 2px; background: var(--pi-accent); }
@@ -396,14 +385,8 @@ export const formattedTextStyles = css`
 
 export const statusBarStyles = css`
   :host { display: block; color: var(--pi-muted); font: 12px system-ui, sans-serif; }
-  .bar { display: flex; gap: 12px; align-items: center; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--pi-border); background: var(--pi-bg); white-space: nowrap; overflow: hidden; }
-  span { overflow: hidden; text-overflow: ellipsis; }
-  .workspace-label { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; }
-  .workspace-label-base, .workspace-label-item, .workspace-label-render { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .workspace-label-item, .workspace-label-render, .workspace-label-separator { color: var(--pi-muted); }
-  .workspace-label-link { color: var(--pi-accent); text-decoration: none; }
-  .workspace-label-link:hover, .workspace-label-link:focus { text-decoration: underline; }
-  .bar > span:first-child { flex: 1 1 auto; min-width: 80px; }
+  .bar { display: flex; justify-content: flex-end; gap: 12px; align-items: center; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--pi-border); background: var(--pi-bg); white-space: nowrap; overflow: hidden; }
+  span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .activity { display: inline-flex; align-items: center; gap: 6px; color: var(--pi-muted); }
   .activity.active { color: var(--pi-success); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }

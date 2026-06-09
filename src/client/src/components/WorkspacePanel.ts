@@ -1,9 +1,8 @@
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Workspace } from "../api";
-import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
+import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspacePanelContext } from "../plugins/types";
 import { workspacePanelStyles } from "./shared";
-import { renderWorkspaceLabel } from "./workspaceLabel";
 
 export interface WorkspacePanelEmptyState {
   title: string;
@@ -19,7 +18,6 @@ export class WorkspacePanel extends LitElement {
   @property({ attribute: false }) emptyState: WorkspacePanelEmptyState | undefined;
   @property() tool: QualifiedContributionId = "core:workspace.files";
   @property({ attribute: false }) panels: QualifiedWorkspacePanelContribution[] = [];
-  @property({ attribute: false }) workspaceLabelItems: WorkspaceLabelItem[] = [];
   @property({ type: Boolean }) hideToolTabs = false;
   @property({ attribute: false }) onSelectTool: (tool: QualifiedContributionId) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
@@ -63,10 +61,10 @@ export class WorkspacePanel extends LitElement {
     const visiblePanels = this.panels;
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
     return html`
-      <header>
-        <div class=${this.workspaceHeaderFrameClass()}>
-          <div class="workspace-header-strip" @scroll=${this.onWorkspaceHeaderScroll}>
-            ${this.hideToolTabs ? null : html`
+      ${this.hideToolTabs ? null : html`
+        <header>
+          <div class=${this.workspaceHeaderFrameClass()}>
+            <div class="workspace-header-strip" @scroll=${this.onWorkspaceHeaderScroll}>
               <div class="tabs">
                 ${visiblePanels.map((panel) => {
                   const selected = selectedPanel?.id === panel.id;
@@ -79,11 +77,10 @@ export class WorkspacePanel extends LitElement {
                   `;
                 })}
               </div>
-            `}
-            <small>${renderWorkspaceLabel(workspace.label, this.workspaceLabelItems, workspace.path)}</small>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      `}
       ${selectedPanel === undefined ? this.renderEmptyState({
         title: "没有可用的工作区工具",
         body: "此工作区没有可用工具。",

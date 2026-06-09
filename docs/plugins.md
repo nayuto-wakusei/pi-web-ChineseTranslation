@@ -22,7 +22,7 @@ Plugins run as JavaScript in the browser app. Treat them as trusted code:
 - they can render arbitrary Lit templates/custom elements in plugin contribution areas;
 - they should not be installed from untrusted sources.
 
-PI WEB's `/api/...` HTTP and WebSocket endpoints are internal implementation details. Plugin code should not fetch PI WEB API endpoints directly; use the documented context helpers instead.
+PI WEB's `/api/...` HTTP and WebSocket endpoints are internal implementation details. Plugin code should use the documented context helpers instead. Daring plugins can still reach private routes or runtime objects because they run in the browser, but those private surfaces are experimental: they may graduate into stable helpers, change shape, or disappear.
 
 ## What to ask AI to build
 
@@ -129,9 +129,30 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/plugin-id
 
 Reload the PI WEB browser tab. PI WEB serves plugin modules with an mtime-based `?v=` cache buster. After editing a plugin, hard reload the browser if you do not see changes.
 
+## Remote machine plugins
+
+When [machine federation](https://pi-web.dev/machines.html) is enabled, PI WEB also loads discovered plugins from the selected remote machine. Remote plugins are trusted browser-side code like local plugins, but their contributions are machine-scoped:
+
+- actions, workspace panels, and workspace labels only appear while that machine is selected;
+- plugin file and terminal helpers run against that machine;
+- plugin code is loaded best-effort through the current gateway and cached for the browser page lifetime;
+- if the gateway already has an enabled plugin with the same original id, the gateway plugin wins and the remote duplicate stays hidden;
+- remote theme contributions are ignored for now because themes are app-wide;
+- mixed PI WEB versions across federated machines are best-effort and not guaranteed compatible.
+
+Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable a remote machine plugin, open that machine directly or update its config file.
+
+For portable plugin assets, prefer URLs relative to the plugin module, for example:
+
+```js
+const url = new URL("./asset.json", import.meta.url);
+```
+
+If a remote plugin constructs absolute asset URLs, it should use the `pluginId` from `activate()` because PI WEB gives remote plugins a gateway-scoped runtime id. Hard-coded `/pi-web-plugins/<original-id>/...` URLs may point at the gateway instead of the remote machine.
+
 ## Manage plugins
 
-Open **Settings → Plugins** to review discovered bundled, local, dev, and Pi package plugins. PI WEB can disable any discovered plugin before the browser imports it. Core app contributions such as the built-in command palette, base workspace tools, and themes are not managed through this plugin list.
+Open **Settings → Plugins** to review discovered bundled, local, dev, and Pi package plugins for the PI WEB gateway you opened. PI WEB can disable any discovered gateway plugin before the browser imports it. Core app contributions such as the built-in command palette, base workspace tools, and themes are not managed through this plugin list.
 
 Plugin preferences are stored under the top-level `plugins` config key in the PI WEB config file:
 
@@ -161,7 +182,7 @@ Built-in plugins can be managed from **Settings → Plugins** or with the top-le
 
 ### Updates
 
-**Plugin id:** `updates`  
+**Plugin id:** `updates`
 **What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance.
 
 Updates is enabled by default. To hide it, disable `updates` in **Settings → Plugins** or set:
@@ -176,8 +197,8 @@ Updates is enabled by default. To hide it, disable `updates` in **Settings → P
 
 ### Workspace Tasks
 
-**Plugin id:** `workspace-tasks`  
-**Config file:** `.pi-web/tasks.json`  
+**Plugin id:** `workspace-tasks`
+**Config file:** `.pi-web/tasks.json`
 **What it does:** adds a **Tasks** workspace tab for running configured shell commands in dedicated PI WEB terminals.
 
 Workspace Tasks is enabled by default. To hide it, disable `workspace-tasks` in **Settings → Plugins** or set:
@@ -231,7 +252,7 @@ Review task configs before running them, especially in shared projects. Workspac
 
 ## Discovery and packaging
 
-PI WEB builds `/pi-web-plugins/manifest.json` from these sources:
+PI WEB builds the gateway `/pi-web-plugins/manifest.json` from these sources:
 
 1. Bundled plugins in the PI WEB package:
 
@@ -248,6 +269,8 @@ PI WEB builds `/pi-web-plugins/manifest.json` from these sources:
    Entries may be real directories or symlinks. This is the recommended development workflow.
 
 3. Installed Pi packages that expose PI WEB plugin metadata. Pi packages may be user or project scoped.
+
+Remote machines expose their own manifests through the gateway at `/api/machines/<machine-id>/pi-web-plugins/manifest.json`. Those plugin modules are rewritten to gateway-scoped asset URLs and registered under machine-scoped runtime ids so duplicate plugin ids on different machines do not collide.
 
 Plugin package directory names and plugin ids must be valid identifiers:
 
@@ -428,7 +451,7 @@ Notes:
 
 - `state` is a snapshot of current UI state when actions are built.
 - The stable state fields are `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`.
-- Other `state` fields may exist at runtime, but they are PI WEB internals and can change quickly.
+- Other `state` fields may exist at runtime, but they are private PI WEB internals that may graduate into stable helpers, change shape, or disappear.
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.
@@ -511,6 +534,8 @@ interface WorkspacePanelContext {
 
 `machine`, `workspace`, `files`, `terminal`, and `host` are documented as stable for panel callbacks. Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
 
+For compatibility, PI WEB still provides the old `context.openTerminal()` workspace-panel helper at runtime. It is deprecated, intentionally omitted from the public TypeScript declarations, and planned for removal in v2. Existing JavaScript plugins keep working, while typed plugins should migrate to `context.terminal.open()`.
+
 Useful workspace and machine shapes:
 
 ```ts
@@ -573,12 +598,18 @@ interface WorkspaceLabelContext {
   machine: PluginMachine;
   workspace: Workspace;
   state?: PluginRuntimeState;
+  files: {
+    readFile(path: string): Promise<FileContentResponse>;
+  };
+  host: {
+    requestRender(): void;
+  };
 }
 ```
 
-`machine` and `workspace` are documented as stable for label callbacks. Include `machine.id` in any label caches that depend on workspace data.
+`machine`, `workspace`, `files`, and `host` are documented as stable for label callbacks. Include `machine.id` in any label caches that depend on workspace data. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate label `visible` or `items` callbacks.
 
-Items are sorted by `order` and then id. Return an empty array to render nothing.
+Items are sorted by `order` and then id. Return an empty array to render nothing. Keep callbacks synchronous and lightweight; start async work from the callback, return cached items, then call `host.requestRender()` when the cache changes.
 
 #### Text items
 
@@ -638,7 +669,7 @@ export default {
 
 ## Reading workspace files
 
-Workspace panels can read files through the documented `files` helper. PI WEB binds this helper to the panel's machine and workspace, so it works the same for local and federated machines.
+Workspace panels and workspace labels can read files through the documented `files` helper. PI WEB binds this helper to the callback's machine and workspace, so it works the same for local and federated machines.
 
 ```js
 workspacePanels: [
@@ -668,6 +699,51 @@ class MyEnvViewer extends HTMLElement {
 }
 ```
 
+Labels should use the same helper through a plugin-owned cache because `items()` itself must return synchronously:
+
+```js
+const envCache = new Map();
+
+function envKey(machine, workspace) {
+  return `${machine.id}:${workspace.id}:docker/development.be-go.local.env`;
+}
+
+function loadEnvLabel(context) {
+  const key = envKey(context.machine, context.workspace);
+  const cached = envCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const pending = { status: "loading", label: undefined };
+  envCache.set(key, pending);
+  context.files.readFile("docker/development.be-go.local.env")
+    .then((file) => {
+      pending.status = "ready";
+      pending.label = file.content.match(/^DEV_URL=(.+)$/m)?.[1];
+      context.host.requestRender();
+    })
+    .catch(() => {
+      pending.status = "missing";
+      context.host.requestRender();
+    });
+  return pending;
+}
+
+workspaceLabels: [
+  {
+    id: "dev-url",
+    items: (context) => {
+      const cached = loadEnvLabel(context);
+      return cached.label === undefined ? [] : [{
+        type: "link",
+        text: cached.label,
+        href: cached.label,
+        target: "_blank",
+      }];
+    },
+  },
+]
+```
+
 The file response includes fields such as `path`, `content`, `truncated`, and `binary`. Be careful with sensitive files such as `.env`: plugins are trusted browser code, and file contents are exposed to the plugin.
 
 ## Running workspace terminal commands
@@ -687,9 +763,9 @@ render: ({ terminal }) => html`
 
 Review command strings carefully. They are trusted shell commands executed in the workspace terminal.
 
-## Internal PI WEB APIs and explicit unstable opt-in
+## Private and experimental PI WEB APIs
 
-PI WEB's `/api/...` HTTP and WebSocket routes are private implementation details. Plugin code should not fetch PI WEB API endpoints directly because those URLs, response shapes, and machine-federation routing rules can change.
+PI WEB's `/api/...` HTTP and WebSocket routes and runtime-only fields are private implementation details. They exist because plugins are trusted browser code, and because some capabilities may be evaluated there before they are designed as stable helpers.
 
 If a plugin author deliberately chooses to depend on an unstable runtime field while a public helper is still being designed, make that decision explicit in code with a type-only unstable import and a local type assertion:
 

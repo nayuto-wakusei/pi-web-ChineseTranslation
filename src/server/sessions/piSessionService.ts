@@ -58,6 +58,17 @@ interface QueuedPrompt {
   text: string;
 }
 
+function requirePromptText(value: unknown): string {
+  if (typeof value !== "string") throw new Error("Prompt text is required");
+  return value;
+}
+
+function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefined {
+  if (value === undefined) return undefined;
+  if (value === "steer" || value === "followUp") return value;
+  throw new Error('Prompt streamingBehavior must be "steer" or "followUp"');
+}
+
 type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived">;
 interface PiSessionListEntry {
   id: string;
@@ -652,22 +663,24 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async prompt(sessionId: string, text: string, streamingBehavior?: "steer" | "followUp", managementContext?: ManagementEmbedContext): Promise<void> {
+  async prompt(sessionId: string, text: unknown, streamingBehavior?: unknown, managementContext?: ManagementEmbedContext): Promise<void> {
+    const promptText = requirePromptText(text);
+    const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
     await this.assertWritable(sessionId);
     const session = await this.getOrOpen(sessionId, managementContext);
-    this.maybeGenerateSessionName(session, text);
+    this.maybeGenerateSessionName(session, promptText);
     const isQueued = session.isStreaming || session.isCompacting;
-    const behavior = isQueued ? streamingBehavior ?? "followUp" : undefined;
-    if (isQueued && this.hasQueuedMessageText(session, text)) {
+    const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
+    if (isQueued && this.hasQueuedMessageText(session, promptText)) {
       this.publishActivity(session, "duplicate queued message ignored", "active");
       this.publishStatus(session);
       return;
     }
     if (session.isCompacting) {
-      this.enqueuePromptDuringCompaction(session, text, behavior ?? "followUp");
+      this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp");
       return;
     }
-    void this.submitPrompt(session, text, behavior);
+    void this.submitPrompt(session, promptText, behavior);
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined): Promise<void> {

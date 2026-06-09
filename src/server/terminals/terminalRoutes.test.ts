@@ -31,6 +31,14 @@ describe("terminal routes", () => {
     socket.close();
   });
 
+  it("closes all terminals for a cwd", async () => {
+    const response = await app.inject({ method: "DELETE", url: `/terminals?cwd=${encodeURIComponent("/repo/worktree")}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ closed: true });
+    expect(terminals.events).toEqual(["close-cwd:/repo/worktree"]);
+  });
+
   it("creates and lists terminal command runs with filters", async () => {
     const createResponse = await app.inject({
       method: "POST",
@@ -75,6 +83,10 @@ class FakeTerminals implements TerminalRouteService {
       createdAt: "2026-05-13T00:00:00.000Z",
       exited: false,
     };
+  }
+
+  closeForCwd(cwd: string): void {
+    this.events.push(`close-cwd:${cwd}`);
   }
 
   close(id: string): void {

@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../api";
+import { browserSessionStorage, parseStoredString, PersistentValueMap, type KeyValueStorage } from "./sessionStorageMemory";
 
 export interface SessionSelectionMemory {
   latestSessionId(cwd: string): string | undefined;
@@ -8,6 +9,28 @@ export interface SessionSelectionMemory {
 
 export class InMemorySessionSelectionMemory implements SessionSelectionMemory {
   private readonly sessionIdsByCwd = new Map<string, string>();
+
+  latestSessionId(cwd: string): string | undefined {
+    return this.sessionIdsByCwd.get(cwd);
+  }
+
+  rememberSession(session: SessionInfo): void {
+    this.sessionIdsByCwd.set(session.cwd, session.id);
+  }
+
+  forgetWorkspace(cwd: string): void {
+    this.sessionIdsByCwd.delete(cwd);
+  }
+}
+
+const sessionSelectionStorageKey = "pi-web:session-selection:v1";
+
+export class SessionStorageSessionSelectionMemory implements SessionSelectionMemory {
+  private readonly sessionIdsByCwd: PersistentValueMap<string>;
+
+  constructor(storage: KeyValueStorage | undefined = browserSessionStorage()) {
+    this.sessionIdsByCwd = new PersistentValueMap(sessionSelectionStorageKey, parseStoredString, storage);
+  }
 
   latestSessionId(cwd: string): string | undefined {
     return this.sessionIdsByCwd.get(cwd);

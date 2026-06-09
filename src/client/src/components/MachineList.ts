@@ -3,12 +3,13 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { Machine, MachineHealth, WorkspaceActivity } from "../api";
 import { machineActivityIndicator } from "../workspaceActivity";
 import { actionMenuPanelStyle } from "./actionMenu";
-import { renderActivityIndicator } from "./activityBadge";
-import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
+import { renderActionActivityIndicator } from "./activityBadge";
+import type { KeyboardNavigableSection } from "./navigationFocus";
+import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
 
 @customElement("machine-list")
-export class MachineList extends LitElement {
+export class MachineList extends LitElement implements KeyboardNavigableSection {
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) selected?: Machine;
   @property({ attribute: false }) statuses: Record<string, MachineHealth> = {};
@@ -18,6 +19,8 @@ export class MachineList extends LitElement {
   @property({ attribute: false }) onSelect?: (machine: Machine) => void;
   @property({ attribute: false }) onRemove?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
+  @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
+  @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
   @state() private openMenuMachineId: string | undefined;
   @state() private menuStyle = "";
 
@@ -39,6 +42,11 @@ export class MachineList extends LitElement {
   protected override updated(changed: PropertyValues<this>): void {
     if (changed.has("machines") && this.openMenuMachineId !== undefined && !this.machines.some((machine) => machine.id === this.openMenuMachineId)) this.openMenuMachineId = undefined;
     if (changed.has("collapsed") && this.collapsed) this.openMenuMachineId = undefined;
+  }
+
+  async focusSelectedOrFirst(): Promise<boolean> {
+    await this.updateComplete;
+    return focusSelectedOrFirstSelectableRow(this.renderRoot, { fallbackSelector: ".section-toggle" });
   }
 
   override render() {
@@ -78,7 +86,7 @@ export class MachineList extends LitElement {
     const status = this.statuses[machine.id]?.status ?? machine.status;
     if (status === "offline" || status === "error") return undefined;
     const kind = machineActivityIndicator(this.activities[machine.id]);
-    return renderActivityIndicator(kind, kind === "terminal" ? "机器终端活跃" : "机器活跃");
+    return renderActionActivityIndicator(kind, kind === "terminal" ? "机器终端活跃" : "机器活跃");
   }
 
   private renderMachineMenu(machine: Machine) {
@@ -107,7 +115,7 @@ export class MachineList extends LitElement {
     if (!this.collapsible) return "机器";
     const selectedSummary = this.selected?.name ?? "未选择机器";
     const selectedTitle = this.selected?.baseUrl ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 机器</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.machines.length}</small></button>`;
+    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 机器</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.machines.length}</small></button>`;
   }
 
   private toggleMenu(machineId: string, target: EventTarget | null): void {
@@ -131,7 +139,11 @@ export class MachineList extends LitElement {
       this.openMenuMachineId = undefined;
       return;
     }
-    activateSelectableRowFromKeyboard(event, () => this.onSelect?.(machine));
+    handleSelectableRowKeyboard(event, {
+      activate: () => this.onSelect?.(machine),
+      nextSection: this.onFocusNextSection === undefined ? undefined : () => { void this.onFocusNextSection?.(); },
+      cancel: this.onCancelKeyboardNavigation === undefined ? undefined : () => { void this.onCancelKeyboardNavigation?.(); },
+    });
   }
 
   static override styles = [
@@ -139,7 +151,6 @@ export class MachineList extends LitElement {
     css`
       .machine-row.no-actions .action-main { border-radius: 8px; }
       .machine-primary { display: flex; align-items: baseline; gap: 6px; }
-      .machine-primary .activity-indicator { flex: 0 0 auto; margin-right: 0; }
       .machine-primary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .machine-menu-panel button.danger { color: var(--pi-danger); }
       .machine-menu-panel button.danger:hover, .machine-menu-panel button.danger:focus { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }

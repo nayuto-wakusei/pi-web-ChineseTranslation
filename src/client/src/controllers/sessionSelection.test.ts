@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "../api";
-import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse } from "./sessionSelection";
+import type { KeyValueStorage } from "./sessionStorageMemory";
+import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, SessionStorageSessionSelectionMemory, shouldDeselectAfterArchivedCollapse } from "./sessionSelection";
 
 describe("selectPreferredSession", () => {
   it("prefers an explicit target session by id", () => {
@@ -69,6 +70,26 @@ describe("InMemorySessionSelectionMemory", () => {
   });
 });
 
+describe("SessionStorageSessionSelectionMemory", () => {
+  it("persists the latest selected session per workspace cwd", () => {
+    const storage = memoryStorage();
+    const memory = new SessionStorageSessionSelectionMemory(storage);
+
+    memory.rememberSession({ ...testSession("s1"), cwd: "local:/tmp/one" });
+    memory.rememberSession({ ...testSession("s2"), cwd: "remote:/tmp/one" });
+
+    const restored = new SessionStorageSessionSelectionMemory(storage);
+
+    expect(restored.latestSessionId("local:/tmp/one")).toBe("s1");
+    expect(restored.latestSessionId("remote:/tmp/one")).toBe("s2");
+
+    restored.forgetWorkspace("local:/tmp/one");
+
+    expect(new SessionStorageSessionSelectionMemory(storage).latestSessionId("local:/tmp/one")).toBeUndefined();
+    expect(new SessionStorageSessionSelectionMemory(storage).latestSessionId("remote:/tmp/one")).toBe("s2");
+  });
+});
+
 describe("markSessionArchived", () => {
   it("marks the matching session archived without mutating the original", () => {
     const sessions = [testSession("s1"), testSession("s2")];
@@ -128,4 +149,13 @@ describe("selectionAfterArchivingSession", () => {
 
 function testSession(id: string): SessionInfo {
   return { id, path: `/tmp/project/.pi/sessions/${id}`, cwd: "/tmp/project", created: "now", modified: "now", messageCount: 0, firstMessage: "" };
+}
+
+function memoryStorage(seed: Record<string, string> = {}): KeyValueStorage {
+  const values = new Map(Object.entries(seed));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+  };
 }
