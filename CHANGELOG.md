@@ -1,5 +1,24 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.6
+
+### Patch Changes
+
+- a73bceb: Reduce desktop navigation crowding by moving machine switching into a compact header control and removing automatic desktop section collapse.
+- 9a3f2ce: Make navigation sections collapsible on desktop and auto-collapse completed context sections after selections.
+- 271c990: Document machine federation across the website and add a Fleet guide for setup, trust model, remote plugins, and troubleshooting.
+- 351ed03: Add a keyboard shortcuts settings editor with manual entry, recording, disabling, reset-to-default controls, and conflict/shadowing indicators.
+- f7eff88: Make the app refresh control perform a full page reload directly instead of opening refresh-data options.
+- ad963a2: Simplify the mobile location breadcrumb by hiding the machine crumb when there is only one configured machine and removing activity indicators from breadcrumb items.
+- f3e19d1: Add keyboard-first navigation for focusing Machines, Projects, Workspaces, Sessions, and the chat composer.
+- b35ce1d: Reduce repeated machine and workspace details in the chat status bar and workspace tool header, keeping compact session metrics right-aligned.
+- 25d8188: Keep the documentation site's GitHub and theme controls visible in mobile portrait layouts.
+- 058fdee: Clarify plugin docs and website copy around private PI WEB APIs and the supported helper surface.
+- b616684: Add draggable, persistent side panel resizing for the web UI navigation and workspace panels, including reset actions.
+- b2a7975: Align the desktop machine badge status to the right edge of the badge.
+- f501f9d: Pin navigation activity indicators to the top-right of list chips so active projects, workspaces, and sessions no longer shift their labels.
+- 2f72169: Add workspace file management actions in the file panel, with server-side path checks that keep uploads, moves, deletes, new files, new folders, and downloads inside the selected workspace. Downloads also work from the management embed entry point.
+
 ## 1.202606.5
 
 ### Patch Changes
