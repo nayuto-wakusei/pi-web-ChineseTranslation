@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionService } from "./piSessionService.js";
+import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 
 export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/sessions`, async (request, reply) => {
@@ -10,7 +11,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Body: { cwd: string } }>(`${prefix}/sessions`, async (request, reply) => {
     try {
-      return await sessions.start(request.body.cwd);
+      return await sessions.start(request.body.cwd, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -91,7 +92,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { text: string; streamingBehavior?: "steer" | "followUp" } }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
     try {
-      await sessions.prompt(request.params.sessionId, request.body.text, request.body.streamingBehavior);
+      await sessions.prompt(request.params.sessionId, request.body.text, request.body.streamingBehavior, managementContextFromHeaders(request.headers));
       return { accepted: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -100,7 +101,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { text: string } }>(`${prefix}/sessions/:sessionId/shell`, async (request, reply) => {
     try {
-      await sessions.shell(request.params.sessionId, request.body.text);
+      await sessions.shell(request.params.sessionId, request.body.text, managementContextFromHeaders(request.headers));
       return { accepted: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -109,7 +110,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { text: string } }>(`${prefix}/sessions/:sessionId/commands/run`, async (request, reply) => {
     try {
-      return await sessions.runCommand(request.params.sessionId, request.body.text);
+      return await sessions.runCommand(request.params.sessionId, request.body.text, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -179,6 +180,11 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.get(`${prefix}/events`, { websocket: true }, (socket) => {
     eventHub.addGlobal(socket);
   });
+}
+
+function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
+  const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
+  return decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
 }
 
 function optionalField<T>(key: string, value: T | undefined): Record<string, T> | object {

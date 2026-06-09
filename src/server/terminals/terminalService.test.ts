@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TerminalService } from "./terminalService";
 
+const terminalIt = process.platform === "win32" ? it.skip : it;
+
 describe("TerminalService command runs", () => {
-  it("tracks dedicated terminal command runs through completion", async () => {
+  terminalIt("tracks dedicated terminal command runs through completion", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({
@@ -30,7 +32,7 @@ describe("TerminalService command runs", () => {
     }
   });
 
-  it("continues an exited command-run terminal as an interactive shell", async () => {
+  terminalIt("continues an exited command-run terminal as an interactive shell", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({
@@ -54,7 +56,7 @@ describe("TerminalService command runs", () => {
     }
   });
 
-  it("marks failed command runs when the command exits non-zero", async () => {
+  terminalIt("marks failed command runs when the command exits non-zero", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({

@@ -1,18 +1,20 @@
+import { withManagementEmbedWebSocket } from "./managementEmbed";
+
 export function sessionEvents(sessionId: string, machineId = "local"): WebSocket {
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/${sessionId}/events`);
+  return new WebSocket(withManagementEmbedWebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/${sessionId}/events`));
 }
 
 export function globalSessionEvents(machineId = "local"): WebSocket {
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/events`);
+  return new WebSocket(withManagementEmbedWebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/events`));
 }
 
 export function terminalSocket(projectId: string, workspaceId: string, terminalId: string, initialSize?: { cols: number; rows: number }, machineId = "local"): WebSocket {
   const sizeQuery = initialSize === undefined ? "" : `?cols=${encodeURIComponent(String(initialSize.cols))}&rows=${encodeURIComponent(String(initialSize.rows))}`;
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/socket${sizeQuery}`);
+  return new WebSocket(withManagementEmbedWebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/socket${sizeQuery}`));
 }
 
 export function realtimeEvents(machineId = "local"): WebSocket {
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/events`);
+  return new WebSocket(withManagementEmbedWebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/events`));
 }
 
 function machinePrefix(machineId: string): string {

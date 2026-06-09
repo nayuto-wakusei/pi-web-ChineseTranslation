@@ -1,4 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { access as fsAccess, mkdir as fsMkdir, readFile, readdir as fsReaddir, realpath as fsRealpath, stat as fsStat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
@@ -6,13 +9,24 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
   defineTool,
   getAgentDir,
   ModelRegistry,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
+  type FindOperations,
+  type GrepOperations,
+  type LsOperations,
+  type ReadOperations,
+  type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -25,6 +39,9 @@ import type { AuthChange } from "./authService.js";
 import { fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
+import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
+import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
+import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
@@ -126,6 +143,7 @@ interface CreateAgentRuntimeOptions {
   cwd: string;
   agentDir: string;
   sessionManager: PiSessionManager;
+  managementContext?: ManagementEmbedContext;
 }
 
 type CreateAgentRuntime = (createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
@@ -137,20 +155,61 @@ function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFacto
 
 function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance): CreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
-    const customTools = [createPiWebEditToolDefinition(cwd)];
-    const options = sessionStartEvent === undefined
-      ? { services, sessionManager, customTools }
-      : { services, sessionManager, sessionStartEvent, customTools };
-    const result = await createAgentSessionFromServices(options);
-    return { ...result, services, diagnostics: services.diagnostics };
+    return withRuntimeCreationEnvironment({}, async () => {
+      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+      const customTools = [createPiWebEditToolDefinition(cwd)];
+      const options = sessionStartEvent === undefined
+        ? { services, sessionManager, customTools }
+        : { services, sessionManager, sessionStartEvent, customTools };
+      const result = await createAgentSessionFromServices(options);
+      return { ...result, services, diagnostics: services.diagnostics };
+    });
   };
+}
+
+function createManagementRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, managementContext: ManagementEmbedContext): CreateAgentSessionRuntimeFactory {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
+    return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+      const customTools = createManagementSandboxToolDefinitions(cwd, managementContext);
+      const options = sessionStartEvent === undefined
+        ? { services, sessionManager, customTools, tools: managementAgentToolNames(managementContext) }
+        : { services, sessionManager, sessionStartEvent, customTools, tools: managementAgentToolNames(managementContext) };
+      // @ts-expect-error SDK customTools accepts concrete ToolDefinition instances at runtime, but the published type is invariant in render callbacks.
+      const result = await createAgentSessionFromServices(options);
+      return { ...result, services, diagnostics: services.diagnostics };
+    });
+  };
+}
+export { managementAgentToolNames };
+
+type ManagementSandboxToolDefinition =
+  | ReturnType<typeof createReadToolDefinition>
+  | ReturnType<typeof createWriteToolDefinition>
+  | ReturnType<typeof createPiWebEditToolDefinition>
+  | ReturnType<typeof createLsToolDefinition>
+  | ReturnType<typeof createGrepToolDefinition>
+  | ReturnType<typeof createFindToolDefinition>
+  | ReturnType<typeof createManagedPythonToolDefinition>;
+
+export function createManagementSandboxToolDefinitions(cwd: string, context: ManagementEmbedContext): ManagementSandboxToolDefinition[] {
+  const operations = createManagedFileOperations(cwd);
+  return [
+    createReadToolDefinition(cwd, { operations: operations.read }),
+    createWriteToolDefinition(cwd, { operations: operations.write }),
+    createPiWebEditToolDefinition(cwd, operations.edit),
+    createLsToolDefinition(cwd, { operations: operations.ls }),
+    createGrepToolDefinition(cwd, { operations: operations.grep }),
+    createFindToolDefinition(cwd, { operations: operations.find }),
+    createManagedPythonToolDefinition(cwd, context),
+  ];
 }
 
 type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
 
-function createPiWebEditToolDefinition(cwd: string) {
-  const editTool = createEditToolDefinition(cwd);
+function createPiWebEditToolDefinition(cwd: string, operations?: ReturnType<typeof createManagedFileOperations>["edit"]) {
+  const editTool = createEditToolDefinition(cwd, operations === undefined ? undefined : { operations });
   return defineTool<typeof editTool.parameters, PiWebEditToolDetails>({
     name: editTool.name,
     label: editTool.label,
@@ -169,6 +228,207 @@ function createPiWebEditToolDefinition(cwd: string) {
       return editTool.execute(toolCallId, params, signal, onUpdate, ctx);
     },
   });
+}
+
+const pythonSchema = Type.Object({
+  code: Type.String({ description: "Python code to run in the managed project workspace" }),
+  timeoutMs: Type.Optional(Type.Number({ description: "Execution timeout in milliseconds" })),
+});
+
+function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext) {
+  return defineTool<typeof pythonSchema, undefined>({
+    name: "python",
+    label: "python",
+    description: "Run Python code inside the managed project workspace. Shell commands and paths outside the project are blocked.",
+    promptSnippet: "Run Python code in the current project",
+    promptGuidelines: ["Use python for scripts and calculations. Do not use it to run shell commands."],
+    parameters: pythonSchema,
+    async execute(_toolCallId, params, signal) {
+      const configuredPython = context.sandbox?.pythonExecutable?.trim();
+      const pythonExecutable = configuredPython !== undefined && configuredPython !== "" ? configuredPython : "python3";
+      const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000));
+      const configuredBubblewrap = process.env["PI_WEB_BWRAP_EXECUTABLE"]?.trim();
+      const bubblewrapExecutable = configuredBubblewrap !== undefined && configuredBubblewrap !== "" ? configuredBubblewrap : "bwrap";
+      const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
+      return runManagedPython({ pythonExecutable, bubblewrapExecutable, cwd, code: params.code, timeoutMs, env, signal });
+    },
+  });
+}
+
+interface RunManagedPythonOptions {
+  pythonExecutable: string;
+  bubblewrapExecutable: string;
+  cwd: string;
+  code: string;
+  timeoutMs: number;
+  env: NodeJS.ProcessEnv;
+  signal: AbortSignal | undefined;
+}
+
+async function runManagedPython(options: RunManagedPythonOptions): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
+  const root = await fsRealpath(options.cwd);
+  const invocation = createBubblewrapPythonInvocation({
+    bubblewrapExecutable: options.bubblewrapExecutable,
+    pythonExecutable: options.pythonExecutable,
+    workspaceRoot: root,
+    env: options.env,
+    readOnlyPaths: await readableBubblewrapPaths(),
+  });
+  return new Promise((resolvePromise, reject) => {
+    if (options.signal?.aborted === true) {
+      reject(new Error("Operation aborted"));
+      return;
+    }
+    const child = spawn(invocation.command, invocation.args, { cwd: root, env: options.env, stdio: ["pipe", "pipe", "pipe"], shell: false });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Python execution timed out after ${String(options.timeoutMs)}ms`));
+    }, options.timeoutMs);
+    const onAbort = () => {
+      child.kill();
+      reject(new Error("Operation aborted"));
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      if (isNodeErrorWithCode(error, "ENOENT")) reject(new Error("Python sandbox is unavailable"));
+      else reject(error);
+    });
+    child.on("close", (codeValue) => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      const output = truncateToolOutput([stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== "").join("\n"));
+      const prefix = codeValue === 0 ? "" : `Python exited with code ${String(codeValue)}\n`;
+      resolvePromise({ content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined });
+    });
+    child.stdin.end(options.code);
+  });
+}
+
+async function readableBubblewrapPaths(): Promise<string[]> {
+  const paths = await Promise.all(DEFAULT_BUBBLEWRAP_PATHS.map(async (path) => {
+    try {
+      await fsAccess(path, constants.R_OK);
+      return path;
+    } catch {
+      return undefined;
+    }
+  }));
+  return paths.filter(isDefined);
+}
+
+function createManagedFileOperations(cwd: string) {
+  const read: ReadOperations = {
+    readFile: async (absolutePath) => readFile(await assertExistingInside(cwd, absolutePath)),
+    access: async (absolutePath) => { await fsAccess(await assertExistingInside(cwd, absolutePath), constants.R_OK); },
+  };
+  const write: WriteOperations = {
+    writeFile: async (absolutePath, content) => { await writeFile(await assertWritableInside(cwd, absolutePath), content, "utf8"); },
+    mkdir: async (dir) => { await fsMkdir(await assertPotentialInside(cwd, dir), { recursive: true }); },
+  };
+  const edit = {
+    readFile: read.readFile,
+    writeFile: write.writeFile,
+    access: async (absolutePath: string) => { await fsAccess(await assertExistingInside(cwd, absolutePath), constants.R_OK | constants.W_OK); },
+  };
+  const ls: LsOperations = {
+    exists: async (absolutePath) => pathExistsInside(cwd, absolutePath),
+    stat: async (absolutePath) => fsStat(await assertExistingInside(cwd, absolutePath)),
+    readdir: async (absolutePath) => fsReaddir(await assertExistingInside(cwd, absolutePath)),
+  };
+  const grep: GrepOperations = {
+    isDirectory: async (absolutePath) => (await fsStat(await assertExistingInside(cwd, absolutePath))).isDirectory(),
+    readFile: async (absolutePath) => (await readFile(await assertExistingInside(cwd, absolutePath), "utf8")),
+  };
+  const find: FindOperations = {
+    exists: async (absolutePath) => pathExistsInside(cwd, absolutePath),
+    glob: async (pattern, searchPath, options) => managedGlob(cwd, pattern, searchPath, options.limit),
+  };
+  return { read, write, edit, ls, grep, find };
+}
+
+async function pathExistsInside(rootPath: string, targetPath: string): Promise<boolean> {
+  try {
+    await assertExistingInside(rootPath, targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function managedGlob(rootPath: string, pattern: string, searchPath: string, limit: number): Promise<string[]> {
+  const root = await fsRealpath(rootPath);
+  const start = await assertExistingInside(root, searchPath);
+  const regex = globPatternToRegExp(pattern);
+  const results: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    if (results.length >= limit) return;
+    const entries = await fsReaddir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (results.length >= limit) return;
+      if (entry.name === ".git" || entry.name === "node_modules") continue;
+      const fullPath = resolve(dir, entry.name);
+      const safePath = await assertExistingInside(root, fullPath);
+      const rel = relative(start, safePath).split(sep).join("/");
+      if (entry.isDirectory()) {
+        await walk(safePath);
+      } else if (regex.test(rel)) {
+        results.push(safePath);
+      }
+    }
+  }
+  await walk(start);
+  return results;
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "\0")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]")
+    .replace(/\0/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+
+async function assertExistingInside(rootPath: string, targetPath: string): Promise<string> {
+  const [root, target] = await Promise.all([fsRealpath(rootPath), fsRealpath(targetPath)]);
+  ensurePathInside(root, target);
+  return target;
+}
+
+async function assertWritableInside(rootPath: string, targetPath: string): Promise<string> {
+  try {
+    return await assertExistingInside(rootPath, targetPath);
+  } catch {
+    const parent = await assertExistingInside(rootPath, dirname(targetPath));
+    const target = resolve(parent, basename(targetPath));
+    ensurePathInside(await fsRealpath(rootPath), target);
+    return target;
+  }
+}
+
+async function assertPotentialInside(rootPath: string, targetPath: string): Promise<string> {
+  const root = await fsRealpath(rootPath);
+  const target = resolve(targetPath);
+  ensurePathInside(root, target);
+  return target;
+}
+
+function ensurePathInside(root: string, target: string): void {
+  const rel = relative(root, target);
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel) && (sep === "/" || !rel.split(sep).includes("..")))) return;
+  throw new Error("Path is outside the managed project sandbox");
+}
+
+function truncateToolOutput(value: string, limit = 64_000): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n[output truncated]`;
 }
 
 export interface PiSessionServiceDependencies {
@@ -190,6 +450,7 @@ export class PiSessionService {
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
   private readonly compactionDrainTimers = new Map<string, NodeJS.Timeout>();
   private readonly authLossWarnings = new Set<string>();
+  private readonly managementContexts = new Map<string, ManagementEmbedContext>();
   private readonly archiveStore: SessionArchiveRepository;
   private readonly agentDir: string;
   private readonly sessionManager: PiSessionManagerGateway;
@@ -237,6 +498,7 @@ export class PiSessionService {
     this.activities.clear();
     this.compactionPromptQueues.clear();
     this.authLossWarnings.clear();
+    this.managementContexts.clear();
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
       this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd());
@@ -263,9 +525,10 @@ export class PiSessionService {
     return [...unarchivedSessions, ...archivedSessions];
   }
 
-  async start(cwd: string): Promise<ClientSession> {
-    const active = await this.create(this.sessionManager.create(cwd), cwd);
+  async start(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession> {
+    const active = await this.create(this.sessionManager.create(cwd), cwd, managementContext);
     const { session } = active.runtime;
+    if (managementContext !== undefined) this.managementContexts.set(session.sessionId, managementContext);
     return {
       id: session.sessionId,
       path: session.sessionFile ?? "",
@@ -360,9 +623,9 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async prompt(sessionId: string, text: string, streamingBehavior?: "steer" | "followUp"): Promise<void> {
+  async prompt(sessionId: string, text: string, streamingBehavior?: "steer" | "followUp", managementContext?: ManagementEmbedContext): Promise<void> {
     await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId);
+    const session = await this.getOrOpen(sessionId, managementContext);
     this.maybeGenerateSessionName(session, text);
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? streamingBehavior ?? "followUp" : undefined;
@@ -398,8 +661,11 @@ export class PiSessionService {
     this.publishStatus(session);
   }
 
-  async shell(sessionId: string, text: string): Promise<void> {
+  async shell(sessionId: string, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
     await this.assertWritable(sessionId);
+    this.assertManagedSessionAccess(sessionId, managementContext);
+    const effectiveContext = managementContext ?? this.managementContexts.get(sessionId);
+    if (effectiveContext !== undefined && !managementToolAllowed(effectiveContext, "shell")) throw new Error("Shell commands are disabled in management embed mode");
     const active = await this.getActive(sessionId);
     const { session } = active.runtime;
     const isExcluded = text.startsWith("!!");
@@ -433,8 +699,9 @@ export class PiSessionService {
     });
   }
 
-  async runCommand(sessionId: string, text: string): Promise<ClientCommandResult> {
+  async runCommand(sessionId: string, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(sessionId);
+    this.assertManagedSessionAccess(sessionId, managementContext);
     return this.commandService.run(sessionId, text);
   }
 
@@ -448,7 +715,20 @@ export class PiSessionService {
     if (this.hasActiveWork(session)) throw new Error("Stop current session activity before archiving");
     const archiveInput = await this.archiveInputForSession(session);
     await this.closeActive(session.sessionId);
+    this.managementContexts.delete(session.sessionId);
     await this.archiveStore.archive(archiveInput);
+  }
+
+  private assertManagedSessionAccess(sessionId: string, context: ManagementEmbedContext | undefined): void {
+    const existing = this.managementContexts.get(sessionId);
+    if (context === undefined || existing === undefined) return;
+    if (existing.user.rootUserId !== context.user.rootUserId) throw new Error("Session is outside the managed embed authorization scope");
+  }
+
+  private rememberManagedSessionAccess(sessionId: string, context: ManagementEmbedContext | undefined): void {
+    if (context === undefined) return;
+    this.assertManagedSessionAccess(sessionId, context);
+    if (!this.managementContexts.has(sessionId)) this.managementContexts.set(sessionId, context);
   }
 
   async archiveTree(sessionId: string): Promise<ClientArchiveSessionsResponse> {
@@ -578,6 +858,7 @@ export class PiSessionService {
     const active = this.active.get(sessionId);
     if (!active) return;
     this.active.delete(sessionId);
+    this.managementContexts.delete(sessionId);
     this.activities.delete(sessionId);
     this.workspaceActivity?.removeSession(sessionId, active.runtime.session.sessionManager.getCwd());
     this.clearAuthLossWarningsForSession(sessionId);
@@ -595,24 +876,42 @@ export class PiSessionService {
     if (await this.archiveStore.isArchived(sessionId)) throw new Error("Archived sessions are read-only. Restore the session to continue.");
   }
 
-  private async getOrOpen(sessionId: string): Promise<PiAgentSession> {
-    return (await this.getActive(sessionId)).runtime.session;
+  private async getOrOpen(sessionId: string, managementContext?: ManagementEmbedContext): Promise<PiAgentSession> {
+    return (await this.getActive(sessionId, managementContext)).runtime.session;
   }
 
-  private async getActive(sessionId: string): Promise<ActiveSession<PiSessionRuntime>> {
+  private async getActive(sessionId: string, managementContext?: ManagementEmbedContext): Promise<ActiveSession<PiSessionRuntime>> {
     const active = this.active.get(sessionId);
-    if (active) return active;
+    if (active) {
+      const activeSessionId = active.runtime.session.sessionId;
+      const existingContext = this.managementContexts.get(activeSessionId);
+      if (managementContext !== undefined && existingContext === undefined) {
+        const sessionFile = active.runtime.session.sessionFile;
+        if (sessionFile === undefined || sessionFile === "") throw new Error("Managed embed session must be persisted before it can be resumed safely");
+        const activeCwd = active.runtime.session.sessionManager.getCwd();
+        await this.closeActive(activeSessionId);
+        return this.create(this.sessionManager.open(sessionFile), activeCwd, managementContext);
+      }
+      this.rememberManagedSessionAccess(active.runtime.session.sessionId, managementContext);
+      return active;
+    }
 
     const archived = await this.archiveStore.get(sessionId);
-    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd);
+    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext);
 
     const match = (await this.sessionManager.listAll()).find((s) => s.id === sessionId || s.id.startsWith(sessionId));
     if (!match) throw new Error("Session not found");
-    return this.create(this.sessionManager.open(match.path), match.cwd);
+    return this.create(this.sessionManager.open(match.path), match.cwd, managementContext);
   }
 
-  private async create(sessionManager: PiSessionManager, cwd: string): Promise<ActiveSession<PiSessionRuntime>> {
-    const runtime = await this.createAgentRuntime(this.createRuntime, { cwd, agentDir: this.agentDir, sessionManager });
+  private async create(sessionManager: PiSessionManager, cwd: string, managementContext?: ManagementEmbedContext): Promise<ActiveSession<PiSessionRuntime>> {
+    const createRuntime = managementContext === undefined
+      ? this.createRuntime
+      : createManagementRuntimeFactory(this.modelRegistry.authStorage, this.modelRegistry, managementContext);
+    const runtimeOptions = managementContext === undefined
+      ? { cwd, agentDir: this.agentDir, sessionManager }
+      : { cwd, agentDir: this.agentDir, sessionManager, managementContext };
+    const runtime = await this.createAgentRuntime(createRuntime, runtimeOptions);
     const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
     this.bindRuntime(active);
     runtime.setRebindSession(() => {
@@ -620,6 +919,7 @@ export class PiSessionService {
       return Promise.resolve();
     });
     this.active.set(runtime.session.sessionId, active);
+    this.rememberManagedSessionAccess(runtime.session.sessionId, managementContext);
     this.publishStatus(runtime.session);
     return active;
   }
@@ -630,6 +930,11 @@ export class PiSessionService {
     for (const [sessionId, candidate] of this.active.entries()) {
       if (candidate === active) {
         this.active.delete(sessionId);
+        const context = this.managementContexts.get(sessionId);
+        if (context !== undefined && sessionId !== session.sessionId) {
+          this.managementContexts.delete(sessionId);
+          this.managementContexts.set(session.sessionId, context);
+        }
         if (sessionId !== session.sessionId) this.clearCompactionPromptQueue(sessionId);
       }
     }
@@ -1033,6 +1338,10 @@ function archivedTimestamp(record: ArchivedSessionRecord): number {
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 async function clearParentSession(sessionFile: string): Promise<void> {

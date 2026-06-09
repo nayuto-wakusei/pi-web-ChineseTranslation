@@ -1,8 +1,13 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { createManagementPermissionSystemPolicy, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
+import { createManagementSandboxToolDefinitions, managementAgentToolNames, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -127,7 +132,73 @@ function sessionGateway(records: ReturnType<typeof sessionRecord>[]): SessionGat
   };
 }
 
+function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {
+  return {
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+    projects: [{ id: "project-1", name: "Project 1" }],
+    tools: { allow: ["read", "write", "edit", "ls", "grep", "find", "python"], deny: ["terminal", "shell", "bash"] },
+    ...patch,
+  };
+}
+
 describe("PiSessionService", () => {
+  it("keeps managed agent tools scoped to files and python without shell tools", () => {
+    const tools = managementAgentToolNames(managementContext());
+
+    expect(tools).toEqual(expect.arrayContaining(["read", "write", "edit", "ls", "grep", "find", "python"]));
+    expect(tools).not.toEqual(expect.arrayContaining(["bash", "shell", "terminal"]));
+  });
+
+  it("generates a default-deny pi-permission-system policy for managed sessions", () => {
+    const policy = createManagementPermissionSystemPolicy(managementContext({
+      tools: { allow: ["read", "python", "bash"], deny: ["python"] },
+    }));
+
+    expect(policy.defaultPolicy).toMatchObject({ tools: "deny", bash: "deny", mcp: "deny", skills: "deny", special: "deny" });
+    expect(policy.tools).toMatchObject({
+      "*": "deny",
+      read: "allow",
+      python: "deny",
+      bash: "deny",
+      "terminal-command-runs": "deny",
+      powershell: "deny",
+      http: "deny",
+    });
+    expect(policy.special.external_directory).toBe("deny");
+  });
+
+  it("writes the pi-permission-system policy under a managed agent policy directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-permission-system-"));
+    try {
+      const policyDir = await writeManagementPermissionSystemPolicy(join(root, "agent"), join(root, "project"), managementContext());
+      const raw = await readFile(join(policyDir, "pi-permissions.jsonc"), "utf8");
+      const policy: unknown = JSON.parse(raw);
+
+      expect(policyDir.startsWith(join(root, "agent", "management-embed", "permission-system"))).toBe(true);
+      expect(policy).toMatchObject({ tools: { read: "allow" }, bash: { "*": "deny" } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects managed file tool access outside the project directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
+    const project = join(root, "project");
+    const outside = join(root, "outside.txt");
+    await mkdir(project);
+    await writeFile(outside, "secret", "utf8");
+    try {
+      const tools = createManagementSandboxToolDefinitions(project, managementContext());
+      const read = tools.find((tool) => tool.name === "read");
+      if (read === undefined) throw new Error("Expected managed read tool");
+
+      const executeRead = read.execute.bind(read);
+      await expect(Promise.resolve(Reflect.apply(executeRead, undefined, ["call-1", { path: outside }, undefined, undefined, undefined]))).rejects.toThrow("outside the managed project sandbox");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
@@ -363,6 +434,31 @@ describe("PiSessionService", () => {
     await service.prompt("prompt-session", "Build the thing");
 
     expect(fake.calls.prompt).toEqual([{ text: "Build the thing", options: undefined }]);
+    await service.dispose();
+  });
+
+  it("reopens an active unmanaged session before accepting a managed prompt", async () => {
+    const unsafe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
+    const safe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
+    const options: unknown[] = [];
+    const createAgentRuntime: RuntimeCreator = async (_createRuntime, runtimeOptions) => {
+      await Promise.resolve();
+      options.push(runtimeOptions);
+      return options.length === 1 ? unsafe.runtime : safe.runtime;
+    };
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("managed-reopen-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status("managed-reopen-session");
+    await service.prompt("managed-reopen-session", "continue safely", undefined, managementContext());
+
+    expect(unsafe.calls.dispose).toBe(1);
+    expect(safe.calls.prompt).toEqual([{ text: "continue safely", options: undefined }]);
+    expect(options).toHaveLength(2);
+    expect(options[1]).toMatchObject({ managementContext: managementContext() });
     await service.dispose();
   });
 

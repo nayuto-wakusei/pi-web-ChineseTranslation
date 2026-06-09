@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
+import { effectivePiWebConfig } from "../config.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
@@ -20,6 +21,14 @@ import { getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
+import {
+  assertManagedCwd,
+  createManagementEmbedRuntime,
+  managementContextForRequest,
+  projectFromManagedEmbedContext,
+  projectsFromManagedEmbedContext,
+  type ManagementEmbedRuntime,
+} from "./managementEmbed.js";
 
 export interface AppDependencies {
   projects?: ProjectService;
@@ -28,15 +37,25 @@ export interface AppDependencies {
   sessionDaemon?: SessionProxyDaemon;
   piWebPlugins?: Pick<PiWebPluginService, "manifest" | "plugins" | "readAsset">;
   config?: PiWebConfigService;
+  managementEmbed?: ManagementEmbedRuntime;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
 }
 
-function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string): void {
-  app.get(`${prefix}/projects`, async () => projects.list());
+function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
+  app.get(`${prefix}/projects`, async (request, reply) => {
+    try {
+      const context = await managementContextForRequest(request, managementEmbed);
+      if (context !== undefined) return await projectsFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context);
+      return await projects.list();
+    } catch (error) {
+      return reply.code(401).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.post<{ Body: { name?: string; path: string; create?: boolean } }>(`${prefix}/projects`, async (request, reply) => {
     try {
+      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
       return await projects.add(request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -45,6 +64,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, async (request, reply) => {
     try {
+      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
       await projects.close(request.params.projectId);
       return { closed: true };
     } catch (error) {
@@ -54,6 +74,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.get<{ Querystring: { q?: string } }>(`${prefix}/project-directories`, async (request, reply) => {
     try {
+      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project directory browsing is disabled in management embed mode" });
       return await listDirectorySuggestions(request.query.q ?? "");
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -62,6 +83,11 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.get<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId/workspaces`, async (request, reply) => {
     try {
+      const context = await managementContextForRequest(request, managementEmbed);
+      if (context !== undefined) {
+        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId);
+        return await workspaces.list(project);
+      }
       const project = await projects.requireProject(request.params.projectId);
       return await workspaces.list(project);
     } catch (error) {
@@ -70,12 +96,14 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   });
 }
 
-function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string): void {
+function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
   app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/files`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
-      if (request.query.mode === "path") return await listPathSuggestions(request.query.cwd, request.query.q ?? "");
-      return await listFileSuggestions(request.query.cwd, request.query.q ?? "", { kind: request.query.kind, scope: request.query.scope });
+      const context = await managementContextForRequest(request, managementEmbed);
+      const cwd = context === undefined ? request.query.cwd : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
+      if (request.query.mode === "path") return await listPathSuggestions(cwd, request.query.q ?? "");
+      return await listFileSuggestions(cwd, request.query.q ?? "", { kind: request.query.kind, scope: request.query.scope });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -91,6 +119,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService();
   const machines = deps.machines ?? new MachineService();
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
+  const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
 
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
 
@@ -107,20 +136,20 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   registerMachineRoutes(app, machines);
 
-  registerLocalProjectRoutes(app, projects, workspaces, "/api");
-  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local");
+  registerLocalProjectRoutes(app, projects, workspaces, "/api", managementEmbed);
+  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
 
-  registerSessionProxyRoutes(app, sessionDaemon);
-  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local");
-  registerWorkspaceExplorerRoutes(app, projects, workspaces);
-  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local");
-  registerGitRoutes(app, projects, workspaces);
-  registerGitRoutes(app, projects, workspaces, "/api/machines/local");
-  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon);
-  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local");
+  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", managementEmbed);
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
+  registerGitRoutes(app, projects, workspaces, "/api", managementEmbed);
+  registerGitRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
 
-  registerLocalFileSuggestionRoutes(app, "/api");
-  registerLocalFileSuggestionRoutes(app, "/api/machines/local");
+  registerLocalFileSuggestionRoutes(app, "/api", managementEmbed);
+  registerLocalFileSuggestionRoutes(app, "/api/machines/local", managementEmbed);
 
   registerMachineProxyRoutes(app, machines);
 
@@ -132,4 +161,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   }
 
   return app;
+}
+
+function managementEmbedProjectRoot(managementEmbed: ManagementEmbedRuntime | undefined): string {
+  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
+  return managementEmbed.projectRoot;
 }

@@ -284,6 +284,60 @@ describe("buildApp", () => {
     expect(workspacesResponse.json<Workspace[]>()).toEqual([expect.objectContaining({ projectId: project.id, path: projectDir })]);
   });
 
+  it("uses management embed authorization for projects while blocking terminal command runs", async () => {
+    const managedRoot = join(tempDir, "managed");
+    const managedContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+      projects: [{ id: "project-1", name: "Project 1" }],
+      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
+      expiresAt: "2026-06-08T00:00:00.000Z",
+    };
+    const managedApp = await buildApp({
+      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json"))),
+      workspaces: new WorkspaceService(),
+      sessionDaemon: fakeSessionDaemon(),
+      managementEmbed: {
+        enabled: true,
+        projectRoot: managedRoot,
+        authenticate: (token) => {
+          if (token !== "token-1") throw new Error("bad token");
+          return Promise.resolve(managedContext);
+        },
+      },
+      clientDist: false,
+      logger: false,
+    });
+    try {
+      const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token-1" };
+      const projectsResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers });
+      const project = projectsResponse.json<Project[]>()[0];
+      if (project === undefined) throw new Error("Expected managed project");
+
+      const workspacesResponse = await managedApp.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces`, headers });
+      const workspace = workspacesResponse.json<Workspace[]>()[0];
+      if (workspace === undefined) throw new Error("Expected managed workspace");
+
+      const terminalsResponse = await managedApp.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/terminals`, headers });
+      expect(terminalsResponse.statusCode).toBe(200);
+      expect(terminalsResponse.json()).toEqual([]);
+
+      const runResponse = await managedApp.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/workspaces/${workspace.id}/terminal-command-runs`,
+        headers,
+        payload: { origin: "core", title: "Build", command: "python --version" },
+      });
+
+      expect(runResponse.statusCode).toBe(403);
+      expect(runResponse.json()).toEqual({ error: "Terminal command runs are disabled in management embed mode" });
+
+      const badResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers: { "x-pi-web-embed-mode": "management" } });
+      expect(badResponse.statusCode).toBe(401);
+    } finally {
+      await managedApp.close();
+    }
+  });
+
   it("serves the PI WEB plugin manifest and plugin assets", async () => {
     const manifestResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);
@@ -380,12 +434,13 @@ interface CapturedSessionDaemonRequest {
   method: string;
   path: string;
   body?: unknown;
+  headers?: Record<string, string>;
 }
 
 function fakeSessionDaemon(): SessionProxyDaemon {
   return {
-    request: (method, path, body) => {
-      const captured = { method, path, ...(body === undefined ? {} : { body }) } satisfies CapturedSessionDaemonRequest;
+    request: (method, path, body, headers) => {
+      const captured = { method, path, ...(body === undefined ? {} : { body }), ...(headers === undefined ? {} : { headers }) } satisfies CapturedSessionDaemonRequest;
       sessionDaemonRequests.push(captured);
       return Promise.resolve({
         statusCode: 200,

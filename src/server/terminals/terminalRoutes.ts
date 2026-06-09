@@ -3,15 +3,16 @@ import type { RawData } from "ws";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus } from "../../shared/apiTypes.js";
 import type { RunTerminalCommandOptions, TerminalInfo } from "./terminalService.js";
 import { parseTerminalSize } from "./terminalSize.js";
+import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 
 export interface TerminalRouteService {
   list(cwd: string): TerminalInfo[];
-  create(options: { cwd: string; name?: string; cols?: number; rows?: number }): TerminalInfo;
+  create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo;
   close(id: string): void;
   attach(id: string, handlers: { output: (data: string, replay: boolean) => void; exit: (exitCode: number | undefined) => void }): () => void;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
-  continue(id: string): TerminalInfo;
+  continue(id: string, managementContext?: ManagementEmbedContext): TerminalInfo;
   runCommand(options: RunTerminalCommandOptions): TerminalCommandRun;
   listCommandRuns(filter?: TerminalCommandRunFilter): TerminalCommandRun[];
   getCommandRun(runId: string): TerminalCommandRun | undefined;
@@ -26,7 +27,8 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
 
   app.post<{ Body: { cwd: string; name?: string; cols?: number; rows?: number } }>(`${prefix}/terminals`, (request, reply) => {
     try {
-      return terminals.create(request.body);
+      const managementContext = managementContextFromHeaders(request.headers);
+      return terminals.create({ ...request.body, ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -34,7 +36,8 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
 
   app.post<{ Body: RunTerminalCommandOptions }>(`${prefix}/terminal-command-runs`, (request, reply) => {
     try {
-      return terminals.runCommand(request.body);
+      const managementContext = managementContextFromHeaders(request.headers);
+      return terminals.runCommand({ ...request.body, ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -64,7 +67,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
 
   app.post<{ Params: { terminalId: string } }>(`${prefix}/terminals/:terminalId/continue`, (request, reply) => {
     try {
-      return terminals.continue(request.params.terminalId);
+      return terminals.continue(request.params.terminalId, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -79,6 +82,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     let detach: () => void = () => undefined;
     try {
       const initialSize = parseTerminalSize(request.query.cols, request.query.rows);
+      if (managementContextFromHeaders(request.headers) !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
       if (initialSize !== undefined) terminals.resize(request.params.terminalId, initialSize.cols, initialSize.rows);
       detach = terminals.attach(request.params.terminalId, {
         output: (data, replay) => { socket.send(JSON.stringify({ type: "output", data, replay })); },
@@ -102,6 +106,11 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     socket.on("close", () => { detach(); });
     socket.on("error", () => { detach(); });
   });
+}
+
+function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
+  const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
+  return decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
 }
 
 type ClientTerminalMessage =

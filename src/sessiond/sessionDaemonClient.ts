@@ -6,25 +6,25 @@ export class SessionDaemonClient {
   private readonly baseUrl = sessiondHttpUrl();
   private readonly socketPath = sessiondSocketPath();
 
-  async request(method: string, path: string, body?: unknown): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+  async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload);
-    return this.requestSocket(method, path, payload);
+    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload, headers);
+    return this.requestSocket(method, path, payload, headers);
   }
 
-  connectWebSocket(path: string): WebSocket {
+  connectWebSocket(path: string, headers: Record<string, string> = {}): WebSocket {
     if (this.baseUrl !== undefined && this.baseUrl !== "") {
       const url = new URL(path, this.baseUrl);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      return new WebSocket(url);
+      return new WebSocket(url, { headers });
     }
-    return new WebSocket(`ws+unix:${this.socketPath}:${path}`);
+    return new WebSocket(`ws+unix:${this.socketPath}:${path}`, { headers });
   }
 
-  private async requestUrl(method: string, path: string, payload?: string) {
-    const init: RequestInit = { method };
+  private async requestUrl(method: string, path: string, payload?: string, headers: Record<string, string> = {}) {
+    const init: RequestInit = { method, headers };
     if (payload !== undefined && payload !== "") {
-      init.headers = { "content-type": "application/json" };
+      init.headers = { ...headers, "content-type": "application/json" };
       init.body = payload;
     }
     const response = await fetch(new URL(path, this.baseUrl), init);
@@ -35,7 +35,7 @@ export class SessionDaemonClient {
     };
   }
 
-  private requestSocket(method: string, path: string, payload?: string): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+  private requestSocket(method: string, path: string, payload?: string, headers: Record<string, string> = {}): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     return new Promise((resolve, reject) => {
       const request = http.request(
         {
@@ -43,8 +43,8 @@ export class SessionDaemonClient {
           path,
           method,
           headers: payload !== undefined && payload !== ""
-            ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
-            : undefined,
+            ? { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
+            : headers,
         },
         (response) => {
           const chunks: Uint8Array[] = [];

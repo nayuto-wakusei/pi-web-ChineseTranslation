@@ -1,9 +1,12 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import * as pty from "node-pty";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus, TerminalUiEvent } from "../../shared/apiTypes.js";
+import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
+import { createManagedSandboxEnvironment } from "../sessions/managementSandbox.js";
 
 const MAX_REPLAY_BUFFER = 200_000;
 
@@ -27,6 +30,7 @@ export interface RunTerminalCommandOptions {
   metadata?: unknown;
   cols?: number;
   rows?: number;
+  managementContext?: ManagementEmbedContext;
 }
 
 interface TerminalRecord extends TerminalInfo {
@@ -48,12 +52,16 @@ export class TerminalService {
       .map(toInfo);
   }
 
-  create(options: { cwd: string; name?: string; cols?: number; rows?: number }): TerminalInfo {
+  create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo {
+    if (options.managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
     return this.createTerminal({ ...options, shellArgs: [] });
   }
 
   runCommand(options: RunTerminalCommandOptions): TerminalCommandRun {
     validateCommandRunOptions(options);
+    if (options.managementContext !== undefined && !managementToolAllowed(options.managementContext, "terminal-command-runs")) {
+      throw new Error("Terminal command runs are disabled in management embed mode");
+    }
     const commandRunId = randomUUID();
     const terminalId = randomUUID();
     const createdAt = new Date().toISOString();
@@ -73,6 +81,7 @@ export class TerminalService {
     const running: TerminalCommandRun = { ...queued, status: "running", startedAt: new Date().toISOString() };
     this.commandRuns.set(commandRunId, running);
 
+    const managementEnv = managementEnvironment(options.managementContext);
     try {
       this.createTerminal({
         id: terminalId,
@@ -82,6 +91,8 @@ export class TerminalService {
         ...(options.rows === undefined ? {} : { rows: options.rows }),
         shellArgs: ["-lc", commandRunShellScript(options.command)],
         commandRunId,
+        shell: commandRunShell(),
+        ...(managementEnv === undefined ? {} : { env: managementEnv }),
       });
     } catch (error) {
       this.commandRuns.delete(commandRunId);
@@ -143,7 +154,8 @@ export class TerminalService {
     }
   }
 
-  continue(id: string): TerminalInfo {
+  continue(id: string, managementContext?: ManagementEmbedContext): TerminalInfo {
+    if (managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
     const record = this.require(id);
     if (!record.exited) return toInfo(record);
     delete record.exitCode;
@@ -152,7 +164,7 @@ export class TerminalService {
     const marker = "\r\n[continued in interactive shell]\r\n";
     record.buffer = trimReplayBuffer(record.buffer + marker);
     record.events.emit("output", marker);
-    const shell = process.env["SHELL"] ?? "/bin/bash";
+    const shell = interactiveShell();
     record.pty = pty.spawn(shell, [], {
       name: "xterm-256color",
       cwd: record.cwd,
@@ -181,17 +193,17 @@ export class TerminalService {
     for (const id of [...this.terminals.keys()]) this.close(id);
   }
 
-  private createTerminal(options: { id?: string; cwd: string; name?: string; cols?: number; rows?: number; shellArgs: string[]; commandRunId?: string }): TerminalInfo {
+  private createTerminal(options: { id?: string; cwd: string; name?: string; cols?: number; rows?: number; shellArgs: string[]; commandRunId?: string; env?: NodeJS.ProcessEnv; shell?: string }): TerminalInfo {
     if (options.cwd === "") throw new Error("cwd is required");
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
-    const shell = process.env["SHELL"] ?? "/bin/bash";
+    const shell = options.shell ?? interactiveShell();
     const terminal = pty.spawn(shell, options.shellArgs, {
       name: "xterm-256color",
       cwd: options.cwd,
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
-      env: { ...process.env, TERM: "xterm-256color" },
+      env: { ...(options.env ?? process.env), TERM: "xterm-256color" },
     });
     const requestedName = options.name?.trim();
     const record: TerminalRecord = {
@@ -315,6 +327,35 @@ function isTerminalCommandRunFinal(status: TerminalCommandRunStatus): boolean {
 
 function copyCommandRun(run: TerminalCommandRun): TerminalCommandRun {
   return { ...run, metadata: { ...run.metadata } };
+}
+
+function commandRunShell(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env["PI_WEB_COMMAND_SHELL"]?.trim();
+  if (configured !== undefined && configured !== "") return configured;
+  const shell = env["SHELL"]?.trim();
+  if (shell !== undefined && shell !== "" && shell.toLowerCase().includes("bash")) return shell;
+  if (process.platform === "win32") {
+    const gitBash = "D:\\Program Files\\Git\\bin\\bash.exe";
+    if (existsSync(gitBash)) return gitBash;
+    return "bash";
+  }
+  return shell !== undefined && shell !== "" ? shell : "/bin/bash";
+}
+
+function interactiveShell(env: NodeJS.ProcessEnv = process.env): string {
+  const shell = env["SHELL"]?.trim();
+  if (shell !== undefined && shell !== "") return shell;
+  return process.platform === "win32" ? "powershell.exe" : "/bin/bash";
+}
+
+function managementEnvironment(context: ManagementEmbedContext | undefined): NodeJS.ProcessEnv | undefined {
+  if (context === undefined) return undefined;
+  const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
+  const pythonExecutable = context.sandbox?.pythonExecutable;
+  if (pythonExecutable !== undefined && pythonExecutable !== "") {
+    env["PI_WEB_SANDBOX_PYTHON"] = pythonExecutable;
+  }
+  return env;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

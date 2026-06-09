@@ -224,6 +224,9 @@ export const listStyles = css`
   section { box-sizing: border-box; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px; }
   h2 { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
   .list-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .empty-list { box-sizing: border-box; display: grid; gap: 4px; margin: 6px 0; border: 1px dashed var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-muted); padding: 10px; line-height: 1.35; }
+  .empty-list strong { color: var(--pi-text); font-size: 13px; }
+  .empty-list small { white-space: normal; overflow: visible; text-overflow: clip; }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   section > button { display: block; width: 100%; text-align: left; margin: 6px 0; }
   .subheading { margin-top: 14px; }

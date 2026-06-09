@@ -1,5 +1,6 @@
 import type { FileSuggestion, PiWebConfigValues, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
 import { request } from "./http";
+import { withManagementEmbed } from "./managementEmbed";
 import {
   arrayOf,
   parseAborted,
@@ -125,7 +126,7 @@ export const terminalsApi = {
 };
 
 async function getOptionalTerminalCommandRun(runId: string, machineId: string): Promise<TerminalCommandRun | undefined> {
-  const response = await fetch(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`);
+  const response = await fetch(withManagementEmbed(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`));
   if (response.status === 404) return undefined;
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));

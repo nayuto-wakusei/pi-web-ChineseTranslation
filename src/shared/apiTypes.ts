@@ -38,6 +38,25 @@ export interface PiWebConfigValues {
   allowedHosts?: string[] | true;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
+  managementEmbed?: PiWebManagementEmbedConfig;
+}
+
+export interface PiWebManagementEmbedConfig {
+  enabled?: boolean;
+  projectRoot?: string;
+  auth?: {
+    introspectionUrl?: string;
+    serviceSecretEnv?: string;
+  };
+  sandbox?: {
+    pythonExecutable?: string;
+    env?: Record<string, string>;
+  };
+  tools?: {
+    allow?: string[];
+    deny?: string[];
+    permissions?: Record<string, boolean>;
+  };
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";

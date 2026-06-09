@@ -46,7 +46,12 @@ export class ProjectList extends LitElement {
         <h2>${this.renderHeading()}</h2>
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${this.projects.map((project) => html`
+            ${this.projects.length === 0 ? html`
+              <div class="empty-list" role="status">
+                <strong>暂无可访问项目</strong>
+                <small>请先在 AI 平台手动创建项目，然后刷新此页面。</small>
+              </div>
+            ` : this.projects.map((project) => html`
               <div
                 class=${`action-row ${this.selected?.id === project.id ? "selected" : ""}`}
                 tabindex="0"
