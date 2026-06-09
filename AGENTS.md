@@ -1,6 +1,8 @@
 # Agent Notes
 
-This project is a fork whose purpose is to translate the plugin's displayed content into Chinese.
+This project is a fork whose purpose is to translate the plugin's displayed content into Chinese and add other functionality as needed.
+
+When committing, use the GitHub username as the author name and do not provide an email address.
 
 This project is expected to run locally using split systemd user services:
 

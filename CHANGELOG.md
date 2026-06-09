@@ -1,4 +1,10 @@
-# @chainingintention/pi-web-cn
+﻿# @chainingintention/pi-web-cn
+
+## 1.202606.4
+
+### Patch Changes
+
+- 709854c: Hide the core terminal entrypoints when PI WEB is opened in management embed mode.
 
 ## 1.202606.1
 
@@ -6,8 +12,8 @@
 
 - 93b50e6: Replace add-machine browser prompts with a PI WEB form that asks for the remote URL first, suggests a machine name, and supports an optional bearer token.
 - 08f69d0: Document built-in PI WEB plugins, including configuration guidance for Workspace Tasks.
-- a1a558a: Translate bundled plugin display text into Chinese.
-- a1a558a: Document this fork as a Chinese translation plan for PI WEB plugin display content.
+- Translate bundled plugin display text into Chinese.
+- Document this fork as a Chinese translation plan for PI WEB plugin display content.
 - 159f533: Fix workspace selection in the web UI so local machine project and session loading no longer fails with `api is not defined`.
 - ccd4a76: Hide the Machines navigation section when only one machine is configured, align Machines list spacing with the other navigation sections, and add a remove action to remote machine rows.
 - 193c9d0: Show machine activity indicators when sessions or terminals are active on any workspace for that machine.

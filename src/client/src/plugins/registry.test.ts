@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
@@ -6,6 +6,16 @@ import { corePlugin } from "./core";
 import { PluginRegistry } from "./registry";
 import { themePackPlugin } from "./themes";
 import type { PluginRuntimeContext, ThemeTokens } from "./types";
+
+const originalWindow = globalThis.window;
+
+afterEach(() => {
+  Object.defineProperty(globalThis, "window", { value: originalWindow, configurable: true });
+});
+
+function installWindowSearch(search: string): void {
+  Object.defineProperty(globalThis, "window", { value: { location: { search } }, configurable: true });
+}
 
 function createContext(statePatch: Partial<AppState> = {}) {
   const calls: string[] = [];
@@ -208,6 +218,17 @@ describe("PluginRegistry", () => {
     if (action !== undefined) void action.run();
 
     expect(calls).toEqual(["selectMainView:core:workspace.terminal"]);
+  });
+
+  it("omits terminal core plugin contributions in management embed mode", () => {
+    installWindowSearch("?embed=management");
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const actions = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
+
+    expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual(["core:workspace.files", "core:workspace.git"]);
+    expect(actions.some((action) => action.id === "core:view.terminal")).toBe(false);
+    expect(actions.some((action) => action.shortcut === "mod+4")).toBe(false);
   });
 
   it("keeps built-in keyboard shortcuts unique and action-backed", () => {
