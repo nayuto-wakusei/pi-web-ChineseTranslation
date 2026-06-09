@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.5
+
+### Patch Changes
+
+- 210cc0e: Harden management embed sessions by running Python through a bubblewrap sandbox when available, falling back to a restricted managed Python runner on hosts that block bubblewrap namespaces, removing inherited host secrets from managed tool environments, and blocking managed terminal command runs.
+
 ## 1.202606.4
 
 ### Patch Changes
