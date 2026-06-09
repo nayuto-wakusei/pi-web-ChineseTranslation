@@ -35,6 +35,13 @@ describe("federated route contract", () => {
       ignoreParseFailure(workspacesApi.deleteWorkspace("p 1", "w 1", machineId)),
       ignoreParseFailure(workspacesApi.workspaceTree("p 1", "w 1", "src", machineId)),
       ignoreParseFailure(workspacesApi.workspaceFile("p 1", "w 1", "README.md", machineId)),
+      ignoreParseFailure(workspacesApi.uploadWorkspaceFile("p 1", "w 1", "README.md", new File(["hello"], "README.md"), machineId)),
+      ignoreParseFailure(workspacesApi.createWorkspaceFile("p 1", "w 1", "new.txt", machineId)),
+      ignoreParseFailure(workspacesApi.moveWorkspaceFile("p 1", "w 1", "new.txt", "renamed.txt", machineId)),
+      ignoreParseFailure(workspacesApi.deleteWorkspaceFile("p 1", "w 1", "renamed.txt", machineId)),
+      ignoreParseFailure(workspacesApi.createWorkspaceDirectory("p 1", "w 1", "new-dir", machineId)),
+      ignoreParseFailure(workspacesApi.moveWorkspaceDirectory("p 1", "w 1", "new-dir", "renamed-dir", machineId)),
+      ignoreParseFailure(workspacesApi.deleteWorkspaceDirectory("p 1", "w 1", "renamed-dir", machineId)),
       ignoreParseFailure(filesApi.files("/repo", "README", { kind: "tracked", mode: "file", machineId })),
       ignoreParseFailure(gitApi.gitStatus("p 1", "w 1", machineId)),
       ignoreParseFailure(gitApi.gitDiff("p 1", "w 1", { path: "README.md", staged: true }, machineId)),
@@ -80,6 +87,7 @@ describe("federated route contract", () => {
     const observedRoutes = uniqueHttpRoutes([
       ...fetchMock.mock.calls.map((call) => fetchCallToRoute(call, machineId)),
       routeFromMachineUrl("GET", workspaceImagePreviewUrl("p 1", "w 1", "diagram.svg", { machineId, modifiedAt: "2026-05-25T00:00:00.000Z" }), machineId),
+      routeFromMachineUrl("GET", workspacesApi.workspaceDownloadUrl("p 1", "w 1", "README.md", machineId), machineId),
     ]);
     const unmatched = observedRoutes.filter((route) => !matchesHttpRoute(route, FEDERATED_HTTP_ROUTES));
 

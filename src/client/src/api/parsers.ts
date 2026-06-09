@@ -1,4 +1,4 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, Machine, MachineHealth, MachineKind, MachineStatus, MessagePage, ModelSelectionResponse, OAuthFlowState, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, Project, QueuedSessionMessage, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevel, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse } from "../../../shared/apiTypes";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, Machine, MachineHealth, MachineKind, MachineStatus, MessagePage, ModelSelectionResponse, OAuthFlowState, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, Project, QueuedSessionMessage, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevel, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -316,6 +316,22 @@ export function parseFileContentResponse(value: unknown): FileContentResponse {
   const encoding = requireString(record, "encoding");
   if (encoding !== "utf8") throw new Error("Invalid file encoding");
   return { path: requireString(record, "path"), ...optionalField("language", optionalString(record, "language")), ...optionalField("mediaType", optionalFileMediaType(record["mediaType"])), ...optionalField("mimeType", optionalString(record, "mimeType")), encoding, size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt"), content: requireString(record, "content"), truncated: requireBoolean(record, "truncated"), binary: requireBoolean(record, "binary") };
+}
+
+export function parseWorkspaceUploadResponse(value: unknown): WorkspaceUploadResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt") };
+}
+
+export function parseWorkspacePathOperationResponse(value: unknown): WorkspacePathOperationResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path") };
+}
+
+export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteResponse {
+  const record = requireRecord(value);
+  if (record["deleted"] !== true) throw new Error("Expected deleted response");
+  return { deleted: true, path: requireString(record, "path") };
 }
 
 function optionalFileMediaType(value: unknown): FileContentResponse["mediaType"] | undefined {

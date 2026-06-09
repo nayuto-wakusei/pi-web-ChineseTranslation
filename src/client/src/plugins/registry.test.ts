@@ -197,6 +197,20 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["refreshGit"]);
   });
 
+  it("renders a directory selection without showing a file loading state", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const panel = registry.getWorkspacePanels().find((candidate) => candidate.id === "core:workspace.files");
+    const template = panel?.render(createWorkspacePanelContext("local", {
+      selectedFilePath: "src",
+      fileTree: [{ name: "src", path: "src", type: "directory" }],
+    }));
+    const markup = template === undefined ? "" : templateText(template);
+
+    expect(markup).toContain("已选择目录");
+    expect(markup).not.toContain("正在加载");
+  });
+
   it("routes app reload and settings actions through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });
@@ -474,7 +488,7 @@ function createWorkspaceLabelContext(machineId: string, workspace = testWorkspac
   };
 }
 
-function createWorkspacePanelContext(machineId: string): WorkspacePanelContext {
+function createWorkspacePanelContext(machineId: string, patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
   const workspace = testWorkspace();
   return {
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
@@ -497,11 +511,19 @@ function createWorkspacePanelContext(machineId: string): WorkspacePanelContext {
     selectedTerminalId: undefined,
     terminalAutoStart: false,
     onRefreshFiles: vi.fn(),
+    onUploadFiles: vi.fn(),
+    onCreateFile: vi.fn(),
+    onCreateDirectory: vi.fn(),
+    onMoveSelectedPath: vi.fn(),
+    onDeleteSelectedPath: vi.fn(),
+    onDownloadSelectedFile: vi.fn(),
     onExpandDir: vi.fn(),
+    onSelectDirectory: vi.fn(),
     onSelectFile: vi.fn(),
     onRefreshGit: vi.fn(),
     onSelectDiff: vi.fn(),
     onSelectTerminal: vi.fn(),
+    ...patch,
   };
 }
 
@@ -572,4 +594,23 @@ function testThemeTokens(): ThemeTokens {
     "--pi-success-bg-overlay": "#000000",
     "--pi-terminal-selection": "#000000",
   };
+}
+
+function templateText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((entry) => templateText(entry)).join("");
+  if (typeof value !== "object" || value === null) return "";
+  if (!("strings" in value) || !("values" in value)) return "";
+  const stringsValue = Reflect.get(value, "strings");
+  const valuesValue = Reflect.get(value, "values");
+  if (!Array.isArray(stringsValue) || !Array.isArray(valuesValue)) return "";
+  const strings: unknown[] = stringsValue;
+  const values: unknown[] = valuesValue;
+  let output = "";
+  for (let index = 0; index < strings.length; index++) {
+    const chunk = strings[index];
+    if (typeof chunk === "string") output += chunk;
+    if (index < values.length) output += templateText(values[index]);
+  }
+  return output;
 }

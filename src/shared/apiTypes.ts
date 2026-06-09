@@ -257,6 +257,21 @@ export interface FileContentResponse {
   binary: boolean;
 }
 
+export interface WorkspaceUploadResponse {
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface WorkspacePathOperationResponse {
+  path: string;
+}
+
+export interface WorkspaceDeleteResponse {
+  deleted: true;
+  path: string;
+}
+
 export type GitFileState = "unmodified" | "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "ignored" | "conflicted";
 
 export interface GitStatusFile {

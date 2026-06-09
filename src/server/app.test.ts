@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -507,6 +507,117 @@ describe("buildApp", () => {
     const tooLargeResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("huge.png")}` });
     expect(tooLargeResponse.statusCode).toBe(400);
     expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
+  });
+
+  it("uploads workspace files through the HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Uploads", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const uploadResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: { path: "uploaded.txt", contentBase64: Buffer.from("hello upload", "utf8").toString("base64") },
+    });
+
+    expect(uploadResponse.statusCode).toBe(200);
+    expect(uploadResponse.json()).toMatchObject({ path: "uploaded.txt", size: 12 });
+    await expect(readFile(join(projectDir, "uploaded.txt"), "utf8")).resolves.toBe("hello upload");
+  });
+
+  it("rejects uploaded workspace files outside the workspace", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Uploads", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const uploadResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: { path: "../outside.txt", contentBase64: Buffer.from("escape", "utf8").toString("base64") },
+    });
+
+    expect(uploadResponse.statusCode).toBe(400);
+    expect(uploadResponse.json()).toEqual({ error: "Path traversal is not allowed" });
+  });
+
+  it("manages workspace files and empty directories through the HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Manage Files", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    await writeFile(join(projectDir, "old.txt"), "old", "utf8");
+    await writeFile(join(projectDir, "中文 文件.xlsx"), "sheet", "utf8");
+    await mkdir(join(projectDir, "docs"));
+    await writeFile(join(projectDir, "docs", "note.txt"), "note", "utf8");
+    await mkdir(join(projectDir, "empty"));
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const moveFileResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: { fromPath: "old.txt", toPath: "renamed.txt" },
+    });
+    const createFileResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: { path: "created.txt", contentBase64: "" },
+    });
+    const createdFileContent = await readFile(join(projectDir, "created.txt"), "utf8");
+    const downloadResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/download?path=${encodeURIComponent("renamed.txt")}` });
+    const unicodeDownloadResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/download?path=${encodeURIComponent("中文 文件.xlsx")}` });
+    const deleteFileResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("created.txt")}` });
+    const createDirResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory`,
+      payload: { path: "new-dir" },
+    });
+    const moveDirResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory`,
+      payload: { fromPath: "new-dir", toPath: "moved-dir" },
+    });
+    const deleteDirResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory?path=${encodeURIComponent("moved-dir")}` });
+    const nonEmptyDirResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory?path=${encodeURIComponent("docs")}` });
+
+    expect(moveFileResponse.statusCode).toBe(200);
+    expect(moveFileResponse.json()).toEqual({ path: "renamed.txt" });
+    await expect(readFile(join(projectDir, "renamed.txt"), "utf8")).resolves.toBe("old");
+    expect(createFileResponse.statusCode).toBe(200);
+    expect(createdFileContent).toBe("");
+    expect(downloadResponse.statusCode).toBe(200);
+    expect(downloadResponse.headers["content-disposition"]).toContain("attachment");
+    expect(downloadResponse.body).toBe("old");
+    expect(unicodeDownloadResponse.statusCode).toBe(200);
+    expect(unicodeDownloadResponse.headers["content-disposition"]).toBe('attachment; filename="__ __.xlsx"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.xlsx');
+    expect(unicodeDownloadResponse.body).toBe("sheet");
+    expect(deleteFileResponse.statusCode).toBe(200);
+    expect(deleteFileResponse.json()).toEqual({ deleted: true, path: "created.txt" });
+    await expect(stat(join(projectDir, "created.txt"))).rejects.toThrow();
+    expect(createDirResponse.statusCode).toBe(200);
+    expect(createDirResponse.json()).toEqual({ path: "new-dir" });
+    expect(moveDirResponse.statusCode).toBe(200);
+    expect(moveDirResponse.json()).toEqual({ path: "moved-dir" });
+    expect(deleteDirResponse.statusCode).toBe(200);
+    expect(deleteDirResponse.json()).toEqual({ deleted: true, path: "moved-dir" });
+    expect(nonEmptyDirResponse.statusCode).toBe(400);
+    expect(nonEmptyDirResponse.json()).toEqual({ error: "Directory is not empty" });
   });
 });
 

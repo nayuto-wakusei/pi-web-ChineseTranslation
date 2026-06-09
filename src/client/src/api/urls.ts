@@ -1,3 +1,5 @@
+import { withManagementEmbed } from "./managementEmbed";
+
 export function gitDiffUrl(projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }): string {
   const params = new URLSearchParams();
   if (options?.path !== undefined) params.set("path", options.path);
@@ -28,4 +30,11 @@ export function workspaceImagePreviewUrl(projectId: string, workspaceId: string,
   if (options?.modifiedAt !== undefined) params.set("v", options.modifiedAt);
   const prefix = `/api/machines/${encodeURIComponent(options?.machineId ?? "local")}`;
   return `${prefix}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file/preview?${params.toString()}`;
+}
+
+export function workspaceFileDownloadUrl(projectId: string, workspaceId: string, path: string, options?: { machineId?: string }): string {
+  const params = new URLSearchParams();
+  params.set("path", path);
+  const prefix = `/api/machines/${encodeURIComponent(options?.machineId ?? "local")}`;
+  return withManagementEmbed(`${prefix}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file/download?${params.toString()}`);
 }

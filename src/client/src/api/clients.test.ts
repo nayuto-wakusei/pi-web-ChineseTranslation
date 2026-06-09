@@ -90,6 +90,51 @@ describe("machine-scoped terminal command-run API", () => {
 
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote-a/terminal-command-runs/missing");
   });
+
+  it("downloads workspace files with fetch so management embed routing can proxy the request", async () => {
+    const fetchMock = stubResponseFetch(new Response(new Blob(["hello"]), {
+      status: 200,
+      headers: { "content-disposition": 'attachment; filename="hello.txt"' },
+    }));
+    const click = vi.fn();
+    const remove = vi.fn();
+    const append = vi.fn();
+    const createObjectURL = vi.fn(() => "blob:download");
+    const revokeObjectURL = vi.fn();
+    const anchor = { click, remove, href: "", download: "" };
+    vi.stubGlobal("document", {
+      body: { append },
+      createElement: vi.fn(() => anchor),
+    });
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+
+    await workspacesApi.downloadWorkspaceFile("p 1", "w/1", "dir/hello.txt", "remote a");
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/file/download?path=dir%2Fhello.txt");
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(anchor.download).toBe("hello.txt");
+    expect(append).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:download");
+  });
+
+  it("uses RFC 5987 filenames when downloading workspace files", async () => {
+    stubResponseFetch(new Response(new Blob(["hello"]), {
+      status: 200,
+      headers: { "content-disposition": 'attachment; filename="__ __.xlsx"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.xlsx' },
+    }));
+    const anchor = { click: vi.fn(), remove: vi.fn(), href: "", download: "" };
+    vi.stubGlobal("document", {
+      body: { append: vi.fn() },
+      createElement: vi.fn(() => anchor),
+    });
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:download"), revokeObjectURL: vi.fn() });
+
+    await workspacesApi.downloadWorkspaceFile("p 1", "w/1", "dir/fallback.xlsx", "local");
+
+    expect(anchor.download).toBe("中文 文件.xlsx");
+  });
 });
 
 type FetchLike = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;

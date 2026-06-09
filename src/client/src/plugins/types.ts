@@ -151,7 +151,14 @@ export interface WorkspacePanelContext extends WorkspaceContext {
   selectedTerminalId: string | undefined;
   terminalAutoStart: boolean;
   onRefreshFiles: () => void;
+  onUploadFiles: (files: readonly File[]) => void;
+  onCreateFile: (path: string) => void;
+  onCreateDirectory: (path: string) => void;
+  onMoveSelectedPath: (path: string) => void;
+  onDeleteSelectedPath: () => void;
+  onDownloadSelectedFile: () => void;
   onExpandDir: (path: string) => void;
+  onSelectDirectory: (path: string) => void;
   onSelectFile: (path: string) => void;
   onRefreshGit: () => void;
   onSelectDiff: (path: string) => void;

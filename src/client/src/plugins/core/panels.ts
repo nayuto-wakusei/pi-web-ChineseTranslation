@@ -38,7 +38,20 @@ function renderFiles(context: WorkspacePanelContext): TemplateResult {
     <section class="toolbar">
       <strong>文件</strong>
       ${context.fileTreeStale ? html`<span class="stale">过期</span>` : null}
-      <button @click=${context.onRefreshFiles}>刷新</button>
+      <div class="toolbar-actions">
+        <button @click=${context.onRefreshFiles}>刷新</button>
+        <button @click=${() => { promptCreateFile(context); }}>新建文件</button>
+        <button @click=${() => { promptCreateDirectory(context); }}>新建目录</button>
+        ${context.selectedFilePath === undefined ? null : html`
+          ${selectedPathKind(context) === "file" ? html`<button @click=${() => { context.onDownloadSelectedFile(); }}>下载</button>` : null}
+          <button @click=${() => { promptMoveSelectedPath(context); }}>移动</button>
+          <button class="danger" @click=${() => { confirmDeleteSelectedPath(context); }}>删除</button>
+        `}
+        <label class="file-upload-button">
+          上传
+          <input type="file" multiple @change=${(event: Event) => { uploadSelectedFiles(context, event); }} />
+        </label>
+      </div>
     </section>
     <section class="split">
       <div class="list tree">
@@ -51,10 +64,45 @@ function renderFiles(context: WorkspacePanelContext): TemplateResult {
   `;
 }
 
+function uploadSelectedFiles(context: WorkspacePanelContext, event: Event): void {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement) || input.files === null) return;
+  context.onUploadFiles(Array.from(input.files));
+  input.value = "";
+}
+
+function promptCreateFile(context: WorkspacePanelContext): void {
+  const value = window.prompt("新建文件路径", defaultPathInSelectedDirectory(context, "new-file.txt"));
+  if (value === null || value.trim() === "") return;
+  context.onCreateFile(value.trim());
+}
+
+function promptCreateDirectory(context: WorkspacePanelContext): void {
+  const value = window.prompt("新建目录路径", defaultPathInSelectedDirectory(context, "new-folder"));
+  if (value === null || value.trim() === "") return;
+  context.onCreateDirectory(value.trim());
+}
+
+function promptMoveSelectedPath(context: WorkspacePanelContext): void {
+  const current = context.selectedFilePath;
+  if (current === undefined || current === "") return;
+  const value = window.prompt(selectedPathKind(context) === "directory" ? "移动或重命名目录到" : "移动或重命名文件到", current);
+  if (value === null || value.trim() === "" || value.trim() === current) return;
+  context.onMoveSelectedPath(value.trim());
+}
+
+function confirmDeleteSelectedPath(context: WorkspacePanelContext): void {
+  const current = context.selectedFilePath;
+  if (current === undefined || current === "") return;
+  const kind = selectedPathKind(context) === "directory" ? "空目录" : "文件";
+  if (!window.confirm(`删除${kind} ${current}？`)) return;
+  context.onDeleteSelectedPath();
+}
+
 function renderTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry, depth: number): TemplateResult {
   const children = context.expandedDirs[entry.path];
   const hasChildren = children !== undefined;
-  const selected = entry.type !== "directory" && context.selectedFilePath === entry.path;
+  const selected = context.selectedFilePath === entry.path;
   return html`
     <button class=${selected ? "row selected" : "row"} style=${`--depth:${String(depth)}`} @click=${() => { selectTreeEntry(context, entry); }}>
       <span>${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
@@ -65,13 +113,41 @@ function renderTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry, d
 }
 
 function selectTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry): void {
-  if (entry.type === "directory") context.onExpandDir(entry.path);
+  if (entry.type === "directory") {
+    context.onSelectDirectory(entry.path);
+    context.onExpandDir(entry.path);
+  }
   else context.onSelectFile(entry.path);
+}
+
+function selectedPathKind(context: WorkspacePanelContext): FileTreeEntry["type"] {
+  const path = context.selectedFilePath;
+  if (path === undefined) return "file";
+  return findTreeEntry(context, path)?.type ?? "file";
+}
+
+function defaultPathInSelectedDirectory(context: WorkspacePanelContext, name: string): string {
+  const selectedPath = context.selectedFilePath;
+  if (selectedPath === undefined || selectedPath === "") return name;
+  if (selectedPathKind(context) === "directory") return `${selectedPath}/${name}`;
+  const separator = selectedPath.lastIndexOf("/");
+  return separator === -1 ? name : `${selectedPath.slice(0, separator)}/${name}`;
+}
+
+function findTreeEntry(context: WorkspacePanelContext, path: string): FileTreeEntry | undefined {
+  const rootMatch = context.fileTree.find((entry) => entry.path === path);
+  if (rootMatch !== undefined) return rootMatch;
+  for (const entries of Object.values(context.expandedDirs)) {
+    const match = entries.find((entry) => entry.path === path);
+    if (match !== undefined) return match;
+  }
+  return undefined;
 }
 
 function renderFileViewer(context: WorkspacePanelContext): TemplateResult {
   const file = context.selectedFileContent;
   if (context.selectedFilePath === undefined || context.selectedFilePath === "") return html`<p class="muted">请选择文件。</p>`;
+  if (selectedPathKind(context) === "directory") return html`<p class="muted">已选择目录 ${context.selectedFilePath}。</p>`;
   if (file === undefined) return html`<p class="muted">正在加载 ${context.selectedFilePath}…</p>`;
   if (file.mediaType === "image") return renderImageViewer(context, file);
   if (file.binary) return html`<p class="muted">二进制文件：${file.path} · ${formatFileSize(file.size)}</p>`;

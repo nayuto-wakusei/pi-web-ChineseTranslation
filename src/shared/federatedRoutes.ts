@@ -1,4 +1,4 @@
-export type FederatedHttpMethod = "GET" | "POST" | "DELETE";
+export type FederatedHttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface FederatedHttpRouteSpec {
   method: FederatedHttpMethod;
@@ -14,7 +14,14 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/tree" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "PATCH", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/download" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/preview" },
+  { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
+  { method: "PATCH", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
+  { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/status" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/diff" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },

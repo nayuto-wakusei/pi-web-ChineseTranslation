@@ -35,8 +35,11 @@ import {
   parseThinkingLevelsResponse,
   parseWorkspace,
   parseWorkspaceActivityResponse,
+  parseWorkspaceDeleteResponse,
+  parseWorkspacePathOperationResponse,
+  parseWorkspaceUploadResponse,
 } from "./parsers";
-import { machineGitDiffUrl, messageUrl } from "./urls";
+import { machineGitDiffUrl, messageUrl, workspaceFileDownloadUrl } from "./urls";
 
 const machinePrefix = (machineId = "local") => `/api/machines/${encodeURIComponent(machineId)}`;
 
@@ -76,7 +79,67 @@ export const workspacesApi = {
   deleteWorkspace: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE" }),
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
+  uploadWorkspaceFile: async (projectId: string, workspaceId: string, path: string, file: File, machineId = "local") => request(
+    `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`,
+    parseWorkspaceUploadResponse,
+    { method: "POST", body: JSON.stringify({ path, contentBase64: await fileToBase64(file) }) },
+  ),
+  createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspaceUploadResponse, { method: "POST", body: JSON.stringify({ path, contentBase64: "" }) }),
+  moveWorkspaceFile: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
+  deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
+  createWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "POST", body: JSON.stringify({ path }) }),
+  moveWorkspaceDirectory: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
+  deleteWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
+  workspaceDownloadUrl: (projectId: string, workspaceId: string, path: string, machineId = "local") => workspaceFileDownloadUrl(projectId, workspaceId, path, { machineId }),
+  downloadWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => downloadWorkspaceFile(projectId, workspaceId, path, machineId),
 };
+
+async function fileToBase64(file: File): Promise<string> {
+  return arrayBufferToBase64(await file.arrayBuffer());
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function downloadWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId: string): Promise<void> {
+  const response = await fetch(workspaceFileDownloadUrl(projectId, workspaceId, path, { machineId }));
+  if (!response.ok) {
+    const body: unknown = await response.json().catch((): unknown => ({}));
+    throw new Error(apiErrorMessage(body) ?? response.statusText);
+  }
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = downloadFilename(path, response.headers.get("content-disposition"));
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function downloadFilename(path: string, contentDisposition: string | null): string {
+  const encodedMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/u);
+  const encodedName = encodedMatch?.[1];
+  if (encodedName !== undefined) {
+    try {
+      const decoded = decodeURIComponent(encodedName).trim();
+      if (decoded !== "") return decoded;
+    } catch {
+      // Fall back to the plain filename header or path basename.
+    }
+  }
+  const headerMatch = contentDisposition?.match(/filename="([^"]+)"/u);
+  const headerName = headerMatch?.[1]?.trim();
+  if (headerName !== undefined && headerName !== "") return headerName;
+  return path.split("/").filter((part) => part !== "").at(-1) ?? "download";
+}
 
 export const sessionsApi = {
   sessions: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo)),
