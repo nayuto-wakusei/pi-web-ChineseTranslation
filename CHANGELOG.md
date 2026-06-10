@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.8
+
+### Patch Changes
+
+- 15cba02: Replace management embed remote introspection with locally verified signed tokens and a 24-hour server-side management session.
+
 ## 1.202606.7
 
 ### Patch Changes
