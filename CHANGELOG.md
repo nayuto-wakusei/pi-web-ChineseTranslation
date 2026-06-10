@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.7
+
+### Patch Changes
+
+- Create a default management-embed project for the logged-in user when the platform session has no authorized projects yet.
+
 ## 1.202606.6
 
 ### Patch Changes

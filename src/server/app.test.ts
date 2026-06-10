@@ -348,6 +348,52 @@ describe("buildApp", () => {
     }
   });
 
+  it("creates a default managed project when the embed context has no projects", async () => {
+    const managedRoot = join(tempDir, "managed");
+    const managedContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+      projects: [],
+      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
+      expiresAt: "2026-06-08T00:00:00.000Z",
+    };
+    const managedApp = await buildApp({
+      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects-empty.json"))),
+      workspaces: new WorkspaceService(),
+      sessionDaemon: fakeSessionDaemon(),
+      managementEmbed: {
+        enabled: true,
+        projectRoot: managedRoot,
+        authenticate: (token) => {
+          if (token !== "token-1") throw new Error("bad token");
+          return Promise.resolve(managedContext);
+        },
+      },
+      clientDist: false,
+      logger: false,
+    });
+    try {
+      const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token-1" };
+      const projectsResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers });
+
+      expect(projectsResponse.statusCode).toBe(200);
+      expect(projectsResponse.json<Project[]>()).toEqual([
+        expect.objectContaining({
+          id: "default-project",
+          name: "account-1的项目",
+          path: join(managedRoot, "account-1"),
+        }),
+      ]);
+
+      const workspacesResponse = await managedApp.inject({ method: "GET", url: "/api/projects/default-project/workspaces", headers });
+      expect(workspacesResponse.statusCode).toBe(200);
+      expect(workspacesResponse.json<Workspace[]>()).toEqual([
+        expect.objectContaining({ projectId: "default-project", path: join(managedRoot, "account-1") }),
+      ]);
+    } finally {
+      await managedApp.close();
+    }
+  });
+
   it("serves the PI WEB plugin manifest and plugin assets", async () => {
     const manifestResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);

@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertManagedCwd,
+  createManagementEmbedRuntime,
   managedProjectPath,
   managementToolAllowed,
   projectFromManagedEmbedContext,
+  projectsFromManagedEmbedContext,
   readManagementEmbedRequest,
   type ManagementEmbedContext,
 } from "./managementEmbed.js";
@@ -49,11 +51,47 @@ describe("management embed sandbox policy", () => {
     });
   });
 
+  it("synthesizes a default project when the embed context has no projects", async () => {
+    const projects = await projectsFromManagedEmbedContext(root, contextFor([]));
+
+    expect(projects).toEqual([
+      expect.objectContaining({
+        id: "default-project",
+        name: "account-1的项目",
+        path: join(root, "account-1"),
+      }),
+    ]);
+  });
+
   it("detects management mode and token from bridge headers", () => {
     expect(readManagementEmbedRequest({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token-1" })).toEqual({
       mode: "management",
       token: "token-1",
     });
+  });
+
+  it("defaults the management project root under the runtime user home directory", () => {
+    const runtime = createManagementEmbedRuntime({
+      enabled: true,
+      auth: {
+        introspectionUrl: "https://auth.example.test/introspect",
+        serviceSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+      },
+    }, {}, "/home/alice");
+
+    expect(runtime?.projectRoot).toBe(join("/home/alice", "PiWeb"));
+  });
+
+  it("defaults the management project root to /root/PiWeb for the root user", () => {
+    const runtime = createManagementEmbedRuntime({
+      enabled: true,
+      auth: {
+        introspectionUrl: "https://auth.example.test/introspect",
+        serviceSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+      },
+    }, {}, "/root");
+
+    expect(runtime?.projectRoot).toBe(join("/root", "PiWeb"));
   });
 
   it("always denies interactive shell and terminal tools in management mode", () => {

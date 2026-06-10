@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
 import type { FastifyRequest } from "fastify";
@@ -8,6 +9,7 @@ export const MANAGEMENT_EMBED_MODE_HEADER = "x-pi-web-embed-mode";
 export const MANAGEMENT_EMBED_TOKEN_HEADER = "x-pi-web-embed-token";
 export const MANAGEMENT_EMBED_CONTEXT_HEADER = "x-pi-web-management-context";
 const MANAGEMENT_FORCE_DENY_TOOLS = new Set(["bash", "shell", "terminal", "terminal-command-runs"]);
+const DEFAULT_MANAGED_PROJECT_ID = "default-project";
 
 export interface ManagementEmbedContext {
   user: {
@@ -54,7 +56,11 @@ export async function managementContextForRequest(request: FastifyRequest, runti
   return runtime.authenticate(embed.token);
 }
 
-export function createManagementEmbedRuntime(config: PiWebManagementEmbedConfig | undefined, env: NodeJS.ProcessEnv = process.env): ManagementEmbedRuntime | undefined {
+export function createManagementEmbedRuntime(
+  config: PiWebManagementEmbedConfig | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir = homedir(),
+): ManagementEmbedRuntime | undefined {
   if (config?.enabled !== true) return undefined;
   const introspectionUrl = config.auth?.introspectionUrl?.trim();
   const configuredServiceSecretEnv = config.auth?.serviceSecretEnv?.trim();
@@ -63,13 +69,13 @@ export function createManagementEmbedRuntime(config: PiWebManagementEmbedConfig 
   if (introspectionUrl === undefined || introspectionUrl === "" || serviceSecret === undefined || serviceSecret === "") {
     return {
       enabled: true,
-      projectRoot: config.projectRoot ?? "/root/Piweb",
+      projectRoot: config.projectRoot ?? defaultManagedProjectRoot(homeDir),
       authenticate: () => Promise.reject(new Error("Management embed auth is not configured")),
     };
   }
   return {
     enabled: true,
-    projectRoot: config.projectRoot ?? "/root/Piweb",
+    projectRoot: config.projectRoot ?? defaultManagedProjectRoot(homeDir),
     authenticate: async (token) => introspectManagementToken(introspectionUrl, serviceSecret, token),
   };
 }
@@ -85,28 +91,29 @@ export async function managedProjectPath(projectRoot: string, rootUserId: string
 }
 
 export async function projectFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, projectId: string): Promise<Project> {
-  const entry = context.projects.find((project) => project.id === projectId);
+  const entry = authorizedManagedProjects(context).find((project) => project.id === projectId);
   if (entry === undefined) throw new Error("Project is not authorized for this management session");
-  const entryRoot = entry.root?.trim();
-  const path = entryRoot !== undefined && entryRoot !== ""
-    ? await assertManagedCwd(projectRoot, context, entryRoot)
-    : await managedProjectPath(projectRoot, context.user.rootUserId, entry.id);
+  const path = context.projects.length === 0 && entry.id === DEFAULT_MANAGED_PROJECT_ID
+    ? await defaultManagedProjectPath(projectRoot, context.user.id)
+    : await pathForManagedProjectEntry(projectRoot, context, entry);
   return { id: entry.id, name: entry.name !== "" ? entry.name : entry.id, path, createdAt: new Date(0).toISOString() };
 }
 
 export async function projectsFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext): Promise<Project[]> {
-  return Promise.all(context.projects.map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id)));
+  return Promise.all(authorizedManagedProjects(context).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id)));
 }
 
 export async function assertManagedCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string): Promise<string> {
   const root = await ensureRealDirectory(projectRoot);
   const requested = await realpath(resolve(cwd));
   ensureInside(root, requested);
-  const authorizedRoots = await Promise.all(context.projects.map(async (project) => {
-    const projectRootOverride = project.root?.trim();
-    if (projectRootOverride !== undefined && projectRootOverride !== "") return realpath(resolve(projectRootOverride));
-    return managedProjectPath(root, context.user.rootUserId, project.id);
-  }));
+  const authorizedRoots = context.projects.length === 0
+    ? [await defaultManagedProjectPath(root, context.user.id)]
+    : await Promise.all(context.projects.map(async (project) => {
+      const projectRootOverride = project.root?.trim();
+      if (projectRootOverride !== undefined && projectRootOverride !== "") return realpath(resolve(projectRootOverride));
+      return managedProjectPath(root, context.user.rootUserId, project.id);
+    }));
   if (!authorizedRoots.some((authorized) => isInside(authorized, requested))) {
     throw new Error("Path is outside the managed project sandbox");
   }
@@ -190,6 +197,41 @@ function parseProjectEntry(value: unknown): ManagementEmbedContext["projects"][n
 async function ensureRealDirectory(path: string): Promise<string> {
   await mkdir(path, { recursive: true });
   return realpath(path);
+}
+
+async function pathForManagedProjectEntry(
+  projectRoot: string,
+  context: ManagementEmbedContext,
+  project: ManagementEmbedContext["projects"][number],
+): Promise<string> {
+  const entryRoot = project.root?.trim();
+  if (entryRoot !== undefined && entryRoot !== "") return assertManagedCwd(projectRoot, context, entryRoot);
+  return managedProjectPath(projectRoot, context.user.rootUserId, project.id);
+}
+
+function authorizedManagedProjects(context: ManagementEmbedContext): ManagementEmbedContext["projects"] {
+  return context.projects.length === 0 ? [defaultManagedProject(context)] : context.projects;
+}
+
+function defaultManagedProject(context: ManagementEmbedContext): ManagementEmbedContext["projects"][number] {
+  return {
+    id: DEFAULT_MANAGED_PROJECT_ID,
+    name: `${context.user.id}的项目`,
+  };
+}
+
+async function defaultManagedProjectPath(projectRoot: string, userId: string): Promise<string> {
+  const root = await ensureRealDirectory(projectRoot);
+  const requested = join(root, safePathSegment(userId));
+  ensureInside(root, requested);
+  await mkdir(requested, { recursive: true });
+  const target = await realpath(requested);
+  ensureInside(root, target);
+  return target;
+}
+
+function defaultManagedProjectRoot(homeDir: string): string {
+  return join(homeDir, "PiWeb");
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
