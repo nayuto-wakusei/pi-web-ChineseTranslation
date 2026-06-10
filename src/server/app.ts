@@ -47,7 +47,7 @@ export interface AppDependencies {
 function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
   app.get(`${prefix}/projects`, async (request, reply) => {
     try {
-      const context = await managementContextForRequest(request, managementEmbed);
+      const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) return await projectsFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context);
       return await projects.list();
     } catch (error) {
@@ -57,7 +57,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.post<{ Body: { name?: string; path: string; create?: boolean } }>(`${prefix}/projects`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
       return await projects.add(request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -66,7 +66,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
       await projects.close(request.params.projectId);
       return { closed: true };
     } catch (error) {
@@ -76,7 +76,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.get<{ Querystring: { q?: string } }>(`${prefix}/project-directories`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Project directory browsing is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project directory browsing is disabled in management embed mode" });
       return await listDirectorySuggestions(request.query.q ?? "");
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -85,7 +85,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
 
   app.get<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId/workspaces`, async (request, reply) => {
     try {
-      const context = await managementContextForRequest(request, managementEmbed);
+      const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
         const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId);
         return await workspaces.list(project);
@@ -102,7 +102,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string,
   app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/files`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
-      const context = await managementContextForRequest(request, managementEmbed);
+      const context = await managementContextForRequest(request, managementEmbed, reply);
       const cwd = context === undefined ? request.query.cwd : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
       if (request.query.mode === "path") return await listPathSuggestions(cwd, request.query.q ?? "");
       return await listFileSuggestions(cwd, request.query.q ?? "", { kind: request.query.kind, scope: request.query.scope });

@@ -37,6 +37,27 @@ describe("PI WEB config persistence", () => {
 
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config plugin enabled values must be booleans");
   });
+
+  it("reads and writes local management embed auth config", () => {
+    const saved = savePiWebConfig({
+      managementEmbed: {
+        enabled: true,
+        projectRoot: "/root/PiWeb",
+        auth: {
+          sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+          issuer: "telecom-portal",
+          audience: "dify-external-portal",
+        },
+      },
+    }, testOptions());
+
+    expect(saved.config.managementEmbed?.auth).toEqual({
+      sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+      issuer: "telecom-portal",
+      audience: "dify-external-portal",
+    });
+    expect(loadPiWebConfig(testOptions()).config.managementEmbed?.auth).toEqual(saved.config.managementEmbed?.auth);
+  });
 });
 
 function testOptions(): { env: NodeJS.ProcessEnv } {

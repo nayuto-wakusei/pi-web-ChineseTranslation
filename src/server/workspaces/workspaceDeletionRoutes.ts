@@ -18,7 +18,7 @@ import type { WorkspaceService } from "./workspaceService.js";
 export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
   app.delete<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId`, async (request, reply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       if (managementContext !== undefined && !managementToolAllowed(managementContext, "terminal-command-runs")) return await reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
       return await deleteWorkspace(projects, workspaces, daemon, request.params.projectId, request.params.workspaceId, managementEmbed, managementContext);
     } catch (error) {

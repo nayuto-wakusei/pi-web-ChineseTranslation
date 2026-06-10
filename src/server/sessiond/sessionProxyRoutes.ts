@@ -11,7 +11,7 @@ export interface SessionProxyDaemon {
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       const body = await managementBody(request.url, request.body, managementContext, managementEmbed);
       const upstream = await daemon.request(request.method, stripPrefix(request.url, prefix), body, managementHeaders(managementContext));
       reply.code(upstream.statusCode);

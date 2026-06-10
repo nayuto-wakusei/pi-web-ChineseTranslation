@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -14,6 +15,7 @@ import { WorkspaceService } from "./workspaces/workspaceService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
+import { createManagementEmbedRuntime, type ManagementEmbedContext } from "./managementEmbed.js";
 import type { Project, Workspace } from "./types.js";
 
 let app: FastifyInstance;
@@ -394,6 +396,59 @@ describe("buildApp", () => {
     }
   });
 
+  it("persists management embed authorization in a server-side session cookie", async () => {
+    const managedRoot = join(tempDir, "managed-session");
+    let nowMs = Date.parse("2026-06-10T00:00:00.000Z");
+    const managedContext: ManagementEmbedContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+      projects: [],
+      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
+    };
+    const managementEmbed = createManagementEmbedRuntime({
+      enabled: true,
+      projectRoot: managedRoot,
+      auth: { sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN" },
+    }, { PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN: "secret-1" }, "/home/alice", {
+      now: () => new Date(nowMs),
+      randomSessionId: () => "session-1",
+    });
+    if (managementEmbed === undefined) throw new Error("Expected management runtime");
+    const managedApp = await buildApp({
+      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-session-projects.json"))),
+      workspaces: new WorkspaceService(),
+      sessionDaemon: fakeSessionDaemon(),
+      managementEmbed,
+      clientDist: false,
+      logger: false,
+    });
+    try {
+      const token = signManagementToken(managedContext, "secret-1", nowMs);
+      const projectsResponse = await managedApp.inject({ method: "GET", url: `/api/projects?embed=management&token=${encodeURIComponent(token)}` });
+      const cookie = cookiePair(projectsResponse.headers["set-cookie"]);
+      nowMs += 10 * 60 * 1000;
+      const expiredToken = signManagementToken({ ...managedContext, projects: [{ id: "other", name: "Other" }] }, "secret-1", nowMs - 10 * 60 * 1000);
+
+      const sessionResponse = await managedApp.inject({
+        method: "GET",
+        url: `/api/projects?embed=management&token=${encodeURIComponent(expiredToken)}`,
+        headers: { cookie },
+      });
+
+      expect(projectsResponse.statusCode).toBe(200);
+      expect(projectsResponse.headers["set-cookie"]).toEqual(expect.stringContaining("HttpOnly"));
+      expect(sessionResponse.statusCode).toBe(200);
+      expect(sessionResponse.json<Project[]>()).toEqual([
+        expect.objectContaining({
+          id: "default-project",
+          name: "account-1的项目",
+          path: join(managedRoot, "account-1"),
+        }),
+      ]);
+    } finally {
+      await managedApp.close();
+    }
+  });
+
   it("serves the PI WEB plugin manifest and plugin assets", async () => {
     const manifestResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);
@@ -696,4 +751,24 @@ function fakeRemoteClient(overrides: Partial<MachineClient>): MachineClient {
     connectWebSocket: () => { throw new Error("WebSocket not configured for test"); },
     ...overrides,
   };
+}
+
+function signManagementToken(context: ManagementEmbedContext, secret: string, nowMs: number): string {
+  const payload = {
+    iss: "telecom-portal",
+    aud: "dify-external-portal",
+    iat: Math.floor(nowMs / 1000),
+    exp: Math.floor((nowMs + 5 * 60 * 1000) / 1000),
+    jti: "token-1",
+    ...context,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function cookiePair(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined) throw new Error("Expected set-cookie header");
+  return raw.split(";")[0] ?? "";
 }

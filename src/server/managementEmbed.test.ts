@@ -1,22 +1,28 @@
 import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
+  managementContextForRequest,
   managedProjectPath,
   managementToolAllowed,
   projectFromManagedEmbedContext,
   projectsFromManagedEmbedContext,
   readManagementEmbedRequest,
   type ManagementEmbedContext,
+  type ManagementEmbedReplyTarget,
+  type ManagementEmbedRequestSource,
 } from "./managementEmbed.js";
 
 let root: string;
+let nowMs: number;
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-")));
+  nowMs = Date.parse("2026-06-10T00:00:00.000Z");
 });
 
 afterEach(async () => {
@@ -74,8 +80,7 @@ describe("management embed sandbox policy", () => {
     const runtime = createManagementEmbedRuntime({
       enabled: true,
       auth: {
-        introspectionUrl: "https://auth.example.test/introspect",
-        serviceSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+        sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
       },
     }, {}, "/home/alice");
 
@@ -86,8 +91,7 @@ describe("management embed sandbox policy", () => {
     const runtime = createManagementEmbedRuntime({
       enabled: true,
       auth: {
-        introspectionUrl: "https://auth.example.test/introspect",
-        serviceSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+        sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
       },
     }, {}, "/root");
 
@@ -105,6 +109,97 @@ describe("management embed sandbox policy", () => {
   });
 });
 
+describe("management embed local token authentication", () => {
+  it("verifies signed entry tokens and creates an HttpOnly management session", async () => {
+    const runtime = runtimeFor("secret-1");
+    const reply = replyFor();
+    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }])), "secret-1");
+
+    const context = await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, reply);
+
+    expect(context?.user.id).toBe("account-1");
+    expect(reply.headers["set-cookie"]?.[0]).toContain("pi_web_management_session=session-1");
+    expect(reply.headers["set-cookie"]?.[0]).toContain("HttpOnly");
+    expect(reply.headers["set-cookie"]?.[0]).toContain("Max-Age=86400");
+  });
+
+  it("uses the management session after the entry token expires", async () => {
+    const runtime = runtimeFor("secret-1");
+    const entryReply = replyFor();
+    const token = signToken(tokenPayload(contextFor([])), "secret-1");
+    await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, entryReply);
+    const cookie = cookiePair(entryReply);
+    nowMs += 10 * 60 * 1000;
+    const expiredToken = signToken(tokenPayload(contextFor([{ id: "other", name: "Other" }]), { exp: seconds(nowMs - 1_000) }), "secret-1");
+
+    const context = await managementContextForRequest(requestFor({ cookie }, { embed: "management", token: expiredToken }), runtime, replyFor());
+
+    expect(context?.projects).toEqual([]);
+  });
+
+  it("expires management sessions server-side after 24 hours", async () => {
+    const runtime = runtimeFor("secret-1");
+    const entryReply = replyFor();
+    const token = signToken(tokenPayload(contextFor([])), "secret-1");
+    await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, entryReply);
+    nowMs += 24 * 60 * 60 * 1000 + 1;
+
+    await expect(
+      managementContextForRequest(requestFor({ cookie: cookiePair(entryReply) }, { embed: "management" }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed session is invalid or expired");
+  });
+
+  it("creates a new session from a fresh token when the previous session expired", async () => {
+    const runtime = runtimeFor("secret-1");
+    const entryReply = replyFor();
+    const token = signToken(tokenPayload(contextFor([])), "secret-1");
+    await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, entryReply);
+    nowMs += 24 * 60 * 60 * 1000 + 1;
+    const freshToken = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }])), "secret-1");
+
+    const context = await managementContextForRequest(requestFor({ cookie: cookiePair(entryReply) }, { embed: "management", token: freshToken }), runtime, replyFor());
+
+    expect(context?.projects).toEqual([{ id: "p1", name: "Project 1" }]);
+  });
+
+  it("rejects tampered entry tokens", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([])), "secret-1");
+    const tampered = token.replace(/.$/, token.endsWith("a") ? "b" : "a");
+
+    await expect(
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": tampered }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed token is invalid");
+  });
+
+  it("rejects expired entry tokens", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([]), { exp: seconds(nowMs - 1_000) }), "secret-1");
+
+    await expect(
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed token is expired");
+  });
+
+  it("rejects entry tokens from the wrong issuer", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([]), { iss: "other-issuer" }), "secret-1");
+
+    await expect(
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed token is invalid");
+  });
+
+  it("rejects entry tokens for the wrong audience", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([]), { aud: "other-audience" }), "secret-1");
+
+    await expect(
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed token is invalid");
+  });
+});
+
 function contextFor(projects: ManagementEmbedContext["projects"]): ManagementEmbedContext {
   return {
     user: {
@@ -117,4 +212,64 @@ function contextFor(projects: ManagementEmbedContext["projects"]): ManagementEmb
     tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
     expiresAt: "2026-06-08T00:00:00.000Z",
   };
+}
+
+function runtimeFor(secret: string) {
+  const runtime = createManagementEmbedRuntime({
+    enabled: true,
+    auth: {
+      sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+      issuer: "telecom-portal",
+      audience: "dify-external-portal",
+    },
+  }, { PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN: secret }, "/home/alice", {
+    now: () => new Date(nowMs),
+    randomSessionId: () => "session-1",
+  });
+  if (runtime === undefined) throw new Error("Expected runtime");
+  return runtime;
+}
+
+function tokenPayload(context: ManagementEmbedContext, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    iss: "telecom-portal",
+    aud: "dify-external-portal",
+    iat: seconds(nowMs),
+    exp: seconds(nowMs + 5 * 60 * 1000),
+    jti: "token-1",
+    ...context,
+    ...overrides,
+  };
+}
+
+function signToken(payload: Record<string, unknown>, secret: string): string {
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function requestFor(headers: Record<string, string>, query: Record<string, unknown> = {}): ManagementEmbedRequestSource {
+  return { headers, query };
+}
+
+function replyFor(): ManagementEmbedReplyTarget & { headers: Record<string, string[]> } {
+  const headers: Record<string, string[]> = {};
+  return {
+    headers,
+    header(name: string, value: string) {
+      const key = name.toLowerCase();
+      this.headers[key] = [...(this.headers[key] ?? []), value];
+      return this;
+    },
+  };
+}
+
+function cookiePair(reply: { headers: Record<string, string[] | undefined> }): string {
+  const cookie = reply.headers["set-cookie"]?.[0];
+  if (cookie === undefined) throw new Error("Expected set-cookie header");
+  return cookie.split(";")[0] ?? "";
+}
+
+function seconds(ms: number): number {
+  return Math.floor(ms / 1000);
 }

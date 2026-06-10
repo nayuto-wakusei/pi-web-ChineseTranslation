@@ -45,8 +45,9 @@ export interface PiWebManagementEmbedConfig {
   enabled?: boolean;
   projectRoot?: string;
   auth?: {
-    introspectionUrl?: string;
-    serviceSecretEnv?: string;
+    sharedSecretEnv?: string;
+    issuer?: string;
+    audience?: string;
   };
   sandbox?: {
     pythonExecutable?: string;

@@ -19,7 +19,7 @@ import {
 export function registerTerminalProxyRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
   app.get<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return [];
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return [];
       const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
       return await proxyJson(daemon, "GET", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, reply);
     } catch (error) {
@@ -40,7 +40,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: { name?: string; cols?: number; rows?: number } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
       return await proxyJson(daemon, "POST", "/terminals", { ...request.body, cwd: context.root }, reply);
     } catch (error) {
@@ -51,7 +51,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.post<{ Params: { projectId: string; workspaceId: string; terminalId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals/:terminalId/continue`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
       return await proxyJson(daemon, "POST", `/terminals/${encodeURIComponent(request.params.terminalId)}/continue`, undefined, reply);
     } catch (error) {
@@ -62,7 +62,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.delete<{ Params: { projectId: string; workspaceId: string; terminalId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals/:terminalId`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
       return await proxyJson(daemon, "DELETE", `/terminals/${encodeURIComponent(request.params.terminalId)}`, undefined, reply);
     } catch (error) {
@@ -73,7 +73,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: TerminalCommandRunRequest }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminal-command-runs`, async (request, reply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       if (managementContext !== undefined && !managementToolAllowed(managementContext, "terminal-command-runs")) return await reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
       const context = managementContext === undefined
         ? await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId)
@@ -95,7 +95,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.get<{ Querystring: TerminalCommandRunQuery }>(`${prefix}/terminal-command-runs`, async (request, reply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       const value = await proxyJson(daemon, "GET", `/terminal-command-runs${terminalCommandRunQuery(request.query)}`, undefined, reply, managementHeaders(managementContext));
       return managementContext === undefined ? value : filterManagedCommandRuns(value, managementContext);
     } catch (error) {
@@ -106,7 +106,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.post<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId/cancel`, async (request, reply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       return await proxyJson(daemon, "POST", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}/cancel`, undefined, reply, managementHeaders(managementContext));
     } catch (error) {
       requestFailed(reply, error);
@@ -116,7 +116,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
 
   app.get<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId`, async (request, reply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed);
+      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       const value = await proxyJson(daemon, "GET", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}`, undefined, reply, managementHeaders(managementContext));
       if (managementContext !== undefined && !isManagedCommandRun(value, managementContext)) return await reply.code(404).send({ error: "Terminal command run not found" });
       return value;

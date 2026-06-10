@@ -179,8 +179,9 @@ function parseManagementEmbed(value: unknown, path: string): NonNullable<PiWebCo
 function parseManagementEmbedAuth(value: unknown, path: string): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["auth"]> {
   if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed.auth must be an object: ${path}`);
   return {
-    ...(value["introspectionUrl"] === undefined ? {} : { introspectionUrl: parseString(value["introspectionUrl"], "managementEmbed.auth.introspectionUrl", path) }),
-    ...(value["serviceSecretEnv"] === undefined ? {} : { serviceSecretEnv: parseString(value["serviceSecretEnv"], "managementEmbed.auth.serviceSecretEnv", path) }),
+    ...(value["sharedSecretEnv"] === undefined ? {} : { sharedSecretEnv: parseString(value["sharedSecretEnv"], "managementEmbed.auth.sharedSecretEnv", path) }),
+    ...(value["issuer"] === undefined ? {} : { issuer: parseString(value["issuer"], "managementEmbed.auth.issuer", path) }),
+    ...(value["audience"] === undefined ? {} : { audience: parseString(value["audience"], "managementEmbed.auth.audience", path) }),
   };
 }
 

@@ -122,8 +122,9 @@ function parseManagementEmbedRequest(value: unknown): NonNullable<PiWebConfig["m
 function parseAuthRequest(value: unknown): NonNullable<NonNullable<PiWebConfig["managementEmbed"]>["auth"]> {
   if (!isRecord(value) || Array.isArray(value)) throw new Error("PI WEB config managementEmbed.auth must be an object");
   return {
-    ...(value["introspectionUrl"] === undefined ? {} : { introspectionUrl: parseStringRequest(value["introspectionUrl"], "managementEmbed.auth.introspectionUrl") }),
-    ...(value["serviceSecretEnv"] === undefined ? {} : { serviceSecretEnv: parseStringRequest(value["serviceSecretEnv"], "managementEmbed.auth.serviceSecretEnv") }),
+    ...(value["sharedSecretEnv"] === undefined ? {} : { sharedSecretEnv: parseStringRequest(value["sharedSecretEnv"], "managementEmbed.auth.sharedSecretEnv") }),
+    ...(value["issuer"] === undefined ? {} : { issuer: parseStringRequest(value["issuer"], "managementEmbed.auth.issuer") }),
+    ...(value["audience"] === undefined ? {} : { audience: parseStringRequest(value["audience"], "managementEmbed.auth.audience") }),
   };
 }
 

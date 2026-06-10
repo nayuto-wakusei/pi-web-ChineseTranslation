@@ -45,6 +45,33 @@ describe("config routes", () => {
     expect(response.json<PiWebConfigResponse>().config).toEqual(savedConfig);
   });
 
+  it("accepts local management embed auth config", async () => {
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/config",
+      payload: {
+        config: {
+          managementEmbed: {
+            enabled: true,
+            projectRoot: "/root/PiWeb",
+            auth: {
+              sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+              issuer: "telecom-portal",
+              audience: "dify-external-portal",
+            },
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(savedConfig.managementEmbed?.auth).toEqual({
+      sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN",
+      issuer: "telecom-portal",
+      audience: "dify-external-portal",
+    });
+  });
+
   it("rejects invalid config payloads before writing", async () => {
     const response = await app.inject({
       method: "PUT",

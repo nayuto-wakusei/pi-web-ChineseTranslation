@@ -1,7 +1,7 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
-import type { FastifyRequest } from "fastify";
 import type { Project } from "./types.js";
 import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
 
@@ -10,6 +10,11 @@ export const MANAGEMENT_EMBED_TOKEN_HEADER = "x-pi-web-embed-token";
 export const MANAGEMENT_EMBED_CONTEXT_HEADER = "x-pi-web-management-context";
 const MANAGEMENT_FORCE_DENY_TOOLS = new Set(["bash", "shell", "terminal", "terminal-command-runs"]);
 const DEFAULT_MANAGED_PROJECT_ID = "default-project";
+const DEFAULT_MANAGEMENT_SHARED_SECRET_ENV = "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN";
+const DEFAULT_MANAGEMENT_TOKEN_ISSUER = "telecom-portal";
+const DEFAULT_MANAGEMENT_TOKEN_AUDIENCE = "dify-external-portal";
+const MANAGEMENT_SESSION_COOKIE = "pi_web_management_session";
+const MANAGEMENT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface ManagementEmbedContext {
   user: {
@@ -28,11 +33,33 @@ export interface ManagementEmbedRuntime {
   enabled: boolean;
   projectRoot: string;
   authenticate(token: string): Promise<ManagementEmbedContext>;
+  createSession?(context: ManagementEmbedContext): ManagementEmbedSession;
+  readSession?(id: string): ManagementEmbedContext | undefined;
+  sessionCookieName?: string;
+}
+
+export interface ManagementEmbedRuntimeOptions {
+  now?: () => Date;
+  randomSessionId?: () => string;
+}
+
+export interface ManagementEmbedSession {
+  id: string;
+  maxAgeSeconds: number;
 }
 
 export interface ManagementEmbedRequest {
   mode?: "management";
   token?: string;
+}
+
+export interface ManagementEmbedRequestSource {
+  headers: Record<string, string | string[] | undefined>;
+  query?: unknown;
+}
+
+export interface ManagementEmbedReplyTarget {
+  header(name: string, value: string): unknown;
 }
 
 export function readManagementEmbedRequest(headers: Record<string, string | string[] | undefined>, query?: Record<string, unknown>): ManagementEmbedRequest {
@@ -48,35 +75,64 @@ export function readManagementEmbedRequest(headers: Record<string, string | stri
   };
 }
 
-export async function managementContextForRequest(request: FastifyRequest, runtime: ManagementEmbedRuntime | undefined): Promise<ManagementEmbedContext | undefined> {
+export async function managementContextForRequest(request: ManagementEmbedRequestSource, runtime: ManagementEmbedRuntime | undefined, reply?: ManagementEmbedReplyTarget): Promise<ManagementEmbedContext | undefined> {
   const embed = readManagementEmbedRequest(request.headers, isRecord(request.query) ? request.query : undefined);
+  const sessionId = readCookie(request.headers["cookie"], runtime?.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE);
+  if (runtime?.enabled === true && sessionId !== undefined && runtime.readSession !== undefined) {
+    const sessionContext = runtime.readSession(sessionId);
+    if (sessionContext !== undefined) return sessionContext;
+    if (embed.mode === "management" && (embed.token === undefined || embed.token === "")) throw new Error("Management embed session is invalid or expired");
+  }
   if (embed.mode !== "management") return undefined;
   if (runtime?.enabled !== true) throw new Error("Management embed mode is not configured");
   if (embed.token === undefined || embed.token === "") throw new Error("Management embed token is required");
-  return runtime.authenticate(embed.token);
+  const context = await runtime.authenticate(embed.token);
+  if (reply !== undefined && runtime.createSession !== undefined) {
+    const session = runtime.createSession(context);
+    writeSessionCookie(reply, runtime.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE, session);
+  }
+  return context;
 }
 
 export function createManagementEmbedRuntime(
   config: PiWebManagementEmbedConfig | undefined,
   env: NodeJS.ProcessEnv = process.env,
   homeDir = homedir(),
+  options: ManagementEmbedRuntimeOptions = {},
 ): ManagementEmbedRuntime | undefined {
   if (config?.enabled !== true) return undefined;
-  const introspectionUrl = config.auth?.introspectionUrl?.trim();
-  const configuredServiceSecretEnv = config.auth?.serviceSecretEnv?.trim();
-  const serviceSecretEnv = configuredServiceSecretEnv !== undefined && configuredServiceSecretEnv !== "" ? configuredServiceSecretEnv : "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN";
-  const serviceSecret = env[serviceSecretEnv]?.trim();
-  if (introspectionUrl === undefined || introspectionUrl === "" || serviceSecret === undefined || serviceSecret === "") {
+  const configuredSecretEnv = config.auth?.sharedSecretEnv?.trim();
+  const sharedSecretEnv = configuredSecretEnv !== undefined && configuredSecretEnv !== "" ? configuredSecretEnv : DEFAULT_MANAGEMENT_SHARED_SECRET_ENV;
+  const sharedSecret = env[sharedSecretEnv]?.trim();
+  const configuredIssuer = config.auth?.issuer?.trim();
+  const configuredAudience = config.auth?.audience?.trim();
+  const issuer = configuredIssuer !== undefined && configuredIssuer !== "" ? configuredIssuer : DEFAULT_MANAGEMENT_TOKEN_ISSUER;
+  const audience = configuredAudience !== undefined && configuredAudience !== "" ? configuredAudience : DEFAULT_MANAGEMENT_TOKEN_AUDIENCE;
+  const now = options.now ?? (() => new Date());
+  const randomSessionId = options.randomSessionId ?? (() => randomBytes(32).toString("base64url"));
+  const sessionStore = createManagementSessionStore(now, randomSessionId);
+  if (sharedSecret === undefined || sharedSecret === "") {
     return {
       enabled: true,
       projectRoot: config.projectRoot ?? defaultManagedProjectRoot(homeDir),
       authenticate: () => Promise.reject(new Error("Management embed auth is not configured")),
+      createSession: sessionStore.create,
+      readSession: sessionStore.read,
+      sessionCookieName: MANAGEMENT_SESSION_COOKIE,
     };
   }
   return {
     enabled: true,
     projectRoot: config.projectRoot ?? defaultManagedProjectRoot(homeDir),
-    authenticate: async (token) => introspectManagementToken(introspectionUrl, serviceSecret, token),
+    authenticate: (token) => Promise.resolve(verifyManagementEntryToken(token, {
+      secret: sharedSecret,
+      issuer,
+      audience,
+      now,
+    })),
+    createSession: sessionStore.create,
+    readSession: sessionStore.read,
+    sessionCookieName: MANAGEMENT_SESSION_COOKIE,
   };
 }
 
@@ -139,15 +195,90 @@ export function decodeManagementContext(value: string | undefined): ManagementEm
   return parseIntrospectionPayload({ active: true, ...parsed });
 }
 
-async function introspectManagementToken(url: string, serviceSecret: string, token: string): Promise<ManagementEmbedContext> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-pi-web-embed-secret": serviceSecret },
-    body: JSON.stringify({ token }),
-  });
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (!response.ok || !isRecord(payload) || payload["active"] !== true) throw new Error("Management embed token is invalid");
-  return parseIntrospectionPayload(payload);
+function verifyManagementEntryToken(
+  token: string,
+  options: { secret: string; issuer: string; audience: string; now: () => Date },
+): ManagementEmbedContext {
+  const [encodedPayload, signature, extra] = token.split(".");
+  if (encodedPayload === undefined || encodedPayload === "" || signature === undefined || signature === "" || extra !== undefined) {
+    throw new Error("Management embed token is invalid");
+  }
+  const expectedSignature = createHmac("sha256", options.secret).update(encodedPayload).digest("base64url");
+  if (!safeEqualBase64Url(signature, expectedSignature)) throw new Error("Management embed token is invalid");
+
+  const parsed = parseJsonBase64Url(encodedPayload);
+  if (!isRecord(parsed)) throw new Error("Management embed token is invalid");
+  if (stringField(parsed, "iss") !== options.issuer || stringField(parsed, "aud") !== options.audience) {
+    throw new Error("Management embed token is invalid");
+  }
+  const nowSeconds = Math.floor(options.now().getTime() / 1000);
+  const iat = numberField(parsed, "iat");
+  const exp = numberField(parsed, "exp");
+  if (iat > nowSeconds + 60) throw new Error("Management embed token is invalid");
+  if (exp <= nowSeconds) throw new Error("Management embed token is expired");
+  stringField(parsed, "jti");
+  return parseIntrospectionPayload({ active: true, ...parsed });
+}
+
+function createManagementSessionStore(now: () => Date, randomSessionId: () => string): {
+  create: (context: ManagementEmbedContext) => ManagementEmbedSession;
+  read: (id: string) => ManagementEmbedContext | undefined;
+} {
+  const sessions = new Map<string, { context: ManagementEmbedContext; createdAt: number; expiresAt: number; lastUsedAt: number }>();
+  return {
+    create: (context) => {
+      const createdAt = now().getTime();
+      const id = randomSessionId();
+      sessions.set(id, { context, createdAt, expiresAt: createdAt + MANAGEMENT_SESSION_TTL_MS, lastUsedAt: createdAt });
+      return { id, maxAgeSeconds: MANAGEMENT_SESSION_TTL_MS / 1000 };
+    },
+    read: (id) => {
+      const session = sessions.get(id);
+      const nowMs = now().getTime();
+      if (session === undefined) return undefined;
+      if (session.expiresAt <= nowMs) {
+        sessions.delete(id);
+        return undefined;
+      }
+      session.lastUsedAt = nowMs;
+      return session.context;
+    },
+  };
+}
+
+function writeSessionCookie(reply: ManagementEmbedReplyTarget, name: string, session: ManagementEmbedSession): void {
+  reply.header("set-cookie", `${name}=${session.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${String(session.maxAgeSeconds)}`);
+}
+
+function readCookie(header: string | string[] | undefined, name: string): string | undefined {
+  const value = firstHeader(header);
+  if (value === undefined) return undefined;
+  for (const part of value.split(";")) {
+    const [rawKey, ...rawValue] = part.split("=");
+    if (rawKey?.trim() === name) {
+      const cookieValue = rawValue.join("=").trim();
+      return cookieValue === "" ? undefined : cookieValue;
+    }
+  }
+  return undefined;
+}
+
+function parseJsonBase64Url(value: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("Management embed token is invalid");
+  }
+}
+
+function safeEqualBase64Url(left: string, right: string): boolean {
+  try {
+    const leftBuffer = Buffer.from(left, "base64url");
+    const rightBuffer = Buffer.from(right, "base64url");
+    return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+  } catch {
+    return false;
+  }
 }
 
 function parseIntrospectionPayload(payload: Record<string, unknown>): ManagementEmbedContext {
@@ -260,6 +391,12 @@ function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
   if (typeof field !== "string" || field.trim() === "") throw new Error(`Management embed ${key} is required`);
   return field.trim();
+}
+
+function numberField(value: Record<string, unknown>, key: string): number {
+  const field = value[key];
+  if (typeof field !== "number" || !Number.isInteger(field)) throw new Error("Management embed token is invalid");
+  return field;
 }
 
 function stringArray(value: unknown): string[] {
