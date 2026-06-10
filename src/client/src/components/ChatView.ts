@@ -25,6 +25,33 @@ const partialStreamNoticeBodies = [
   "正在同步这次回复，稍后会显示完整版本。",
 ] as const;
 
+const activityLabelTranslations: Record<string, string> = {
+  active: "活跃",
+  "agent running": "助手运行中",
+  "bash complete": "Shell 已完成",
+  "bash failed": "Shell 失败",
+  "compaction complete": "压缩已完成",
+  "compaction failed": "压缩失败",
+  compacting: "正在压缩",
+  "duplicate queued message ignored": "已忽略重复排队消息",
+  error: "错误",
+  idle: "空闲",
+  "message complete": "消息已完成",
+  "message queued": "消息已排队",
+  "message queued during compaction": "压缩期间消息已排队",
+  "message started": "消息已开始",
+  "prompt accepted": "提示已接受",
+  queued: "已排队",
+  "receiving response": "正在接收回复",
+  "running bash": "Shell 运行中",
+  "running tool": "工具运行中",
+  "steering queued": "引导已排队",
+  stopped: "已停止",
+  "tool complete": "工具已完成",
+  "tool failed": "工具失败",
+  "turn complete": "回合已完成",
+};
+
 function randomPartialStreamNoticeBody(): string {
   return partialStreamNoticeBodies[Math.floor(Math.random() * partialStreamNoticeBodies.length)] ?? partialStreamNoticeBodies[0];
 }
@@ -268,7 +295,8 @@ export class ChatView extends LitElement {
     const activity = this.activity;
     if (activity === undefined) return state;
     if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
-    return activity.detail !== undefined && activity.detail !== "" ? `${activity.label}: ${activity.detail}` : activity.label;
+    const label = activityStateLabel(activity.label);
+    return activity.detail !== undefined && activity.detail !== "" ? `${label}: ${activity.detail}` : label;
   }
 
   private renderConversationRail() {
@@ -815,10 +843,7 @@ function roleLabel(role: string): string {
 }
 
 function activityStateLabel(state: string): string {
-  if (state === "compacting") return "正在压缩";
   if (state === "bash") return "Shell 运行中";
   if (state === "running") return "运行中";
-  if (state === "queued") return "已排队";
-  if (state === "idle") return "空闲";
-  return state;
+  return activityLabelTranslations[state] ?? state;
 }

@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.9
+
+### Patch Changes
+
+- Translate newly added command palette actions and live activity status labels into Chinese.
+
 ## 1.202606.8
 
 ### Patch Changes

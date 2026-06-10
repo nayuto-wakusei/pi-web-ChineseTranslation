@@ -76,4 +76,37 @@ describe("core UI Chinese display copy", () => {
     expect(text).not.toContain("Choose a project from the sidebar");
     expect(text).not.toContain("Choose a workspace to inspect files, Git, or terminals.");
   });
+
+  it("localizes the command palette navigation and panel layout actions", () => {
+    const text = source("components/PiWebApp.ts");
+
+    expect(text).toContain("聚焦机器");
+    expect(text).toContain("将键盘焦点移到机器选择器");
+    expect(text).toContain("聚焦项目");
+    expect(text).toContain("将键盘焦点移到项目列表");
+    expect(text).toContain("聚焦工作区");
+    expect(text).toContain("将键盘焦点移到工作区列表");
+    expect(text).toContain("聚焦会话");
+    expect(text).toContain("将键盘焦点移到会话列表");
+    expect(text).toContain("重置导航面板宽度");
+    expect(text).toContain("将导航面板恢复为默认宽度");
+    expect(text).toContain("重置工作区面板宽度");
+    expect(text).toContain("将工作区面板恢复为默认宽度");
+    expect(text).toContain("重置面板宽度");
+    expect(text).toContain("将所有侧边面板恢复为默认宽度");
+    expect(text).toContain("导航");
+    expect(text).toContain("视图");
+    expect(text).not.toContain("Focus Machines");
+    expect(text).not.toContain("Move keyboard focus to the machine selector");
+    expect(text).not.toContain("Reset Navigation Panel Size");
+    expect(text).not.toContain("Restore the navigation panel to its default width");
+  });
+
+  it("localizes the live activity dock state labels", () => {
+    const text = source("components/ChatView.ts");
+
+    expect(text).toContain("activityStateLabel(activity.label)");
+    expect(text).toContain("空闲");
+    expect(text).not.toContain("return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;");
+  });
 });
