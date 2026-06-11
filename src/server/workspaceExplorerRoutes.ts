@@ -1,13 +1,16 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { MultipartValue } from "@fastify/multipart";
 import type { ProjectService } from "./projects/projectService.js";
 import type { WorkspaceService } from "./workspaces/workspaceService.js";
 import { resolveWorkspaceContext } from "./workspaces/workspaceContext.js";
 import { listWorkspaceTree } from "./workspaces/fileTreeService.js";
 import { readWorkspaceFile } from "./workspaces/fileContentService.js";
-import { uploadWorkspaceFile, type WorkspaceUploadInput } from "./workspaces/fileUploadService.js";
+import { uploadWorkspaceFile, uploadWorkspaceFileStream, type WorkspaceUploadInput } from "./workspaces/fileUploadService.js";
 import { createWorkspaceDirectory, deleteWorkspaceDirectory, deleteWorkspaceFile, moveWorkspaceDirectory, moveWorkspaceFile, readWorkspaceFileDownload, type WorkspaceMoveInput, type WorkspacePathInput } from "./workspaces/fileOperationService.js";
 import { readWorkspaceImagePreview } from "./workspaces/imagePreviewService.js";
 import { managementContextForRequest, projectFromManagedEmbedContext, type ManagementEmbedRuntime } from "./managementEmbed.js";
+
+const WORKSPACE_UPLOAD_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
 
 export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/tree`, async (request, reply) => {
@@ -28,9 +31,10 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
     }
   });
 
-  app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceUploadInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
+  app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceUploadInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, { bodyLimit: WORKSPACE_UPLOAD_BODY_LIMIT_BYTES }, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      if (request.isMultipart()) return await uploadWorkspaceFileFromMultipart(context.root, request);
       return await uploadWorkspaceFile(context.root, request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -114,6 +118,22 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+}
+
+async function uploadWorkspaceFileFromMultipart(rootPath: string, request: FastifyRequest) {
+  const file = await request.file();
+  if (file === undefined) throw new Error("Upload body must include path and file");
+  const pathField = file.fields["path"];
+  const value = Array.isArray(pathField) ? pathField[0] : pathField;
+  const path = isMultipartStringField(value) ? value.value : undefined;
+  return await uploadWorkspaceFileStream(rootPath, path, file.file);
+}
+
+function isMultipartStringField(value: unknown): value is MultipartValue<string> {
+  return typeof value === "object"
+    && value !== null
+    && Reflect.get(value, "type") === "field"
+    && typeof Reflect.get(value, "value") === "string";
 }
 
 function contentDispositionAttachment(filename: string): string {

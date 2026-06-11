@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.10
+
+### Patch Changes
+
+- Support large local workspace file uploads with streamed transfer, and disable the upload action for remote machines until remote uploads support the same flow.
+
 ## 1.202606.9
 
 ### Patch Changes

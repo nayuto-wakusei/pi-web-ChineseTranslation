@@ -34,6 +34,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
 }
 
 function renderFiles(context: WorkspacePanelContext): TemplateResult {
+  const uploadEnabled = context.machine.kind === "local";
   return html`
     <section class="toolbar">
       <strong>文件</strong>
@@ -47,10 +48,14 @@ function renderFiles(context: WorkspacePanelContext): TemplateResult {
           <button @click=${() => { promptMoveSelectedPath(context); }}>移动</button>
           <button class="danger" @click=${() => { confirmDeleteSelectedPath(context); }}>删除</button>
         `}
-        <label class="file-upload-button">
-          上传
-          <input type="file" multiple @change=${(event: Event) => { uploadSelectedFiles(context, event); }} />
-        </label>
+        ${uploadEnabled
+          ? html`
+              <label class="file-upload-button">
+                上传
+                <input type="file" multiple @change=${(event: Event) => { uploadSelectedFiles(context, event); }} />
+              </label>
+            `
+          : html`<span class="file-upload-button disabled" title="远端机器暂不支持上传" aria-disabled="true">上传</span>`}
       </div>
     </section>
     <section class="split">

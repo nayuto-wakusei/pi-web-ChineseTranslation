@@ -30,6 +30,40 @@ afterEach(() => {
 });
 
 describe("machine-scoped terminal command-run API", () => {
+  it("uploads local workspace files with multipart form data", async () => {
+    const fetchMock = stubJsonFetch({ path: "dir/data.csv", size: 5, modifiedAt: "now" });
+
+    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "dir/data.csv", new File(["hello"], "data.csv"), "local");
+
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file");
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toBeUndefined();
+    expect(init?.body).toBeInstanceOf(FormData);
+    const formData = init?.body;
+    if (!(formData instanceof FormData)) throw new Error("Expected FormData body");
+    expect(formData.get("path")).toBe("dir/data.csv");
+    const uploadedFile = formData.get("file");
+    expect(uploadedFile).toBeInstanceOf(File);
+    if (!(uploadedFile instanceof File)) throw new Error("Expected uploaded file");
+    expect(uploadedFile.name).toBe("data.csv");
+    await expect(uploadedFile.text()).resolves.toBe("hello");
+  });
+
+  it("uploads remote workspace files with the federated JSON contract", async () => {
+    const fetchMock = stubJsonFetch({ path: "dir/data.csv", size: 5, modifiedAt: "now" });
+
+    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "dir/data.csv", new File(["hello"], "data.csv"), "remote a");
+
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/file");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(requestBody(init))).toEqual({
+      path: "dir/data.csv",
+      contentBase64: Buffer.from("hello", "utf8").toString("base64"),
+    });
+  });
+
   it("deletes workspaces through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
 

@@ -632,6 +632,54 @@ describe("buildApp", () => {
     await expect(readFile(join(projectDir, "uploaded.txt"), "utf8")).resolves.toBe("hello upload");
   });
 
+  it("uploads larger workspace files that expand when base64-encoded", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Large Uploads", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const csvContent = `${"value,\n".repeat(128 * 1024)}end,\n`;
+    const uploadResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: { path: "large.csv", contentBase64: Buffer.from(csvContent, "utf8").toString("base64") },
+    });
+
+    expect(uploadResponse.statusCode).toBe(200);
+    expect(uploadResponse.json()).toMatchObject({ path: "large.csv", size: Buffer.byteLength(csvContent, "utf8") });
+    await expect(readFile(join(projectDir, "large.csv"), "utf8")).resolves.toBe(csvContent);
+  });
+
+  it("uploads workspace files through the multipart HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Multipart Uploads", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const csvContent = `${"value,\n".repeat(256 * 1024)}end,\n`;
+    const multipart = multipartUpload("----pi-web-upload", "large.csv", csvContent, "text/csv");
+    const uploadResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      headers: { "content-type": `multipart/form-data; boundary=${multipart.boundary}` },
+      payload: multipart.body,
+    });
+
+    expect(uploadResponse.statusCode).toBe(200);
+    expect(uploadResponse.json()).toMatchObject({ path: "large.csv", size: Buffer.byteLength(csvContent, "utf8") });
+    await expect(readFile(join(projectDir, "large.csv"), "utf8")).resolves.toBe(csvContent);
+  });
+
   it("rejects uploaded workspace files outside the workspace", async () => {
     const addResponse = await app.inject({
       method: "POST",
@@ -727,6 +775,18 @@ interface CapturedSessionDaemonRequest {
   path: string;
   body?: unknown;
   headers?: Record<string, string>;
+}
+
+function multipartUpload(boundary: string, path: string, content: string, contentType: string): { boundary: string; body: Buffer } {
+  return {
+    boundary,
+    body: Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="path"\r\n\r\n${path}\r\n`, "utf8"),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${path}"\r\nContent-Type: ${contentType}\r\n\r\n`, "utf8"),
+      Buffer.from(content, "utf8"),
+      Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
+    ]),
+  };
 }
 
 function fakeSessionDaemon(): SessionProxyDaemon {

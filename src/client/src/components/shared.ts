@@ -187,6 +187,7 @@ export const workspacePanelStyles = css`
   .toolbar-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; flex-wrap: wrap; }
   .toolbar button.danger { color: var(--pi-danger); }
   .file-upload-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; cursor: pointer; }
+  .file-upload-button.disabled { opacity: .55; cursor: not-allowed; }
   .file-upload-button input { display: none; }
   .stale { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); padding: 1px 6px; font-size: 12px; }
   .split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }

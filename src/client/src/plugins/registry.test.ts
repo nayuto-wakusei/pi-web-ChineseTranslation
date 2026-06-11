@@ -211,6 +211,17 @@ describe("PluginRegistry", () => {
     expect(markup).not.toContain("正在加载");
   });
 
+  it("disables file uploads for remote machines", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const panel = registry.getWorkspacePanels().find((candidate) => candidate.id === "core:workspace.files");
+    const template = panel?.render(createWorkspacePanelContext("remote-a"));
+    const markup = template === undefined ? "" : templateText(template);
+
+    expect(markup).toContain("远端机器暂不支持上传");
+    expect(markup).toContain("file-upload-button disabled");
+  });
+
   it("routes app reload and settings actions through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });

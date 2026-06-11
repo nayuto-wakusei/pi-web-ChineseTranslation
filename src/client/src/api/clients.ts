@@ -79,11 +79,13 @@ export const workspacesApi = {
   deleteWorkspace: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE" }),
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
-  uploadWorkspaceFile: async (projectId: string, workspaceId: string, path: string, file: File, machineId = "local") => request(
-    `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`,
-    parseWorkspaceUploadResponse,
-    { method: "POST", body: JSON.stringify({ path, contentBase64: await fileToBase64(file) }) },
-  ),
+  uploadWorkspaceFile: async (projectId: string, workspaceId: string, path: string, file: File, machineId = "local") => machineId === "local"
+    ? uploadLocalWorkspaceFile(projectId, workspaceId, path, file)
+    : request(
+      `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`,
+      parseWorkspaceUploadResponse,
+      { method: "POST", body: JSON.stringify({ path, contentBase64: await fileToBase64(file) }) },
+    ),
   createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspaceUploadResponse, { method: "POST", body: JSON.stringify({ path, contentBase64: "" }) }),
   moveWorkspaceFile: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
   deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
@@ -96,6 +98,21 @@ export const workspacesApi = {
 
 async function fileToBase64(file: File): Promise<string> {
   return arrayBufferToBase64(await file.arrayBuffer());
+}
+
+async function uploadLocalWorkspaceFile(projectId: string, workspaceId: string, path: string, file: File): Promise<ReturnType<typeof parseWorkspaceUploadResponse>> {
+  const formData = new FormData();
+  formData.set("path", path);
+  formData.set("file", file, file.name);
+  const response = await fetch(withManagementEmbed(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`), {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch((): unknown => ({}));
+    throw new Error(apiErrorMessage(body) ?? response.statusText);
+  }
+  return parseWorkspaceUploadResponse(await response.json());
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
