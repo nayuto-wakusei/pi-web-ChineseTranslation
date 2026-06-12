@@ -170,7 +170,7 @@ function parseQueuedSessionMessage(value: unknown): QueuedSessionMessage {
   const record = requireRecord(value);
   const kind = requireString(record, "kind");
   if (kind !== "steer" && kind !== "followUp") throw new Error("Invalid queued message kind");
-  return { kind, text: requireString(record, "text") };
+  return { kind, text: requireString(record, "text"), ...optionalField("imageCount", optionalNumber(record, "imageCount")) };
 }
 
 function parseTokens(value: unknown): SessionStatus["tokens"] {
@@ -186,7 +186,13 @@ function parseTokens(value: unknown): SessionStatus["tokens"] {
 
 function parseSessionModel(value: unknown): SessionModel {
   const record = requireRecord(value);
-  return { ...optionalField("provider", optionalString(record, "provider")), ...optionalField("id", optionalString(record, "id")), ...optionalField("name", optionalString(record, "name")), ...optionalField("contextWindow", optionalNumber(record, "contextWindow")), ...optionalField("reasoning", record["reasoning"]) };
+  return { ...optionalField("provider", optionalString(record, "provider")), ...optionalField("id", optionalString(record, "id")), ...optionalField("name", optionalString(record, "name")), ...optionalField("contextWindow", optionalNumber(record, "contextWindow")), ...optionalField("reasoning", record["reasoning"]), ...optionalField("input", optionalModelInput(record["input"])) };
+}
+
+function optionalModelInput(value: unknown): SessionModel["input"] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("Expected model input array");
+  return value.filter((item): item is "text" | "image" => item === "text" || item === "image");
 }
 
 function optionalModel(value: unknown): Pick<SessionStatus, "model"> | object {

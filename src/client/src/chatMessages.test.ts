@@ -29,6 +29,12 @@ describe("chat message normalization", () => {
     ]);
   });
 
+  it("normalizes image content into renderable chat parts", () => {
+    expect(normalizeMessage({ role: "user", content: [{ type: "text", text: "看图" }, { type: "image", data: "abc123", mimeType: "image/png" }] })).toEqual([
+      { role: "user", parts: [{ type: "text", text: "看图" }, { type: "image", data: "abc123", mimeType: "image/png" }] },
+    ]);
+  });
+
   it("extracts skill invocation blocks into dedicated skill and user messages", () => {
     expect(normalizeMessage({ role: "user", content: "<skill name=\"playwright\" location=\"/skills/playwright\">\nUse browser\n</skill>\n\nNow test the UI" })).toEqual([
       { role: "user", parts: [{ type: "skillInvocation", name: "playwright", location: "/skills/playwright", content: "Use browser" }] },

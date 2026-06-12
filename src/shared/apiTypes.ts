@@ -138,6 +138,18 @@ export interface SessionActivity {
 export interface QueuedSessionMessage {
   kind: "steer" | "followUp";
   text: string;
+  imageCount?: number;
+}
+
+export interface PromptImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+export interface PromptInput {
+  text: string;
+  images?: PromptImage[];
 }
 
 export interface SessionModel {
@@ -146,6 +158,7 @@ export interface SessionModel {
   name?: string;
   contextWindow?: number;
   reasoning?: unknown;
+  input?: ("text" | "image")[];
 }
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";

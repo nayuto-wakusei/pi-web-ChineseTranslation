@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
+import type { GlobalSessionEvent, PromptImage, SessionUiEvent } from "../../shared/apiTypes.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { createManagementPermissionSystemPolicy, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
@@ -139,6 +139,25 @@ function managementContext(patch: Partial<ManagementEmbedContext> = {}): Managem
     tools: { allow: ["read", "write", "edit", "ls", "grep", "find", "python"], deny: ["terminal", "shell", "bash"] },
     ...patch,
   };
+}
+
+function modelWithInput(input: ("text" | "image")[]): PiAgentSession["model"] {
+  return {
+    provider: "test",
+    id: "vision",
+    name: "Vision",
+    api: "openai-responses",
+    baseUrl: "https://example.test",
+    reasoning: false,
+    input,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 100_000,
+    maxTokens: 8_192,
+  } satisfies NonNullable<PiAgentSession["model"]>;
+}
+
+function promptImage(patch: Partial<PromptImage> = {}): PromptImage {
+  return { type: "image", data: "abc123", mimeType: "image/png", ...patch };
 }
 
 describe("PiSessionService", () => {
@@ -437,6 +456,54 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("sends prompt images to image-capable models", async () => {
+    const hub = new CapturingSessionEventHub();
+    const image = promptImage();
+    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text", "image"]) });
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.prompt("prompt-session", "Describe this", undefined, [image]);
+
+    expect(fake.calls.prompt).toEqual([{ text: "Describe this", options: { images: [image] } }]);
+    expect(hub.sessionEvents).toContainEqual({
+      sessionId: "prompt-session",
+      event: { type: "message.append", message: { role: "user", content: [{ type: "text", text: "Describe this" }, image] } },
+    });
+    await service.dispose();
+  });
+
+  it("rejects prompt images when the current model is not image-capable", async () => {
+    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text"]) });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.prompt("prompt-session", "Describe this", undefined, [promptImage()])).rejects.toThrow("当前模型不支持图片输入");
+
+    expect(fake.calls.prompt).toEqual([]);
+    await service.dispose();
+  });
+
+  it("rejects unsupported prompt image mime types", async () => {
+    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text", "image"]) });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.prompt("prompt-session", "Describe this", undefined, [promptImage({ mimeType: "image/bmp" })])).rejects.toThrow("Unsupported prompt image MIME type");
+
+    expect(fake.calls.prompt).toEqual([]);
+    await service.dispose();
+  });
+
   it("reopens an active unmanaged session before accepting a managed prompt", async () => {
     const unsafe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
     const safe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
@@ -453,7 +520,7 @@ describe("PiSessionService", () => {
     });
 
     await service.status("managed-reopen-session");
-    await service.prompt("managed-reopen-session", "continue safely", undefined, managementContext());
+    await service.prompt("managed-reopen-session", "continue safely", undefined, undefined, managementContext());
 
     expect(unsafe.calls.dispose).toBe(1);
     expect(safe.calls.prompt).toEqual([{ text: "continue safely", options: undefined }]);
@@ -531,13 +598,28 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("keeps images on queued follow-up prompts", async () => {
+    const image = promptImage();
+    const fake = fakeRuntime("queued-session", { isStreaming: true, model: modelWithInput(["text", "image"]) });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("queued-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.prompt("queued-session", "Look next", "followUp", [image]);
+
+    expect(fake.calls.prompt).toEqual([{ text: "Look next", options: { streamingBehavior: "followUp", images: [image] } }]);
+    await service.dispose();
+  });
+
   it("holds prompts sent during compaction until compaction finishes", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime("compacting-session", { isCompacting: true });
     let resolveFirstPrompt: (() => void) | undefined;
-    fake.session.prompt = (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => {
+    fake.session.prompt = (text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: PromptImage[] }) => {
       fake.calls.prompt.push({ text, options });
-      if (options === undefined) {
+      if (options?.streamingBehavior === undefined) {
         fake.session.isStreaming = true;
         return new Promise<void>((resolve) => { resolveFirstPrompt = resolve; });
       }
@@ -548,22 +630,24 @@ describe("PiSessionService", () => {
       sessionManager: sessionGateway([sessionRecord("compacting-session")]),
       heartbeatIntervalMs: 60_000,
     });
+    const image = promptImage();
+    fake.session.model = modelWithInput(["text", "image"]);
 
-    await service.prompt("compacting-session", "Start task 1", "followUp");
+    await service.prompt("compacting-session", "Start task 1", "followUp", [image]);
     await service.prompt("compacting-session", "Then task 2", "followUp");
 
     expect(fake.calls.prompt).toEqual([]);
     expect(hub.sessionEvents.some(({ event }) => event.type === "message.append")).toBe(false);
     await expect(service.status("compacting-session")).resolves.toMatchObject({
       pendingMessageCount: 2,
-      queuedMessages: [{ kind: "followUp", text: "Start task 1" }, { kind: "followUp", text: "Then task 2" }],
+      queuedMessages: [{ kind: "followUp", text: "Start task 1", imageCount: 1 }, { kind: "followUp", text: "Then task 2" }],
     });
 
     fake.session.isCompacting = false;
     fake.emit({ type: "compaction_end" });
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    expect(fake.calls.prompt).toEqual([{ text: "Start task 1", options: undefined }]);
+    expect(fake.calls.prompt).toEqual([{ text: "Start task 1", options: { images: [image] } }]);
     expect(hub.sessionEvents.some(({ event }) => event.type === "message.append" && JSON.stringify(event.message).includes("Start task 1"))).toBe(true);
     await expect(service.status("compacting-session")).resolves.toMatchObject({
       pendingMessageCount: 1,
@@ -574,7 +658,7 @@ describe("PiSessionService", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(fake.calls.prompt).toEqual([
-      { text: "Start task 1", options: undefined },
+      { text: "Start task 1", options: { images: [image] } },
       { text: "Then task 2", options: { streamingBehavior: "followUp" } },
     ]);
     await expect(service.status("compacting-session")).resolves.toMatchObject({

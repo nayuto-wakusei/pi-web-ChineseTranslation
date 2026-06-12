@@ -6,7 +6,12 @@ import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type Manageme
 interface PromptRequestBody {
   text?: unknown;
   streamingBehavior?: unknown;
+  images?: unknown;
 }
+
+const MAX_PROMPT_IMAGES = 4;
+const MAX_PROMPT_IMAGE_RAW_BYTES = 10 * 1024 * 1024;
+const PROMPT_BODY_LIMIT_BYTES = Math.ceil(MAX_PROMPT_IMAGES * MAX_PROMPT_IMAGE_RAW_BYTES * 4 / 3) + 1024 * 1024;
 
 export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/sessions`, async (request, reply) => {
@@ -95,9 +100,9 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
-  app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
+  app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, { bodyLimit: PROMPT_BODY_LIMIT_BYTES }, async (request, reply) => {
     try {
-      await sessions.prompt(request.params.sessionId, request.body?.text, request.body?.streamingBehavior, managementContextFromHeaders(request.headers));
+      await sessions.prompt(request.params.sessionId, request.body?.text, request.body?.streamingBehavior, request.body?.images, managementContextFromHeaders(request.headers));
       return { accepted: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });

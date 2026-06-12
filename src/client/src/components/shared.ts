@@ -21,6 +21,7 @@ export interface ToolExecutionPart {
 
 export type ChatPart =
   | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
   | { type: "thinking"; text: string }
   | { type: "skillInvocation"; name: string; location: string; content: string }
   | { type: "skillRead"; name: string; path: string }
@@ -347,6 +348,8 @@ export const chatStyles = css`
   formatted-text.part { display: block; }
   .part { max-width: 100%; min-width: 0; box-sizing: border-box; overflow: visible; }
   .part + .part { margin-top: 10px; }
+  .chat-image { margin: 0; }
+  .chat-image img { display: block; max-width: min(100%, 420px); max-height: 320px; object-fit: contain; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: var(--pi-bg); }
   .tool-line { color: var(--pi-warning); }
   .summary { color: var(--pi-muted); margin-left: 6px; }
   .part:is(details) { border-top: 1px solid var(--pi-border); padding-top: 8px; }
@@ -453,6 +456,13 @@ export const promptEditorStyles = css`
   .actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap; }
   .compact-status { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--pi-muted); font-size: 12px; flex: 1 1 0; }
   .compact-status > button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .image-attachments { display: flex; gap: 8px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
+  .image-attachment { position: relative; flex: 0 0 auto; width: 116px; margin: 0; display: grid; grid-template-rows: 72px auto; gap: 4px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 6px; box-sizing: border-box; }
+  .image-attachment img { width: 100%; height: 72px; object-fit: cover; border-radius: 5px; background: var(--pi-bg); }
+  .image-attachment figcaption { min-width: 0; display: grid; gap: 1px; color: var(--pi-muted); font-size: 11px; line-height: 1.2; }
+  .image-attachment figcaption span, .image-attachment figcaption small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .image-attachment button { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border-radius: 999px; background: var(--pi-bg-overlay); }
+  .input-notice { color: var(--pi-warning); font-size: 12px; line-height: 1.3; }
   .select-model { max-width: min(42vw, 320px); }
   .select-thinking { max-width: 110px; }
   textarea, .markdown-editor .cm-editor { box-sizing: border-box; width: 100%; min-height: 54px; max-height: 220px; resize: none; overflow: hidden; border-radius: 8px; border: 1px solid var(--pi-border); background: var(--pi-bg); color: var(--pi-text); font: 16px/1.4 system-ui, sans-serif; }
@@ -464,8 +474,10 @@ export const promptEditorStyles = css`
   .markdown-editor .cm-focused { outline: none; }
   .shell-mode textarea, .shell-mode .markdown-editor .cm-editor { border-color: var(--pi-success); box-shadow: 0 0 0 1px var(--pi-success-ring); }
   .mode-hint { position: absolute; right: 8px; bottom: 8px; max-width: calc(100% - 16px); border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
-  button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-  button:disabled, textarea:disabled, .markdown-editor-disabled .cm-editor { opacity: .5; cursor: not-allowed; }
+  button, .image-input-button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+  .image-input-button { display: inline-flex; align-items: center; gap: 5px; }
+  .image-input-button input { display: none; }
+  button:disabled, textarea:disabled, .markdown-editor-disabled .cm-editor, .image-input-button.disabled { opacity: .5; cursor: not-allowed; }
   @media (max-width: 640px) {
     footer { gap: 8px; padding: 8px; }
     .actions { gap: 6px; }

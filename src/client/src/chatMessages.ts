@@ -158,7 +158,11 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
       const toolCallId = getString(part, "id");
       return [{ type: "toolCall", ...(toolCallId === undefined ? {} : { toolCallId }), toolName, summary: summarizeArgs(args), ...(args === undefined ? {} : { args }) }];
     }
-    if (type === "image") return [{ type: "text", text: "[image]" }];
+    if (type === "image") {
+      const data = getString(part, "data");
+      const mimeType = getString(part, "mimeType");
+      return data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "" ? [{ type: "image", data, mimeType }] : [{ type: "text", text: "[image]" }];
+    }
     return objectFallback(part);
   }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
     ? toolResultPartFromText(part.text, message)

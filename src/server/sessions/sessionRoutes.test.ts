@@ -45,11 +45,11 @@ describe("session routes", () => {
         method: "POST",
         url: "/sessions/session-1/prompt",
         headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) },
-        payload: { text: "hello", streamingBehavior: "followUp" },
+        payload: { text: "hello", streamingBehavior: "followUp", images: [{ type: "image", data: "abc123", mimeType: "image/png" }] },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(sessions.promptCalls).toEqual([["session-1", "hello", "followUp", context]]);
+      expect(sessions.promptCalls).toEqual([["session-1", "hello", "followUp", [{ type: "image", data: "abc123", mimeType: "image/png" }], context]]);
     } finally {
       await sessions.dispose();
       await promptApp.close();

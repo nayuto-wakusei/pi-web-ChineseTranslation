@@ -1,4 +1,4 @@
-import type { FileSuggestion, PiWebConfigValues, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
+import type { FileSuggestion, PiWebConfigValues, PromptInput, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
 import { request } from "./http";
 import { withManagementEmbed } from "./managementEmbed";
 import {
@@ -170,7 +170,7 @@ export const sessionsApi = {
   setThinkingLevel: (sessionId: string, level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/thinking-level`, parseSessionStatus, { method: "POST", body: JSON.stringify({ level }) }),
   cycleThinkingLevel: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/thinking-level/cycle`, parseSessionStatus, { method: "POST" }),
   commands: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands`, arrayOf(parseSlashCommand)),
-  prompt: (sessionId: string, text: string, streamingBehavior?: "steer" | "followUp", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/prompt`, parseAccepted, { method: "POST", body: JSON.stringify(streamingBehavior === undefined ? { text } : { text, streamingBehavior }) }),
+  prompt: (sessionId: string, input: string | PromptInput, streamingBehavior?: "steer" | "followUp", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/prompt`, parseAccepted, { method: "POST", body: JSON.stringify(promptRequestBody(input, streamingBehavior)) }),
   shell: (sessionId: string, text: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/shell`, parseAccepted, { method: "POST", body: JSON.stringify({ text }) }),
   runCommand: (sessionId: string, text: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands/run`, parseCommandResult, { method: "POST", body: JSON.stringify({ text }) }),
   respondToCommand: (sessionId: string, requestId: string, value: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands/respond`, parseCommandResult, { method: "POST", body: JSON.stringify({ requestId, value }) }),
@@ -233,6 +233,11 @@ function apiErrorMessage(value: unknown): string | undefined {
   if (!isRecord(value)) return undefined;
   const error = value["error"];
   return typeof error === "string" ? error : undefined;
+}
+
+function promptRequestBody(input: string | PromptInput, streamingBehavior: "steer" | "followUp" | undefined): PromptInput & { streamingBehavior?: "steer" | "followUp" } {
+  const body = typeof input === "string" ? { text: input } : input;
+  return streamingBehavior === undefined ? body : { ...body, streamingBehavior };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

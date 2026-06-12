@@ -42,6 +42,7 @@ import type { WorkspaceActivityService } from "../activity/workspaceActivityServ
 import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
 import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
 import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
+import type { PromptImage } from "../../shared/apiTypes.js";
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
@@ -56,11 +57,30 @@ type QueuedPromptKind = "steer" | "followUp";
 interface QueuedPrompt {
   kind: QueuedPromptKind;
   text: string;
+  images?: PromptImage[];
 }
+
+const SUPPORTED_PROMPT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MAX_PROMPT_IMAGES = 4;
 
 function requirePromptText(value: unknown): string {
   if (typeof value !== "string") throw new Error("Prompt text is required");
   return value;
+}
+
+function requirePromptImages(value: unknown): PromptImage[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Prompt images must be an array");
+  if (value.length > MAX_PROMPT_IMAGES) throw new Error(`Prompt images are limited to ${String(MAX_PROMPT_IMAGES)}`);
+  return value.map((image) => {
+    if (!isRecord(image)) throw new Error("Prompt image must be an object");
+    if (image["type"] !== "image") throw new Error('Prompt image type must be "image"');
+    const data = image["data"];
+    const mimeType = image["mimeType"];
+    if (typeof data !== "string" || data === "") throw new Error("Prompt image data is required");
+    if (typeof mimeType !== "string" || !SUPPORTED_PROMPT_IMAGE_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported prompt image MIME type: ${String(mimeType)}`);
+    return { type: "image", data, mimeType };
+  });
 }
 
 function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefined {
@@ -128,7 +148,7 @@ export interface PiAgentSession {
   getUserMessagesForForking(): readonly { entryId: string; text: string }[];
   getSessionStats(): { sessionId: string; totalMessages: number; userMessages: number; assistantMessages: number; toolCalls: number; tokens: ClientSessionStatus["tokens"]; cost: number };
   getContextUsage(): ClientSessionStatus["contextUsage"] | undefined;
-  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void>;
+  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: PromptImage[] }): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode: number | undefined; cancelled: boolean; truncated: boolean; fullOutputPath?: string }>;
   abort(): Promise<void>;
   clearQueue(): { steering: string[]; followUp: string[] };
@@ -663,11 +683,13 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async prompt(sessionId: string, text: unknown, streamingBehavior?: unknown, managementContext?: ManagementEmbedContext): Promise<void> {
+  async prompt(sessionId: string, text: unknown, streamingBehavior?: unknown, imagesValue?: unknown, managementContext?: ManagementEmbedContext): Promise<void> {
     const promptText = requirePromptText(text);
     const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
+    const images = requirePromptImages(imagesValue);
     await this.assertWritable(sessionId);
     const session = await this.getOrOpen(sessionId, managementContext);
+    if (images.length > 0 && !modelSupportsImageInput(session.model)) throw new Error("当前模型不支持图片输入");
     this.maybeGenerateSessionName(session, promptText);
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
@@ -677,16 +699,16 @@ export class PiSessionService {
       return;
     }
     if (session.isCompacting) {
-      this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp");
+      this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp", images);
       return;
     }
-    void this.submitPrompt(session, promptText, behavior);
+    void this.submitPrompt(session, promptText, behavior, images);
   }
 
-  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined): Promise<void> {
+  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: readonly PromptImage[] = []): Promise<void> {
     this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
-    if (behavior === undefined) this.events.publish(session.sessionId, { type: "message.append", message: userTextMessage(text) });
-    const promptPromise = session.prompt(text, behavior === undefined ? undefined : { streamingBehavior: behavior }).catch((error: unknown) => {
+    if (behavior === undefined) this.events.publish(session.sessionId, { type: "message.append", message: userPromptMessage(text, images) });
+    const promptPromise = session.prompt(text, promptOptions(behavior, images)).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "error", "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message });
@@ -695,9 +717,9 @@ export class PiSessionService {
     return promptPromise;
   }
 
-  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind): void {
+  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: readonly PromptImage[] = []): void {
     const queue = this.compactionPromptQueues.get(session.sessionId) ?? [];
-    queue.push({ kind, text });
+    queue.push({ kind, text, ...(images.length === 0 ? {} : { images: [...images] }) });
     this.compactionPromptQueues.set(session.sessionId, queue);
     this.publishActivity(session, "message queued during compaction", "active");
     this.publishStatus(session);
@@ -1013,14 +1035,14 @@ export class PiSessionService {
       const queued = this.takeCompactionPromptQueue(sessionId);
       if (queued.length === 0) return;
       this.publishStatus(session);
-      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind);
+      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images ?? []);
       return;
     }
 
     const prompt = this.shiftCompactionPrompt(sessionId);
     if (prompt === undefined) return;
     this.publishStatus(session);
-    const submitted = this.submitPrompt(session, prompt.text, undefined);
+    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images ?? []);
     void submitted.finally(() => { this.scheduleCompactionQueueDrain(sessionId); });
   }
 
@@ -1233,13 +1255,25 @@ function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel 
   if (model === undefined) return {};
   const name = getString(model, "name");
   const reasoning = getProperty(model, "reasoning");
+  const input = modelInput(model);
   return {
     provider: model.provider,
     id: model.id,
     ...(name === undefined ? {} : { name }),
     contextWindow: model.contextWindow,
     ...(reasoning === undefined ? {} : { reasoning }),
+    ...(input === undefined ? {} : { input }),
   };
+}
+
+function modelInput(model: PiAgentSession["model"]): ("text" | "image")[] | undefined {
+  const input = getProperty(model, "input");
+  if (!Array.isArray(input)) return undefined;
+  return input.filter((item): item is "text" | "image" => item === "text" || item === "image");
+}
+
+function modelSupportsImageInput(model: PiAgentSession["model"]): boolean {
+  return modelInput(model)?.includes("image") === true;
 }
 
 function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession {
@@ -1402,16 +1436,27 @@ function clearSessionQueue(session: PiAgentSession): void {
   session.clearQueue();
 }
 
-function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = []): { kind: "steer" | "followUp"; text: string }[] {
+function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = []): { kind: "steer" | "followUp"; text: string; imageCount?: number }[] {
   return [
     ...session.getSteeringMessages().map((text) => ({ kind: "steer" as const, text })),
     ...session.getFollowUpMessages().map((text) => ({ kind: "followUp" as const, text })),
-    ...extraQueuedMessages,
+    ...extraQueuedMessages.map((message) => queuedPromptSummary(message)),
   ];
 }
 
-function userTextMessage(text: string): { role: "user"; content: string } {
-  return { role: "user", content: text };
+function queuedPromptSummary(message: QueuedPrompt): { kind: QueuedPromptKind; text: string; imageCount?: number } {
+  const imageCount = message.images?.length ?? 0;
+  return { kind: message.kind, text: message.text, ...(imageCount === 0 ? {} : { imageCount }) };
+}
+
+function promptOptions(behavior: QueuedPromptKind | undefined, images: readonly PromptImage[]): { streamingBehavior?: QueuedPromptKind; images?: PromptImage[] } | undefined {
+  if (behavior === undefined && images.length === 0) return undefined;
+  return { ...(behavior === undefined ? {} : { streamingBehavior: behavior }), ...(images.length === 0 ? {} : { images: [...images] }) };
+}
+
+function userPromptMessage(text: string, images: readonly PromptImage[]): { role: "user"; content: string | ({ type: "text"; text: string } | PromptImage)[] } {
+  if (images.length === 0) return { role: "user", content: text };
+  return { role: "user", content: [{ type: "text", text }, ...images] };
 }
 
 function stringValue(value: unknown): string {

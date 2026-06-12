@@ -1,4 +1,4 @@
-import { api as defaultApi, type CommandResult, type SessionActivity, type SessionInfo, type SessionStatus, type ThinkingLevel } from "../api";
+import { api as defaultApi, type CommandResult, type PromptInput, type SessionActivity, type SessionInfo, type SessionStatus, type ThinkingLevel } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -167,14 +167,16 @@ export class SessionController {
     }
   }
 
-  async send(text: string, streamingBehavior?: "steer" | "followUp") {
-    const trimmed = text.trim();
-    if (trimmed.startsWith("/")) return this.runCommand(text);
-    if (isShellInput(text)) return this.runShell(text);
+  async send(input: string | PromptInput, streamingBehavior?: "steer" | "followUp") {
+    if (typeof input === "string") {
+      const trimmed = input.trim();
+      if (trimmed.startsWith("/")) return this.runCommand(input);
+      if (isShellInput(input)) return this.runShell(input);
+    }
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      await this.api.prompt(session.id, text, streamingBehavior, selectedMachineId(this.getState()));
+      await this.api.prompt(session.id, input, streamingBehavior, selectedMachineId(this.getState()));
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });

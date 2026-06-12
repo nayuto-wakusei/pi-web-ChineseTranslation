@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { terminalsApi, workspacesApi } from "./clients";
+import { sessionsApi, terminalsApi, workspacesApi } from "./clients";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -30,6 +30,29 @@ afterEach(() => {
 });
 
 describe("machine-scoped terminal command-run API", () => {
+  it("sends prompt images through the session prompt API", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.prompt("s 1", { text: "看图", images: [{ type: "image", data: "abc123", mimeType: "image/png" }] }, "followUp", "remote a");
+
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/sessions/s 1/prompt");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(requestBody(init))).toEqual({
+      text: "看图",
+      streamingBehavior: "followUp",
+      images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
+    });
+  });
+
+  it("keeps the legacy text-only prompt API contract", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.prompt("s 1", "hello", undefined, "local");
+
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ text: "hello" });
+  });
+
   it("uploads local workspace files with multipart form data", async () => {
     const fetchMock = stubJsonFetch({ path: "dir/data.csv", size: 5, modifiedAt: "now" });
 

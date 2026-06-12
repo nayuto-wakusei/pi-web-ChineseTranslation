@@ -5,10 +5,11 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { api, type FileSuggestion, type SessionStatus, type SlashCommand } from "../api";
+import { api, type FileSuggestion, type PromptImage, type PromptInput, type SessionStatus, type SlashCommand } from "../api";
 import { inputModeForDraft } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
+import { formatImageSizeFromBase64, modelSupportsImageInput, MAX_PROMPT_IMAGES, promptImageDataUrl, promptImageFromFile, promptImagesFromClipboardItems, promptInputFromDraft, SUPPORTED_PROMPT_IMAGE_MIME_TYPES } from "../promptImages";
 import { promptEditorStyles, type CompletionItem } from "./shared";
 import "./AutocompleteMenu";
 
@@ -22,12 +23,14 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Boolean }) canStop = false;
   @property({ attribute: false }) status?: SessionStatus;
-  @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp") => void;
+  @property({ attribute: false }) onSend?: (input: string | PromptInput, streamingBehavior?: "steer" | "followUp") => void;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
   @property({ attribute: false }) onSelectThinking?: () => void;
   @query(".markdown-editor") private editorHost?: HTMLDivElement;
   @state() private draft = "";
+  @state() private images: PromptImage[] = [];
+  @state() private imageNotice = "";
   @state() private completions: CompletionItem[] = [];
   @state() private selectedIndex = 0;
   private requestVersion = 0;
@@ -45,6 +48,8 @@ export class PromptEditor extends LitElement {
     this.draft = currentKey !== undefined ? loadDraft(currentKey) : "";
     this.completions = [];
     this.selectedIndex = 0;
+    this.images = [];
+    this.imageNotice = "";
   }
 
   override firstUpdated(): void {
@@ -53,6 +58,7 @@ export class PromptEditor extends LitElement {
 
   protected override updated(changed: PropertyValues) {
     if (changed.has("disabled")) this.updateEditorDisabledState();
+    if (changed.has("status") && !this.imageInputEnabled() && this.images.length > 0) this.images = [];
     if (changed.has("draft") || changed.has("sessionId") || changed.has("machineId")) this.syncEditorDoc();
   }
 
@@ -66,21 +72,46 @@ export class PromptEditor extends LitElement {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
     const queuesInput = this.canSteer || this.isCompacting;
+    const imageInputEnabled = this.imageInputEnabled();
     return html`
       <footer class=${shellMode ? "shell-mode" : ""}>
         <div class="editor-wrap">
-          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
+          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }}></div>
           ${shellMode ? html`<div class="mode-hint">Shell 命令${inputMode.excludeFromContext ? " · 不加入上下文" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
+        ${this.renderImages()}
+        ${this.imageNotice === "" ? null : html`<div class="input-notice" role="status">${this.imageNotice}</div>`}
         <div class="actions">
           ${this.renderCompactStatus()}
+          <label class=${imageInputEnabled && !this.disabled ? "image-input-button" : "image-input-button disabled"} title=${imageInputEnabled ? "选择图片" : "当前模型不支持图片输入"} aria-disabled=${imageInputEnabled && !this.disabled ? "false" : "true"}>
+            图片
+            <input type="file" accept=${SUPPORTED_PROMPT_IMAGE_MIME_TYPES.join(",")} multiple ?disabled=${this.disabled || !imageInputEnabled} @change=${(event: Event) => { void this.handleImageFiles(event); }}>
+          </label>
           <button ?disabled=${this.disabled} title=${queuesInput ? "当前活动结束后排队发送" : "发送消息"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "排队" : "发送"}</button>
           ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="在下一次模型调用前引导当前回复" @click=${() => { this.send("steer"); }}>引导</button>` : null}
           <button ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} @click=${() => this.onStop?.()}>停止</button>
         </div>
       </footer>
+    `;
+  }
+
+  private renderImages() {
+    if (this.images.length === 0) return null;
+    return html`
+      <div class="image-attachments">
+        ${this.images.map((image, index) => html`
+          <figure class="image-attachment">
+            <img src=${promptImageDataUrl(image)} alt="待发送图片 ${String(index + 1)}">
+            <figcaption>
+              <span>${image.mimeType}</span>
+              <small>${formatImageSizeFromBase64(image.data)}</small>
+            </figcaption>
+            <button type="button" title="移除图片" aria-label=${`移除图片 ${String(index + 1)}`} @click=${() => { this.removeImage(index); }}>×</button>
+          </figure>
+        `)}
+      </div>
     `;
   }
 
@@ -244,6 +275,60 @@ export class PromptEditor extends LitElement {
     return true;
   }
 
+  private imageInputEnabled(): boolean {
+    return modelSupportsImageInput(this.status?.model);
+  }
+
+  private async handlePaste(event: ClipboardEvent): Promise<void> {
+    const items = event.clipboardData?.items;
+    if (items === undefined || !Array.from(items).some((item) => item.kind === "file" && item.type.startsWith("image/"))) return;
+    if (!this.imageInputEnabled()) {
+      this.imageNotice = "当前模型不支持图片输入";
+      return;
+    }
+    const remaining = Math.max(0, MAX_PROMPT_IMAGES - this.images.length);
+    if (remaining === 0) {
+      this.imageNotice = `最多可附加 ${String(MAX_PROMPT_IMAGES)} 张图片`;
+      event.preventDefault();
+      return;
+    }
+    const images = await promptImagesFromClipboardItems(Array.from(items), remaining);
+    if (images.length === 0) {
+      this.imageNotice = "仅支持 PNG、JPEG、WebP 或 GIF 图片";
+      return;
+    }
+    event.preventDefault();
+    this.images = [...this.images, ...images];
+    this.imageNotice = "";
+  }
+
+  private async handleImageFiles(event: Event): Promise<void> {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement) || input.files === null) return;
+    if (!this.imageInputEnabled()) {
+      this.imageNotice = "当前模型不支持图片输入";
+      input.value = "";
+      return;
+    }
+    const remaining = Math.max(0, MAX_PROMPT_IMAGES - this.images.length);
+    const files = Array.from(input.files).slice(0, remaining);
+    const images: PromptImage[] = [];
+    for (const file of files) {
+      try {
+        images.push(await promptImageFromFile(file));
+      } catch {
+        this.imageNotice = "仅支持 PNG、JPEG、WebP 或 GIF 图片";
+      }
+    }
+    if (input.files.length > remaining) this.imageNotice = `最多可附加 ${String(MAX_PROMPT_IMAGES)} 张图片`;
+    if (images.length > 0) this.images = [...this.images, ...images];
+    input.value = "";
+  }
+
+  private removeImage(index: number): void {
+    this.images = this.images.filter((_, candidate) => candidate !== index);
+  }
+
   private handleEditorEnter(): boolean {
     if (this.completions.length) {
       const completion = this.completions[this.selectedIndex];
@@ -283,13 +368,15 @@ export class PromptEditor extends LitElement {
   }
 
   private send(streamingBehavior?: "steer" | "followUp") {
-    const text = this.draft.trim();
-    if (text === "" || this.disabled) return;
+    const input = promptInputFromDraft(this.draft, this.images);
+    if ((typeof input === "string" && input === "") || this.disabled) return;
     this.draft = "";
+    this.images = [];
+    this.imageNotice = "";
     const key = draftStorageKey(this.machineId, this.sessionId);
     if (key !== undefined) clearDraft(key);
     this.completions = [];
-    this.onSend?.(text, this.canSteer || this.isCompacting ? streamingBehavior : undefined);
+    this.onSend?.(input, this.canSteer || this.isCompacting ? streamingBehavior : undefined);
   }
 
   static override styles = promptEditorStyles;
