@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.11
+
+### Patch Changes
+
+- 4b821c6: Add image attachments to chat prompts for Pi models that support image input.
+
 ## 1.202606.10
 
 ### Patch Changes
