@@ -304,7 +304,7 @@ export class ChatView extends LitElement {
 
   private activityText(state: string): string {
     const activity = this.activity;
-    if (activity === undefined) return state;
+    if (activity === undefined) return activityStateLabel(state);
     if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
     const label = activityStateLabel(activity.label);
     return activity.detail !== undefined && activity.detail !== "" ? `${label}: ${activity.detail}` : label;

@@ -1555,13 +1555,13 @@ export class PiWebApp extends LitElement {
     const currentId = this.state.status?.model?.id;
     this.setState({
       modelDialog: {
-        title: "Select Model",
+        title: "选择模型",
         ...(currentProvider !== undefined && currentId !== undefined ? { selectedValue: `${currentProvider}/${currentId}` } : {}),
         options: models.map((model) => {
           const provider = model.provider ?? "";
           const id = model.id ?? "";
           const isCurrent = provider === currentProvider && id === currentId;
-          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ current" : ""}`, description: provider };
+          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ 当前" : ""}`, description: provider };
         }),
       },
     });
@@ -1581,7 +1581,7 @@ export class PiWebApp extends LitElement {
     const autoValue = this.themePreference.auto ? THEME_AUTO_OFF_VALUE : THEME_AUTO_ON_VALUE;
     this.setState({
       themeDialog: {
-        title: "Select Theme",
+        title: "选择主题",
         selectedValue: selectedThemeId === undefined ? autoValue : `${THEME_OPTION_PREFIX}${selectedThemeId}`,
         options: [
           {
@@ -1668,9 +1668,9 @@ export class PiWebApp extends LitElement {
     const current = this.state.status?.thinkingLevel ?? "off";
     this.setState({
       thinkingDialog: {
-        title: "Select Thinking Level",
+        title: "选择思考级别",
         selectedValue: current,
-        options: levels.map((level) => { const description = thinkingDescription(level); return { value: level, label: `${level}${level === current ? " ✓ current" : ""}`, ...(description === undefined ? {} : { description }) }; }),
+        options: levels.map((level) => { const description = thinkingDescription(level); return { value: level, label: `${level}${level === current ? " ✓ 当前" : ""}`, ...(description === undefined ? {} : { description }) }; }),
       },
     });
   }

@@ -106,7 +106,37 @@ describe("core UI Chinese display copy", () => {
     const text = source("components/ChatView.ts");
 
     expect(text).toContain("activityStateLabel(activity.label)");
+    expect(text).toContain("return activityStateLabel(state);");
     expect(text).toContain("空闲");
+    expect(text).not.toContain("if (activity === undefined) return state;");
     expect(text).not.toContain("return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;");
+  });
+
+  it("localizes model picker and session bulk action copy", () => {
+    const text = `${source("components/PiWebApp.ts")}\n${source("components/SessionList.ts")}`;
+
+    expect(text).toContain("选择模型");
+    expect(text).toContain("当前");
+    expect(text).toContain("选择可见");
+    expect(text).toContain("已选");
+    expect(text).toContain("归档所选");
+    expect(text).toContain("完成");
+    expect(text).not.toContain("Select Model");
+    expect(text).not.toContain("✓ current");
+    expect(text).not.toContain("Select visible");
+    expect(text).not.toContain("} selected");
+    expect(text).not.toContain("Archive selected");
+    expect(text).not.toContain(">Done<");
+    expect(text).not.toContain(">Archive<");
+  });
+
+  it("keeps the file upload control as one visible Chinese button", () => {
+    const text = source("plugins/core/panels.ts");
+
+    expect(text).toContain("aria-label=\"上传文件\"");
+    expect(text).toContain("type=\"file\" multiple hidden");
+    expect(text).not.toContain(">选择文件<");
+    expect(text).not.toContain("Choose file");
+    expect(text).not.toContain("未选择文件");
   });
 });

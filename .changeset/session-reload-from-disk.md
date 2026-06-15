@@ -1,5 +1,5 @@
 ---
-"@jmfederico/pi-web": minor
+"@chainingintention/pi-web-cn": patch
 ---
 
 Add a **Reload** action to the session three-dot menu that re-reads the session from disk. The session daemon keeps an in-memory `SessionManager` per session and never re-reads the session file, so when the same session is also driven by another process (for example the `pi` CLI), new on-disk entries were invisible to the web UI and the tail of the conversation appeared truncated. Reloading closes the active session, re-opens it from disk, discards the cached transcript, and re-fetches the history.

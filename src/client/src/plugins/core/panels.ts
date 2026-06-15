@@ -50,9 +50,9 @@ function renderFiles(context: WorkspacePanelContext): TemplateResult {
         `}
         ${uploadEnabled
           ? html`
-              <label class="file-upload-button">
+              <label class="file-upload-button" role="button" tabindex="0" aria-label="上传文件" @keydown=${activateUploadInput}>
                 上传
-                <input type="file" multiple @change=${(event: Event) => { uploadSelectedFiles(context, event); }} />
+                <input type="file" multiple hidden @change=${(event: Event) => { uploadSelectedFiles(context, event); }} />
               </label>
             `
           : html`<span class="file-upload-button disabled" title="远端机器暂不支持上传" aria-disabled="true">上传</span>`}
@@ -67,6 +67,15 @@ function renderFiles(context: WorkspacePanelContext): TemplateResult {
       </div>
     </section>
   `;
+}
+
+function activateUploadInput(event: KeyboardEvent): void {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+  const input = target.querySelector("input[type='file']");
+  if (input instanceof HTMLInputElement) input.click();
 }
 
 function uploadSelectedFiles(context: WorkspacePanelContext, event: Event): void {
