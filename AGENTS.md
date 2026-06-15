@@ -11,10 +11,6 @@ This project is expected to run locally using split systemd user services:
 
 When working on this project, assume the session runtime owner is long-lived and separate from the autoreloading UI/API process. Browser disconnects and UI/API restarts should not stop active Pi sessions.
 
-If you make changes that affect `src/server/sessiond.ts`, session runtime ownership, the session daemon protocol, or any code path only loaded by the session daemon, inform the user that `pi-web-sessiond.service` must be manually restarted and give them this command:
-
-```bash
-systemctl --user restart pi-web-sessiond.service
-```
+If you make changes that affect `src/server/sessiond.ts`, session runtime ownership, the session daemon protocol, or any code path only loaded by the session daemon, inform the user that a manual restart of the session daemon is needed.
 
 Changes to the web/API/UI side generally only require the `pi-web-ui-dev.service` autoreload/restart path.

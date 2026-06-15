@@ -5,13 +5,27 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { api, type FileSuggestion, type PromptImage, type PromptInput, type SessionStatus, type SlashCommand } from "../api";
+import { api, type FileSuggestion, type PromptAttachment, type SessionStatus, type SlashCommand } from "../api";
+import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
+import { captureImageAttachments } from "../promptAttachmentCapture";
 import { inputModeForDraft } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
+import { detectPromptCompletionTrigger, fileCompletionInsertText, type PromptCompletionTrigger } from "../promptCompletions";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
-import { formatImageSizeFromBase64, modelSupportsImageInput, MAX_PROMPT_IMAGES, promptImageDataUrl, promptImageFromFile, promptImagesFromClipboardItems, promptInputFromDraft, SUPPORTED_PROMPT_IMAGE_MIME_TYPES } from "../promptImages";
+import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
 import { promptEditorStyles, type CompletionItem } from "./shared";
+import { renderAttachIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
+import { thinkingGauge, thinkingLevelLabel } from "../../../shared/thinkingLevels";
 import "./AutocompleteMenu";
+
+interface PendingAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** Base64 payload without the data: URL prefix. */
+  data: string;
+  size: number;
+}
 
 @customElement("prompt-editor")
 export class PromptEditor extends LitElement {
@@ -23,16 +37,21 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Boolean }) canStop = false;
   @property({ attribute: false }) status?: SessionStatus;
-  @property({ attribute: false }) onSend?: (input: string | PromptInput, streamingBehavior?: "steer" | "followUp") => void;
+  @property({ type: Boolean }) sending = false;
+  @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery?: PromptAttachmentDelivery) => void | Promise<void>;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
   @property({ attribute: false }) onSelectThinking?: () => void;
+  @property({ attribute: false }) availableThinkingLevels: readonly string[] = [];
   @query(".markdown-editor") private editorHost?: HTMLDivElement;
+  @query(".attachment-input") private attachmentInput?: HTMLInputElement;
   @state() private draft = "";
-  @state() private images: PromptImage[] = [];
-  @state() private imageNotice = "";
   @state() private completions: CompletionItem[] = [];
   @state() private selectedIndex = 0;
+  @state() private attachments: PendingAttachment[] = [];
+  @state() private attachmentDelivery: PromptAttachmentDelivery = loadAttachmentDelivery();
+  @state() private attachmentError: string | undefined = undefined;
+  private attachmentSeq = 0;
   private requestVersion = 0;
   private editor: EditorView | undefined;
   private readonly editableCompartment = new Compartment();
@@ -48,8 +67,6 @@ export class PromptEditor extends LitElement {
     this.draft = currentKey !== undefined ? loadDraft(currentKey) : "";
     this.completions = [];
     this.selectedIndex = 0;
-    this.images = [];
-    this.imageNotice = "";
   }
 
   override firstUpdated(): void {
@@ -58,7 +75,6 @@ export class PromptEditor extends LitElement {
 
   protected override updated(changed: PropertyValues) {
     if (changed.has("disabled")) this.updateEditorDisabledState();
-    if (changed.has("status") && !this.imageInputEnabled() && this.images.length > 0) this.images = [];
     if (changed.has("draft") || changed.has("sessionId") || changed.has("machineId")) this.syncEditorDoc();
   }
 
@@ -72,46 +88,25 @@ export class PromptEditor extends LitElement {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
     const queuesInput = this.canSteer || this.isCompacting;
-    const imageInputEnabled = this.imageInputEnabled();
+    const busy = this.disabled || this.sending;
     return html`
-      <footer class=${shellMode ? "shell-mode" : ""}>
+      <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
-          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }}></div>
-          ${shellMode ? html`<div class="mode-hint">Shell 命令${inputMode.excludeFromContext ? " · 不加入上下文" : ""}</div>` : null}
-          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
+          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
+          <input class="attachment-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
+          <button class="editor-attach icon-button" ?disabled=${busy} title="Attach images" aria-label="Attach images" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
+          ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
+          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
+          ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
-        ${this.renderImages()}
-        ${this.imageNotice === "" ? null : html`<div class="input-notice" role="status">${this.imageNotice}</div>`}
         <div class="actions">
           ${this.renderCompactStatus()}
-          <label class=${imageInputEnabled && !this.disabled ? "image-input-button" : "image-input-button disabled"} title=${imageInputEnabled ? "选择图片" : "当前模型不支持图片输入"} aria-disabled=${imageInputEnabled && !this.disabled ? "false" : "true"}>
-            图片
-            <input type="file" accept=${SUPPORTED_PROMPT_IMAGE_MIME_TYPES.join(",")} multiple ?disabled=${this.disabled || !imageInputEnabled} @change=${(event: Event) => { void this.handleImageFiles(event); }}>
-          </label>
-          <button ?disabled=${this.disabled} title=${queuesInput ? "当前活动结束后排队发送" : "发送消息"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "排队" : "发送"}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="在下一次模型调用前引导当前回复" @click=${() => { this.send("steer"); }}>引导</button>` : null}
-          <button ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} @click=${() => this.onStop?.()}>停止</button>
+          <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? "当前活动结束后排队发送" : "发送"} aria-label=${queuesInput ? "排队发送" : "发送"} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="Steer the current response before the next model call" aria-label="Steer current response" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
+          <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} aria-label="停止" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
         </div>
       </footer>
-    `;
-  }
-
-  private renderImages() {
-    if (this.images.length === 0) return null;
-    return html`
-      <div class="image-attachments">
-        ${this.images.map((image, index) => html`
-          <figure class="image-attachment">
-            <img src=${promptImageDataUrl(image)} alt="待发送图片 ${String(index + 1)}">
-            <figcaption>
-              <span>${image.mimeType}</span>
-              <small>${formatImageSizeFromBase64(image.data)}</small>
-            </figcaption>
-            <button type="button" title="移除图片" aria-label=${`移除图片 ${String(index + 1)}`} @click=${() => { this.removeImage(index); }}>×</button>
-          </figure>
-        `)}
-      </div>
     `;
   }
 
@@ -122,14 +117,93 @@ export class PromptEditor extends LitElement {
   private renderCompactStatus() {
     const status = this.status;
     if (status === undefined) return null;
-    const model = status.model?.id ?? "未选择模型";
+    const model = status.model?.id ?? "no model";
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
-      <div class="compact-status" aria-label="会话状态">
-        <button class="select-model" title="选择模型" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking" title="选择思考级别" @click=${() => this.onSelectThinking?.()}>思考 ${thinkingLevelLabel(status.thinkingLevel)}</button>
+      <div class="compact-status" aria-label="Session status">
+        <button class="select-model" title="Select model" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+        <button class="select-thinking icon-button" title=${`Thinking level: ${thinkingLevelLabel(status.thinkingLevel)}`} aria-label=${`Thinking level: ${thinkingLevelLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
       </div>
     `;
+  }
+
+  private renderAttachments() {
+    if (this.attachments.length === 0 && this.attachmentError === undefined) return null;
+    return html`
+      <div class="attachments" aria-label="Pending attachments">
+        ${this.attachments.map((attachment) => html`
+          <div class="attachment-chip" title=${attachment.name}>
+            <img src=${`data:${attachment.mimeType};base64,${attachment.data}`} alt=${attachment.name} />
+            <button type="button" class="attachment-remove" title="Remove attachment" aria-label=${`Remove ${attachment.name}`} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
+          </div>
+        `)}
+        ${this.attachments.length > 0 ? html`
+          <label class="attachment-delivery" title="How attachments are delivered to the agent">
+            <select .value=${this.attachmentDelivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
+              <option value="inline">Attach to message</option>
+              <option value="folder">Save to .pi-web/paste</option>
+            </select>
+          </label>
+        ` : null}
+        ${this.attachmentError !== undefined ? html`<div class="attachment-error">${this.attachmentError}</div>` : null}
+      </div>
+    `;
+  }
+
+  private changeDelivery(event: Event) {
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    this.attachmentDelivery = event.target.value === "folder" ? "folder" : "inline";
+    saveAttachmentDelivery(this.attachmentDelivery);
+  }
+
+  private removeAttachment(id: string) {
+    this.attachments = this.attachments.filter((attachment) => attachment.id !== id);
+  }
+
+  private async handlePaste(event: ClipboardEvent) {
+    const files = imageFilesFromDataTransfer(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    await this.addAttachmentFiles(files);
+  }
+
+  private handleDragOver(event: DragEvent) {
+    if (event.dataTransfer === null) return;
+    if (Array.from(event.dataTransfer.items).some((item) => item.kind === "file" && item.type.startsWith("image/"))) {
+      event.preventDefault();
+    }
+  }
+
+  private async handleDrop(event: DragEvent) {
+    const files = imageFilesFromDataTransfer(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    await this.addAttachmentFiles(files);
+  }
+
+  private async handleFileInput(event: Event) {
+    if (!(event.target instanceof HTMLInputElement) || event.target.files === null) return;
+    const files = Array.from(event.target.files);
+    event.target.value = "";
+    await this.addAttachmentFiles(files);
+  }
+
+  private async addAttachmentFiles(files: File[]) {
+    this.attachmentError = undefined;
+    const { attachments, error } = await captureImageAttachments(files, readFileAsBase64);
+    if (attachments.length > 0) {
+      this.attachments = [...this.attachments, ...attachments.map((attachment) => ({ id: `attachment-${String(++this.attachmentSeq)}`, ...attachment }))];
+    }
+    if (error !== undefined) this.attachmentError = error;
+  }
+
+  private currentAttachments(): PromptAttachment[] {
+    return this.attachments.map((attachment) => ({
+      kind: "image",
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      name: attachment.name,
+    }));
   }
 
   private createEditor() {
@@ -146,7 +220,7 @@ export class PromptEditor extends LitElement {
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of((view) => inputAssistanceContentAttributes(view.state.sliceDoc(0, view.state.selection.main.head))),
-          placeholder("给 pi 发送消息... 使用 / 输入命令，使用 @ 引用跟踪文件，使用 @ 空格查看全部文件"),
+          placeholder("给 pi 发送消息... 使用 / 输入命令，@ 输入已跟踪文件，@ 空格显示所有文件"),
           this.editableCompartment.of(EditorView.editable.of(!this.disabled)),
           this.readOnlyCompartment.of(EditorState.readOnly.of(this.disabled)),
           EditorView.updateListener.of((update) => {
@@ -204,8 +278,8 @@ export class PromptEditor extends LitElement {
       this.completions = [];
       return;
     }
-    if (trigger.kind === "command" && this.sessionId !== undefined && this.sessionId !== "") {
-      const commands = await api.commands(this.sessionId, this.machineId).catch(emptySlashCommands);
+    if (trigger.kind === "command" && this.sessionId !== undefined && this.sessionId !== "" && this.cwd !== undefined && this.cwd !== "") {
+      const commands = await api.commands({ id: this.sessionId, cwd: this.cwd }, this.machineId).catch(emptySlashCommands);
       if (version !== this.requestVersion) return;
       this.completions = commands
         .filter((command) => command.name.toLowerCase().includes(trigger.query.toLowerCase()))
@@ -224,7 +298,7 @@ export class PromptEditor extends LitElement {
       this.completions = files
         .slice(0, 12)
         .map((file) => {
-          const insertText = fileInsertText(file.path, trigger.quoted === true, file.path.endsWith("/") ? trigger.allPrefix : undefined);
+          const insertText = fileCompletionInsertText(file.path, trigger.quoted === true, file.path.endsWith("/") ? trigger.allPrefix : undefined);
           return {
             kind: "file",
             replaceFrom: trigger.from,
@@ -237,30 +311,8 @@ export class PromptEditor extends LitElement {
     }
   }
 
-  private currentTrigger(): { kind: "command" | "file"; query: string; from: number; to: number; fileScope?: "tracked" | "all" | undefined; allPrefix?: "@ " | "!@" | undefined; quoted?: boolean } | undefined {
-    const cursor = this.editor?.state.selection.main.head ?? this.draft.length;
-    const beforeCursor = this.draft.slice(0, cursor);
-    const quotedTrigger = this.currentQuotedTrigger(beforeCursor, cursor);
-    if (quotedTrigger !== undefined) return quotedTrigger;
-
-    const tokenStart = Math.max(beforeCursor.lastIndexOf(" "), beforeCursor.lastIndexOf("\n")) + 1;
-    const token = beforeCursor.slice(tokenStart);
-    const beforeToken = beforeCursor.slice(0, tokenStart);
-    if (beforeToken.endsWith("@ ")) return { kind: "file", query: token, from: tokenStart - 2, to: cursor, fileScope: "all", allPrefix: "@ " };
-    if (token.startsWith("/") && tokenStart === 0) return { kind: "command", query: token.slice(1), from: tokenStart, to: cursor };
-    if (token.startsWith("!@")) return { kind: "file", query: token.slice(2), from: tokenStart, to: cursor, fileScope: "all", allPrefix: "!@" };
-    if (token.startsWith("@")) return { kind: "file", query: token.slice(1), from: tokenStart, to: cursor, fileScope: "tracked" };
-    return undefined;
-  }
-
-  private currentQuotedTrigger(beforeCursor: string, cursor: number): { kind: "file"; query: string; from: number; to: number; fileScope?: "tracked" | "all" | undefined; allPrefix?: "@ " | "!@" | undefined; quoted: true } | undefined {
-    const quoteStart = beforeCursor.lastIndexOf("\"");
-    if (quoteStart === -1) return undefined;
-    const prefix = beforeCursor.slice(0, quoteStart);
-    if (prefix.endsWith("!@")) return { kind: "file", query: beforeCursor.slice(quoteStart + 1), from: prefix.length - 2, to: cursor, fileScope: "all", allPrefix: "!@", quoted: true };
-    if (prefix.endsWith("@")) return { kind: "file", query: beforeCursor.slice(quoteStart + 1), from: prefix.length - 1, to: cursor, fileScope: "tracked", quoted: true };
-    if (prefix.endsWith("@ ")) return { kind: "file", query: beforeCursor.slice(quoteStart + 1), from: prefix.length - 2, to: cursor, fileScope: "all", allPrefix: "@ ", quoted: true };
-    return undefined;
+  private currentTrigger(): PromptCompletionTrigger | undefined {
+    return detectPromptCompletionTrigger(this.draft, this.editor?.state.selection.main.head ?? this.draft.length);
   }
 
   private moveCompletion(delta: number): boolean {
@@ -273,60 +325,6 @@ export class PromptEditor extends LitElement {
     if (!this.completions.length) return false;
     this.completions = [];
     return true;
-  }
-
-  private imageInputEnabled(): boolean {
-    return modelSupportsImageInput(this.status?.model);
-  }
-
-  private async handlePaste(event: ClipboardEvent): Promise<void> {
-    const items = event.clipboardData?.items;
-    if (items === undefined || !Array.from(items).some((item) => item.kind === "file" && item.type.startsWith("image/"))) return;
-    if (!this.imageInputEnabled()) {
-      this.imageNotice = "当前模型不支持图片输入";
-      return;
-    }
-    const remaining = Math.max(0, MAX_PROMPT_IMAGES - this.images.length);
-    if (remaining === 0) {
-      this.imageNotice = `最多可附加 ${String(MAX_PROMPT_IMAGES)} 张图片`;
-      event.preventDefault();
-      return;
-    }
-    const images = await promptImagesFromClipboardItems(Array.from(items), remaining);
-    if (images.length === 0) {
-      this.imageNotice = "仅支持 PNG、JPEG、WebP 或 GIF 图片";
-      return;
-    }
-    event.preventDefault();
-    this.images = [...this.images, ...images];
-    this.imageNotice = "";
-  }
-
-  private async handleImageFiles(event: Event): Promise<void> {
-    const input = event.currentTarget;
-    if (!(input instanceof HTMLInputElement) || input.files === null) return;
-    if (!this.imageInputEnabled()) {
-      this.imageNotice = "当前模型不支持图片输入";
-      input.value = "";
-      return;
-    }
-    const remaining = Math.max(0, MAX_PROMPT_IMAGES - this.images.length);
-    const files = Array.from(input.files).slice(0, remaining);
-    const images: PromptImage[] = [];
-    for (const file of files) {
-      try {
-        images.push(await promptImageFromFile(file));
-      } catch {
-        this.imageNotice = "仅支持 PNG、JPEG、WebP 或 GIF 图片";
-      }
-    }
-    if (input.files.length > remaining) this.imageNotice = `最多可附加 ${String(MAX_PROMPT_IMAGES)} 张图片`;
-    if (images.length > 0) this.images = [...this.images, ...images];
-    input.value = "";
-  }
-
-  private removeImage(index: number): void {
-    this.images = this.images.filter((_, candidate) => candidate !== index);
   }
 
   private handleEditorEnter(): boolean {
@@ -368,15 +366,27 @@ export class PromptEditor extends LitElement {
   }
 
   private send(streamingBehavior?: "steer" | "followUp") {
-    const input = promptInputFromDraft(this.draft, this.images);
-    if ((typeof input === "string" && input === "") || this.disabled) return;
+    if (this.disabled || this.sending) return;
+    const text = this.draft.trim();
+    const pending = this.attachments;
+    if (text === "" && pending.length === 0) return;
+    const behavior = this.canSteer || this.isCompacting ? streamingBehavior : undefined;
+    const attachments = pending.length > 0 ? this.currentAttachments() : undefined;
+    const delivery = this.attachmentDelivery;
+    this.resetComposer();
+    // Sending is owned by the controller (it drives the chat activity dock and,
+    // for folder mode, orchestrates the upload + reference rewrite), so this is
+    // fire-and-forget here.
+    void this.onSend?.(text, behavior, attachments, attachments === undefined ? undefined : delivery);
+  }
+
+  private resetComposer() {
     this.draft = "";
-    this.images = [];
-    this.imageNotice = "";
     const key = draftStorageKey(this.machineId, this.sessionId);
     if (key !== undefined) clearDraft(key);
     this.completions = [];
-    this.onSend?.(input, this.canSteer || this.isCompacting ? streamingBehavior : undefined);
+    this.attachments = [];
+    this.attachmentError = undefined;
   }
 
   static override styles = promptEditorStyles;
@@ -388,12 +398,6 @@ function draftStorageKey(machineId: unknown, sessionId: unknown): string | undef
   return machineSessionKey(machineId, sessionId);
 }
 
-function fileInsertText(path: string, quoted: boolean, allPrefix?: "@ " | "!@"): string {
-  const prefix = allPrefix ?? "@";
-  if (!quoted && !path.includes(" ")) return `${prefix}${path}`;
-  return `${prefix}"${path}"`;
-}
-
 function emptySlashCommands(): SlashCommand[] {
   return [];
 }
@@ -402,14 +406,23 @@ function emptyFileSuggestions(): FileSuggestion[] {
   return [];
 }
 
-function thinkingLevelLabel(level: string | undefined): string {
-  if (level === undefined || level === "off") return "关闭";
-  if (level === "minimal") return "极简";
-  if (level === "low") return "低";
-  if (level === "medium") return "中";
-  if (level === "high") return "高";
-  if (level === "xhigh") return "超高";
-  return level;
+function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
+  if (data === null) return [];
+  return Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => { reject(reader.error ?? new Error("Failed to read file")); };
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") { reject(new Error("Unexpected file reader result")); return; }
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 const proseInputAssistanceAttributes: Record<string, string> = {

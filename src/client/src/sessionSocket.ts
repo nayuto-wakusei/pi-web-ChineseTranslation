@@ -1,11 +1,11 @@
-import { globalSessionEvents, realtimeEvents, sessionEvents } from "./api";
-import type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes";
+import { realtimeEvents, sessionEvents } from "./api";
+import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 
 export type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes";
 
 export class SessionSocket {
   private socket: WebSocket | undefined;
-  private sessionId: string | undefined;
+  private session: SessionRef | undefined;
   private onEvent: ((event: SessionUiEvent) => void) | undefined;
   private reconnectTimer?: number;
   private reconnectDelay = 500;
@@ -14,10 +14,10 @@ export class SessionSocket {
   private onReconnect: (() => void) | undefined;
   private machineId = "local";
 
-  connect(sessionId: string, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId = "local"): void {
+  connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId = "local"): void {
     this.close();
     this.machineId = machineId;
-    this.sessionId = sessionId;
+    this.session = session;
     this.onEvent = onEvent;
     this.onReconnect = onReconnect;
     this.shouldReconnect = true;
@@ -33,7 +33,7 @@ export class SessionSocket {
     window.clearTimeout(this.reconnectTimer);
     closeSocketQuietly(this.socket);
     this.socket = undefined;
-    this.sessionId = undefined;
+    this.session = undefined;
     this.onEvent = undefined;
     this.onReconnect = undefined;
     this.hasOpened = false;
@@ -41,8 +41,8 @@ export class SessionSocket {
   }
 
   private open(): void {
-    if (this.sessionId === undefined || this.sessionId === "" || !this.shouldReconnect) return;
-    const socket = sessionEvents(this.sessionId, this.machineId);
+    if (this.session === undefined || this.session.id === "" || this.session.cwd === "" || !this.shouldReconnect) return;
+    const socket = sessionEvents(this.session, this.machineId);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectDelay = 500;
@@ -126,60 +126,6 @@ export class RealtimeSocket {
   private async handleMessage(data: MessageEvent["data"]): Promise<void> {
     const event = await parseSocketEvent(data);
     if (isRealtimeEvent(event)) this.onEvent?.(event);
-  }
-}
-
-export class GlobalSessionSocket {
-  private socket: WebSocket | undefined;
-  private onEvent: ((event: GlobalSessionEvent) => void) | undefined;
-  private reconnectTimer?: number;
-  private reconnectDelay = 500;
-  private shouldReconnect = false;
-  private machineId = "local";
-
-  connect(onEvent: (event: GlobalSessionEvent) => void, machineId = "local"): void {
-    this.close();
-    this.machineId = machineId;
-    this.onEvent = onEvent;
-    this.shouldReconnect = true;
-    this.open();
-  }
-
-  close(): void {
-    this.shouldReconnect = false;
-    window.clearTimeout(this.reconnectTimer);
-    closeSocketQuietly(this.socket);
-    this.socket = undefined;
-    this.onEvent = undefined;
-    this.machineId = "local";
-  }
-
-  private open(): void {
-    if (!this.shouldReconnect) return;
-    const socket = globalSessionEvents(this.machineId);
-    this.socket = socket;
-    socket.onopen = () => {
-      this.reconnectDelay = 500;
-    };
-    socket.onmessage = (message) => void this.handleMessage(message.data);
-    socket.onerror = () => { socket.close(); };
-    socket.onclose = () => {
-      if (this.socket === socket) this.socket = undefined;
-      this.scheduleReconnect();
-    };
-  }
-
-  private scheduleReconnect(): void {
-    if (!this.shouldReconnect) return;
-    window.clearTimeout(this.reconnectTimer);
-    const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(this.reconnectDelay * 1.6, 5000);
-    this.reconnectTimer = window.setTimeout(() => { this.open(); }, delay);
-  }
-
-  private async handleMessage(data: MessageEvent["data"]): Promise<void> {
-    const event = await parseSocketEvent(data);
-    if (isGlobalSessionEvent(event)) this.onEvent?.(event);
   }
 }
 

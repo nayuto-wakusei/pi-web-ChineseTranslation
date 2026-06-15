@@ -1,3 +1,5 @@
+import { detectPromptCompletionTrigger } from "./promptCompletions";
+
 export type InputMode =
   | { kind: "normal" }
   | { kind: "command" }
@@ -9,7 +11,7 @@ export function inputModeForDraft(draft: string): InputMode {
   if (trimmed.startsWith("!@")) return { kind: "file" };
   if (trimmed.startsWith("!")) return { kind: "shell", excludeFromContext: trimmed.startsWith("!!") };
   if (currentToken(draft).startsWith("/")) return { kind: "command" };
-  if (isFileCompletionContext(draft)) return { kind: "file" };
+  if (detectPromptCompletionTrigger(draft)?.kind === "file") return { kind: "file" };
   return { kind: "normal" };
 }
 
@@ -20,15 +22,4 @@ export function isShellInput(text: string): boolean {
 function currentToken(draft: string): string {
   const tokenStart = Math.max(draft.lastIndexOf(" "), draft.lastIndexOf("\n")) + 1;
   return draft.slice(tokenStart);
-}
-
-function isFileCompletionContext(draft: string): boolean {
-  const token = currentToken(draft);
-  if (token.startsWith("@") || token.startsWith("!@")) return true;
-  const tokenStart = draft.length - token.length;
-  if (draft.slice(0, tokenStart).endsWith("@ ")) return true;
-  const quoteStart = draft.lastIndexOf("\"");
-  if (quoteStart === -1) return false;
-  const prefix = draft.slice(0, quoteStart);
-  return prefix.endsWith("@") || prefix.endsWith("@ ") || prefix.endsWith("!@");
 }

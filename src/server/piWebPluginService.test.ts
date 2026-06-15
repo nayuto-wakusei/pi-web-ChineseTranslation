@@ -25,7 +25,7 @@ describe("PiWebPluginService", () => {
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
 
     await expect(service.manifest()).resolves.toEqual({
-      plugins: [expect.objectContaining({ id: "info", source: "test", scope: "local" })],
+      plugins: [expect.objectContaining({ id: "info", source: "test", scope: "local", machineSpecific: false })],
     });
     const manifest = await service.manifest();
     expect(manifest.plugins[0]?.module).toMatch(/^\/pi-web-plugins\/info\/pi-web-plugin\.js\?v=\d+$/u);
@@ -33,6 +33,18 @@ describe("PiWebPluginService", () => {
     const asset = await service.readAsset("info", "pi-web-plugin.js");
     expect(asset?.contentType).toBe("application/javascript; charset=utf-8");
     expect(asset?.content.toString("utf8")).toContain("export default");
+  });
+
+  it("includes machine-specific preferences in plugin manifests", async () => {
+    await writePlugin(join(tempDir, "plugins", "updates"), {
+      packageJson: { piWeb: { plugins: [{ id: "updates", module: "pi-web-plugin.js", machineSpecific: true }] } },
+      files: { "pi-web-plugin.js": "export default {};" },
+    });
+
+    const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
+
+    await expect(service.manifest()).resolves.toMatchObject({ plugins: [{ id: "updates", machineSpecific: true }] });
+    await expect(service.plugins()).resolves.toMatchObject({ plugins: [{ id: "updates", machineSpecific: true, enabled: true }] });
   });
 
   it("discovers Pi package plugins through an injected package provider", async () => {

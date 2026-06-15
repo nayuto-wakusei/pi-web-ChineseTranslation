@@ -114,7 +114,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
       this.openMenuProjectId = undefined;
       return;
     }
-    this.menuStyle = actionMenuPanelStyle(target);
+    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
     this.openMenuProjectId = projectId;
   }
 

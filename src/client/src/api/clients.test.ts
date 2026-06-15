@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { machinesApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -29,64 +30,61 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("machine-scoped runtime API", () => {
+  it("reads machine PI WEB status through the gateway route", async () => {
+    const fetchMock = stubJsonFetch({
+      packageName: "@jmfederico/pi-web",
+      generatedAt: "now",
+      components: {
+        web: { component: "web", label: "PI WEB", available: true, stale: false },
+        sessiond: { component: "sessiond", label: "PI WEB Session Daemon", available: true, stale: false },
+      },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
+      commands: {},
+      messages: [],
+    });
+
+    await piWebApi.piWebStatus("remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/pi-web/status");
+  });
+
+  it("reads machine runtime through the gateway route", async () => {
+    const fetchMock = stubJsonFetch({ machineId: "remote a", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] });
+
+    await machinesApi.runtime("remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/runtime");
+  });
+});
+
+describe("session API compatibility", () => {
+  it("keeps legacy session-id calls free of cwd context", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.prompt("s 1", "hello", "followUp", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/sessions/s%201/prompt");
+    expect(JSON.parse(requestBody(init))).toEqual({ text: "hello", streamingBehavior: "followUp" });
+  });
+
+  it("adds cwd context when session refs include a workspace", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.prompt({ id: "s 1", cwd: "/repo" }, "hello", undefined, "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/sessions/s%201/prompt");
+    expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo", text: "hello" });
+  });
+});
+
 describe("machine-scoped terminal command-run API", () => {
-  it("sends prompt images through the session prompt API", async () => {
-    const fetchMock = stubJsonFetch({ accepted: true });
-
-    await sessionsApi.prompt("s 1", { text: "看图", images: [{ type: "image", data: "abc123", mimeType: "image/png" }] }, "followUp", "remote a");
-
-    const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("/api/machines/remote%20a/sessions/s 1/prompt");
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(requestBody(init))).toEqual({
-      text: "看图",
-      streamingBehavior: "followUp",
-      images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
-    });
-  });
-
-  it("keeps the legacy text-only prompt API contract", async () => {
-    const fetchMock = stubJsonFetch({ accepted: true });
-
-    await sessionsApi.prompt("s 1", "hello", undefined, "local");
-
-    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ text: "hello" });
-  });
-
-  it("uploads local workspace files with multipart form data", async () => {
-    const fetchMock = stubJsonFetch({ path: "dir/data.csv", size: 5, modifiedAt: "now" });
-
-    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "dir/data.csv", new File(["hello"], "data.csv"), "local");
-
-    const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file");
-    expect(init?.method).toBe("POST");
-    expect(init?.headers).toBeUndefined();
-    expect(init?.body).toBeInstanceOf(FormData);
-    const formData = init?.body;
-    if (!(formData instanceof FormData)) throw new Error("Expected FormData body");
-    expect(formData.get("path")).toBe("dir/data.csv");
-    const uploadedFile = formData.get("file");
-    expect(uploadedFile).toBeInstanceOf(File);
-    if (!(uploadedFile instanceof File)) throw new Error("Expected uploaded file");
-    expect(uploadedFile.name).toBe("data.csv");
-    await expect(uploadedFile.text()).resolves.toBe("hello");
-  });
-
-  it("uploads remote workspace files with the federated JSON contract", async () => {
-    const fetchMock = stubJsonFetch({ path: "dir/data.csv", size: 5, modifiedAt: "now" });
-
-    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "dir/data.csv", new File(["hello"], "data.csv"), "remote a");
-
-    const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/file");
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(requestBody(init))).toEqual({
-      path: "dir/data.csv",
-      contentBase64: Buffer.from("hello", "utf8").toString("base64"),
-    });
-  });
-
   it("deletes workspaces through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
 
@@ -146,51 +144,6 @@ describe("machine-scoped terminal command-run API", () => {
     await expect(terminalsApi.getCommandRun("missing", "remote-a")).resolves.toBeUndefined();
 
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote-a/terminal-command-runs/missing");
-  });
-
-  it("downloads workspace files with fetch so management embed routing can proxy the request", async () => {
-    const fetchMock = stubResponseFetch(new Response(new Blob(["hello"]), {
-      status: 200,
-      headers: { "content-disposition": 'attachment; filename="hello.txt"' },
-    }));
-    const click = vi.fn();
-    const remove = vi.fn();
-    const append = vi.fn();
-    const createObjectURL = vi.fn(() => "blob:download");
-    const revokeObjectURL = vi.fn();
-    const anchor = { click, remove, href: "", download: "" };
-    vi.stubGlobal("document", {
-      body: { append },
-      createElement: vi.fn(() => anchor),
-    });
-    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
-
-    await workspacesApi.downloadWorkspaceFile("p 1", "w/1", "dir/hello.txt", "remote a");
-
-    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/file/download?path=dir%2Fhello.txt");
-    expect(createObjectURL).toHaveBeenCalledOnce();
-    expect(anchor.download).toBe("hello.txt");
-    expect(append).toHaveBeenCalledOnce();
-    expect(click).toHaveBeenCalledOnce();
-    expect(remove).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:download");
-  });
-
-  it("uses RFC 5987 filenames when downloading workspace files", async () => {
-    stubResponseFetch(new Response(new Blob(["hello"]), {
-      status: 200,
-      headers: { "content-disposition": 'attachment; filename="__ __.xlsx"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.xlsx' },
-    }));
-    const anchor = { click: vi.fn(), remove: vi.fn(), href: "", download: "" };
-    vi.stubGlobal("document", {
-      body: { append: vi.fn() },
-      createElement: vi.fn(() => anchor),
-    });
-    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:download"), revokeObjectURL: vi.fn() });
-
-    await workspacesApi.downloadWorkspaceFile("p 1", "w/1", "dir/fallback.xlsx", "local");
-
-    expect(anchor.download).toBe("中文 文件.xlsx");
   });
 });
 

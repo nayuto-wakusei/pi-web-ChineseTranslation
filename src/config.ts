@@ -26,6 +26,23 @@ export function defaultPiWebDataDir(): string {
   return join(homedir(), ".pi-web");
 }
 
+/**
+ * Default maximum HTTP body size (bytes) for the web/API and session daemon.
+ * Generous headroom for base64 image attachments (well above pi's 4.5MB
+ * per-image inline limit so several images fit in one request).
+ */
+export const DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number {
+  const fromEnv = env["PI_WEB_MAX_UPLOAD_BYTES"];
+  if (fromEnv !== undefined && fromEnv !== "") {
+    const parsed = Number(fromEnv);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  if (config.maxUploadBytes !== undefined) return config.maxUploadBytes;
+  return DEFAULT_MAX_UPLOAD_BYTES;
+}
+
 export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const configured = env["PI_WEB_DATA_DIR"];
   if (configured === undefined || configured === "") return defaultPiWebDataDir();
@@ -55,6 +72,7 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedPiWebConf
   const host = env["PI_WEB_HOST"];
   const port = env["PI_WEB_PORT"] ?? env["PORT"];
   const allowedHosts = env["PI_WEB_ALLOWED_HOSTS"];
+  const maxUpload = env["PI_WEB_MAX_UPLOAD_BYTES"];
 
   return {
     ...loaded,
@@ -63,6 +81,7 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedPiWebConf
       ...(host !== undefined && host !== "" ? { host } : {}),
       ...(port !== undefined && port !== "" ? { port: parsePort(port, "PI_WEB_PORT") } : {}),
       ...(allowedHosts !== undefined && allowedHosts !== "" ? { allowedHosts: parseAllowedHostsEnv(allowedHosts) } : {}),
+      ...(maxUpload !== undefined && maxUpload !== "" ? { maxUploadBytes: parseMaxUploadBytes(maxUpload, "PI_WEB_MAX_UPLOAD_BYTES") } : {}),
     },
   };
 }
@@ -78,6 +97,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["shortcuts"];
   delete existing["plugins"];
   delete existing["managementEmbed"];
+  delete existing["maxUploadBytes"];
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
@@ -99,6 +119,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
+    ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
   };
 }
 
@@ -110,7 +131,14 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], path) } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], path) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], path) } : {}),
+    ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
   };
+}
+
+function parseMaxUploadBytes(value: unknown, key: string, path = "environment"): number {
+  const bytes = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
+  if (!Number.isInteger(bytes) || bytes < 1) throw new Error(`PI WEB config ${key} must be a positive integer: ${path}`);
+  return bytes;
 }
 
 function parseString(value: unknown, key: string, path: string): string {
@@ -238,8 +266,4 @@ function isNonEmptyStringArray(value: unknown): value is string[] {
 
 export function examplePiWebConfig(config: PiWebConfig = {}): string {
   return `${JSON.stringify({ host: config.host ?? "127.0.0.1", port: config.port ?? 8504, allowedHosts: config.allowedHosts ?? [] }, null, 2)}\n`;
-}
-
-export function piWebConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  return dirname(defaultPiWebConfigPath(env));
 }

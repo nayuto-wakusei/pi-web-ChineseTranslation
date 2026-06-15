@@ -18,6 +18,12 @@ export function registerMachineRoutes(app: FastifyInstance, machines = new Machi
     return health;
   });
 
+  app.get<{ Params: { machineId: string } }>("/api/machines/:machineId/runtime", async (request, reply) => {
+    const runtime = await machines.runtime(request.params.machineId);
+    if (runtime === undefined) return reply.code(404).send({ error: "Machine not found" });
+    return runtime;
+  });
+
   app.get<{ Params: { machineId: string } }>("/api/machines/:machineId", async (request, reply) => {
     const machine = await machines.get(request.params.machineId);
     if (machine === undefined) return reply.code(404).send({ error: "Machine not found" });

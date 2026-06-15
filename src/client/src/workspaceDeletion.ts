@@ -1,8 +1,8 @@
-import { workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, targetWorkspaceIdMetadataKey, targetWorkspacePathMetadataKey } from "../../shared/workspaceDeletion";
+import { workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, targetWorkspaceIdMetadataKey } from "../../shared/workspaceDeletion";
 import type { AppState } from "./appState";
 import type { TerminalCommandRun, Workspace } from "./api";
 
-export { targetWorkspaceIdMetadataKey, targetWorkspacePathMetadataKey, workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, workspaceDeletionMetadata } from "../../shared/workspaceDeletion";
+export { targetWorkspaceIdMetadataKey, workspaceDeleteOperation, workspaceDeleteOperationMetadataKey, workspaceDeletionMetadata } from "../../shared/workspaceDeletion";
 
 export function workspaceDeletionRunFilter(projectId?: string): { projectId?: string; metadata: Record<string, string> } {
   return {
@@ -38,14 +38,6 @@ export function targetWorkspaceIdForRun(run: TerminalCommandRun): string | undef
   return run.metadata[targetWorkspaceIdMetadataKey];
 }
 
-export function targetWorkspacePathForRun(run: TerminalCommandRun): string | undefined {
-  return run.metadata[targetWorkspacePathMetadataKey];
-}
-
 export function isWorkspaceDeletionRunPending(run: TerminalCommandRun): boolean {
   return run.status === "queued" || run.status === "running";
-}
-
-export function isWorkspaceDeletionRun(run: TerminalCommandRun): boolean {
-  return run.metadata[workspaceDeleteOperationMetadataKey] === workspaceDeleteOperation;
 }

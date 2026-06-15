@@ -1,4 +1,4 @@
-import { api as defaultApi, type CommandResult, type PromptInput, type SessionActivity, type SessionInfo, type SessionStatus, type ThinkingLevel } from "../api";
+import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionInfo, type SessionRef, type SessionStatus } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -6,15 +6,17 @@ import { machineSessionKey } from "../machineKeys";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { isShellInput } from "../inputModes";
+import { fileCompletionInsertText } from "../promptCompletions";
 import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
 import { isSessionActive } from "../../../shared/activity";
+import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
 
 const MESSAGE_PAGE_SIZE = 100;
 
 export interface SessionEventSocket {
-  connect(sessionId: string, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId?: string): void;
+  connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId?: string): void;
   setHandler(onEvent: (event: SessionUiEvent) => void): void;
   close(): void;
 }
@@ -62,7 +64,11 @@ export class SessionController {
     this.socket.close();
     this.catchupStreamSessionId = undefined;
     this.clearPendingTranscriptEvents();
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
+    // Note: sendingPrompts is intentionally NOT cleared here. Deselecting a
+    // session must not cancel the in-flight upload indicator of the session
+    // that is still sending; the per-session entry is cleared by send()'s
+    // finally block when the request settles.
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined, availableThinkingLevels: [] });
   }
 
   deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
@@ -116,7 +122,7 @@ export class SessionController {
     });
     try {
       if (session.archived === true) {
-        const page = await this.api.messages(session.id, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
+        const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
         if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
         const history = this.transcripts.mergeHistory(transcriptKey, page);
         this.setState({ ...history, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
@@ -125,18 +131,19 @@ export class SessionController {
       }
       const buffered: SessionUiEvent[] = [];
       this.socket.connect(
-        session.id,
+        session,
         (event) => buffered.push(event),
         () => { void this.refreshSelectedSession(session.id); },
         selectedMachineId(this.getState()),
       );
-      const [page, status] = await Promise.all([this.api.messages(session.id, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState())), this.api.status(session.id, selectedMachineId(this.getState()))]);
+      const [page, status] = await Promise.all([this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState())), this.api.status(session, selectedMachineId(this.getState()))]);
       if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
       const history = this.transcripts.mergeHistory(transcriptKey, page);
       const isReceivingPartialStream = status.isStreaming;
       this.catchupStreamSessionId = isReceivingPartialStream ? session.id : undefined;
-      this.setState({ ...history, isLoadingEarlierMessages: false, isReceivingPartialStream, status, activity: this.getState().sessionActivities[session.id] });
+      this.setState({ ...history, isLoadingEarlierMessages: false, isReceivingPartialStream, status, activity: this.getState().sessionActivities[session.id], availableThinkingLevels: [] });
       this.applyStatus(status);
+      void this.refreshAvailableThinkingLevels();
       for (const event of buffered) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
       if (options?.updateUrl !== false) this.updateUrl();
@@ -156,7 +163,7 @@ export class SessionController {
     if (!session || state.isLoadingEarlierMessages || state.messagePageStart <= 0) return;
     this.setState({ isLoadingEarlierMessages: true });
     try {
-      const page = await this.api.messages(session.id, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
+      const page = await this.api.messages(session, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
       if (this.getState().selectedSession?.id !== session.id) return;
       const history = this.transcripts.mergeHistory(this.sessionCacheKey(session.id), page);
       this.setState(history);
@@ -167,19 +174,45 @@ export class SessionController {
     }
   }
 
-  async send(input: string | PromptInput, streamingBehavior?: "steer" | "followUp") {
-    if (typeof input === "string") {
-      const trimmed = input.trim();
-      if (trimmed.startsWith("/")) return this.runCommand(input);
-      if (isShellInput(input)) return this.runShell(input);
-    }
+  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: "inline" | "folder" = "inline") {
+    const trimmed = text.trim();
+    const hasAttachments = attachments !== undefined && attachments.length > 0;
+    if (!hasAttachments && trimmed.startsWith("/")) return this.runCommand(text);
+    if (!hasAttachments && isShellInput(text)) return this.runShell(text);
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
+    // Capture the originating session/machine before any await so the request
+    // and its sending indicator stay bound to the right session even if the
+    // user navigates elsewhere mid-upload.
+    const sessionId = session.id;
+    const machineId = selectedMachineId(this.getState());
+    // Surface a per-session optimistic sending state. It covers the pre-receipt
+    // window (upload, server-side image resizing, first-session open) and is
+    // superseded by real server activity/messages once api.prompt resolves.
+    if (hasAttachments) this.markSendingPrompt(sessionId, true);
     try {
-      await this.api.prompt(session.id, input, streamingBehavior, selectedMachineId(this.getState()));
+      if (hasAttachments && delivery === "folder") {
+        const saved = await this.api.saveAttachments(session, attachments, machineId);
+        const references = saved.map((file) => fileCompletionInsertText(file.path, false)).join(" ");
+        const body = text === "" ? references : `${text}\n\n${references}`;
+        await this.api.prompt(session, body, streamingBehavior, machineId);
+      } else {
+        await this.api.prompt(session, text, streamingBehavior, machineId, attachments);
+      }
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });
+    } finally {
+      if (hasAttachments) this.markSendingPrompt(sessionId, false);
+    }
+  }
+
+  private markSendingPrompt(sessionId: string, sending: boolean): void {
+    const current = this.getState().sendingPrompts;
+    if (sending) {
+      if (current[sessionId] !== true) this.setState({ sendingPrompts: { ...current, [sessionId]: true } });
+    } else if (sessionId in current) {
+      this.setState({ sendingPrompts: omitKey(current, sessionId) });
     }
   }
 
@@ -188,7 +221,7 @@ export class SessionController {
     if (!session || session.archived === true) return;
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
-      await this.api.shell(session.id, text, selectedMachineId(this.getState()));
+      await this.api.shell(session, text, selectedMachineId(this.getState()));
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
@@ -200,7 +233,7 @@ export class SessionController {
     if (!session || session.archived === true) return;
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
-      this.applyCommandResult(await this.api.runCommand(session.id, text, selectedMachineId(this.getState())));
+      this.applyCommandResult(await this.api.runCommand(session, text, selectedMachineId(this.getState())));
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
@@ -212,7 +245,7 @@ export class SessionController {
     if (!session) return;
     this.setState({ commandDialog: undefined });
     try {
-      this.applyCommandResult(await this.api.respondToCommand(session.id, requestId, value, selectedMachineId(this.getState())));
+      this.applyCommandResult(await this.api.respondToCommand(session, requestId, value, selectedMachineId(this.getState())));
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -233,7 +266,7 @@ export class SessionController {
       return;
     }
     try {
-      await this.api.archive(session.id, selectedMachineId(this.getState()));
+      await this.api.archive(session, selectedMachineId(this.getState()));
       const state = this.getState();
       const sessions = markSessionArchived(state.sessions, session.id, new Date().toISOString());
       const selectionChange = selectionAfterArchivingSession(sessions, state.selectedSession?.id, session.id);
@@ -249,7 +282,7 @@ export class SessionController {
   async archiveSessionWithDescendants(session = this.getState().selectedSession) {
     if (!session || isCachedNewSessionInfo(session)) return;
     try {
-      const response = await this.api.archiveWithDescendants(session.id, selectedMachineId(this.getState()));
+      const response = await this.api.archiveWithDescendants(session, selectedMachineId(this.getState()));
       const archivedIds = response.sessionIds !== undefined && response.sessionIds.length > 0 ? response.sessionIds : [session.id];
       const state = this.getState();
       const sessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
@@ -263,9 +296,60 @@ export class SessionController {
     }
   }
 
+  async archiveSessions(sessions: readonly SessionInfo[]): Promise<void> {
+    const candidates = uniqueSessionsById(sessions).filter((session) => session.archived !== true && !isCachedNewSessionInfo(session));
+    if (candidates.length === 0) return;
+
+    const machineId = selectedMachineId(this.getState());
+    const results = await Promise.allSettled(candidates.map(async (session) => {
+      await this.api.archive(session, machineId);
+      return session.id;
+    }));
+    const archivedIds = fulfilledValues(results);
+    if (archivedIds.length > 0) {
+      const state = this.getState();
+      const nextSessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
+      const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
+      this.setState({ sessions: nextSessions });
+
+      if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
+      else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+    }
+    this.applyBulkSessionError("Archive", results);
+  }
+
+  async deleteArchivedSessions(sessions: readonly SessionInfo[]): Promise<void> {
+    const candidates = uniqueSessionsById(sessions).filter((session) => session.archived === true);
+    if (candidates.length === 0) return;
+
+    const machineId = selectedMachineId(this.getState());
+    const runtime = this.getState().machineRuntimes[machineId];
+    if (runtime?.ok !== true || !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived)) {
+      this.setState({ error: "Deleting archived sessions requires an updated Pi-Web runtime on this machine." });
+      return;
+    }
+    const results = await Promise.allSettled(candidates.map(async (session) => {
+      await this.api.deleteArchived(session, machineId);
+      return session.id;
+    }));
+    const deletedIds = fulfilledValues(results);
+    if (deletedIds.length > 0) {
+      const deletedIdSet = new Set(deletedIds);
+      const state = this.getState();
+      const nextSessions = state.sessions.filter((session) => !deletedIdSet.has(session.id));
+      this.setState({ sessions: nextSessions });
+      if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
+        const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
+        if (next !== undefined) await this.selectSession(next);
+        else this.deselectSession({ forgetRememberedSelection: true });
+      }
+    }
+    this.applyBulkSessionError("Delete", results);
+  }
+
   async deleteCachedNewSession(session = this.getState().selectedSession) {
     if (!isCachedNewSessionInfo(session)) return;
-    void this.api.stop(session.id, selectedMachineId(this.getState())).catch(() => {
+    void this.api.stop(session, selectedMachineId(this.getState())).catch(() => {
       // Best-effort cleanup for browser-cached sessions that may not exist server-side anymore.
     });
     forgetCachedNewSession(session.id, selectedMachineId(this.getState()));
@@ -284,7 +368,7 @@ export class SessionController {
   async restoreSession(session = this.getState().selectedSession) {
     if (!session) return;
     try {
-      await this.api.restore(session.id, selectedMachineId(this.getState()));
+      await this.api.restore(session, selectedMachineId(this.getState()));
       const restored = { ...session };
       delete restored.archived;
       delete restored.archivedAt;
@@ -295,10 +379,29 @@ export class SessionController {
     }
   }
 
+  async reloadSession(session = this.getState().selectedSession) {
+    if (session === undefined || isCachedNewSessionInfo(session) || session.archived === true) return;
+    const machineId = selectedMachineId(this.getState());
+    const runtime = this.getState().machineRuntimes[machineId];
+    if (runtime?.ok !== true || !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload)) {
+      this.setState({ error: "Reloading sessions requires an updated Pi-Web runtime on this machine." });
+      return;
+    }
+    try {
+      await this.api.reloadSession(session.id, machineId);
+      this.transcripts.discard(this.sessionCacheKey(session.id));
+      if (this.getState().selectedSession?.id === session.id) {
+        await this.selectSession(session, { updateUrl: false });
+      }
+    } catch (error) {
+      this.setState({ error: String(error) });
+    }
+  }
+
   async detachParent(session = this.getState().selectedSession) {
     if (session?.parentSessionPath === undefined) return;
     try {
-      await this.api.detachParent(session.id, selectedMachineId(this.getState()));
+      await this.api.detachParent(session, selectedMachineId(this.getState()));
       const detached = { ...session };
       delete detached.parentSessionPath;
       this.replaceSession(detached);
@@ -311,7 +414,7 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return [];
     try {
-      return (await this.api.models(session.id, selectedMachineId(this.getState()))).models;
+      return (await this.api.models(session, selectedMachineId(this.getState()))).models;
     } catch (error) {
       this.setState({ error: String(error) });
       return [];
@@ -322,7 +425,8 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      this.applyStatus(await this.api.setModel(session.id, provider, modelId, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.setModel(session, provider, modelId, selectedMachineId(this.getState())));
+      await this.refreshAvailableThinkingLevels();
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -332,7 +436,8 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      this.applyStatus(await this.api.cycleModel(session.id, direction, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.cycleModel(session, direction, selectedMachineId(this.getState())));
+      await this.refreshAvailableThinkingLevels();
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -342,18 +447,30 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return [];
     try {
-      return (await this.api.thinkingLevels(session.id, selectedMachineId(this.getState()))).levels;
+      return (await this.api.thinkingLevels(session, selectedMachineId(this.getState()))).levels;
     } catch (error) {
       this.setState({ error: String(error) });
       return [];
     }
   }
 
-  async setThinkingLevel(level: ThinkingLevel) {
+  /** Refresh the available thinking levels for the selected session's model. */
+  async refreshAvailableThinkingLevels() {
+    const session = this.getState().selectedSession;
+    if (!session || session.archived === true) {
+      if (this.getState().availableThinkingLevels.length > 0) this.setState({ availableThinkingLevels: [] });
+      return;
+    }
+    const levels = await this.listThinkingLevels();
+    if (this.getState().selectedSession?.id !== session.id) return;
+    this.setState({ availableThinkingLevels: levels });
+  }
+
+  async setThinkingLevel(level: string) {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      this.applyStatus(await this.api.setThinkingLevel(session.id, level, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.setThinkingLevel(session, level, selectedMachineId(this.getState())));
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -363,7 +480,7 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      this.applyStatus(await this.api.cycleThinkingLevel(session.id, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.cycleThinkingLevel(session, selectedMachineId(this.getState())));
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -373,7 +490,7 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session) return;
     try {
-      await this.api.abort(session.id, selectedMachineId(this.getState()));
+      await this.api.abort(session, selectedMachineId(this.getState()));
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -384,7 +501,7 @@ export class SessionController {
     if (sessionId === undefined || session?.id !== sessionId || session.archived === true) return;
     try {
       this.flushPendingTranscriptEvents();
-      const [page, status] = await Promise.all([this.api.messages(sessionId, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState())), this.api.status(sessionId, selectedMachineId(this.getState()))]);
+      const [page, status] = await Promise.all([this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState())), this.api.status(session, selectedMachineId(this.getState()))]);
       if (this.getState().selectedSession?.id !== sessionId) return;
       const history = this.transcripts.mergeHistory(this.sessionCacheKey(sessionId), page);
       this.setState({
@@ -397,6 +514,12 @@ export class SessionController {
     } catch (error) {
       if (this.getState().selectedSession?.id === sessionId) this.setState({ error: String(error) });
     }
+  }
+
+  private applyBulkSessionError(action: string, results: readonly PromiseSettledResult<string>[]): void {
+    const failures = rejectedReasons(results);
+    if (failures.length === 0) return;
+    this.setState({ error: `${action} failed for ${String(failures.length)} session${failures.length === 1 ? "" : "s"}: ${failures.join("; ")}` });
   }
 
   private sessionCacheKey(sessionId: string): string {
@@ -550,7 +673,9 @@ export class SessionController {
 
   private async refreshMessages(sessionId: string) {
     try {
-      const page = await this.api.messages(sessionId, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
+      const session = this.getState().selectedSession;
+      if (session?.id !== sessionId) return;
+      const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
       if (this.getState().selectedSession?.id !== sessionId) return;
       this.setState(this.transcripts.mergeHistory(this.sessionCacheKey(sessionId), page));
     } catch (error) {
@@ -560,7 +685,42 @@ export class SessionController {
 }
 
 function omitSessionActivity(activities: Record<string, SessionActivity>, sessionId: string): Record<string, SessionActivity> {
-  return Object.fromEntries(Object.entries(activities).filter(([id]) => id !== sessionId));
+  return omitKey(activities, sessionId);
+}
+
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([id]) => id !== key));
+}
+
+function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {
+  const seen = new Set<string>();
+  const unique: SessionInfo[] = [];
+  for (const session of sessions) {
+    if (seen.has(session.id)) continue;
+    seen.add(session.id);
+    unique.push(session);
+  }
+  return unique;
+}
+
+function fulfilledValues<T>(results: readonly PromiseSettledResult<T>[]): T[] {
+  return results.filter(isFulfilled).map((result) => result.value);
+}
+
+function rejectedReasons(results: readonly PromiseSettledResult<unknown>[]): string[] {
+  return results.filter(isRejected).map((result) => errorMessage(result.reason));
+}
+
+function isFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfilledResult<T> {
+  return result.status === "fulfilled";
+}
+
+function isRejected<T>(result: PromiseSettledResult<T>): result is PromiseRejectedResult {
+  return result.status === "rejected";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function sessionMessageCountPatch(state: AppState, sessionId: string, messageCount: number | undefined): Pick<Partial<AppState>, "sessions" | "selectedSession"> {

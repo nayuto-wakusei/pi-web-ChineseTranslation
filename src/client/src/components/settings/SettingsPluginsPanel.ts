@@ -46,7 +46,7 @@ export class SettingsPluginsPanel extends LitElement {
       <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
           <strong>${plugin.id}</strong>
-          <small>${plugin.source} · ${plugin.scope}</small>
+          <small>${plugin.source} · ${plugin.scope}${plugin.machineSpecific ? " · machine-specific" : ""}</small>
           <small>${configuredState}</small>
         </div>
         <label class="toggle">

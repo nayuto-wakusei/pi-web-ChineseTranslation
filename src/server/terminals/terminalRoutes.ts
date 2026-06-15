@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { RawData } from "ws";
+import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus } from "../../shared/apiTypes.js";
 import type { RunTerminalCommandOptions, TerminalInfo } from "./terminalService.js";
 import { parseTerminalSize } from "./terminalSize.js";
@@ -23,13 +24,17 @@ export interface TerminalRouteService {
 export function registerTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/terminals`, (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
-    return terminals.list(request.query.cwd);
+    try {
+      return terminals.list(normalizeRequestCwd(request.query.cwd));
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.post<{ Body: { cwd: string; name?: string; cols?: number; rows?: number } }>(`${prefix}/terminals`, (request, reply) => {
     try {
       const managementContext = managementContextFromHeaders(request.headers);
-      return terminals.create({ ...request.body, ...(managementContext === undefined ? {} : { managementContext }) });
+      return terminals.create({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -38,7 +43,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
   app.delete<{ Querystring: { cwd?: string } }>(`${prefix}/terminals`, (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
-      terminals.closeForCwd(request.query.cwd);
+      terminals.closeForCwd(normalizeRequestCwd(request.query.cwd));
       return { closed: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -48,7 +53,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
   app.post<{ Body: RunTerminalCommandOptions }>(`${prefix}/terminal-command-runs`, (request, reply) => {
     try {
       const managementContext = managementContextFromHeaders(request.headers);
-      return terminals.runCommand({ ...request.body, ...(managementContext === undefined ? {} : { managementContext }) });
+      return terminals.runCommand({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

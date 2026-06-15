@@ -3,17 +3,45 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PI WEB — persistent AI coding agents in your browser</title>
+    <title>PI WEB — web UI for Pi Coding Agent</title>
     <meta
       name="description"
-      content="PI WEB makes AI coding work persistent by default: agents keep running outside your browser while you supervise from any device."
+      content="PI WEB is a web UI for Pi Coding Agent that keeps agent sessions running in real workspaces on your machine or server."
     />
-    <meta property="og:title" content="PI WEB" />
+    <link rel="canonical" href="https://pi-web.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="PI WEB — web UI for Pi Coding Agent" />
     <meta
       property="og:description"
-      content="Run persistent AI coding agents in real workspaces, keep them alive outside your device, and supervise everything from a browser."
+      content="Run persistent Pi Coding Agent sessions in real workspaces and supervise them from any browser."
     />
-    <meta property="og:image" content="assets/pi-web-banner.png" />
+    <meta property="og:url" content="https://pi-web.dev/" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PI WEB — web UI for Pi Coding Agent" />
+    <meta
+      name="twitter:description"
+      content="Run persistent Pi Coding Agent sessions in real workspaces and supervise them from any browser."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "PI WEB",
+        "alternateName": ["Pi web UI", "Pi Coding Agent web UI"],
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS, Windows WSL",
+        "url": "https://pi-web.dev/",
+        "downloadUrl": "https://www.npmjs.com/package/@jmfederico/pi-web",
+        "codeRepository": "https://github.com/jmfederico/pi-web",
+        "description": "PI WEB is a web UI for Pi Coding Agent that keeps persistent agent sessions running in real workspaces on your machine or server.",
+        "softwareRequirements": "Node.js 22 or newer and Pi Coding Agent",
+        "license": "https://github.com/jmfederico/pi-web/blob/main/LICENSE"
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <script>
       (() => {
@@ -64,20 +92,22 @@
       <section class="hero">
         <div class="container hero-grid">
           <div>
-            <p class="eyebrow"><span class="pulse"></span> A cockpit for agentic development</p>
+            <p class="eyebrow"><span class="pulse"></span> Pi Coding Agent web UI</p>
             <h1>
-              <span class="title-context">Your agents keep working.</span>
-              <span class="gradient-text intro-target" aria-label="You just need a browser.">
-                <span class="intro-word" style="--i: 0">You</span>
-                <span class="intro-word" style="--i: 1">just</span>
-                <span class="intro-word" style="--i: 2">need</span>
-                <span class="intro-word" style="--i: 3">a</span>
-                <span class="intro-word" style="--i: 4">browser.</span>
+              <span class="title-context">The web UI for</span>
+              <span class="gradient-text intro-target" aria-label="Pi Coding Agent sessions that keep working.">
+                <span class="intro-word" style="--i: 0">Pi</span>
+                <span class="intro-word" style="--i: 1">Coding</span>
+                <span class="intro-word" style="--i: 2">Agent</span>
+                <span class="intro-word" style="--i: 3">sessions</span>
+                <span class="intro-word" style="--i: 4">that</span>
+                <span class="intro-word" style="--i: 5">keep</span>
+                <span class="intro-word" style="--i: 6">working.</span>
               </span>
             </h1>
             <p class="hero-lede">
-              PI WEB runs Pi Coding Agent sessions in real server-side workspaces, keeps them alive when your browser
-              leaves, and gives you a fast web surface to supervise, redirect, and review the work.
+              PI WEB keeps Pi Coding Agent sessions running in real server-side workspaces, even after your browser
+              leaves, and gives you a fast web UI to supervise, redirect, and review work from any device.
             </p>
             <p class="hero-manifesto">
               Local development made sense when humans drove every keystroke. Agentic development works better when the
@@ -118,7 +148,7 @@
         <div class="container">
           <div class="demo-frame">
             <div class="demo-caption">
-              <strong>Workspaces, sessions, transcripts, terminals — one agent control plane.</strong>
+              <strong>Workspaces, sessions, transcripts, terminals — one Pi web UI.</strong>
               <span>Bring your own repositories.</span>
             </div>
             <img src="assets/pi-web-demo.gif" alt="PI WEB browser UI demo" />
@@ -170,10 +200,11 @@
             </article>
             <article class="card">
               <div class="card-icon">⇄</div>
-              <h3>The browser becomes the control plane</h3>
+              <h3>Any browser can supervise the work</h3>
               <p>
                 Your device is replaceable. The sessions are not. Move between laptop, phone, tablet, and desktop
-                without moving the development environment.
+                without moving the development environment. Under the hood, PI WEB coordinates the running sessions,
+                files, terminals, and remote machines like a browser-based control plane.
               </p>
             </article>
             <article class="card">
@@ -300,7 +331,7 @@
 
     <footer class="site-footer">
       <div class="container footer-inner">
-        <span>PI WEB · remote control for persistent Pi Coding Agent sessions.</span>
+        <span>PI WEB · web UI for persistent Pi Coding Agent sessions.</span>
         <div class="footer-links">
           <a href="remote-first.html">Remote-first</a>
           <a href="machines.html">Fleet</a>

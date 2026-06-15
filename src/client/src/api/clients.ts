@@ -1,6 +1,5 @@
-import type { FileSuggestion, PiWebConfigValues, PromptInput, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
+import type { FileSuggestion, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionRef, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
 import { request } from "./http";
-import { withManagementEmbed } from "./managementEmbed";
 import {
   arrayOf,
   parseAborted,
@@ -9,6 +8,7 @@ import {
   parseAuthProvidersResponse,
   parseClosed,
   parseCommandResult,
+  parseDeleted,
   parseDetached,
   parseFileContentResponse,
   parseFileSuggestion,
@@ -17,15 +17,19 @@ import {
   parseGitStatusResponse,
   parseMachine,
   parseMachineHealth,
+  parseMachineRuntime,
   parseMachinesResponse,
   parseMessagePage,
   parseModelSelectionResponse,
   parseOAuthFlowState,
   parsePiWebConfigResponse,
   parsePiWebPluginsResponse,
+  parsePiWebRuntimeResponse,
   parsePiWebStatusResponse,
   parseProject,
+  parseReloaded,
   parseRestored,
+  parseSavedAttachments,
   parseSessionInfo,
   parseSessionStatus,
   parseSlashCommand,
@@ -43,8 +47,45 @@ import { machineGitDiffUrl, messageUrl, workspaceFileDownloadUrl } from "./urls"
 
 const machinePrefix = (machineId = "local") => `/api/machines/${encodeURIComponent(machineId)}`;
 
+type SessionLookup = SessionRef | string;
+
+function sessionId(session: SessionLookup): string {
+  return typeof session === "string" ? session : session.id;
+}
+
+function sessionCwd(session: SessionLookup): string | undefined {
+  return typeof session === "string" ? undefined : session.cwd;
+}
+
+function sessionBaseUrl(session: SessionLookup, machineId = "local"): string {
+  return `${machinePrefix(machineId)}/sessions/${encodeURIComponent(sessionId(session))}`;
+}
+
+function sessionUrl(session: SessionLookup, endpoint: string, machineId = "local"): string {
+  return `${sessionBaseUrl(session, machineId)}/${endpoint}`;
+}
+
+function sessionQueryUrl(session: SessionLookup, endpoint: string, machineId = "local"): string {
+  return `${sessionUrl(session, endpoint, machineId)}${sessionQuery(session)}`;
+}
+
+function sessionBaseQueryUrl(session: SessionLookup, machineId = "local"): string {
+  return `${sessionBaseUrl(session, machineId)}${sessionQuery(session)}`;
+}
+
+function sessionQuery(session: SessionLookup): string {
+  const cwd = sessionCwd(session);
+  return cwd === undefined || cwd === "" ? "" : `?${new URLSearchParams({ cwd }).toString()}`;
+}
+
+function sessionBody(session: SessionLookup, fields: Record<string, unknown> = {}): string {
+  const cwd = sessionCwd(session);
+  return JSON.stringify(cwd === undefined || cwd === "" ? fields : { cwd, ...fields });
+}
+
 export const piWebApi = {
-  piWebStatus: () => request("/api/pi-web/status", parsePiWebStatusResponse),
+  piWebStatus: (machineId = "local") => request(machineId === "local" ? "/api/pi-web/status" : `${machinePrefix(machineId)}/pi-web/status`, parsePiWebStatusResponse),
+  piWebRuntime: () => request("/api/pi-web/runtime", parsePiWebRuntimeResponse),
 };
 
 export const machinesApi = {
@@ -52,6 +93,7 @@ export const machinesApi = {
   addMachine: (input: { name: string; baseUrl: string; token?: string }) => request("/api/machines", parseMachine, { method: "POST", body: JSON.stringify(input) }),
   deleteMachine: (machineId: string) => request(`/api/machines/${encodeURIComponent(machineId)}`, (value) => value, { method: "DELETE" }),
   health: (machineId: string) => request(`/api/machines/${encodeURIComponent(machineId)}/health`, parseMachineHealth),
+  runtime: (machineId: string) => request(`/api/machines/${encodeURIComponent(machineId)}/runtime`, parseMachineRuntime),
 };
 
 export const configApi = {
@@ -96,90 +138,31 @@ export const workspacesApi = {
   downloadWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => downloadWorkspaceFile(projectId, workspaceId, path, machineId),
 };
 
-async function fileToBase64(file: File): Promise<string> {
-  return arrayBufferToBase64(await file.arrayBuffer());
-}
-
-async function uploadLocalWorkspaceFile(projectId: string, workspaceId: string, path: string, file: File): Promise<ReturnType<typeof parseWorkspaceUploadResponse>> {
-  const formData = new FormData();
-  formData.set("path", path);
-  formData.set("file", file, file.name);
-  const response = await fetch(withManagementEmbed(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`), {
-    method: "POST",
-    body: formData,
-  });
-  if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(apiErrorMessage(body) ?? response.statusText);
-  }
-  return parseWorkspaceUploadResponse(await response.json());
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function downloadWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId: string): Promise<void> {
-  const response = await fetch(workspaceFileDownloadUrl(projectId, workspaceId, path, { machineId }));
-  if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(apiErrorMessage(body) ?? response.statusText);
-  }
-  const objectUrl = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = downloadFilename(path, response.headers.get("content-disposition"));
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
-}
-
-function downloadFilename(path: string, contentDisposition: string | null): string {
-  const encodedMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/u);
-  const encodedName = encodedMatch?.[1];
-  if (encodedName !== undefined) {
-    try {
-      const decoded = decodeURIComponent(encodedName).trim();
-      if (decoded !== "") return decoded;
-    } catch {
-      // Fall back to the plain filename header or path basename.
-    }
-  }
-  const headerMatch = contentDisposition?.match(/filename="([^"]+)"/u);
-  const headerName = headerMatch?.[1]?.trim();
-  if (headerName !== undefined && headerName !== "") return headerName;
-  return path.split("/").filter((part) => part !== "").at(-1) ?? "download";
-}
-
 export const sessionsApi = {
   sessions: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo)),
   startSession: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions`, parseSessionInfo, { method: "POST", body: JSON.stringify({ cwd }) }),
-  messages: (sessionId: string, options?: { limit?: number; before?: number }, machineId = "local") => request(messageUrl(sessionId, options, machineId), parseMessagePage),
-  status: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/status`, parseSessionStatus),
-  models: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/models`, parseModelSelectionResponse),
-  setModel: (sessionId: string, provider: string, modelId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/model`, parseSessionStatus, { method: "POST", body: JSON.stringify({ provider, modelId }) }),
-  cycleModel: (sessionId: string, direction: "forward" | "backward", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/model/cycle`, parseSessionStatus, { method: "POST", body: JSON.stringify({ direction }) }),
-  thinkingLevels: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/thinking-levels`, parseThinkingLevelsResponse),
-  setThinkingLevel: (sessionId: string, level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/thinking-level`, parseSessionStatus, { method: "POST", body: JSON.stringify({ level }) }),
-  cycleThinkingLevel: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/thinking-level/cycle`, parseSessionStatus, { method: "POST" }),
-  commands: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands`, arrayOf(parseSlashCommand)),
-  prompt: (sessionId: string, input: string | PromptInput, streamingBehavior?: "steer" | "followUp", machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/prompt`, parseAccepted, { method: "POST", body: JSON.stringify(promptRequestBody(input, streamingBehavior)) }),
-  shell: (sessionId: string, text: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/shell`, parseAccepted, { method: "POST", body: JSON.stringify({ text }) }),
-  runCommand: (sessionId: string, text: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands/run`, parseCommandResult, { method: "POST", body: JSON.stringify({ text }) }),
-  respondToCommand: (sessionId: string, requestId: string, value: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/commands/respond`, parseCommandResult, { method: "POST", body: JSON.stringify({ requestId, value }) }),
-  abort: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/abort`, parseAborted, { method: "POST" }),
-  stop: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/stop`, parseStopped, { method: "POST" }),
-  archive: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/archive`, parseArchived, { method: "POST" }),
-  archiveWithDescendants: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/archive-tree`, parseArchived, { method: "POST" }),
-  restore: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/restore`, parseRestored, { method: "POST" }),
-  detachParent: (sessionId: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/${sessionId}/detach-parent`, parseDetached, { method: "POST" }),
+  messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messageUrl(session, options, machineId), parseMessagePage),
+  status: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "status", machineId), parseSessionStatus),
+  models: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "models", machineId), parseModelSelectionResponse),
+  setModel: (session: SessionLookup, provider: string, modelId: string, machineId = "local") => request(sessionUrl(session, "model", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { provider, modelId }) }),
+  cycleModel: (session: SessionLookup, direction: "forward" | "backward", machineId = "local") => request(sessionUrl(session, "model/cycle", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { direction }) }),
+  thinkingLevels: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "thinking-levels", machineId), parseThinkingLevelsResponse),
+  setThinkingLevel: (session: SessionLookup, level: string, machineId = "local") => request(sessionUrl(session, "thinking-level", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { level }) }),
+  cycleThinkingLevel: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "thinking-level/cycle", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session) }),
+  commands: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "commands", machineId), arrayOf(parseSlashCommand)),
+  prompt: (session: SessionLookup, text: string, streamingBehavior?: "steer" | "followUp", machineId = "local", attachments?: PromptAttachment[]) => request(sessionUrl(session, "prompt", machineId), parseAccepted, { method: "POST", body: sessionBody(session, { text, ...(streamingBehavior === undefined ? {} : { streamingBehavior }), ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}) }) }),
+  saveAttachments: (session: SessionLookup, attachments: PromptAttachment[], machineId = "local", folder?: string) => request(sessionUrl(session, "attachments", machineId), parseSavedAttachments, { method: "POST", body: sessionBody(session, { attachments, ...(folder === undefined ? {} : { folder }) }) }),
+  shell: (session: SessionLookup, text: string, machineId = "local") => request(sessionUrl(session, "shell", machineId), parseAccepted, { method: "POST", body: sessionBody(session, { text }) }),
+  runCommand: (session: SessionLookup, text: string, machineId = "local") => request(sessionUrl(session, "commands/run", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { text }) }),
+  respondToCommand: (session: SessionLookup, requestId: string, value: string, machineId = "local") => request(sessionUrl(session, "commands/respond", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { requestId, value }) }),
+  abort: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "abort", machineId), parseAborted, { method: "POST", body: sessionBody(session) }),
+  stop: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "stop", machineId), parseStopped, { method: "POST", body: sessionBody(session) }),
+  archive: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "archive", machineId), parseArchived, { method: "POST", body: sessionBody(session) }),
+  archiveWithDescendants: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "archive-tree", machineId), parseArchived, { method: "POST", body: sessionBody(session) }),
+  restore: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "restore", machineId), parseRestored, { method: "POST", body: sessionBody(session) }),
+  deleteArchived: (session: SessionLookup, machineId = "local") => request(sessionBaseQueryUrl(session, machineId), parseDeleted, { method: "DELETE" }),
+  detachParent: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "detach-parent", machineId), parseDetached, { method: "POST", body: sessionBody(session) }),
+  reloadSession: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "reload", machineId), parseReloaded, { method: "POST", body: sessionBody(session) }),
   authProviders: (options?: { mode?: "login" | "logout"; authType?: "oauth" | "api_key"; machineId?: string }) => {
     const params = new URLSearchParams();
     if (options?.mode !== undefined) params.set("mode", options.mode);
@@ -208,7 +191,7 @@ export const terminalsApi = {
 };
 
 async function getOptionalTerminalCommandRun(runId: string, machineId: string): Promise<TerminalCommandRun | undefined> {
-  const response = await fetch(withManagementEmbed(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`));
+  const response = await fetch(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`);
   if (response.status === 404) return undefined;
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
@@ -235,9 +218,48 @@ function apiErrorMessage(value: unknown): string | undefined {
   return typeof error === "string" ? error : undefined;
 }
 
-function promptRequestBody(input: string | PromptInput, streamingBehavior: "steer" | "followUp" | undefined): PromptInput & { streamingBehavior?: "steer" | "followUp" } {
-  const body = typeof input === "string" ? { text: input } : input;
-  return streamingBehavior === undefined ? body : { ...body, streamingBehavior };
+async function fileToBase64(file: File): Promise<string> {
+  return arrayBufferToBase64(await file.arrayBuffer());
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+async function uploadLocalWorkspaceFile(projectId: string, workspaceId: string, path: string, file: File): Promise<ReturnType<typeof parseWorkspaceUploadResponse>> {
+  const formData = new FormData();
+  formData.set("path", path);
+  formData.set("file", file, file.name);
+  const response = await fetch(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch((): unknown => ({}));
+    throw new Error(apiErrorMessage(body) ?? response.statusText);
+  }
+  return parseWorkspaceUploadResponse(await response.json());
+}
+
+async function downloadWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId: string): Promise<void> {
+  const response = await fetch(workspaceFileDownloadUrl(projectId, workspaceId, path, { machineId }));
+  if (!response.ok) {
+    const body: unknown = await response.json().catch((): unknown => ({}));
+    throw new Error(apiErrorMessage(body) ?? response.statusText);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  const fileName = path.split("/").pop();
+  anchor.download = fileName === undefined || fileName === "" ? "download" : fileName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

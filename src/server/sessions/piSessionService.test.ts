@@ -1,13 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { GlobalSessionEvent, PromptImage, SessionUiEvent } from "../../shared/apiTypes.js";
-import type { ManagementEmbedContext } from "../managementEmbed.js";
+import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { createManagementPermissionSystemPolicy, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
-import { createManagementSandboxToolDefinitions, managementAgentToolNames, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -48,10 +43,15 @@ function sessionRecord(id: string, cwd = "/workspace") {
   return { id, path: `/sessions/${id}.jsonl`, cwd, created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" };
 }
 
+function sessionRef(id: string, cwd = "/workspace") {
+  return { id, cwd };
+}
+
 function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
   const promptCalls: { text: string; options: unknown }[] = [];
+  const bindExtensionCalls: unknown[] = [];
   const listeners: ((event: unknown) => void)[] = [];
-  const calls = { abort: 0, clearQueue: 0, dispose: 0, prompt: promptCalls };
+  const calls = { abort: 0, bindExtensions: bindExtensionCalls, clearQueue: 0, dispose: 0, prompt: promptCalls };
   const session: TestSession = {
     sessionId,
     sessionFile: `/tmp/${sessionId}.jsonl`,
@@ -75,6 +75,10 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
         const index = listeners.indexOf(listener);
         if (index !== -1) listeners.splice(index, 1);
       };
+    },
+    bindExtensions: (bindings: unknown) => {
+      calls.bindExtensions.push(bindings);
+      return Promise.resolve();
     },
     getSessionStats: () => ({ sessionId, totalMessages: 0, userMessages: 0, assistantMessages: 0, toolCalls: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 }),
     getContextUsage: () => undefined,
@@ -127,97 +131,11 @@ function sessionGateway(records: ReturnType<typeof sessionRecord>[]): SessionGat
   return {
     create: () => fakeSessionManager(),
     list: () => Promise.resolve(records),
-    listAll: () => Promise.resolve(records),
     open: () => fakeSessionManager(),
   };
 }
 
-function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {
-  return {
-    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
-    projects: [{ id: "project-1", name: "Project 1" }],
-    tools: { allow: ["read", "write", "edit", "ls", "grep", "find", "python"], deny: ["terminal", "shell", "bash"] },
-    ...patch,
-  };
-}
-
-function modelWithInput(input: ("text" | "image")[]): PiAgentSession["model"] {
-  return {
-    provider: "test",
-    id: "vision",
-    name: "Vision",
-    api: "openai-responses",
-    baseUrl: "https://example.test",
-    reasoning: false,
-    input,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 100_000,
-    maxTokens: 8_192,
-  } satisfies NonNullable<PiAgentSession["model"]>;
-}
-
-function promptImage(patch: Partial<PromptImage> = {}): PromptImage {
-  return { type: "image", data: "abc123", mimeType: "image/png", ...patch };
-}
-
 describe("PiSessionService", () => {
-  it("keeps managed agent tools scoped to files and python without shell tools", () => {
-    const tools = managementAgentToolNames(managementContext());
-
-    expect(tools).toEqual(expect.arrayContaining(["read", "write", "edit", "ls", "grep", "find", "python"]));
-    expect(tools).not.toEqual(expect.arrayContaining(["bash", "shell", "terminal"]));
-  });
-
-  it("generates a default-deny pi-permission-system policy for managed sessions", () => {
-    const policy = createManagementPermissionSystemPolicy(managementContext({
-      tools: { allow: ["read", "python", "bash"], deny: ["python"] },
-    }));
-
-    expect(policy.defaultPolicy).toMatchObject({ tools: "deny", bash: "deny", mcp: "deny", skills: "deny", special: "deny" });
-    expect(policy.tools).toMatchObject({
-      "*": "deny",
-      read: "allow",
-      python: "deny",
-      bash: "deny",
-      "terminal-command-runs": "deny",
-      powershell: "deny",
-      http: "deny",
-    });
-    expect(policy.special.external_directory).toBe("deny");
-  });
-
-  it("writes the pi-permission-system policy under a managed agent policy directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-web-permission-system-"));
-    try {
-      const policyDir = await writeManagementPermissionSystemPolicy(join(root, "agent"), join(root, "project"), managementContext());
-      const raw = await readFile(join(policyDir, "pi-permissions.jsonc"), "utf8");
-      const policy: unknown = JSON.parse(raw);
-
-      expect(policyDir.startsWith(join(root, "agent", "management-embed", "permission-system"))).toBe(true);
-      expect(policy).toMatchObject({ tools: { read: "allow" }, bash: { "*": "deny" } });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects managed file tool access outside the project directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
-    const project = join(root, "project");
-    const outside = join(root, "outside.txt");
-    await mkdir(project);
-    await writeFile(outside, "secret", "utf8");
-    try {
-      const tools = createManagementSandboxToolDefinitions(project, managementContext());
-      const read = tools.find((tool) => tool.name === "read");
-      if (read === undefined) throw new Error("Expected managed read tool");
-
-      const executeRead = read.execute.bind(read);
-      await expect(Promise.resolve(Reflect.apply(executeRead, undefined, ["call-1", { path: outside }, undefined, undefined, undefined]))).rejects.toThrow("outside the managed project sandbox");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
@@ -236,6 +154,7 @@ describe("PiSessionService", () => {
     const session = await service.start("/workspace");
 
     expect(createCalls).toBe(1);
+    expect(fake.calls.bindExtensions).toHaveLength(1);
     expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0 });
     expect(service.activeCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
@@ -243,6 +162,80 @@ describe("PiSessionService", () => {
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
     expect(fake.calls.dispose).toBe(1);
+  });
+
+  it("opens legacy id-only lookups from the default session store gateway", async () => {
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("legacy-session");
+    const open = vi.fn(() => fakeSessionManager());
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: {
+        create: () => fakeSessionManager(),
+        list: () => Promise.resolve([]),
+        listAll: () => Promise.resolve([sessionRecord("legacy-session")]),
+        open,
+      },
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.status("legacy")).resolves.toMatchObject({ sessionId: "legacy-session" });
+    expect(open).toHaveBeenCalledWith("/sessions/legacy-session.jsonl");
+
+    await service.dispose();
+  });
+
+  it("binds extensions again when the SDK runtime replaces the active session", async () => {
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("session-1");
+    const replacement = fakeRuntime("session-2");
+    let rebindSession: ((session: PiAgentSession) => Promise<void>) | undefined;
+    fake.runtime.setRebindSession = (callback) => { rebindSession = callback; };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.start("/workspace");
+    Object.defineProperty(fake.runtime, "session", { configurable: true, value: replacement.session });
+    await rebindSession?.(replacement.session);
+
+    expect(fake.calls.bindExtensions).toHaveLength(1);
+    expect(replacement.calls.bindExtensions).toHaveLength(1);
+    expect(service.activeCount()).toBe(1);
+    expect(await service.status("session-2")).toMatchObject({ sessionId: "session-2" });
+
+    await service.dispose();
+  });
+
+  it("publishes extension errors reported while binding session extensions", async () => {
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("extension-session", {
+      bindExtensions: (bindings) => {
+        bindings.onError?.({ extensionPath: "pi-mcp-adapter", event: "session_start", error: "MCP failed" });
+        return Promise.resolve();
+      },
+    });
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.start("/workspace");
+
+    expect(hub.sessionEvents).toContainEqual({
+      sessionId: "extension-session",
+      event: { type: "session.error", message: "pi-mcp-adapter: MCP failed" },
+    });
+    const extensionErrorActivity = hub.globalEvents.find((event) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
+    expect(extensionErrorActivity).toMatchObject({
+      type: "activity.update",
+      activity: { sessionId: "extension-session", phase: "error", label: "extension error", detail: "pi-mcp-adapter: MCP failed" },
+    });
+
+    await service.dispose();
   });
 
   it("clears stale active activity once a previously active session becomes idle", async () => {
@@ -264,7 +257,7 @@ describe("PiSessionService", () => {
         heartbeatIntervalMs: 1_000,
       });
 
-      await service.status("idle-session");
+      await service.status(sessionRef("idle-session"));
       hub.globalEvents.length = 0;
       listener?.({ type: "agent_start" });
 
@@ -299,7 +292,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.status("completion-session");
+    await service.status(sessionRef("completion-session"));
     hub.globalEvents.length = 0;
     listener?.({ type: "tool_execution_end", toolName: "read", isError: false });
 
@@ -325,7 +318,6 @@ describe("PiSessionService", () => {
           { ...sessionRecord("active"), messageCount: 1, firstMessage: "hello", allMessagesText: "hello" },
           { ...sessionRecord("archived"), messageCount: 2, firstMessage: "bye", allMessagesText: "bye" },
         ]),
-        listAll: () => Promise.resolve([]),
         open: () => fakeSessionManager(),
       },
       heartbeatIntervalMs: 60_000,
@@ -352,7 +344,6 @@ describe("PiSessionService", () => {
       sessionManager: {
         create: () => fakeSessionManager(),
         list: () => Promise.resolve([{ ...sessionRecord("active"), messageCount: 1, firstMessage: "hello", allMessagesText: "hello" }]),
-        listAll: () => Promise.resolve([]),
         open: () => fakeSessionManager(),
       },
       heartbeatIntervalMs: 60_000,
@@ -391,19 +382,113 @@ describe("PiSessionService", () => {
       sessionManager: {
         create: () => fakeSessionManager(),
         list: (cwd) => Promise.resolve(cwd === "/workspace" ? [root, directChild, archivedChild, grandchild] : [otherWorkspaceChild]),
-        listAll: () => Promise.resolve([root, directChild, archivedChild, grandchild, otherWorkspaceChild]),
         open: () => fakeSessionManager(),
       },
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.archiveTree("root")).resolves.toEqual({
+    await expect(service.archiveTree(sessionRef("root"))).resolves.toEqual({
       archived: true,
       sessionIds: ["root", "direct-child", "grandchild"],
       archivedCount: 3,
       skippedAlreadyArchivedCount: 1,
     });
     expect(archivedInputs).toEqual(["root", "direct-child", "grandchild"]);
+
+    await service.dispose();
+  });
+
+  it("permanently deletes archived sessions through the archive store", async () => {
+    const deletedSessionIds: string[] = [];
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      archiveStore: {
+        list: () => Promise.resolve([]),
+        get: (sessionId) => Promise.resolve(sessionId === "archived" || "archived".startsWith(sessionId)
+          ? { sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z", archivePath: "/archive/archived.jsonl" }
+          : undefined),
+        archive: () => { throw new Error("archive should not be called for records that already have archive files"); },
+        restore: () => Promise.resolve(),
+        isArchived: () => Promise.resolve(false),
+        deleteArchived: (sessionId) => {
+          deletedSessionIds.push(sessionId);
+          return Promise.resolve();
+        },
+      },
+      sessionManager: sessionGateway([sessionRecord("active")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.deleteArchived("arch")).resolves.toBeUndefined();
+    await expect(service.deleteArchived("active")).rejects.toThrow("Archived session not found");
+
+    expect(deletedSessionIds).toEqual(["archived"]);
+    await service.dispose();
+  });
+
+  it("reloads a session by closing the active runtime and re-opening it from disk", async () => {
+    const first = fakeRuntime("reload-session");
+    const second = fakeRuntime("reload-session");
+    const runtimes = [first.runtime, second.runtime];
+    let createCalls = 0;
+    const createAgentRuntime: RuntimeCreator = async () => {
+      await Promise.resolve();
+      const runtime = runtimes[createCalls];
+      createCalls += 1;
+      if (runtime === undefined) throw new Error("unexpected runtime creation");
+      return runtime;
+    };
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("reload-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    // Open once so there is an active runtime to reload.
+    await service.status(sessionRef("reload-session"));
+    expect(createCalls).toBe(1);
+
+    await expect(service.reload(sessionRef("reload-session"))).resolves.toBeUndefined();
+
+    // The original runtime was torn down and a fresh one opened from disk.
+    expect(first.calls.abort).toBe(1);
+    expect(first.calls.dispose).toBe(1);
+    expect(createCalls).toBe(2);
+    expect(service.activeCount()).toBe(1);
+
+    await service.dispose();
+  });
+
+  it("refuses to reload a session that has active work in progress", async () => {
+    const fake = fakeRuntime("busy-session", { isStreaming: true });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("busy-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.reload(sessionRef("busy-session"))).rejects.toThrow("Stop current session activity before reloading");
+    expect(fake.calls.abort).toBe(0);
+    expect(fake.calls.dispose).toBe(0);
+
+    await service.dispose();
+  });
+
+  it("refuses to reload an archived session", async () => {
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      archiveStore: {
+        list: () => Promise.resolve([]),
+        get: (sessionId) => Promise.resolve(sessionId === "archived" || "archived".startsWith(sessionId)
+          ? { sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z", archivePath: "/archive/archived.jsonl" }
+          : undefined),
+        archive: () => Promise.resolve({ sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z" }),
+        restore: () => Promise.resolve(),
+        isArchived: () => Promise.resolve(true),
+      },
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.reload(sessionRef("archived"))).rejects.toThrow("Archived sessions are read-only");
 
     await service.dispose();
   });
@@ -421,7 +506,6 @@ describe("PiSessionService", () => {
       sessionManager: {
         create: () => fakeSessionManager(),
         list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([]),
         open: () => fakeSessionManager(),
       },
       workspaceActivity: {
@@ -450,82 +534,9 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.prompt("prompt-session", "Build the thing");
+    await service.prompt(sessionRef("prompt-session"), "Build the thing");
 
     expect(fake.calls.prompt).toEqual([{ text: "Build the thing", options: undefined }]);
-    await service.dispose();
-  });
-
-  it("sends prompt images to image-capable models", async () => {
-    const hub = new CapturingSessionEventHub();
-    const image = promptImage();
-    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text", "image"]) });
-    const service = new PiSessionService(hub, {
-      createAgentRuntime: runtimeCreator(fake.runtime),
-      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
-      heartbeatIntervalMs: 60_000,
-    });
-
-    await service.prompt("prompt-session", "Describe this", undefined, [image]);
-
-    expect(fake.calls.prompt).toEqual([{ text: "Describe this", options: { images: [image] } }]);
-    expect(hub.sessionEvents).toContainEqual({
-      sessionId: "prompt-session",
-      event: { type: "message.append", message: { role: "user", content: [{ type: "text", text: "Describe this" }, image] } },
-    });
-    await service.dispose();
-  });
-
-  it("rejects prompt images when the current model is not image-capable", async () => {
-    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text"]) });
-    const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createAgentRuntime: runtimeCreator(fake.runtime),
-      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
-      heartbeatIntervalMs: 60_000,
-    });
-
-    await expect(service.prompt("prompt-session", "Describe this", undefined, [promptImage()])).rejects.toThrow("当前模型不支持图片输入");
-
-    expect(fake.calls.prompt).toEqual([]);
-    await service.dispose();
-  });
-
-  it("rejects unsupported prompt image mime types", async () => {
-    const fake = fakeRuntime("prompt-session", { model: modelWithInput(["text", "image"]) });
-    const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createAgentRuntime: runtimeCreator(fake.runtime),
-      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
-      heartbeatIntervalMs: 60_000,
-    });
-
-    await expect(service.prompt("prompt-session", "Describe this", undefined, [promptImage({ mimeType: "image/bmp" })])).rejects.toThrow("Unsupported prompt image MIME type");
-
-    expect(fake.calls.prompt).toEqual([]);
-    await service.dispose();
-  });
-
-  it("reopens an active unmanaged session before accepting a managed prompt", async () => {
-    const unsafe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
-    const safe = fakeRuntime("managed-reopen-session", { sessionFile: "/sessions/managed-reopen-session.jsonl" });
-    const options: unknown[] = [];
-    const createAgentRuntime: RuntimeCreator = async (_createRuntime, runtimeOptions) => {
-      await Promise.resolve();
-      options.push(runtimeOptions);
-      return options.length === 1 ? unsafe.runtime : safe.runtime;
-    };
-    const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createAgentRuntime,
-      sessionManager: sessionGateway([sessionRecord("managed-reopen-session")]),
-      heartbeatIntervalMs: 60_000,
-    });
-
-    await service.status("managed-reopen-session");
-    await service.prompt("managed-reopen-session", "continue safely", undefined, undefined, managementContext());
-
-    expect(unsafe.calls.dispose).toBe(1);
-    expect(safe.calls.prompt).toEqual([{ text: "continue safely", options: undefined }]);
-    expect(options).toHaveLength(2);
-    expect(options[1]).toMatchObject({ managementContext: managementContext() });
     await service.dispose();
   });
 
@@ -556,7 +567,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.status("status-session")).resolves.toMatchObject({
+    await expect(service.status(sessionRef("status-session"))).resolves.toMatchObject({
       pendingMessageCount: 2,
       queuedMessages: [{ kind: "steer", text: "adjust this turn" }, { kind: "followUp", text: "then do this" }],
       messageCount: 2,
@@ -576,7 +587,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.prompt("dedupe-session", "already queued", "followUp");
+    await service.prompt(sessionRef("dedupe-session"), "already queued", "followUp");
 
     expect(fake.calls.prompt).toEqual([]);
     await service.dispose();
@@ -591,25 +602,10 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.prompt("queued-session", "Wait for the current turn", "followUp");
+    await service.prompt(sessionRef("queued-session"), "Wait for the current turn", "followUp");
 
     expect(fake.calls.prompt).toEqual([{ text: "Wait for the current turn", options: { streamingBehavior: "followUp" } }]);
     expect(hub.sessionEvents.some(({ event }) => event.type === "message.append")).toBe(false);
-    await service.dispose();
-  });
-
-  it("keeps images on queued follow-up prompts", async () => {
-    const image = promptImage();
-    const fake = fakeRuntime("queued-session", { isStreaming: true, model: modelWithInput(["text", "image"]) });
-    const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createAgentRuntime: runtimeCreator(fake.runtime),
-      sessionManager: sessionGateway([sessionRecord("queued-session")]),
-      heartbeatIntervalMs: 60_000,
-    });
-
-    await service.prompt("queued-session", "Look next", "followUp", [image]);
-
-    expect(fake.calls.prompt).toEqual([{ text: "Look next", options: { streamingBehavior: "followUp", images: [image] } }]);
     await service.dispose();
   });
 
@@ -617,9 +613,9 @@ describe("PiSessionService", () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime("compacting-session", { isCompacting: true });
     let resolveFirstPrompt: (() => void) | undefined;
-    fake.session.prompt = (text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: PromptImage[] }) => {
+    fake.session.prompt = (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => {
       fake.calls.prompt.push({ text, options });
-      if (options?.streamingBehavior === undefined) {
+      if (options === undefined) {
         fake.session.isStreaming = true;
         return new Promise<void>((resolve) => { resolveFirstPrompt = resolve; });
       }
@@ -630,26 +626,24 @@ describe("PiSessionService", () => {
       sessionManager: sessionGateway([sessionRecord("compacting-session")]),
       heartbeatIntervalMs: 60_000,
     });
-    const image = promptImage();
-    fake.session.model = modelWithInput(["text", "image"]);
 
-    await service.prompt("compacting-session", "Start task 1", "followUp", [image]);
-    await service.prompt("compacting-session", "Then task 2", "followUp");
+    await service.prompt(sessionRef("compacting-session"), "Start task 1", "followUp");
+    await service.prompt(sessionRef("compacting-session"), "Then task 2", "followUp");
 
     expect(fake.calls.prompt).toEqual([]);
     expect(hub.sessionEvents.some(({ event }) => event.type === "message.append")).toBe(false);
-    await expect(service.status("compacting-session")).resolves.toMatchObject({
+    await expect(service.status(sessionRef("compacting-session"))).resolves.toMatchObject({
       pendingMessageCount: 2,
-      queuedMessages: [{ kind: "followUp", text: "Start task 1", imageCount: 1 }, { kind: "followUp", text: "Then task 2" }],
+      queuedMessages: [{ kind: "followUp", text: "Start task 1" }, { kind: "followUp", text: "Then task 2" }],
     });
 
     fake.session.isCompacting = false;
     fake.emit({ type: "compaction_end" });
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    expect(fake.calls.prompt).toEqual([{ text: "Start task 1", options: { images: [image] } }]);
+    expect(fake.calls.prompt).toEqual([{ text: "Start task 1", options: undefined }]);
     expect(hub.sessionEvents.some(({ event }) => event.type === "message.append" && JSON.stringify(event.message).includes("Start task 1"))).toBe(true);
-    await expect(service.status("compacting-session")).resolves.toMatchObject({
+    await expect(service.status(sessionRef("compacting-session"))).resolves.toMatchObject({
       pendingMessageCount: 1,
       queuedMessages: [{ kind: "followUp", text: "Then task 2" }],
     });
@@ -658,10 +652,10 @@ describe("PiSessionService", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(fake.calls.prompt).toEqual([
-      { text: "Start task 1", options: { images: [image] } },
+      { text: "Start task 1", options: undefined },
       { text: "Then task 2", options: { streamingBehavior: "followUp" } },
     ]);
-    await expect(service.status("compacting-session")).resolves.toMatchObject({
+    await expect(service.status(sessionRef("compacting-session"))).resolves.toMatchObject({
       pendingMessageCount: 0,
       queuedMessages: [],
     });
@@ -677,8 +671,8 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.status("abort-session");
-    await service.abort("abort-session");
+    await service.status(sessionRef("abort-session"));
+    await service.abort(sessionRef("abort-session"));
 
     expect(fake.calls.clearQueue).toBe(1);
     expect(fake.calls.abort).toBe(1);
@@ -693,20 +687,20 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.prompt("abort-compaction-session", "Do not deliver after abort", "followUp");
-    await expect(service.status("abort-compaction-session")).resolves.toMatchObject({ pendingMessageCount: 1 });
-    await service.abort("abort-compaction-session");
+    await service.prompt(sessionRef("abort-compaction-session"), "Do not deliver after abort", "followUp");
+    await expect(service.status(sessionRef("abort-compaction-session"))).resolves.toMatchObject({ pendingMessageCount: 1 });
+    await service.abort(sessionRef("abort-compaction-session"));
 
     expect(fake.calls.clearQueue).toBe(1);
     expect(fake.calls.prompt).toEqual([]);
-    await expect(service.status("abort-compaction-session")).resolves.toMatchObject({ pendingMessageCount: 0, queuedMessages: [] });
+    await expect(service.status(sessionRef("abort-compaction-session"))).resolves.toMatchObject({ pendingMessageCount: 0, queuedMessages: [] });
     await service.dispose();
   });
 
   it("refreshes auth state and dedupes warnings when logout removes the current model's credentials", async () => {
     const hub = new CapturingSessionEventHub();
     const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
-    const modelRegistry = ModelRegistry.create(authStorage);
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
     const model = modelRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
     const fake = fakeRuntime("auth-session", { model, modelRegistry });
@@ -718,7 +712,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.status("auth-session");
+    await service.status(sessionRef("auth-session"));
     hub.sessionEvents.length = 0;
     hub.globalEvents.length = 0;
 
@@ -747,8 +741,8 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await service.status("stop-session");
-    service.stop("stop-session");
+    await service.status(sessionRef("stop-session"));
+    service.stop(sessionRef("stop-session"));
 
     expect(fake.calls.clearQueue).toBe(1);
     await service.dispose();

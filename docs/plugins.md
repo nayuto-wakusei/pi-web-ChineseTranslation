@@ -136,11 +136,16 @@ When [machine federation](https://pi-web.dev/machines.html) is enabled, PI WEB a
 - actions, workspace panels, and workspace labels only appear while that machine is selected;
 - plugin file and terminal helpers run against that machine;
 - plugin code is loaded best-effort through the current gateway and cached for the browser page lifetime;
-- if the gateway already has an enabled plugin with the same original id, the gateway plugin wins and the remote duplicate stays hidden;
+- if the gateway and remote machine both have an enabled plugin with the same original id, `machineSpecific` metadata decides whether the gateway copy is reused or only the selected machine's copy can appear;
 - remote theme contributions are ignored for now because themes are app-wide;
 - mixed PI WEB versions across federated machines are best-effort and not guaranteed compatible.
 
 Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable a remote machine plugin, open that machine directly or update its config file.
+
+Plugin package metadata may set `machineSpecific: true` when the plugin's meaning is tied to the selected PI WEB machine:
+
+- Omitted or `false`: use the gateway copy when the same plugin id is also present on a remote machine. This is best for portable UI plugins whose helpers already route through the selected machine.
+- `true`: the gateway copy only appears for the local machine. When a remote machine is selected, only that remote machine's copy can appear; if the remote machine does not expose the plugin, the plugin is hidden. This is best for plugins that report machine-local PI WEB status or depend on machine-local plugin code.
 
 For portable plugin assets, prefer URLs relative to the plugin module, for example:
 
@@ -185,7 +190,7 @@ Built-in plugins can be managed from **Settings → Plugins** or with the top-le
 **Plugin id:** `updates`
 **What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance.
 
-Updates is enabled by default. To hide it, disable `updates` in **Settings → Plugins** or set:
+Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab only appears for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → Plugins** or set:
 
 ```json
 {
@@ -286,7 +291,7 @@ A package can expose one or more PI WEB plugin modules. There is exactly one sup
   "piWeb": {
     "plugins": [
       { "id": "review", "module": "dist/review.js" },
-      { "id": "dashboard", "module": "dist/dashboard.js" }
+      { "id": "dashboard", "module": "dist/dashboard.js", "machineSpecific": true }
     ]
   }
 }
@@ -298,6 +303,7 @@ Rules:
 - Each entry must have an explicit `id` and `module`.
 - `id` must match `^[a-z][a-z0-9.-]*$`.
 - `module` must be a safe relative path inside the plugin package root.
+- `machineSpecific` is optional and must be a boolean; omit it for the default portable gateway behavior.
 - Duplicate plugin ids are not auto-renamed; later duplicates are skipped.
 - Legacy shortcuts such as `piWeb.plugin`, string entries in `piWeb.plugins`, `piWeb.id` fallback ids, and no-`package.json` fallbacks are not supported.
 
@@ -312,13 +318,14 @@ The manifest contains each discovered plugin module:
       "id": "my-plugin",
       "module": "/pi-web-plugins/my-plugin/pi-web-plugin.js?v=1234567890",
       "source": "local",
-      "scope": "local"
+      "scope": "local",
+      "machineSpecific": false
     }
   ]
 }
 ```
 
-`source` describes where the plugin came from (`bundled`, `local`, or the Pi package source). `scope` is `bundled`, `local`, `user`, or `project`.
+`source` describes where the plugin came from (`bundled`, `local`, or the Pi package source). `scope` is `bundled`, `local`, `user`, or `project`. `machineSpecific` controls whether the gateway copy is valid for remote machines or only each selected machine's own copy can appear.
 
 A plugin can fetch its own static assets with URLs under:
 
@@ -450,7 +457,7 @@ interface PluginRuntimeContext {
 Notes:
 
 - `state` is a snapshot of current UI state when actions are built.
-- The stable state fields are `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`.
+- The stable state fields are `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`. `state.piWebStatus` describes the currently selected machine's PI WEB runtime, or the gateway/local runtime when the local machine is selected.
 - Other `state` fields may exist at runtime, but they are private PI WEB internals that may graduate into stable helpers, change shape, or disappear.
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
@@ -795,7 +802,7 @@ PI WEB does not provide a plugin cache/invalidation framework. Keep host callbac
 If you are an AI agent building or editing a PI WEB plugin, follow this checklist:
 
 1. Create or update a plugin folder with `package.json` and a JavaScript module such as `pi-web-plugin.js`.
-2. Use the single supported package metadata shape: `piWeb.plugins` array with `{ id, module }` entries.
+2. Use the single supported package metadata shape: `piWeb.plugins` array with `{ id, module, machineSpecific? }` entries.
 3. Default-export `{ apiVersion: 1, name, activate }` from the module.
 4. Return `{ contributions: { actions, workspacePanels, workspaceLabels } }` from `activate()`.
 5. Use ids matching `^[a-z][a-z0-9.-]*$`.

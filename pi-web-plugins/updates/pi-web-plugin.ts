@@ -1,59 +1,20 @@
 import type { TemplateResult } from "lit";
-import type { HtmlTemplateTag, PiWebComponentStatus, PiWebInstallationInfo, PiWebPlugin, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
+import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusResponse, PluginRuntimeState, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
+import { additionalCommands, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor } from "./updatesLogic.js";
 
-function messagesFor(state: PluginRuntimeState | undefined): PiWebStatusMessage[] {
-  return state?.piWebStatus?.messages ?? [];
-}
-
-function statusFor(state: PluginRuntimeState | undefined): PiWebStatusResponse | undefined {
-  return state?.piWebStatus;
-}
-
-function messageCount(state: PluginRuntimeState | undefined): number {
-  return messagesFor(state).length;
-}
-
-function isLocalOrUnknownInstallation(installation: PiWebInstallationInfo | undefined): boolean {
-  return installation === undefined || installation.kind === "local" || installation.kind === "unknown";
-}
-
-function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined): boolean {
-  const status = statusFor(state);
-  if (messageCount(state) > 0) return true;
-  if (status === undefined) return false;
-  return isLocalOrUnknownInstallation(status.components.web.installation)
-    || isLocalOrUnknownInstallation(status.components.sessiond.installation);
-}
-
-function formatVersion(version: string | undefined): string {
-  return version === undefined || version === "" ? "未知" : version;
-}
-
-function installationLabel(installation: PiWebInstallationInfo | undefined): string {
-  if (installation === undefined) return "安装来源未知";
-  if (installation.kind === "pi-package") {
-    const scope = installation.scope === undefined ? "" : ` · ${installation.scope}`;
-    const source = installation.source ?? "Pi 包";
-    return `${source}${scope}`;
-  }
-  if (installation.kind === "npm-global") return "全局 npm 包";
-  if (installation.kind === "local") return "本地检出";
-  return "安装来源未知";
-}
-
-function componentLabel(label: string): string {
-  if (label === "Web") return "Web/UI";
-  if (label === "Session daemon") return "会话守护进程";
-  return label;
-}
-
-function severityLabel(severity: PiWebStatusMessage["severity"]): string {
-  if (severity === "error") return "错误";
-  if (severity === "warning") return "警告";
-  return "信息";
+function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, command: string): void {
+  void terminal.runCommand({
+    title: label,
+    command,
+    open: true,
+    metadata: { "pi.plugin": "updates" },
+  }).catch((error: unknown) => {
+    console.error(`更新插件执行 "${label}" 失败`, error);
+  });
 }
 
 function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus): TemplateResult {
+  const label = component.component === "sessiond" ? "会话守护进程" : component.label;
   const status = !component.available
     ? "不可用"
     : component.stale
@@ -61,7 +22,7 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
       : "当前版本";
   return html`
     <div class="updates-version-row">
-      <strong>${componentLabel(component.label)}</strong>
+      <strong>${label}</strong>
       <span>${status}</span>
       <small>运行中 ${formatVersion(component.runtimeVersion)} · 已安装 ${formatVersion(component.installedVersion)}</small>
       <small>${installationLabel(component.installation)}${component.installation?.path === undefined ? "" : ` · ${component.installation.path}`}</small>
@@ -69,35 +30,48 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
   `;
 }
 
-function renderCommand(html: HtmlTemplateTag, label: string, command: string): TemplateResult {
+function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
+  return html`
+    <span class="updates-command-actions">
+      <button @click=${() => { void navigator.clipboard.writeText(command); }}>复制</button>
+      ${terminal === undefined ? null : html`<button class="primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>运行</button>`}
+    </span>
+  `;
+}
+
+function renderCommand(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <div class="updates-command">
       <span>${label}</span>
       <code>${command}</code>
-      <button @click=${() => { void navigator.clipboard.writeText(command); }}>复制</button>
+      ${renderCommandActions(html, terminal, label, command)}
     </div>
   `;
 }
 
-function renderCommands(html: HtmlTemplateTag, status: PiWebStatusResponse): TemplateResult | undefined {
-  const commands = [
-    ["更新", status.commands.update],
-    ["全部重启", status.commands.restart],
-    ["重启 Web/UI", status.commands.restartWeb],
-    ["重启会话守护进程", status.commands.restartSessiond],
-    ["状态", status.commands.status],
-  ].filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "");
-
-  if (commands.length === 0) return undefined;
+function renderCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, status: PiWebStatusResponse): TemplateResult | undefined {
+  const recommended = recommendedCommand(status);
+  const additional = additionalCommands(status, recommended);
+  if (recommended === undefined && additional.length === 0) return undefined;
   return html`
-    <section>
-      <strong>建议命令</strong>
-      ${commands.map(([label, command]) => renderCommand(html, label, command))}
-    </section>
+    ${recommended === undefined ? null : html`
+      <section class="updates-recommended">
+        <strong>推荐</strong>
+        <p class="muted">运行这一条命令即可将当前安装更新到最新状态。不需要其他操作。</p>
+        ${renderCommand(html, terminal, recommended.label, recommended.command)}
+      </section>
+    `}
+    ${additional.length === 0 ? null : html`
+      <section>
+        <strong>建议命令</strong>
+        ${recommended === undefined ? null : html`<p class="muted">仅在需要更细粒度控制时使用，例如只重启某个服务。</p>`}
+        ${additional.map((entry) => renderCommand(html, terminal, entry.label, entry.command))}
+      </section>
+    `}
   `;
 }
 
-function renderUpdatesPanel(html: HtmlTemplateTag, state: PluginRuntimeState | undefined): TemplateResult {
+function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, state: PluginRuntimeState | undefined): TemplateResult {
   const status = statusFor(state);
   if (status === undefined) {
     return html`
@@ -120,6 +94,11 @@ function renderUpdatesPanel(html: HtmlTemplateTag, state: PluginRuntimeState | u
       .updates-version-row small { grid-column: 1 / -1; color: var(--pi-muted); }
       .updates-command { min-width: 0; display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
       .updates-command code { overflow: auto; border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-bg); padding: 5px 7px; white-space: nowrap; }
+      .updates-command-inline { grid-template-columns: minmax(0, 1fr) auto; }
+      .updates-command-actions { display: inline-flex; gap: 6px; }
+      .updates-command-actions button.primary { border-color: var(--pi-accent-border); color: var(--pi-text-bright); }
+      .updates-recommended { border: 1px solid var(--pi-accent-border); border-radius: 8px; padding: 10px; background: var(--pi-surface); }
+      .updates-recommended > strong { color: var(--pi-text-bright); }
       .updates-meta { display: grid; gap: 2px; color: var(--pi-muted); font-size: 12px; }
       @media (max-width: 520px) {
         .updates-command { grid-template-columns: minmax(0, 1fr) auto; }
@@ -133,7 +112,12 @@ function renderUpdatesPanel(html: HtmlTemplateTag, state: PluginRuntimeState | u
           <article class=${`updates-message ${message.severity}`}>
             <div class="updates-message-title"><strong>${message.title}</strong><span>${severityLabel(message.severity)}</span></div>
             <p>${message.body}</p>
-            ${message.command === undefined ? null : html`<code>${message.command}</code>`}
+            ${message.command === undefined ? null : html`
+              <div class="updates-command updates-command-inline">
+                <code>${message.command}</code>
+                ${renderCommandActions(html, terminal, message.title, message.command)}
+              </div>
+            `}
           </article>
         `)}
       </section>
@@ -144,7 +128,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, state: PluginRuntimeState | u
         ${renderComponent(html, status.components.sessiond)}
       </section>
 
-      ${renderCommands(html, status)}
+      ${renderCommands(html, terminal, status)}
 
       <section class="updates-meta">
         <span>生成时间 ${status.generatedAt}</span>
@@ -154,6 +138,12 @@ function renderUpdatesPanel(html: HtmlTemplateTag, state: PluginRuntimeState | u
       </section>
     </section>
   `;
+}
+
+function severityLabel(severity: string): string {
+  if (severity === "warning") return "警告";
+  if (severity === "error") return "错误";
+  return severity;
 }
 
 const plugin: PiWebPlugin = {
@@ -179,7 +169,7 @@ const plugin: PiWebPlugin = {
             const count = messageCount(context.state);
             return html`测试版${count > 0 ? html` · ${String(count)}` : null}`;
           },
-          render: (context) => renderUpdatesPanel(html, context.state),
+          render: (context) => renderUpdatesPanel(html, context.terminal, context.state),
         },
       ],
     },

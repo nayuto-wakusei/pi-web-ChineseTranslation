@@ -111,6 +111,10 @@ const serviceRefs: Record<ServiceId, ServiceRef> = {
 const productionServiceIds: ServiceId[] = ["sessiond", "web"];
 const startServiceOrder: ServiceId[] = ["sessiond", "web", "uiDev"];
 const stopServiceOrder: ServiceId[] = ["web", "uiDev", "sessiond"];
+// Restart web/UI before sessiond: when `pi-web restart` runs in a pi-web
+// terminal (owned by sessiond), restarting sessiond kills the command, so any
+// services handled after it would never be restarted.
+const restartServiceOrder: ServiceId[] = ["web", "uiDev", "sessiond"];
 
 function platformLabel(): string {
   if (process.platform === "darwin") return "macOS";
@@ -375,6 +379,10 @@ function startOrder(refs: ServiceRef[]): ServiceRef[] {
 
 function stopOrder(refs: ServiceRef[]): ServiceRef[] {
   return orderServiceRefs(refs, stopServiceOrder);
+}
+
+function restartOrder(refs: ServiceRef[]): ServiceRef[] {
+  return orderServiceRefs(refs, restartServiceOrder);
 }
 
 function productionServiceDefinitions(options: InstallOptions, configPath: string, executables: ServiceExecutables): ServiceDefinition[] {
@@ -827,7 +835,7 @@ async function uninstall(): Promise<void> {
 }
 
 function systemdServiceAction(action: "start" | "stop" | "restart", refs: ServiceRef[]): void {
-  const orderedRefs = action === "stop" ? stopOrder(refs) : startOrder(refs);
+  const orderedRefs = action === "stop" ? stopOrder(refs) : action === "restart" ? restartOrder(refs) : startOrder(refs);
   run("systemctl", ["--user", action, ...orderedRefs.map((ref) => ref.systemdName)], { check: true });
 }
 
@@ -838,7 +846,13 @@ function launchdServiceAction(action: "start" | "stop" | "restart", refs: Servic
   }
 
   if (action === "restart") {
-    for (const ref of stopOrder(refs)) launchdBootout(ref);
+    // Restart each service fully (bootout + start) before moving to the next,
+    // so the web/UI services are back up before sessiond is restarted.
+    for (const ref of restartOrder(refs)) {
+      launchdBootout(ref);
+      launchdStart(ref);
+    }
+    return;
   }
 
   for (const ref of startOrder(refs)) launchdStart(ref);

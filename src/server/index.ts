@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { effectivePiWebConfig } from "../config.js";
+import { effectivePiWebConfig, maxUploadBytes } from "../config.js";
 import { buildApp } from "./app.js";
 
-const app = await buildApp();
 const { config } = effectivePiWebConfig();
+const app = await buildApp({ bodyLimit: maxUploadBytes(process.env, config) });
 await app.listen({ port: config.port ?? 8504, host: config.host ?? "127.0.0.1" });

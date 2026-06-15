@@ -180,7 +180,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
       this.openMenuWorkspaceId = undefined;
       return;
     }
-    this.menuStyle = actionMenuPanelStyle(target);
+    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
     this.openMenuWorkspaceId = workspaceId;
   }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../../shared/apiTypes";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
-import { activityApi, filesApi, gitApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { activityApi, filesApi, gitApi, piWebApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./sockets";
 import { workspaceImagePreviewUrl } from "./urls";
 
@@ -15,6 +15,7 @@ const workspace: Workspace = {
   isGitRepo: true,
   isGitWorktree: true,
 };
+const session = { id: "s 1", cwd: workspace.path };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -26,6 +27,7 @@ describe("federated route contract", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await Promise.all([
+      ignoreParseFailure(piWebApi.piWebStatus(machineId)),
       ignoreParseFailure(activityApi.workspaceActivity(machineId)),
       ignoreParseFailure(projectsApi.projects(machineId)),
       ignoreParseFailure(projectsApi.addProject("/repo", "Repo", false, machineId)),
@@ -47,25 +49,26 @@ describe("federated route contract", () => {
       ignoreParseFailure(gitApi.gitDiff("p 1", "w 1", { path: "README.md", staged: true }, machineId)),
       ignoreParseFailure(sessionsApi.sessions("/repo", machineId)),
       ignoreParseFailure(sessionsApi.startSession("/repo", machineId)),
-      ignoreParseFailure(sessionsApi.messages("s 1", { limit: 20, before: 10 }, machineId)),
-      ignoreParseFailure(sessionsApi.status("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.models("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.setModel("s 1", "openai", "gpt", machineId)),
-      ignoreParseFailure(sessionsApi.cycleModel("s 1", "forward", machineId)),
-      ignoreParseFailure(sessionsApi.thinkingLevels("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.setThinkingLevel("s 1", "medium", machineId)),
-      ignoreParseFailure(sessionsApi.cycleThinkingLevel("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.commands("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.prompt("s 1", "hello", "followUp", machineId)),
-      ignoreParseFailure(sessionsApi.shell("s 1", "ls", machineId)),
-      ignoreParseFailure(sessionsApi.runCommand("s 1", "/help", machineId)),
-      ignoreParseFailure(sessionsApi.respondToCommand("s 1", "req 1", "yes", machineId)),
-      ignoreParseFailure(sessionsApi.abort("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.stop("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.archive("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.archiveWithDescendants("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.restore("s 1", machineId)),
-      ignoreParseFailure(sessionsApi.detachParent("s 1", machineId)),
+      ignoreParseFailure(sessionsApi.messages(session, { limit: 20, before: 10 }, machineId)),
+      ignoreParseFailure(sessionsApi.status(session, machineId)),
+      ignoreParseFailure(sessionsApi.models(session, machineId)),
+      ignoreParseFailure(sessionsApi.setModel(session, "openai", "gpt", machineId)),
+      ignoreParseFailure(sessionsApi.cycleModel(session, "forward", machineId)),
+      ignoreParseFailure(sessionsApi.thinkingLevels(session, machineId)),
+      ignoreParseFailure(sessionsApi.setThinkingLevel(session, "medium", machineId)),
+      ignoreParseFailure(sessionsApi.cycleThinkingLevel(session, machineId)),
+      ignoreParseFailure(sessionsApi.commands(session, machineId)),
+      ignoreParseFailure(sessionsApi.prompt(session, "hello", "followUp", machineId)),
+      ignoreParseFailure(sessionsApi.shell(session, "ls", machineId)),
+      ignoreParseFailure(sessionsApi.runCommand(session, "/help", machineId)),
+      ignoreParseFailure(sessionsApi.respondToCommand(session, "req 1", "yes", machineId)),
+      ignoreParseFailure(sessionsApi.abort(session, machineId)),
+      ignoreParseFailure(sessionsApi.stop(session, machineId)),
+      ignoreParseFailure(sessionsApi.archive(session, machineId)),
+      ignoreParseFailure(sessionsApi.archiveWithDescendants(session, machineId)),
+      ignoreParseFailure(sessionsApi.restore(session, machineId)),
+      ignoreParseFailure(sessionsApi.deleteArchived(session, machineId)),
+      ignoreParseFailure(sessionsApi.detachParent(session, machineId)),
       ignoreParseFailure(sessionsApi.authProviders({ mode: "login", authType: "oauth", machineId })),
       ignoreParseFailure(sessionsApi.saveApiKey("openai", "key", machineId)),
       ignoreParseFailure(sessionsApi.logoutProvider("openai", machineId)),
@@ -102,7 +105,7 @@ describe("federated route contract", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal("location", { protocol: "https:", host: "pi.example.test" });
 
-    sessionEvents("s 1", machineId);
+    sessionEvents(session, machineId);
     globalSessionEvents(machineId);
     realtimeEvents(machineId);
     terminalSocket("p 1", "w 1", "t 1", { cols: 120, rows: 40 }, machineId);

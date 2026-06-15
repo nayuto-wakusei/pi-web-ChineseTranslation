@@ -1,4 +1,5 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, Machine, MachineHealth, MachineKind, MachineStatus, MessagePage, ModelSelectionResponse, OAuthFlowState, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, Project, QueuedSessionMessage, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevel, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, Machine, MachineHealth, MachineKind, MachineRuntime, MachineStatus, MessagePage, ModelSelectionResponse, OAuthFlowState, PiWebCapability, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, Project, QueuedSessionMessage, SavedPromptAttachment, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
+import { isPiWebCapability } from "../../../shared/capabilities";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -95,6 +96,21 @@ export function parseMachineHealth(value: unknown): MachineHealth {
   };
 }
 
+export function parseMachineRuntime(value: unknown): MachineRuntime {
+  const record = requireRecord(value);
+  const error = optionalString(record, "error");
+  return {
+    machineId: requireString(record, "machineId"),
+    ok: requireBoolean(record, "ok"),
+    checkedAt: requireString(record, "checkedAt"),
+    ...optionalField("packageName", optionalString(record, "packageName")),
+    ...optionalField("generatedAt", optionalString(record, "generatedAt")),
+    ...(record["components"] === undefined ? {} : { components: parsePiWebRuntimeComponents(record["components"]) }),
+    ...(record["capabilities"] === undefined ? {} : { capabilities: parsePiWebCapabilities(record["capabilities"]) }),
+    ...(error === undefined ? {} : { error }),
+  };
+}
+
 function requireMachineKind(record: Record<string, unknown>, key: string): MachineKind {
   const value = requireString(record, key);
   if (value !== "local" && value !== "remote") throw new Error(`Expected machine kind field: ${key}`);
@@ -126,6 +142,22 @@ export function parseWorkspace(value: unknown): Workspace {
     isGitRepo: requireBoolean(record, "isGitRepo"),
     isGitWorktree: requireBoolean(record, "isGitWorktree"),
   };
+}
+
+export function parseWorkspaceUploadResponse(value: unknown): WorkspaceUploadResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt") };
+}
+
+export function parseWorkspacePathOperationResponse(value: unknown): WorkspacePathOperationResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path") };
+}
+
+export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteResponse {
+  const record = requireRecord(value);
+  if (record["deleted"] !== true) throw new Error("Expected deleted response");
+  return { deleted: true, path: requireString(record, "path") };
 }
 
 export function parseSessionInfo(value: unknown): SessionInfo {
@@ -189,10 +221,15 @@ function parseSessionModel(value: unknown): SessionModel {
   return { ...optionalField("provider", optionalString(record, "provider")), ...optionalField("id", optionalString(record, "id")), ...optionalField("name", optionalString(record, "name")), ...optionalField("contextWindow", optionalNumber(record, "contextWindow")), ...optionalField("reasoning", record["reasoning"]), ...optionalField("input", optionalModelInput(record["input"])) };
 }
 
-function optionalModelInput(value: unknown): SessionModel["input"] | undefined {
+function optionalModelInput(value: unknown): ("text" | "image")[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value)) throw new Error("Expected model input array");
-  return value.filter((item): item is "text" | "image" => item === "text" || item === "image");
+  if (!Array.isArray(value)) throw new Error("Invalid model input");
+  return value.map(parseModelInputKind);
+}
+
+function parseModelInputKind(value: unknown): "text" | "image" {
+  if (value === "text" || value === "image") return value;
+  throw new Error("Invalid model input");
 }
 
 function optionalModel(value: unknown): Pick<SessionStatus, "model"> | object {
@@ -205,8 +242,10 @@ export function parseModelSelectionResponse(value: unknown): ModelSelectionRespo
   return { models: arrayOf(parseSessionModel)(record["models"]) };
 }
 
-function parseThinkingLevel(value: unknown): ThinkingLevel {
-  if (value !== "off" && value !== "minimal" && value !== "low" && value !== "medium" && value !== "high" && value !== "xhigh") throw new Error("Invalid thinking level");
+function parseThinkingLevel(value: unknown): string {
+  // pi owns the level set; accept any string so a newer pi runtime reporting an
+  // unknown level degrades gracefully instead of failing the whole response.
+  if (typeof value !== "string") throw new Error("Invalid thinking level");
   return value;
 }
 
@@ -322,22 +361,6 @@ export function parseFileContentResponse(value: unknown): FileContentResponse {
   const encoding = requireString(record, "encoding");
   if (encoding !== "utf8") throw new Error("Invalid file encoding");
   return { path: requireString(record, "path"), ...optionalField("language", optionalString(record, "language")), ...optionalField("mediaType", optionalFileMediaType(record["mediaType"])), ...optionalField("mimeType", optionalString(record, "mimeType")), encoding, size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt"), content: requireString(record, "content"), truncated: requireBoolean(record, "truncated"), binary: requireBoolean(record, "binary") };
-}
-
-export function parseWorkspaceUploadResponse(value: unknown): WorkspaceUploadResponse {
-  const record = requireRecord(value);
-  return { path: requireString(record, "path"), size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt") };
-}
-
-export function parseWorkspacePathOperationResponse(value: unknown): WorkspacePathOperationResponse {
-  const record = requireRecord(value);
-  return { path: requireString(record, "path") };
-}
-
-export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteResponse {
-  const record = requireRecord(value);
-  if (record["deleted"] !== true) throw new Error("Expected deleted response");
-  return { deleted: true, path: requireString(record, "path") };
 }
 
 function optionalFileMediaType(value: unknown): FileContentResponse["mediaType"] | undefined {
@@ -498,12 +521,19 @@ function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
     module: requireString(record, "module"),
     source: requireString(record, "source"),
     scope: parsePiWebPluginScope(record["scope"]),
+    machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,
     enabled: requireBoolean(record, "enabled"),
   };
 }
 
 function parsePiWebPluginScope(value: unknown): PiWebPluginScope {
   if (value !== "bundled" && value !== "local" && value !== "user" && value !== "project") throw new Error("Invalid PI WEB plugin scope");
+  return value;
+}
+
+function parseOptionalBoolean(value: unknown, key: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
   return value;
 }
 
@@ -519,9 +549,36 @@ export function parsePiWebStatusResponse(value: unknown): PiWebStatusResponse {
   };
 }
 
+export function parsePiWebRuntimeResponse(value: unknown): PiWebRuntimeResponse {
+  const record = requireRecord(value);
+  return {
+    packageName: requireString(record, "packageName"),
+    generatedAt: requireString(record, "generatedAt"),
+    components: parsePiWebRuntimeComponents(record["components"]),
+    capabilities: parsePiWebCapabilities(record["capabilities"]),
+  };
+}
+
 function parsePiWebComponents(value: unknown): PiWebStatusResponse["components"] {
   const record = requireRecord(value);
   return { web: parsePiWebComponentStatus(record["web"]), sessiond: parsePiWebComponentStatus(record["sessiond"]) };
+}
+
+function parsePiWebRuntimeComponents(value: unknown): PiWebRuntimeResponse["components"] {
+  const record = requireRecord(value);
+  return { web: parsePiWebRuntimeComponent(record["web"]), sessiond: parsePiWebRuntimeComponent(record["sessiond"]) };
+}
+
+function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
+  const record = requireRecord(value);
+  return {
+    component: parsePiWebServiceComponent(record["component"]),
+    label: requireString(record, "label"),
+    ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
+    available: requireBoolean(record, "available"),
+    capabilities: parsePiWebCapabilities(record["capabilities"]),
+    ...optionalField("error", optionalString(record, "error")),
+  };
 }
 
 function parsePiWebComponentStatus(value: unknown): PiWebComponentStatus {
@@ -593,6 +650,11 @@ function parsePiWebServiceComponent(value: unknown): PiWebServiceComponent {
   return value;
 }
 
+function parsePiWebCapabilities(value: unknown): PiWebCapability[] {
+  if (!Array.isArray(value) || !value.every(isPiWebCapability)) throw new Error("Invalid PI WEB capabilities");
+  return value;
+}
+
 function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
   if (value !== "info" && value !== "warning" && value !== "error") throw new Error("Invalid PI WEB status severity");
   return value;
@@ -620,6 +682,16 @@ export function parseAccepted(value: unknown): { accepted: true } {
   const record = requireRecord(value);
   if (record["accepted"] !== true) throw new Error("Expected accepted response");
   return { accepted: true };
+}
+
+export function parseSavedAttachments(value: unknown): SavedPromptAttachment[] {
+  const record = requireRecord(value);
+  return arrayOf(parseSavedAttachment)(record["attachments"]);
+}
+
+function parseSavedAttachment(value: unknown): SavedPromptAttachment {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), mimeType: requireString(record, "mimeType"), size: requireNumber(record, "size") };
 }
 
 export function parseClosed(value: unknown): { closed: true } {
@@ -660,10 +732,22 @@ export function parseRestored(value: unknown): { restored: true } {
   return { restored: true };
 }
 
+export function parseDeleted(value: unknown): { deleted: true } {
+  const record = requireRecord(value);
+  if (record["deleted"] !== true) throw new Error("Expected deleted response");
+  return { deleted: true };
+}
+
 export function parseDetached(value: unknown): { detached: true } {
   const record = requireRecord(value);
   if (record["detached"] !== true) throw new Error("Expected detached response");
   return { detached: true };
+}
+
+export function parseReloaded(value: unknown): { reloaded: true } {
+  const record = requireRecord(value);
+  if (record["reloaded"] !== true) throw new Error("Expected reloaded response");
+  return { reloaded: true };
 }
 
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {

@@ -3,10 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Install PI WEB</title>
-    <meta name="description" content="Complete installation guide for PI WEB on Linux, macOS, and Windows WSL." />
-    <meta property="og:title" content="Install PI WEB" />
-    <meta property="og:image" content="assets/pi-web-banner.png" />
+    <title>Install PI WEB — web UI for Pi Coding Agent</title>
+    <meta
+      name="description"
+      content="Install PI WEB, the web UI for Pi Coding Agent, on Linux, macOS, or Windows WSL with persistent user services."
+    />
+    <link rel="canonical" href="https://pi-web.dev/install.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="Install PI WEB — web UI for Pi Coding Agent" />
+    <meta
+      property="og:description"
+      content="Install PI WEB with npm, Pi, or manual service commands and keep Pi Coding Agent sessions running."
+    />
+    <meta property="og:url" content="https://pi-web.dev/install.html" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Install PI WEB — web UI for Pi Coding Agent" />
+    <meta
+      name="twitter:description"
+      content="Install PI WEB with npm, Pi, or manual service commands and keep Pi Coding Agent sessions running."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <script>
       (() => {
@@ -264,6 +283,8 @@
                 <li><code>PI_WEB_HOST</code>: web server bind host. Overrides the config file. Use <code>127.0.0.1</code> for local/tunnel-only access, or a specific VPN/private-network IP for trusted remote access.</li>
                 <li><code>PI_WEB_DATA_DIR</code>: data directory, default <code>~/.pi-web</code>.</li>
                 <li><code>PI_WEB_SESSIOND_SOCKET</code>: Unix socket path for daemon communication.</li>
+                <li><code>PI_CODING_AGENT_SESSION_DIR</code>: Pi session storage directory. PI WEB follows Pi's priority for sessions: this environment variable, then <code>sessionDir</code> in Pi settings for the selected workspace, then Pi's default session directory.</li>
+                <li><code>PI_CODING_AGENT_DIR</code>: Pi agent config directory for auth, settings, resources, and default session storage.</li>
               </ul>
             </section>
 

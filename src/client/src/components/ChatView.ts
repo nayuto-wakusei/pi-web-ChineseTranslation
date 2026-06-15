@@ -75,6 +75,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
   @property({ type: Boolean }) isReceivingPartialStream = false;
+  @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
   @property({ attribute: false }) status?: SessionStatus;
@@ -218,13 +219,22 @@ export class ChatView extends LitElement {
   }
 
   private isSessionLive(): boolean {
-    return this.status?.isStreaming === true
+    return this.isSendingPrompt
+      || this.status?.isStreaming === true
       || this.status?.isCompacting === true
       || this.status?.isBashRunning === true
       || this.activity?.phase === "active";
   }
 
   private renderActivityDock() {
+    if (this.isSendingPrompt) {
+      return html`
+        <div class="activity-dock active" aria-live="polite">
+          <span class="dot"></span>
+          <span class="activity-text">Sending your message…</span>
+        </div>
+      `;
+    }
     const state = this.activityState();
     if (state === undefined) return null;
     const active = state !== "idle" || this.activity?.phase === "active";

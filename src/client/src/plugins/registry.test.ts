@@ -1,23 +1,14 @@
 import { html } from "lit";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FileContentResponse, SessionInfo, Workspace } from "../api";
+import { describe, expect, it, vi } from "vitest";
+import type { FileContentResponse, SessionInfo, SessionStatus, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
+import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { corePlugin } from "./core";
 import { PluginRegistry } from "./registry";
 import { themePackPlugin } from "./themes";
 import type { PluginRuntimeContext, ThemeTokens, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "./types";
-
-const originalWindow = globalThis.window;
-
-afterEach(() => {
-  Object.defineProperty(globalThis, "window", { value: originalWindow, configurable: true });
-});
-
-function installWindowSearch(search: string): void {
-  Object.defineProperty(globalThis, "window", { value: { location: { search } }, configurable: true });
-}
 
 function createContext(statePatch: Partial<AppState> = {}) {
   const calls: string[] = [];
@@ -52,6 +43,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
     deleteWorkspace: vi.fn(() => { calls.push("deleteWorkspace"); }),
     startSession: vi.fn(() => { calls.push("startSession"); }),
     archiveSession: vi.fn(() => { calls.push("archiveSession"); }),
+    reloadSession: vi.fn(() => { calls.push("reloadSession"); }),
     deleteCachedNewSession: vi.fn(() => { calls.push("deleteCachedNewSession"); }),
     stopActiveWork: vi.fn(() => { calls.push("stopActiveWork"); }),
   };
@@ -90,19 +82,6 @@ describe("PluginRegistry", () => {
     });
 
     expect(registry.getWorkspacePanels()[0]?.icon).toBeDefined();
-  });
-
-  it("exposes Chinese display labels for the core plugin", () => {
-    const registry = new PluginRegistry();
-    registry.register({ id: "core", plugin: corePlugin });
-
-    expect(corePlugin.name).toBe("PI WEB 核心");
-    expect(registry.getWorkspacePanels().map((panel) => panel.title)).toEqual(["文件", "Git", "终端"]);
-
-    const actions = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
-    expect(actions.find((action) => action.id === "core:actions.show")).toMatchObject({ title: "显示操作", group: "通用" });
-    expect(actions.find((action) => action.id === "core:workspace.refresh-files")).toMatchObject({ title: "刷新文件", group: "工作区" });
-    expect(actions.find((action) => action.id === "core:session.start")).toMatchObject({ title: "启动会话", group: "会话" });
   });
 
   it("rejects duplicate ids within the same namespace", () => {
@@ -172,6 +151,35 @@ describe("PluginRegistry", () => {
     expect(archivedActions.find((action) => action.id === "core:session.delete")?.enabled).toBe(false);
   });
 
+  it("enables session reload only for a writable session on a capable, idle runtime", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const reloadRuntime = { local: { machineId: "local", ok: true as const, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsReload] } };
+
+    const reloadable = registry.getActions(createContext({ selectedSession: testSession(), machineRuntimes: reloadRuntime }).context);
+    expect(reloadable.find((action) => action.id === "core:session.reload")?.enabled).toBe(true);
+
+    const noCapability = registry.getActions(createContext({ selectedSession: testSession() }).context);
+    expect(noCapability.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
+
+    const archived = registry.getActions(createContext({ selectedSession: { ...testSession(), archived: true, archivedAt: "2026-05-20T00:00:00.000Z" }, machineRuntimes: reloadRuntime }).context);
+    expect(archived.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
+
+    const busy = registry.getActions(createContext({ selectedSession: testSession(), machineRuntimes: reloadRuntime, status: testStatus({ isStreaming: true }) }).context);
+    expect(busy.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
+  });
+
+  it("routes session reload through the runtime context", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const { context, calls } = createContext({ selectedSession: testSession(), machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsReload] } } });
+    const action = registry.getActions(context).find((candidate) => candidate.id === "core:session.reload");
+
+    if (action !== undefined) void action.run();
+
+    expect(calls).toEqual(["reloadSession"]);
+  });
+
   it("routes browser-cached new session delete through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });
@@ -197,31 +205,6 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["refreshGit"]);
   });
 
-  it("renders a directory selection without showing a file loading state", () => {
-    const registry = new PluginRegistry();
-    registry.register({ id: "core", plugin: corePlugin });
-    const panel = registry.getWorkspacePanels().find((candidate) => candidate.id === "core:workspace.files");
-    const template = panel?.render(createWorkspacePanelContext("local", {
-      selectedFilePath: "src",
-      fileTree: [{ name: "src", path: "src", type: "directory" }],
-    }));
-    const markup = template === undefined ? "" : templateText(template);
-
-    expect(markup).toContain("已选择目录");
-    expect(markup).not.toContain("正在加载");
-  });
-
-  it("disables file uploads for remote machines", () => {
-    const registry = new PluginRegistry();
-    registry.register({ id: "core", plugin: corePlugin });
-    const panel = registry.getWorkspacePanels().find((candidate) => candidate.id === "core:workspace.files");
-    const template = panel?.render(createWorkspacePanelContext("remote-a"));
-    const markup = template === undefined ? "" : templateText(template);
-
-    expect(markup).toContain("远端机器暂不支持上传");
-    expect(markup).toContain("file-upload-button disabled");
-  });
-
   it("routes app reload and settings actions through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });
@@ -245,17 +228,6 @@ describe("PluginRegistry", () => {
     if (action !== undefined) void action.run();
 
     expect(calls).toEqual(["selectMainView:core:workspace.terminal"]);
-  });
-
-  it("omits terminal core plugin contributions in management embed mode", () => {
-    installWindowSearch("?embed=management");
-    const registry = new PluginRegistry();
-    registry.register({ id: "core", plugin: corePlugin });
-    const actions = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
-
-    expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual(["core:workspace.files", "core:workspace.git"]);
-    expect(actions.some((action) => action.id === "core:view.terminal")).toBe(false);
-    expect(actions.some((action) => action.shortcut === "mod+4")).toBe(false);
   });
 
   it("keeps built-in keyboard shortcuts unique and action-backed", () => {
@@ -286,13 +258,13 @@ describe("PluginRegistry", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "themes", plugin: themePackPlugin });
 
-    expect(registry.getThemes().map((theme) => ({ id: theme.id, name: theme.name, description: theme.description, colorScheme: theme.colorScheme }))).toEqual([
-      { id: "themes:pi-web-dark", name: "PI WEB 深色", description: "PI WEB 深色配色。", colorScheme: "dark" },
-      { id: "themes:pi-web-light", name: "PI WEB 浅色", description: "PI WEB 浅色配色。", colorScheme: "light" },
-      { id: "themes:classic", name: "PI WEB 经典", description: "原始 PI WEB 深色配色。", colorScheme: "dark" },
+    expect(registry.getThemes().map((theme) => ({ id: theme.id, colorScheme: theme.colorScheme }))).toEqual([
+      { id: "themes:pi-web-dark", colorScheme: "dark" },
+      { id: "themes:pi-web-light", colorScheme: "light" },
+      { id: "themes:classic", colorScheme: "dark" },
     ]);
-    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, name: pair.name, description: pair.description, light: pair.light, dark: pair.dark }))).toEqual([
-      { id: "themes:pi-web", name: "PI WEB", description: "跟随系统浅色/深色偏好使用 PI WEB 主题。", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
+    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, light: pair.light, dark: pair.dark }))).toEqual([
+      { id: "themes:pi-web", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
     ]);
   });
 
@@ -465,6 +437,91 @@ describe("PluginRegistry", () => {
     expect(panels.find((panel) => panel.id === `${remotePluginId}:workspace.remote`)?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(false);
     expect(panels.find((panel) => panel.id === "shared-tools:workspace.gateway")?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(true);
     expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("remote-1", workspace))).toEqual([{ type: "text", text: "gateway" }]);
+    expect(registry.shouldLoadRemotePlugin("shared-tools")).toBe(false);
+    expect(registry.shouldLoadRemotePlugin("shared-tools", true)).toBe(true);
+  });
+
+  it("uses machine-specific remote duplicates instead of the gateway plugin for that machine", () => {
+    const registry = new PluginRegistry();
+    const workspace = testWorkspace();
+    const remotePluginId = machineScopedPluginId("remote-1", "updates");
+    registry.register({
+      id: "updates",
+      machineSpecific: true,
+      plugin: {
+        apiVersion: 1,
+        name: "Gateway Updates",
+        activate: () => ({
+          contributions: {
+            actions: [{ id: "open", title: "Open Gateway Updates", run: () => undefined }],
+            workspacePanels: [{ id: "workspace.updates", title: "Gateway Updates", render: () => html`<p>Gateway</p>` }],
+            workspaceLabels: [{ id: "label", items: () => [{ type: "text", text: "gateway" }] }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getActions(createContext().context).map((action) => action.id)).toContain("updates:open");
+    expect(registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id)).not.toContain("updates:open");
+    expect(registry.shouldLoadRemotePlugin("updates")).toBe(true);
+
+    registry.register({
+      id: remotePluginId,
+      machineId: "remote-1",
+      sourcePluginId: "updates",
+      plugin: {
+        apiVersion: 1,
+        name: "Remote Updates",
+        activate: () => ({
+          contributions: {
+            actions: [{ id: "open", title: "Open Remote Updates", run: () => undefined }],
+            workspacePanels: [{ id: "workspace.updates", title: "Remote Updates", render: () => html`<p>Remote</p>` }],
+            workspaceLabels: [{ id: "label", items: () => [{ type: "text", text: "remote" }] }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getActions(createContext().context).map((action) => action.id)).toContain("updates:open");
+    expect(registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id)).toEqual([`${remotePluginId}:open`]);
+
+    const panels = registry.getWorkspacePanels();
+    expect(panels.find((panel) => panel.id === "updates:workspace.updates")?.visible?.(createWorkspacePanelContext("local"))).toBe(true);
+    expect(panels.find((panel) => panel.id === "updates:workspace.updates")?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(false);
+    expect(panels.find((panel) => panel.id === `${remotePluginId}:workspace.updates`)?.visible?.(createWorkspacePanelContext("remote-1"))).toBe(true);
+
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("local", workspace))).toEqual([{ type: "text", text: "gateway" }]);
+    expect(registry.getWorkspaceLabelItems(createWorkspaceLabelContext("remote-1", workspace))).toEqual([{ type: "text", text: "remote" }]);
+  });
+
+  it("allows a machine-specific remote duplicate to override a portable gateway plugin for that machine", () => {
+    const registry = new PluginRegistry();
+    const remotePluginId = machineScopedPluginId("remote-1", "status-tools");
+    registry.register({
+      id: "status-tools",
+      plugin: {
+        apiVersion: 1,
+        name: "Gateway Status Tools",
+        activate: () => ({ contributions: { actions: [{ id: "open", title: "Open Gateway Status", run: () => undefined }] } }),
+      },
+    });
+
+    expect(registry.shouldLoadRemotePlugin("status-tools")).toBe(false);
+    expect(registry.shouldLoadRemotePlugin("status-tools", true)).toBe(true);
+    registry.register({
+      id: remotePluginId,
+      machineId: "remote-1",
+      sourcePluginId: "status-tools",
+      machineSpecific: true,
+      plugin: {
+        apiVersion: 1,
+        name: "Remote Status Tools",
+        activate: () => ({ contributions: { actions: [{ id: "open", title: "Open Remote Status", run: () => undefined }] } }),
+      },
+    });
+
+    expect(registry.getActions(createContext().context).map((action) => action.id)).toEqual(["status-tools:open"]);
+    expect(registry.getActions(createContext({ selectedMachine: testMachine("remote-1") }).context).map((action) => action.id)).toEqual([`${remotePluginId}:open`]);
   });
 
   it("does not activate remote duplicates when the gateway plugin is already registered", () => {
@@ -499,7 +556,7 @@ function createWorkspaceLabelContext(machineId: string, workspace = testWorkspac
   };
 }
 
-function createWorkspacePanelContext(machineId: string, patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
+function createWorkspacePanelContext(machineId: string): WorkspacePanelContext {
   const workspace = testWorkspace();
   return {
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
@@ -534,7 +591,6 @@ function createWorkspacePanelContext(machineId: string, patch: Partial<Workspace
     onRefreshGit: vi.fn(),
     onSelectDiff: vi.fn(),
     onSelectTerminal: vi.fn(),
-    ...patch,
   };
 }
 
@@ -547,6 +603,20 @@ function testFileContent(path = "README.md"): FileContentResponse {
     content: "",
     truncated: false,
     binary: false,
+  };
+}
+
+function testStatus(patch: Partial<SessionStatus> = {}): SessionStatus {
+  return {
+    sessionId: "s1",
+    isStreaming: false,
+    isCompacting: false,
+    isBashRunning: false,
+    pendingMessageCount: 0,
+    queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+    ...patch,
   };
 }
 
@@ -605,23 +675,4 @@ function testThemeTokens(): ThemeTokens {
     "--pi-success-bg-overlay": "#000000",
     "--pi-terminal-selection": "#000000",
   };
-}
-
-function templateText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map((entry) => templateText(entry)).join("");
-  if (typeof value !== "object" || value === null) return "";
-  if (!("strings" in value) || !("values" in value)) return "";
-  const stringsValue = Reflect.get(value, "strings");
-  const valuesValue = Reflect.get(value, "values");
-  if (!Array.isArray(stringsValue) || !Array.isArray(valuesValue)) return "";
-  const strings: unknown[] = stringsValue;
-  const values: unknown[] = valuesValue;
-  let output = "";
-  for (let index = 0; index < strings.length; index++) {
-    const chunk = strings[index];
-    if (typeof chunk === "string") output += chunk;
-    if (index < values.length) output += templateText(values[index]);
-  }
-  return output;
 }

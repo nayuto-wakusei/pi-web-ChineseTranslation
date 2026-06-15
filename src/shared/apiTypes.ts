@@ -1,6 +1,14 @@
 export type MachineKind = "local" | "remote";
 export type MachineStatus = "unknown" | "online" | "offline" | "error";
 
+export const PI_WEB_CAPABILITIES = {
+  sessionsDeleteArchived: "sessions.deleteArchived",
+  sessionsReload: "sessions.reload",
+  promptAttachments: "prompt.attachments",
+} as const;
+
+export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
+
 export interface Machine {
   id: string;
   name: string;
@@ -22,6 +30,17 @@ export interface MachineHealth {
   error?: string;
 }
 
+export interface MachineRuntime {
+  machineId: string;
+  ok: boolean;
+  checkedAt: string;
+  packageName?: string;
+  generatedAt?: string;
+  components?: PiWebRuntimeResponse["components"];
+  capabilities?: PiWebCapability[];
+  error?: string;
+}
+
 export type PiWebShortcutConfig = Record<string, string | null>;
 export type PiWebPluginSettings = Record<string, unknown>;
 export type PiWebPluginConfigMap = Record<string, PiWebPluginConfig>;
@@ -39,6 +58,8 @@ export interface PiWebConfigValues {
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
   managementEmbed?: PiWebManagementEmbedConfig;
+  /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
+  maxUploadBytes?: number;
 }
 
 export interface PiWebManagementEmbedConfig {
@@ -67,6 +88,7 @@ export interface PiWebPluginInfo {
   module: string;
   source: string;
   scope: PiWebPluginScope;
+  machineSpecific: boolean;
   enabled: boolean;
 }
 
@@ -106,10 +128,13 @@ export interface Workspace {
   isGitWorktree: boolean;
 }
 
-export interface SessionInfo {
+export interface SessionRef {
   id: string;
-  path: string;
   cwd: string;
+}
+
+export interface SessionInfo extends SessionRef {
+  path: string;
   name?: string;
   created: string;
   modified: string;
@@ -152,6 +177,37 @@ export interface PromptInput {
   images?: PromptImage[];
 }
 
+/**
+ * A binary attachment carried with a prompt. The wire format mirrors pi's own
+ * `ImageContent` shape (`{ type: "image", data, mimeType }`) so attachments are
+ * fully compatible with the underlying pi coding agent.
+ */
+export interface PromptAttachment {
+  /** Kind of attachment. Only images are supported by pi today. */
+  kind: "image";
+  /** IANA mime type (for example "image/png"). */
+  mimeType: string;
+  /** Base64-encoded binary payload (no data: URL prefix). */
+  data: string;
+  /** Optional original filename, used for previews and folder-mode filenames. */
+  name?: string;
+}
+
+/**
+ * How prompt attachments should be delivered to the session.
+ * - "inline": send the binary to pi as native image content (multimodal input).
+ * - "folder": save the file into the workspace and reference it from the prompt
+ *   text so the agent reads it with its own tools.
+ */
+export type PromptAttachmentDelivery = "inline" | "folder";
+
+export interface SavedPromptAttachment {
+  /** Workspace-relative path the attachment was written to. */
+  path: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface SessionModel {
   provider?: string;
   id?: string;
@@ -161,7 +217,10 @@ export interface SessionModel {
   input?: ("text" | "image")[];
 }
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+// Domain type is owned by pi and re-exported from the shared thinking-levels
+// module. Wire/data fields below intentionally use `string` so an unknown level
+// from a newer pi runtime parses and renders gracefully instead of failing.
+export type { ThinkingLevel } from "./thinkingLevels.js";
 
 export type AuthType = "oauth" | "api_key";
 export type AuthStatusSource = "stored" | "runtime" | "environment" | "fallback" | "models_json_key" | "models_json_command";
@@ -200,7 +259,7 @@ export interface ModelSelectionResponse {
 }
 
 export interface ThinkingLevelsResponse {
-  levels: ThinkingLevel[];
+  levels: string[];
 }
 
 export interface SessionStatus {
@@ -385,6 +444,15 @@ export interface PiWebComponentStatus {
   error?: string;
 }
 
+export interface PiWebRuntimeComponent {
+  component: PiWebServiceComponent;
+  label: string;
+  runtimeVersion?: string;
+  available: boolean;
+  capabilities: PiWebCapability[];
+  error?: string;
+}
+
 export interface PiWebReleaseStatus {
   packageName: string;
   latestVersion?: string;
@@ -409,6 +477,16 @@ export interface PiWebVersionResponse {
     web: PiWebComponentStatus;
     sessiond: PiWebComponentStatus;
   };
+}
+
+export interface PiWebRuntimeResponse {
+  packageName: string;
+  generatedAt: string;
+  components: {
+    web: PiWebRuntimeComponent;
+    sessiond: PiWebRuntimeComponent;
+  };
+  capabilities: PiWebCapability[];
 }
 
 export interface PiWebStatusResponse extends PiWebVersionResponse {

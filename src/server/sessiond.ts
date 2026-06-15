@@ -13,9 +13,11 @@ import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
 import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
-import { getPiWebComponentStatus } from "./piWebStatus.js";
+import { getPiWebRuntimeComponent } from "./piWebStatus.js";
+import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
+import { maxUploadBytes } from "../config.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: maxUploadBytes() });
 await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();
@@ -29,12 +31,23 @@ registerAuthRoutes(app, auth);
 registerSessionRoutes(app, sessions, eventHub);
 registerTerminalRoutes(app, terminals);
 
-app.get("/health", async () => ({
-  ok: true,
-  activeSessions: sessions.activeCount(),
-  checkedAt: new Date().toISOString(),
-  version: await getPiWebComponentStatus("sessiond"),
-}));
+app.get("/health", () => {
+  const runtime = getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES);
+  return {
+    ok: true,
+    activeSessions: sessions.activeCount(),
+    checkedAt: new Date().toISOString(),
+    version: {
+      component: runtime.component,
+      label: runtime.label,
+      ...(runtime.runtimeVersion === undefined ? {} : { runtimeVersion: runtime.runtimeVersion }),
+      stale: false,
+      available: runtime.available,
+    },
+  };
+});
+
+app.get("/runtime", () => getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES));
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {

@@ -18,6 +18,7 @@ export interface PiWebPluginManifestEntry {
   module: string;
   source: string;
   scope: PiWebPluginScope;
+  machineSpecific: boolean;
 }
 
 export interface ConfiguredPiPackage {
@@ -38,6 +39,7 @@ interface PluginRecord {
   version: string;
   source: string;
   scope: PiWebPluginScope;
+  machineSpecific: boolean;
 }
 
 interface PiWebPluginServiceOptions {
@@ -61,6 +63,7 @@ interface PiWebPackageConfig {
 interface PiWebPluginEntry {
   id: string;
   module: string;
+  machineSpecific: boolean;
 }
 
 type ArraylessPluginRecord = Omit<PluginRecord, "source" | "scope">;
@@ -102,7 +105,7 @@ export class PiWebPluginService {
     return {
       plugins: (await this.plugins()).plugins
         .filter((plugin) => plugin.enabled)
-        .map((plugin) => ({ id: plugin.id, module: plugin.module, source: plugin.source, scope: plugin.scope })),
+        .map((plugin) => ({ id: plugin.id, module: plugin.module, source: plugin.source, scope: plugin.scope, machineSpecific: plugin.machineSpecific })),
     };
   }
 
@@ -135,6 +138,7 @@ export class PiWebPluginService {
       module: `/pi-web-plugins/${encodeURIComponent(plugin.id)}/${plugin.entryFile}?v=${encodeURIComponent(plugin.version)}`,
       source: plugin.source,
       scope: plugin.scope,
+      machineSpecific: plugin.machineSpecific,
       enabled: config.plugins?.[plugin.id]?.enabled !== false,
     };
   }
@@ -228,7 +232,7 @@ async function discoverPluginEntries(root: string, config: PiWebPackageConfig): 
     const entryPath = join(root, entry.module);
     const entryStat = await stat(entryPath).catch(() => undefined);
     if (entryStat?.isFile() !== true) throw new Error(`PI WEB plugin module not found for ${entry.id}: ${entry.module}`);
-    plugins.push({ id: entry.id, root, entryFile: entry.module, version: String(Math.floor(entryStat.mtimeMs)) });
+    plugins.push({ id: entry.id, root, entryFile: entry.module, version: String(Math.floor(entryStat.mtimeMs)), machineSpecific: entry.machineSpecific });
   }
   return plugins;
 }
@@ -248,7 +252,7 @@ async function readPiWebPackageConfig(root: string): Promise<PiWebPackageConfig 
 }
 
 function parsePluginEntries(piWeb: Record<string, unknown>, packagePath: string): PiWebPluginEntry[] {
-  if (piWeb["plugin"] !== undefined) throw new Error(`Unsupported PI WEB plugin metadata in ${packagePath}: use piWeb.plugins with { id, module } entries`);
+  if (piWeb["plugin"] !== undefined) throw new Error(`Unsupported PI WEB plugin metadata in ${packagePath}: use piWeb.plugins with { id, module, machineSpecific? } entries`);
   const plugins = piWeb["plugins"];
   if (plugins === undefined) return [];
   if (!Array.isArray(plugins)) throw new Error(`PI WEB plugins must be an array in ${packagePath}`);
@@ -259,8 +263,24 @@ function parsePluginEntries(piWeb: Record<string, unknown>, packagePath: string)
     const module = entry["module"];
     if (typeof id !== "string" || !isPiWebPluginId(id)) throw new Error(`Invalid PI WEB plugin id in ${packagePath}: ${String(id)}`);
     if (typeof module !== "string" || module === "") throw new Error(`Invalid PI WEB plugin module for ${id} in ${packagePath}`);
-    return { id, module };
+    return { id, module, machineSpecific: parseMachineSpecific(entry["machineSpecific"], packagePath, id) };
   });
+}
+
+function parseMachineSpecific(value: unknown, packagePath: string, pluginId: string): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new Error(`Invalid PI WEB plugin machineSpecific value for ${pluginId} in ${packagePath}: ${formatUnknownValue(value)}`);
+  return value;
+}
+
+function formatUnknownValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint" || typeof value === "symbol" || typeof value === "function" || value === null || value === undefined) return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
 }
 
 function addUnique(records: Map<string, PluginRecord>, plugin: PluginRecord): void {

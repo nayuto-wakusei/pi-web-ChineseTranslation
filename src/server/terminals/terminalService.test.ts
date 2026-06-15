@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { TerminalService } from "./terminalService";
 
-const terminalIt = process.platform === "win32" ? it.skip : it;
-
-describe("TerminalService command runs", () => {
-  terminalIt("closes all terminal records for a cwd", () => {
+// TerminalService spawns a POSIX shell (/bin/bash with -lc and commands like
+// printf/true/exit). The terminal feature is not supported on native Windows,
+// so these tests are skipped there rather than asserting Unix shell behavior.
+describe.skipIf(process.platform === "win32")("TerminalService command runs", () => {
+  it("closes all terminal records for a cwd", () => {
     const service = new TerminalService();
     try {
       const terminal = service.create({ cwd: process.cwd() });
@@ -18,7 +19,7 @@ describe("TerminalService command runs", () => {
     }
   });
 
-  terminalIt("tracks dedicated terminal command runs through completion", async () => {
+  it("tracks dedicated terminal command runs through completion", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({
@@ -46,7 +47,7 @@ describe("TerminalService command runs", () => {
     }
   });
 
-  terminalIt("continues an exited command-run terminal as an interactive shell", async () => {
+  it("continues an exited command-run terminal as an interactive shell", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({
@@ -70,7 +71,7 @@ describe("TerminalService command runs", () => {
     }
   });
 
-  terminalIt("marks failed command runs when the command exits non-zero", async () => {
+  it("marks failed command runs when the command exits non-zero", async () => {
     const service = new TerminalService();
     try {
       const run = service.runCommand({

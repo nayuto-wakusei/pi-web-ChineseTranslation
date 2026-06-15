@@ -1,5 +1,6 @@
-import type { Machine, MachineHealth, PiWebComponentStatus, PiWebStatusResponse } from "../../shared/apiTypes.js";
-import { getPiWebStatus } from "../piWebStatus.js";
+import type { Machine, MachineHealth, MachineRuntime, PiWebComponentStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebStatusResponse } from "../../shared/apiTypes.js";
+import { isPiWebCapability } from "../../shared/capabilities.js";
+import { getPiWebRuntime } from "../piWebStatus.js";
 import { DEFAULT_REMOTE_HEALTH_TIMEOUT_MS, RemoteMachineClient, type MachineClient, validateConfiguredMachineHeaders } from "./machineClient.js";
 import { MachineStore, type StoredMachine } from "./machineStore.js";
 
@@ -13,10 +14,11 @@ export interface CreateMachineInput {
 export type UpdateMachineInput = Partial<CreateMachineInput>;
 
 export interface MachineServiceDependencies {
-  localStatus?: () => Promise<PiWebStatusResponse>;
+  localRuntime?: () => Promise<PiWebRuntimeResponse>;
   remoteClientFactory?: (machine: StoredMachine) => MachineClient;
   now?: () => Date;
   healthCacheTtlMs?: number;
+  runtimeCacheTtlMs?: number;
 }
 
 const LOCAL_MACHINE_TIMESTAMP = "1970-01-01T00:00:00.000Z";
@@ -24,6 +26,7 @@ const DEFAULT_HEALTH_CACHE_TTL_MS = 5_000;
 
 export class MachineService {
   private readonly healthCache = new Map<string, { expiresAt: number; health: MachineHealth }>();
+  private readonly runtimeCache = new Map<string, { expiresAt: number; runtime: MachineRuntime }>();
 
   constructor(private readonly store = new MachineStore(), private readonly deps: MachineServiceDependencies = {}) {}
 
@@ -52,14 +55,20 @@ export class MachineService {
     if (input.token !== undefined) patch.token = input.token;
     if (input.headers !== undefined) patch.headers = validateHeaders(input.headers);
     const stored = await this.store.update(id, patch);
-    if (stored !== undefined) this.healthCache.delete(id);
+    if (stored !== undefined) {
+      this.healthCache.delete(id);
+      this.runtimeCache.delete(id);
+    }
     return stored === undefined ? undefined : publicMachine(stored);
   }
 
   async remove(id: string): Promise<boolean> {
     if (id === "local") throw new Error("Local machine cannot be deleted");
     const removed = await this.store.remove(id);
-    if (removed) this.healthCache.delete(id);
+    if (removed) {
+      this.healthCache.delete(id);
+      this.runtimeCache.delete(id);
+    }
     return removed;
   }
 
@@ -84,11 +93,29 @@ export class MachineService {
     return health;
   }
 
+  async runtime(id: string): Promise<MachineRuntime | undefined> {
+    const cached = this.runtimeCache.get(id);
+    const now = this.now().getTime();
+    if (cached !== undefined && cached.expiresAt > now) return cached.runtime;
+
+    const runtime = id === "local" ? await this.localRuntime() : await this.remoteRuntime(id);
+    if (runtime === undefined) return undefined;
+    this.runtimeCache.set(id, { expiresAt: now + (this.deps.runtimeCacheTtlMs ?? DEFAULT_HEALTH_CACHE_TTL_MS), runtime });
+    return runtime;
+  }
+
   private async localHealth(): Promise<MachineHealth> {
     const checkedAt = this.now().toISOString();
     try {
-      const status = await (this.deps.localStatus ?? getPiWebStatus)();
-      return { machineId: "local", ok: true, checkedAt, status: "online", web: status.components.web, sessiond: status.components.sessiond };
+      const runtime = await (this.deps.localRuntime ?? getPiWebRuntime)();
+      return {
+        machineId: "local",
+        ok: true,
+        checkedAt,
+        status: "online",
+        web: componentStatusFromRuntime(runtime.components.web),
+        sessiond: componentStatusFromRuntime(runtime.components.sessiond),
+      };
     } catch (error) {
       return { machineId: "local", ok: false, checkedAt, status: "error", error: errorMessage(error) };
     }
@@ -106,6 +133,28 @@ export class MachineService {
       return { machineId: id, ok: false, checkedAt, status: "error", error: `Remote health returned HTTP ${String(response.statusCode)}` };
     } catch (error) {
       return { machineId: id, ok: false, checkedAt, status: "offline", error: errorMessage(error) };
+    }
+  }
+
+  private async localRuntime(): Promise<MachineRuntime> {
+    const checkedAt = this.now().toISOString();
+    try {
+      return machineRuntime("local", checkedAt, await (this.deps.localRuntime ?? getPiWebRuntime)());
+    } catch (error) {
+      return { machineId: "local", ok: false, checkedAt, error: errorMessage(error) };
+    }
+  }
+
+  private async remoteRuntime(id: string): Promise<MachineRuntime | undefined> {
+    const machine = await this.storedRemote(id);
+    if (machine === undefined) return undefined;
+    const checkedAt = this.now().toISOString();
+    try {
+      const response = await this.clientFor(machine).requestJson("GET", "/api/pi-web/runtime", undefined, { timeoutMs: DEFAULT_REMOTE_HEALTH_TIMEOUT_MS });
+      if (response.statusCode >= 200 && response.statusCode < 300 && isPiWebRuntimeResponse(response.body)) return machineRuntime(id, checkedAt, response.body);
+      return { machineId: id, ok: false, checkedAt, error: `Remote runtime returned HTTP ${String(response.statusCode)}` };
+    } catch (error) {
+      return { machineId: id, ok: false, checkedAt, error: errorMessage(error) };
     }
   }
 
@@ -162,11 +211,44 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function componentStatusFromRuntime(runtime: PiWebRuntimeComponent): PiWebComponentStatus {
+  return {
+    component: runtime.component,
+    label: runtime.label,
+    ...(runtime.runtimeVersion === undefined ? {} : { runtimeVersion: runtime.runtimeVersion }),
+    stale: false,
+    available: runtime.available,
+    ...(runtime.error === undefined ? {} : { error: runtime.error }),
+  };
+}
+
+function machineRuntime(machineId: string, checkedAt: string, runtime: PiWebRuntimeResponse): MachineRuntime {
+  return {
+    machineId,
+    ok: true,
+    checkedAt,
+    packageName: runtime.packageName,
+    generatedAt: runtime.generatedAt,
+    components: runtime.components,
+    capabilities: runtime.capabilities,
+  };
+}
+
 function isPiWebStatusResponse(value: unknown): value is PiWebStatusResponse {
   if (!isRecord(value)) return false;
   const components = value["components"];
   if (!isRecord(components)) return false;
   return isPiWebComponentStatus(components["web"]) && isPiWebComponentStatus(components["sessiond"]);
+}
+
+function isPiWebRuntimeResponse(value: unknown): value is PiWebRuntimeResponse {
+  if (!isRecord(value)) return false;
+  const packageName = value["packageName"];
+  const generatedAt = value["generatedAt"];
+  const components = value["components"];
+  const capabilities = value["capabilities"];
+  if (typeof packageName !== "string" || typeof generatedAt !== "string" || !isRecord(components) || !isPiWebCapabilityArray(capabilities)) return false;
+  return isPiWebRuntimeComponent(components["web"]) && isPiWebRuntimeComponent(components["sessiond"]);
 }
 
 function isPiWebComponentStatus(value: unknown): value is PiWebComponentStatus {
@@ -176,6 +258,19 @@ function isPiWebComponentStatus(value: unknown): value is PiWebComponentStatus {
     && typeof value["label"] === "string"
     && typeof value["stale"] === "boolean"
     && typeof value["available"] === "boolean";
+}
+
+function isPiWebRuntimeComponent(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const component = value["component"];
+  return (component === "web" || component === "sessiond")
+    && typeof value["label"] === "string"
+    && typeof value["available"] === "boolean"
+    && isPiWebCapabilityArray(value["capabilities"]);
+}
+
+function isPiWebCapabilityArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every(isPiWebCapability);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

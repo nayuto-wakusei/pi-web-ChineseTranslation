@@ -1,4 +1,4 @@
-import type { AuthProviderOption, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, OAuthFlowState, PiWebStatusResponse, Project, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./components/shared";
 import type { QualifiedContributionId } from "./plugins/ids";
 
@@ -7,6 +7,7 @@ export interface AppState {
   selectedMachine: Machine | undefined;
   isLoadingMachines: boolean;
   machineStatuses: Record<string, MachineHealth>;
+  machineRuntimes: Record<string, MachineRuntime>;
   projects: Project[];
   workspaces: Workspace[];
   sessions: SessionInfo[];
@@ -16,6 +17,8 @@ export interface AppState {
   messagePageTotal: number;
   isLoadingEarlierMessages: boolean;
   isReceivingPartialStream: boolean;
+  /** Sessions with a prompt upload in flight, keyed by sessionId (client-owned). */
+  sendingPrompts: Record<string, true>;
   isLoadingProjects: boolean;
   isLoadingWorkspaces: boolean;
   selectedProject: Project | undefined;
@@ -23,6 +26,8 @@ export interface AppState {
   selectedSession: SessionInfo | undefined;
   status: SessionStatus | undefined;
   activity: SessionActivity | undefined;
+  /** Thinking levels available for the selected session's current model. */
+  availableThinkingLevels: readonly string[];
   sessionStatuses: Record<string, SessionStatus>;
   sessionActivities: Record<string, SessionActivity>;
   workspaceActivities: Record<string, WorkspaceActivity>;
@@ -102,6 +107,7 @@ export function initialAppState(): AppState {
     selectedMachine: undefined,
     isLoadingMachines: false,
     machineStatuses: {},
+    machineRuntimes: {},
     projects: [],
     workspaces: [],
     sessions: [],
@@ -111,6 +117,7 @@ export function initialAppState(): AppState {
     messagePageTotal: 0,
     isLoadingEarlierMessages: false,
     isReceivingPartialStream: false,
+    sendingPrompts: {},
     isLoadingProjects: false,
     isLoadingWorkspaces: false,
     selectedProject: undefined,
@@ -118,6 +125,7 @@ export function initialAppState(): AppState {
     selectedSession: undefined,
     status: undefined,
     activity: undefined,
+    availableThinkingLevels: [],
     sessionStatuses: {},
     sessionActivities: {},
     workspaceActivities: {},

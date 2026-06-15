@@ -35,17 +35,6 @@ export function promptInputFromDraft(draft: string, images: readonly PromptImage
   return { text: text === "" ? DEFAULT_IMAGE_PROMPT_TEXT : text, images: [...images] };
 }
 
-export function promptImageDataUrl(image: PromptImage): string {
-  return `data:${image.mimeType};base64,${image.data}`;
-}
-
-export function formatImageSizeFromBase64(data: string): string {
-  const bytes = Math.floor((data.length * 3) / 4);
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-  if (bytes >= 1024) return `${String(Math.max(1, Math.round(bytes / 1024)))} KiB`;
-  return `${String(bytes)} B`;
-}
-
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;

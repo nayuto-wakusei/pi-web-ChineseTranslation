@@ -1,6 +1,6 @@
 import { html, type TemplateResult } from "lit";
 
-export type ActivityIndicatorKind = "session" | "terminal";
+export type ActivityIndicatorKind = "session" | "terminal" | "sending";
 
 export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "活跃"): TemplateResult | undefined {
   if (kind === undefined) return undefined;

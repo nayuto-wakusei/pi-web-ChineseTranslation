@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MachineService } from "./machineService.js";
 import { MachineStore, machineStorePath } from "./machineStore.js";
 
@@ -67,6 +67,34 @@ describe("MachineService", () => {
   it("rejects configured machine headers that would override proxy transport semantics", async () => {
     await expect(service.add({ name: "Bad", baseUrl: "https://example.test", headers: { Authorization: "Bearer secret" } })).rejects.toThrow("not allowed");
     await expect(service.add({ name: "Bad", baseUrl: "https://example.test", headers: { Connection: "close" } })).rejects.toThrow("not allowed");
+  });
+
+  it("uses the lightweight runtime check for local machine health", async () => {
+    const localRuntime = vi.fn(() => Promise.resolve({
+      packageName: "@jmfederico/pi-web",
+      generatedAt: "2026-05-25T00:00:00.000Z",
+      components: {
+        web: { component: "web" as const, label: "Web/UI", runtimeVersion: "1.0.0", available: true, capabilities: [] },
+        sessiond: { component: "sessiond" as const, label: "Session daemon", runtimeVersion: "1.0.0", available: true, capabilities: [] },
+      },
+      capabilities: [],
+    }));
+    const healthService = new MachineService(new MachineStore(storePath), {
+      localRuntime,
+      now: () => new Date("2026-05-25T00:00:00.000Z"),
+    });
+
+    const health = await healthService.health("local");
+
+    expect(localRuntime).toHaveBeenCalledTimes(1);
+    expect(health).toEqual({
+      machineId: "local",
+      ok: true,
+      checkedAt: "2026-05-25T00:00:00.000Z",
+      status: "online",
+      web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", stale: false, available: true },
+      sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", stale: false, available: true },
+    });
   });
 
   it("does not allow local machine mutation", async () => {

@@ -10,6 +10,7 @@ import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
+import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
@@ -19,7 +20,8 @@ import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { registerConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
-import { getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
+import { createPiWebStatusCache } from "./piWebStatusCache.js";
+import { getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
@@ -43,6 +45,8 @@ export interface AppDependencies {
   managementEmbed?: ManagementEmbedRuntime;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
+  /** Maximum accepted HTTP request body size in bytes. */
+  bodyLimit?: number;
 }
 
 function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
@@ -104,7 +108,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string,
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      const cwd = context === undefined ? request.query.cwd : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
+      const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
       if (request.query.mode === "path") return await listPathSuggestions(cwd, request.query.q ?? "");
       return await listFileSuggestions(cwd, request.query.q ?? "", { kind: request.query.kind, scope: request.query.scope });
     } catch (error) {
@@ -114,15 +118,20 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string,
 }
 
 export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger ?? true });
+  const app = Fastify({ logger: deps.logger ?? true, ...(deps.bodyLimit === undefined ? {} : { bodyLimit: deps.bodyLimit }) });
   await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 1 } });
   await app.register(fastifyWebsocket);
 
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const workspaces = deps.workspaces ?? new WorkspaceService();
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService();
-  const machines = deps.machines ?? new MachineService();
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
+  const piWebStatusCache = createPiWebStatusCache(() => getPiWebStatus(sessionDaemon), {
+    onError: (error) => { app.log.warn({ err: error }, "failed to refresh PI WEB status cache"); },
+  });
+  const machines = deps.machines ?? new MachineService(undefined, {
+    localRuntime: () => getPiWebRuntime(sessionDaemon),
+  });
   const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
 
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
@@ -135,8 +144,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     return reply.type(asset.contentType).send(asset.content);
   });
 
-  app.get("/api/pi-web/status", async () => getPiWebStatus());
-  app.get("/api/pi-web/version", async () => getPiWebVersionStatus());
+  app.get("/api/pi-web/status", async () => piWebStatusCache.get());
+  app.get("/api/pi-web/version", async () => getPiWebVersionStatus(sessionDaemon));
+  app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
   app.get("/api/plugins", async () => piWebPlugins.plugins());
   registerConfigRoutes(app, deps.config);
 

@@ -72,6 +72,12 @@ export class OAuthLoginFlowService {
         if (!this.isCurrentRunning(record)) return;
         this.updateState(record, { ...record.state, auth: info });
       },
+      // Device-code flows have no redirect URL; reuse the auth field so the web UI
+      // shows the verification link and user code without a dedicated API shape.
+      onDeviceCode: (info) => {
+        if (!this.isCurrentRunning(record)) return;
+        this.updateState(record, { ...record.state, auth: { url: info.verificationUri, instructions: `Enter code: ${info.userCode}` } });
+      },
       onPrompt: (prompt) => this.waitForPrompt(record, prompt, "prompt"),
       onManualCodeInput: () => this.waitForPrompt(record, { message: "Paste the callback URL or authorization code", allowEmpty: false }, "manual"),
       onSelect: (prompt) => this.waitForSelect(record, prompt),

@@ -14,6 +14,7 @@ export interface PiWebPluginRegistration {
   plugin: PiWebPlugin;
   machineId?: string;
   sourcePluginId?: PluginId;
+  machineSpecific?: boolean;
 }
 
 export interface PiWebPlugin {
@@ -51,13 +52,9 @@ export interface WorkspaceFiles {
   readFile(path: string): Promise<FileContentResponse>;
 }
 
-export type WorkspacePanelFiles = WorkspaceFiles;
-
 export interface WorkspaceHost {
   requestRender(): void;
 }
-
-export type WorkspacePanelHost = WorkspaceHost;
 
 export interface WorkspaceContext {
   machine: PluginMachine;
@@ -109,6 +106,7 @@ export interface PluginRuntimeContext {
   deleteWorkspace: (workspace?: Workspace) => void | Promise<void>;
   startSession: () => void | Promise<void>;
   archiveSession: () => void | Promise<void>;
+  reloadSession: () => void | Promise<void>;
   deleteCachedNewSession: () => void | Promise<void>;
   stopActiveWork: () => void | Promise<void>;
 }

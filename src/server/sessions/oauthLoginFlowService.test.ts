@@ -45,9 +45,7 @@ describe("OAuthLoginFlowService", () => {
       providerId: "test-provider",
       providerName: "Test Provider",
       authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
-        const select = callbacks.onSelect;
-        if (select === undefined) throw new Error("Expected select callback");
-        selectedValue = await select({
+        selectedValue = await callbacks.onSelect({
           message: "Choose account",
           options: [{ id: "work", label: "Work" }, { id: "personal", label: "Personal" }],
         });

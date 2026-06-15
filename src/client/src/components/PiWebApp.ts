@@ -1,9 +1,10 @@
 import { LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, piWebApi, terminalsApi, workspacesApi, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type PromptInput, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type ThinkingLevel, type Workspace } from "../api";
+import { configApi, piWebApi, terminalsApi, workspacesApi, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
+import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { ActivityController } from "../controllers/activityController";
 import { AuthController } from "../controllers/authController";
 import { FileExplorerController } from "../controllers/fileExplorerController";
@@ -63,6 +64,8 @@ import { appStyles } from "./shared";
 
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
+const PI_WEB_STATUS_DEFER_MS = 750;
+const REMOTE_ROUTE_RESTORE_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000, 30_000] as const;
 const GLOBAL_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
 const THEME_AUTO_ON_VALUE = "auto:on";
 const THEME_AUTO_OFF_VALUE = "auto:off";
@@ -143,6 +146,7 @@ export class PiWebApp extends LitElement {
   private readonly systemLightThemeMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(prefers-color-scheme: light)") : undefined;
   private terminalAutoStartWorkspaceId: string | undefined;
   private piWebStatusTimer: number | undefined;
+  private piWebStatusDeferredTimer: number | undefined;
   private workspaceDeletionPollTimer: number | undefined;
   private refreshingWorkspaceDeletionRuns = false;
   private readonly handledWorkspaceDeletionRunIds = new Set<string>();
@@ -151,6 +155,10 @@ export class PiWebApp extends LitElement {
   private routeRestoreSeq = 0;
   private routeRestoreDepth = 0;
   private restoringRouteTerminalId: string | undefined;
+  private pendingRemoteRouteRestore: AppRoute | undefined;
+  private remoteRouteRestoreTimer: number | undefined;
+  private remoteRouteRestoreAttempt = 0;
+  private remoteRouteRestoreInProgress = false;
   private readonly plugins = createPluginRegistry();
   private readonly loadedMachinePluginIds = new Set<string>();
   private readonly machinePluginLoadPromises = new Map<string, Promise<void>>();
@@ -166,21 +174,24 @@ export class PiWebApp extends LitElement {
   });
   private readonly onPageShow = () => {
     this.appShell.repairViewportPosition();
+    this.retryPendingRemoteRouteRestoreSoon();
   };
   private readonly onFocus = () => {
     this.appShell.repairViewportPosition();
     void this.sessions.refreshSelectedSession();
-    void this.refreshPiWebStatus();
+    this.schedulePiWebStatusRefresh();
     void this.refreshMachineActivities();
     void this.refreshWorkspaceDeletionRuns();
+    this.retryPendingRemoteRouteRestoreSoon();
   };
   private readonly onVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       this.appShell.repairViewportPosition();
       void this.sessions.refreshSelectedSession();
-      void this.refreshPiWebStatus();
+      this.schedulePiWebStatusRefresh();
       void this.refreshMachineActivities();
       void this.refreshWorkspaceDeletionRuns();
+      this.retryPendingRemoteRouteRestoreSoon();
     }
   };
   private readonly onSystemLightThemeChange = () => {
@@ -212,12 +223,11 @@ export class PiWebApp extends LitElement {
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
     this.connectRealtime();
-    this.piWebStatusTimer = window.setInterval(() => { void this.refreshPiWebStatus(); }, PI_WEB_STATUS_REFRESH_MS);
-    void this.refreshPiWebStatus();
+    this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
     void this.refreshWorkspaceActivity();
     void this.loadClientConfig();
     void this.ensureGatewayPluginsLoaded();
-    void this.loadProjectsAndRestoreRoute();
+    void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
   }
 
   override disconnectedCallback(): void {
@@ -235,8 +245,10 @@ export class PiWebApp extends LitElement {
     this.git.dispose();
     if (this.piWebStatusTimer !== undefined) window.clearInterval(this.piWebStatusTimer);
     this.piWebStatusTimer = undefined;
+    this.clearScheduledPiWebStatusRefresh();
     if (this.workspaceDeletionPollTimer !== undefined) window.clearInterval(this.workspaceDeletionPollTimer);
     this.workspaceDeletionPollTimer = undefined;
+    this.clearPendingRemoteRouteRestore();
     super.disconnectedCallback();
   }
 
@@ -254,21 +266,41 @@ export class PiWebApp extends LitElement {
     this.restoreSettingsRoute();
     const route = readRoute();
     await this.machines.loadMachines(route.machineId);
-    const machineFallbackMessage = this.state.error;
     const effectiveRoute = this.routeForSelectedMachine(route);
+    const initialRouteMachineHealth = this.state.machineStatuses[effectiveRoute.machineId ?? "local"];
     if (effectiveRoute !== route) this.replaceRouteAndClearWorkspaceQuery(effectiveRoute);
     await this.projects.loadProjects();
-    if (machineFallbackMessage !== "" && this.state.error === "") this.setState({ error: machineFallbackMessage });
     await this.withChatScrollTransition(() => this.restoreRouteFor(effectiveRoute, false));
-    this.rememberCurrentMachineNavigation();
+    if (this.shouldDeferRemoteRouteRestore(effectiveRoute, initialRouteMachineHealth)) this.deferRemoteRouteRestore(effectiveRoute);
+    else {
+      this.clearPendingRemoteRouteRestore();
+      this.rememberCurrentMachineNavigation();
+    }
     await this.refreshWorkspaceDeletionRuns();
   }
 
+  private schedulePiWebStatusRefresh(delayMs = PI_WEB_STATUS_DEFER_MS): void {
+    this.clearScheduledPiWebStatusRefresh();
+    this.piWebStatusDeferredTimer = window.setTimeout(() => {
+      this.piWebStatusDeferredTimer = undefined;
+      void this.refreshPiWebStatus();
+    }, delayMs);
+  }
+
+  private clearScheduledPiWebStatusRefresh(): void {
+    if (this.piWebStatusDeferredTimer === undefined) return;
+    window.clearTimeout(this.piWebStatusDeferredTimer);
+    this.piWebStatusDeferredTimer = undefined;
+  }
+
   private async refreshPiWebStatus(): Promise<void> {
+    const machineId = selectedMachineId(this.state);
     try {
-      this.setState({ piWebStatus: await piWebApi.piWebStatus() });
+      const piWebStatus = await piWebApi.piWebStatus(machineId);
+      if (selectedMachineId(this.state) === machineId) this.setState({ piWebStatus });
     } catch (error) {
-      console.warn("Failed to refresh PI WEB status", error);
+      if (selectedMachineId(this.state) === machineId) this.setState({ piWebStatus: undefined });
+      console.warn(`Failed to refresh PI WEB status for ${machineId}`, error);
     }
   }
 
@@ -307,12 +339,12 @@ export class PiWebApp extends LitElement {
     try {
       await Promise.all([
         this.sessions.refreshSelectedSession(),
-        this.refreshPiWebStatus(),
         this.refreshMachineActivities(),
         this.loadClientConfig(),
         this.refreshWorkspaceDeletionRuns(),
         this.refreshCurrentWorkspaceSurface(),
       ]);
+      this.schedulePiWebStatusRefresh();
     } finally {
       this.isRefreshingApp = false;
     }
@@ -336,6 +368,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async restoreRouteFor(route: AppRoute, updateUrl: boolean, surface = this.readWorkspaceRouteSurface(route), restoredMainView?: AppState["mainView"]) {
+    const machineBeforeRestore = selectedMachineId(this.state);
     const routeSurface = route.projectId === undefined || route.projectId === "" ? emptyWorkspaceRouteSurface() : surface;
     const restoreSeq = ++this.routeRestoreSeq;
     this.routeRestoreDepth += 1;
@@ -379,6 +412,7 @@ export class PiWebApp extends LitElement {
     } finally {
       this.routeRestoreDepth = Math.max(0, this.routeRestoreDepth - 1);
       if (this.routeRestoreDepth === 0) this.restoringRouteTerminalId = undefined;
+      if (selectedMachineId(this.state) !== machineBeforeRestore) this.schedulePiWebStatusRefresh();
     }
   }
 
@@ -406,6 +440,116 @@ export class PiWebApp extends LitElement {
     setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", undefined, { replace: true });
     setNamespacedQueryKey(GIT_ROUTE_NAMESPACE, "diff", undefined, { replace: true });
     setNamespacedQueryKey(TERMINAL_ROUTE_NAMESPACE, "terminal", undefined, { replace: true });
+  }
+
+  private shouldDeferRemoteRouteRestore(route: AppRoute, routeMachineHealth = this.state.machineStatuses[route.machineId ?? "local"]): boolean {
+    const machineId = route.machineId ?? "local";
+    const machine = this.state.selectedMachine;
+    if (machineId === "local" || machine?.id !== machineId || machine.kind !== "remote") return false;
+    if (routeMachineHealth?.ok !== false) return false;
+    if (route.projectId === undefined || route.projectId === "") return this.state.projects.length === 0;
+    return this.state.selectedProject?.id !== route.projectId;
+  }
+
+  private deferRemoteRouteRestore(route: AppRoute): void {
+    this.pendingRemoteRouteRestore = route;
+    this.remoteRouteRestoreAttempt = 0;
+    this.setRemoteRouteRestoreMessage(route);
+    this.schedulePendingRemoteRouteRestore();
+  }
+
+  private retryPendingRemoteRouteRestoreSoon(): void {
+    if (this.pendingRemoteRouteRestore === undefined) return;
+    this.schedulePendingRemoteRouteRestore(0);
+  }
+
+  private schedulePendingRemoteRouteRestore(delayMs = remoteRouteRestoreRetryDelay(this.remoteRouteRestoreAttempt)): void {
+    if (this.pendingRemoteRouteRestore === undefined) return;
+    this.clearPendingRemoteRouteRestoreTimer();
+    this.remoteRouteRestoreTimer = window.setTimeout(() => {
+      this.remoteRouteRestoreTimer = undefined;
+      void this.retryPendingRemoteRouteRestore();
+    }, delayMs);
+  }
+
+  private async retryPendingRemoteRouteRestore(): Promise<void> {
+    if (this.remoteRouteRestoreInProgress) return;
+    const route = this.pendingRemoteRouteRestore;
+    if (route === undefined) return;
+    if (!this.pendingRemoteRouteRestoreStillCurrent(route)) {
+      this.clearPendingRemoteRouteRestore();
+      return;
+    }
+
+    this.remoteRouteRestoreInProgress = true;
+    try {
+      const machineId = route.machineId ?? "local";
+      const health = await this.machines.refreshMachineHealth(machineId);
+      if (!this.pendingRemoteRouteRestoreStillCurrent(route)) return;
+      if (health?.ok !== true) {
+        this.scheduleNextRemoteRouteRestoreAttempt(route);
+        return;
+      }
+
+      await this.machines.refreshMachineRuntime(machineId);
+      if (!this.pendingRemoteRouteRestoreStillCurrent(route)) return;
+      await this.projects.loadProjects();
+      if (!this.pendingRemoteRouteRestoreStillCurrent(route)) return;
+      if (this.state.error !== "") {
+        this.scheduleNextRemoteRouteRestoreAttempt(route);
+        return;
+      }
+
+      await this.withChatScrollTransition(() => this.restoreRouteFor(route, false));
+      if (!this.pendingRemoteRouteRestoreStillCurrent(route)) return;
+      this.clearPendingRemoteRouteRestore();
+      this.rememberCurrentMachineNavigation();
+      await this.refreshWorkspaceDeletionRuns();
+    } finally {
+      this.remoteRouteRestoreInProgress = false;
+    }
+  }
+
+  private scheduleNextRemoteRouteRestoreAttempt(route: AppRoute): void {
+    this.remoteRouteRestoreAttempt += 1;
+    if (this.remoteRouteRestoreAttempt >= REMOTE_ROUTE_RESTORE_RETRY_DELAYS_MS.length) {
+      this.setRemoteRouteRestoreMessage(route, { exhausted: true });
+      this.clearPendingRemoteRouteRestore();
+      return;
+    }
+    this.setRemoteRouteRestoreMessage(route);
+    this.schedulePendingRemoteRouteRestore();
+  }
+
+  private setRemoteRouteRestoreMessage(route: AppRoute, options: { exhausted?: boolean } = {}): void {
+    const machineId = route.machineId ?? "local";
+    const machineName = this.state.machines.find((machine) => machine.id === machineId)?.name ?? this.state.selectedMachine?.name ?? "Remote machine";
+    const health = this.state.machineStatuses[machineId];
+    const detail = health?.error ?? (this.state.error === "" ? undefined : this.state.error);
+    const prefix = options.exhausted === true
+      ? `${machineName} is still unavailable.`
+      : `${machineName} is unavailable; reconnecting…`;
+    this.setState({ error: `${prefix}${detail === undefined ? "" : ` ${detail}`}` });
+  }
+
+  private pendingRemoteRouteRestoreStillCurrent(route: AppRoute): boolean {
+    const machineId = route.machineId ?? "local";
+    return machineId !== "local"
+      && this.pendingRemoteRouteRestore === route
+      && this.state.selectedMachine?.id === machineId
+      && this.state.machines.some((machine) => machine.id === machineId);
+  }
+
+  private clearPendingRemoteRouteRestore(): void {
+    this.clearPendingRemoteRouteRestoreTimer();
+    this.pendingRemoteRouteRestore = undefined;
+    this.remoteRouteRestoreAttempt = 0;
+  }
+
+  private clearPendingRemoteRouteRestoreTimer(): void {
+    if (this.remoteRouteRestoreTimer === undefined) return;
+    window.clearTimeout(this.remoteRouteRestoreTimer);
+    this.remoteRouteRestoreTimer = undefined;
   }
 
   private async restoreRouteMachine(route: AppRoute, updateUrl: boolean): Promise<void> {
@@ -547,7 +691,7 @@ export class PiWebApp extends LitElement {
         view: "core:workspace.terminal",
       }, false, { selectedTerminalId: options?.terminalId }, "core:workspace.terminal");
       if (selectedMachineId(this.state) !== machineId) {
-        this.setState({ error: "未找到用于运行终端命令的机器" });
+        this.setState({ error: "Machine not found for terminal command run" });
         return;
       }
     }
@@ -718,10 +862,13 @@ export class PiWebApp extends LitElement {
 
   private handleMachineChange(previous: AppState, next: AppState): void {
     if ((previous.selectedMachine?.id ?? "local") === (next.selectedMachine?.id ?? "local")) return;
+    const pendingMachineId = this.pendingRemoteRouteRestore?.machineId ?? "local";
+    if (pendingMachineId !== (next.selectedMachine?.id ?? "local")) this.clearPendingRemoteRouteRestore();
     this.sessions.clearActiveSession();
     this.realtime.close();
     this.connectRealtime();
     this.activeTerminalIds.clear();
+    this.setState({ piWebStatus: undefined });
     this.git.updatePolling();
     void this.loadPluginsForSelectedMachine();
   }
@@ -754,9 +901,9 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="navigation"
         controls="navigation-panel"
-        expandLabel="展开导航面板"
-        collapseLabel="折叠导航面板"
-        resizeLabel="调整导航面板宽度"
+        resizeLabel="Resize navigation panel"
+        expandLabel="Expand navigation panel"
+        collapseLabel="Collapse navigation panel"
         .collapsed=${this.panelCollapse.navigationPanelCollapsed}
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("navigation")}
@@ -777,9 +924,9 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="workspace"
         controls="workspace-panel"
-        expandLabel="展开工作区面板"
-        collapseLabel="折叠工作区面板"
-        resizeLabel="调整工作区面板宽度"
+        resizeLabel="Resize workspace panel"
+        expandLabel="Expand workspace panel"
+        collapseLabel="Collapse workspace panel"
         .collapsed=${this.panelCollapse.workspacePanelCollapsed}
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("workspace")}
@@ -847,6 +994,25 @@ export class PiWebApp extends LitElement {
     this.panelResize.resetPanels();
   }
 
+  private canDeleteArchivedSessions(): boolean {
+    const runtime = this.selectedMachineRuntime();
+    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
+  }
+
+  private canReloadSessions(): boolean {
+    const runtime = this.selectedMachineRuntime();
+    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload);
+  }
+
+  private archivedDeleteUnavailableMessage(): string {
+    const machineName = this.state.selectedMachine?.name ?? "this machine";
+    return `Update and restart Pi-Web on ${machineName} to delete archived sessions.`;
+  }
+
+  private selectedMachineRuntime() {
+    return this.state.machineRuntimes[selectedMachineId(this.state)];
+  }
+
   private renderNavigationPanel() {
     return html`
       <app-navigation-panel
@@ -868,8 +1034,12 @@ export class PiWebApp extends LitElement {
         .sessions=${this.state.sessions}
         .sessionStatuses=${this.state.sessionStatuses}
         .sessionActivities=${this.state.sessionActivities}
+        .sendingPrompts=${this.state.sendingPrompts}
         .selectedSession=${this.state.selectedSession}
         .canStartSession=${!!this.state.selectedWorkspace}
+        .canDeleteArchivedSessions=${this.canDeleteArchivedSessions()}
+        .canReloadSessions=${this.canReloadSessions()}
+        .archivedDeleteUnavailableMessage=${this.archivedDeleteUnavailableMessage()}
         .collapsible=${true}
         .compact=${this.appShell.isMobileNavigationLayout}
         .projectsCollapsed=${this.navigationSections.isCollapsed("projects")}
@@ -890,9 +1060,13 @@ export class PiWebApp extends LitElement {
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
+        .onArchiveSessions=${(sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions)}
         .onRestoreSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.restoreSession(session))}
         .onDeleteCachedNewSession=${(session: SessionInfo) => this.sessions.deleteCachedNewSession(session)}
+        .onDeleteArchivedSession=${(session: SessionInfo) => this.sessions.deleteArchivedSessions([session])}
+        .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions)}
         .onDetachParentSession=${(session: SessionInfo) => this.sessions.detachParent(session)}
+        .onReloadSession=${(session: SessionInfo) => this.sessions.reloadSession(session)}
         .onFocusNavigationTarget=${(target: NavigationFocusTarget) => { void this.focusNavigationTarget(target); }}
         .onCancelKeyboardNavigation=${() => { void this.focusChatComposer(); }}
       ></app-navigation-panel>
@@ -950,15 +1124,15 @@ export class PiWebApp extends LitElement {
     const project = this.state.selectedProject;
     if (this.state.isLoadingProjects) {
       return {
-        title: "正在加载项目…",
-        body: "正在查找你已添加到 PI WEB 的项目。",
+        title: "Loading projects…",
+        body: "Looking for projects you have added to PI WEB.",
       };
     }
     if (project === undefined) {
       return this.state.projects.length === 0
         ? {
-            title: "还没有项目",
-            body: "使用“操作”→“添加项目”添加文件夹。选择工作区后，工作区工具会显示在这里。",
+            title: "No projects yet",
+            body: "Use Actions → Add Project to add a folder. Workspace tools will appear here after you choose a workspace.",
           }
         : {
             title: "选择项目",
@@ -967,27 +1141,27 @@ export class PiWebApp extends LitElement {
     }
     if (this.state.isLoadingWorkspaces) {
       return {
-        title: "正在加载工作区…",
-        body: `正在为 ${project.name} 准备工作区工具。`,
+        title: "Loading workspaces…",
+        body: `Preparing workspace tools for ${project.name}.`,
       };
     }
     if (this.state.workspaces.length === 0) {
       return {
-        title: "未找到工作区",
-        body: `${project.name} 没有可用工作区。请尝试重新选择项目或重新添加它。`,
+        title: "No workspaces found",
+        body: `${project.name} does not have any available workspaces. Try selecting the project again or re-adding it.`,
       };
     }
     return {
-      title: "选择工作区",
-      body: `选择 ${project.name} 中的工作区来查看文件、Git 或终端。`,
+      title: "Select a workspace",
+      body: `Choose a workspace in ${project.name} to inspect files, Git, or terminals.`,
     };
   }
 
   private sessionEmptyMessage(): string {
     if (this.state.isLoadingProjects) return "正在加载项目…";
-    if (this.state.selectedWorkspace !== undefined) return "选择或启动一个会话。";
-    if (this.state.selectedProject !== undefined) return "选择工作区以开始会话。";
-    if (this.state.projects.length === 0) return "添加项目以开始会话。";
+    if (this.state.selectedWorkspace !== undefined) return "Select or start a session.";
+    if (this.state.selectedProject !== undefined) return "Select a workspace to start a session.";
+    if (this.state.projects.length === 0) return "Add a project to start a session.";
     return "选择项目和工作区以开始会话。";
   }
 
@@ -1064,10 +1238,10 @@ export class PiWebApp extends LitElement {
         selectedTerminalId: this.state.selectedTerminalId,
         terminalAutoStart: this.terminalAutoStartWorkspaceId === workspace.id,
         onRefreshFiles: () => { void this.files.refreshFiles(); },
-        onUploadFiles: (files) => { void this.files.uploadFiles(files); },
-        onCreateFile: (path) => { void this.files.createFile(path); },
-        onCreateDirectory: (path) => { void this.files.createDirectory(path); },
-        onMoveSelectedPath: (path) => { void this.files.moveSelectedPath(path); },
+        onUploadFiles: (files: readonly File[]) => { void this.files.uploadFiles(files); },
+        onCreateFile: (path: string) => { void this.files.createFile(path); },
+        onCreateDirectory: (path: string) => { void this.files.createDirectory(path); },
+        onMoveSelectedPath: (path: string) => { void this.files.moveSelectedPath(path); },
         onDeleteSelectedPath: () => { void this.files.deleteSelectedPath(); },
         onDownloadSelectedFile: () => { void this.files.downloadSelectedFile(); },
         onExpandDir: (path: string) => { void this.files.expandDir(path); },
@@ -1173,7 +1347,10 @@ export class PiWebApp extends LitElement {
     const existing = this.machinePluginLoadPromises.get(machine.id);
     if (existing !== undefined) return existing;
 
-    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`/api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, { machineId: machine.id }))
+    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`/api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
+      machineId: machine.id,
+      shouldLoadPlugin: (entry) => this.plugins.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
+    }))
       .then((loaded) => { if (loaded) this.loadedMachinePluginIds.add(machine.id); })
       .finally(() => { this.machinePluginLoadPromises.delete(machine.id); });
     this.machinePluginLoadPromises.set(machine.id, load);
@@ -1210,7 +1387,9 @@ export class PiWebApp extends LitElement {
       focusPrompt: () => { void this.focusChatComposer(); },
       addProject: () => { this.setState({ projectDialogOpen: true }); },
       addMachine: () => { this.openMachineDialog(); },
-      refreshSelectedMachine: () => this.machines.refreshMachineHealth(),
+      refreshSelectedMachine: async () => {
+        await Promise.all([this.machines.refreshMachineHealth(), this.machines.refreshMachineRuntime()]);
+      },
       removeSelectedMachine: () => this.removeMachine(),
       openSelectedMachine: () => { this.openSelectedMachine(); },
       configureAuth: () => this.auth.openLogin(),
@@ -1226,6 +1405,7 @@ export class PiWebApp extends LitElement {
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
       startSession: () => this.withChatScrollTransition(() => this.sessions.startSession()),
       archiveSession: () => this.sessions.archiveSession(),
+      reloadSession: () => this.sessions.reloadSession(),
       deleteCachedNewSession: () => this.sessions.deleteCachedNewSession(),
       stopActiveWork: () => this.sessions.stopActiveWork(),
     }, createContext);
@@ -1235,12 +1415,12 @@ export class PiWebApp extends LitElement {
   private async deleteWorkspace(workspace = this.state.selectedWorkspace): Promise<void> {
     if (workspace === undefined) return;
     if (!canDeleteWorkspace(workspace)) {
-      this.setState({ error: "只能删除次级 Git worktree" });
+      this.setState({ error: "Only secondary Git worktrees can be deleted" });
       return;
     }
     if (isWorkspaceDeletionPending(this.state, workspace)) return;
     const label = workspace.branch ?? workspace.label;
-    const confirmed = confirm(`删除工作区 ${label}？\n\n这会运行 git worktree remove 并删除：\n${workspace.path}\n\nGit 分支不会被删除。`);
+    const confirmed = confirm(`Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${workspace.path}\n\nThe Git branch will not be deleted.`);
     if (!confirmed) return;
 
     const machineId = selectedMachineId(this.state);
@@ -1252,7 +1432,7 @@ export class PiWebApp extends LitElement {
       if (selectedMachineId(this.state) !== machineId) return;
       if (commandWorkspace !== undefined) void this.openRuntimeTerminal(machineId, commandWorkspace, { terminalId: run.terminalId });
     } catch (error) {
-      if (selectedMachineId(this.state) === machineId) this.setState({ error: `启动工作区删除失败：${errorMessage(error)}` });
+      if (selectedMachineId(this.state) === machineId) this.setState({ error: `Failed to start workspace deletion: ${errorMessage(error)}` });
     }
   }
 
@@ -1290,7 +1470,7 @@ export class PiWebApp extends LitElement {
         if (!isWorkspaceDeletionRunPending(run)) await this.handleCompletedWorkspaceDeletionRun(run, machineId);
       }
     } catch (error) {
-      console.warn("刷新工作区删除任务失败", error);
+      console.warn("Failed to refresh workspace deletion runs", error);
     } finally {
       this.refreshingWorkspaceDeletionRuns = false;
       this.updateWorkspaceDeletionPolling();
@@ -1326,7 +1506,7 @@ export class PiWebApp extends LitElement {
     }
 
     if (run.status === "failed") {
-      this.setState({ error: "工作区删除失败。请查看终端输出。" });
+      this.setState({ error: "Workspace deletion failed. See terminal output." });
       this.updateWorkspaceDeletionPolling();
     }
   }
@@ -1337,12 +1517,15 @@ export class PiWebApp extends LitElement {
 
   private async submitMachineDialog(input: MachineDialogSubmit): Promise<void> {
     const machine = await this.machines.addMachine(input);
-    if (machine !== undefined) this.setState({ machineDialogOpen: false });
+    if (machine !== undefined) {
+      this.setState({ machineDialogOpen: false });
+      this.schedulePiWebStatusRefresh();
+    }
   }
 
   private async removeMachine(machine: Machine | undefined = this.state.selectedMachine): Promise<void> {
     if (machine === undefined || machine.kind === "local") return;
-    if (!window.confirm(`移除 ${machine.name}？\n\n这只会将它从当前 PI WEB 网关中移除。`)) return;
+    if (!window.confirm(`Remove ${machine.name}?\n\nThis only removes it from this PI WEB gateway.`)) return;
     const wasSelected = this.state.selectedMachine?.id === machine.id;
     if (wasSelected) this.rememberCurrentMachineNavigation();
     const fallback = await this.machines.deleteMachine(machine, { selectFallback: !wasSelected });
@@ -1362,7 +1545,7 @@ export class PiWebApp extends LitElement {
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(`Action failed: ${action.id}`, error);
-        this.setState({ error: `操作失败：${message}` });
+        this.setState({ error: `Action failed: ${message}` });
       });
   }
 
@@ -1372,13 +1555,13 @@ export class PiWebApp extends LitElement {
     const currentId = this.state.status?.model?.id;
     this.setState({
       modelDialog: {
-        title: "选择模型",
+        title: "Select Model",
         ...(currentProvider !== undefined && currentId !== undefined ? { selectedValue: `${currentProvider}/${currentId}` } : {}),
         options: models.map((model) => {
           const provider = model.provider ?? "";
           const id = model.id ?? "";
           const isCurrent = provider === currentProvider && id === currentId;
-          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ 当前" : ""}`, description: provider };
+          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ current" : ""}`, description: provider };
         }),
       },
     });
@@ -1398,12 +1581,12 @@ export class PiWebApp extends LitElement {
     const autoValue = this.themePreference.auto ? THEME_AUTO_OFF_VALUE : THEME_AUTO_ON_VALUE;
     this.setState({
       themeDialog: {
-        title: "选择主题",
+        title: "Select Theme",
         selectedValue: selectedThemeId === undefined ? autoValue : `${THEME_OPTION_PREFIX}${selectedThemeId}`,
         options: [
           {
             value: autoValue,
-            label: `自动 ${this.themePreference.auto ? "✓ 开" : "关"}`,
+            label: `Auto ${this.themePreference.auto ? "✓ on" : "off"}`,
             description: this.autoThemeDescription(resolution),
           },
           ...themes.map((theme) => ({
@@ -1459,23 +1642,23 @@ export class PiWebApp extends LitElement {
   }
 
   private autoThemeDescription(resolution: ThemePreferenceResolution): string {
-    if (!this.themePreference.auto) return "当所选主题有亮/暗配对时，跟随系统偏好。";
-    if (resolution.selectedTheme === undefined) return "当所选主题有亮/暗配对时，跟随系统偏好。";
-    if (resolution.selectedThemePair === undefined) return "已开启，但所选主题没有亮/暗配对，因此会保持当前选择。";
-    return `已开启 · ${resolution.selectedThemePair.name} 跟随系统${this.systemPrefersLight() ? "浅色" : "深色"}偏好。`;
+    if (!this.themePreference.auto) return "Follow the system light/dark preference when the selected theme has a pair.";
+    if (resolution.selectedTheme === undefined) return "Follow the system light/dark preference when the selected theme has a pair.";
+    if (resolution.selectedThemePair === undefined) return "On, but the selected theme has no light/dark pair, so it will stay selected.";
+    return `On · ${resolution.selectedThemePair.name} follows the system ${this.systemPrefersLight() ? "light" : "dark"} preference.`;
   }
 
   private themeOptionLabel(theme: QualifiedThemeContribution, selectedThemeId: QualifiedContributionId | undefined): string {
     const markers = [
-      ...(theme.id === selectedThemeId ? ["已选择"] : []),
-      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? ["当前"] : []),
+      ...(theme.id === selectedThemeId ? ["selected"] : []),
+      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? ["active"] : []),
     ];
     return markers.length === 0 ? theme.name : `${theme.name} ✓ ${markers.join(" · ")}`;
   }
 
   private themeOptionDescription(theme: QualifiedThemeContribution): string {
     const parts: string[] = [theme.colorScheme];
-    if (this.themePairForTheme(theme.id) !== undefined) parts.push("自动配对");
+    if (this.themePairForTheme(theme.id) !== undefined) parts.push("auto pair");
     if (theme.description !== undefined) parts.push(theme.description);
     return parts.join(" · ");
   }
@@ -1485,21 +1668,22 @@ export class PiWebApp extends LitElement {
     const current = this.state.status?.thinkingLevel ?? "off";
     this.setState({
       thinkingDialog: {
-        title: "选择思考级别",
+        title: "Select Thinking Level",
         selectedValue: current,
-        options: levels.map((level) => ({ value: level, label: `${thinkingLevelLabel(level)}${level === current ? " ✓ 当前" : ""}`, description: thinkingDescription(level) })),
+        options: levels.map((level) => { const description = thinkingDescription(level); return { value: level, label: `${level}${level === current ? " ✓ current" : ""}`, ...(description === undefined ? {} : { description }) }; }),
       },
     });
   }
 
   private async pickThinking(value: string) {
     this.setState({ thinkingDialog: undefined });
-    if (isThinkingLevel(value)) await this.sessions.setThinkingLevel(value);
+    if (value !== "") await this.sessions.setThinkingLevel(value);
   }
 
-  private sendPrompt(input: string | PromptInput, streamingBehavior?: "steer" | "followUp"): void {
-    if (typeof input === "string" && streamingBehavior === undefined && this.auth.handleSlashCommand(input)) return;
-    void this.sessions.send(input, streamingBehavior);
+  private sendPrompt(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery): void {
+    const hasAttachments = attachments !== undefined && attachments.length > 0;
+    if (!hasAttachments && streamingBehavior === undefined && this.auth.handleSlashCommand(text)) return;
+    void this.sessions.send(text, streamingBehavior, attachments, delivery);
   }
 
   private renderContextBar() {
@@ -1560,8 +1744,8 @@ export class PiWebApp extends LitElement {
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession ? html`
-            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
-            <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .onSend=${(input: string | PromptInput, streamingBehavior?: "steer" | "followUp") => { this.sendPrompt(input, streamingBehavior); }} .onStop=${() => this.sessions.stopActiveWork()} .onSelectModel=${() => { void this.openModelDialog(); }} .onSelectThinking=${() => { void this.openThinkingDialog(); }}></prompt-editor>
+            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[state.selectedSession.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+            <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery) => { this.sendPrompt(text, streamingBehavior, attachments, delivery); }} .onStop=${() => this.sessions.stopActiveWork()} .onSelectModel=${() => { void this.openModelDialog(); }} .onSelectThinking=${() => { void this.openThinkingDialog(); }}></prompt-editor>
             <status-bar .status=${state.status}></status-bar>
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog !== undefined ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>` : null}
@@ -1632,6 +1816,11 @@ function machineScopedKey(machineId: string, value: string): string {
   return JSON.stringify([machineId, value]);
 }
 
+function remoteRouteRestoreRetryDelay(attempt: number): number {
+  const index = Math.min(attempt, REMOTE_ROUTE_RESTORE_RETRY_DELAYS_MS.length - 1);
+  return REMOTE_ROUTE_RESTORE_RETRY_DELAYS_MS[index] ?? 30_000;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -1644,28 +1833,14 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => { resolve(); }));
 }
 
-function isThinkingLevel(value: string): value is ThinkingLevel {
-  return value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh";
-}
-
-function thinkingDescription(level: ThinkingLevel): string {
+function thinkingDescription(level: string): string | undefined {
   switch (level) {
-    case "off": return "不使用推理";
-    case "minimal": return "极简推理（约 1k tokens）";
-    case "low": return "轻量推理（约 2k tokens）";
-    case "medium": return "中等推理（约 8k tokens）";
-    case "high": return "深度推理（约 16k tokens）";
-    case "xhigh": return "最大推理（约 32k tokens）";
-  }
-}
-
-function thinkingLevelLabel(level: ThinkingLevel): string {
-  switch (level) {
-    case "off": return "关闭";
-    case "minimal": return "极简";
-    case "low": return "低";
-    case "medium": return "中";
-    case "high": return "高";
-    case "xhigh": return "超高";
+    case "off": return "No reasoning";
+    case "minimal": return "Very brief reasoning (~1k tokens)";
+    case "low": return "Light reasoning (~2k tokens)";
+    case "medium": return "Moderate reasoning (~8k tokens)";
+    case "high": return "Deep reasoning (~16k tokens)";
+    case "xhigh": return "Maximum reasoning (~32k tokens)";
+    default: return undefined; // unknown level from a newer pi: no description
   }
 }

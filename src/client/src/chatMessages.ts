@@ -53,7 +53,16 @@ export function normalizeMessage(message: unknown): ChatLine[] {
 
   const visible = parts.filter((part) => part.type !== "empty");
   const displayRole = role === "assistant" && visible.length > 0 && visible.every((part) => part.type === "skillRead") ? "skill" : role;
-  return visible.length > 0 ? [withMessageMeta({ role: displayRole, parts: visible, ...(source === undefined ? {} : { source }) }, message)] : [];
+  const lines = visible.length > 0 ? [withMessageMeta({ role: displayRole, parts: visible, ...(source === undefined ? {} : { source }) }, message)] : [];
+  const errorLine = assistantErrorLine(message);
+  return errorLine === undefined ? lines : [...lines, withMessageMeta(errorLine, message)];
+}
+
+function assistantErrorLine(message: unknown): ChatLine | undefined {
+  if (getString(message, "role") !== "assistant" || getString(message, "stopReason") !== "error") return undefined;
+  const errorMessage = getString(message, "errorMessage")?.trim();
+  const detail = errorMessage === undefined || errorMessage === "" ? "The model returned an error." : errorMessage;
+  return textMessage("system", `Model response failed: ${detail}`);
 }
 
 function isChatLine(message: unknown): message is ChatLine {
@@ -119,7 +128,7 @@ function normalizeModel(message: unknown): NonNullable<ChatLine["meta"]>["model"
 
 function normalizeBashExecution(message: unknown): ChatLine {
   const command = getString(message, "command") ?? "";
-  const lines = getBoolean(message, "excludeFromContext") === true ? ["不加入上下文", "", `$ ${command}`] : [`$ ${command}`];
+  const lines = getBoolean(message, "excludeFromContext") === true ? ["excluded from context", "", `$ ${command}`] : [`$ ${command}`];
   const output = getProperty(message, "output");
   if (output != null) lines.push("", stringifyPrimitive(output));
   const exitCode = getProperty(message, "exitCode");
@@ -127,7 +136,7 @@ function normalizeBashExecution(message: unknown): ChatLine {
   if (getBoolean(message, "cancelled") === true) lines.push("", "cancelled");
   if (getBoolean(message, "truncated") === true) lines.push("", "output truncated");
   const fullOutputPath = getString(message, "fullOutputPath");
-  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `完整输出：${fullOutputPath}`);
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `full output: ${fullOutputPath}`);
   return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
 }
 
@@ -161,7 +170,8 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
     if (type === "image") {
       const data = getString(part, "data");
       const mimeType = getString(part, "mimeType");
-      return data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "" ? [{ type: "image", data, mimeType }] : [{ type: "text", text: "[image]" }];
+      if (data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "") return [{ type: "image", mimeType, data }];
+      return [{ type: "text", text: "[image]" }];
     }
     return objectFallback(part);
   }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
@@ -289,7 +299,7 @@ export function summarizeArgs(args: unknown): string {
   if (path !== undefined) return path;
   if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
   const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} 处编辑`;
+  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
   const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
   return entries.map(([key, value]) => `${key}: ${shortValue(value)}`).join(" · ");
 }
@@ -297,7 +307,7 @@ export function summarizeArgs(args: unknown): string {
 function shortValue(value: unknown): string {
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} 项`;
+  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
   if (typeof value === "object" && value !== null) return "object";
   return "";
 }

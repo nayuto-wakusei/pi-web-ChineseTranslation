@@ -1,9 +1,10 @@
 import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
 
-interface PluginManifestEntry {
+export interface PluginManifestEntry {
   id: string;
   module: string;
+  machineSpecific: boolean;
 }
 
 interface PluginManifest {
@@ -12,6 +13,7 @@ interface PluginManifest {
 
 export interface LoadExternalPluginsOptions {
   machineId?: string;
+  shouldLoadPlugin?: (entry: PluginManifestEntry) => boolean;
 }
 
 export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifest.json", options: LoadExternalPluginsOptions = {}): Promise<PiWebPluginRegistration[]> {
@@ -20,6 +22,7 @@ export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifes
 
   const registrations: PiWebPluginRegistration[] = [];
   for (const entry of manifest.plugins) {
+    if (options.shouldLoadPlugin?.(entry) === false) continue;
     try {
       const moduleUrl = new URL(entry.module, new URL(manifestUrl, window.location.href)).toString();
       const module: unknown = await import(/* @vite-ignore */ moduleUrl);
@@ -27,6 +30,7 @@ export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifes
       registrations.push({
         id: options.machineId === undefined ? entry.id : machineScopedPluginId(options.machineId, entry.id),
         plugin,
+        machineSpecific: entry.machineSpecific,
         ...(options.machineId === undefined ? {} : { machineId: options.machineId, sourcePluginId: entry.id }),
       });
     } catch (error) {
@@ -48,9 +52,15 @@ function parseManifest(value: unknown): PluginManifest {
   return {
     plugins: value["plugins"].map((entry) => {
       if (!isRecord(entry) || typeof entry["id"] !== "string" || entry["id"] === "" || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
-      return { id: entry["id"], module: entry["module"] };
+      return { id: entry["id"], module: entry["module"], machineSpecific: parseMachineSpecific(entry["machineSpecific"]) };
     }),
   };
+}
+
+function parseMachineSpecific(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new Error("Invalid plugin manifest entry");
+  return value;
 }
 
 function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin {

@@ -9,6 +9,7 @@ interface RemotePluginManifestEntry {
   module: string;
   source?: string;
   scope?: string;
+  machineSpecific?: boolean;
 }
 
 interface RemotePluginManifest {
@@ -158,9 +159,16 @@ function parseRemoteManifest(value: unknown): RemotePluginManifest {
         module: entry["module"],
         ...(typeof entry["source"] === "string" ? { source: entry["source"] } : {}),
         ...(typeof entry["scope"] === "string" ? { scope: entry["scope"] } : {}),
+        ...(parseRemoteMachineSpecific(entry["machineSpecific"])),
       };
     }),
   };
+}
+
+function parseRemoteMachineSpecific(value: unknown): { machineSpecific?: boolean } {
+  if (value === undefined) return {};
+  if (typeof value !== "boolean") throw new Error("Invalid remote PI WEB plugin manifest entry");
+  return { machineSpecific: value };
 }
 
 function applySafeHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {

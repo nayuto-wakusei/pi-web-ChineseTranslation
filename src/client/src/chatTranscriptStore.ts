@@ -1,6 +1,6 @@
 import { normalizeMessages } from "./chatMessages";
 import { applyTranscriptEvent } from "./chatTranscript";
-import { mergeChatHistory, readChatHistoryCache, writeChatHistoryCache, type RawMessagePage } from "./chatHistoryCache";
+import { mergeChatHistory, readChatHistoryCache, removeChatHistoryCache, writeChatHistoryCache, type RawMessagePage } from "./chatHistoryCache";
 import type { ChatLine } from "./components/shared";
 import type { SessionUiEvent } from "./sessionSocket";
 
@@ -16,11 +16,13 @@ export interface ChatTranscriptView {
 export interface ChatHistoryCacheAdapter {
   read(sessionId: string): RawMessagePage | undefined;
   write(sessionId: string, page: RawMessagePage): void;
+  remove?(sessionId: string): void;
 }
 
 const browserChatHistoryCache: ChatHistoryCacheAdapter = {
   read: readChatHistoryCache,
   write: writeChatHistoryCache,
+  remove: removeChatHistoryCache,
 };
 
 export class ChatTranscriptStore {
@@ -41,6 +43,11 @@ export class ChatTranscriptStore {
 
   applyLiveEvent(messages: ChatLine[], event: SessionUiEvent): ChatLine[] | undefined {
     return applyTranscriptEvent(messages, event);
+  }
+
+  discard(sessionId: string): void {
+    this.rawHistoryPages.delete(sessionId);
+    this.cache.remove?.(sessionId);
   }
 
   rawHistoryPage(sessionId: string): RawMessagePage | undefined {

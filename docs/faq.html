@@ -3,10 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PI WEB FAQ</title>
-    <meta name="description" content="Answers for common PI WEB install and runtime issues." />
-    <meta property="og:title" content="PI WEB FAQ" />
-    <meta property="og:image" content="assets/pi-web-banner.png" />
+    <title>PI WEB FAQ — Pi web UI troubleshooting</title>
+    <meta
+      name="description"
+      content="Troubleshoot PI WEB, the web UI for Pi Coding Agent, including install, PATH, services, remote access, and runtime issues."
+    />
+    <link rel="canonical" href="https://pi-web.dev/faq.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="PI WEB FAQ — Pi web UI troubleshooting" />
+    <meta
+      property="og:description"
+      content="Fix common PI WEB install, service, PATH, remote access, and session issues."
+    />
+    <meta property="og:url" content="https://pi-web.dev/faq.html" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PI WEB FAQ — Pi web UI troubleshooting" />
+    <meta
+      name="twitter:description"
+      content="Fix common PI WEB install, service, PATH, remote access, and session issues."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <script>
       (() => {
@@ -70,6 +89,7 @@
           <aside class="toc" aria-label="FAQ contents">
             <strong>Questions</strong>
             <a href="#is-this-linux-only">What platforms are supported?</a>
+            <a href="#is-pi-web-a-web-ui">Is PI WEB a Pi web UI?</a>
             <a href="#tools-are-not-found">Tools are failing / node not found</a>
             <a href="#doctor-fails">What does doctor check?</a>
             <a href="#nvm-fnm-asdf">nvm, fnm, or asdf issues</a>
@@ -95,6 +115,15 @@
                 <li><strong>WSL:</strong> if your distro has systemd enabled, the installer may work; otherwise use the manual run path.</li>
                 <li><strong>Native Windows:</strong> outside WSL is not the recommended path today.</li>
               </ul>
+            </article>
+
+            <article id="is-pi-web-a-web-ui" class="faq-item">
+              <h2>Is PI WEB a Pi web UI?</h2>
+              <p>
+                Yes. PI WEB is a web UI for Pi Coding Agent that runs and supervises persistent sessions from a browser.
+                Unlike simple session viewers, PI WEB is built around real server-side workspaces, long-running session
+                daemons, git worktrees, remote machines, terminals, files, and multi-device supervision.
+              </p>
             </article>
 
             <article id="tools-are-not-found" class="faq-item">

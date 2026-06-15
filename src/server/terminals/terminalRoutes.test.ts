@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,11 +33,14 @@ describe("terminal routes", () => {
   });
 
   it("closes all terminals for a cwd", async () => {
-    const response = await app.inject({ method: "DELETE", url: `/terminals?cwd=${encodeURIComponent("/repo/worktree")}` });
+    // The route normalizes the request cwd, so the service receives the
+    // resolved absolute path (drive-qualified on Windows).
+    const requestCwd = resolve("/repo/worktree");
+    const response = await app.inject({ method: "DELETE", url: `/terminals?cwd=${encodeURIComponent(requestCwd)}` });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ closed: true });
-    expect(terminals.events).toEqual(["close-cwd:/repo/worktree"]);
+    expect(terminals.events).toEqual([`close-cwd:${requestCwd}`]);
   });
 
   it("creates and lists terminal command runs with filters", async () => {

@@ -74,10 +74,10 @@ describe("PI WEB status", () => {
 
       const status = await getPiWebStatus(daemon);
 
-      expect(status.commands.restart).toBe("systemctl --user restart pi-web-sessiond.service pi-web-ui-dev.service");
-      expect(status.commands.restartWeb).toBe("systemctl --user restart pi-web-ui-dev.service");
-      expect(status.commands.restartSessiond).toBe("systemctl --user restart pi-web-sessiond.service");
-      expect(status.messages.find((message) => message.id === "sessiond-stale")?.command).toBe("systemctl --user restart pi-web-sessiond.service");
+      expect(status.commands.restart).toBe("systemd-run --user --collect --unit=pi-web-restart -- systemctl --user restart pi-web-ui-dev.service pi-web-sessiond.service");
+      expect(status.commands.restartWeb).toBe("systemd-run --user --collect --unit=pi-web-restart-web -- systemctl --user restart pi-web-ui-dev.service");
+      expect(status.commands.restartSessiond).toBe("systemd-run --user --collect --unit=pi-web-restart-sessiond -- systemctl --user restart pi-web-sessiond.service");
+      expect(status.messages.find((message) => message.id === "sessiond-stale")?.command).toBe("systemd-run --user --collect --unit=pi-web-restart-sessiond -- systemctl --user restart pi-web-sessiond.service");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

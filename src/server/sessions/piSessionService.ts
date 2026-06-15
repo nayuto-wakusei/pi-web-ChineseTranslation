@@ -1,33 +1,19 @@
-import { spawn } from "node:child_process";
-import { constants } from "node:fs";
-import { access as fsAccess, mkdir as fsMkdir, readFile, readdir as fsReaddir, realpath as fsRealpath, stat as fsStat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { readFile, writeFile } from "node:fs/promises";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
   createEditToolDefinition,
-  createFindToolDefinition,
-  createGrepToolDefinition,
-  createLsToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
   defineTool,
   getAgentDir,
   ModelRegistry,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
-  type FindOperations,
-  type GrepOperations,
-  type LsOperations,
-  type ReadOperations,
-  type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
@@ -38,11 +24,14 @@ import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { AuthChange } from "./authService.js";
 import { fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
+import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
+import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
+import { parsePromptAttachments } from "../../shared/promptAttachments.js";
+import type { SavedPromptAttachment } from "../../shared/apiTypes.js";
+
+import { cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
-import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
-import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
-import type { PromptImage } from "../../shared/apiTypes.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
@@ -52,35 +41,29 @@ function authLossWarningKey(sessionId: string, provider: string, modelId: string
   return `${sessionId}:${provider}/${modelId}`;
 }
 
+function sessionIdFromLookup(ref: PiSessionLookup): string {
+  return typeof ref === "string" ? ref : ref.id;
+}
+
+function isPiSessionRef(ref: PiSessionLookup): ref is PiSessionRef {
+  return typeof ref !== "string";
+}
+
+function lookupMatchesActiveSession(ref: PiSessionLookup, active: ActiveSession<PiSessionRuntime>): boolean {
+  return !isPiSessionRef(ref) || cwdPathsEqual(active.runtime.cwd, ref.cwd);
+}
+
 type QueuedPromptKind = "steer" | "followUp";
 
 interface QueuedPrompt {
   kind: QueuedPromptKind;
   text: string;
-  images?: PromptImage[];
+  images?: ImageContent[];
 }
-
-const SUPPORTED_PROMPT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const MAX_PROMPT_IMAGES = 4;
 
 function requirePromptText(value: unknown): string {
   if (typeof value !== "string") throw new Error("Prompt text is required");
   return value;
-}
-
-function requirePromptImages(value: unknown): PromptImage[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error("Prompt images must be an array");
-  if (value.length > MAX_PROMPT_IMAGES) throw new Error(`Prompt images are limited to ${String(MAX_PROMPT_IMAGES)}`);
-  return value.map((image) => {
-    if (!isRecord(image)) throw new Error("Prompt image must be an object");
-    if (image["type"] !== "image") throw new Error('Prompt image type must be "image"');
-    const data = image["data"];
-    const mimeType = image["mimeType"];
-    if (typeof data !== "string" || data === "") throw new Error("Prompt image data is required");
-    if (typeof mimeType !== "string" || !SUPPORTED_PROMPT_IMAGE_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported prompt image MIME type: ${String(mimeType)}`);
-    return { type: "image", data, mimeType };
-  });
 }
 
 function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefined {
@@ -89,8 +72,13 @@ function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefi
   throw new Error('Prompt streamingBehavior must be "steer" or "followUp"');
 }
 
-type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived">;
-interface PiSessionListEntry {
+type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived"> & { deleteArchived?: (sessionId: string) => Promise<void> };
+
+export type PiSessionRef = ClientSessionRef;
+
+type PiSessionLookup = string | PiSessionRef;
+
+export interface PiSessionListEntry {
   id: string;
   path: string;
   cwd: string;
@@ -122,8 +110,24 @@ export interface PiSessionManager {
 export interface PiSessionManagerGateway {
   list(cwd: string): Promise<PiSessionListEntry[]>;
   create(cwd: string): PiSessionManager;
-  listAll(): Promise<PiSessionListEntry[]>;
+  /**
+   * Legacy id-only lookup surface for older clients. This intentionally searches
+   * only Pi's default session store, because custom session directories require
+   * a cwd-scoped lookup.
+   */
+  listAll?(): Promise<PiSessionListEntry[]>;
   open(path: string): PiSessionManager;
+}
+
+interface PiExtensionError {
+  extensionPath: string;
+  event: string;
+  error: string;
+  stack?: string;
+}
+
+interface PiExtensionBindings {
+  onError?: (error: PiExtensionError) => void;
 }
 
 export interface PiAgentSession {
@@ -144,11 +148,12 @@ export interface PiAgentSession {
   promptTemplates: readonly { name: string; description?: string }[];
   resourceLoader: { getSkills(): { skills: readonly { name: string; description?: string }[] } };
   subscribe(listener: (event: unknown) => void): () => void;
+  bindExtensions(bindings: PiExtensionBindings): Promise<void>;
   compact(instructions?: string): Promise<{ summary: string; tokensBefore: number }>;
   getUserMessagesForForking(): readonly { entryId: string; text: string }[];
   getSessionStats(): { sessionId: string; totalMessages: number; userMessages: number; assistantMessages: number; toolCalls: number; tokens: ClientSessionStatus["tokens"]; cost: number };
   getContextUsage(): ClientSessionStatus["contextUsage"] | undefined;
-  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: PromptImage[] }): Promise<void>;
+  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] }): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode: number | undefined; cancelled: boolean; truncated: boolean; fullOutputPath?: string }>;
   abort(): Promise<void>;
   clearQueue(): { steering: string[]; followUp: string[] };
@@ -174,7 +179,6 @@ interface CreateAgentRuntimeOptions {
   cwd: string;
   agentDir: string;
   sessionManager: PiSessionManager;
-  managementContext?: ManagementEmbedContext;
 }
 
 type CreateAgentRuntime = (createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
@@ -186,61 +190,20 @@ function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFacto
 
 function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance): CreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-    return withRuntimeCreationEnvironment({}, async () => {
-      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
-      const customTools = [createPiWebEditToolDefinition(cwd)];
-      const options = sessionStartEvent === undefined
-        ? { services, sessionManager, customTools }
-        : { services, sessionManager, sessionStartEvent, customTools };
-      const result = await createAgentSessionFromServices(options);
-      return { ...result, services, diagnostics: services.diagnostics };
-    });
+    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+    const customTools = [createPiWebEditToolDefinition(cwd)];
+    const options = sessionStartEvent === undefined
+      ? { services, sessionManager, customTools }
+      : { services, sessionManager, sessionStartEvent, customTools };
+    const result = await createAgentSessionFromServices(options);
+    return { ...result, services, diagnostics: services.diagnostics };
   };
-}
-
-function createManagementRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, managementContext: ManagementEmbedContext): CreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
-    return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
-      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
-      const customTools = createManagementSandboxToolDefinitions(cwd, managementContext);
-      const options = sessionStartEvent === undefined
-        ? { services, sessionManager, customTools, tools: managementAgentToolNames(managementContext) }
-        : { services, sessionManager, sessionStartEvent, customTools, tools: managementAgentToolNames(managementContext) };
-      // @ts-expect-error SDK customTools accepts concrete ToolDefinition instances at runtime, but the published type is invariant in render callbacks.
-      const result = await createAgentSessionFromServices(options);
-      return { ...result, services, diagnostics: services.diagnostics };
-    });
-  };
-}
-export { managementAgentToolNames };
-
-type ManagementSandboxToolDefinition =
-  | ReturnType<typeof createReadToolDefinition>
-  | ReturnType<typeof createWriteToolDefinition>
-  | ReturnType<typeof createPiWebEditToolDefinition>
-  | ReturnType<typeof createLsToolDefinition>
-  | ReturnType<typeof createGrepToolDefinition>
-  | ReturnType<typeof createFindToolDefinition>
-  | ReturnType<typeof createManagedPythonToolDefinition>;
-
-export function createManagementSandboxToolDefinitions(cwd: string, context: ManagementEmbedContext): ManagementSandboxToolDefinition[] {
-  const operations = createManagedFileOperations(cwd);
-  return [
-    createReadToolDefinition(cwd, { operations: operations.read }),
-    createWriteToolDefinition(cwd, { operations: operations.write }),
-    createPiWebEditToolDefinition(cwd, operations.edit),
-    createLsToolDefinition(cwd, { operations: operations.ls }),
-    createGrepToolDefinition(cwd, { operations: operations.grep }),
-    createFindToolDefinition(cwd, { operations: operations.find }),
-    createManagedPythonToolDefinition(cwd, context),
-  ];
 }
 
 type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
 
-function createPiWebEditToolDefinition(cwd: string, operations?: ReturnType<typeof createManagedFileOperations>["edit"]) {
-  const editTool = createEditToolDefinition(cwd, operations === undefined ? undefined : { operations });
+function createPiWebEditToolDefinition(cwd: string) {
+  const editTool = createEditToolDefinition(cwd);
   return defineTool<typeof editTool.parameters, PiWebEditToolDetails>({
     name: editTool.name,
     label: editTool.label,
@@ -259,236 +222,6 @@ function createPiWebEditToolDefinition(cwd: string, operations?: ReturnType<type
       return editTool.execute(toolCallId, params, signal, onUpdate, ctx);
     },
   });
-}
-
-const pythonSchema = Type.Object({
-  code: Type.String({ description: "Python code to run in the managed project workspace" }),
-  timeoutMs: Type.Optional(Type.Number({ description: "Execution timeout in milliseconds" })),
-});
-
-function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext) {
-  return defineTool<typeof pythonSchema, undefined>({
-    name: "python",
-    label: "python",
-    description: "Run Python code inside the managed project workspace. Shell commands and paths outside the project are blocked.",
-    promptSnippet: "Run Python code in the current project",
-    promptGuidelines: ["Use python for scripts and calculations. Do not use it to run shell commands."],
-    parameters: pythonSchema,
-    async execute(_toolCallId, params, signal) {
-      const configuredPython = context.sandbox?.pythonExecutable?.trim();
-      const pythonExecutable = configuredPython !== undefined && configuredPython !== "" ? configuredPython : "python3";
-      const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000));
-      const configuredBubblewrap = process.env["PI_WEB_BWRAP_EXECUTABLE"]?.trim();
-      const bubblewrapExecutable = configuredBubblewrap !== undefined && configuredBubblewrap !== "" ? configuredBubblewrap : "bwrap";
-      const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
-      return runManagedPython({ pythonExecutable, bubblewrapExecutable, cwd, code: params.code, timeoutMs, env, signal });
-    },
-  });
-}
-
-interface RunManagedPythonOptions {
-  pythonExecutable: string;
-  bubblewrapExecutable: string;
-  cwd: string;
-  code: string;
-  timeoutMs: number;
-  env: NodeJS.ProcessEnv;
-  signal: AbortSignal | undefined;
-}
-
-async function runManagedPython(options: RunManagedPythonOptions): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
-  const root = await fsRealpath(options.cwd);
-  const invocation = createBubblewrapPythonInvocation({
-    bubblewrapExecutable: options.bubblewrapExecutable,
-    pythonExecutable: options.pythonExecutable,
-    workspaceRoot: root,
-    env: options.env,
-    readOnlyPaths: await readableBubblewrapPaths(),
-  });
-  const result = await runPythonProcess({ command: invocation.command, args: invocation.args, cwd: root, env: options.env, code: options.code, timeoutMs: options.timeoutMs, signal: options.signal });
-  const unavailable = bubblewrapUnavailableReason(result.output);
-  if (unavailable !== undefined) {
-    return runManagedPythonFallback({ pythonExecutable: options.pythonExecutable, cwd: root, code: options.code, timeoutMs: options.timeoutMs, env: options.env, signal: options.signal });
-  }
-  return pythonToolResult(result.code, result.output);
-}
-
-async function runManagedPythonFallback(options: Omit<RunManagedPythonOptions, "bubblewrapExecutable">): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
-  const code = `${createManagedPythonFallbackPrelude(options.cwd)}\n${options.code}`;
-  const result = await runPythonProcess({ command: options.pythonExecutable, args: ["-I", "-"], cwd: options.cwd, env: options.env, code, timeoutMs: options.timeoutMs, signal: options.signal });
-  return pythonToolResult(result.code, result.output);
-}
-
-interface PythonProcessOptions {
-  command: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  code: string;
-  timeoutMs: number;
-  signal: AbortSignal | undefined;
-}
-
-async function runPythonProcess(options: PythonProcessOptions): Promise<{ code: number | null; output: string }> {
-  return new Promise((resolvePromise, reject) => {
-    if (options.signal?.aborted === true) {
-      reject(new Error("Operation aborted"));
-      return;
-    }
-    const child = spawn(options.command, options.args, { cwd: options.cwd, env: options.env, stdio: ["pipe", "pipe", "pipe"], shell: false });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Python execution timed out after ${String(options.timeoutMs)}ms`));
-    }, options.timeoutMs);
-    const onAbort = () => {
-      child.kill();
-      reject(new Error("Operation aborted"));
-    };
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", onAbort);
-      if (isNodeErrorWithCode(error, "ENOENT")) reject(new Error("Python sandbox is unavailable"));
-      else reject(error);
-    });
-    child.on("close", (codeValue) => {
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", onAbort);
-      const output = truncateToolOutput([stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== "").join("\n"));
-      resolvePromise({ code: codeValue, output });
-    });
-    child.stdin.end(options.code);
-  });
-}
-
-function pythonToolResult(codeValue: number | null, output: string): { content: { type: "text"; text: string }[]; details: undefined } {
-  const prefix = codeValue === 0 ? "" : `Python exited with code ${String(codeValue)}\n`;
-  return { content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined };
-}
-
-async function readableBubblewrapPaths(): Promise<string[]> {
-  const paths = await Promise.all(DEFAULT_BUBBLEWRAP_PATHS.map(async (path) => {
-    try {
-      await fsAccess(path, constants.R_OK);
-      return path;
-    } catch {
-      return undefined;
-    }
-  }));
-  return paths.filter(isDefined);
-}
-
-function createManagedFileOperations(cwd: string) {
-  const read: ReadOperations = {
-    readFile: async (absolutePath) => readFile(await assertExistingInside(cwd, absolutePath)),
-    access: async (absolutePath) => { await fsAccess(await assertExistingInside(cwd, absolutePath), constants.R_OK); },
-  };
-  const write: WriteOperations = {
-    writeFile: async (absolutePath, content) => { await writeFile(await assertWritableInside(cwd, absolutePath), content, "utf8"); },
-    mkdir: async (dir) => { await fsMkdir(await assertPotentialInside(cwd, dir), { recursive: true }); },
-  };
-  const edit = {
-    readFile: read.readFile,
-    writeFile: write.writeFile,
-    access: async (absolutePath: string) => { await fsAccess(await assertExistingInside(cwd, absolutePath), constants.R_OK | constants.W_OK); },
-  };
-  const ls: LsOperations = {
-    exists: async (absolutePath) => pathExistsInside(cwd, absolutePath),
-    stat: async (absolutePath) => fsStat(await assertExistingInside(cwd, absolutePath)),
-    readdir: async (absolutePath) => fsReaddir(await assertExistingInside(cwd, absolutePath)),
-  };
-  const grep: GrepOperations = {
-    isDirectory: async (absolutePath) => (await fsStat(await assertExistingInside(cwd, absolutePath))).isDirectory(),
-    readFile: async (absolutePath) => (await readFile(await assertExistingInside(cwd, absolutePath), "utf8")),
-  };
-  const find: FindOperations = {
-    exists: async (absolutePath) => pathExistsInside(cwd, absolutePath),
-    glob: async (pattern, searchPath, options) => managedGlob(cwd, pattern, searchPath, options.limit),
-  };
-  return { read, write, edit, ls, grep, find };
-}
-
-async function pathExistsInside(rootPath: string, targetPath: string): Promise<boolean> {
-  try {
-    await assertExistingInside(rootPath, targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function managedGlob(rootPath: string, pattern: string, searchPath: string, limit: number): Promise<string[]> {
-  const root = await fsRealpath(rootPath);
-  const start = await assertExistingInside(root, searchPath);
-  const regex = globPatternToRegExp(pattern);
-  const results: string[] = [];
-  async function walk(dir: string): Promise<void> {
-    if (results.length >= limit) return;
-    const entries = await fsReaddir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (results.length >= limit) return;
-      if (entry.name === ".git" || entry.name === "node_modules") continue;
-      const fullPath = resolve(dir, entry.name);
-      const safePath = await assertExistingInside(root, fullPath);
-      const rel = relative(start, safePath).split(sep).join("/");
-      if (entry.isDirectory()) {
-        await walk(safePath);
-      } else if (regex.test(rel)) {
-        results.push(safePath);
-      }
-    }
-  }
-  await walk(start);
-  return results;
-}
-
-function globPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "\0")
-    .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]")
-    .replace(/\0/g, ".*");
-  return new RegExp(`^${escaped}$`);
-}
-
-async function assertExistingInside(rootPath: string, targetPath: string): Promise<string> {
-  const [root, target] = await Promise.all([fsRealpath(rootPath), fsRealpath(targetPath)]);
-  ensurePathInside(root, target);
-  return target;
-}
-
-async function assertWritableInside(rootPath: string, targetPath: string): Promise<string> {
-  try {
-    return await assertExistingInside(rootPath, targetPath);
-  } catch {
-    const parent = await assertExistingInside(rootPath, dirname(targetPath));
-    const target = resolve(parent, basename(targetPath));
-    ensurePathInside(await fsRealpath(rootPath), target);
-    return target;
-  }
-}
-
-async function assertPotentialInside(rootPath: string, targetPath: string): Promise<string> {
-  const root = await fsRealpath(rootPath);
-  const target = resolve(targetPath);
-  ensurePathInside(root, target);
-  return target;
-}
-
-function ensurePathInside(root: string, target: string): void {
-  const rel = relative(root, target);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel) && (sep === "/" || !rel.split(sep).includes("..")))) return;
-  throw new Error("Path is outside the managed project sandbox");
-}
-
-function truncateToolOutput(value: string, limit = 64_000): string {
-  if (value.length <= limit) return value;
-  return `${value.slice(0, limit)}\n[output truncated]`;
 }
 
 export interface PiSessionServiceDependencies {
@@ -510,7 +243,6 @@ export class PiSessionService {
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
   private readonly compactionDrainTimers = new Map<string, NodeJS.Timeout>();
   private readonly authLossWarnings = new Set<string>();
-  private readonly managementContexts = new Map<string, ManagementEmbedContext>();
   private readonly archiveStore: SessionArchiveRepository;
   private readonly agentDir: string;
   private readonly sessionManager: PiSessionManagerGateway;
@@ -522,7 +254,7 @@ export class PiSessionService {
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies = {}) {
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.agentDir = deps.agentDir ?? getAgentDir();
-    this.sessionManager = deps.sessionManager ?? SessionManager;
+    this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({ agentDir: this.agentDir });
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(this.modelRegistry.authStorage, this.modelRegistry);
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
@@ -558,7 +290,6 @@ export class PiSessionService {
     this.activities.clear();
     this.compactionPromptQueues.clear();
     this.authLossWarnings.clear();
-    this.managementContexts.clear();
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
       this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd());
@@ -585,10 +316,10 @@ export class PiSessionService {
     return [...unarchivedSessions, ...archivedSessions];
   }
 
-  async start(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession> {
-    const active = await this.create(this.sessionManager.create(cwd), cwd, managementContext);
+  async start(cwd: string, _managementContext?: ManagementEmbedContext): Promise<ClientSession> {
+    void _managementContext;
+    const active = await this.create(this.sessionManager.create(cwd), cwd);
     const { session } = active.runtime;
-    if (managementContext !== undefined) this.managementContexts.set(session.sessionId, managementContext);
     return {
       id: session.sessionId,
       path: session.sessionFile ?? "",
@@ -600,17 +331,17 @@ export class PiSessionService {
     };
   }
 
-  async messages(sessionId: string, page?: { before?: number; limit?: number }): Promise<unknown[] | ClientMessagePage> {
-    const session = await this.getOrOpen(sessionId);
+  async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }): Promise<unknown[] | ClientMessagePage> {
+    const session = await this.getOrOpen(ref);
     return pageMessagesAtSafeBoundary(historyMessages(session), page);
   }
 
-  async status(sessionId: string): Promise<ClientSessionStatus> {
-    return this.statusFromSession(await this.getOrOpen(sessionId));
+  async status(ref: PiSessionLookup): Promise<ClientSessionStatus> {
+    return this.statusFromSession(await this.getOrOpen(ref));
   }
 
-  async availableModels(sessionId: string): Promise<ClientSessionModel[]> {
-    const session = await this.getOrOpen(sessionId);
+  async availableModels(ref: PiSessionLookup): Promise<ClientSessionModel[]> {
+    const session = await this.getOrOpen(ref);
     session.modelRegistry.refresh();
     const models = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
@@ -618,9 +349,9 @@ export class PiSessionService {
     return models.map(modelToClientModel);
   }
 
-  async setModel(sessionId: string, provider: string, modelId: string): Promise<ClientSessionStatus> {
-    await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId);
+  async setModel(ref: PiSessionLookup, provider: string, modelId: string): Promise<ClientSessionStatus> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
     session.modelRegistry.refresh();
     const candidates = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
@@ -634,9 +365,9 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async cycleModel(sessionId: string, direction: "forward" | "backward"): Promise<ClientSessionStatus> {
-    await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId);
+  async cycleModel(ref: PiSessionLookup, direction: "forward" | "backward"): Promise<ClientSessionStatus> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
     const result = await session.cycleModel(direction);
     if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available");
     this.publishActivity(session, `model: ${result.model.id}`, "idle", result.model.provider);
@@ -644,23 +375,28 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async availableThinkingLevels(sessionId: string): Promise<ClientThinkingLevel[]> {
-    const session = await this.getOrOpen(sessionId);
+  async availableThinkingLevels(ref: PiSessionLookup): Promise<ClientThinkingLevel[]> {
+    const session = await this.getOrOpen(ref);
     return session.getAvailableThinkingLevels();
   }
 
-  async setThinkingLevel(sessionId: string, level: ClientThinkingLevel): Promise<ClientSessionStatus> {
-    await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId);
-    session.setThinkingLevel(level);
+  async setThinkingLevel(ref: PiSessionLookup, level: string): Promise<ClientSessionStatus> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
+    // pi owns the valid set; validate against the session's live levels rather
+    // than a hardcoded union so this stays correct if pi changes the set.
+    const available = session.getAvailableThinkingLevels();
+    const match = available.find((candidate) => candidate === level);
+    if (match === undefined) throw new Error(`Invalid thinking level: ${level}`);
+    session.setThinkingLevel(match);
     this.publishActivity(session, `thinking: ${session.thinkingLevel}`, "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
 
-  async cycleThinkingLevel(sessionId: string): Promise<ClientSessionStatus> {
-    await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId);
+  async cycleThinkingLevel(ref: PiSessionLookup): Promise<ClientSessionStatus> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
     const level = session.cycleThinkingLevel();
     if (level === undefined) throw new Error("Current model does not support thinking");
     this.publishActivity(session, `thinking: ${level}`, "idle");
@@ -668,8 +404,8 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async commands(sessionId: string): Promise<ClientCommand[]> {
-    const session = await this.getOrOpen(sessionId);
+  async commands(ref: PiSessionLookup): Promise<ClientCommand[]> {
+    const session = await this.getOrOpen(ref);
     const commands: ClientCommand[] = [...BUILTIN_COMMANDS];
     for (const command of session.extensionRunner.getRegisteredCommands()) {
       commands.push({ name: command.invocationName, ...(command.description === undefined ? {} : { description: command.description }), source: "extension" });
@@ -683,17 +419,18 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async prompt(sessionId: string, text: unknown, streamingBehavior?: unknown, imagesValue?: unknown, managementContext?: ManagementEmbedContext): Promise<void> {
+  async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, _managementContext?: ManagementEmbedContext): Promise<void> {
+    void _managementContext;
     const promptText = requirePromptText(text);
     const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
-    const images = requirePromptImages(imagesValue);
-    await this.assertWritable(sessionId);
-    const session = await this.getOrOpen(sessionId, managementContext);
-    if (images.length > 0 && !modelSupportsImageInput(session.model)) throw new Error("当前模型不支持图片输入");
+    const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
+    const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
     this.maybeGenerateSessionName(session, promptText);
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
-    if (isQueued && this.hasQueuedMessageText(session, promptText)) {
+    if (isQueued && images.length === 0 && this.hasQueuedMessageText(session, promptText)) {
       this.publishActivity(session, "duplicate queued message ignored", "active");
       this.publishStatus(session);
       return;
@@ -705,10 +442,11 @@ export class PiSessionService {
     void this.submitPrompt(session, promptText, behavior, images);
   }
 
-  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: readonly PromptImage[] = []): Promise<void> {
+  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = []): Promise<void> {
     this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
-    if (behavior === undefined) this.events.publish(session.sessionId, { type: "message.append", message: userPromptMessage(text, images) });
-    const promptPromise = session.prompt(text, promptOptions(behavior, images)).catch((error: unknown) => {
+    if (behavior === undefined) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) });
+    const promptOptions = buildPromptOptions(behavior, images);
+    const promptPromise = session.prompt(text, promptOptions).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "error", "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message });
@@ -717,20 +455,26 @@ export class PiSessionService {
     return promptPromise;
   }
 
-  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: readonly PromptImage[] = []): void {
+  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: ImageContent[] = []): void {
     const queue = this.compactionPromptQueues.get(session.sessionId) ?? [];
-    queue.push({ kind, text, ...(images.length === 0 ? {} : { images: [...images] }) });
+    queue.push({ kind, text, ...(images.length > 0 ? { images } : {}) });
     this.compactionPromptQueues.set(session.sessionId, queue);
     this.publishActivity(session, "message queued during compaction", "active");
     this.publishStatus(session);
   }
 
-  async shell(sessionId: string, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
-    await this.assertWritable(sessionId);
-    this.assertManagedSessionAccess(sessionId, managementContext);
-    const effectiveContext = managementContext ?? this.managementContexts.get(sessionId);
-    if (effectiveContext !== undefined && !managementToolAllowed(effectiveContext, "shell")) throw new Error("Shell commands are disabled in management embed mode");
-    const active = await this.getActive(sessionId);
+  async saveAttachments(ref: PiSessionLookup, attachments: unknown, folder?: string): Promise<SavedPromptAttachment[]> {
+    const parsed = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
+    if (parsed.length === 0) return [];
+    await this.assertWritable(ref);
+    const active = await this.getActive(ref);
+    return saveAttachmentsToWorkspace(active.runtime.cwd, parsed, folder === undefined ? {} : { folder });
+  }
+
+  async shell(ref: PiSessionLookup, text: string, _managementContext?: ManagementEmbedContext): Promise<void> {
+    void _managementContext;
+    await this.assertWritable(ref);
+    const active = await this.getActive(ref);
     const { session } = active.runtime;
     const isExcluded = text.startsWith("!!");
     const command = (isExcluded ? text.slice(2) : text.slice(1)).trim();
@@ -763,40 +507,29 @@ export class PiSessionService {
     });
   }
 
-  async runCommand(sessionId: string, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
-    await this.assertWritable(sessionId);
-    this.assertManagedSessionAccess(sessionId, managementContext);
-    return this.commandService.run(sessionId, text);
+  async runCommand(ref: PiSessionLookup, text: string, _managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
+    void _managementContext;
+    await this.assertWritable(ref);
+    const active = await this.getActive(ref);
+    return this.commandService.run(active.runtime.session.sessionId, text);
   }
 
-  async respondToCommand(sessionId: string, requestId: string, value: string): Promise<ClientCommandResult> {
-    await this.assertWritable(sessionId);
-    return this.commandService.respond(sessionId, requestId, value);
+  async respondToCommand(ref: PiSessionLookup, requestId: string, value: string): Promise<ClientCommandResult> {
+    await this.assertWritable(ref);
+    const active = await this.getActive(ref);
+    return this.commandService.respond(active.runtime.session.sessionId, requestId, value);
   }
 
-  async archive(sessionId: string): Promise<void> {
-    const session = await this.getOrOpen(sessionId);
+  async archive(ref: PiSessionLookup): Promise<void> {
+    const session = await this.getOrOpen(ref);
     if (this.hasActiveWork(session)) throw new Error("Stop current session activity before archiving");
     const archiveInput = await this.archiveInputForSession(session);
     await this.closeActive(session.sessionId);
-    this.managementContexts.delete(session.sessionId);
     await this.archiveStore.archive(archiveInput);
   }
 
-  private assertManagedSessionAccess(sessionId: string, context: ManagementEmbedContext | undefined): void {
-    const existing = this.managementContexts.get(sessionId);
-    if (context === undefined || existing === undefined) return;
-    if (existing.user.rootUserId !== context.user.rootUserId) throw new Error("Session is outside the managed embed authorization scope");
-  }
-
-  private rememberManagedSessionAccess(sessionId: string, context: ManagementEmbedContext | undefined): void {
-    if (context === undefined) return;
-    this.assertManagedSessionAccess(sessionId, context);
-    if (!this.managementContexts.has(sessionId)) this.managementContexts.set(sessionId, context);
-  }
-
-  async archiveTree(sessionId: string): Promise<ClientArchiveSessionsResponse> {
-    const session = await this.getOrOpen(sessionId);
+  async archiveTree(ref: PiSessionLookup): Promise<ClientArchiveSessionsResponse> {
+    const session = await this.getOrOpen(ref);
     const catalog = await this.workspaceArchiveCandidates(session.sessionManager.getCwd());
     const root = findArchiveCandidateByIdOrPrefix(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false);
     const plan = planSessionArchiveTree(root, catalog);
@@ -815,21 +548,43 @@ export class PiSessionService {
     };
   }
 
-  async restore(sessionId: string): Promise<void> {
-    await this.closeActive(sessionId);
-    await this.archiveStore.restore(sessionId);
+  async restore(ref: PiSessionLookup): Promise<void> {
+    const archived = await this.getArchived(ref);
+    if (archived === undefined) throw new Error("Session not found");
+    await this.closeActive(archived.sessionId);
+    await this.archiveStore.restore(archived.sessionId);
   }
 
-  async detachParent(sessionId: string): Promise<void> {
-    const session = await this.getOrOpen(sessionId);
+  async deleteArchived(ref: PiSessionLookup): Promise<void> {
+    const record = await this.getArchived(ref);
+    if (record === undefined) throw new Error("Archived session not found");
+    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+
+    await this.closeActive(record.sessionId);
+    if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
+    await this.archiveStore.deleteArchived(record.sessionId);
+  }
+
+  async reload(ref: PiSessionLookup): Promise<void> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
+    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before reloading");
+    await this.closeActive(session.sessionId);
+    const reopened = await this.getActive(ref);
+    this.publishStatus(reopened.runtime.session);
+  }
+
+  async detachParent(ref: PiSessionLookup): Promise<void> {
+    const session = await this.getOrOpen(ref);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
     await clearParentSession(sessionFile);
   }
 
-  async abort(sessionId: string): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
+  async abort(ref: PiSessionLookup): Promise<void> {
+    const active = this.activeForLookup(ref);
+    if (active === undefined) return;
+    const sessionId = active.runtime.session.sessionId;
     this.clearCompactionPromptQueue(sessionId);
     clearSessionQueue(active.runtime.session);
     await active.runtime.session.abort();
@@ -837,8 +592,10 @@ export class PiSessionService {
     this.publishStatus(active.runtime.session);
   }
 
-  stop(sessionId: string): void {
-    void this.closeActive(sessionId).catch(() => {
+  stop(ref: PiSessionLookup): void {
+    const active = this.activeForLookup(ref);
+    if (active === undefined) return;
+    void this.closeActive(active.runtime.session.sessionId).catch(() => {
       // Best-effort shutdown; callers that need errors await closeActive directly.
     });
   }
@@ -859,6 +616,12 @@ export class PiSessionService {
     } catch {
       return record;
     }
+  }
+
+  private async ensureArchivedRecordMoved(record: ArchivedSessionRecord): Promise<ArchivedSessionRecord> {
+    const session = (await this.sessionManager.list(record.cwd)).find((candidate) => candidate.id === record.sessionId);
+    if (session === undefined) return record;
+    return this.archiveStore.archive(archiveInputFromListEntry(session));
   }
 
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
@@ -922,7 +685,6 @@ export class PiSessionService {
     const active = this.active.get(sessionId);
     if (!active) return;
     this.active.delete(sessionId);
-    this.managementContexts.delete(sessionId);
     this.activities.delete(sessionId);
     this.workspaceActivity?.removeSession(sessionId, active.runtime.session.sessionManager.getCwd());
     this.clearAuthLossWarningsForSession(sessionId);
@@ -936,56 +698,67 @@ export class PiSessionService {
     }
   }
 
-  private async assertWritable(sessionId: string): Promise<void> {
-    if (await this.archiveStore.isArchived(sessionId)) throw new Error("Archived sessions are read-only. Restore the session to continue.");
+  private async assertWritable(ref: PiSessionLookup): Promise<void> {
+    if (await this.getArchived(ref) !== undefined) throw new Error("Archived sessions are read-only. Restore the session to continue.");
   }
 
-  private async getOrOpen(sessionId: string, managementContext?: ManagementEmbedContext): Promise<PiAgentSession> {
-    return (await this.getActive(sessionId, managementContext)).runtime.session;
+  private async getOrOpen(ref: PiSessionLookup): Promise<PiAgentSession> {
+    return (await this.getActive(ref)).runtime.session;
   }
 
-  private async getActive(sessionId: string, managementContext?: ManagementEmbedContext): Promise<ActiveSession<PiSessionRuntime>> {
-    const active = this.active.get(sessionId);
-    if (active) {
-      const activeSessionId = active.runtime.session.sessionId;
-      const existingContext = this.managementContexts.get(activeSessionId);
-      if (managementContext !== undefined && existingContext === undefined) {
-        const sessionFile = active.runtime.session.sessionFile;
-        if (sessionFile === undefined || sessionFile === "") throw new Error("Managed embed session must be persisted before it can be resumed safely");
-        const activeCwd = active.runtime.session.sessionManager.getCwd();
-        await this.closeActive(activeSessionId);
-        return this.create(this.sessionManager.open(sessionFile), activeCwd, managementContext);
-      }
-      this.rememberManagedSessionAccess(active.runtime.session.sessionId, managementContext);
-      return active;
-    }
+  private async getActive(ref: PiSessionLookup): Promise<ActiveSession<PiSessionRuntime>> {
+    const active = this.activeForLookup(ref);
+    if (active !== undefined) return active;
 
-    const archived = await this.archiveStore.get(sessionId);
-    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext);
+    const archived = await this.getArchived(ref);
+    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd);
 
-    const match = (await this.sessionManager.listAll()).find((s) => s.id === sessionId || s.id.startsWith(sessionId));
+    const match = isPiSessionRef(ref)
+      ? (await this.sessionManager.list(ref.cwd)).find((s) => s.id === ref.id || s.id.startsWith(ref.id))
+      : (await this.sessionManager.listAll?.() ?? []).find((s) => s.id === ref || s.id.startsWith(ref));
     if (!match) throw new Error("Session not found");
-    return this.create(this.sessionManager.open(match.path), match.cwd, managementContext);
+    return this.create(this.sessionManager.open(match.path), match.cwd);
   }
 
-  private async create(sessionManager: PiSessionManager, cwd: string, managementContext?: ManagementEmbedContext): Promise<ActiveSession<PiSessionRuntime>> {
-    const createRuntime = managementContext === undefined
-      ? this.createRuntime
-      : createManagementRuntimeFactory(this.modelRegistry.authStorage, this.modelRegistry, managementContext);
-    const runtimeOptions = managementContext === undefined
-      ? { cwd, agentDir: this.agentDir, sessionManager }
-      : { cwd, agentDir: this.agentDir, sessionManager, managementContext };
-    const runtime = await this.createAgentRuntime(createRuntime, runtimeOptions);
+  private async getArchived(ref: PiSessionLookup): Promise<ArchivedSessionRecord | undefined> {
+    const archived = await this.archiveStore.get(sessionIdFromLookup(ref));
+    if (archived === undefined) return undefined;
+    if (isPiSessionRef(ref) && archived.cwd !== ref.cwd) return undefined;
+    return archived;
+  }
+
+  private activeForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
+    const sessionId = sessionIdFromLookup(ref);
+    const exact = this.active.get(sessionId);
+    if (exact !== undefined && lookupMatchesActiveSession(ref, exact)) return exact;
+    for (const [candidateId, active] of this.active.entries()) {
+      if (candidateId.startsWith(sessionId) && lookupMatchesActiveSession(ref, active)) return active;
+    }
+    return undefined;
+  }
+
+  private async create(sessionManager: PiSessionManager, cwd: string): Promise<ActiveSession<PiSessionRuntime>> {
+    const runtime = await this.createAgentRuntime(this.createRuntime, { cwd, agentDir: this.agentDir, sessionManager });
+    await this.bindSessionExtensions(runtime.session);
     const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
     this.bindRuntime(active);
-    runtime.setRebindSession(() => {
+    runtime.setRebindSession(async (session) => {
+      await this.bindSessionExtensions(session);
       this.bindRuntime(active);
-      return Promise.resolve();
     });
     this.active.set(runtime.session.sessionId, active);
-    this.rememberManagedSessionAccess(runtime.session.sessionId, managementContext);
     this.publishStatus(runtime.session);
     return active;
+  }
+
+  private async bindSessionExtensions(session: PiAgentSession): Promise<void> {
+    await session.bindExtensions({
+      onError: (error) => {
+        const message = `${error.extensionPath}: ${error.error}`;
+        this.publishActivity(session, "extension error", "error", message);
+        this.events.publish(session.sessionId, { type: "session.error", message });
+      },
+    });
   }
 
   private bindRuntime(active: ActiveSession<PiSessionRuntime>): void {
@@ -994,11 +767,6 @@ export class PiSessionService {
     for (const [sessionId, candidate] of this.active.entries()) {
       if (candidate === active) {
         this.active.delete(sessionId);
-        const context = this.managementContexts.get(sessionId);
-        if (context !== undefined && sessionId !== session.sessionId) {
-          this.managementContexts.delete(sessionId);
-          this.managementContexts.set(session.sessionId, context);
-        }
         if (sessionId !== session.sessionId) this.clearCompactionPromptQueue(sessionId);
       }
     }
@@ -1035,14 +803,14 @@ export class PiSessionService {
       const queued = this.takeCompactionPromptQueue(sessionId);
       if (queued.length === 0) return;
       this.publishStatus(session);
-      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images ?? []);
+      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images);
       return;
     }
 
     const prompt = this.shiftCompactionPrompt(sessionId);
     if (prompt === undefined) return;
     this.publishStatus(session);
-    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images ?? []);
+    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images);
     void submitted.finally(() => { this.scheduleCompactionQueueDrain(sessionId); });
   }
 
@@ -1255,25 +1023,13 @@ function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel 
   if (model === undefined) return {};
   const name = getString(model, "name");
   const reasoning = getProperty(model, "reasoning");
-  const input = modelInput(model);
   return {
     provider: model.provider,
     id: model.id,
     ...(name === undefined ? {} : { name }),
     contextWindow: model.contextWindow,
     ...(reasoning === undefined ? {} : { reasoning }),
-    ...(input === undefined ? {} : { input }),
   };
-}
-
-function modelInput(model: PiAgentSession["model"]): ("text" | "image")[] | undefined {
-  const input = getProperty(model, "input");
-  if (!Array.isArray(input)) return undefined;
-  return input.filter((item): item is "text" | "image" => item === "text" || item === "image");
-}
-
-function modelSupportsImageInput(model: PiAgentSession["model"]): boolean {
-  return modelInput(model)?.includes("image") === true;
 }
 
 function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession {
@@ -1416,10 +1172,6 @@ function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
 }
 
-function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
 async function clearParentSession(sessionFile: string): Promise<void> {
   const content = await readFile(sessionFile, "utf8");
   const newlineIndex = content.indexOf("\n");
@@ -1436,27 +1188,36 @@ function clearSessionQueue(session: PiAgentSession): void {
   session.clearQueue();
 }
 
-function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = []): { kind: "steer" | "followUp"; text: string; imageCount?: number }[] {
+function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = []): { kind: "steer" | "followUp"; text: string }[] {
   return [
     ...session.getSteeringMessages().map((text) => ({ kind: "steer" as const, text })),
     ...session.getFollowUpMessages().map((text) => ({ kind: "followUp" as const, text })),
-    ...extraQueuedMessages.map((message) => queuedPromptSummary(message)),
+    ...extraQueuedMessages,
   ];
 }
 
-function queuedPromptSummary(message: QueuedPrompt): { kind: QueuedPromptKind; text: string; imageCount?: number } {
-  const imageCount = message.images?.length ?? 0;
-  return { kind: message.kind, text: message.text, ...(imageCount === 0 ? {} : { imageCount }) };
+function userTextMessage(text: string): { role: "user"; content: string } {
+  return { role: "user", content: text };
 }
 
-function promptOptions(behavior: QueuedPromptKind | undefined, images: readonly PromptImage[]): { streamingBehavior?: QueuedPromptKind; images?: PromptImage[] } | undefined {
-  if (behavior === undefined && images.length === 0) return undefined;
-  return { ...(behavior === undefined ? {} : { streamingBehavior: behavior }), ...(images.length === 0 ? {} : { images: [...images] }) };
+/**
+ * Build the optimistic user message echoed to clients. When images are present
+ * we mirror pi's content-array shape (`[{type:"text"}, {type:"image"}, ...]`) so
+ * the local echo matches what pi persists in the session branch.
+ */
+function userMessage(text: string, images: ImageContent[]): { role: "user"; content: string | (ImageContent | { type: "text"; text: string })[] } {
+  if (images.length === 0) return userTextMessage(text);
+  const content: (ImageContent | { type: "text"; text: string })[] = [];
+  if (text !== "") content.push({ type: "text", text });
+  content.push(...images);
+  return { role: "user", content };
 }
 
-function userPromptMessage(text: string, images: readonly PromptImage[]): { role: "user"; content: string | ({ type: "text"; text: string } | PromptImage)[] } {
-  if (images.length === 0) return { role: "user", content: text };
-  return { role: "user", content: [{ type: "text", text }, ...images] };
+function buildPromptOptions(behavior: QueuedPromptKind | undefined, images: ImageContent[]): { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] } | undefined {
+  const options: { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] } = {};
+  if (behavior !== undefined) options.streamingBehavior = behavior;
+  if (images.length > 0) options.images = images;
+  return Object.keys(options).length > 0 ? options : undefined;
 }
 
 function stringValue(value: unknown): string {

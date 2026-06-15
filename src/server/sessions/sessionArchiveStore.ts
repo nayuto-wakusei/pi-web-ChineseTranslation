@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access, copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { canonicalizeStoredCwd } from "../workingDirectory.js";
 
 export interface ArchiveSessionInput {
   sessionId: string;
@@ -88,6 +89,18 @@ export class SessionArchiveStore {
     });
   }
 
+  async deleteArchived(sessionId: string): Promise<void> {
+    await this.exclusive(async () => {
+      const data = await this.read();
+      const record = data.sessions.find((session) => session.sessionId === sessionId);
+      if (record === undefined) return;
+
+      if (record.archivePath !== undefined && await pathExists(record.archivePath)) await unlink(record.archivePath);
+      const sessions = data.sessions.filter((session) => session.sessionId !== sessionId);
+      await this.write({ sessions });
+    });
+  }
+
   async isArchived(sessionId: string): Promise<boolean> {
     return (await this.get(sessionId)) !== undefined;
   }
@@ -136,7 +149,7 @@ export class SessionArchiveStore {
 function archiveRecordFromInput(session: ArchiveSessionInput, archive: { archivedAt: string; originalPath: string; archivePath: string }): ArchivedSessionRecord {
   return {
     sessionId: session.sessionId,
-    cwd: session.cwd,
+    cwd: canonicalizeStoredCwd(session.cwd),
     archivedAt: archive.archivedAt,
     originalPath: archive.originalPath,
     archivePath: archive.archivePath,
@@ -199,6 +212,7 @@ function parseArchivedSessionRecord(value: unknown): ArchivedSessionRecord {
   const cwd = value["cwd"];
   const archivedAt = value["archivedAt"];
   if (typeof sessionId !== "string" || typeof cwd !== "string" || typeof archivedAt !== "string") throw new Error("Invalid archived session record");
+  const canonicalCwd = canonicalizeStoredCwd(cwd);
   const originalPath = optionalString(value, "originalPath");
   const archivePath = optionalString(value, "archivePath");
   const created = optionalString(value, "created");
@@ -209,7 +223,7 @@ function parseArchivedSessionRecord(value: unknown): ArchivedSessionRecord {
   const parentSessionPath = optionalString(value, "parentSessionPath");
   return {
     sessionId,
-    cwd,
+    cwd: canonicalCwd,
     archivedAt,
     ...(originalPath === undefined ? {} : { originalPath }),
     ...(archivePath === undefined ? {} : { archivePath }),

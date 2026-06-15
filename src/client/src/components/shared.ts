@@ -21,7 +21,7 @@ export interface ToolExecutionPart {
 
 export type ChatPart =
   | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string }
+  | { type: "image"; mimeType: string; data: string }
   | { type: "thinking"; text: string }
   | { type: "skillInvocation"; name: string; location: string; content: string }
   | { type: "skillRead"; name: string; path: string }
@@ -144,7 +144,7 @@ export const appStyles = css`
   }
   status-bar { flex: 0 0 auto; }
   chat-view { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-  prompt-editor, chat-composer { flex: 0 0 auto; }
+  prompt-editor { flex: 0 0 auto; }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
   .error { padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }
@@ -185,11 +185,7 @@ export const workspacePanelStyles = css`
   .workspace-label-link { color: var(--pi-accent); text-decoration: none; }
   .workspace-label-link:hover, .workspace-label-link:focus { text-decoration: underline; }
   .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--pi-border-muted); }
-  .toolbar-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; flex-wrap: wrap; }
-  .toolbar button.danger { color: var(--pi-danger); }
-  .file-upload-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; cursor: pointer; }
-  .file-upload-button.disabled { opacity: .55; cursor: not-allowed; }
-  .file-upload-button input { display: none; }
+  .toolbar button { margin-left: auto; }
   .stale { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); padding: 1px 6px; font-size: 12px; }
   .split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }
   .list { min-height: 0; overflow: auto; border-bottom: 1px solid var(--pi-border); padding: 6px; }
@@ -217,9 +213,6 @@ export const listStyles = css`
   section { box-sizing: border-box; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px; }
   h2 { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
   .list-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
-  .empty-list { box-sizing: border-box; display: grid; gap: 4px; margin: 6px 0; border: 1px dashed var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-muted); padding: 10px; line-height: 1.35; }
-  .empty-list strong { color: var(--pi-text); font-size: 13px; }
-  .empty-list small { white-space: normal; overflow: visible; text-overflow: clip; }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   section > button { display: block; width: 100%; text-align: left; margin: 6px 0; }
   .subheading { margin-top: 14px; }
@@ -256,6 +249,8 @@ export const listStyles = css`
   .activity-indicator { display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--pi-success); animation: pulse 1s ease-in-out infinite; vertical-align: 1px; }
   .activity-indicator.session { border-radius: 50%; background: var(--pi-success); }
   .activity-indicator.terminal { border-radius: 2px; background: var(--pi-accent); }
+  /* Client-side sending (upload in flight); distinct from server activity, which propagates to workspace/machine rows. */
+  .activity-indicator.sending { border-radius: 50%; background: var(--pi-warning); }
   .action-menu { position: relative; align-self: stretch; }
   .action-menu-toggle { display: grid; place-items: center; height: 100%; min-width: 32px; padding: 0; color: var(--pi-muted); border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .action-menu-toggle:hover { color: var(--pi-text); background: var(--pi-surface-hover); }
@@ -285,8 +280,9 @@ export const chatStyles = css`
   .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }
   .activity-dock.active .dot { animation: pulse 1s ease-in-out infinite; opacity: 1; }
-  .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overflow: visible; }
-  .msg.user { border-color: var(--pi-accent-border); background: var(--pi-selection-bg); }
+  .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-left: 3px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overflow: visible; }
+  .msg.assistant { border-left-color: var(--pi-text-secondary); background: var(--pi-surface); }
+  .msg.user { border-color: var(--pi-accent-border); border-left: 3px solid var(--pi-accent); background: var(--pi-selection-bg); }
   .msg.tool { border-color: var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-warning); }
   .msg.tool-execution-shell { padding: 0; border: 0; background: transparent; color: var(--pi-text); }
   .msg.system { color: var(--pi-danger); }
@@ -298,6 +294,7 @@ export const chatStyles = css`
   .msg.event-group.live > summary { border-bottom-color: var(--pi-success-border); background: var(--pi-success-bg); color: var(--pi-success); }
   .msg.event-group > summary .label { margin: 0; }
   .group-body { padding: 0 12px 12px; }
+  .chat-image { display: block; max-width: 100%; max-height: 320px; margin: 8px 0 0; border: 1px solid var(--pi-border-muted); border-radius: 8px; object-fit: contain; }
   .group-msg { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 0; border-top: 1px solid var(--pi-border-muted); color: var(--pi-text); overflow: visible; }
   .group-msg.tool { color: var(--pi-warning); }
   .group-msg.tool-execution-shell { color: var(--pi-text); }
@@ -324,6 +321,8 @@ export const chatStyles = css`
   .msg-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px; margin-bottom: 8px; }
   .msg > .msg-header { position: sticky; top: -26px; z-index: 4; margin: -12px -12px 8px; padding: 7px 10px 6px; border-radius: 9px 9px 0 0; border-bottom: 1px solid color-mix(in srgb, var(--pi-border-muted) 35%, transparent); background: var(--pi-surface); box-shadow: 0 8px 18px var(--pi-shadow-soft); }
   .msg.user > .msg-header { border-bottom-color: color-mix(in srgb, var(--pi-accent-border) 35%, transparent); background: var(--pi-selection-bg); }
+  .msg.assistant > .msg-header .label { color: var(--pi-text-secondary); }
+  .msg.user > .msg-header .label { color: var(--pi-accent); }
   .msg.tool > .msg-header { border-bottom-color: color-mix(in srgb, var(--pi-warning-border) 35%, transparent); background: var(--pi-warning-surface); }
   .msg.bash > .msg-header { border-bottom-color: color-mix(in srgb, var(--pi-success) 35%, transparent); background: var(--pi-success-bg); }
   .msg.skill > .msg-header { border-bottom-color: color-mix(in srgb, var(--pi-purple-border) 35%, transparent); background: var(--pi-purple-surface); }
@@ -348,8 +347,6 @@ export const chatStyles = css`
   formatted-text.part { display: block; }
   .part { max-width: 100%; min-width: 0; box-sizing: border-box; overflow: visible; }
   .part + .part { margin-top: 10px; }
-  .chat-image { margin: 0; }
-  .chat-image img { display: block; max-width: min(100%, 420px); max-height: 320px; object-fit: contain; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: var(--pi-bg); }
   .tool-line { color: var(--pi-warning); }
   .summary { color: var(--pi-muted); margin-left: 6px; }
   .part:is(details) { border-top: 1px solid var(--pi-border); padding-top: 8px; }
@@ -456,28 +453,33 @@ export const promptEditorStyles = css`
   .actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap; }
   .compact-status { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--pi-muted); font-size: 12px; flex: 1 1 0; }
   .compact-status > button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .image-attachments { display: flex; gap: 8px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
-  .image-attachment { position: relative; flex: 0 0 auto; width: 116px; margin: 0; display: grid; grid-template-rows: 72px auto; gap: 4px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 6px; box-sizing: border-box; }
-  .image-attachment img { width: 100%; height: 72px; object-fit: cover; border-radius: 5px; background: var(--pi-bg); }
-  .image-attachment figcaption { min-width: 0; display: grid; gap: 1px; color: var(--pi-muted); font-size: 11px; line-height: 1.2; }
-  .image-attachment figcaption span, .image-attachment figcaption small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .image-attachment button { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border-radius: 999px; background: var(--pi-bg-overlay); }
-  .input-notice { color: var(--pi-warning); font-size: 12px; line-height: 1.3; }
   .select-model { max-width: min(42vw, 320px); }
-  .select-thinking { max-width: 110px; }
+  .icon-button { flex: 0 0 auto; display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; }
+  .icon-button .prompt-action-icon, .icon-button .prompt-thinking-gauge { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .icon-button .prompt-action-icon-filled { fill: currentColor; stroke: none; }
+  .send-button:not(:disabled) { color: var(--pi-accent, var(--pi-text)); }
+  .stop-button:not(:disabled) { color: var(--pi-danger); }
+  .select-thinking .prompt-thinking-gauge .gauge-bar { fill: currentColor; stroke: none; opacity: .28; }
+  .select-thinking .prompt-thinking-gauge .gauge-bar-active { opacity: 1; }
+  .editor-attach { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 30px; height: 30px; }
+  .editor-attach .prompt-action-icon { width: 16px; height: 16px; }
   textarea, .markdown-editor .cm-editor { box-sizing: border-box; width: 100%; min-height: 54px; max-height: 220px; resize: none; overflow: hidden; border-radius: 8px; border: 1px solid var(--pi-border); background: var(--pi-bg); color: var(--pi-text); font: 16px/1.4 system-ui, sans-serif; }
   textarea { overflow-y: auto; padding: 8px; }
   .markdown-editor .cm-scroller { max-height: 220px; overflow-y: auto; font-family: system-ui, sans-serif; line-height: 1.4; }
-  .markdown-editor .cm-content { min-height: 38px; padding: 8px; caret-color: var(--pi-text); }
+  .markdown-editor .cm-content { min-height: 38px; padding: 8px 44px 8px 8px; caret-color: var(--pi-text); }
   .markdown-editor .cm-line { padding: 0; }
   .markdown-editor .cm-placeholder { color: var(--pi-dim); }
   .markdown-editor .cm-focused { outline: none; }
   .shell-mode textarea, .shell-mode .markdown-editor .cm-editor { border-color: var(--pi-success); box-shadow: 0 0 0 1px var(--pi-success-ring); }
-  .mode-hint { position: absolute; right: 8px; bottom: 8px; max-width: calc(100% - 16px); border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
-  button, .image-input-button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-  .image-input-button { display: inline-flex; align-items: center; gap: 5px; }
-  .image-input-button input { display: none; }
-  button:disabled, textarea:disabled, .markdown-editor-disabled .cm-editor, .image-input-button.disabled { opacity: .5; cursor: not-allowed; }
+  .mode-hint { position: absolute; right: 46px; bottom: 8px; max-width: calc(100% - 54px); border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
+  .attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+  .attachment-chip { position: relative; width: 56px; height: 56px; border: 1px solid var(--pi-border); border-radius: 8px; overflow: hidden; background: var(--pi-bg); }
+  .attachment-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .attachment-remove { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; padding: 0; line-height: 16px; border-radius: 50%; border: 1px solid var(--pi-border); background: var(--pi-surface); color: var(--pi-text); font-size: 13px; cursor: pointer; }
+  .attachment-delivery select { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; font: 12px system-ui, sans-serif; }
+  .attachment-error { flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
+  button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+  button:disabled, textarea:disabled, .markdown-editor-disabled .cm-editor { opacity: .5; cursor: not-allowed; }
   @media (max-width: 640px) {
     footer { gap: 8px; padding: 8px; }
     .actions { gap: 6px; }
@@ -488,9 +490,7 @@ export const promptEditorStyles = css`
   @media (max-width: 430px) {
     .compact-status { flex-basis: 170px; font-size: 11px; }
     .select-model { max-width: 48vw; }
-    .select-thinking { max-width: 70px; }
     button { padding: 5px 7px; }
+    .icon-button { width: 34px; height: 34px; }
   }
 `;
-
-export const composerStyles = promptEditorStyles;

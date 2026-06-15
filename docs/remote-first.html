@@ -3,13 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Remote-first development with PI WEB</title>
+    <title>Remote-first Pi web UI — PI WEB</title>
     <meta
       name="description"
-      content="Why PI WEB makes AI coding work persistent by default: agents keep running outside your device while the browser becomes the control plane."
+      content="Why PI WEB keeps Pi Coding Agent sessions running outside your device while any browser becomes a web UI for supervision and review."
     />
-    <meta property="og:title" content="Remote-first development with PI WEB" />
-    <meta property="og:image" content="assets/pi-web-banner.png" />
+    <link rel="canonical" href="https://pi-web.dev/remote-first.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="Remote-first Pi web UI — PI WEB" />
+    <meta
+      property="og:description"
+      content="Run Pi Coding Agent where work can persist, then supervise sessions from any device with PI WEB."
+    />
+    <meta property="og:url" content="https://pi-web.dev/remote-first.html" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Remote-first Pi web UI — PI WEB" />
+    <meta
+      name="twitter:description"
+      content="Run Pi Coding Agent where work can persist, then supervise sessions from any device with PI WEB."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <script>
       (() => {
@@ -75,7 +91,7 @@
             <a href="#why-local-blocks">The old assumption</a>
             <a href="#persistence-first">Persistence first-class</a>
             <a href="#what-remote-unlocks">What remote unlocks</a>
-            <a href="#browser-control">Browser as control plane</a>
+            <a href="#browser-control">Browser as web UI</a>
             <a href="#human-role">The human role</a>
             <a href="#recommended-shape">Recommended shape</a>
           </aside>
@@ -138,11 +154,12 @@
             </section>
 
             <section id="browser-control">
-              <h2>The browser becomes the control plane</h2>
+              <h2>The browser becomes your Pi web UI</h2>
               <p>
                 Your device should not have to be the editor, terminal, build server, and agent runtime. In PI WEB, the
                 browser is the cockpit: supervise sessions, redirect agents, inspect transcripts, and review progress
-                while the development environment stays remote and stable.
+                while the development environment stays remote and stable. Under the hood, PI WEB still coordinates the
+                running work like a browser-based control plane.
               </p>
               <p>
                 Laptop, phone, tablet, desktop: they are just windows into the same running work. You remain in control,

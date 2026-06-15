@@ -8,6 +8,7 @@ import type { ClientFileSuggestion } from "../types.js";
 const execFileAsync = promisify(execFile);
 const commandMaxBuffer = 1024 * 1024 * 8;
 const maxFilesystemFallbackPaths = 20_000;
+const maxFileSuggestions = 80;
 
 interface ExecFileOptions {
   cwd: string;
@@ -30,11 +31,10 @@ export async function listFileSuggestions(cwd: string, query = "", options: File
   const normalizedQuery = normalizeFileQuery(query);
   const exec = deps.execFile ?? execFileAsync;
   const files = await listFilesForScope(cwd, options.scope, exec);
-  return files
-    .filter((file) => options.kind === undefined || file.kind === options.kind)
-    .filter((file) => normalizedQuery === "" || file.path.toLowerCase().includes(normalizedQuery))
-    .sort((a, b) => Number(!a.path.endsWith("/")) - Number(!b.path.endsWith("/")) || a.path.localeCompare(b.path))
-    .slice(0, 80);
+  return rankFileSuggestions(
+    files.filter((file) => options.kind === undefined || file.kind === options.kind),
+    normalizedQuery,
+  ).slice(0, maxFileSuggestions);
 }
 
 export async function listPathSuggestions(cwd: string, prefix = ""): Promise<ClientFileSuggestion[]> {
@@ -61,31 +61,39 @@ export async function listPathSuggestions(cwd: string, prefix = ""): Promise<Cli
 }
 
 async function listFilesForScope(cwd: string, scope: FileSuggestionScope | undefined, exec: NonNullable<FileSuggestionDependencies["execFile"]>): Promise<ClientFileSuggestion[]> {
-  if (scope === "all") return listPlainFiles(cwd, exec, true);
+  if (scope === "all") return listAllFiles(cwd, exec);
   if (scope === "tracked") return listTrackedFiles(cwd, exec).catch(() => listPlainFiles(cwd, exec, true));
   return listGitFiles(cwd, exec).catch(() => listPlainFiles(cwd, exec, false));
 }
 
 async function listTrackedFiles(cwd: string, exec: NonNullable<FileSuggestionDependencies["execFile"]>): Promise<ClientFileSuggestion[]> {
-  return withDirectories(lines(await git(cwd, ["ls-files"], exec)), "tracked");
+  return withDirectories(nulRecords(await git(cwd, ["ls-files", "-z"], exec)), "tracked");
 }
 
 async function listGitFiles(cwd: string, exec: NonNullable<FileSuggestionDependencies["execFile"]>): Promise<ClientFileSuggestion[]> {
   const [tracked, untracked] = await Promise.all([
-    git(cwd, ["ls-files"], exec),
-    git(cwd, ["ls-files", "--others", "--exclude-standard"], exec),
+    git(cwd, ["ls-files", "-z"], exec),
+    git(cwd, ["ls-files", "--others", "--exclude-standard", "-z"], exec),
   ]);
   return [
-    ...withDirectories(lines(tracked), "tracked"),
-    ...withDirectories(lines(untracked), "untracked"),
+    ...withDirectories(nulRecords(tracked), "tracked"),
+    ...withDirectories(nulRecords(untracked), "untracked"),
   ];
+}
+
+async function listAllFiles(cwd: string, exec: NonNullable<FileSuggestionDependencies["execFile"]>): Promise<ClientFileSuggestion[]> {
+  const [gitFiles, plainFiles] = await Promise.all([
+    listGitFiles(cwd, exec).catch((): ClientFileSuggestion[] => []),
+    listPlainFiles(cwd, exec, true),
+  ]);
+  return mergeSuggestions(gitFiles, plainFiles);
 }
 
 async function listPlainFiles(cwd: string, exec: NonNullable<FileSuggestionDependencies["execFile"]>, includeIgnored: boolean): Promise<ClientFileSuggestion[]> {
   try {
-    const args = includeIgnored ? ["--files", "--hidden", "--no-ignore"] : ["--files"];
+    const args = includeIgnored ? ["--files", "--hidden", "--no-ignore", "--glob", "!.git", "--glob", "!.git/**"] : ["--files"];
     const { stdout } = await exec("rg", args, { cwd, maxBuffer: commandMaxBuffer });
-    return withDirectories(lines(stdout), "other");
+    return withDirectories(textLines(stdout), "other");
   } catch {
     return withDirectories(await filesystemFiles(cwd), "other");
   }
@@ -113,6 +121,7 @@ async function collectFilesystemFiles(cwd: string, relativeDirectory: string, pa
     if (paths.length >= maxFilesystemFallbackPaths) return;
     const relativePath = relativeDirectory === "" ? entry.name : `${relativeDirectory}/${entry.name}`;
     if (entry.isDirectory()) {
+      if (entry.name === ".git") continue;
       await collectFilesystemFiles(cwd, relativePath, paths, true);
       continue;
     }
@@ -135,11 +144,88 @@ async function git(cwd: string, args: string[], exec: NonNullable<FileSuggestion
 }
 
 function normalizeFileQuery(query: string): string {
-  return query.replace(/^!@/, "").replace(/^@\s?/, "").toLowerCase();
+  return query.replace(/^!@/, "").replace(/^@\s?/, "").replace(/^"/, "").toLowerCase();
 }
 
-function lines(text: string): string[] {
-  return text.split("\n").map((line) => line.trim()).filter(Boolean);
+function rankFileSuggestions(files: ClientFileSuggestion[], normalizedQuery: string): ClientFileSuggestion[] {
+  if (normalizedQuery === "") return [...files].sort(compareFileSuggestions);
+  return files
+    .map((file) => ({ file, score: fileSuggestionScore(file.path, normalizedQuery) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || kindRank(a.file.kind) - kindRank(b.file.kind) || pathDepth(a.file.path) - pathDepth(b.file.path) || compareFileSuggestions(a.file, b.file))
+    .map(({ file }) => file);
+}
+
+function fileSuggestionScore(path: string, normalizedQuery: string): number {
+  const normalizedPath = normalizeSuggestionPathForSearch(path);
+  const name = displayBasename(normalizedPath);
+  if (normalizedPath === normalizedQuery) return 1000;
+  if (name === normalizedQuery) return 980;
+  if (name.startsWith(normalizedQuery)) return 900;
+  if (normalizedPath.startsWith(normalizedQuery)) return 850;
+  if (name.includes(normalizedQuery)) return 750;
+  if (normalizedPath.includes(normalizedQuery)) return 650;
+
+  const tokens = normalizedQuery.split(/\s+/u).filter(Boolean);
+  if (tokens.length > 1 && tokens.every((token) => normalizedPath.includes(token))) {
+    return 550 + tokens.filter((token) => name.includes(token)).length * 25;
+  }
+
+  return isSubsequence(normalizedQuery, normalizedPath) ? 200 : 0;
+}
+
+function normalizeSuggestionPathForSearch(path: string): string {
+  const lower = path.toLowerCase();
+  return lower.endsWith("/") ? lower.slice(0, -1) : lower;
+}
+
+function displayBasename(path: string): string {
+  return path.split("/").filter(Boolean).at(-1) ?? path;
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let haystackIndex = 0;
+  for (const char of needle) {
+    haystackIndex = haystack.indexOf(char, haystackIndex);
+    if (haystackIndex === -1) return false;
+    haystackIndex += char.length;
+  }
+  return true;
+}
+
+function compareFileSuggestions(a: ClientFileSuggestion, b: ClientFileSuggestion): number {
+  return Number(!a.path.endsWith("/")) - Number(!b.path.endsWith("/")) || a.path.localeCompare(b.path);
+}
+
+function kindRank(kind: ClientFileSuggestion["kind"]): number {
+  switch (kind) {
+    case "tracked": return 0;
+    case "untracked": return 1;
+    case "other": return 2;
+  }
+}
+
+function pathDepth(path: string): number {
+  return path.split("/").filter(Boolean).length;
+}
+
+function textLines(text: string): string[] {
+  return text.split("\n").map((line) => line.endsWith("\r") ? line.slice(0, -1) : line).filter((line) => line !== "");
+}
+
+function nulRecords(text: string): string[] {
+  return text.split("\0").filter((record) => record !== "");
+}
+
+function mergeSuggestions(primary: ClientFileSuggestion[], secondary: ClientFileSuggestion[]): ClientFileSuggestion[] {
+  const seen = new Set<string>();
+  const merged: ClientFileSuggestion[] = [];
+  for (const suggestion of [...primary, ...secondary]) {
+    if (seen.has(suggestion.path)) continue;
+    seen.add(suggestion.path);
+    merged.push(suggestion);
+  }
+  return merged;
 }
 
 function withDirectories(paths: string[], kind: ClientFileSuggestion["kind"]): ClientFileSuggestion[] {

@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
-import { createHmac } from "node:crypto";
+import { mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -13,9 +12,9 @@ import { MachineService } from "./machines/machineService.js";
 import { MachineStore } from "./machines/machineStore.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
 import { machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
-import { createManagementEmbedRuntime, type ManagementEmbedContext } from "./managementEmbed.js";
 import type { Project, Workspace } from "./types.js";
 
 let app: FastifyInstance;
@@ -38,22 +37,20 @@ beforeEach(async () => {
         return remoteClient;
       },
       now: () => new Date("2026-05-25T00:00:00.000Z"),
-      localStatus: () => Promise.resolve({
-        packageName: "@chainingintention/pi-web-cn",
+      localRuntime: () => Promise.resolve({
+        packageName: "@jmfederico/pi-web",
         generatedAt: "2026-05-25T00:00:00.000Z",
         components: {
-          web: { component: "web", label: "PI WEB", stale: false, available: true },
-          sessiond: { component: "sessiond", label: "PI WEB Session Daemon", stale: false, available: true },
+          web: { component: "web", label: "PI WEB", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
+          sessiond: { component: "sessiond", label: "PI WEB Session Daemon", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
         },
-        release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
-        commands: { update: "", restart: "", restartSystemd: "", restartDev: "" },
-        messages: [],
+        capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
       }),
     }),
     sessionDaemon: fakeSessionDaemon(),
     piWebPlugins: {
-      manifest: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local" }] }),
-      plugins: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", enabled: true }] }),
+      manifest: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
+      plugins: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] }),
       readAsset: (pluginId, assetPath) => Promise.resolve(pluginId === "fake" && assetPath === "plugin.js" ? { content: Buffer.from("export default {};"), contentType: "application/javascript; charset=utf-8" } : undefined),
     },
     clientDist: false,
@@ -89,13 +86,13 @@ describe("buildApp", () => {
       statusCode: 200,
       headers: { "content-type": "application/json" },
       body: {
-        packageName: "@chainingintention/pi-web-cn",
+        packageName: "@jmfederico/pi-web",
         generatedAt: "2026-05-25T00:00:00.000Z",
         components: {
           web: { component: "web", label: "Remote Web", stale: false, available: true },
           sessiond: { component: "sessiond", label: "Remote Sessiond", stale: false, available: true },
         },
-        release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
+        release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
         commands: { update: "", restart: "", restartSystemd: "", restartDev: "" },
         messages: [],
       },
@@ -109,6 +106,31 @@ describe("buildApp", () => {
     expect(localHealth.json()).toMatchObject({ machineId: "local", ok: true, status: "online" });
     expect(remoteHealth.statusCode).toBe(200);
     expect(remoteHealth.json()).toMatchObject({ machineId: remote.id, ok: true, status: "online" });
+  });
+
+  it("reports effective machine runtime capabilities for remote machines", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: {
+        packageName: "@jmfederico/pi-web",
+        generatedAt: "2026-05-25T00:00:00.000Z",
+        components: {
+          web: { component: "web", label: "Remote Web", runtimeVersion: "1.0.0", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
+          sessiond: { component: "sessiond", label: "Remote Sessiond", runtimeVersion: "1.0.0", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
+        },
+        capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
+      },
+    }));
+    remoteClient = fakeRemoteClient({ requestJson });
+
+    const runtime = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/runtime` });
+
+    expect(runtime.statusCode).toBe(200);
+    expect(runtime.json()).toMatchObject({ machineId: remote.id, ok: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] });
+    expect(requestJson).toHaveBeenCalledWith("GET", "/api/pi-web/runtime", undefined, { timeoutMs: 3000 });
   });
 
   it("proxies allowlisted remote HTTP routes through the selected machine", async () => {
@@ -296,167 +318,14 @@ describe("buildApp", () => {
     expect(workspacesResponse.json<Workspace[]>()).toEqual([expect.objectContaining({ projectId: project.id, path: projectDir })]);
   });
 
-  it("uses management embed authorization for projects while blocking terminal command runs", async () => {
-    const managedRoot = join(tempDir, "managed");
-    const managedContext = {
-      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
-      projects: [{ id: "project-1", name: "Project 1" }],
-      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
-      expiresAt: "2026-06-08T00:00:00.000Z",
-    };
-    const managedApp = await buildApp({
-      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json"))),
-      workspaces: new WorkspaceService(),
-      sessionDaemon: fakeSessionDaemon(),
-      managementEmbed: {
-        enabled: true,
-        projectRoot: managedRoot,
-        authenticate: (token) => {
-          if (token !== "token-1") throw new Error("bad token");
-          return Promise.resolve(managedContext);
-        },
-      },
-      clientDist: false,
-      logger: false,
-    });
-    try {
-      const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token-1" };
-      const projectsResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers });
-      const project = projectsResponse.json<Project[]>()[0];
-      if (project === undefined) throw new Error("Expected managed project");
-
-      const workspacesResponse = await managedApp.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces`, headers });
-      const workspace = workspacesResponse.json<Workspace[]>()[0];
-      if (workspace === undefined) throw new Error("Expected managed workspace");
-
-      const terminalsResponse = await managedApp.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/terminals`, headers });
-      expect(terminalsResponse.statusCode).toBe(200);
-      expect(terminalsResponse.json()).toEqual([]);
-
-      const runResponse = await managedApp.inject({
-        method: "POST",
-        url: `/api/projects/${project.id}/workspaces/${workspace.id}/terminal-command-runs`,
-        headers,
-        payload: { origin: "core", title: "Build", command: "python --version" },
-      });
-
-      expect(runResponse.statusCode).toBe(403);
-      expect(runResponse.json()).toEqual({ error: "Terminal command runs are disabled in management embed mode" });
-
-      const badResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers: { "x-pi-web-embed-mode": "management" } });
-      expect(badResponse.statusCode).toBe(401);
-    } finally {
-      await managedApp.close();
-    }
-  });
-
-  it("creates a default managed project when the embed context has no projects", async () => {
-    const managedRoot = join(tempDir, "managed");
-    const managedContext = {
-      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
-      projects: [],
-      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
-      expiresAt: "2026-06-08T00:00:00.000Z",
-    };
-    const managedApp = await buildApp({
-      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects-empty.json"))),
-      workspaces: new WorkspaceService(),
-      sessionDaemon: fakeSessionDaemon(),
-      managementEmbed: {
-        enabled: true,
-        projectRoot: managedRoot,
-        authenticate: (token) => {
-          if (token !== "token-1") throw new Error("bad token");
-          return Promise.resolve(managedContext);
-        },
-      },
-      clientDist: false,
-      logger: false,
-    });
-    try {
-      const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token-1" };
-      const projectsResponse = await managedApp.inject({ method: "GET", url: "/api/projects", headers });
-
-      expect(projectsResponse.statusCode).toBe(200);
-      expect(projectsResponse.json<Project[]>()).toEqual([
-        expect.objectContaining({
-          id: "default-project",
-          name: "account-1的项目",
-          path: join(managedRoot, "account-1"),
-        }),
-      ]);
-
-      const workspacesResponse = await managedApp.inject({ method: "GET", url: "/api/projects/default-project/workspaces", headers });
-      expect(workspacesResponse.statusCode).toBe(200);
-      expect(workspacesResponse.json<Workspace[]>()).toEqual([
-        expect.objectContaining({ projectId: "default-project", path: join(managedRoot, "account-1") }),
-      ]);
-    } finally {
-      await managedApp.close();
-    }
-  });
-
-  it("persists management embed authorization in a server-side session cookie", async () => {
-    const managedRoot = join(tempDir, "managed-session");
-    let nowMs = Date.parse("2026-06-10T00:00:00.000Z");
-    const managedContext: ManagementEmbedContext = {
-      user: { id: "account-1", rootUserId: "root-user", roles: ["telecom_staff"], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
-      projects: [],
-      tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
-    };
-    const managementEmbed = createManagementEmbedRuntime({
-      enabled: true,
-      projectRoot: managedRoot,
-      auth: { sharedSecretEnv: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN" },
-    }, { PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN: "secret-1" }, "/home/alice", {
-      now: () => new Date(nowMs),
-      randomSessionId: () => "session-1",
-    });
-    if (managementEmbed === undefined) throw new Error("Expected management runtime");
-    const managedApp = await buildApp({
-      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-session-projects.json"))),
-      workspaces: new WorkspaceService(),
-      sessionDaemon: fakeSessionDaemon(),
-      managementEmbed,
-      clientDist: false,
-      logger: false,
-    });
-    try {
-      const token = signManagementToken(managedContext, "secret-1", nowMs);
-      const projectsResponse = await managedApp.inject({ method: "GET", url: `/api/projects?embed=management&token=${encodeURIComponent(token)}` });
-      const cookie = cookiePair(projectsResponse.headers["set-cookie"]);
-      nowMs += 10 * 60 * 1000;
-      const expiredToken = signManagementToken({ ...managedContext, projects: [{ id: "other", name: "Other" }] }, "secret-1", nowMs - 10 * 60 * 1000);
-
-      const sessionResponse = await managedApp.inject({
-        method: "GET",
-        url: `/api/projects?embed=management&token=${encodeURIComponent(expiredToken)}`,
-        headers: { cookie },
-      });
-
-      expect(projectsResponse.statusCode).toBe(200);
-      expect(projectsResponse.headers["set-cookie"]).toEqual(expect.stringContaining("HttpOnly"));
-      expect(sessionResponse.statusCode).toBe(200);
-      expect(sessionResponse.json<Project[]>()).toEqual([
-        expect.objectContaining({
-          id: "default-project",
-          name: "account-1的项目",
-          path: join(managedRoot, "account-1"),
-        }),
-      ]);
-    } finally {
-      await managedApp.close();
-    }
-  });
-
   it("serves the PI WEB plugin manifest and plugin assets", async () => {
     const manifestResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);
-    expect(manifestResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local" }] });
+    expect(manifestResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] });
 
     const pluginsResponse = await app.inject({ method: "GET", url: "/api/plugins" });
     expect(pluginsResponse.statusCode).toBe(200);
-    expect(pluginsResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", enabled: true }] });
+    expect(pluginsResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] });
 
     const assetResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/fake/plugin.js?v=1" });
     expect(assetResponse.statusCode).toBe(200);
@@ -473,7 +342,7 @@ describe("buildApp", () => {
     const requestJson = vi.fn(() => Promise.resolve({
       statusCode: 200,
       headers: { "content-type": "application/json" },
-      body: { plugins: [{ id: "remote-tools", module: "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123", source: "local", scope: "local" }] },
+      body: { plugins: [{ id: "remote-tools", module: "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123", source: "local", scope: "local", machineSpecific: true }] },
     }));
     const request = vi.fn(() => Promise.resolve({
       statusCode: 200,
@@ -486,7 +355,7 @@ describe("buildApp", () => {
     const scopedPluginId = machineScopedPluginId(remote.id, "remote-tools");
     expect(manifestResponse.statusCode).toBe(200);
     expect(manifestResponse.json()).toEqual({
-      plugins: [{ id: "remote-tools", module: `/pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local" }],
+      plugins: [{ id: "remote-tools", module: `/pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local", machineSpecific: true }],
     });
     expect(requestJson).toHaveBeenCalledWith("GET", "/pi-web-plugins/manifest.json", undefined, { timeoutMs: 10000 });
 
@@ -609,190 +478,18 @@ describe("buildApp", () => {
     expect(tooLargeResponse.statusCode).toBe(400);
     expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
   });
-
-  it("uploads workspace files through the HTTP contract", async () => {
-    const addResponse = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Uploads", path: projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
-    if (workspace === undefined) throw new Error("Expected workspace");
-
-    const uploadResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      payload: { path: "uploaded.txt", contentBase64: Buffer.from("hello upload", "utf8").toString("base64") },
-    });
-
-    expect(uploadResponse.statusCode).toBe(200);
-    expect(uploadResponse.json()).toMatchObject({ path: "uploaded.txt", size: 12 });
-    await expect(readFile(join(projectDir, "uploaded.txt"), "utf8")).resolves.toBe("hello upload");
-  });
-
-  it("uploads larger workspace files that expand when base64-encoded", async () => {
-    const addResponse = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Large Uploads", path: projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
-    if (workspace === undefined) throw new Error("Expected workspace");
-
-    const csvContent = `${"value,\n".repeat(128 * 1024)}end,\n`;
-    const uploadResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      payload: { path: "large.csv", contentBase64: Buffer.from(csvContent, "utf8").toString("base64") },
-    });
-
-    expect(uploadResponse.statusCode).toBe(200);
-    expect(uploadResponse.json()).toMatchObject({ path: "large.csv", size: Buffer.byteLength(csvContent, "utf8") });
-    await expect(readFile(join(projectDir, "large.csv"), "utf8")).resolves.toBe(csvContent);
-  });
-
-  it("uploads workspace files through the multipart HTTP contract", async () => {
-    const addResponse = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Multipart Uploads", path: projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
-    if (workspace === undefined) throw new Error("Expected workspace");
-
-    const csvContent = `${"value,\n".repeat(256 * 1024)}end,\n`;
-    const multipart = multipartUpload("----pi-web-upload", "large.csv", csvContent, "text/csv");
-    const uploadResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      headers: { "content-type": `multipart/form-data; boundary=${multipart.boundary}` },
-      payload: multipart.body,
-    });
-
-    expect(uploadResponse.statusCode).toBe(200);
-    expect(uploadResponse.json()).toMatchObject({ path: "large.csv", size: Buffer.byteLength(csvContent, "utf8") });
-    await expect(readFile(join(projectDir, "large.csv"), "utf8")).resolves.toBe(csvContent);
-  });
-
-  it("rejects uploaded workspace files outside the workspace", async () => {
-    const addResponse = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Uploads", path: projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
-    if (workspace === undefined) throw new Error("Expected workspace");
-
-    const uploadResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      payload: { path: "../outside.txt", contentBase64: Buffer.from("escape", "utf8").toString("base64") },
-    });
-
-    expect(uploadResponse.statusCode).toBe(400);
-    expect(uploadResponse.json()).toEqual({ error: "Path traversal is not allowed" });
-  });
-
-  it("manages workspace files and empty directories through the HTTP contract", async () => {
-    const addResponse = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Manage Files", path: projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-    await writeFile(join(projectDir, "old.txt"), "old", "utf8");
-    await writeFile(join(projectDir, "中文 文件.xlsx"), "sheet", "utf8");
-    await mkdir(join(projectDir, "docs"));
-    await writeFile(join(projectDir, "docs", "note.txt"), "note", "utf8");
-    await mkdir(join(projectDir, "empty"));
-
-    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
-    if (workspace === undefined) throw new Error("Expected workspace");
-
-    const moveFileResponse = await app.inject({
-      method: "PATCH",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      payload: { fromPath: "old.txt", toPath: "renamed.txt" },
-    });
-    const createFileResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
-      payload: { path: "created.txt", contentBase64: "" },
-    });
-    const createdFileContent = await readFile(join(projectDir, "created.txt"), "utf8");
-    const downloadResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/download?path=${encodeURIComponent("renamed.txt")}` });
-    const unicodeDownloadResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/download?path=${encodeURIComponent("中文 文件.xlsx")}` });
-    const deleteFileResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("created.txt")}` });
-    const createDirResponse = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory`,
-      payload: { path: "new-dir" },
-    });
-    const moveDirResponse = await app.inject({
-      method: "PATCH",
-      url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory`,
-      payload: { fromPath: "new-dir", toPath: "moved-dir" },
-    });
-    const deleteDirResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory?path=${encodeURIComponent("moved-dir")}` });
-    const nonEmptyDirResponse = await app.inject({ method: "DELETE", url: `/api/projects/${project.id}/workspaces/${workspace.id}/directory?path=${encodeURIComponent("docs")}` });
-
-    expect(moveFileResponse.statusCode).toBe(200);
-    expect(moveFileResponse.json()).toEqual({ path: "renamed.txt" });
-    await expect(readFile(join(projectDir, "renamed.txt"), "utf8")).resolves.toBe("old");
-    expect(createFileResponse.statusCode).toBe(200);
-    expect(createdFileContent).toBe("");
-    expect(downloadResponse.statusCode).toBe(200);
-    expect(downloadResponse.headers["content-disposition"]).toContain("attachment");
-    expect(downloadResponse.body).toBe("old");
-    expect(unicodeDownloadResponse.statusCode).toBe(200);
-    expect(unicodeDownloadResponse.headers["content-disposition"]).toBe('attachment; filename="__ __.xlsx"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.xlsx');
-    expect(unicodeDownloadResponse.body).toBe("sheet");
-    expect(deleteFileResponse.statusCode).toBe(200);
-    expect(deleteFileResponse.json()).toEqual({ deleted: true, path: "created.txt" });
-    await expect(stat(join(projectDir, "created.txt"))).rejects.toThrow();
-    expect(createDirResponse.statusCode).toBe(200);
-    expect(createDirResponse.json()).toEqual({ path: "new-dir" });
-    expect(moveDirResponse.statusCode).toBe(200);
-    expect(moveDirResponse.json()).toEqual({ path: "moved-dir" });
-    expect(deleteDirResponse.statusCode).toBe(200);
-    expect(deleteDirResponse.json()).toEqual({ deleted: true, path: "moved-dir" });
-    expect(nonEmptyDirResponse.statusCode).toBe(400);
-    expect(nonEmptyDirResponse.json()).toEqual({ error: "Directory is not empty" });
-  });
 });
 
 interface CapturedSessionDaemonRequest {
   method: string;
   path: string;
   body?: unknown;
-  headers?: Record<string, string>;
-}
-
-function multipartUpload(boundary: string, path: string, content: string, contentType: string): { boundary: string; body: Buffer } {
-  return {
-    boundary,
-    body: Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="path"\r\n\r\n${path}\r\n`, "utf8"),
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${path}"\r\nContent-Type: ${contentType}\r\n\r\n`, "utf8"),
-      Buffer.from(content, "utf8"),
-      Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
-    ]),
-  };
 }
 
 function fakeSessionDaemon(): SessionProxyDaemon {
   return {
-    request: (method, path, body, headers) => {
-      const captured = { method, path, ...(body === undefined ? {} : { body }), ...(headers === undefined ? {} : { headers }) } satisfies CapturedSessionDaemonRequest;
+    request: (method, path, body) => {
+      const captured = { method, path, ...(body === undefined ? {} : { body }) } satisfies CapturedSessionDaemonRequest;
       sessionDaemonRequests.push(captured);
       return Promise.resolve({
         statusCode: 200,
@@ -811,24 +508,4 @@ function fakeRemoteClient(overrides: Partial<MachineClient>): MachineClient {
     connectWebSocket: () => { throw new Error("WebSocket not configured for test"); },
     ...overrides,
   };
-}
-
-function signManagementToken(context: ManagementEmbedContext, secret: string, nowMs: number): string {
-  const payload = {
-    iss: "telecom-portal",
-    aud: "dify-external-portal",
-    iat: Math.floor(nowMs / 1000),
-    exp: Math.floor((nowMs + 5 * 60 * 1000) / 1000),
-    jti: "token-1",
-    ...context,
-  };
-  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
-  return `${encodedPayload}.${signature}`;
-}
-
-function cookiePair(value: string | string[] | undefined): string {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === undefined) throw new Error("Expected set-cookie header");
-  return raw.split(";")[0] ?? "";
 }

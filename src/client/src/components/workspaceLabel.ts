@@ -1,19 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import type { WorkspaceLabelItem } from "../plugins/types";
 
-export function renderWorkspaceLabel(label: string, items: WorkspaceLabelItem[] = [], title?: string): TemplateResult {
-  return html`
-    <span class="workspace-label">
-      <span class="workspace-label-base" title=${title ?? label}>${label}</span>
-      ${renderWorkspaceLabelItems(items)}
-    </span>
-  `;
-}
-
-export function renderWorkspaceLabelItems(items: WorkspaceLabelItem[] = []): TemplateResult[] {
-  return items.map((item) => html`<span class="workspace-label-separator">·</span>${renderWorkspaceLabelItem(item)}`);
-}
-
 export function renderWorkspaceLabelInlineItems(items: WorkspaceLabelItem[] = []): TemplateResult[] {
   return items.map((item, index) => html`${index === 0 ? null : html`<span class="workspace-label-separator">·</span>`}${renderWorkspaceLabelItem(item)}`);
 }

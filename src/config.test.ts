@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadPiWebConfig, savePiWebConfig } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, loadPiWebConfig, maxUploadBytes, savePiWebConfig } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -57,6 +57,25 @@ describe("PI WEB config persistence", () => {
       audience: "dify-external-portal",
     });
     expect(loadPiWebConfig(testOptions()).config.managementEmbed?.auth).toEqual(saved.config.managementEmbed?.auth);
+  });
+
+  it("persists and reads maxUploadBytes", () => {
+    savePiWebConfig({ maxUploadBytes: 1234 }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.maxUploadBytes).toBe(1234);
+  });
+});
+
+describe("maxUploadBytes", () => {
+  it("defaults when nothing is configured", () => {
+    expect(maxUploadBytes({}, {})).toBe(DEFAULT_MAX_UPLOAD_BYTES);
+  });
+
+  it("prefers the env override over config", () => {
+    expect(maxUploadBytes({ PI_WEB_MAX_UPLOAD_BYTES: "2048" }, { maxUploadBytes: 99 })).toBe(2048);
+  });
+
+  it("falls back to config when env is unset or invalid", () => {
+    expect(maxUploadBytes({ PI_WEB_MAX_UPLOAD_BYTES: "not-a-number" }, { maxUploadBytes: 555 })).toBe(555);
   });
 });
 

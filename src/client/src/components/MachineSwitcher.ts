@@ -282,6 +282,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
     .activity-indicator { flex: 0 0 auto; display: inline-block; width: 7px; height: 7px; background: var(--pi-success); animation: pulse 1s ease-in-out infinite; }
     .activity-indicator.session { border-radius: 50%; background: var(--pi-success); }
     .activity-indicator.terminal { border-radius: 2px; background: var(--pi-accent); }
+    .activity-indicator.sending { border-radius: 50%; background: var(--pi-warning); }
     .machine-switcher-menu { position: fixed; z-index: 10000; box-sizing: border-box; min-width: min(280px, calc(100vw - 16px)); overflow: auto; padding: 4px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); box-shadow: 0 8px 24px var(--pi-shadow); }
     .machine-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px; align-items: stretch; margin: 2px 0; }
     .machine-option.no-actions { grid-template-columns: minmax(0, 1fr); }
@@ -300,10 +301,6 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
     .machine-option-actions-panel button.danger:hover, .machine-option-actions-panel button.danger:focus-visible { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
     @keyframes pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
   `;
-}
-
-export function shouldShowMachineSwitcher(machines: readonly Machine[]): boolean {
-  return machines.length > 1;
 }
 
 function machineStatus(machine: Machine, statuses: Record<string, MachineHealth>): MachineStatus {

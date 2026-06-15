@@ -10,18 +10,6 @@ export function withManagementEmbed(url: string, pageUrl: URL | undefined = curr
   return `${requestUrl.pathname}${requestUrl.search}${requestUrl.hash}`;
 }
 
-export function withManagementEmbedWebSocket(url: string, pageUrl: URL | undefined = currentPageUrl()): string {
-  if (pageUrl === undefined) return url;
-  const params = managementEmbedParams(pageUrl);
-  if (params === undefined) return url;
-
-  const requestUrl = new URL(url);
-  requestUrl.searchParams.set("embed", params.embed);
-  requestUrl.searchParams.set("token", params.token);
-
-  return requestUrl.toString();
-}
-
 function managementEmbedParams(pageUrl: URL): { embed: "management"; token: string } | undefined {
   const embed = pageUrl.searchParams.get("embed");
   const token = pageUrl.searchParams.get("token")?.trim();

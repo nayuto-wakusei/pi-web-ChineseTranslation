@@ -1,7 +1,7 @@
 export const workspaceDeleteOperation = "workspace.delete";
 export const workspaceDeleteOperationMetadataKey = "pi.operation";
 export const targetWorkspaceIdMetadataKey = "target.workspaceId";
-export const targetWorkspacePathMetadataKey = "target.workspacePath";
+const targetWorkspacePathMetadataKey = "target.workspacePath";
 
 export interface WorkspaceDeletionTarget {
   id: string;

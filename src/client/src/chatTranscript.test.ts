@@ -61,6 +61,46 @@ describe("applyTranscriptEvent", () => {
     ]);
   });
 
+  it("appends finalized assistant errors that have no displayable content", () => {
+    expect(applyTranscriptEvent([textMessage("user", "question")], {
+      type: "message.end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "provider returned 500",
+        timestamp: "2026-05-09T12:00:00.000Z",
+        provider: "anthropic",
+        model: "claude-sonnet",
+      },
+    })).toEqual([
+      textMessage("user", "question"),
+      { role: "system", parts: [{ type: "text", text: "Model response failed: provider returned 500" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "anthropic", id: "claude-sonnet" } } },
+    ]);
+  });
+
+  it("replaces streamed assistant text and keeps the finalized error line", () => {
+    const streamed: ChatLine[] = [
+      textMessage("user", "question"),
+      textMessage("assistant", "partial"),
+    ];
+
+    expect(applyTranscriptEvent(streamed, {
+      type: "message.end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "partial answer" }],
+        stopReason: "error",
+        errorMessage: "connection lost",
+        timestamp: "2026-05-09T12:00:00.000Z",
+      },
+    })).toEqual([
+      textMessage("user", "question"),
+      { ...textMessage("assistant", "partial answer"), meta: { timestamp: "2026-05-09T12:00:00.000Z" } },
+      { role: "system", parts: [{ type: "text", text: "Model response failed: connection lost" }], meta: { timestamp: "2026-05-09T12:00:00.000Z" } },
+    ]);
+  });
+
   it("replaces streamed skill reads when the finalized assistant message includes thinking", () => {
     const streamed: ChatLine[] = [
       { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/skills/playwright/SKILL.md" }] },

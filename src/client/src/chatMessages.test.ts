@@ -29,9 +29,28 @@ describe("chat message normalization", () => {
     ]);
   });
 
-  it("normalizes image content into renderable chat parts", () => {
-    expect(normalizeMessage({ role: "user", content: [{ type: "text", text: "看图" }, { type: "image", data: "abc123", mimeType: "image/png" }] })).toEqual([
-      { role: "user", parts: [{ type: "text", text: "看图" }, { type: "image", data: "abc123", mimeType: "image/png" }] },
+  it("normalizes image content into image parts", () => {
+    expect(normalizeMessage({ role: "user", content: [{ type: "text", text: "see this" }, { type: "image", mimeType: "image/png", data: "QUJD" }] })).toEqual([
+      { role: "user", parts: [{ type: "text", text: "see this" }, { type: "image", mimeType: "image/png", data: "QUJD" }] },
+    ]);
+  });
+
+  it("falls back to a placeholder for image content without data", () => {
+    expect(normalizeMessage({ role: "user", content: [{ type: "image", mimeType: "image/png" }] })).toEqual([
+      { role: "user", parts: [{ type: "text", text: "[image]" }] },
+    ]);
+  });
+
+  it("shows assistant model errors as system chat messages", () => {
+    expect(normalizeMessage({ role: "assistant", content: [], stopReason: "error", errorMessage: "429 rate limit", timestamp: "2026-05-09T12:00:00.000Z", provider: "openai", model: "gpt-4.1" })).toEqual([
+      { role: "system", parts: [{ type: "text", text: "Model response failed: 429 rate limit" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" } } },
+    ]);
+  });
+
+  it("keeps partial assistant content and adds a visible error line", () => {
+    expect(normalizeMessage({ role: "assistant", content: [{ type: "text", text: "partial answer" }], stopReason: "error", errorMessage: "connection lost" })).toEqual([
+      textMessage("assistant", "partial answer"),
+      textMessage("system", "Model response failed: connection lost"),
     ]);
   });
 
@@ -80,7 +99,7 @@ describe("chat message normalization", () => {
       truncated: true,
       fullOutputPath: "/tmp/out.log",
     })).toEqual([
-      textMessage("bash", "不加入上下文\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\n完整输出：/tmp/out.log"),
+      textMessage("bash", "excluded from context\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\nfull output: /tmp/out.log"),
     ]);
   });
 });

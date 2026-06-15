@@ -7,3 +7,6 @@ dist/
 
 # Local plugin development sandboxes. Symlink these into ~/.pi-web/plugins/<plugin-id>.
 /dev-plugins/
+
+# Local runtime attachment uploads (created by the chat composer "save to folder" mode).
+.pi-web/

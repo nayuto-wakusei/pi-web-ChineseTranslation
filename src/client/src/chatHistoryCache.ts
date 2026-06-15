@@ -35,6 +35,14 @@ export function writeChatHistoryCache(sessionId: string, page: RawMessagePage): 
   }
 }
 
+export function removeChatHistoryCache(sessionId: string): void {
+  try {
+    sessionStorage.removeItem(cacheKey(sessionId));
+  } catch {
+    // Ignore storage access errors; cache may simply be unavailable.
+  }
+}
+
 export function mergeChatHistory(existing: RawMessagePage | undefined, incoming: RawMessagePage): RawMessagePage {
   if (existing === undefined || !isValidMessagePage(existing)) return incoming;
   if (!isValidMessagePage(incoming)) return existing;

@@ -3,10 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PI WEB plugins</title>
-    <meta name="description" content="Use built-in PI WEB plugins and develop trusted local UI plugins." />
-    <meta property="og:title" content="PI WEB plugins" />
-    <meta property="og:image" content="assets/pi-web-banner.png" />
+    <title>PI WEB plugins — extend the Pi web UI</title>
+    <meta
+      name="description"
+      content="Use built-in PI WEB plugins and develop trusted local UI plugins for the Pi Coding Agent web UI."
+    />
+    <link rel="canonical" href="https://pi-web.dev/plugins.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="PI WEB plugins — extend the Pi web UI" />
+    <meta
+      property="og:description"
+      content="Customize PI WEB with trusted browser-side plugins for actions, workspace panels, labels, terminals, and files."
+    />
+    <meta property="og:url" content="https://pi-web.dev/plugins.html" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PI WEB plugins — extend the Pi web UI" />
+    <meta
+      name="twitter:description"
+      content="Customize PI WEB with trusted browser-side plugins for actions, workspace panels, labels, terminals, and files."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <script>
       (() => {
@@ -191,7 +210,8 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
               <h3>Updates</h3>
               <p>
                 <strong>Updates</strong> adds a conditional <strong>Updates</strong> workspace tab with PI WEB update,
-                restart, and installed-service guidance. It is built into PI WEB and enabled by default.
+                restart, and installed-service guidance. It is built into PI WEB, enabled by default, and uses the
+                selected machine's plugin copy when machine federation is active.
               </p>
               <ul>
                 <li>Plugin id: <code>updates</code></li>
@@ -309,13 +329,18 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
               <ul>
                 <li>File and terminal helpers run against the selected remote machine.</li>
                 <li>Remote plugin code is loaded best-effort through the current gateway and cached for the page lifetime.</li>
-                <li>If the gateway already has an enabled plugin with the same original id, the gateway plugin wins and the remote duplicate stays hidden.</li>
+                <li>If the gateway and remote machine both have an enabled plugin with the same original id, <code>machineSpecific</code> metadata decides whether the gateway copy is reused or only the selected-machine copy can appear.</li>
                 <li>Remote theme contributions are ignored for now because themes are app-wide.</li>
                 <li>Mixed PI WEB versions across federated machines are best-effort and not guaranteed compatible.</li>
               </ul>
               <p>
                 Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable
                 one, open that machine directly or update its config file.
+              </p>
+              <p>
+                Plugin package metadata can set <code>machineSpecific: true</code>. Use it for plugins like Updates whose
+                UI should come from the selected PI WEB instance; on remote machines, the gateway copy is hidden unless
+                the remote machine exposes its own copy.
               </p>
               <p>
                 For portable plugin assets, prefer URLs relative to the plugin module, such as

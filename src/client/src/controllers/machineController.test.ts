@@ -33,7 +33,7 @@ describe("MachineController", () => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to the local machine when the routed remote machine is offline", async () => {
+  it("keeps the routed remote machine selected while its health is offline", async () => {
     let state: AppState = initialAppState();
     const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
     const updateUrl = vi.fn();
@@ -50,12 +50,12 @@ describe("MachineController", () => {
 
     await controller.loadMachines(remoteMachine.id);
 
-    expect(state.selectedMachine).toEqual(localMachine);
+    expect(state.selectedMachine).toEqual(remoteMachine);
     expect(state.machineStatuses[remoteMachine.id]).toEqual(offlineHealth);
-    expect(state.error).toContain("Remote is offline");
+    expect(state.error).toContain("Remote is unavailable");
   });
 
-  it("records offline health when the routed remote health request rejects", async () => {
+  it("records offline health without falling back when the routed remote health request rejects", async () => {
     let state: AppState = initialAppState();
     const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
     const updateUrl = vi.fn();
@@ -68,9 +68,26 @@ describe("MachineController", () => {
 
     await controller.loadMachines(remoteMachine.id);
 
-    expect(state.selectedMachine).toEqual(localMachine);
+    expect(state.selectedMachine).toEqual(remoteMachine);
     expect(state.machineStatuses[remoteMachine.id]).toMatchObject({ machineId: remoteMachine.id, ok: false, status: "offline", error: "Internal Server Error" });
-    expect(state.error).toContain("Remote is offline");
+    expect(state.error).toContain("Remote is unavailable");
+  });
+
+  it("falls back to local when the routed machine is no longer configured", async () => {
+    let state: AppState = initialAppState();
+    const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
+    const updateUrl = vi.fn();
+    const projects = { loadProjects: vi.fn() };
+
+    vi.spyOn(api, "machines").mockResolvedValue([localMachine]);
+    vi.spyOn(api, "health").mockResolvedValue({ machineId: "local", ok: true, checkedAt: "2026-05-26T00:00:01.000Z", status: "online" });
+
+    const controller = new MachineController(() => state, setState, updateUrl, projects);
+
+    await controller.loadMachines(remoteMachine.id);
+
+    expect(state.selectedMachine).toEqual(localMachine);
+    expect(state.error).toBe("");
   });
 
   it("returns the fallback machine without selecting it when requested", async () => {

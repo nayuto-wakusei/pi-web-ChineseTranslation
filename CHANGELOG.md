@@ -90,6 +90,42 @@
 - 08f69d0: Prevent redundant Workspace Tasks panel re-renders from resetting mobile scroll position or replacing task buttons mid-click, and show feedback for stale, cancelled, or already-starting tasks.
 - 08f69d0: Bundle Workspace Tasks with PI WEB as a built-in plugin for running `.pi-web/tasks.json` commands in workspace terminals.
 
+## 1.202606.3
+
+### Patch Changes
+
+- c0d1222: Fix sessions outside the server's launch directory being invisible: listing returned no sessions and opening them failed with 404 "Session not found", leaving the model picker empty. Working directories are now normalized at the API boundary and when reading stored session data, so path differences (trailing slashes, redundant segments, and Windows backslash vs forward-slash forms) no longer hide live or archived sessions. Requests with a relative `cwd` are now rejected with a 400 error instead of being resolved against the server's own working directory. Requires Pi coding agent SDK 0.78.0 or newer.
+- 38cf334: Restart the web/UI services before the session daemon in the suggested "Restart all" command and `pi-web restart`, so running the command from a PI WEB terminal still restarts the UI even though restarting the session daemon kills the terminal.
+
+## 1.202606.2
+
+### Patch Changes
+
+- 824b7a0: Initialize Pi extensions for web-managed sessions so `session_start` handlers, extension resources, and startup-dependent tools run correctly.
+- a73bceb: Reduce desktop navigation crowding by moving machine switching into a compact header control and removing automatic desktop section collapse.
+- 9a3f2ce: Make navigation sections collapsible on desktop and auto-collapse completed context sections after selections.
+- 271c990: Document machine federation across the website and add a Fleet guide for setup, trust model, remote plugins, and troubleshooting.
+- 351ed03: Add a keyboard shortcuts settings editor with manual entry, recording, disabling, reset-to-default controls, and conflict/shadowing indicators.
+- 65b4c76: Let Firefox copy only the selected chat text instead of replacing selections with the full message.
+- d66eccc: Keep all-file prompt suggestions active while typing file names with spaces, and include git-tracked/untracked matches when broad all-file scans miss them.
+- f7eff88: Make the app refresh control perform a full page reload directly instead of opening refresh-data options.
+- ad963a2: Simplify the mobile location breadcrumb by hiding the machine crumb when there is only one configured machine and removing activity indicators from breadcrumb items.
+- f3e19d1: Add keyboard-first navigation for focusing Machines, Projects, Workspaces, Sessions, and the chat composer.
+- b35ce1d: Reduce repeated machine and workspace details in the chat status bar and workspace tool header, keeping compact session metrics right-aligned.
+- c57f24d: Allow PI WEB plugins to mark themselves as machine-specific so the gateway copy stays local-only and remote machines can provide their own status/plugin UI.
+- 25d8188: Keep the documentation site's GitHub and theme controls visible in mobile portrait layouts.
+- ef22247: Keep the selected remote machine during transient reconnects instead of switching the web UI back to Local.
+- 0118e6e: Keep archived parent sessions visible in the current session tree while they still have unarchived children.
+- 058fdee: Clarify plugin docs and website copy around private PI WEB APIs and the supported helper surface.
+- b616684: Add draggable, persistent side panel resizing for the web UI navigation and workspace panels, including reset actions.
+- 06052ea: Respect Pi session directory settings in pi-web sessions, including project-local Pi settings, while allowing cwd-scoped session operations without breaking legacy id-only routes.
+- b2a7975: Align the desktop machine badge status to the right edge of the badge.
+- a3b5b72: Add safe bulk session actions for archiving current sessions and permanently deleting archived sessions, with runtime capability checks for remote compatibility.
+- 9dd59c0: Show model response errors in the chat transcript instead of leaving the conversation blank.
+- 4bc390a: Keep machine/session navigation snappy by deferring expensive Pi-Web status refreshes and caching status checks.
+- 577594a: Allow sidebar action/detail menus to expand beyond their list section when only a few rows are shown.
+- f501f9d: Pin navigation activity indicators to the top-right of list chips so active projects, workspaces, and sessions no longer shift their labels.
+
 ## 1.202606.1
 
 ### Patch Changes

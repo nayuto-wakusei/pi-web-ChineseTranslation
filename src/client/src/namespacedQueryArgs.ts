@@ -1,5 +1,4 @@
 export type QueryValue = string | number | boolean | readonly (string | number | boolean)[];
-export type QueryValues = Record<string, QueryValue | undefined | null>;
 
 export function queryNamespace(contributionId: string): string {
   return contributionId.replaceAll(":", ".");
@@ -24,24 +23,6 @@ export function readNamespacedString(namespace: string, key: string): string | u
   const value = readNamespacedQuery(namespace)[key];
   if (Array.isArray(value)) return value[0];
   return value === "" ? undefined : value;
-}
-
-export function writeNamespacedQuery(namespace: string, values: QueryValues, options?: { replace?: boolean | undefined }): void {
-  const url = new URL(window.location.href);
-  const prefix = `${namespace}--`;
-  for (const key of Array.from(url.searchParams.keys())) {
-    if (key.startsWith(prefix)) url.searchParams.delete(key);
-  }
-  for (const [key, value] of Object.entries(values)) {
-    if (value === undefined || value === null || value === "") continue;
-    const namespacedKey = `${prefix}${key}`;
-    if (Array.isArray(value)) {
-      for (const item of value) url.searchParams.append(namespacedKey, String(item));
-    } else {
-      url.searchParams.set(namespacedKey, String(value));
-    }
-  }
-  commitUrl(url, options);
 }
 
 export function setNamespacedQueryKey(namespace: string, key: string, value: QueryValue | undefined | null, options?: { replace?: boolean | undefined }): void {

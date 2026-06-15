@@ -25,10 +25,16 @@ function applyFinalMessage(messages: ChatLine[], rawMessage: unknown): ChatLine[
     return finalizeToolExecution(messages, rawToolResult.toolCallId, rawToolResult.toolName, summarizeArgs(rawToolResult.content), rawToolResult.text, rawToolResult.isError, rawToolResult.content, rawToolResult.details);
   }
 
-  const ended = normalizeMessage(rawMessage)[0];
-  if (ended === undefined) return undefined;
-  const displayEnded = ended.role === "assistant" ? withoutToolCalls(ended) : ended;
-  if (displayEnded.parts.length === 0) return messages;
+  const ended = normalizeMessage(rawMessage);
+  if (ended.length === 0) return undefined;
+  const displayEnded = ended
+    .map((line) => line.role === "assistant" ? withoutToolCalls(line) : line)
+    .filter((line) => line.parts.length > 0);
+  if (displayEnded.length === 0) return messages;
+  return displayEnded.reduce((next, line) => applyFinalLine(next, line), messages);
+}
+
+function applyFinalLine(messages: ChatLine[], displayEnded: ChatLine): ChatLine[] {
   const skillReadIndex = findMatchingSkillRead(messages, displayEnded);
   if (skillReadIndex >= 0) return [...messages.slice(0, skillReadIndex), displayEnded, ...messages.slice(skillReadIndex + 1)];
   const last = messages.at(-1);

@@ -37,9 +37,22 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     }
   });
 
+  app.get(`${prefix}/sessiond/runtime`, async (_request, reply) => {
+    try {
+      const upstream = await daemon.request("GET", "/runtime");
+      reply.code(upstream.statusCode);
+      const contentType = upstream.headers["content-type"];
+      if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
+      return upstream.body !== "" ? parseJson(upstream.body) : undefined;
+    } catch (error) {
+      requestFailed(reply, error);
+      return undefined;
+    }
+  });
+
   app.get<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
     void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket(`/sessions/${request.params.sessionId}/events`, managementHeaders(context)));
+      bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context)));
     }).catch((error: unknown) => {
       closeSocketWithError(socket, error);
     });

@@ -17,6 +17,7 @@ describe("inputModeForDraft", () => {
   it("detects file completion contexts", () => {
     expect(inputModeForDraft("open @src/main.ts")).toEqual({ kind: "file" });
     expect(inputModeForDraft("open @ ")).toEqual({ kind: "file" });
+    expect(inputModeForDraft("open @ A FILE")).toEqual({ kind: "file" });
     expect(inputModeForDraft("open !@vendor/file.ts")).toEqual({ kind: "file" });
     expect(inputModeForDraft("!@vendor/file.ts")).toEqual({ kind: "file" });
     expect(inputModeForDraft("open @ \"src/main.ts")).toEqual({ kind: "file" });

@@ -1,4 +1,4 @@
-# PI WEB
+# PI WEB — web UI for Pi Coding Agent
 
 This fork is a translation plan for PI WEB. Its goal is to translate the plugin's displayed content into Chinese while preserving the upstream functionality.
 
@@ -12,9 +12,9 @@ Website: <https://pi-web.dev/>
 
 ![PI WEB](docs/assets/pi-web-banner.png)
 
-**Run AI coding agents on your own machine or server, keep them alive in real workspaces, and control everything from a browser.**
+**Run Pi Coding Agent from a web UI, keep sessions alive in real workspaces, and supervise them from any device.**
 
-PI WEB is a web control plane for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent). Add your repositories once, open project workspaces and git worktrees, start agent sessions inside them, and come back later without losing the work. Your browser becomes the cockpit; your server becomes the persistent development environment. Start on your laptop, check in from your phone, and continue from an iPad or another machine whenever that is the device you have at hand.
+PI WEB is a web UI for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) that keeps agent sessions running on your own machine or server. Add your repositories once, open project workspaces and git worktrees, start sessions inside them, and come back later without losing the work. Your browser becomes the cockpit; your server becomes the persistent development environment. Start on your laptop, check in from your phone, and continue from an iPad or another machine whenever that is the device you have at hand.
 
 ![PI WEB demo](docs/assets/pi-web-demo.gif)
 
@@ -33,6 +33,10 @@ With PI WEB you can:
 Agentic development works best when agents are not trapped inside a single local terminal. They need stable environments, access to real repositories, and room to work across branches and tasks. Humans need the opposite: a clear place to supervise, redirect, review, and decide.
 
 PI WEB connects those two worlds. The work stays in the server-side environment while you move between devices: laptop for deep focus, phone for a quick check-in, tablet for review, desktop when you are back at a desk. It is not trying to recreate the old desktop IDE in a browser; it is a control surface for persistent, parallel, human-in-the-loop agent work.
+
+### Is PI WEB a Pi web UI?
+
+Yes. PI WEB is a Pi web UI for running and supervising Pi Coding Agent sessions from a browser. Unlike simple session viewers, PI WEB is built around persistent server-side workspaces, long-running session daemons, git worktrees, remote machines, and multi-device supervision.
 
 ## Core model
 
@@ -71,7 +75,7 @@ This maps naturally to real development work:
 
 ## Architecture
 
-PI WEB uses a split-process architecture so agent runtimes are not owned by the browser-facing dev server.
+PI WEB uses a split-process architecture so agent runtimes are not owned by the browser-facing dev server. Under the hood, it acts as a browser-based control plane for sessions, workspaces, files, terminals, and trusted remote machines.
 
 ```text
 Browser UI
@@ -114,7 +118,7 @@ Remote model-provider credentials and OAuth state stay on the target machine. AP
 
 PI WEB production installs can load trusted local UI plugins without rebuilding PI WEB. Plugins are browser-side ES modules that can add action-palette actions, workspace panels, and workspace-label metadata, using documented context helpers for workspace files and terminals. They do not run in the session daemon and are not sandboxed.
 
-The supported package shape is intentionally singular: `piWeb.plugins` entries with explicit `id` and `module`, plus a browser module that exports `{ apiVersion: 1, name, activate }`. The bundled `pi-web-plugins/info` TypeScript source is the canonical minimal real example, `pi-web-plugins/updates` demonstrates a dynamic status panel, and built-in [Workspace Tasks](docs/plugins.md#workspace-tasks) adds a workspace tab for running configured shell commands in PI WEB terminals.
+The supported package shape is intentionally singular: `piWeb.plugins` entries with explicit `id` and `module` plus optional `machineSpecific` metadata, and a browser module that exports `{ apiVersion: 1, name, activate }`. The bundled `pi-web-plugins/info` TypeScript source is the canonical minimal real example, `pi-web-plugins/updates` demonstrates a dynamic status panel, and built-in [Workspace Tasks](docs/plugins.md#workspace-tasks) adds a workspace tab for running configured shell commands in PI WEB terminals.
 
 A useful prompt for AI agents:
 
@@ -274,6 +278,9 @@ Environment variables:
 - `PI_WEB_SESSIOND_URL` — daemon URL used by the web process when connecting over TCP, for example `http://127.0.0.1:3001`. If you set `PI_WEB_SESSIOND_PORT`, set this for the web process too.
 - `PI_WEB_PROJECTS_FILE` — optional override for the projects storage JSON file. Defaults to `$PI_WEB_DATA_DIR/projects.json`.
 - `PI_WEB_MACHINES_FILE` — optional override for the remote machine registry JSON file. Defaults to `$PI_WEB_DATA_DIR/machines.json`.
+- `PI_WEB_MAX_UPLOAD_BYTES` — maximum accepted HTTP request body size in bytes (covers pasted/attached images). Defaults to 64 MB. Also configurable as `maxUploadBytes` in `config.json`.
+- `PI_CODING_AGENT_SESSION_DIR` — Pi session storage directory. PI WEB follows the same session-location priority as Pi for web sessions: this environment variable, then `sessionDir` in Pi settings for the selected workspace, then Pi's default session directory.
+- `PI_CODING_AGENT_DIR` — Pi agent config directory. PI WEB uses this for Pi auth, settings, resources, and default session storage, matching Pi's own configuration layout.
 
 ## Development services
 
