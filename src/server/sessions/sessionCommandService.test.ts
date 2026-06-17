@@ -60,7 +60,9 @@ describe("SessionCommandService", () => {
     const service = new SessionCommandService(() => getActive(active), prompt, eventPublisher());
 
     await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
-    await expect(service.run("s1", "/ext arg")).resolves.toEqual({ type: "done", message: "Accepted /ext arg" });
+    // Forwarded runtime commands return a bare done result: the agent streams
+    // back the canonical expanded message, so no synthetic "Accepted" line.
+    await expect(service.run("s1", "/ext arg")).resolves.toEqual({ type: "done" });
     await expect(service.run("s1", "/template arg")).resolves.toMatchObject({ type: "done" });
     await expect(service.run("s1", "/skill:skill-a arg")).resolves.toMatchObject({ type: "done" });
     expect(prompt).toHaveBeenCalledTimes(3);

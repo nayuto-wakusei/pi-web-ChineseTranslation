@@ -142,6 +142,68 @@ describe("SessionController", () => {
     expect(state.selectedSession?.messageCount).toBe(3);
   });
 
+  it("adds a newly created session to the list when it belongs to the selected workspace", () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+    const spawned: SessionInfo = { ...oldSession, id: "spawned-session", path: "/tmp/spawned-session.jsonl" };
+
+    controller.applyGlobalEvent({ type: "session.created", session: spawned });
+
+    expect(state.sessions.map((session) => session.id)).toEqual(["spawned-session", "old-session"]);
+  });
+
+  it("ignores a created session for a different workspace or a duplicate id", () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "session.created", session: { ...oldSession, id: "other", cwd: "/other-repo" } });
+    controller.applyGlobalEvent({ type: "session.created", session: { ...oldSession } });
+
+    expect(state.sessions.map((session) => session.id)).toEqual(["old-session"]);
+  });
+
+  it("does not duplicate a started session when its session.created broadcast races the HTTP response", async () => {
+    const storage = new MemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    const socket = new FakeSocket();
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      startSession: () => {
+        // Simulate the broadcast arriving before the HTTP response resolves.
+        controller.applyGlobalEvent({ type: "session.created", session: started });
+        return Promise.resolve(started);
+      },
+      messages: () => Promise.resolve(emptyPage),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket },
+    );
+
+    await controller.startSession();
+
+    expect(state.sessions.map((session) => session.id)).toEqual(["started-session"]);
+    expect(isCachedNewSessionInfo(state.sessions[0])).toBe(true);
+  });
+
   it("toggles the per-session sending state around an inline attachment send and forwards attachments", async () => {
     let resolvePrompt: (() => void) | undefined;
     let promptArgs: { attachments?: PromptAttachment[] } | undefined;
@@ -207,7 +269,7 @@ describe("SessionController", () => {
     const attachments: PromptAttachment[] = [{ kind: "image", mimeType: "image/png", data: "QUJD", name: "shot.png" }];
     const api: typeof defaultApi = {
       ...defaultApi,
-      saveAttachments: (_session, sent) => { savedCalledWith = sent; return Promise.resolve([{ path: ".pi-web/paste/shot.png", mimeType: "image/png", size: 3 }]); },
+      saveAttachments: (_session, sent) => { savedCalledWith = sent; return Promise.resolve([{ path: ".pi-web/attachments/shot.png", mimeType: "image/png", size: 3 }]); },
       prompt: (_session, text, _behavior, _machineId, sentAttachments) => { promptText = text; promptAttachments = sentAttachments; return Promise.resolve({ accepted: true }); },
     };
     const controller = new SessionController(
@@ -221,7 +283,7 @@ describe("SessionController", () => {
     await controller.send("check this", undefined, attachments, "folder");
 
     expect(savedCalledWith).toEqual(attachments);
-    expect(promptText).toBe("check this\n\n@.pi-web/paste/shot.png");
+    expect(promptText).toBe("check this\n\n@.pi-web/attachments/shot.png");
     expect(promptAttachments).toBeUndefined();
     expect(state.sendingPrompts).toEqual({});
   });
@@ -243,6 +305,36 @@ describe("SessionController", () => {
 
     await controller.send("hello");
     expect(seen).toEqual([{}]);
+    expect(state.sendingPrompts).toEqual({});
+  });
+
+  it("sends slash commands without inserting an optimistic transcript line and toggles the sending state", async () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    let resolveCommand: (() => void) | undefined;
+    const seenDuringCommand: Record<string, true>[] = [];
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      runCommand: (_session, text) => new Promise((resolve) => {
+        seenDuringCommand.push({ ...state.sendingPrompts });
+        resolveCommand = () => { resolve(text.startsWith("/skill") ? { type: "done" } : { type: "done", message: "stats" }); };
+      }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const run = controller.send("/skill:skill-creator");
+    expect(seenDuringCommand).toEqual([{ [oldSession.id]: true }]);
+    // No raw command text is added to the transcript; the agent streams the
+    // canonical expanded message back instead.
+    expect(state.messages).toEqual([]);
+    resolveCommand?.();
+    await run;
+    expect(state.messages).toEqual([]);
     expect(state.sendingPrompts).toEqual({});
   });
 

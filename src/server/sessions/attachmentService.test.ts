@@ -30,12 +30,12 @@ describe("saveAttachmentsToWorkspace", () => {
     );
 
     expect(saved).toHaveLength(2);
-    expect(saved[0]?.path.startsWith(`${DEFAULT_ATTACHMENT_FOLDER}/paste-`)).toBe(true);
+    expect(saved[0]?.path.startsWith(`${DEFAULT_ATTACHMENT_FOLDER}/attachment-`)).toBe(true);
     expect(saved[0]?.path.endsWith(".png")).toBe(true);
     expect(saved[1]?.path.endsWith(".webp")).toBe(true);
     expect(saved[0]?.size).toBe(pngBytes.byteLength);
 
-    const folderEntries = await readdir(join(workspace, ".pi-web", "paste"));
+    const folderEntries = await readdir(join(workspace, ".pi-web", "attachments"));
     expect(folderEntries).toHaveLength(2);
 
     const firstPath = saved[0]?.path ?? "";

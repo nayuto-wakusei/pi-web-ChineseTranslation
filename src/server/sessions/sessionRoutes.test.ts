@@ -175,7 +175,7 @@ class CapturingRouteSessionService extends PiSessionService {
   override saveAttachments(_lookup: string | PiSessionRef, attachments: unknown, folder?: string) {
     const list = Array.isArray(attachments) ? attachments : [];
     return Promise.resolve(list.map((attachment: { mimeType: string; data: string; name?: string }) => ({
-      path: `${folder ?? ".pi-web/paste"}/${attachment.name ?? "file.png"}`,
+      path: `${folder ?? ".pi-web/attachments"}/${attachment.name ?? "file.png"}`,
       mimeType: attachment.mimeType,
       size: Buffer.from(attachment.data, "base64").byteLength,
     })));

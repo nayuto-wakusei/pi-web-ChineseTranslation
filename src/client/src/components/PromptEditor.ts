@@ -141,7 +141,7 @@ export class PromptEditor extends LitElement {
           <label class="attachment-delivery" title="How attachments are delivered to the agent">
             <select .value=${this.attachmentDelivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
               <option value="inline">Attach to message</option>
-              <option value="folder">Save to .pi-web/paste</option>
+              <option value="folder">Save to .pi-web/attachments</option>
             </select>
           </label>
         ` : null}

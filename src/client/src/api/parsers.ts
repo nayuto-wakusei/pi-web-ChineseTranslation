@@ -472,6 +472,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
+    ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
   };
 }
 
@@ -506,7 +507,7 @@ function optionalPlugins(value: unknown): PiWebPluginConfigMap | undefined {
 
 function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
   const record = requireRecord(value);
-  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts") };
+  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts"), spawnSessions: requireBoolean(record, "spawnSessions") };
 }
 
 export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {
@@ -748,6 +749,13 @@ export function parseReloaded(value: unknown): { reloaded: true } {
   const record = requireRecord(value);
   if (record["reloaded"] !== true) throw new Error("Expected reloaded response");
   return { reloaded: true };
+}
+
+function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`Invalid PI WEB ${key} field`);
+  return value;
 }
 
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {

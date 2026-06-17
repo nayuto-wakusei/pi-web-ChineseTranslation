@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, loadPiWebConfig, maxUploadBytes, savePiWebConfig } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -76,6 +76,21 @@ describe("maxUploadBytes", () => {
 
   it("falls back to config when env is unset or invalid", () => {
     expect(maxUploadBytes({ PI_WEB_MAX_UPLOAD_BYTES: "not-a-number" }, { maxUploadBytes: 555 })).toBe(555);
+  });
+});
+
+describe("spawnSessionsEnabled", () => {
+  it("is on by default when nothing is configured", () => {
+    expect(spawnSessionsEnabled({}, {})).toBe(true);
+  });
+
+  it("honors an explicit config opt-out", () => {
+    expect(spawnSessionsEnabled({}, { spawnSessions: false })).toBe(false);
+  });
+
+  it("lets the env var override the config in both directions", () => {
+    expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: "0" }, { spawnSessions: true })).toBe(false);
+    expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: "1" }, { spawnSessions: false })).toBe(true);
   });
 });
 

@@ -23,11 +23,9 @@ export function defineTasksPanelElement(): void {
   if (!customElements.get(tasksPanelTagName)) customElements.define(tasksPanelTagName, PiWebTasksPanel);
 }
 
-export function tasksPanelBadge(context: WorkspacePanelContext): string | number | undefined {
+export function tasksPanelBadge(context: WorkspacePanelContext): string | undefined {
   const state = getCachedWorkspaceConfig(context);
-  if (state?.kind === "unavailable") return "!";
-  if (state?.kind === "loaded" && state.config.tasks.length > 0) return state.config.tasks.length;
-  return undefined;
+  return state?.kind === "unavailable" ? "!" : undefined;
 }
 
 class PiWebTasksPanel extends HTMLElement {

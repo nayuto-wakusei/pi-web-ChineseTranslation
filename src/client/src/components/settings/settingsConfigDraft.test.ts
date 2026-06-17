@@ -26,4 +26,14 @@ describe("settings config drafts", () => {
       plugins: { info: { enabled: false } },
     });
   });
+
+  it("preserves the spawnSessions flag when saving general settings", () => {
+    const result = configFromDraft({
+      host: "",
+      port: "",
+      allowedHostsMode: "list",
+      allowedHostsText: "",
+    }, { spawnSessions: true });
+    expect(result.spawnSessions).toBe(true);
+  });
 });

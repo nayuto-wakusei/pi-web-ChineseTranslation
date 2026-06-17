@@ -9,13 +9,13 @@ describe("API parsers", () => {
       exists: true,
       config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } } },
       effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true },
-      envOverrides: { host: true, port: false, allowedHosts: false },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false },
     })).toEqual({
       path: "/tmp/config.json",
       exists: true,
       config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } } },
       effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true },
-      envOverrides: { host: true, port: false, allowedHosts: false },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false },
     });
   });
 

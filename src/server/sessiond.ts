@@ -10,12 +10,16 @@ import { AuthService } from "./sessions/authService.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
 import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
+import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
+import { ProjectService } from "./projects/projectService.js";
+import { ProjectStore } from "./storage/projectStore.js";
+import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
 import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { maxUploadBytes } from "../config.js";
+import { effectivePiWebConfig, maxUploadBytes, spawnSessionsEnabled } from "../config.js";
 
 const app = Fastify({ logger: true, bodyLimit: maxUploadBytes() });
 await app.register(fastifyWebsocket);
@@ -23,7 +27,16 @@ await app.register(fastifyWebsocket);
 const eventHub = new SessionEventHub();
 const workspaceActivity = new WorkspaceActivityService(eventHub);
 const auth = new AuthService();
-const sessions = new PiSessionService(eventHub, { modelRegistry: auth.modelRegistry, workspaceActivity });
+const { config } = effectivePiWebConfig();
+const spawnTargets = spawnSessionsEnabled(process.env, config)
+  ? new ProjectScopedSpawnTargetResolver({ projects: new ProjectService(new ProjectStore()), workspaces: new WorkspaceService() })
+  : undefined;
+const sessions = new PiSessionService(eventHub, {
+  modelRegistry: auth.modelRegistry,
+  workspaceActivity,
+  logger: app.log,
+  ...(spawnTargets === undefined ? {} : { spawnTargets }),
+});
 auth.subscribe((change) => { sessions.applyAuthChange(change); });
 const terminals = new TerminalService(eventHub, workspaceActivity);
 registerWorkspaceActivityRoutes(app, workspaceActivity);

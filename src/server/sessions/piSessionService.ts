@@ -32,9 +32,27 @@ import type { SavedPromptAttachment } from "../../shared/apiTypes.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
+import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
+
+/**
+ * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
+ * pass `app.log` directly. Defaults to a no-op so the service stays usable
+ * without booting a server (e.g. in tests).
+ */
+export interface PiSessionLogger {
+  info(details: Record<string, unknown>, message: string): void;
+}
+
+const noopLogger: PiSessionLogger = { info() { /* no-op */ } };
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
+}
+
+function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: false }>): Error {
+  if (decision.reason === "not-registered") return new Error("Spawning session is not in a registered project");
+  return new Error(`cwd must be a workspace of this project. Allowed: ${decision.allowedCwds.join(", ")}`);
 }
 
 function authLossWarningKey(sessionId: string, provider: string, modelId: string): string {
@@ -59,6 +77,7 @@ interface QueuedPrompt {
   kind: QueuedPromptKind;
   text: string;
   images?: ImageContent[];
+  echoUserMessage?: boolean;
 }
 
 function requirePromptText(value: unknown): string {
@@ -188,10 +207,15 @@ function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFacto
   return createAgentSessionRuntime(createRuntime, { ...options, sessionManager: options.sessionManager });
 }
 
-function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance): CreateAgentSessionRuntimeFactory {
+type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
+
+function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn): CreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
-    const customTools = [createPiWebEditToolDefinition(cwd)];
+    const customTools = [
+      createPiWebEditToolDefinition(cwd),
+      ...(spawn === undefined ? [] : [createSpawnSessionToolDefinition(cwd, { spawn })]),
+    ];
     const options = sessionStartEvent === undefined
       ? { services, sessionManager, customTools }
       : { services, sessionManager, sessionStartEvent, customTools };
@@ -233,6 +257,14 @@ export interface PiSessionServiceDependencies {
   modelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
+  /**
+   * When provided, the `spawn_session` tool is registered on every session,
+   * letting the LLM start new sessions scoped to its project's workspaces.
+   * Omit to keep the capability disabled (the tool is never registered).
+   */
+  spawnTargets?: SpawnTargetResolver;
+  /** Structured logger for notable runtime events (e.g. spawns). */
+  logger?: PiSessionLogger;
 }
 
 export class PiSessionService {
@@ -250,19 +282,27 @@ export class PiSessionService {
   private readonly createAgentRuntime: CreateAgentRuntime;
   private readonly modelRegistry: ModelRegistryInstance;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
+  private readonly spawnTargets: SpawnTargetResolver | undefined;
+  private readonly logger: PiSessionLogger;
 
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies = {}) {
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.agentDir = deps.agentDir ?? getAgentDir();
     this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({ agentDir: this.agentDir });
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
-    this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(this.modelRegistry.authStorage, this.modelRegistry);
+    this.spawnTargets = deps.spawnTargets;
+    this.logger = deps.logger ?? noopLogger;
+    this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
+      this.modelRegistry.authStorage,
+      this.modelRegistry,
+      this.spawnTargets === undefined ? undefined : (input) => this.spawnSession(input),
+    );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
     this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
-      (sessionId, text) => this.prompt(sessionId, text),
+      (sessionId, text) => this.prompt(sessionId, text, undefined, undefined, { echoUserMessage: false }),
       events,
       {
         onCompactionStart: (session) => {
@@ -320,7 +360,7 @@ export class PiSessionService {
     void _managementContext;
     const active = await this.create(this.sessionManager.create(cwd), cwd);
     const { session } = active.runtime;
-    return {
+    const created: ClientSession = {
       id: session.sessionId,
       path: session.sessionFile ?? "",
       cwd,
@@ -329,6 +369,28 @@ export class PiSessionService {
       messageCount: session.messages.length,
       firstMessage: "",
     };
+    // Broadcast so other clients (and the spawning agent's UI) can add the new
+    // session to their list without a manual reload.
+    this.events.publishGlobal({ type: "session.created", session: created });
+    return created;
+  }
+
+  /**
+   * Start a new session on behalf of a LLM and deliver an initial prompt to it.
+   * The target cwd is constrained to a workspace of the same registered project
+   * as the spawning session so the new session is visible in the web UI.
+   */
+  async spawnSession(input: SpawnSessionInvocation): Promise<SpawnSessionResult> {
+    if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
+    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
+    if (!decision.allowed) throw spawnTargetError(decision);
+    const created = await this.start(decision.cwd);
+    await this.prompt(created.id, input.prompt);
+    this.logger.info(
+      { spawningCwd: input.spawningCwd, sessionId: created.id, cwd: decision.cwd, promptLength: input.prompt.length },
+      "spawn_session started a new session",
+    );
+    return { sessionId: created.id, cwd: decision.cwd };
   }
 
   async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }): Promise<unknown[] | ClientMessagePage> {
@@ -419,9 +481,15 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, _managementContext?: ManagementEmbedContext): Promise<void> {
+  async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, options?: { echoUserMessage?: boolean; managementContext?: ManagementEmbedContext | undefined }): Promise<void> {
+    const _managementContext = options?.managementContext;
     void _managementContext;
     const promptText = requirePromptText(text);
+    // Command-forwarded prompts (e.g. /skill:*) are expanded by the agent, which
+    // streams the canonical message back. The client doesn't render the raw
+    // command text, so the server must not echo it either, or it would show up
+    // as a transient line that vanishes on reload.
+    const echoUserMessage = options?.echoUserMessage !== false;
     const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
     const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
     const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
@@ -436,15 +504,15 @@ export class PiSessionService {
       return;
     }
     if (session.isCompacting) {
-      this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp", images);
+      this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp", images, echoUserMessage);
       return;
     }
-    void this.submitPrompt(session, promptText, behavior, images);
+    void this.submitPrompt(session, promptText, behavior, images, echoUserMessage);
   }
 
-  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = []): Promise<void> {
+  private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
     this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
-    if (behavior === undefined) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) });
+    if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) });
     const promptOptions = buildPromptOptions(behavior, images);
     const promptPromise = session.prompt(text, promptOptions).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -455,9 +523,9 @@ export class PiSessionService {
     return promptPromise;
   }
 
-  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: ImageContent[] = []): void {
+  private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: ImageContent[] = [], echoUserMessage = true): void {
     const queue = this.compactionPromptQueues.get(session.sessionId) ?? [];
-    queue.push({ kind, text, ...(images.length > 0 ? { images } : {}) });
+    queue.push({ kind, text, ...(images.length > 0 ? { images } : {}), ...(echoUserMessage ? {} : { echoUserMessage: false }) });
     this.compactionPromptQueues.set(session.sessionId, queue);
     this.publishActivity(session, "message queued during compaction", "active");
     this.publishStatus(session);
@@ -803,14 +871,14 @@ export class PiSessionService {
       const queued = this.takeCompactionPromptQueue(sessionId);
       if (queued.length === 0) return;
       this.publishStatus(session);
-      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images);
+      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images, prompt.echoUserMessage ?? true);
       return;
     }
 
     const prompt = this.shiftCompactionPrompt(sessionId);
     if (prompt === undefined) return;
     this.publishStatus(session);
-    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images);
+    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images, prompt.echoUserMessage ?? true);
     void submitted.finally(() => { this.scheduleCompactionQueueDrain(sessionId); });
   }
 

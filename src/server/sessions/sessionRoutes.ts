@@ -131,7 +131,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      await sessions.prompt(sessionLookupFromBody(request.params.sessionId, body), body["text"], body["streamingBehavior"], body["attachments"], managementContextFromHeaders(request.headers));
+      await sessions.prompt(sessionLookupFromBody(request.params.sessionId, body), body["text"], body["streamingBehavior"], body["attachments"], { managementContext: managementContextFromHeaders(request.headers) });
       return { accepted: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });

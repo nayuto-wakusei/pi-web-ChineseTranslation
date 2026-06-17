@@ -80,8 +80,12 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
 
     if (!isBuiltinCommand(name)) {
       if (this.isRuntimeCommand(session, name)) {
+        // The command is forwarded to the agent, which expands it (e.g. /skill:*
+        // into a skill block) and streams the canonical message back. That is the
+        // authoritative feedback, so we don't synthesize an extra "Accepted" line
+        // that would only vanish on reload.
         await this.prompt(sessionId, text);
-        return { type: "done", message: `Accepted ${text}` };
+        return { type: "done" };
       }
       return { type: "unsupported", message: `Unknown command: /${name}` };
     }

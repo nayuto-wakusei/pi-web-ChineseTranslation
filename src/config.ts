@@ -82,6 +82,9 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedPiWebConf
       ...(port !== undefined && port !== "" ? { port: parsePort(port, "PI_WEB_PORT") } : {}),
       ...(allowedHosts !== undefined && allowedHosts !== "" ? { allowedHosts: parseAllowedHostsEnv(allowedHosts) } : {}),
       ...(maxUpload !== undefined && maxUpload !== "" ? { maxUploadBytes: parseMaxUploadBytes(maxUpload, "PI_WEB_MAX_UPLOAD_BYTES") } : {}),
+      // Always resolved (on by default) so the effective config is the single
+      // source of truth for the runtime state and the settings UI toggle.
+      spawnSessions: spawnSessionsEnabled(env, loaded.config),
     },
   };
 }
@@ -98,6 +101,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["plugins"];
   delete existing["managementEmbed"];
   delete existing["maxUploadBytes"];
+  delete existing["spawnSessions"];
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
@@ -120,6 +124,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
+    ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
   };
 }
 
@@ -132,6 +137,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], path) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], path) } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
+    ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
   };
 }
 
@@ -139,6 +145,23 @@ function parseMaxUploadBytes(value: unknown, key: string, path = "environment"):
   const bytes = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
   if (!Number.isInteger(bytes) || bytes < 1) throw new Error(`PI WEB config ${key} must be a positive integer: ${path}`);
   return bytes;
+}
+
+function parseSpawnSessions(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`PI WEB config spawnSessions must be a boolean: ${path}`);
+  return value;
+}
+
+/**
+ * Whether LLMs may start new sessions via the spawn_session tool. On by default
+ * (spawned sessions appear in the session list, so humans notice them); set the
+ * env var `PI_WEB_SPAWN_SESSIONS` or the `spawnSessions` config key to `false`
+ * to disable. The env var takes precedence over the config file.
+ */
+export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
+  const fromEnv = env["PI_WEB_SPAWN_SESSIONS"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  return config.spawnSessions ?? true;
 }
 
 function parseString(value: unknown, key: string, path: string): string {

@@ -10,7 +10,7 @@ import { normalizeRelativePath } from "../workspaces/pathSafety.js";
  * Default workspace-relative folder used when saving pasted/dropped
  * attachments for the agent to read with its own tools.
  */
-export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/paste";
+export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/attachments";
 
 export interface InlineImage {
   image: ImageContent;
@@ -42,7 +42,7 @@ export async function attachmentsToInlineImages(attachments: PromptAttachment[])
 }
 
 export interface SaveAttachmentsOptions {
-  /** Workspace-relative folder to write into. Defaults to `.pi-web/paste`. */
+  /** Workspace-relative folder to write into. Defaults to `.pi-web/attachments`. */
   folder?: string;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
@@ -66,7 +66,7 @@ export async function saveAttachmentsToWorkspace(
   const saved: SavedPromptAttachment[] = [];
   for (const [index, attachment] of attachments.entries()) {
     const bytes = Buffer.from(attachment.data, "base64");
-    const filename = `paste-${stamp}-${String(index + 1)}.${extensionForImageMimeType(attachment.mimeType)}`;
+    const filename = `attachment-${stamp}-${String(index + 1)}.${extensionForImageMimeType(attachment.mimeType)}`;
     const relativePath = `${folder}/${filename}`;
     await writeFile(join(folderTarget, filename), bytes);
     saved.push({ path: relativePath, mimeType: attachment.mimeType, size: bytes.byteLength });

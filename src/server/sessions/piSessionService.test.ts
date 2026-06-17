@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -158,6 +159,7 @@ describe("PiSessionService", () => {
     expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0 });
     expect(service.activeCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
+    expect(hub.globalEvents.some((event) => event.type === "session.created" && event.session.id === "session-1" && event.session.cwd === "/workspace")).toBe(true);
 
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
@@ -540,6 +542,32 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("echoes the user message for direct prompts but not command-forwarded ones", async () => {
+    const fake = fakeRuntime("echo-session", {
+      resourceLoader: { getSkills: () => ({ skills: [{ name: "skill-creator" }] }) },
+    });
+    const hub = new CapturingSessionEventHub();
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("echo-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.prompt(sessionRef("echo-session"), "Build the thing");
+    expect(hub.sessionEvents.filter(({ event }) => event.type === "message.append")).toHaveLength(1);
+
+    // The client optimistically renders command-forwarded prompts (e.g. /skill:*),
+    // so the server must not publish a second copy via message.append.
+    await service.runCommand(sessionRef("echo-session"), "/skill:skill-creator");
+    expect(hub.sessionEvents.filter(({ event }) => event.type === "message.append")).toHaveLength(1);
+    expect(fake.calls.prompt).toEqual([
+      { text: "Build the thing", options: undefined },
+      { text: "/skill:skill-creator", options: undefined },
+    ]);
+
+    await service.dispose();
+  });
+
   it("rejects malformed prompt text before opening the runtime", async () => {
     const fake = fakeRuntime("prompt-session");
     const service = new PiSessionService(new CapturingSessionEventHub(), {
@@ -746,5 +774,62 @@ describe("PiSessionService", () => {
 
     expect(fake.calls.clearQueue).toBe(1);
     await service.dispose();
+  });
+
+  describe("spawnSession", () => {
+    function spawnService(decision: SpawnTargetDecision) {
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const log: { details: Record<string, unknown>; message: string }[] = [];
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        sessionManager: sessionGateway([]),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve(decision) },
+        logger: { info: (details, message) => { log.push({ details, message }); } },
+        heartbeatIntervalMs: 60_000,
+      });
+      return { fake, service, log };
+    }
+
+    it("starts a session at the resolved target, delivers the prompt, and logs the spawn", async () => {
+      const { fake, service, log } = spawnService({ allowed: true, cwd: "/workspace-feature" });
+
+      const result = await service.spawnSession({ spawningCwd: "/workspace", prompt: "continue the plan", cwd: "/workspace-feature" });
+
+      expect(result).toEqual({ sessionId: "spawned-1", cwd: "/workspace-feature" });
+      expect(fake.calls.prompt).toEqual([{ text: "continue the plan", options: undefined }]);
+      expect(log).toEqual([{ details: { spawningCwd: "/workspace", sessionId: "spawned-1", cwd: "/workspace-feature", promptLength: 17 }, message: "spawn_session started a new session" }]);
+      await service.dispose();
+    });
+
+    it("rejects an out-of-project target without starting a session", async () => {
+      const { fake, service } = spawnService({ allowed: false, reason: "out-of-project", allowedCwds: ["/workspace"] });
+
+      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: "/elsewhere" }))
+        .rejects.toThrow("cwd must be a workspace of this project. Allowed: /workspace");
+      expect(fake.calls.prompt).toEqual([]);
+      expect(service.activeCount()).toBe(0);
+      await service.dispose();
+    });
+
+    it("rejects when the spawning session is not in a registered project", async () => {
+      const { service } = spawnService({ allowed: false, reason: "not-registered" });
+
+      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
+        .rejects.toThrow("Spawning session is not in a registered project");
+      await service.dispose();
+    });
+
+    it("is disabled when no spawn target resolver is configured", async () => {
+      const fake = fakeRuntime("spawned-x");
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        sessionManager: sessionGateway([]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
+        .rejects.toThrow("Spawning sessions is disabled");
+      await service.dispose();
+    });
   });
 });

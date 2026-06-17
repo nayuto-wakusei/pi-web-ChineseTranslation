@@ -42,7 +42,7 @@ Copy-paste prompt for creating a plugin:
 Build a PI WEB plugin for this project.
 Goal: <describe the UI behavior>.
 Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins.html
+https://pi-web.dev/plugins
 Full API reference:
 https://pi-web.dev/plugins.md
 Create it as a local plugin under ~/.pi-web/plugins/<plugin-id>.
@@ -56,7 +56,7 @@ Copy-paste prompt for modifying a plugin:
 ```text
 Improve the PI WEB plugin at <path>.
 Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins.html
+https://pi-web.dev/plugins
 Full API reference:
 https://pi-web.dev/plugins.md
 Keep the plugin compatible with the documented v1 API.
@@ -131,7 +131,7 @@ Reload the PI WEB browser tab. PI WEB serves plugin modules with an mtime-based 
 
 ## Remote machine plugins
 
-When [machine federation](https://pi-web.dev/machines.html) is enabled, PI WEB also loads discovered plugins from the selected remote machine. Remote plugins are trusted browser-side code like local plugins, but their contributions are machine-scoped:
+When [machine federation](https://pi-web.dev/machines) is enabled, PI WEB also loads discovered plugins from the selected remote machine. Remote plugins are trusted browser-side code like local plugins, but their contributions are machine-scoped:
 
 - actions, workspace panels, and workspace labels only appear while that machine is selected;
 - plugin file and terminal helpers run against that machine;

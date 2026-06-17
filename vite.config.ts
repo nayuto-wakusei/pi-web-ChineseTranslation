@@ -19,7 +19,9 @@ const contentTypes: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
   ".webm": "video/webm",
+  ".xml": "application/xml; charset=utf-8",
 };
 
 type MiddlewareNext = (error?: unknown) => void;
@@ -45,33 +47,35 @@ async function serveDevDocs(request: IncomingMessage, response: ServerResponse, 
 
   const relativePath = decodeURIComponent(url.pathname.slice(docsPrefix.length + 1)) || "index.html";
   const requestedPath = relativePath.endsWith("/") ? join(relativePath, "index.html") : relativePath;
-  const filePath = resolve(docsRoot, requestedPath);
-  if (filePath !== docsRoot && !filePath.startsWith(`${docsRoot}${sep}`)) {
-    response.statusCode = 403;
-    response.end("Forbidden");
-    return;
+  const candidatePaths = extname(requestedPath) === "" ? [requestedPath, `${requestedPath}.html`] : [requestedPath];
+
+  for (const candidatePath of candidatePaths) {
+    const filePath = resolve(docsRoot, candidatePath);
+    if (filePath !== docsRoot && !filePath.startsWith(`${docsRoot}${sep}`)) {
+      response.statusCode = 403;
+      response.end("Forbidden");
+      return;
+    }
+
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) continue;
+
+      response.statusCode = 200;
+      response.setHeader("Content-Type", contentTypes[extname(filePath)] ?? "application/octet-stream");
+      response.setHeader("Cache-Control", "no-store");
+      createReadStream(filePath).pipe(response);
+      return;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code === "ENOENT") continue;
+      next(error);
+      return;
+    }
   }
 
-  try {
-    const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) {
-      response.statusCode = 404;
-      response.end("Not found");
-      return;
-    }
-    response.statusCode = 200;
-    response.setHeader("Content-Type", contentTypes[extname(filePath)] ?? "application/octet-stream");
-    response.setHeader("Cache-Control", "no-store");
-    createReadStream(filePath).pipe(response);
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") {
-      response.statusCode = 404;
-      response.end("Not found");
-      return;
-    }
-    next(error);
-  }
+  response.statusCode = 404;
+  response.end("Not found");
 }
 
 function devDocsPlugin(): Plugin {
