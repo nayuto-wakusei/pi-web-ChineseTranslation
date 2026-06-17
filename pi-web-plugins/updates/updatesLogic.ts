@@ -11,22 +11,22 @@ export interface CommandEntry {
 export function recommendedCommand(status: PiWebStatusResponse): CommandEntry | undefined {
   const { commands, release, components } = status;
   if (release.updateAvailable && typeof commands.update === "string" && commands.update !== "") {
-    return { label: "Update & restart everything", command: commands.update };
+    return { label: "更新并重启全部服务", command: commands.update };
   }
   const restartNeeded = components.web.stale || components.sessiond.stale || !components.sessiond.available;
   if (restartNeeded && typeof commands.restart === "string" && commands.restart !== "") {
-    return { label: "Restart everything", command: commands.restart };
+    return { label: "重启全部服务", command: commands.restart };
   }
   return undefined;
 }
 
 export function additionalCommands(status: PiWebStatusResponse, recommended: CommandEntry | undefined): CommandEntry[] {
   return [
-    ["Update", status.commands.update],
-    ["Restart all", status.commands.restart],
-    ["Restart Web/UI", status.commands.restartWeb],
-    ["Restart session daemon", status.commands.restartSessiond],
-    ["Status", status.commands.status],
+    ["更新", status.commands.update],
+    ["全部重启", status.commands.restart],
+    ["重启 Web/UI", status.commands.restartWeb],
+    ["重启会话守护进程", status.commands.restartSessiond],
+    ["状态", status.commands.status],
   ]
     .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "")
     .filter(([, command]) => command !== recommended?.command)
@@ -58,17 +58,17 @@ export function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined): b
 }
 
 export function formatVersion(version: string | undefined): string {
-  return version === undefined || version === "" ? "unknown" : version;
+  return version === undefined || version === "" ? "未知" : version;
 }
 
 export function installationLabel(installation: PiWebInstallationInfo | undefined): string {
-  if (installation === undefined) return "installation unknown";
+  if (installation === undefined) return "安装来源未知";
   if (installation.kind === "pi-package") {
     const scope = installation.scope === undefined ? "" : ` · ${installation.scope}`;
-    const source = installation.source ?? "Pi package";
+    const source = installation.source ?? "Pi 包";
     return `${source}${scope}`;
   }
-  if (installation.kind === "npm-global") return "global npm package";
-  if (installation.kind === "local") return "local checkout";
-  return "installation unknown";
+  if (installation.kind === "npm-global") return "全局 npm 包";
+  if (installation.kind === "local") return "本地 checkout";
+  return "安装来源未知";
 }

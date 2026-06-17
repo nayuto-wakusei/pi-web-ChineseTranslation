@@ -20,10 +20,10 @@ type SpawnSessionToolDetails = SpawnSessionResult;
 
 const SpawnSessionParams = Type.Object({
   prompt: Type.String({
-    description: "The first instruction to send to the newly created session. The new session runs independently; you do not receive its output.",
+    description: "发送给新建会话的第一条指令。新会话会独立运行；你不会收到它的输出。",
   }),
   cwd: Type.Optional(Type.String({
-    description: "Working directory for the new session. Must be a workspace (worktree, or root) of the same project as this session. Defaults to this session's working directory.",
+    description: "新会话的工作目录。必须是与当前会话同一项目下的工作区（worktree 或根目录）。默认使用当前会话的工作目录。",
   })),
 });
 
@@ -36,9 +36,9 @@ const SpawnSessionParams = Type.Object({
 export function createSpawnSessionToolDefinition(spawningCwd: string, deps: SpawnSessionToolDeps) {
   return defineTool<typeof SpawnSessionParams, SpawnSessionToolDetails>({
     name: "spawn_session",
-    label: "Spawn session",
-    description: "Start a new, independent pi-web session and send it an initial prompt. Use this to dispatch a fresh agent to continue work or follow a plan. The new session runs on its own and a human can interact with it; you do not receive its output.",
-    promptSnippet: "spawn_session: start a new independent session with a first prompt",
+    label: "派生会话",
+    description: "启动一个新的独立 pi-web 会话，并发送初始提示。可用于派遣新的代理继续工作或执行计划。新会话会自行运行，人类可以打开并交互；你不会收到它的输出。",
+    promptSnippet: "spawn_session：使用第一条提示启动新的独立会话",
     parameters: SpawnSessionParams,
     async execute(_toolCallId, params) {
       // Failures throw: the agent loop turns the thrown message into an error
@@ -46,7 +46,7 @@ export function createSpawnSessionToolDefinition(spawningCwd: string, deps: Spaw
       // valid workspace) rather than crash.
       const result = await deps.spawn({ spawningCwd, prompt: params.prompt, cwd: params.cwd });
       return {
-        content: [{ type: "text", text: `Started session ${result.sessionId} in ${result.cwd}.` }],
+        content: [{ type: "text", text: `已在 ${result.cwd} 启动会话 ${result.sessionId}。` }],
         details: result,
       };
     },

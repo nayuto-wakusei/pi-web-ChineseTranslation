@@ -421,7 +421,7 @@ describe("PiSessionService", () => {
     });
 
     await expect(service.deleteArchived("arch")).resolves.toBeUndefined();
-    await expect(service.deleteArchived("active")).rejects.toThrow("Archived session not found");
+    await expect(service.deleteArchived("active")).rejects.toThrow("未找到已归档会话");
 
     expect(deletedSessionIds).toEqual(["archived"]);
     await service.dispose();
@@ -468,7 +468,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.reload(sessionRef("busy-session"))).rejects.toThrow("Stop current session activity before reloading");
+    await expect(service.reload(sessionRef("busy-session"))).rejects.toThrow("重新加载前请先停止当前会话活动");
     expect(fake.calls.abort).toBe(0);
     expect(fake.calls.dispose).toBe(0);
 
@@ -490,7 +490,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.reload(sessionRef("archived"))).rejects.toThrow("Archived sessions are read-only");
+    await expect(service.reload(sessionRef("archived"))).rejects.toThrow("已归档会话为只读");
 
     await service.dispose();
   });
@@ -576,7 +576,7 @@ describe("PiSessionService", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.prompt("prompt-session", undefined)).rejects.toThrow("Prompt text is required");
+    await expect(service.prompt("prompt-session", undefined)).rejects.toThrow("提示文本为必填项");
 
     expect(fake.calls.prompt).toEqual([]);
     await service.dispose();
@@ -805,7 +805,7 @@ describe("PiSessionService", () => {
       const { fake, service } = spawnService({ allowed: false, reason: "out-of-project", allowedCwds: ["/workspace"] });
 
       await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: "/elsewhere" }))
-        .rejects.toThrow("cwd must be a workspace of this project. Allowed: /workspace");
+        .rejects.toThrow("cwd 必须是此项目的工作区。允许的路径：/workspace");
       expect(fake.calls.prompt).toEqual([]);
       expect(service.activeCount()).toBe(0);
       await service.dispose();
@@ -815,7 +815,7 @@ describe("PiSessionService", () => {
       const { service } = spawnService({ allowed: false, reason: "not-registered" });
 
       await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
-        .rejects.toThrow("Spawning session is not in a registered project");
+        .rejects.toThrow("派生会话不在已注册项目中");
       await service.dispose();
     });
 
@@ -828,7 +828,7 @@ describe("PiSessionService", () => {
       });
 
       await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
-        .rejects.toThrow("Spawning sessions is disabled");
+        .rejects.toThrow("派生会话已禁用");
       await service.dispose();
     });
   });

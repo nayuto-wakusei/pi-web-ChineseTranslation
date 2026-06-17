@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.13
+
+### Patch Changes
+
+- Localize remaining web UI and command messages into Chinese.
+- Require locally signed PI WEB management embed tokens and reject legacy introspection configuration.
+
 ## 1.202606.12
 
 ### Patch Changes

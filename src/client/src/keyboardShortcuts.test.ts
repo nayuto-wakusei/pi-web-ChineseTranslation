@@ -186,8 +186,8 @@ describe("shortcut input parsing", () => {
   });
 
   it("rejects shortcuts that would capture normal typing", () => {
-    expect(parseShortcutInput("r")).toEqual({ ok: false, message: "Shortcuts must start with Ctrl/⌘ or Alt so normal typing is not captured." });
-    expect(parseShortcutInput("shift+r")).toEqual({ ok: false, message: "Shortcuts must start with Ctrl/⌘ or Alt so normal typing is not captured." });
+    expect(parseShortcutInput("r")).toEqual({ ok: false, message: "快捷键必须以 Ctrl/⌘ 或 Alt 开头，避免拦截普通输入。" });
+    expect(parseShortcutInput("shift+r")).toEqual({ ok: false, message: "快捷键必须以 Ctrl/⌘ 或 Alt 开头，避免拦截普通输入。" });
   });
 
   it("builds canonical tokens from recorded key events", () => {

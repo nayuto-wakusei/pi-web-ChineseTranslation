@@ -231,7 +231,7 @@ export class ChatView extends LitElement {
       return html`
         <div class="activity-dock active" aria-live="polite">
           <span class="dot"></span>
-          <span class="activity-text">Sending your message…</span>
+          <span class="activity-text">正在发送你的消息…</span>
         </div>
       `;
     }

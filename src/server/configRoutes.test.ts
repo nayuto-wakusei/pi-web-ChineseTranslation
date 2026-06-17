@@ -72,6 +72,28 @@ describe("config routes", () => {
     });
   });
 
+  it("rejects old management embed introspection auth config", async () => {
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/config",
+      payload: {
+        config: {
+          managementEmbed: {
+            enabled: true,
+            auth: {
+              introspectionUrl: "http://localhost:30032/console/api/auth/external-portal/pi-web/introspect",
+              serviceSecretEnv: "PI_WEB_EMBED_SHARED_SECRET",
+            },
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toHaveProperty("error", expect.stringContaining("only supports local signed tokens"));
+    expect(service.write).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid config payloads before writing", async () => {
     const response = await app.inject({
       method: "PUT",

@@ -59,6 +59,20 @@ describe("PI WEB config persistence", () => {
     expect(loadPiWebConfig(testOptions()).config.managementEmbed?.auth).toEqual(saved.config.managementEmbed?.auth);
   });
 
+  it("rejects old management embed introspection auth config", async () => {
+    await writeFile(configPath, `${JSON.stringify({
+      managementEmbed: {
+        enabled: true,
+        auth: {
+          introspectionUrl: "http://localhost:30032/console/api/auth/external-portal/pi-web/introspect",
+          serviceSecretEnv: "PI_WEB_EMBED_SHARED_SECRET",
+        },
+      },
+    }, null, 2)}\n`, "utf8");
+
+    expect(() => loadPiWebConfig(testOptions())).toThrow("only supports local signed tokens");
+  });
+
   it("persists and reads maxUploadBytes", () => {
     savePiWebConfig({ maxUploadBytes: 1234 }, testOptions());
     expect(loadPiWebConfig(testOptions()).config.maxUploadBytes).toBe(1234);

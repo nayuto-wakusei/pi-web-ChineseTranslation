@@ -94,16 +94,16 @@ export class PromptEditor extends LitElement {
         <div class="editor-wrap">
           <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
           <input class="attachment-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
-          <button class="editor-attach icon-button" ?disabled=${busy} title="Attach images" aria-label="Attach images" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
-          ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
-          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
+          <button class="editor-attach icon-button" ?disabled=${busy} title="附加图片" aria-label="附加图片" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
+          ${shellMode ? html`<div class="mode-hint">Shell 命令${inputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
+          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
           ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
           ${this.renderCompactStatus()}
           <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? "当前活动结束后排队发送" : "发送"} aria-label=${queuesInput ? "排队发送" : "发送"} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="Steer the current response before the next model call" aria-label="Steer current response" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
+          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="在下次模型调用前引导当前回复" aria-label="引导当前回复" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
           <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} aria-label="停止" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
         </div>
       </footer>
@@ -117,12 +117,12 @@ export class PromptEditor extends LitElement {
   private renderCompactStatus() {
     const status = this.status;
     if (status === undefined) return null;
-    const model = status.model?.id ?? "no model";
+    const model = status.model?.id ?? "无模型";
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
-      <div class="compact-status" aria-label="Session status">
-        <button class="select-model" title="Select model" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking icon-button" title=${`Thinking level: ${thinkingLevelLabel(status.thinkingLevel)}`} aria-label=${`Thinking level: ${thinkingLevelLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+      <div class="compact-status" aria-label="会话状态">
+        <button class="select-model" title="选择模型" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+        <button class="select-thinking icon-button" title=${`思考级别：${thinkingLevelLabel(status.thinkingLevel)}`} aria-label=${`思考级别：${thinkingLevelLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
       </div>
     `;
   }
@@ -130,18 +130,18 @@ export class PromptEditor extends LitElement {
   private renderAttachments() {
     if (this.attachments.length === 0 && this.attachmentError === undefined) return null;
     return html`
-      <div class="attachments" aria-label="Pending attachments">
+      <div class="attachments" aria-label="待发送附件">
         ${this.attachments.map((attachment) => html`
           <div class="attachment-chip" title=${attachment.name}>
             <img src=${`data:${attachment.mimeType};base64,${attachment.data}`} alt=${attachment.name} />
-            <button type="button" class="attachment-remove" title="Remove attachment" aria-label=${`Remove ${attachment.name}`} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
+            <button type="button" class="attachment-remove" title="移除附件" aria-label=${`移除 ${attachment.name}`} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
           </div>
         `)}
         ${this.attachments.length > 0 ? html`
-          <label class="attachment-delivery" title="How attachments are delivered to the agent">
+          <label class="attachment-delivery" title="附件发送给代理的方式">
             <select .value=${this.attachmentDelivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
-              <option value="inline">Attach to message</option>
-              <option value="folder">Save to .pi-web/attachments</option>
+              <option value="inline">附加到消息</option>
+              <option value="folder">保存到 .pi-web/attachments</option>
             </select>
           </label>
         ` : null}
@@ -414,10 +414,10 @@ function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => { reject(reader.error ?? new Error("Failed to read file")); };
+    reader.onerror = () => { reject(reader.error ?? new Error("读取文件失败")); };
     reader.onload = () => {
       const result = reader.result;
-      if (typeof result !== "string") { reject(new Error("Unexpected file reader result")); return; }
+      if (typeof result !== "string") { reject(new Error("文件读取结果异常")); return; }
       const commaIndex = result.indexOf(",");
       resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
     };

@@ -87,7 +87,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
         await this.prompt(sessionId, text);
         return { type: "done" };
       }
-      return { type: "unsupported", message: `Unknown command: /${name}` };
+      return { type: "unsupported", message: `未知命令：/${name}` };
     }
 
     if (name === "session") return { type: "done", message: formatSessionStats(session) };
@@ -96,28 +96,28 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     if (name === "clone") return this.clone(active);
     if (name === "fork") return this.fork(active);
 
-    return { type: "unsupported", message: `/${name} is not implemented in the web UI yet` };
+    return { type: "unsupported", message: `Web UI 尚未实现 /${name}` };
   }
 
   async respond(sessionId: string, requestId: string, value: string): Promise<ClientCommandResult> {
     const pending = this.pendingSelects.get(requestId);
-    if (pending?.sessionId !== sessionId) return { type: "unsupported", message: "Command request expired" };
+    if (pending?.sessionId !== sessionId) return { type: "unsupported", message: "命令请求已过期" };
     this.pendingSelects.delete(requestId);
 
     const active = await this.getActive(sessionId);
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const relatedName = await this.nextRelatedSessionName(active, "fork");
     const result = await active.runtime.fork(value);
-    if (result.cancelled) return { type: "done", message: "Fork cancelled" };
+    if (result.cancelled) return { type: "done", message: "已取消分叉" };
     this.tryNameRelatedSession(active.runtime.session, relatedName);
-    return { type: "done", message: "Session forked", session: clientSessionFromRuntime(active.runtime), ...promptDraft(result.selectedText) };
+    return { type: "done", message: "会话已分叉", session: clientSessionFromRuntime(active.runtime), ...promptDraft(result.selectedText) };
   }
 
   private nameSession(active: CommandActiveSession<TSession>, name: string): ClientCommandResult {
-    if (name === "") return { type: "unsupported", message: "Usage: /name <session name>" };
+    if (name === "") return { type: "unsupported", message: "用法：/name <会话名称>" };
     active.runtime.session.setSessionName(name);
     this.publishSessionName(active.runtime.session);
-    return { type: "done", message: `Session named: ${name}`, session: clientSessionFromRuntime(active.runtime) };
+    return { type: "done", message: `会话已命名：${name}`, session: clientSessionFromRuntime(active.runtime) };
   }
 
   private compact(session: TSession, instructions: string): ClientCommandResult {
@@ -133,34 +133,34 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Compaction failed: ${message}` });
+        this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `压缩失败：${message}` });
         this.events.publish(session.sessionId, { type: "session.error", message });
         this.lifecycle.onCompactionEnd?.(session, "error", message);
       });
-    return { type: "done", message: "Compaction started…" };
+    return { type: "done", message: "已开始压缩…" };
   }
 
   private async clone(active: CommandActiveSession<TSession>): Promise<ClientCommandResult> {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const leafId = active.runtime.session.sessionManager.getLeafId();
-    if (leafId === null || leafId === "") return { type: "unsupported", message: "Cannot clone: no current session entry" };
+    if (leafId === null || leafId === "") return { type: "unsupported", message: "无法克隆：没有当前会话条目" };
     const relatedName = await this.nextRelatedSessionName(active, "copy");
     const result = await active.runtime.fork(leafId, { position: "at" });
-    if (result.cancelled) return { type: "done", message: "Clone cancelled" };
+    if (result.cancelled) return { type: "done", message: "已取消克隆" };
     this.tryNameRelatedSession(active.runtime.session, relatedName);
-    return { type: "done", message: "Session cloned", session: clientSessionFromRuntime(active.runtime) };
+    return { type: "done", message: "会话已克隆", session: clientSessionFromRuntime(active.runtime) };
   }
 
   private fork(active: CommandActiveSession<TSession>): ClientCommandResult {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const messages = active.runtime.session.getUserMessagesForForking();
-    if (!messages.length) return { type: "unsupported", message: "No user messages to fork from" };
+    if (!messages.length) return { type: "unsupported", message: "没有可用于分叉的用户消息" };
     const requestId = crypto.randomUUID();
     this.pendingSelects.set(requestId, { sessionId: active.runtime.session.sessionId, command: "fork" });
     return {
       type: "select",
       requestId,
-      title: "Fork from message",
+      title: "从消息分叉",
       options: [...messages].reverse().map((message) => ({ value: message.entryId, label: truncate(message.text, 140) })),
     };
   }
@@ -183,7 +183,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
       this.publishSessionName(session);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Session created, but naming failed: ${message}` });
+      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `会话已创建，但命名失败：${message}` });
     }
   }
 
@@ -225,12 +225,12 @@ function relatedSessionSourceTitle(session: CommandSession): string {
     const text = normalizedName(extractUserMessageText(message));
     if (text !== undefined) return truncate(text, 80);
   }
-  return "Untitled session";
+  return "未命名会话";
 }
 
 function uniqueRelatedSessionName(sourceTitle: string, kind: RelatedSessionKind, existingNames: readonly string[]): string {
-  const baseName = stripRelatedSessionSuffix(sourceTitle) || "Untitled session";
-  const label = kind === "fork" ? "Fork" : "Copy";
+  const baseName = stripRelatedSessionSuffix(sourceTitle) || "未命名会话";
+  const label = kind === "fork" ? "分叉" : "副本";
   const usedNames = new Set(existingNames.map(normalizedName).filter(isDefined));
   for (let counter = 1; ; counter += 1) {
     const candidate = `${baseName} — ${label} ${String(counter)}`;
@@ -239,7 +239,7 @@ function uniqueRelatedSessionName(sourceTitle: string, kind: RelatedSessionKind,
 }
 
 function stripRelatedSessionSuffix(name: string): string {
-  return name.replace(/\s+(?:—|-)\s+(?:Fork|Copy|Clone)\s+\d+$/u, "").trim();
+  return name.replace(/\s+(?:—|-)\s+(?:Fork|Copy|Clone|分叉|副本|克隆)\s+\d+$/u, "").trim();
 }
 
 function extractUserMessageText(message: unknown): string | undefined {
@@ -271,7 +271,7 @@ function sessionHasActiveWork(session: CommandSession): boolean {
 }
 
 function forkActiveUnsupported(command: "fork" | "clone"): ClientCommandResult {
-  return { type: "unsupported", message: `Cannot ${command} while the session is active. Stop current activity before ${command === "fork" ? "forking" : "cloning"}.` };
+  return { type: "unsupported", message: `会话活动期间无法${command === "fork" ? "分叉" : "克隆"}。请先停止当前活动。` };
 }
 
 function promptDraft(text: string | undefined): Partial<Pick<Extract<ClientCommandResult, { type: "done" }>, "promptDraft">> {
@@ -281,18 +281,18 @@ function promptDraft(text: string | undefined): Partial<Pick<Extract<ClientComma
 function formatSessionStats(session: CommandSession): string {
   const stats = session.getSessionStats();
   return [
-    `Session: ${stats.sessionId}`,
-    `Messages: ${String(stats.totalMessages)} (${String(stats.userMessages)} user, ${String(stats.assistantMessages)} assistant)`,
-    `Tool calls: ${String(stats.toolCalls)}`,
-    `Tokens: ↑${String(stats.tokens.input)} ↓${String(stats.tokens.output)} total ${String(stats.tokens.total)}`,
-    `Cost: $${stats.cost.toFixed(4)}`,
+    `会话：${stats.sessionId}`,
+    `消息：${String(stats.totalMessages)}（用户 ${String(stats.userMessages)}，助手 ${String(stats.assistantMessages)}）`,
+    `工具调用：${String(stats.toolCalls)}`,
+    `Tokens：↑${String(stats.tokens.input)} ↓${String(stats.tokens.output)} 总计 ${String(stats.tokens.total)}`,
+    `费用：$${stats.cost.toFixed(4)}`,
   ].join("\n");
 }
 
 function formatCompactionResult(result: { summary: string; tokensBefore: number }): string {
   return [
-    "Compaction complete.",
-    `Tokens before: ${String(result.tokensBefore)}`,
+    "压缩完成。",
+    `压缩前 tokens：${String(result.tokensBefore)}`,
     "",
     result.summary,
   ].join("\n");

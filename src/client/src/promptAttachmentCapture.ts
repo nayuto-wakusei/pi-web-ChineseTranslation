@@ -25,7 +25,7 @@ export interface CaptureResult {
 }
 
 export const UNSUPPORTED_IMAGE_MESSAGE = "Only PNG, JPEG, GIF, and WebP images are supported.";
-export const READ_FAILURE_MESSAGE = "Failed to read an attachment.";
+export const READ_FAILURE_MESSAGE = "读取附件失败。";
 
 /**
  * Validate a batch of files and read the supported images as base64.

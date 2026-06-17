@@ -172,6 +172,14 @@ describe("management embed local token authentication", () => {
     ).rejects.toThrow("Management embed token is invalid");
   });
 
+  it("rejects opaque entry tokens from the old introspection flow", async () => {
+    const runtime = runtimeFor("secret-1");
+
+    await expect(
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "A05PRNxpc93qJNSkZGTLpBw9xkEtJ4OkhLN1Mw4SITM" }), runtime, replyFor()),
+    ).rejects.toThrow("Management embed token is invalid");
+  });
+
   it("rejects expired entry tokens", async () => {
     const runtime = runtimeFor("secret-1");
     const token = signToken(tokenPayload(contextFor([]), { exp: seconds(nowMs - 1_000) }), "secret-1");

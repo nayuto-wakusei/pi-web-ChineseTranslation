@@ -59,7 +59,7 @@ describe("SessionCommandService", () => {
     const prompt = vi.fn(promptAccepted);
     const service = new SessionCommandService(() => getActive(active), prompt, eventPublisher());
 
-    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
+    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "未知命令：/missing" });
     // Forwarded runtime commands return a bare done result: the agent streams
     // back the canonical expanded message, so no synthetic "Accepted" line.
     await expect(service.run("s1", "/ext arg")).resolves.toEqual({ type: "done" });
@@ -74,7 +74,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/name Useful name")).resolves.toMatchObject({
       type: "done",
-      message: "Session named: Useful name",
+      message: "会话已命名：Useful name",
       session: { id: "s1", cwd: "/work", name: "Useful name", messageCount: 2 },
     });
     expect(active.runtime.session.setSessionName).toHaveBeenCalledWith("Useful name");
@@ -86,7 +86,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/session")).resolves.toEqual({
       type: "done",
-      message: "Session: s1\nMessages: 2 (1 user, 1 assistant)\nTool calls: 3\nTokens: ↑10 ↓5 total 15\nCost: $0.1235",
+      message: "会话：s1\n消息：2（用户 1，助手 1）\n工具调用：3\nTokens：↑10 ↓5 总计 15\n费用：$0.1235",
     });
   });
 
@@ -95,12 +95,12 @@ describe("SessionCommandService", () => {
     const events = eventPublisher();
     const service = new SessionCommandService(() => getActive(active), vi.fn(), events);
 
-    await expect(service.run("s1", "/compact focus on tests")).resolves.toEqual({ type: "done", message: "Compaction started…" });
+    await expect(service.run("s1", "/compact focus on tests")).resolves.toEqual({ type: "done", message: "已开始压缩…" });
     await vi.waitFor(() => {
       expect(events.publish).toHaveBeenCalledWith("s1", {
         type: "command.output",
         level: "success",
-        message: "Compaction complete.\nTokens before: 123\n\nshort summary",
+        message: "压缩完成。\n压缩前 tokens：123\n\nshort summary",
       });
     });
     expect(active.runtime.session.compact).toHaveBeenCalledWith("focus on tests");
@@ -119,11 +119,11 @@ describe("SessionCommandService", () => {
 
     const result = await service.run("s1", "/fork");
 
-    expect(result).toMatchObject({ type: "select", title: "Fork from message", options: [{ value: "newest" }, { value: "middle" }, { value: "oldest" }] });
+    expect(result).toMatchObject({ type: "select", title: "从消息分叉", options: [{ value: "newest" }, { value: "middle" }, { value: "oldest" }] });
     if (result.type !== "select") throw new Error("Expected select result");
-    await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({ type: "done", message: "Session forked", session: { id: "s1" }, promptDraft: "newest message" });
+    await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({ type: "done", message: "会话已分叉", session: { id: "s1" }, promptDraft: "newest message" });
     expect(active.runtime.fork).toHaveBeenCalledWith("newest");
-    await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "Command request expired" });
+    await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
   });
 
   it("names forked sessions from the source title with the next available counter", async () => {
@@ -135,38 +135,38 @@ describe("SessionCommandService", () => {
     });
     const events = eventPublisher();
     const service = new SessionCommandService(() => getActive(active), vi.fn(), events, {}, {
-      listSessionNames: () => Promise.resolve(["Build auth", "Build auth — Fork 1"]),
+      listSessionNames: () => Promise.resolve(["Build auth", "Build auth — 分叉 1"]),
     });
 
     const result = await service.run("s1", "/fork");
     if (result.type !== "select") throw new Error("Expected select result");
     await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({
       type: "done",
-      message: "Session forked",
-      session: { id: "forked", name: "Build auth — Fork 2" },
+      message: "会话已分叉",
+      session: { id: "forked", name: "Build auth — 分叉 2" },
     });
-    expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — Fork 2");
-    expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — Fork 2" });
+    expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — 分叉 2");
+    expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — 分叉 2" });
   });
 
   it("names cloned sessions as copies of the source title", async () => {
-    const active = activeSession({ sessionName: "Build auth — Fork 1" });
+    const active = activeSession({ sessionName: "Build auth — 分叉 1" });
     const cloned = activeSession({ sessionId: "copy", sessionName: undefined }).runtime.session;
     vi.mocked(active.runtime.fork).mockImplementationOnce(() => {
       active.runtime.session = cloned;
       return Promise.resolve({ cancelled: false });
     });
     const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher(), {}, {
-      listSessionNames: () => Promise.resolve(["Build auth", "Build auth — Copy 1"]),
+      listSessionNames: () => Promise.resolve(["Build auth", "Build auth — 副本 1"]),
     });
 
     await expect(service.run("s1", "/clone")).resolves.toMatchObject({
       type: "done",
-      message: "Session cloned",
-      session: { id: "copy", name: "Build auth — Copy 2" },
+      message: "会话已克隆",
+      session: { id: "copy", name: "Build auth — 副本 2" },
     });
     expect(active.runtime.fork).toHaveBeenCalledWith("leaf-1", { position: "at" });
-    expect(cloned.setSessionName).toHaveBeenCalledWith("Build auth — Copy 2");
+    expect(cloned.setSessionName).toHaveBeenCalledWith("Build auth — 副本 2");
   });
 
   it("rejects fork and clone while the session has active work", async () => {
@@ -175,11 +175,11 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/fork")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot fork while the session is active. Stop current activity before forking.",
+      message: "会话活动期间无法分叉。请先停止当前活动。",
     });
     await expect(service.run("s1", "/clone")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot clone while the session is active. Stop current activity before cloning.",
+      message: "会话活动期间无法克隆。请先停止当前活动。",
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });
@@ -194,7 +194,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.respond("s1", result.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot fork while the session is active. Stop current activity before forking.",
+      message: "会话活动期间无法分叉。请先停止当前活动。",
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });

@@ -327,7 +327,7 @@ function mutationErrorStatus(error: unknown): 400 | 404 {
 
 function isSessionNotFoundError(error: unknown): boolean {
   const message = errorMessage(error);
-  return message === "Session not found" || message === "Archived session not found";
+  return message === "Session not found" || message === "Archived session not found" || message === "未找到会话" || message === "未找到已归档会话";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,7 +7,7 @@ export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined,
   return html`<span class=${`activity-indicator ${kind}`} role="img" aria-label=${label} title=${label}></span>`;
 }
 
-export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active"): TemplateResult | undefined {
+export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "活跃"): TemplateResult | undefined {
   const indicator = renderActivityIndicator(kind, label);
   if (indicator === undefined) return undefined;
   return html`<span class="action-activity">${indicator}</span>`;

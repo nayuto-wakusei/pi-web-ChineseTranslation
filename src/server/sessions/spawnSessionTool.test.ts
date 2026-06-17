@@ -15,7 +15,7 @@ describe("createSpawnSessionToolDefinition", () => {
 
     expect(spawn).toHaveBeenCalledWith({ spawningCwd: "/repos/a", prompt: "do the thing", cwd: "/repos/a-feature" });
     expect(result.details).toEqual({ sessionId: "new-1", cwd: "/repos/a-feature" });
-    expect(result.content[0]).toMatchObject({ type: "text", text: "Started session new-1 in /repos/a-feature." });
+    expect(result.content[0]).toMatchObject({ type: "text", text: "已在 /repos/a-feature 启动会话 new-1。" });
   });
 
   it("defaults cwd to undefined so the service falls back to the spawning cwd", async () => {

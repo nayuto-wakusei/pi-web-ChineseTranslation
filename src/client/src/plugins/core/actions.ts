@@ -178,9 +178,9 @@ export function createCoreActions(): PluginAction[] {
     },
     {
       id: "session.reload",
-      title: "Reload Session",
-      description: "Re-read the selected session from disk to pick up entries written by another process",
-      group: "Session",
+      title: "重新加载会话",
+      description: "从磁盘重新读取所选会话，以获取其他进程写入的条目",
+      group: "会话",
       enabled: hasReloadableSession,
       run: (context) => context.reloadSession(),
     },

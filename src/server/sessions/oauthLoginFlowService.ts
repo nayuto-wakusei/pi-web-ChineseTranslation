@@ -76,10 +76,10 @@ export class OAuthLoginFlowService {
       // shows the verification link and user code without a dedicated API shape.
       onDeviceCode: (info) => {
         if (!this.isCurrentRunning(record)) return;
-        this.updateState(record, { ...record.state, auth: { url: info.verificationUri, instructions: `Enter code: ${info.userCode}` } });
+        this.updateState(record, { ...record.state, auth: { url: info.verificationUri, instructions: `输入代码：${info.userCode}` } });
       },
       onPrompt: (prompt) => this.waitForPrompt(record, prompt, "prompt"),
-      onManualCodeInput: () => this.waitForPrompt(record, { message: "Paste the callback URL or authorization code", allowEmpty: false }, "manual"),
+      onManualCodeInput: () => this.waitForPrompt(record, { message: "粘贴回调 URL 或授权码", allowEmpty: false }, "manual"),
       onSelect: (prompt) => this.waitForSelect(record, prompt),
       onProgress: (message) => {
         if (!this.isCurrentRunning(record)) return;
@@ -91,7 +91,7 @@ export class OAuthLoginFlowService {
       .then(() => {
         if (!this.isCurrentRunning(record)) return;
         record.pending = undefined;
-        this.markTerminal(record, { ...withoutInteraction(record.state), status: "complete", progress: [...record.state.progress, "Login complete"] });
+        this.markTerminal(record, { ...withoutInteraction(record.state), status: "complete", progress: [...record.state.progress, "登录完成"] });
         options.onComplete?.();
       })
       .catch((error: unknown) => {
@@ -106,17 +106,17 @@ export class OAuthLoginFlowService {
 
   get(flowId: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("OAuth login flow not found");
+    if (record === undefined) throw new Error("未找到 OAuth 登录流程");
     return cloneState(record.state);
   }
 
   respond(flowId: string, requestId: string, value: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("OAuth login flow not found");
+    if (record === undefined) throw new Error("未找到 OAuth 登录流程");
     if (record.state.status !== "running") return cloneState(record.state);
     const pending = record.pending;
-    if (pending?.requestId !== requestId) throw new Error("OAuth login request expired");
-    if (!pending.allowEmpty && value.trim() === "") throw new Error("A value is required");
+    if (pending?.requestId !== requestId) throw new Error("OAuth 登录请求已过期");
+    if (!pending.allowEmpty && value.trim() === "") throw new Error("必须填写一个值");
     record.pending = undefined;
     this.updateState(record, withoutInteraction(record.state));
     pending.resolve(value);
@@ -125,13 +125,13 @@ export class OAuthLoginFlowService {
 
   cancel(flowId: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("OAuth login flow not found");
+    if (record === undefined) throw new Error("未找到 OAuth 登录流程");
     if (record.state.status === "running") {
       record.abort.abort();
       const pending = record.pending;
       record.pending = undefined;
-      this.markTerminal(record, { ...withoutInteraction(record.state), status: "cancelled", error: "Login cancelled" });
-      pending?.reject(new Error("Login cancelled"));
+      this.markTerminal(record, { ...withoutInteraction(record.state), status: "cancelled", error: "登录已取消" });
+      pending?.reject(new Error("登录已取消"));
     }
     return cloneState(record.state);
   }
@@ -142,7 +142,7 @@ export class OAuthLoginFlowService {
       record.abort.abort();
       const pending = record.pending;
       record.pending = undefined;
-      pending?.reject(new Error("Login cancelled"));
+      pending?.reject(new Error("登录已取消"));
     }
     this.flows.clear();
   }
@@ -150,7 +150,7 @@ export class OAuthLoginFlowService {
   private waitForPrompt(record: OAuthFlowRecord, prompt: OAuthPrompt, kind: "prompt" | "manual"): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
-        reject(new Error("Login cancelled"));
+        reject(new Error("登录已取消"));
         return;
       }
       const requestId = crypto.randomUUID();
@@ -172,7 +172,7 @@ export class OAuthLoginFlowService {
   private waitForSelect(record: OAuthFlowRecord, prompt: OAuthSelectPrompt): Promise<string | undefined> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
-        reject(new Error("Login cancelled"));
+        reject(new Error("登录已取消"));
         return;
       }
       const requestId = crypto.randomUUID();
@@ -228,8 +228,8 @@ export class OAuthLoginFlowService {
     record.abort.abort();
     const pending = record.pending;
     record.pending = undefined;
-    this.markTerminal(record, { ...withoutInteraction(record.state), status: "error", error: "OAuth login flow expired" });
-    pending?.reject(new Error("OAuth login flow expired"));
+    this.markTerminal(record, { ...withoutInteraction(record.state), status: "error", error: "OAuth 登录流程已过期" });
+    pending?.reject(new Error("OAuth 登录流程已过期"));
   }
 
   private setTimer(record: OAuthFlowRecord, delayMs: number, callback: () => void): void {

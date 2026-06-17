@@ -39,7 +39,7 @@ describe("recommendedCommand", () => {
       release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
       commands: { update: "pi-web update && pi-web restart", restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "Update & restart everything", command: "pi-web update && pi-web restart" });
+    expect(result).toEqual({ label: "更新并重启全部服务", command: "pi-web update && pi-web restart" });
   });
 
   it("falls through to restart when an update is available but the update command is empty", () => {
@@ -51,7 +51,7 @@ describe("recommendedCommand", () => {
       },
       commands: { update: "", restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
+    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
   });
 
   it("recommends restart when the web component is stale", () => {
@@ -62,7 +62,7 @@ describe("recommendedCommand", () => {
       },
       commands: { restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
+    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
   });
 
   it("recommends restart when the session daemon is unavailable", () => {
@@ -73,7 +73,7 @@ describe("recommendedCommand", () => {
       },
       commands: { restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
+    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
   });
 
   it("returns nothing when everything is current and available", () => {
@@ -103,19 +103,19 @@ describe("additionalCommands", () => {
         status: "pi-web status",
       },
     });
-    const result = additionalCommands(value, { label: "Restart everything", command: "pi-web restart" });
+    const result = additionalCommands(value, { label: "重启全部服务", command: "pi-web restart" });
     expect(result).toEqual([
-      { label: "Update", command: "pi-web update" },
-      { label: "Restart session daemon", command: "pi-web restart sessiond" },
-      { label: "Status", command: "pi-web status" },
+      { label: "更新", command: "pi-web update" },
+      { label: "重启会话守护进程", command: "pi-web restart sessiond" },
+      { label: "状态", command: "pi-web status" },
     ]);
   });
 
   it("keeps all commands when there is no recommended command", () => {
     const value = status({ commands: { update: "pi-web update", status: "pi-web status" } });
     expect(additionalCommands(value, undefined)).toEqual([
-      { label: "Update", command: "pi-web update" },
-      { label: "Status", command: "pi-web status" },
+      { label: "更新", command: "pi-web update" },
+      { label: "状态", command: "pi-web status" },
     ]);
   });
 });
@@ -178,18 +178,18 @@ describe("messageCount", () => {
 
 describe("formatVersion", () => {
   it("renders unknown for missing or empty versions", () => {
-    expect(formatVersion(undefined)).toBe("unknown");
-    expect(formatVersion("")).toBe("unknown");
+    expect(formatVersion(undefined)).toBe("未知");
+    expect(formatVersion("")).toBe("未知");
     expect(formatVersion("1.202605.8")).toBe("1.202605.8");
   });
 });
 
 describe("installationLabel", () => {
   it("labels each installation kind", () => {
-    expect(installationLabel(undefined)).toBe("installation unknown");
-    expect(installationLabel({ kind: "unknown" })).toBe("installation unknown");
-    expect(installationLabel({ kind: "npm-global" })).toBe("global npm package");
-    expect(installationLabel({ kind: "local" })).toBe("local checkout");
+    expect(installationLabel(undefined)).toBe("安装来源未知");
+    expect(installationLabel({ kind: "unknown" })).toBe("安装来源未知");
+    expect(installationLabel({ kind: "npm-global" })).toBe("全局 npm 包");
+    expect(installationLabel({ kind: "local" })).toBe("本地 checkout");
   });
 
   it("includes source and scope for pi-package installs", () => {
@@ -198,6 +198,6 @@ describe("installationLabel", () => {
   });
 
   it("defaults the source and omits scope when absent", () => {
-    expect(installationLabel({ kind: "pi-package" })).toBe("Pi package");
+    expect(installationLabel({ kind: "pi-package" })).toBe("Pi 包");
   });
 });

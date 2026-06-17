@@ -51,8 +51,8 @@ function noop(): void {
 }
 
 function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: false }>): Error {
-  if (decision.reason === "not-registered") return new Error("Spawning session is not in a registered project");
-  return new Error(`cwd must be a workspace of this project. Allowed: ${decision.allowedCwds.join(", ")}`);
+  if (decision.reason === "not-registered") return new Error("派生会话不在已注册项目中");
+  return new Error(`cwd 必须是此项目的工作区。允许的路径：${decision.allowedCwds.join(", ")}`);
 }
 
 function authLossWarningKey(sessionId: string, provider: string, modelId: string): string {
@@ -81,7 +81,7 @@ interface QueuedPrompt {
 }
 
 function requirePromptText(value: unknown): string {
-  if (typeof value !== "string") throw new Error("Prompt text is required");
+  if (typeof value !== "string") throw new Error("提示文本为必填项");
   return value;
 }
 
@@ -381,7 +381,7 @@ export class PiSessionService {
    * as the spawning session so the new session is visible in the web UI.
    */
   async spawnSession(input: SpawnSessionInvocation): Promise<SpawnSessionResult> {
-    if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
+    if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
     const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
     const created = await this.start(decision.cwd);
@@ -420,7 +420,7 @@ export class PiSessionService {
       : session.modelRegistry.getAvailable();
     const model = candidates.find((candidate) => candidate.provider === provider && candidate.id === modelId)
       ?? session.modelRegistry.find(provider, modelId);
-    if (model === undefined) throw new Error(`Model not found: ${provider}/${modelId}`);
+    if (model === undefined) throw new Error(`未找到模型：${provider}/${modelId}`);
     await session.setModel(model);
     this.publishActivity(session, `model: ${model.id}`, "idle", model.provider);
     this.publishStatus(session);
@@ -431,7 +431,7 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref);
     const result = await session.cycleModel(direction);
-    if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available");
+    if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "作用域内只有一个模型" : "只有一个可用模型");
     this.publishActivity(session, `model: ${result.model.id}`, "idle", result.model.provider);
     this.publishStatus(session);
     return this.statusFromSession(session);
@@ -449,7 +449,7 @@ export class PiSessionService {
     // than a hardcoded union so this stays correct if pi changes the set.
     const available = session.getAvailableThinkingLevels();
     const match = available.find((candidate) => candidate === level);
-    if (match === undefined) throw new Error(`Invalid thinking level: ${level}`);
+    if (match === undefined) throw new Error(`无效的思考级别：${level}`);
     session.setThinkingLevel(match);
     this.publishActivity(session, `thinking: ${session.thinkingLevel}`, "idle");
     this.publishStatus(session);
@@ -460,7 +460,7 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref);
     const level = session.cycleThinkingLevel();
-    if (level === undefined) throw new Error("Current model does not support thinking");
+    if (level === undefined) throw new Error("当前模型不支持思考");
     this.publishActivity(session, `thinking: ${level}`, "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
@@ -546,8 +546,8 @@ export class PiSessionService {
     const { session } = active.runtime;
     const isExcluded = text.startsWith("!!");
     const command = (isExcluded ? text.slice(2) : text.slice(1)).trim();
-    if (!command) throw new Error("Usage: !<shell command>");
-    if (session.isBashRunning) throw new Error("A bash command is already running");
+    if (!command) throw new Error("用法：!<shell command>");
+    if (session.isBashRunning) throw new Error("已有 bash 命令正在运行");
 
     this.publishActivity(session, "running bash", "active", command);
     this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded });
@@ -590,7 +590,7 @@ export class PiSessionService {
 
   async archive(ref: PiSessionLookup): Promise<void> {
     const session = await this.getOrOpen(ref);
-    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before archiving");
+    if (this.hasActiveWork(session)) throw new Error("归档前请先停止当前会话活动");
     const archiveInput = await this.archiveInputForSession(session);
     await this.closeActive(session.sessionId);
     await this.archiveStore.archive(archiveInput);
@@ -602,7 +602,7 @@ export class PiSessionService {
     const root = findArchiveCandidateByIdOrPrefix(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false);
     const plan = planSessionArchiveTree(root, catalog);
     const busy = plan.targets.map((target) => target.activeSession).find((target) => target !== undefined && this.hasActiveWork(target));
-    if (busy !== undefined) throw new Error(`Stop current session activity before archiving ${sessionDisplayName(busy)}`);
+    if (busy !== undefined) throw new Error(`归档 ${sessionDisplayName(busy)} 前请先停止当前会话活动`);
 
     const archiveInputs = plan.unarchivedTargets.map((target) => archiveInputFromCandidate(target));
     for (const input of archiveInputs) await this.closeActive(input.sessionId);
@@ -618,15 +618,15 @@ export class PiSessionService {
 
   async restore(ref: PiSessionLookup): Promise<void> {
     const archived = await this.getArchived(ref);
-    if (archived === undefined) throw new Error("Session not found");
+    if (archived === undefined) throw new Error("未找到会话");
     await this.closeActive(archived.sessionId);
     await this.archiveStore.restore(archived.sessionId);
   }
 
   async deleteArchived(ref: PiSessionLookup): Promise<void> {
     const record = await this.getArchived(ref);
-    if (record === undefined) throw new Error("Archived session not found");
-    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+    if (record === undefined) throw new Error("未找到已归档会话");
+    if (this.archiveStore.deleteArchived === undefined) throw new Error("归档存储不支持删除");
 
     await this.closeActive(record.sessionId);
     if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
@@ -636,7 +636,7 @@ export class PiSessionService {
   async reload(ref: PiSessionLookup): Promise<void> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref);
-    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before reloading");
+    if (this.hasActiveWork(session)) throw new Error("重新加载前请先停止当前会话活动");
     await this.closeActive(session.sessionId);
     const reopened = await this.getActive(ref);
     this.publishStatus(reopened.runtime.session);
@@ -645,7 +645,7 @@ export class PiSessionService {
   async detachParent(ref: PiSessionLookup): Promise<void> {
     const session = await this.getOrOpen(ref);
     const sessionFile = session.sessionFile;
-    if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
+    if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
     await clearParentSession(sessionFile);
   }
 
@@ -695,7 +695,7 @@ export class PiSessionService {
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
     const cwd = session.sessionManager.getCwd();
     const sessionFile = session.sessionFile;
-    if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
+    if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
     const listed = (await this.sessionManager.list(cwd)).find((candidate) => candidate.id === session.sessionId);
     if (listed !== undefined) return archiveInputFromListEntry(listed);
     return archiveInputFromActiveSession(session);
@@ -767,7 +767,7 @@ export class PiSessionService {
   }
 
   private async assertWritable(ref: PiSessionLookup): Promise<void> {
-    if (await this.getArchived(ref) !== undefined) throw new Error("Archived sessions are read-only. Restore the session to continue.");
+    if (await this.getArchived(ref) !== undefined) throw new Error("已归档会话为只读。请恢复会话后继续。");
   }
 
   private async getOrOpen(ref: PiSessionLookup): Promise<PiAgentSession> {
@@ -784,7 +784,7 @@ export class PiSessionService {
     const match = isPiSessionRef(ref)
       ? (await this.sessionManager.list(ref.cwd)).find((s) => s.id === ref.id || s.id.startsWith(ref.id))
       : (await this.sessionManager.listAll?.() ?? []).find((s) => s.id === ref || s.id.startsWith(ref));
-    if (!match) throw new Error("Session not found");
+    if (!match) throw new Error("未找到会话");
     return this.create(this.sessionManager.open(match.path), match.cwd);
   }
 
@@ -1130,7 +1130,7 @@ function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveSessionI
 
 function archiveInputFromActiveSession(session: PiAgentSession): ArchiveSessionInput {
   const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
+  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
   return {
     sessionId: session.sessionId,
@@ -1172,7 +1172,7 @@ function archiveCandidateFromArchivedRecord(record: ArchivedSessionRecord, fallb
 
 function archiveCandidateFromActiveSession(session: PiAgentSession, archived: boolean): WorkspaceArchiveCandidate {
   const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
+  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
   return {
     id: session.sessionId,

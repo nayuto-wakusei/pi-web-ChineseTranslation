@@ -34,7 +34,7 @@ describe("OAuthLoginFlowService", () => {
     await flushAsyncLogin();
 
     expect(promptValue).toBe("abc123");
-    expect(service.get(state.flowId)).toMatchObject({ status: "complete", progress: ["Waiting for code", "Got abc123", "Login complete"] });
+    expect(service.get(state.flowId)).toMatchObject({ status: "complete", progress: ["Waiting for code", "Got abc123", "登录完成"] });
     service.dispose();
   });
 
@@ -79,7 +79,7 @@ describe("OAuthLoginFlowService", () => {
 
     const prompt = state.prompt;
     if (prompt === undefined) throw new Error("Expected manual prompt");
-    expect(prompt).toMatchObject({ kind: "manual", message: "Paste the callback URL or authorization code" });
+    expect(prompt).toMatchObject({ kind: "manual", message: "粘贴回调 URL 或授权码" });
 
     service.respond(state.flowId, prompt.requestId, "https://localhost/callback?code=abc");
     await flushAsyncLogin();
@@ -106,9 +106,9 @@ describe("OAuthLoginFlowService", () => {
     });
 
     expect(state.prompt).toBeDefined();
-    expect(service.cancel(state.flowId)).toMatchObject({ status: "cancelled", error: "Login cancelled" });
+    expect(service.cancel(state.flowId)).toMatchObject({ status: "cancelled", error: "登录已取消" });
 
-    await expect(promptRejected.promise).resolves.toMatchObject({ message: "Login cancelled" });
+    await expect(promptRejected.promise).resolves.toMatchObject({ message: "登录已取消" });
     expect(service.get(state.flowId).status).toBe("cancelled");
     service.dispose();
   });
@@ -127,7 +127,7 @@ describe("OAuthLoginFlowService", () => {
     if (prompt === undefined) throw new Error("Expected prompt");
 
     service.respond(state.flowId, prompt.requestId, "abc123");
-    expect(() => { service.respond(state.flowId, prompt.requestId, "abc123"); }).toThrow("OAuth login request expired");
+    expect(() => { service.respond(state.flowId, prompt.requestId, "abc123"); }).toThrow("OAuth 登录请求已过期");
     service.dispose();
   });
 
@@ -150,12 +150,12 @@ describe("OAuthLoginFlowService", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(service.get(state.flowId)).toMatchObject({ status: "error", error: "OAuth login flow expired" });
-    await expect(promptRejected.promise).resolves.toMatchObject({ message: "OAuth login flow expired" });
+    expect(service.get(state.flowId)).toMatchObject({ status: "error", error: "OAuth 登录流程已过期" });
+    await expect(promptRejected.promise).resolves.toMatchObject({ message: "OAuth 登录流程已过期" });
 
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(() => { service.get(state.flowId); }).toThrow("OAuth login flow not found");
+    expect(() => { service.get(state.flowId); }).toThrow("未找到 OAuth 登录流程");
     service.dispose();
   });
 });

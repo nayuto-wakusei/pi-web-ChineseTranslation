@@ -29,7 +29,7 @@ describe("session routes", () => {
     const response = await app.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { body: "Build the thing" } });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Prompt text is required" });
+    expect(response.json()).toEqual({ error: "提示文本为必填项" });
     expect(sessionManager.calls).toEqual({ create: 0, list: 0, listAll: 0, open: 0 });
   });
 

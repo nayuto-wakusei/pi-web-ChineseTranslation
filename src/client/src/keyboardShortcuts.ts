@@ -241,7 +241,7 @@ function compareStrings(left: string, right: string): number {
 
 function parseShortcut(shortcut: string, options: { requireFirstChordActivator: boolean }): ShortcutParseResult {
   const cleaned = shortcut.trim().toLowerCase().replace(/\s*\+\s*/gu, "+");
-  if (cleaned === "") return { ok: false, message: "Enter a shortcut, choose None, or reset to the default." };
+  if (cleaned === "") return { ok: false, message: "请输入快捷键，选择无，或重置为默认值。" };
 
   const tokens: string[] = [];
   const chordInputs = cleaned.split(/\s+/u).filter((token) => token !== "");
@@ -249,7 +249,7 @@ function parseShortcut(shortcut: string, options: { requireFirstChordActivator: 
     const parsed = parseShortcutChord(chordInput);
     if (!parsed.ok) return parsed;
     if (index === 0 && options.requireFirstChordActivator && !isShortcutSequenceStarter(parsed.token)) {
-      return { ok: false, message: "Shortcuts must start with Ctrl/⌘ or Alt so normal typing is not captured." };
+      return { ok: false, message: "快捷键必须以 Ctrl/⌘ 或 Alt 开头，避免拦截普通输入。" };
     }
     tokens.push(parsed.token);
   }
@@ -263,25 +263,25 @@ type ShortcutChordParseResult =
 
 function parseShortcutChord(chord: string): ShortcutChordParseResult {
   const parts = chord.split("+").filter((part) => part !== "");
-  if (parts.length === 0) return { ok: false, message: "Shortcut chords must include a key." };
+  if (parts.length === 0) return { ok: false, message: "快捷键组合必须包含一个按键。" };
 
   const modifiers = new Set<ShortcutModifier>();
   let key: string | undefined;
   for (const part of parts) {
     const modifier = modifierAlias(part);
     if (modifier !== undefined) {
-      if (modifiers.has(modifier)) return { ok: false, message: `Shortcut has duplicate ${formatShortcutPart(modifier)} modifiers.` };
+      if (modifiers.has(modifier)) return { ok: false, message: `快捷键包含重复的 ${formatShortcutPart(modifier)} 修饰键。` };
       modifiers.add(modifier);
       continue;
     }
 
     const normalizedKey = normalizeShortcutKeyName(part);
-    if (normalizedKey === undefined) return { ok: false, message: `Unsupported shortcut key: ${part}` };
-    if (key !== undefined) return { ok: false, message: "Each shortcut chord can include only one non-modifier key." };
+    if (normalizedKey === undefined) return { ok: false, message: `不支持的快捷键按键：${part}` };
+    if (key !== undefined) return { ok: false, message: "每个快捷键组合只能包含一个非修饰键。" };
     key = normalizedKey;
   }
 
-  if (key === undefined) return { ok: false, message: "Shortcut chords must include a key." };
+  if (key === undefined) return { ok: false, message: "快捷键组合必须包含一个按键。" };
 
   const orderedModifiers = modifierOrder.filter((modifier) => modifiers.has(modifier));
   return { ok: true, token: [...orderedModifiers, key].join("+") };

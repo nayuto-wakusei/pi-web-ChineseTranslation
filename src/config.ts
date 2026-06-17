@@ -229,6 +229,9 @@ function parseManagementEmbed(value: unknown, path: string): NonNullable<PiWebCo
 
 function parseManagementEmbedAuth(value: unknown, path: string): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["auth"]> {
   if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed.auth must be an object: ${path}`);
+  if (value["introspectionUrl"] !== undefined || value["serviceSecretEnv"] !== undefined) {
+    throw new Error(`PI WEB config managementEmbed.auth only supports local signed tokens: ${path}`);
+  }
   return {
     ...(value["sharedSecretEnv"] === undefined ? {} : { sharedSecretEnv: parseString(value["sharedSecretEnv"], "managementEmbed.auth.sharedSecretEnv", path) }),
     ...(value["issuer"] === undefined ? {} : { issuer: parseString(value["issuer"], "managementEmbed.auth.issuer", path) }),
