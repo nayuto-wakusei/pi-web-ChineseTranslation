@@ -13,6 +13,62 @@ function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, c
   });
 }
 
+async function copyCommandToClipboard(command: string, target: EventTarget | null | undefined): Promise<void> {
+  const button = typeof HTMLButtonElement === "undefined" ? undefined : target instanceof HTMLButtonElement ? target : undefined;
+  const copied = await writeClipboard(command);
+  if (button === undefined) return;
+  const original = button.textContent;
+  button.textContent = copied ? "已复制" : "复制失败";
+  window.setTimeout(() => {
+    button.textContent = original;
+  }, 1200);
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    const clipboard = clipboardTarget();
+    if (clipboard !== undefined) {
+      await clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back to execCommand below.
+  }
+
+  return copyWithSelectionFallback(text);
+}
+
+function clipboardTarget(): { writeText(text: string): Promise<void> } | undefined {
+  if (typeof navigator === "undefined") return undefined;
+  const clipboard = Reflect.get(navigator, "clipboard");
+  if (!isClipboard(clipboard)) return undefined;
+  return clipboard;
+}
+
+function isClipboard(value: unknown): value is { writeText(text: string): Promise<void> } {
+  return typeof value === "object" && value !== null && typeof Reflect.get(value, "writeText") === "function";
+}
+
+function copyWithSelectionFallback(text: string): boolean {
+  if (typeof document === "undefined") return false;
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.append(textarea);
+  textarea.select();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Compatibility fallback when Clipboard API is unavailable.
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
 function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus): TemplateResult {
   const label = component.component === "sessiond" ? "会话守护进程" : component.label;
   const status = !component.available
@@ -33,7 +89,7 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
 function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <span class="updates-command-actions">
-      <button @click=${() => { void navigator.clipboard.writeText(command); }}>复制</button>
+      <button @click=${(event?: Event) => { void copyCommandToClipboard(command, event?.currentTarget); }}>复制</button>
       ${terminal === undefined ? null : html`<button class="primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>运行</button>`}
     </span>
   `;

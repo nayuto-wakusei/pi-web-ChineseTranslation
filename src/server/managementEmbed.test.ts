@@ -98,14 +98,26 @@ describe("management embed sandbox policy", () => {
     expect(runtime?.projectRoot).toBe(join("/root", "PiWeb"));
   });
 
-  it("always denies interactive shell and terminal tools in management mode", () => {
+  it("denies interactive shell and terminal tools while allowing command runs from the signed context", () => {
     const context = contextFor([{ id: "p1", name: "Project 1" }]);
 
-    expect(managementToolAllowed(context, "terminal-command-runs")).toBe(false);
+    expect(managementToolAllowed(context, "terminal-command-runs")).toBe(true);
     expect(managementToolAllowed(context, "terminal")).toBe(false);
     expect(managementToolAllowed(context, "shell")).toBe(false);
     expect(managementToolAllowed(context, "bash")).toBe(false);
     expect(managementToolAllowed(context, "read")).toBe(false);
+  });
+
+  it("allows command runs when older signed contexts still include them in deny", () => {
+    const context = { ...contextFor([{ id: "p1", name: "Project 1" }]), tools: { deny: ["terminal-command-runs"] } };
+
+    expect(managementToolAllowed(context, "terminal-command-runs")).toBe(true);
+  });
+
+  it("denies command runs when a non-empty allow list excludes them", () => {
+    const context = { ...contextFor([{ id: "p1", name: "Project 1" }]), tools: { allow: ["read"] } };
+
+    expect(managementToolAllowed(context, "terminal-command-runs")).toBe(false);
   });
 });
 

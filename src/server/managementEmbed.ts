@@ -8,7 +8,7 @@ import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
 export const MANAGEMENT_EMBED_MODE_HEADER = "x-pi-web-embed-mode";
 export const MANAGEMENT_EMBED_TOKEN_HEADER = "x-pi-web-embed-token";
 export const MANAGEMENT_EMBED_CONTEXT_HEADER = "x-pi-web-management-context";
-const MANAGEMENT_FORCE_DENY_TOOLS = new Set(["bash", "shell", "terminal", "terminal-command-runs"]);
+const MANAGEMENT_FORCE_DENY_TOOLS = new Set(["bash", "shell", "terminal"]);
 const DEFAULT_MANAGED_PROJECT_ID = "default-project";
 const DEFAULT_MANAGEMENT_SHARED_SECRET_ENV = "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN";
 const DEFAULT_MANAGEMENT_TOKEN_ISSUER = "telecom-portal";
@@ -177,9 +177,14 @@ export async function assertManagedCwd(projectRoot: string, context: ManagementE
 }
 
 export function managementToolAllowed(context: ManagementEmbedContext, tool: string): boolean {
+  if (tool === "terminal-command-runs") return toolAllowedByAllowList(context, tool);
   if (MANAGEMENT_FORCE_DENY_TOOLS.has(tool)) return false;
   const deny = new Set(context.tools?.deny ?? []);
   if (deny.has(tool)) return false;
+  return toolAllowedByAllowList(context, tool);
+}
+
+function toolAllowedByAllowList(context: ManagementEmbedContext, tool: string): boolean {
   const allow = context.tools?.allow;
   return allow === undefined || allow.length === 0 || allow.includes(tool);
 }

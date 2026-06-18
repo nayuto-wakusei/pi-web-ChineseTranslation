@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.14
+
+### Patch Changes
+
+- Allow the Updates panel copy and run buttons to work in management embed sessions.
+
 ## 1.202606.13
 
 ### Patch Changes
