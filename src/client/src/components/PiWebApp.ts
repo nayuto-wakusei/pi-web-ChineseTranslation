@@ -200,6 +200,7 @@ export class PiWebApp extends LitElement {
   private get routeRestoreInProgress(): boolean {
     return this.routeRestoreDepth > 0;
   }
+  private previousStackedWorkspaceLayout = this.appShell.isStackedWorkspaceLayout;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (this.settingsSection !== undefined) return;
@@ -211,6 +212,7 @@ export class PiWebApp extends LitElement {
 
   protected override willUpdate(): void {
     this.toggleAttribute("pwa-display-mode", this.appShell.isPwaDisplayMode);
+    this.normalizeMainViewForLayoutChange();
   }
 
   override connectedCallback(): void {
@@ -380,7 +382,7 @@ export class PiWebApp extends LitElement {
       if (!this.isCurrentRouteRestore(restoreSeq)) return;
       this.setState({
         workspaceTool: route.tool ?? this.state.workspaceTool,
-        mainView: restoredMainView ?? route.view ?? this.defaultRouteView(),
+        mainView: this.appShell.normalizedMainView(restoredMainView ?? route.view, route.sessionId !== undefined),
         selectedFilePath: routeSurface.selectedFilePath,
         selectedDiffPath: routeSurface.selectedDiffPath,
         selectedTerminalId: routeSurface.selectedTerminalId,
@@ -597,6 +599,17 @@ export class PiWebApp extends LitElement {
 
   private defaultRouteView(): AppState["mainView"] {
     return this.appShell.defaultRouteView();
+  }
+
+  private normalizeMainViewForLayoutChange(): void {
+    const wasStackedWorkspaceLayout = this.previousStackedWorkspaceLayout;
+    const isStackedWorkspaceLayout = this.appShell.isStackedWorkspaceLayout;
+    this.previousStackedWorkspaceLayout = isStackedWorkspaceLayout;
+    if (wasStackedWorkspaceLayout || !isStackedWorkspaceLayout) return;
+    const mainView = this.appShell.normalizedMainView(this.state.mainView, this.state.selectedSession !== undefined);
+    if (mainView === this.state.mainView) return;
+    this.setState({ mainView });
+    this.updateUrl({ replace: true });
   }
 
   private updateUrl(options?: { replace?: boolean | undefined }) {

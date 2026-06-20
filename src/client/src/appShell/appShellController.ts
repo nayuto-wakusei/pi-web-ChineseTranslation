@@ -4,36 +4,44 @@ import { createPwaDisplayModeMedia, detectPwaDisplayMode } from "../pwaDisplayMo
 import { ViewportPositionRepairer } from "./viewportPositionRepair";
 
 export const MOBILE_NAVIGATION_MEDIA_QUERY = "(max-width: 760px)";
+export const STACKED_WORKSPACE_MEDIA_QUERY = "(max-width: 1180px)";
 
 export interface AppShellControllerOptions {
   mobileNavigationMedia?: MediaQueryList | undefined;
+  stackedWorkspaceMedia?: MediaQueryList | undefined;
   pwaDisplayModeMedia?: MediaQueryList[] | undefined;
   viewportPositionRepairer?: ViewportPositionRepairer | undefined;
 }
 
 export class AppShellController implements ReactiveController {
   private readonly mobileNavigationMedia: MediaQueryList | undefined;
+  private readonly stackedWorkspaceMedia: MediaQueryList | undefined;
   private readonly pwaDisplayModeMedia: MediaQueryList[];
   private readonly viewportPositionRepairer: ViewportPositionRepairer;
   isMobileNavigationLayout: boolean;
+  isStackedWorkspaceLayout: boolean;
   isPwaDisplayMode: boolean;
 
   constructor(private readonly host: ReactiveControllerHost, options: AppShellControllerOptions = {}) {
     host.addController(this);
     this.mobileNavigationMedia = options.mobileNavigationMedia ?? createMobileNavigationMedia();
+    this.stackedWorkspaceMedia = options.stackedWorkspaceMedia ?? createStackedWorkspaceMedia();
     this.pwaDisplayModeMedia = options.pwaDisplayModeMedia ?? createPwaDisplayModeMedia();
     this.viewportPositionRepairer = options.viewportPositionRepairer ?? new ViewportPositionRepairer();
     this.isMobileNavigationLayout = this.mobileNavigationMedia?.matches ?? false;
+    this.isStackedWorkspaceLayout = this.stackedWorkspaceMedia?.matches ?? false;
     this.isPwaDisplayMode = detectPwaDisplayMode(this.pwaDisplayModeMedia);
   }
 
   hostConnected(): void {
     this.mobileNavigationMedia?.addEventListener("change", this.onMobileNavigationMediaChange);
+    this.stackedWorkspaceMedia?.addEventListener("change", this.onStackedWorkspaceMediaChange);
     for (const media of this.pwaDisplayModeMedia) media.addEventListener("change", this.onPwaDisplayModeChange);
   }
 
   hostDisconnected(): void {
     this.mobileNavigationMedia?.removeEventListener("change", this.onMobileNavigationMediaChange);
+    this.stackedWorkspaceMedia?.removeEventListener("change", this.onStackedWorkspaceMediaChange);
     for (const media of this.pwaDisplayModeMedia) media.removeEventListener("change", this.onPwaDisplayModeChange);
     this.viewportPositionRepairer.clear();
   }
@@ -51,7 +59,15 @@ export class AppShellController implements ReactiveController {
   }
 
   defaultRouteView(): AppState["mainView"] {
-    return this.isMobileNavigationLayout ? "navigation" : "chat";
+    return this.normalizedMainView(undefined, false);
+  }
+
+  normalizedMainView(view: AppState["mainView"] | undefined, hasSelectedSession: boolean): AppState["mainView"] {
+    return normalizeMainViewForLayout(view, {
+      isMobileNavigationLayout: this.isMobileNavigationLayout,
+      isStackedWorkspaceLayout: this.isStackedWorkspaceLayout,
+      hasSelectedSession,
+    });
   }
 
   repairViewportPosition(): void {
@@ -68,6 +84,12 @@ export class AppShellController implements ReactiveController {
     this.host.requestUpdate();
   };
 
+  private readonly onStackedWorkspaceMediaChange = (event: MediaQueryListEvent) => {
+    if (this.isStackedWorkspaceLayout === event.matches) return;
+    this.isStackedWorkspaceLayout = event.matches;
+    this.host.requestUpdate();
+  };
+
   private readonly onPwaDisplayModeChange = () => {
     const isPwaDisplayMode = detectPwaDisplayMode(this.pwaDisplayModeMedia);
     if (this.isPwaDisplayMode === isPwaDisplayMode) return;
@@ -79,4 +101,22 @@ export class AppShellController implements ReactiveController {
 function createMobileNavigationMedia(): MediaQueryList | undefined {
   if (typeof window === "undefined" || !("matchMedia" in window)) return undefined;
   return window.matchMedia(MOBILE_NAVIGATION_MEDIA_QUERY);
+}
+
+function createStackedWorkspaceMedia(): MediaQueryList | undefined {
+  if (typeof window === "undefined" || !("matchMedia" in window)) return undefined;
+  return window.matchMedia(STACKED_WORKSPACE_MEDIA_QUERY);
+}
+
+export function normalizeMainViewForLayout(
+  view: AppState["mainView"] | undefined,
+  options: {
+    isMobileNavigationLayout: boolean;
+    isStackedWorkspaceLayout: boolean;
+    hasSelectedSession: boolean;
+  },
+): AppState["mainView"] {
+  const effectiveView = view ?? (options.isMobileNavigationLayout ? "navigation" : "chat");
+  if (options.isMobileNavigationLayout || !options.isStackedWorkspaceLayout || !options.hasSelectedSession) return effectiveView;
+  return effectiveView === "navigation" || effectiveView === "chat" ? effectiveView : "chat";
 }
