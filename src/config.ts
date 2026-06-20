@@ -85,6 +85,8 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedPiWebConf
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
       spawnSessions: spawnSessionsEnabled(env, loaded.config),
+      // Beta capability, resolved off by default.
+      subsessions: subsessionsEnabled(env, loaded.config),
     },
   };
 }
@@ -102,6 +104,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["managementEmbed"];
   delete existing["maxUploadBytes"];
   delete existing["spawnSessions"];
+  delete existing["subsessions"];
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
@@ -125,6 +128,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
+    ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
   };
 }
 
@@ -138,6 +142,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], path) } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
+    ...(value["subsessions"] !== undefined ? { subsessions: parseSubsessions(value["subsessions"], path) } : {}),
   };
 }
 
@@ -162,6 +167,25 @@ export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, confi
   const fromEnv = env["PI_WEB_SPAWN_SESSIONS"];
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
   return config.spawnSessions ?? true;
+}
+
+function parseSubsessions(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`PI WEB config subsessions must be a boolean: ${path}`);
+  return value;
+}
+
+/**
+ * Beta: whether LLMs may start tracked child sessions via the spawn_subsession
+ * family of tools. Off by default while the capability stabilizes, so it can
+ * ship in main without affecting releases; enable with the env var
+ * `PI_WEB_SUBSESSIONS` or the `subsessions` config key. The env var takes
+ * precedence over the config file. Subsessions also require spawnSessions to be
+ * enabled (they share the same project-scope resolver).
+ */
+export function subsessionsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
+  const fromEnv = env["PI_WEB_SUBSESSIONS"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  return config.subsessions ?? false;
 }
 
 function parseString(value: unknown, key: string, path: string): string {

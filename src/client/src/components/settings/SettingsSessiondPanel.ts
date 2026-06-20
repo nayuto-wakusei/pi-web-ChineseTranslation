@@ -18,6 +18,9 @@ export class SettingsSessiondPanel extends LitElement {
     // On by default: the effective config is the source of truth for the toggle
     // state, so an unset config file still shows the feature as enabled.
     const effectiveSpawn = config?.effectiveConfig.spawnSessions !== false;
+    const subsessionsOverridden = config?.envOverrides.subsessions === true;
+    // Beta, off by default; also requires spawn to be enabled.
+    const effectiveSubsessions = config?.effectiveConfig.subsessions === true && effectiveSpawn;
     return html`
       <div class="section-heading">
         <div>
@@ -49,10 +52,28 @@ export class SettingsSessiondPanel extends LitElement {
           </label>
           <small>启用后，LLM 可以启动新会话，但会被限制在同一个已注册项目的工作区（包括任意 worktree）内，因此每个派生会话都会显示在这里。默认启用。</small>
         </div>
-        <section class="effective-card" aria-label="生效配置摘要">
-          <h3>应用环境变量覆盖后的生效配置</h3>
+        <div class="field">
+          <span class="field-heading">
+            <span>允许代理启动受跟踪的子会话</span>
+            <span class="beta-badge">beta</span>
+            ${subsessionsOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+          </span>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              .checked=${effectiveSubsessions}
+              ?disabled=${this.loading || this.saving || subsessionsOverridden || !effectiveSpawn}
+              @change=${(event: Event) => { void this.toggleSubsessions(event); }}
+            >
+            <span>启用 <code>spawn_subsession</code> 工具</span>
+          </label>
+          <small>Beta：代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认关闭。</small>
+        </div>
+        <section class="effective-card" aria-label="最终生效配置摘要">
+          <h3>环境变量覆盖后的生效配置</h3>
           <dl>
             <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
+            <div><dt>子会话</dt><dd>${effectiveSubsessions ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
           </dl>
         </section>
       `}
@@ -69,6 +90,12 @@ export class SettingsSessiondPanel extends LitElement {
     const enabled = event.target instanceof HTMLInputElement && event.target.checked;
     const baseConfig = this.configResponse?.config ?? {};
     await this.onSave?.({ ...baseConfig, spawnSessions: enabled });
+  }
+
+  private async toggleSubsessions(event: Event): Promise<void> {
+    const enabled = event.target instanceof HTMLInputElement && event.target.checked;
+    const baseConfig = this.configResponse?.config ?? {};
+    await this.onSave?.({ ...baseConfig, subsessions: enabled });
   }
 
   static override styles = css`
@@ -99,6 +126,7 @@ export class SettingsSessiondPanel extends LitElement {
     .toggle input { width: 16px; height: 16px; }
     .toggle input:disabled { cursor: not-allowed; }
     .override-badge { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); background: var(--pi-warning-surface); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: none; }
+    .beta-badge { border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); background: var(--pi-bg); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
     .effective-card { display: grid; gap: 10px; }
     .effective-card dl { display: grid; gap: 8px; margin: 0; }
     .effective-card dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }

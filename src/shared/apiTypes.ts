@@ -62,6 +62,13 @@ export interface PiWebConfigValues {
   maxUploadBytes?: number;
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
+  /**
+   * Beta: when true, LLMs can start tracked child sessions via the
+   * spawn_subsession / list_subsessions / check_subsession / read_subsession
+   * tools. Off by default
+   * while the capability stabilizes. Requires spawnSessions to be enabled.
+   */
+  subsessions?: boolean;
 }
 
 export interface PiWebManagementEmbedConfig {
@@ -103,6 +110,7 @@ export interface PiWebConfigEnvOverrides {
   port: boolean;
   allowedHosts: boolean;
   spawnSessions: boolean;
+  subsessions: boolean;
 }
 
 export interface PiWebConfigResponse {

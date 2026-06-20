@@ -60,6 +60,7 @@ function parseConfigRequest(value: unknown): PiWebConfig {
   const plugins = value["plugins"];
   const managementEmbed = value["managementEmbed"];
   const spawnSessions = value["spawnSessions"];
+  const subsessions = value["subsessions"];
   if (host !== undefined) {
     if (typeof host !== "string") throw new Error("PI WEB config host must be a string");
     config.host = host;
@@ -75,6 +76,10 @@ function parseConfigRequest(value: unknown): PiWebConfig {
   if (spawnSessions !== undefined) {
     if (typeof spawnSessions !== "boolean") throw new Error("PI WEB config spawnSessions must be a boolean");
     config.spawnSessions = spawnSessions;
+  }
+  if (subsessions !== undefined) {
+    if (typeof subsessions !== "boolean") throw new Error("PI WEB config subsessions must be a boolean");
+    config.subsessions = subsessions;
   }
   return config;
 }
@@ -190,6 +195,7 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): PiWebConfigEnvOverride
     port: isEnvSet(env["PI_WEB_PORT"]) || isEnvSet(env["PORT"]),
     allowedHosts: isEnvSet(env["PI_WEB_ALLOWED_HOSTS"]),
     spawnSessions: isEnvSet(env["PI_WEB_SPAWN_SESSIONS"]),
+    subsessions: isEnvSet(env["PI_WEB_SUBSESSIONS"]),
   };
 }
 

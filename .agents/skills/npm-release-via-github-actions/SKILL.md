@@ -97,6 +97,15 @@ If there is no GitHub Actions publish workflow, stop and explain that one must b
    - Update the newly generated `CHANGELOG.md` heading to match the computed CalVer version if Changesets used a different heading. This manual changelog heading edit is acceptable during release prep; normal development should still use changeset fragments instead.
    - Review the generated `CHANGELOG.md` section. It should be suitable for GitHub Release notes.
    - Do not use plain `npm version <new-version>` because it creates a local git tag as a side effect; releases should be controlled via GitHub.
+   - **Sync the lockfile to the final version.** `npm run release:version` (Changesets) updates `package.json` but does not reliably rewrite `package-lock.json`, and the CalVer-enforcing `npm version --no-git-tag-version` only touches the lock when it actually runs. Either path can leave the committed `package-lock.json` behind at the previous version, which then resurfaces as an unexpected diff after the next `npm install`. After the version is finalized, always resync the lockfile without touching `node_modules`:
+     ```bash
+     npm install --package-lock-only
+     ```
+   - Confirm the lockfile now matches `package.json` before continuing:
+     ```bash
+     node -e "const v=require('./package.json').version, l=require('./package-lock.json'); if (l.version!==v || l.packages[''].version!==v) { console.error('lockfile version mismatch:', l.version, l.packages[''].version, 'expected', v); process.exit(1); } console.log('lockfile in sync at', v);"
+     ```
+   - If the lockfile mismatch persists, stop and resolve it before committing; do not ship a release whose `package-lock.json` version disagrees with `package.json`.
 
 5. **Run checks before creating the release**
    - Run the repository's normal verification commands, for example:
@@ -113,6 +122,7 @@ If there is no GitHub Actions publish workflow, stop and explain that one must b
      - `package-lock.json`
      - `CHANGELOG.md`
      - consumed/deleted `.changeset/*.md` fragments
+   - Before staging, confirm `package-lock.json` is actually in the diff and carries the new version. If `git status --short` does not show `package-lock.json` as modified while `package.json` changed version, the lockfile sync in step 4 was missed — go back and run `npm install --package-lock-only`. Never commit a release where `package.json` advanced but `package-lock.json` did not.
    - Use:
      ```bash
      git add package.json package-lock.json CHANGELOG.md .changeset

@@ -63,9 +63,9 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
     return filterSessionsForCwd(await listSessionsInDir(resolution.sessionDir), cwd);
   }
 
-  create(cwd: string): PiSessionManager {
+  create(cwd: string, options?: { parentSession?: string }): PiSessionManager {
     const resolution = this.resolver.resolve(cwd);
-    return SessionManager.create(cwd, resolution.sessionDir);
+    return SessionManager.create(cwd, resolution.sessionDir, options?.parentSession === undefined ? undefined : { parentSession: options.parentSession });
   }
 
   listAll(): Promise<PiSessionListEntry[]> {

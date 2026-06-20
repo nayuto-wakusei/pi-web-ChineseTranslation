@@ -25,6 +25,7 @@ export function configFromDraft(draft: ConfigDraft, baseConfig: PiWebConfigValue
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),
     ...(baseConfig.spawnSessions === undefined ? {} : { spawnSessions: baseConfig.spawnSessions }),
+    ...(baseConfig.subsessions === undefined ? {} : { subsessions: baseConfig.subsessions }),
   };
   const host = draft.host.trim();
   const port = draft.port.trim();

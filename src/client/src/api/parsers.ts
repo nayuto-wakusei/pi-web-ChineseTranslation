@@ -473,6 +473,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
+    ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
   };
 }
 
@@ -507,7 +508,7 @@ function optionalPlugins(value: unknown): PiWebPluginConfigMap | undefined {
 
 function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
   const record = requireRecord(value);
-  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts"), spawnSessions: requireBoolean(record, "spawnSessions") };
+  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts"), spawnSessions: requireBoolean(record, "spawnSessions"), subsessions: requireBoolean(record, "subsessions") };
 }
 
 export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {

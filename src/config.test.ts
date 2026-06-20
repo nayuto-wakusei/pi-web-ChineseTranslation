@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -105,6 +105,21 @@ describe("spawnSessionsEnabled", () => {
   it("lets the env var override the config in both directions", () => {
     expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: "0" }, { spawnSessions: true })).toBe(false);
     expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: "1" }, { spawnSessions: false })).toBe(true);
+  });
+});
+
+describe("subsessionsEnabled", () => {
+  it("is off by default while the capability is in beta", () => {
+    expect(subsessionsEnabled({}, {})).toBe(false);
+  });
+
+  it("honors an explicit config opt-in", () => {
+    expect(subsessionsEnabled({}, { subsessions: true })).toBe(true);
+  });
+
+  it("lets the env var override the config in both directions", () => {
+    expect(subsessionsEnabled({ PI_WEB_SUBSESSIONS: "1" }, { subsessions: false })).toBe(true);
+    expect(subsessionsEnabled({ PI_WEB_SUBSESSIONS: "0" }, { subsessions: true })).toBe(false);
   });
 });
 

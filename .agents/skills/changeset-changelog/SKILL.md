@@ -25,7 +25,11 @@ Create a changeset for changes that affect users, operators, package consumers, 
 - Dependency/runtime requirement changes
 - Release-process changes that future maintainers need to see
 
-A changeset is usually not needed for purely internal refactors, tests, lint-only changes, build cleanup, or agent-only project skills unless the user wants them recorded. When in doubt, ask briefly or create a patch changeset with a clear note.
+A changeset is usually not needed for purely internal refactors, tests, lint-only changes, or build cleanup unless the user wants them recorded.
+
+A changeset is also not needed for changes that are not part of what a pi-web release ships to users. The release is the published npm package, and its contents are an allowlist defined by the `files` field in `package.json` (plus `package.json` itself). Anything outside that allowlist never reaches package consumers, so it cannot be a user-visible release change. This includes repo-only material such as agent skills under `.agents/` and `skills/`, internal docs, CI config, and developer tooling. If you are unsure whether a path ships, check it against `package.json` `files` (or run `npm pack --dry-run`); when a change lives entirely outside the published files, skip the changeset unless the user explicitly wants it recorded.
+
+When in doubt, ask briefly or create a patch changeset with a clear note.
 
 ## How to create a changeset
 

@@ -19,7 +19,7 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { effectivePiWebConfig, maxUploadBytes, spawnSessionsEnabled } from "../config.js";
+import { effectivePiWebConfig, maxUploadBytes, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
 
 const app = Fastify({ logger: true, bodyLimit: maxUploadBytes() });
 await app.register(fastifyWebsocket);
@@ -36,6 +36,7 @@ const sessions = new PiSessionService(eventHub, {
   workspaceActivity,
   logger: app.log,
   ...(spawnTargets === undefined ? {} : { spawnTargets }),
+  subsessionsEnabled: spawnTargets !== undefined && subsessionsEnabled(process.env, config),
 });
 auth.subscribe((change) => { sessions.applyAuthChange(change); });
 const terminals = new TerminalService(eventHub, workspaceActivity);

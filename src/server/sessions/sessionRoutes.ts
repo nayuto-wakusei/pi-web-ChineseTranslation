@@ -41,7 +41,11 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions`, async (request, reply) => {
     try {
       const body = requireRecord(request.body);
-      return await sessions.start(normalizeRequestCwd(requireString(body, "cwd")), managementContextFromHeaders(request.headers));
+      const managementContext = managementContextFromHeaders(request.headers);
+      return await sessions.start(
+        normalizeRequestCwd(requireString(body, "cwd")),
+        managementContext === undefined ? undefined : { managementContext },
+      );
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
