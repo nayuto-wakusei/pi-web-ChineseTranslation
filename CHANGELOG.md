@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.16
+
+### Patch Changes
+
+- 6df7266: Restore the chat composer when a selected session is reopened in the stacked workspace layout, so the prompt box no longer disappears after returning from workspace tools.
+
 ## 1.202606.15
 
 ### Patch Changes
