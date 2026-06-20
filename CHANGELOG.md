@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.19
+
+### Patch Changes
+
+- d422a57: Constrain the desktop app shell and chat viewport so the page itself does not scroll long conversations out of view.
+
 ## 1.202606.18
 
 ### Patch Changes
