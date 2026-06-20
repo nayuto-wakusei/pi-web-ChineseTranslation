@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.17
+
+### Patch Changes
+
+- d95dc10: Keep the chat composer visible at the bottom of the session view instead of letting long conversations push it below the viewport.
+
 ## 1.202606.16
 
 ### Patch Changes
