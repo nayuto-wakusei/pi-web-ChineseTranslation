@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.18
+
+### Patch Changes
+
+- eaf5f72: Fix the main web layout so long chat histories no longer push the prompt editor below the visible viewport.
+
 ## 1.202606.17
 
 ### Patch Changes
