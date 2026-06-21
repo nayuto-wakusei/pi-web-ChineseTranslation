@@ -1,4 +1,4 @@
-import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
+import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./chatTypes";
 
 export function normalizeMessages(messages: unknown[]): ChatLine[] {
   return coalesceToolExecutions(messages.flatMap(normalizeMessage)).filter((message) => message.parts.length > 0);

@@ -1,6 +1,7 @@
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { PiWebConfigResponse, PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
+import { renderSettingsMessages, settingsPanelSharedStyles } from "./settingsPanelShared";
 
 @customElement("settings-plugins-panel")
 export class SettingsPluginsPanel extends LitElement {
@@ -34,9 +35,7 @@ export class SettingsPluginsPanel extends LitElement {
   }
 
   private renderMessages(): TemplateResult | null {
-    if (this.error !== "") return html`<div class="message error-message">${this.error}</div>`;
-    if (this.savedMessage !== "") return html`<div class="message success-message">${this.savedMessage} 重新加载浏览器标签页以应用插件更改。</div>`;
-    return null;
+    return renderSettingsMessages(this.error, this.savedMessage === "" ? "" : `${this.savedMessage} 重新加载浏览器标签页以应用插件更改。`);
   }
 
   private renderPlugin(plugin: PiWebPluginInfo): TemplateResult {
@@ -62,24 +61,10 @@ export class SettingsPluginsPanel extends LitElement {
     await this.onTogglePlugin?.(plugin.id, enabled);
   }
 
-  static override styles = css`
-    :host { display: block; }
-    .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-    .section-heading > div { display: grid; gap: 6px; min-width: 0; }
-    h2, p { margin: 0; }
-    h2 { font-size: 17px; line-height: 1.25; }
-    p { color: var(--pi-muted); line-height: 1.45; }
-    button, input { font: inherit; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    button:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
-    .secondary { flex: 0 0 auto; }
-    .message, .loading-card, .plugin-note, .plugin-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
-    .message { margin-bottom: 12px; }
-    .error-message { border-color: var(--pi-danger); color: var(--pi-danger); background: color-mix(in srgb, var(--pi-danger) 10%, var(--pi-surface)); }
-    .success-message { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-surface); }
-    .loading-card, .plugin-note { color: var(--pi-muted); }
+  static override styles = [settingsPanelSharedStyles, css`
+    .plugin-note, .plugin-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
+    .plugin-note { color: var(--pi-muted); }
     .plugin-note { margin-bottom: 14px; }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
     .plugin-list { display: grid; gap: 10px; }
     .plugin-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
     .plugin-card.disabled { opacity: .75; }
@@ -90,10 +75,8 @@ export class SettingsPluginsPanel extends LitElement {
     .toggle input { width: 18px; height: 18px; accent-color: var(--pi-accent); }
 
     @media (max-width: 760px) {
-      .section-heading { display: grid; gap: 12px; }
-      .section-heading .secondary { justify-self: start; }
       .plugin-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
       .toggle { justify-self: start; }
     }
-  `;
+  `];
 }

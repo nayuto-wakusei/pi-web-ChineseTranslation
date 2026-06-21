@@ -1,5 +1,5 @@
 import type { AuthProviderOption, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
-import type { ChatLine } from "./components/shared";
+import type { ChatLine } from "./chatTypes";
 import type { QualifiedContributionId } from "./plugins/ids";
 
 export interface AppState {

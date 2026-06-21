@@ -13,13 +13,13 @@ import {
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
 import { SessionCommandService } from "./sessionCommandService.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
-import { findArchiveCandidateByIdOrPrefix, planSessionArchiveTree, type SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
+import { findArchiveCandidateByIdOrPrefix, planSessionArchiveTree } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { AuthChange } from "./authService.js";
 import { fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
@@ -36,6 +36,18 @@ import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type Spa
 import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView } from "./subsessionTranscript.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
+import {
+  archiveCandidateFromActiveSession,
+  archiveCandidateFromArchivedRecord,
+  archiveCandidateFromListEntry,
+  archiveInputFromActiveSession,
+  archiveInputFromCandidate,
+  archiveInputFromListEntry,
+  clientSessionFromArchivedRecord,
+  compareArchivedRecords,
+  type WorkspaceArchiveCandidate,
+} from "./sessionArchiveMapping.js";
+import { getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
 
 /**
  * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
@@ -112,11 +124,6 @@ export interface PiSessionListEntry {
   parentSessionPath?: string;
 }
 
-interface WorkspaceArchiveCandidate extends SessionArchiveTreeCandidate {
-  cwd: string;
-  listEntry?: PiSessionListEntry;
-  activeSession?: PiAgentSession;
-}
 
 type AgentModel = Model<Api>;
 type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
@@ -1297,82 +1304,6 @@ function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession 
   };
 }
 
-function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveSessionInput {
-  return {
-    sessionId: session.id,
-    cwd: session.cwd,
-    path: session.path,
-    created: session.created.toISOString(),
-    modified: session.modified.toISOString(),
-    messageCount: session.messageCount,
-    firstMessage: session.firstMessage,
-    ...(session.name === undefined ? {} : { name: session.name }),
-    ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
-  };
-}
-
-function archiveInputFromActiveSession(session: PiAgentSession): ArchiveSessionInput {
-  const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
-  const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
-  return {
-    sessionId: session.sessionId,
-    cwd: session.sessionManager.getCwd(),
-    path: sessionFile,
-    created: new Date().toISOString(),
-    modified: new Date().toISOString(),
-    messageCount: session.messages.length,
-    firstMessage: "",
-    ...(session.sessionName === undefined ? {} : { name: session.sessionName }),
-    ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-  };
-}
-
-function archiveCandidateFromListEntry(session: PiSessionListEntry): WorkspaceArchiveCandidate {
-  return {
-    id: session.id,
-    path: session.path,
-    cwd: session.cwd,
-    archived: false,
-    listEntry: session,
-    ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
-  };
-}
-
-function archiveCandidateFromArchivedRecord(record: ArchivedSessionRecord, fallback: PiSessionListEntry | undefined): WorkspaceArchiveCandidate | undefined {
-  const path = record.originalPath ?? fallback?.path;
-  if (path === undefined) return undefined;
-  const parentSessionPath = record.parentSessionPath ?? fallback?.parentSessionPath;
-  return {
-    id: record.sessionId,
-    path,
-    cwd: record.cwd,
-    archived: true,
-    ...(fallback === undefined ? {} : { listEntry: fallback }),
-    ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-  };
-}
-
-function archiveCandidateFromActiveSession(session: PiAgentSession, archived: boolean): WorkspaceArchiveCandidate {
-  const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
-  const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
-  return {
-    id: session.sessionId,
-    path: sessionFile,
-    cwd: session.sessionManager.getCwd(),
-    archived,
-    activeSession: session,
-    ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-  };
-}
-
-function archiveInputFromCandidate(candidate: WorkspaceArchiveCandidate): ArchiveSessionInput {
-  if (candidate.listEntry !== undefined) return archiveInputFromListEntry(candidate.listEntry);
-  if (candidate.activeSession !== undefined) return archiveInputFromActiveSession(candidate.activeSession);
-  throw new Error(`Session is not available for archiving: ${candidate.id}`);
-}
-
 function sessionHasActiveWork(session: PiAgentSession, extraQueuedMessageCount = 0): boolean {
   return session.isStreaming || session.isCompacting || session.isBashRunning || session.pendingMessageCount + extraQueuedMessageCount > 0;
 }
@@ -1381,42 +1312,9 @@ function sessionDisplayName(session: PiAgentSession): string {
   return session.sessionName ?? session.sessionId;
 }
 
-function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, fallback: PiSessionListEntry | undefined): ClientSession | undefined {
-  const path = record.originalPath ?? fallback?.path;
-  const created = record.created ?? fallback?.created.toISOString();
-  const modified = record.modified ?? fallback?.modified.toISOString();
-  const messageCount = record.messageCount ?? fallback?.messageCount;
-  const firstMessage = record.firstMessage ?? fallback?.firstMessage;
-  if (path === undefined || created === undefined || modified === undefined || messageCount === undefined || firstMessage === undefined) return undefined;
-  const name = record.name ?? fallback?.name;
-  const parentSessionPath = record.parentSessionPath ?? fallback?.parentSessionPath;
-  return {
-    id: record.sessionId,
-    path,
-    cwd: record.cwd,
-    ...(name === undefined ? {} : { name }),
-    created,
-    modified,
-    messageCount,
-    firstMessage,
-    ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-    archived: true,
-    archivedAt: record.archivedAt,
-  };
-}
-
 function addSessionName(names: Set<string>, name: string | undefined): void {
   const trimmed = name?.replace(/\s+/g, " ").trim();
   if (trimmed !== undefined && trimmed !== "") names.add(trimmed);
-}
-
-function compareArchivedRecords(a: ArchivedSessionRecord, b: ArchivedSessionRecord): number {
-  return archivedTimestamp(b) - archivedTimestamp(a);
-}
-
-function archivedTimestamp(record: ArchivedSessionRecord): number {
-  const time = Date.parse(record.archivedAt);
-  return Number.isNaN(time) ? 0 : time;
 }
 
 function isDefined<T>(value: T | undefined): value is T {
@@ -1514,107 +1412,6 @@ function finalAssistantText(messages: readonly unknown[]): string {
   return "";
 }
 
-function toClientEvent(event: unknown): SessionUiEvent {
-  const eventType = getString(event, "type");
-  const assistantMessageEvent = getProperty(event, "assistantMessageEvent");
-  if (eventType === "message_update" && getString(assistantMessageEvent, "type") === "text_delta") {
-    return { type: "assistant.delta", text: getString(assistantMessageEvent, "delta") ?? "" };
-  }
-  if (eventType === "message_update" && getString(assistantMessageEvent, "type") === "thinking_delta") {
-    return { type: "assistant.thinking.delta", text: getString(assistantMessageEvent, "delta") ?? "" };
-  }
-  if (eventType === "tool_execution_start") {
-    const args = getProperty(event, "args");
-    return { type: "tool.start", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", summary: summarizeToolArgs(args), args };
-  }
-  if (eventType === "tool_execution_update") {
-    const partialResult = getProperty(event, "partialResult");
-    return { type: "tool.update", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", text: stringifyToolResult(partialResult), content: toolResultContent(partialResult), details: toolResultDetails(partialResult) };
-  }
-  if (eventType === "tool_execution_end") {
-    const result = getProperty(event, "result");
-    return { type: "tool.end", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", text: stringifyToolResult(result), content: toolResultContent(result), details: toolResultDetails(result), isError: getBoolean(event, "isError") === true };
-  }
-  if (eventType === "agent_start") return { type: "agent.start" };
-  if (eventType === "agent_end") return { type: "agent.end" };
-  if (eventType === "message_end") {
-    const message = getProperty(event, "message");
-    return message === undefined ? { type: "message.end" } : { type: "message.end", message };
-  }
-  return { type: "pi.event", eventType: eventType ?? "unknown" };
-}
-
-function summarizeToolArgs(args: unknown): string {
-  if (!isRecord(args)) return stringifyPrimitive(args);
-  const command = getString(args, "command");
-  if (command !== undefined) return command;
-  const path = getString(args, "path");
-  if (path !== undefined) return path;
-  if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
-  const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
-  const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
-  return entries.map(([key, value]) => `${key}: ${shortToolValue(value)}`).join(" · ");
-}
-
-function shortToolValue(value: unknown): string {
-  if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object" && value !== null) return "object";
-  return "";
-}
-
-function toolResultContent(result: unknown): unknown {
-  if (isRecord(result)) {
-    const content = getProperty(result, "content");
-    if (content !== undefined) return content;
-    const text = getString(result, "text") ?? getString(result, "output");
-    if (text !== undefined) return [{ type: "text", text }];
-  }
-  if (typeof result === "string") return [{ type: "text", text: result }];
-  return result;
-}
-
-function toolResultDetails(result: unknown): unknown {
-  return isRecord(result) ? getProperty(result, "details") : undefined;
-}
-
-function stringifyToolResult(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (Array.isArray(result)) return result.map(stringifyToolResult).filter((text) => text !== "").join("\n");
-  if (isRecord(result)) {
-    if (getString(result, "type") === "image") return "[image]";
-    const text = getString(result, "text") ?? getString(result, "content") ?? getString(result, "output");
-    if (text !== undefined) return text;
-    const content = getProperty(result, "content");
-    if (Array.isArray(content)) return stringifyToolResult(content);
-    return JSON.stringify(result, null, 2);
-  }
-  return stringifyPrimitive(result);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function getProperty(value: unknown, key: string): unknown {
-  return isRecord(value) ? value[key] : undefined;
-}
-
-function getString(value: unknown, key: string): string | undefined {
-  const property = getProperty(value, key);
-  return typeof property === "string" ? property : undefined;
-}
-
-function getBoolean(value: unknown, key: string): boolean | undefined {
-  const property = getProperty(value, key);
-  return typeof property === "boolean" ? property : undefined;
-}
-
-function stringifyPrimitive(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
-  return "";
 }

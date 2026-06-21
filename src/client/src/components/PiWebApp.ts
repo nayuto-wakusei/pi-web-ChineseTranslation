@@ -1,4 +1,4 @@
-import { LitElement, html } from "lit";
+import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import { configApi, piWebApi, terminalsApi, workspacesApi, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
@@ -60,7 +60,107 @@ import type { AppMobileMainTab, AppMobileMainTabIcon } from "./appShell/AppMobil
 import { shouldShowMachinesSection, type AppNavigationPanel, type NavigationFocusTarget } from "./appShell/AppNavigationPanel";
 import "./appShell/AppPanelEdgeControl";
 import "./appShell/AppRefreshControl";
-import { appStyles } from "./shared";
+
+const appStyles = css`
+  /* Mobile browsers already subtract browser controls from 100dvh; reserve bottom safe area only in standalone PWA modes. */
+  :host { --pi-app-safe-area-bottom: 0px; position: fixed; top: 0; right: 0; left: 0; display: block; height: 100dvh; box-sizing: border-box; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) var(--pi-app-safe-area-bottom) env(safe-area-inset-left); color: var(--pi-text); background: var(--pi-bg); font: 14px system-ui, sans-serif; }
+  :host([pwa-display-mode]) { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
+  @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+    :host { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
+  }
+  .shell { --navigation-panel-size: 340px; --workspace-panel-size: minmax(360px, 42vw); --navigation-panel-width: var(--navigation-panel-size); --workspace-panel-width: var(--workspace-panel-size); display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(320px, 1fr) 1px var(--workspace-panel-width); grid-template-rows: minmax(0, 1fr); height: 100%; max-height: 100%; min-height: 0; overflow: hidden; }
+  aside { grid-column: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
+  header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
+  .header-actions { display: flex; align-items: center; gap: 8px; }
+  project-list, workspace-list { flex: 0 0 auto; max-height: 26%; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
+  session-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: none; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+  .context-bar::before, .context-bar::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+  .context-bar::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
+  .context-bar::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
+  .context-bar.can-scroll-left::before, .context-bar.can-scroll-right::after { opacity: 1; }
+  .context-bar-label { display: none; }
+  .context-items { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; gap: 5px; margin: 0; padding: 0 8px; list-style: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-padding-inline: 8px; scrollbar-width: thin; }
+  .context-bar.has-context-actions .context-items { padding-right: 52px; scroll-padding-inline: 8px 52px; }
+  .context-item { flex: 0 0 auto; min-width: 0; display: flex; }
+  .context-actions { position: absolute; top: 6px; right: 0; bottom: 6px; z-index: 3; display: flex; align-items: center; padding: 0 8px 0 0; pointer-events: none; }
+  .context-actions::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; z-index: 0; width: 26px; background: var(--pi-bg); pointer-events: none; }
+  .context-chip { flex: 0 0 auto; min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 8px; font: inherit; text-align: left; }
+  .context-chip:hover { background: var(--pi-surface-hover); }
+  .context-chip:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+  .context-chip.empty { border-style: dashed; color: var(--pi-muted); }
+  .context-kind { display: none; }
+  .context-value { min-width: 0; overflow: visible; text-overflow: clip; white-space: nowrap; }
+  app-mobile-main-tabs { display: none; }
+  .mobile-tabs-frame { position: relative; display: none; flex: 0 0 auto; min-width: 0; border-bottom: 1px solid var(--pi-border); background: var(--pi-bg); }
+  .mobile-tabs-frame::before, .mobile-tabs-frame::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+  .mobile-tabs-frame::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
+  .mobile-tabs-frame::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
+  .mobile-tabs-frame.can-scroll-left::before, .mobile-tabs-frame.can-scroll-right::after { opacity: 1; }
+  .mobile-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 8px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .mobile-tabs button { flex: 0 0 auto; white-space: nowrap; }
+  .mobile-navigation-tab, .mobile-navigation-panel { display: none; }
+  .mobile-tabs button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+  .tab-badge { display: inline-block; min-width: 14px; margin-left: 4px; border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 0 5px; font-size: 11px; line-height: 16px; text-align: center; }
+  .navigation-panel-edge, .workspace-panel-edge { min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: visible; background: var(--pi-border-muted); z-index: 2; }
+  .navigation-panel-edge { grid-column: 2; }
+  .workspace-panel-edge { grid-column: 4; }
+  .navigation-panel-edge-button, .workspace-panel-edge-button { position: relative; z-index: 1; box-sizing: border-box; display: grid; place-items: center; width: 18px; height: 48px; padding: 0; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-bg); color: var(--pi-muted); opacity: .75; cursor: pointer; }
+  .navigation-panel-edge-button:hover, .navigation-panel-edge-button:focus-visible, .workspace-panel-edge-button:hover, .workspace-panel-edge-button:focus-visible { color: var(--pi-text); background: var(--pi-surface-hover); opacity: 1; }
+  .shell.navigation-panel-collapsed .navigation-panel-edge-button { transform: translateX(calc(50% - .5px)); }
+  .shell.workspace-panel-collapsed .workspace-panel-edge-button { transform: translateX(calc(-50% + .5px)); }
+  .navigation-panel-edge-icon, .workspace-panel-edge-icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  workspace-panel { grid-column: 5; min-width: 0; min-height: 0; overflow: hidden; }
+  @media (min-width: 1181px) {
+    .shell > aside, .shell > .navigation-panel-edge, .shell > main, .shell > .workspace-panel-edge, .shell > workspace-panel { grid-row: 1; height: 100%; max-height: 100%; }
+    .shell.navigation-panel-collapsed { --navigation-panel-width: 0px; }
+    .shell.navigation-panel-collapsed > aside { display: none; }
+    .shell.workspace-panel-collapsed { --workspace-panel-width: 0px; }
+    .shell.workspace-panel-collapsed > workspace-panel { display: none; }
+  }
+  @media (max-width: 1180px) {
+    .shell { grid-template-columns: var(--navigation-panel-width) 1px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    .shell.navigation-panel-collapsed { --navigation-panel-width: 0px; }
+    .shell.navigation-panel-collapsed > aside { display: none; }
+    aside { grid-row: 1 / 3; }
+    .navigation-panel-edge { grid-row: 1 / 3; }
+    main { grid-column: 3; grid-row: 1 / 3; }
+    app-mobile-main-tabs { display: block; flex: 0 0 auto; min-width: 0; }
+    .mobile-tabs-frame { display: flex; }
+    .shell.workspace-view main { grid-row: 1; min-height: auto; }
+    .shell.workspace-view > workspace-panel { grid-column: 3; grid-row: 2; display: flex; border-left: 0; }
+    .shell:not(.workspace-view) > workspace-panel { display: none; }
+    .workspace-panel-edge { display: none; }
+    main.workspace-view chat-view, main.workspace-view prompt-editor, main.workspace-view status-bar,
+    main.workspace-view .empty { display: none; }
+    main.workspace-view { overflow: hidden; }
+  }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    aside, .navigation-panel-edge { display: none; }
+    main, .shell.workspace-view > workspace-panel { grid-column: 1; }
+    .context-bar { display: flex; }
+    .mobile-navigation-tab { display: block; }
+    main.navigation-view chat-view, main.navigation-view prompt-editor, main.navigation-view status-bar,
+    main.navigation-view .empty { display: none; }
+    main.navigation-view .mobile-navigation-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    main.navigation-view .mobile-navigation-panel app-navigation-panel { flex: 1 1 auto; min-height: 0; }
+    main.navigation-view .mobile-navigation-panel project-list,
+    main.navigation-view .mobile-navigation-panel workspace-list,
+    main.navigation-view .mobile-navigation-panel session-list { flex: 1 1 auto; max-height: none; min-height: 0; overflow: hidden; }
+    main.navigation-view .mobile-navigation-panel project-list[collapsed],
+    main.navigation-view .mobile-navigation-panel workspace-list[collapsed],
+    main.navigation-view .mobile-navigation-panel session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
+  }
+  status-bar { flex: 0 0 auto; }
+  chat-view { flex: 1 1 0; min-height: 0; max-height: 100%; overflow: hidden; contain: size layout; }
+  prompt-editor { flex: 0 0 auto; }
+  button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+  .empty { margin: auto; color: var(--pi-muted); }
+  .error { padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }
+`;
 
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;

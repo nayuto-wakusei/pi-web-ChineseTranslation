@@ -1,4 +1,4 @@
-import type { ChatLine, ChatPart } from "./components/shared";
+import type { ChatLine, ChatPart } from "./chatTypes";
 
 export type ChatGroup =
   | { kind: "message"; message: ChatLine; index: number }

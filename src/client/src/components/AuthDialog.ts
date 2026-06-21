@@ -2,7 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import type { AuthDialogState } from "../appState";
 import type { AuthProviderOption } from "../api";
-import { commandPickerStyles } from "./shared";
+import { commandPickerStyles } from "./styles/commandPickerStyles";
 
 @customElement("auth-dialog")
 export class AuthDialog extends LitElement {

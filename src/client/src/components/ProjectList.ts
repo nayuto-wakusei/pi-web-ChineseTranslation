@@ -1,12 +1,12 @@
 import { LitElement, html, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
 import type { Project, Workspace, WorkspaceActivity } from "../api";
 import { projectActivityIndicator } from "../workspaceActivity";
-import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator } from "./activityBadge";
+import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
-import { listStyles } from "./shared";
+import { listStyles } from "./styles/listStyles";
 
 @customElement("project-list")
 export class ProjectList extends LitElement implements KeyboardNavigableSection {
@@ -22,26 +22,11 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
-  @state() private openMenuProjectId: string | undefined;
-  @state() private menuStyle = "";
-  private readonly onDocumentClick = (event: MouseEvent) => {
-    if (event.composedPath().includes(this)) return;
-    this.openMenuProjectId = undefined;
-  };
-
-  override connectedCallback(): void {
-    super.connectedCallback();
-    document.addEventListener("click", this.onDocumentClick);
-  }
-
-  override disconnectedCallback(): void {
-    document.removeEventListener("click", this.onDocumentClick);
-    super.disconnectedCallback();
-  }
+  private readonly menu = new ListMenuController(this);
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("projects") && this.openMenuProjectId !== undefined && !this.projects.some((project) => project.id === this.openMenuProjectId)) this.openMenuProjectId = undefined;
-    if (changed.has("collapsed") && this.collapsed) this.openMenuProjectId = undefined;
+    if (changed.has("projects")) this.menu.closeIfOpenIdMissing((projectId) => this.projects.some((project) => project.id === projectId));
+    if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
   }
 
   async focusSelectedOrFirst(): Promise<boolean> {
@@ -73,9 +58,9 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                   ${this.renderActivity(project)}
                 </div>
                 <div class="action-menu">
-                  <button class="action-menu-toggle" title="项目操作" aria-label=${`${project.name} 的操作`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id, event.currentTarget); }}>⋯</button>
-                  ${this.openMenuProjectId === project.id ? html`
-                    <div class="action-menu-panel" style=${this.menuStyle}>
+                  <button class="action-menu-toggle" title="项目操作" aria-label=${`${project.name} 的操作`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(project.id, event.currentTarget); }}>⋯</button>
+                  ${this.menu.isOpen(project.id) ? html`
+                    <div class="action-menu-panel" style=${this.menu.menuStyle}>
                       <button title="关闭项目" @click=${() => { this.close(project); }}>关闭</button>
                     </div>
                   ` : null}
@@ -109,17 +94,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return renderActionActivityIndicator(kind, kind === "terminal" ? "项目终端活跃" : "项目活跃");
   }
 
-  private toggleMenu(projectId: string, target: EventTarget | null) {
-    if (this.openMenuProjectId === projectId) {
-      this.openMenuProjectId = undefined;
-      return;
-    }
-    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
-    this.openMenuProjectId = projectId;
-  }
-
   private close(project: Project) {
-    this.openMenuProjectId = undefined;
+    this.menu.close();
     if (confirm(`关闭 ${project.name}？\n\n这只会从 PI WEB 中移除它，不会修改项目文件夹。`)) this.onClose?.(project);
   }
 

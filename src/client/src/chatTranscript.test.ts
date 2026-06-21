@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { textMessage } from "./chatMessages";
 import { applyTranscriptEvent } from "./chatTranscript";
-import type { ChatLine } from "./components/shared";
+import type { ChatLine } from "./chatTypes";
 
 const finalAssistant = {
   role: "assistant",

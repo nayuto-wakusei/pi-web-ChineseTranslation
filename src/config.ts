@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { PiWebConfigValues } from "./shared/apiTypes.js";
-import { isPiWebPluginId, piWebPluginIdPattern } from "./shared/pluginIds.js";
+import { isRecord, parseAllowedHostsEnv, parseMaxUploadBytes, parsePiWebConfig, parsePort, piWebConfigRecord } from "./shared/piWebConfigParsing.js";
 
 export type PiWebConfig = PiWebConfigValues;
 
@@ -118,45 +118,6 @@ function readExistingConfigObject(path: string): Record<string, unknown> {
   return parsed;
 }
 
-function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
-  return {
-    ...(config.host !== undefined ? { host: config.host } : {}),
-    ...(config.port !== undefined ? { port: config.port } : {}),
-    ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
-    ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
-    ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
-    ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
-    ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
-    ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
-    ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
-  };
-}
-
-function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebConfig {
-  return {
-    ...(value["host"] !== undefined ? { host: parseString(value["host"], "host", path) } : {}),
-    ...(value["port"] !== undefined ? { port: parsePort(value["port"], "port", path) } : {}),
-    ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], path) } : {}),
-    ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], path) } : {}),
-    ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], path) } : {}),
-    ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], path) } : {}),
-    ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
-    ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
-    ...(value["subsessions"] !== undefined ? { subsessions: parseSubsessions(value["subsessions"], path) } : {}),
-  };
-}
-
-function parseMaxUploadBytes(value: unknown, key: string, path = "environment"): number {
-  const bytes = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
-  if (!Number.isInteger(bytes) || bytes < 1) throw new Error(`PI WEB config ${key} must be a positive integer: ${path}`);
-  return bytes;
-}
-
-function parseSpawnSessions(value: unknown, path: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`PI WEB config spawnSessions must be a boolean: ${path}`);
-  return value;
-}
-
 /**
  * Whether LLMs may start new sessions via the spawn_session tool. On by default
  * (spawned sessions appear in the session list, so humans notice them); set the
@@ -167,11 +128,6 @@ export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, confi
   const fromEnv = env["PI_WEB_SPAWN_SESSIONS"];
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
   return config.spawnSessions ?? true;
-}
-
-function parseSubsessions(value: unknown, path: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`PI WEB config subsessions must be a boolean: ${path}`);
-  return value;
 }
 
 /**
@@ -186,132 +142,6 @@ export function subsessionsEnabled(env: NodeJS.ProcessEnv = process.env, config:
   const fromEnv = env["PI_WEB_SUBSESSIONS"];
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
   return config.subsessions ?? false;
-}
-
-function parseString(value: unknown, key: string, path: string): string {
-  if (typeof value !== "string" || value === "") throw new Error(`PI WEB config ${key} must be a non-empty string: ${path}`);
-  return value;
-}
-
-function parsePort(value: unknown, key: string, path = "environment"): number {
-  const port = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`PI WEB config ${key} must be an integer from 1 to 65535: ${path}`);
-  return port;
-}
-
-function parseAllowedHosts(value: unknown, path: string): string[] | true {
-  if (value === true) return true;
-  if (!isNonEmptyStringArray(value)) {
-    throw new Error(`PI WEB config allowedHosts must be true or an array of non-empty strings: ${path}`);
-  }
-  return value;
-}
-
-function parseAllowedHostsEnv(value: string): string[] | true {
-  if (value === "true") return true;
-  return value.split(",").map((host) => host.trim()).filter((host) => host !== "");
-}
-
-function parseShortcuts(value: unknown, path: string): Record<string, string | null> {
-  if (!isRecord(value)) throw new Error(`PI WEB config shortcuts must be an object: ${path}`);
-  return Object.fromEntries(Object.entries(value).map(([actionId, shortcut]) => {
-    if (shortcut !== null && (typeof shortcut !== "string" || shortcut === "")) {
-      throw new Error(`PI WEB config shortcut values must be non-empty strings or null: ${path}`);
-    }
-    return [actionId, shortcut];
-  }));
-}
-
-function parsePlugins(value: unknown, path: string): NonNullable<PiWebConfigValues["plugins"]> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config plugins must be an object: ${path}`);
-  return Object.fromEntries(Object.entries(value).map(([pluginId, config]) => {
-    if (!isPiWebPluginId(pluginId)) throw new Error(`PI WEB config plugin ids must match ${piWebPluginIdPattern.source}: ${path}`);
-    if (!isRecord(config) || Array.isArray(config)) throw new Error(`PI WEB config plugin entries must be objects: ${path}`);
-    const enabled = config["enabled"];
-    if (enabled !== undefined && typeof enabled !== "boolean") throw new Error(`PI WEB config plugin enabled values must be booleans: ${path}`);
-    const settings = config["settings"];
-    if (settings !== undefined && (!isRecord(settings) || Array.isArray(settings))) throw new Error(`PI WEB config plugin settings must be objects: ${path}`);
-    return [pluginId, config];
-  }));
-}
-
-function parseManagementEmbed(value: unknown, path: string): NonNullable<PiWebConfigValues["managementEmbed"]> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed must be an object: ${path}`);
-  const enabled = value["enabled"];
-  const projectRoot = value["projectRoot"];
-  const auth = value["auth"];
-  const sandbox = value["sandbox"];
-  const tools = value["tools"];
-  return {
-    ...(enabled === undefined ? {} : { enabled: parseBoolean(enabled, "managementEmbed.enabled", path) }),
-    ...(projectRoot === undefined ? {} : { projectRoot: parseString(projectRoot, "managementEmbed.projectRoot", path) }),
-    ...(auth === undefined ? {} : { auth: parseManagementEmbedAuth(auth, path) }),
-    ...(sandbox === undefined ? {} : { sandbox: parseManagementEmbedSandbox(sandbox, path) }),
-    ...(tools === undefined ? {} : { tools: parseManagementEmbedTools(tools, path) }),
-  };
-}
-
-function parseManagementEmbedAuth(value: unknown, path: string): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["auth"]> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed.auth must be an object: ${path}`);
-  if (value["introspectionUrl"] !== undefined || value["serviceSecretEnv"] !== undefined) {
-    throw new Error(`PI WEB config managementEmbed.auth only supports local signed tokens: ${path}`);
-  }
-  return {
-    ...(value["sharedSecretEnv"] === undefined ? {} : { sharedSecretEnv: parseString(value["sharedSecretEnv"], "managementEmbed.auth.sharedSecretEnv", path) }),
-    ...(value["issuer"] === undefined ? {} : { issuer: parseString(value["issuer"], "managementEmbed.auth.issuer", path) }),
-    ...(value["audience"] === undefined ? {} : { audience: parseString(value["audience"], "managementEmbed.auth.audience", path) }),
-  };
-}
-
-function parseManagementEmbedSandbox(value: unknown, path: string): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["sandbox"]> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed.sandbox must be an object: ${path}`);
-  return {
-    ...(value["pythonExecutable"] === undefined ? {} : { pythonExecutable: parseString(value["pythonExecutable"], "managementEmbed.sandbox.pythonExecutable", path) }),
-    ...(value["env"] === undefined ? {} : { env: parseStringRecord(value["env"], "managementEmbed.sandbox.env", path) }),
-  };
-}
-
-function parseManagementEmbedTools(value: unknown, path: string): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["tools"]> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config managementEmbed.tools must be an object: ${path}`);
-  return {
-    ...(value["allow"] === undefined ? {} : { allow: parseStringArray(value["allow"], "managementEmbed.tools.allow", path) }),
-    ...(value["deny"] === undefined ? {} : { deny: parseStringArray(value["deny"], "managementEmbed.tools.deny", path) }),
-    ...(value["permissions"] === undefined ? {} : { permissions: parseBooleanRecord(value["permissions"], "managementEmbed.tools.permissions", path) }),
-  };
-}
-
-function parseBoolean(value: unknown, key: string, path: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`PI WEB config ${key} must be a boolean: ${path}`);
-  return value;
-}
-
-function parseStringRecord(value: unknown, key: string, path: string): Record<string, string> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config ${key} must be an object: ${path}`);
-  return Object.fromEntries(Object.entries(value).map(([recordKey, recordValue]) => {
-    if (typeof recordValue !== "string") throw new Error(`PI WEB config ${key} values must be strings: ${path}`);
-    return [recordKey, recordValue];
-  }));
-}
-
-function parseBooleanRecord(value: unknown, key: string, path: string): Record<string, boolean> {
-  if (!isRecord(value) || Array.isArray(value)) throw new Error(`PI WEB config ${key} must be an object: ${path}`);
-  return Object.fromEntries(Object.entries(value).map(([recordKey, recordValue]) => {
-    if (typeof recordValue !== "boolean") throw new Error(`PI WEB config ${key} values must be booleans: ${path}`);
-    return [recordKey, recordValue];
-  }));
-}
-
-function parseStringArray(value: unknown, key: string, path: string): string[] {
-  if (!isNonEmptyStringArray(value)) throw new Error(`PI WEB config ${key} must be an array of non-empty strings: ${path}`);
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string" && item !== "");
 }
 
 export function examplePiWebConfig(config: PiWebConfig = {}): string {

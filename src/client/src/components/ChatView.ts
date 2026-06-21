@@ -7,8 +7,8 @@ import { capturePrependScrollAnchor, PREPEND_RESTORE_SETTLE_FRAMES, restorePrepe
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
 import type { SessionActivity, SessionStatus } from "../api";
-import type { ChatLine, ChatPart } from "./shared";
-import { chatStyles } from "./shared";
+import type { ChatLine, ChatPart } from "../chatTypes";
+import { chatStyles } from "./styles/chatStyles";
 import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";

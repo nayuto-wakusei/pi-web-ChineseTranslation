@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatStyles } from "./shared";
+import { chatStyles } from "./styles/chatStyles";
 
 describe("chatStyles", () => {
   it("constrains uploaded chat images inside their figure wrapper", () => {

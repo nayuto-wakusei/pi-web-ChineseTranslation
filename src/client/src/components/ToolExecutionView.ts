@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { ToolExecutionPart } from "./shared";
+import type { ToolExecutionPart } from "../chatTypes";
 
 const MAX_COLLAPSED_DIFF_LINES = 180;
 

@@ -1,13 +1,13 @@
 import { LitElement, html, type PropertyValues, type TemplateResult } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
 import type { Workspace, WorkspaceActivity } from "../api";
 import type { WorkspaceLabelItem } from "../plugins/types";
 import { workspaceActivityFor, workspaceActivityIndicator } from "../workspaceActivity";
-import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator } from "./activityBadge";
+import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
-import { listStyles } from "./shared";
+import { listStyles } from "./styles/listStyles";
 import { renderWorkspaceLabelInlineItems } from "./workspaceLabel";
 
 @customElement("workspace-list")
@@ -25,27 +25,11 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
-  @state() private openMenuWorkspaceId: string | undefined;
-  @state() private menuStyle = "";
-
-  private readonly onDocumentClick = (event: MouseEvent) => {
-    if (event.composedPath().includes(this)) return;
-    this.openMenuWorkspaceId = undefined;
-  };
-
-  override connectedCallback(): void {
-    super.connectedCallback();
-    document.addEventListener("click", this.onDocumentClick);
-  }
-
-  override disconnectedCallback(): void {
-    document.removeEventListener("click", this.onDocumentClick);
-    super.disconnectedCallback();
-  }
+  private readonly menu = new ListMenuController(this);
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("workspaces") && this.openMenuWorkspaceId !== undefined && !this.workspaces.some((workspace) => workspace.id === this.openMenuWorkspaceId)) this.openMenuWorkspaceId = undefined;
-    if (changed.has("collapsed") && this.collapsed) this.openMenuWorkspaceId = undefined;
+    if (changed.has("workspaces")) this.menu.closeIfOpenIdMissing((workspaceId) => this.workspaces.some((workspace) => workspace.id === workspaceId));
+    if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
     if ((changed.has("selected") || changed.has("workspaces") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
   }
 
@@ -112,7 +96,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private renderWorkspaceMenu(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
-    const open = this.openMenuWorkspaceId === workspace.id;
+    const open = this.menu.isOpen(workspace.id);
     const menuId = workspaceMenuId(workspace.id);
     return html`
       <div class="action-menu">
@@ -122,10 +106,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
           aria-label=${`${label} 的操作和详情`}
           aria-expanded=${String(open)}
           aria-controls=${menuId}
-          @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(workspace.id, event.currentTarget); }}
+          @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(workspace.id, event.currentTarget); }}
         >⋯</button>
         ${open ? html`
-          <div class="action-menu-panel workspace-menu-panel" id=${menuId} style=${this.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
+          <div class="action-menu-panel workspace-menu-panel" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
             ${this.renderWorkspaceActions(workspace)}
             ${this.renderWorkspaceDetails(label, items, workspace)}
           </div>
@@ -167,7 +151,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
   private delete(workspace: Workspace): void {
     if (this.isDeleting(workspace)) return;
-    this.openMenuWorkspaceId = undefined;
+    this.menu.close();
     this.onDelete?.(workspace);
   }
 
@@ -175,22 +159,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return this.deletingWorkspaceIds.includes(workspace.id);
   }
 
-  private toggleMenu(workspaceId: string, target: EventTarget | null): void {
-    if (this.openMenuWorkspaceId === workspaceId) {
-      this.openMenuWorkspaceId = undefined;
-      return;
-    }
-    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
-    this.openMenuWorkspaceId = workspaceId;
-  }
-
   private handleWorkspaceKeydown(event: KeyboardEvent, workspace: Workspace): void {
-    if (event.key === "Escape" && this.openMenuWorkspaceId === workspace.id) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.openMenuWorkspaceId = undefined;
-      return;
-    }
+    if (this.menu.closeForEscape(event, workspace.id)) return;
     handleSelectableRowKeyboard(event, {
       activate: () => this.onSelect?.(workspace),
       previousSection: this.onFocusPreviousSection === undefined ? undefined : () => { void this.onFocusPreviousSection?.(); },

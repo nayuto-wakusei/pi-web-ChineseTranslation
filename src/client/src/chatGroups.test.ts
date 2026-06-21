@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupChatMessages, summarizeChatGroup } from "./chatGroups";
-import type { ChatLine } from "./components/shared";
+import type { ChatLine } from "./chatTypes";
 
 const text = (role: ChatLine["role"], value: string): ChatLine => ({ role, parts: [{ type: "text", text: value }] });
 

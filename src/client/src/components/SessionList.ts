@@ -3,11 +3,11 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { isSessionActive } from "../../../shared/activity";
-import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
+import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
-import { listStyles } from "./shared";
+import { listStyles } from "./styles/listStyles";
 
 function sessionLabel(session: SessionInfo): string {
   if (session.name !== undefined && session.name !== "") return session.name;
@@ -52,34 +52,18 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onDetachParent?: (session: SessionInfo) => void;
   @property({ attribute: false }) onReload?: (session: SessionInfo) => void;
 
-  @state() private openMenuSessionId: string | undefined;
-  @state() private menuStyle = "";
+  private readonly menu = new ListMenuController(this);
   @state() private archivedExpanded = false;
   @state() private selectionScopes: ReadonlySet<SessionSelectionScope> = new Set();
   @state() private selectedSessionIds: ReadonlySet<string> = new Set();
 
-  private readonly onDocumentClick = (event: MouseEvent) => {
-    if (event.composedPath().includes(this)) return;
-    this.openMenuSessionId = undefined;
-  };
-
-  override connectedCallback(): void {
-    super.connectedCallback();
-    document.addEventListener("click", this.onDocumentClick);
-  }
-
-  override disconnectedCallback(): void {
-    document.removeEventListener("click", this.onDocumentClick);
-    super.disconnectedCallback();
-  }
-
   protected override updated(changed: PropertyValues<this>): void {
     if (changed.has("sessions")) {
-      if (this.openMenuSessionId !== undefined && !this.sessions.some((session) => session.id === this.openMenuSessionId)) this.openMenuSessionId = undefined;
+      this.menu.closeIfOpenIdMissing((sessionId) => this.sessions.some((session) => session.id === sessionId));
       if (!this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
       this.pruneSelectedSessionIds();
     }
-    if (changed.has("collapsed") && this.collapsed) this.openMenuSessionId = undefined;
+    if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
     const previousSelected = changed.get("selected");
     if (changed.has("selected") && this.selected?.archived === true && (previousSelected?.id !== this.selected.id || previousSelected.archived !== true) && !this.archivedExpanded) {
       this.archivedExpanded = true;
@@ -217,21 +201,21 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           ${this.renderActivity(session)}
         </div>
         <div class="action-menu">
-          <button class="action-menu-toggle" title="会话操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
-          ${this.openMenuSessionId === session.id ? html`
-            <div class="action-menu-panel" style=${this.menuStyle}>
+          <button class="action-menu-toggle" title="会话操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(session.id, event.currentTarget); }}>⋯</button>
+          ${this.menu.isOpen(session.id) ? html`
+            <div class="action-menu-panel" style=${this.menu.menuStyle}>
               ${isCachedNewSessionInfo(session)
-                ? html`<button title="删除浏览器缓存的新会话" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>删除</button>`
+                ? html`<button title="删除浏览器缓存的新会话" @click=${() => { this.menu.close(); this.onDelete?.(session); }}>删除</button>`
                 : session.archived === true
                   ? html`
-                    <button title="恢复会话" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>恢复</button>
-                    <button class="danger" title=${this.canDeleteArchived ? "永久删除已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.openMenuSessionId = undefined; this.confirmDeleteArchived(session); }}>删除已归档会话</button>
+                    <button title="恢复会话" @click=${() => { this.menu.close(); this.onRestore?.(session); }}>恢复</button>
+                    <button class="danger" title=${this.canDeleteArchived ? "永久删除已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.menu.close(); this.confirmDeleteArchived(session); }}>删除已归档会话</button>
                   `
                   : html`
-                    ${this.canReload ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "当前会话活动结束后才能重新加载" : "从磁盘重新加载会话"} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>重新加载</button>` : null}
-                    ${session.parentSessionPath !== undefined ? html`<button title="从父会话分离" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>从父会话分离</button>` : null}
-                    <button title="归档会话" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>归档</button>
-                    ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
+                    ${this.canReload ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "当前会话活动结束后才能重新加载" : "从磁盘重新加载会话"} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.menu.close(); this.onReload?.(session); }}>重新加载</button>` : null}
+                    ${session.parentSessionPath !== undefined ? html`<button title="从父会话分离" @click=${() => { this.menu.close(); this.onDetachParent?.(session); }}>从父会话分离</button>` : null}
+                    <button title="归档会话" @click=${() => { this.menu.close(); this.onArchive?.(session); }}>归档</button>
+                    ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.menu.close(); this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
                   `}
             </div>
           ` : null}
@@ -333,19 +317,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     if (this.selectionScopes.has("current") && !this.sessions.some((session) => session.archived !== true)) this.closeSelection("current");
   }
 
-  private toggleMenu(sessionId: string, target: EventTarget | null) {
-    if (this.openMenuSessionId === sessionId) {
-      this.openMenuSessionId = undefined;
-      return;
-    }
-    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
-    this.openMenuSessionId = sessionId;
-  }
-
   private toggleArchived() {
     this.archivedExpanded = !this.archivedExpanded;
     if (!this.archivedExpanded) {
-      this.openMenuSessionId = undefined;
+      this.menu.close();
       if (this.selectionScopes.has("archived")) this.closeSelection("archived");
       this.onArchivedCollapsed?.();
     }

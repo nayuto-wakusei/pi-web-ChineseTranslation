@@ -2,7 +2,7 @@ import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { CommandOption } from "../api";
 import { scrollWhenSelected } from "./scrollWhenSelected";
-import { commandPickerStyles } from "./shared";
+import { commandPickerStyles } from "./styles/commandPickerStyles";
 
 @customElement("command-picker")
 export class CommandPicker extends LitElement {

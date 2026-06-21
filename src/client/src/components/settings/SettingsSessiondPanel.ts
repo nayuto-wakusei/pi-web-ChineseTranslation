@@ -1,6 +1,7 @@
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { renderSettingsMessages, settingsPanelSharedStyles } from "./settingsPanelShared";
 
 @customElement("settings-sessiond-panel")
 export class SettingsSessiondPanel extends LitElement {
@@ -81,9 +82,7 @@ export class SettingsSessiondPanel extends LitElement {
   }
 
   private renderMessages(): TemplateResult | null {
-    if (this.error !== "") return html`<div class="message error-message">${this.error}</div>`;
-    if (this.savedMessage !== "") return html`<div class="message success-message">${this.savedMessage}</div>`;
-    return null;
+    return renderSettingsMessages(this.error, this.savedMessage);
   }
 
   private async toggleSpawnSessions(event: Event): Promise<void> {
@@ -98,45 +97,13 @@ export class SettingsSessiondPanel extends LitElement {
     await this.onSave?.({ ...baseConfig, subsessions: enabled });
   }
 
-  static override styles = css`
-    :host { display: block; }
-    .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-    .section-heading > div { display: grid; gap: 6px; min-width: 0; }
-    h2, h3, p { margin: 0; }
-    h2 { font-size: 17px; line-height: 1.25; }
-    h3 { font-size: 13px; line-height: 1.3; }
-    p { color: var(--pi-muted); line-height: 1.45; }
-    button, input { font: inherit; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    .secondary { flex: 0 0 auto; }
-    .message, .loading-card, .config-path-card, .effective-card, .restart-note { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
-    .message { margin-bottom: 12px; }
-    .error-message { border-color: var(--pi-danger); color: var(--pi-danger); background: color-mix(in srgb, var(--pi-danger) 10%, var(--pi-surface)); }
-    .success-message { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-surface); }
-    .loading-card { color: var(--pi-muted); }
-    .restart-note { margin-bottom: 14px; border-color: var(--pi-warning-border); color: var(--pi-warning); background: var(--pi-warning-surface); line-height: 1.45; }
-    .config-path-card { display: grid; gap: 5px; margin-bottom: 14px; }
-    .config-path-card span, .field-heading, dt { color: var(--pi-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-    .field { display: grid; gap: 7px; margin-bottom: 14px; }
-    .field small { color: var(--pi-muted); line-height: 1.45; }
-    .field-heading { display: flex; align-items: center; gap: 8px; }
+  static override styles = [settingsPanelSharedStyles, css`
+    .restart-note { margin-bottom: 14px; border: 1px solid var(--pi-warning-border); border-radius: 10px; background: var(--pi-warning-surface); color: var(--pi-warning); padding: 12px; line-height: 1.45; }
+    .field { margin-bottom: 14px; }
+    .field small { line-height: 1.45; }
     .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
     .toggle input { width: 16px; height: 16px; }
     .toggle input:disabled { cursor: not-allowed; }
-    .override-badge { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); background: var(--pi-warning-surface); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: none; }
     .beta-badge { border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); background: var(--pi-bg); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-    .effective-card { display: grid; gap: 10px; }
-    .effective-card dl { display: grid; gap: 8px; margin: 0; }
-    .effective-card dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }
-    dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-    .muted { color: var(--pi-muted); }
-
-    @media (max-width: 760px) {
-      .section-heading { display: grid; gap: 12px; }
-      .section-heading .secondary { justify-self: start; }
-      .effective-card dl > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
-    }
-  `;
+  `];
 }
