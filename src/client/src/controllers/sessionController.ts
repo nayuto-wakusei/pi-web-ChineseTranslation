@@ -784,6 +784,8 @@ function isHighFrequencyTranscriptEvent(event: SessionUiEvent): boolean {
 }
 
 function isSessionNotFoundError(error: unknown): boolean {
-  return error instanceof Error && error.message.toLowerCase().includes("session not found");
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("session not found") || message.includes("未找到会话");
 }
 

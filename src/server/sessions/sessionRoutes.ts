@@ -79,7 +79,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; provider?: unknown; modelId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/model`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      return await sessions.setModel(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "provider"), requireString(body, "modelId"));
+      return await sessions.setModel(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "provider"), requireString(body, "modelId"), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -90,7 +90,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
       const body = optionalRecord(request.body);
       const direction = body["direction"];
       if (direction !== undefined && direction !== "forward" && direction !== "backward") throw new Error("direction must be forward or backward");
-      return await sessions.cycleModel(sessionLookupFromBody(request.params.sessionId, body), direction ?? "forward");
+      return await sessions.cycleModel(sessionLookupFromBody(request.params.sessionId, body), direction ?? "forward", managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -98,7 +98,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/thinking-levels`, async (request, reply) => {
     try {
-      return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query)) };
+      return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
@@ -109,7 +109,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
       const body = optionalRecord(request.body);
       // The level string is validated against the session's live available levels
       // in the service, so it stays correct if pi changes the set.
-      return await sessions.setThinkingLevel(sessionLookupFromBody(request.params.sessionId, body), requireThinkingLevel(body["level"]));
+      return await sessions.setThinkingLevel(sessionLookupFromBody(request.params.sessionId, body), requireThinkingLevel(body["level"]), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -118,7 +118,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/thinking-level/cycle`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      return await sessions.cycleThinkingLevel(sessionLookupFromBody(request.params.sessionId, body));
+      return await sessions.cycleThinkingLevel(sessionLookupFromBody(request.params.sessionId, body), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }

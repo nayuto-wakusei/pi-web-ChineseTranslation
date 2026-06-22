@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionManagerGateway, type PiSessionRef } from "./piSessionService.js";
 import { registerSessionRoutes } from "./sessionRoutes.js";
+import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
+import type { ThinkingLevel } from "../../shared/thinkingLevels.js";
 
 let app: FastifyInstance;
 let service: PiSessionService;
@@ -98,6 +100,42 @@ describe("session routes", () => {
     }
   });
 
+  it("forwards management context to session control routes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const managementContext = testManagementContext();
+      const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) };
+
+      const setModelResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/model", headers, payload: { cwd: requestCwd, provider: "openai", modelId: "gpt-test" } });
+      const cycleModelResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/model/cycle", headers, payload: { cwd: requestCwd, direction: "backward" } });
+      const thinkingLevelsResponse = await routeApp.inject({ method: "GET", url: `/sessions/session-1/thinking-levels?cwd=${encodeURIComponent(requestCwd)}`, headers });
+      const setThinkingResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/thinking-level", headers, payload: { cwd: requestCwd, level: "medium" } });
+      const cycleThinkingResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/thinking-level/cycle", headers, payload: { cwd: requestCwd } });
+
+      expect(setModelResponse.statusCode).toBe(200);
+      expect(cycleModelResponse.statusCode).toBe(200);
+      expect(thinkingLevelsResponse.statusCode).toBe(200);
+      expect(setThinkingResponse.statusCode).toBe(200);
+      expect(cycleThinkingResponse.statusCode).toBe(200);
+      expect(routeService.calls).toEqual([
+        { route: "setModel", lookup: { id: "session-1", cwd: requestCwd }, provider: "openai", modelId: "gpt-test", managementContext },
+        { route: "cycleModel", lookup: { id: "session-1", cwd: requestCwd }, direction: "backward", managementContext },
+        { route: "availableThinkingLevels", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "setThinkingLevel", lookup: { id: "session-1", cwd: requestCwd }, level: "medium", managementContext },
+        { route: "cycleThinkingLevel", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("reloads a session through the reload route, forwarding workspace context", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -155,21 +193,37 @@ class CapturingRouteSessionService extends PiSessionService {
 
   override status(lookup: string | PiSessionRef) {
     this.calls.push(lookup);
-    return Promise.resolve({
-      sessionId: sessionIdFromLookup(lookup),
-      isStreaming: false,
-      isCompacting: false,
-      isBashRunning: false,
-      pendingMessageCount: 0,
-      queuedMessages: [],
-      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      cost: 0,
-    });
+    return Promise.resolve(statusForLookup(lookup));
   }
 
   override prompt(lookup: string | PiSessionRef, text: unknown, _streamingBehavior?: unknown, attachments?: unknown): Promise<void> {
     this.calls.push(attachments === undefined ? { lookup, text } : { lookup, text, attachments });
     return Promise.resolve();
+  }
+
+  override setModel(lookup: string | PiSessionRef, provider: string, modelId: string, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "setModel", lookup, provider, modelId, managementContext });
+    return Promise.resolve(statusForLookup(lookup));
+  }
+
+  override cycleModel(lookup: string | PiSessionRef, direction: "forward" | "backward", managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "cycleModel", lookup, direction, managementContext });
+    return Promise.resolve(statusForLookup(lookup));
+  }
+
+  override availableThinkingLevels(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<ThinkingLevel[]> {
+    this.calls.push({ route: "availableThinkingLevels", lookup, managementContext });
+    return Promise.resolve(["off", "medium"]);
+  }
+
+  override setThinkingLevel(lookup: string | PiSessionRef, level: string, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "setThinkingLevel", lookup, level, managementContext });
+    return Promise.resolve(statusForLookup(lookup));
+  }
+
+  override cycleThinkingLevel(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "cycleThinkingLevel", lookup, managementContext });
+    return Promise.resolve(statusForLookup(lookup));
   }
 
   override saveAttachments(_lookup: string | PiSessionRef, attachments: unknown, folder?: string) {
@@ -208,4 +262,24 @@ class RejectingSessionManager implements PiSessionManagerGateway {
 
 function sessionIdFromLookup(lookup: string | PiSessionRef): string {
   return typeof lookup === "string" ? lookup : lookup.id;
+}
+
+function statusForLookup(lookup: string | PiSessionRef) {
+  return {
+    sessionId: sessionIdFromLookup(lookup),
+    isStreaming: false,
+    isCompacting: false,
+    isBashRunning: false,
+    pendingMessageCount: 0,
+    queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+  };
+}
+
+function testManagementContext(): ManagementEmbedContext {
+  return {
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+    projects: [{ id: "project-1", name: "Project 1" }],
+  };
 }

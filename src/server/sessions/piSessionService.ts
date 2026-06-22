@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
@@ -229,6 +230,31 @@ export interface PiSessionRuntime {
 type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & { managementContext?: ManagementEmbedContext };
 type PiCreateAgentSessionRuntimeFactory = (options: PiCreateRuntimeFactoryOptions) => ReturnType<CreateAgentSessionRuntimeFactory>;
 
+interface AgentContextFilesResult {
+  agentsFiles: { path: string; content: string }[];
+}
+
+const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+
+export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
+  return {
+    agentsFiles: base.agentsFiles.filter((file) => {
+      const filename = basename(file.path);
+      if (!GLOBAL_AGENT_CONTEXT_FILE_NAMES.has(filename)) return true;
+      const fileDir = dirname(file.path);
+      if (cwdPathsEqual(fileDir, agentDir)) return false;
+      return pathInsideOrEqual(cwd, fileDir);
+    }),
+  };
+}
+
+function pathInsideOrEqual(parent: string, child: string): boolean {
+  const normalizedParent = resolve(parent);
+  const normalizedChild = resolve(child);
+  const childRelativePath = relative(normalizedParent, normalizedChild);
+  return childRelativePath === "" || (!childRelativePath.startsWith("..") && !isAbsolute(childRelativePath));
+}
+
 interface CreateAgentRuntimeOptions {
   cwd: string;
   agentDir: string;
@@ -286,7 +312,15 @@ function createManagementRuntimeFactory(
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
     const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
-      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+      const services = await createAgentSessionServices({
+        cwd,
+        agentDir,
+        authStorage,
+        modelRegistry,
+        resourceLoaderOptions: {
+          agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
+        },
+      });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
@@ -676,9 +710,9 @@ export class PiSessionService {
     return models.map(modelToClientModel);
   }
 
-  async setModel(ref: PiSessionLookup, provider: string, modelId: string): Promise<ClientSessionStatus> {
+  async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     session.modelRegistry.refresh();
     const candidates = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
@@ -692,9 +726,9 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async cycleModel(ref: PiSessionLookup, direction: "forward" | "backward"): Promise<ClientSessionStatus> {
+  async cycleModel(ref: PiSessionLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     const result = await session.cycleModel(direction);
     if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "作用域内只有一个模型" : "只有一个可用模型");
     this.publishActivity(session, `model: ${result.model.id}`, "idle", result.model.provider);
@@ -702,14 +736,14 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async availableThinkingLevels(ref: PiSessionLookup): Promise<ClientThinkingLevel[]> {
-    const session = await this.getOrOpen(ref);
+  async availableThinkingLevels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientThinkingLevel[]> {
+    const session = await this.getOrOpen(ref, managementContext);
     return session.getAvailableThinkingLevels();
   }
 
-  async setThinkingLevel(ref: PiSessionLookup, level: string): Promise<ClientSessionStatus> {
+  async setThinkingLevel(ref: PiSessionLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     // pi owns the valid set; validate against the session's live levels rather
     // than a hardcoded union so this stays correct if pi changes the set.
     const available = session.getAvailableThinkingLevels();
@@ -721,9 +755,9 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async cycleThinkingLevel(ref: PiSessionLookup): Promise<ClientSessionStatus> {
+  async cycleThinkingLevel(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     const level = session.cycleThinkingLevel();
     if (level === undefined) throw new Error("当前模型不支持思考");
     this.publishActivity(session, `thinking: ${level}`, "idle");

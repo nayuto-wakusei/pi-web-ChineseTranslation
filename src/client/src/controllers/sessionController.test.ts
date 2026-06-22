@@ -377,7 +377,7 @@ describe("SessionController", () => {
       ...defaultApi,
       startSession: () => Promise.resolve(replacementSession),
       messages: (session) => {
-        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error("Session not found"));
+        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error("未找到会话"));
         return Promise.resolve(emptyPage);
       },
       status: (session) => Promise.resolve(status(sessionLookupId(session))),

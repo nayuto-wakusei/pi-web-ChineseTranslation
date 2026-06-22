@@ -1,8 +1,9 @@
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { filterManagedGlobalContextFiles, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
@@ -149,6 +150,38 @@ function sessionGateway(records: ReturnType<typeof sessionRecord>[]): SessionGat
   };
 }
 
+describe("filterManagedGlobalContextFiles", () => {
+  it("removes global agent context files while keeping project context files", () => {
+    const cwd = resolve("/home/user/PiWeb/project");
+    const agentDir = resolve("/home/user/.pi/agent");
+    const homeAgents = resolve("/home/user/AGENTS.md");
+    const managedRootAgents = resolve("/home/user/PiWeb/AGENTS.md");
+    const projectAgents = join(cwd, "AGENTS.md");
+    const nestedAgents = join(cwd, "subdir/AGENTS.md");
+    const unrelatedAgentFile = join(agentDir, "notes.md");
+
+    const result = filterManagedGlobalContextFiles(cwd, agentDir, {
+      agentsFiles: [
+        { path: join(agentDir, "AGENTS.md"), content: "global agents" },
+        { path: join(agentDir, "AGENTS.MD"), content: "global uppercase agents" },
+        { path: join(agentDir, "CLAUDE.md"), content: "global claude" },
+        { path: join(agentDir, "CLAUDE.MD"), content: "global uppercase claude" },
+        { path: homeAgents, content: "home agents" },
+        { path: managedRootAgents, content: "managed root agents" },
+        { path: projectAgents, content: "project agents" },
+        { path: nestedAgents, content: "nested agents" },
+        { path: unrelatedAgentFile, content: "not context" },
+      ],
+    });
+
+    expect(result.agentsFiles).toEqual([
+      { path: projectAgents, content: "project agents" },
+      { path: nestedAgents, content: "nested agents" },
+      { path: unrelatedAgentFile, content: "not context" },
+    ]);
+  });
+});
+
 describe("PiSessionService", () => {
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
@@ -225,6 +258,34 @@ describe("PiSessionService", () => {
     expect(hostRuntime.calls.abort).toBe(1);
     expect(hostRuntime.calls.dispose).toBe(1);
     expect(managedRuntime.calls.prompt).toEqual([{ text: "Build the thing", options: undefined }]);
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls[0]).not.toHaveProperty("managementContext");
+    expect(createCalls[1]).toHaveProperty("managementContext");
+
+    await service.dispose();
+  });
+
+  it("reopens an existing host-mode runtime before reading managed thinking levels", async () => {
+    const hub = new CapturingSessionEventHub();
+    const hostRuntime = fakeRuntime("managed-session");
+    const managedRuntime = fakeRuntime("managed-session", { getAvailableThinkingLevels: () => ["off", "medium"] });
+    const createCalls: unknown[] = [];
+    const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+      createCalls.push(options);
+      await Promise.resolve();
+      return createCalls.length === 1 ? hostRuntime.runtime : managedRuntime.runtime;
+    };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("managed-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("managed-session"));
+    await expect(service.availableThinkingLevels(sessionRef("managed-session"), testManagementContext())).resolves.toEqual(["off", "medium"]);
+
+    expect(hostRuntime.calls.abort).toBe(1);
+    expect(hostRuntime.calls.dispose).toBe(1);
     expect(createCalls).toHaveLength(2);
     expect(createCalls[0]).not.toHaveProperty("managementContext");
     expect(createCalls[1]).toHaveProperty("managementContext");
