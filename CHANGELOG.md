@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.21
+
+### Patch Changes
+
+- 888b9ce: Run management embed command executions inside a bubblewrap workspace sandbox instead of the host shell.
+
 ## 1.202606.20
 
 ### Patch Changes
