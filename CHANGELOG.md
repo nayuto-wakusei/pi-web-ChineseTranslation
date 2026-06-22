@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.23
+
+### Patch Changes
+
+- Restore the management embed sandbox policy so managed Pi sessions expose only restricted file tools and Python, while shell, terminal, MCP, and HTTP tools stay denied.
+
 ## 1.202606.22
 
 ### Patch Changes
