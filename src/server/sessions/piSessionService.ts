@@ -5,7 +5,6 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
-  createBashToolDefinition,
   createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
@@ -45,7 +44,8 @@ import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type Spa
 import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView } from "./subsessionTranscript.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
-import { createManagedAgentToolOptions } from "./managementAgentTools.js";
+import { createManagedAgentToolOptions, createManagedPythonToolDefinition } from "./managementAgentTools.js";
+import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 import {
   archiveCandidateFromActiveSession,
   archiveCandidateFromArchivedRecord,
@@ -250,10 +250,18 @@ type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionRes
 
 function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext }) => {
+    if (managementContext !== undefined) {
+      return createManagementRuntimeFactory(authStorage, modelRegistry, spawn, subsessions, managementContext)({
+        cwd,
+        agentDir,
+        sessionManager,
+        ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+      });
+    }
+
     const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
-    const managedToolOptions = managementContext === undefined ? undefined : createManagedAgentToolOptions(cwd, managementContext);
     const customTools = [
-      ...managedAgentToolDefinitions(cwd, managedToolOptions),
+      ...managedAgentToolDefinitions(cwd),
       ...(spawn === undefined ? [] : [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))]),
       ...(subsessions === undefined ? [] : createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool))),
     ];
@@ -262,20 +270,49 @@ function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: Mo
       sessionManager,
       ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
       customTools,
-      ...(managedToolOptions === undefined ? {} : { noTools: "builtin" as const }),
     };
     const result = await createAgentSessionFromServices(options);
     return { ...result, services, diagnostics: services.diagnostics };
   };
 }
 
+function createManagementRuntimeFactory(
+  authStorage: AuthStorage,
+  modelRegistry: ModelRegistryInstance,
+  spawn: SpawnSessionFn | undefined,
+  subsessions: SubsessionToolDeps | undefined,
+  managementContext: ManagementEmbedContext,
+): PiCreateAgentSessionRuntimeFactory {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
+    return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+      const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+      const managedToolOptions = createManagedAgentToolOptions(cwd);
+      const customTools = [
+        ...managedAgentToolDefinitions(cwd, managedToolOptions),
+        createManagedPythonToolDefinition(cwd, managementContext),
+        ...(spawn === undefined ? [] : [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))]),
+        ...(subsessions === undefined ? [] : createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool))),
+      ];
+      const options = {
+        services,
+        sessionManager,
+        ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+        customTools,
+        tools: managementAgentToolNames(managementContext),
+      };
+      const result = await createAgentSessionFromServices(options);
+      return { ...result, services, diagnostics: services.diagnostics };
+    });
+  };
+}
+
 type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
 
-function managedAgentToolDefinitions(cwd: string, options: ToolsOptions | undefined): ToolDefinition[] {
+function managedAgentToolDefinitions(cwd: string, options?: ToolsOptions): ToolDefinition[] {
   if (options === undefined) return [createPiWebEditToolDefinition(cwd)];
   return [
     defineTool(createReadToolDefinition(cwd, options.read)),
-    defineTool(createBashToolDefinition(cwd, options.bash)),
     createPiWebEditToolDefinition(cwd, options.edit),
     defineTool(createWriteToolDefinition(cwd, options.write)),
     defineTool(createGrepToolDefinition(cwd, options.grep)),

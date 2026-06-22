@@ -2,24 +2,61 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { BashOperations, EditOperations, FindOperations, GrepOperations, LsOperations, ReadOperations, ToolsOptions, WriteOperations } from "@earendil-works/pi-coding-agent";
+import { defineTool, type EditOperations, type FindOperations, type GrepOperations, type LsOperations, type ReadOperations, type WriteOperations } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { createBubblewrapShellInvocation, createManagedSandboxEnvironment } from "./managementSandbox.js";
+import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
 
-const DEFAULT_BUBBLEWRAP_EXECUTABLE = envOrDefault("PI_WEB_BUBBLEWRAP", "bwrap");
-const DEFAULT_SHELL_EXECUTABLE = envOrDefault("SHELL", "/bin/bash");
+interface ManagedAgentToolOptions {
+  read: { operations: ReadOperations };
+  edit: { operations: EditOperations };
+  write: { operations: WriteOperations };
+  grep: { operations: GrepOperations };
+  find: { operations: FindOperations };
+  ls: { operations: LsOperations };
+}
 
-export function createManagedAgentToolOptions(cwd: string, context: ManagementEmbedContext): ToolsOptions {
+export function createManagedAgentToolOptions(cwd: string): ManagedAgentToolOptions {
   const guard = createWorkspacePathGuard(cwd);
   return {
     read: { operations: createManagedReadOperations(guard) },
-    bash: { operations: createManagedBashOperations(cwd, context, guard) },
     edit: { operations: createManagedEditOperations(guard) },
     write: { operations: createManagedWriteOperations(guard) },
     grep: { operations: createManagedGrepOperations(guard) },
     find: { operations: createManagedFindOperations(guard) },
     ls: { operations: createManagedLsOperations(guard) },
   };
+}
+
+const pythonSchema = Type.Object({
+  code: Type.String({ description: "Python code to run in the managed project workspace" }),
+  timeoutMs: Type.Optional(Type.Number({ description: "Execution timeout in milliseconds" })),
+});
+
+export function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext) {
+  return defineTool<typeof pythonSchema, undefined>({
+    name: "python",
+    label: "python",
+    description: "Run Python code inside the managed project workspace. Shell commands and paths outside the project are blocked.",
+    promptSnippet: "Run Python code in the current project",
+    promptGuidelines: ["Use python for scripts and calculations. Do not use it to run shell commands."],
+    parameters: pythonSchema,
+    async execute(_toolCallId, params, signal) {
+      const configuredPython = context.sandbox?.pythonExecutable?.trim();
+      const pythonExecutable = configuredPython === undefined || configuredPython === "" ? "python3" : configuredPython;
+      const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000));
+      const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
+      return runManagedPython({
+        pythonExecutable,
+        bubblewrapExecutable: bubblewrapExecutable(),
+        cwd,
+        code: params.code,
+        timeoutMs,
+        env,
+        signal,
+      });
+    },
+  });
 }
 
 function createManagedReadOperations(guard: WorkspacePathGuard): ReadOperations {
@@ -80,63 +117,6 @@ function createManagedFindOperations(guard: WorkspacePathGuard): FindOperations 
   };
 }
 
-function createManagedBashOperations(cwd: string, context: ManagementEmbedContext, guard: WorkspacePathGuard): BashOperations {
-  return {
-    exec: async (command, requestedCwd, { onData, signal, timeout }) => {
-      const workspaceRoot = await guard.workspaceRoot();
-      const realRequestedCwd = await guard.existingPath(requestedCwd);
-      if (realRequestedCwd !== workspaceRoot) throw new Error("Managed bash commands must run at the workspace root");
-      const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
-      const invocation = createBubblewrapShellInvocation({
-        bubblewrapExecutable: DEFAULT_BUBBLEWRAP_EXECUTABLE,
-        shellExecutable: DEFAULT_SHELL_EXECUTABLE,
-        workspaceRoot,
-        script: command,
-        env,
-      });
-
-      return new Promise((resolve, reject) => {
-        if (signal?.aborted === true) {
-          reject(new Error("aborted"));
-          return;
-        }
-
-        const child = spawn(invocation.command, invocation.args, {
-          cwd,
-          detached: true,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        let timedOut = false;
-        const effectiveTimeout = timeout === undefined || timeout <= 0 ? undefined : timeout;
-        const timeoutHandle = effectiveTimeout === undefined ? undefined : setTimeout(() => {
-          timedOut = true;
-          killProcessGroup(child.pid, child.kill.bind(child));
-        }, effectiveTimeout * 1000);
-
-        const onAbort = () => {
-          killProcessGroup(child.pid, child.kill.bind(child));
-        };
-
-        child.stdout.on("data", onData);
-        child.stderr.on("data", onData);
-        signal?.addEventListener("abort", onAbort, { once: true });
-        child.on("error", (error) => {
-          if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
-          signal?.removeEventListener("abort", onAbort);
-          reject(error);
-        });
-        child.on("close", (code) => {
-          if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
-          signal?.removeEventListener("abort", onAbort);
-          if (signal?.aborted === true) reject(new Error("aborted"));
-          else if (timedOut) reject(new Error(`timeout:${String(effectiveTimeout ?? "unknown")}`));
-          else resolve({ exitCode: code });
-        });
-      });
-    },
-  };
-}
-
 interface WorkspacePathGuard {
   workspaceRoot(): Promise<string>;
   existingPath(absolutePath: string): Promise<string>;
@@ -181,6 +161,87 @@ function createWorkspacePathGuard(cwd: string): WorkspacePathGuard {
   };
 }
 
+interface RunManagedPythonOptions {
+  pythonExecutable: string;
+  bubblewrapExecutable: string;
+  cwd: string;
+  code: string;
+  timeoutMs: number;
+  env: NodeJS.ProcessEnv;
+  signal: AbortSignal | undefined;
+}
+
+async function runManagedPython(options: RunManagedPythonOptions): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
+  const workspaceRoot = await realpath(options.cwd);
+  const invocation = createBubblewrapPythonInvocation({
+    bubblewrapExecutable: options.bubblewrapExecutable,
+    pythonExecutable: options.pythonExecutable,
+    workspaceRoot,
+    env: options.env,
+    readOnlyPaths: await readableBubblewrapPaths(),
+  });
+
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted === true) {
+      reject(new Error("Operation aborted"));
+      return;
+    }
+
+    const child = spawn(invocation.command, invocation.args, { cwd: workspaceRoot, env: options.env, stdio: ["pipe", "pipe", "pipe"], shell: false });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const output = truncateToolOutput([stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== "").join("\n"));
+      const prefix = code === 0 ? "" : `Python exited with code ${String(code)}\n`;
+      resolve({ content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined });
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      fail(new Error(`Python execution timed out after ${String(options.timeoutMs)}ms`));
+    }, options.timeoutMs);
+    const onAbort = () => {
+      child.kill();
+      fail(new Error("Operation aborted"));
+    };
+
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      if (isNodeErrorWithCode(error, "ENOENT")) fail(new Error("Python sandbox is unavailable"));
+      else fail(error);
+    });
+    child.on("close", finish);
+    child.stdin.end(options.code);
+  });
+}
+
+async function readableBubblewrapPaths(): Promise<string[]> {
+  const paths = await Promise.all(DEFAULT_BUBBLEWRAP_PATHS.map(async (candidate) => {
+    try {
+      await access(candidate, constants.R_OK);
+      return candidate;
+    } catch {
+      return undefined;
+    }
+  }));
+  return paths.filter(isDefined);
+}
+
 async function nearestExistingParent(target: string): Promise<string> {
   let current = target;
   for (;;) {
@@ -196,9 +257,9 @@ async function nearestExistingParent(target: string): Promise<string> {
   }
 }
 
-function envOrDefault(key: string, fallback: string): string {
-  const value = process.env[key];
-  return value === undefined || value === "" ? fallback : value;
+function bubblewrapExecutable(): string {
+  const configured = process.env["PI_WEB_BWRAP_EXECUTABLE"]?.trim() ?? process.env["PI_WEB_BUBBLEWRAP"]?.trim();
+  return configured === undefined || configured === "" ? "bwrap" : configured;
 }
 
 function assertInsideWorkspace(workspaceRoot: string, target: string, originalPath: string): void {
@@ -264,14 +325,16 @@ function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
-function killProcessGroup(pid: number | undefined, fallbackKill: (signal?: NodeJS.Signals) => boolean): void {
-  if (pid === undefined) {
-    fallbackKill("SIGKILL");
-    return;
-  }
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    fallbackKill("SIGKILL");
-  }
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function truncateToolOutput(value: string): string {
+  const limit = 20_000;
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n[output truncated]`;
 }
