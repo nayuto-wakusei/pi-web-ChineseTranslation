@@ -37,6 +37,7 @@ describe("management sandbox environment", () => {
     expect(invocation.args).toEqual(expect.arrayContaining([
       "--unshare-net",
       "--die-with-parent",
+      "--ro-bind-try",
       "--bind",
       "/srv/pi/project",
       "/workspace",
@@ -61,6 +62,7 @@ describe("management sandbox environment", () => {
     expect(invocation.args).toEqual(expect.arrayContaining([
       "--unshare-net",
       "--clearenv",
+      "--ro-bind-try",
       "--setenv",
       "HOME",
       "/tmp/pi-web-home",

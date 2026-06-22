@@ -5,13 +5,22 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createBashToolDefinition,
   createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
   defineTool,
   getAgentDir,
   ModelRegistry,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
+  type EditToolOptions,
+  type ToolDefinition,
+  type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
@@ -36,6 +45,7 @@ import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type Spa
 import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView } from "./subsessionTranscript.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
+import { createManagedAgentToolOptions } from "./managementAgentTools.js";
 import {
   archiveCandidateFromActiveSession,
   archiveCandidateFromArchivedRecord,
@@ -81,8 +91,20 @@ function isPiSessionRef(ref: PiSessionLookup): ref is PiSessionRef {
   return typeof ref !== "string";
 }
 
+type ManagedActiveSession = ActiveSession<PiSessionRuntime> & { managementContextKey: string | undefined };
+
 function lookupMatchesActiveSession(ref: PiSessionLookup, active: ActiveSession<PiSessionRuntime>): boolean {
   return !isPiSessionRef(ref) || cwdPathsEqual(active.runtime.cwd, ref.cwd);
+}
+
+function managementContextKey(context: ManagementEmbedContext | undefined): string | undefined {
+  if (context === undefined) return undefined;
+  return JSON.stringify({
+    userId: context.user.id,
+    rootUserId: context.user.rootUserId,
+    projects: context.projects.map((project) => project.id).sort(),
+    sandboxEnv: context.sandbox?.env ?? {},
+  });
 }
 
 type QueuedPromptKind = "steer" | "followUp";
@@ -204,32 +226,44 @@ export interface PiSessionRuntime {
   dispose(): Promise<void>;
 }
 
+type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & { managementContext?: ManagementEmbedContext };
+type PiCreateAgentSessionRuntimeFactory = (options: PiCreateRuntimeFactoryOptions) => ReturnType<CreateAgentSessionRuntimeFactory>;
+
 interface CreateAgentRuntimeOptions {
   cwd: string;
   agentDir: string;
   sessionManager: PiSessionManager;
+  managementContext?: ManagementEmbedContext;
 }
 
-type CreateAgentRuntime = (createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
+type CreateAgentRuntime = (createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
 
-function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
+function defaultCreateAgentRuntime(createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
   if (!(options.sessionManager instanceof SessionManager)) throw new Error("Default runtime creation requires an SDK SessionManager");
-  return createAgentSessionRuntime(createRuntime, { ...options, sessionManager: options.sessionManager });
+  const runtimeFactory: CreateAgentSessionRuntimeFactory = (runtimeOptions) => {
+    return createRuntime(options.managementContext === undefined ? runtimeOptions : { ...runtimeOptions, managementContext: options.managementContext });
+  };
+  return createAgentSessionRuntime(runtimeFactory, { ...options, sessionManager: options.sessionManager });
 }
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
-function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): CreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext }) => {
     const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+    const managedToolOptions = managementContext === undefined ? undefined : createManagedAgentToolOptions(cwd, managementContext);
     const customTools = [
-      createPiWebEditToolDefinition(cwd),
-      ...(spawn === undefined ? [] : [createSpawnSessionToolDefinition(cwd, { spawn })]),
-      ...(subsessions === undefined ? [] : createSubsessionToolDefinitions(cwd, subsessions)),
+      ...managedAgentToolDefinitions(cwd, managedToolOptions),
+      ...(spawn === undefined ? [] : [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))]),
+      ...(subsessions === undefined ? [] : createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool))),
     ];
-    const options = sessionStartEvent === undefined
-      ? { services, sessionManager, customTools }
-      : { services, sessionManager, sessionStartEvent, customTools };
+    const options = {
+      services,
+      sessionManager,
+      ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+      customTools,
+      ...(managedToolOptions === undefined ? {} : { noTools: "builtin" as const }),
+    };
     const result = await createAgentSessionFromServices(options);
     return { ...result, services, diagnostics: services.diagnostics };
   };
@@ -237,8 +271,21 @@ function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: Mo
 
 type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
 
-function createPiWebEditToolDefinition(cwd: string) {
-  const editTool = createEditToolDefinition(cwd);
+function managedAgentToolDefinitions(cwd: string, options: ToolsOptions | undefined): ToolDefinition[] {
+  if (options === undefined) return [createPiWebEditToolDefinition(cwd)];
+  return [
+    defineTool(createReadToolDefinition(cwd, options.read)),
+    defineTool(createBashToolDefinition(cwd, options.bash)),
+    createPiWebEditToolDefinition(cwd, options.edit),
+    defineTool(createWriteToolDefinition(cwd, options.write)),
+    defineTool(createGrepToolDefinition(cwd, options.grep)),
+    defineTool(createFindToolDefinition(cwd, options.find)),
+    defineTool(createLsToolDefinition(cwd, options.ls)),
+  ];
+}
+
+function createPiWebEditToolDefinition(cwd: string, options?: EditToolOptions) {
+  const editTool = createEditToolDefinition(cwd, options);
   return defineTool<typeof editTool.parameters, PiWebEditToolDetails>({
     name: editTool.name,
     label: editTool.label,
@@ -263,7 +310,7 @@ export interface PiSessionServiceDependencies {
   archiveStore?: SessionArchiveRepository;
   agentDir?: string;
   sessionManager?: PiSessionManagerGateway;
-  createRuntime?: CreateAgentSessionRuntimeFactory;
+  createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
   modelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
@@ -287,7 +334,7 @@ export interface PiSessionServiceDependencies {
 }
 
 export class PiSessionService {
-  private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
+  private readonly active = new Map<string, ManagedActiveSession>();
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
   private readonly commandService: SessionCommandService<PiAgentSession>;
@@ -307,7 +354,7 @@ export class PiSessionService {
   private readonly archiveStore: SessionArchiveRepository;
   private readonly agentDir: string;
   private readonly sessionManager: PiSessionManagerGateway;
-  private readonly createRuntime: CreateAgentSessionRuntimeFactory;
+  private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
   private readonly modelRegistry: ModelRegistryInstance;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
@@ -398,10 +445,10 @@ export class PiSessionService {
   }
 
   async start(cwd: string, options: { parentSession?: string; managementContext?: ManagementEmbedContext } = {}): Promise<ClientSession> {
-    void options.managementContext;
     const active = await this.create(
       this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession }),
       cwd,
+      options.managementContext,
     );
     const { session } = active.runtime;
     const created: ClientSession = {
@@ -574,17 +621,17 @@ export class PiSessionService {
     }
   }
 
-  async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }): Promise<unknown[] | ClientMessagePage> {
-    const session = await this.getOrOpen(ref);
+  async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage> {
+    const session = await this.getOrOpen(ref, managementContext);
     return pageMessagesAtSafeBoundary(historyMessages(session), page);
   }
 
-  async status(ref: PiSessionLookup): Promise<ClientSessionStatus> {
-    return this.statusFromSession(await this.getOrOpen(ref));
+  async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
+    return this.statusFromSession(await this.getOrOpen(ref, managementContext));
   }
 
-  async availableModels(ref: PiSessionLookup): Promise<ClientSessionModel[]> {
-    const session = await this.getOrOpen(ref);
+  async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
+    const session = await this.getOrOpen(ref, managementContext);
     session.modelRegistry.refresh();
     const models = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
@@ -647,8 +694,8 @@ export class PiSessionService {
     return this.statusFromSession(session);
   }
 
-  async commands(ref: PiSessionLookup): Promise<ClientCommand[]> {
-    const session = await this.getOrOpen(ref);
+  async commands(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientCommand[]> {
+    const session = await this.getOrOpen(ref, managementContext);
     const commands: ClientCommand[] = [...BUILTIN_COMMANDS];
     for (const command of session.extensionRunner.getRegisteredCommands()) {
       commands.push({ name: command.invocationName, ...(command.description === undefined ? {} : { description: command.description }), source: "extension" });
@@ -663,8 +710,6 @@ export class PiSessionService {
   }
 
   async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, options?: { echoUserMessage?: boolean; managementContext?: ManagementEmbedContext | undefined }): Promise<void> {
-    const _managementContext = options?.managementContext;
-    void _managementContext;
     const promptText = requirePromptText(text);
     // Command-forwarded prompts (e.g. /skill:*) are expanded by the agent, which
     // streams the canonical message back. The client doesn't render the raw
@@ -675,7 +720,7 @@ export class PiSessionService {
     const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
     const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, options?.managementContext);
     this.maybeGenerateSessionName(session, promptText);
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
@@ -720,10 +765,9 @@ export class PiSessionService {
     return saveAttachmentsToWorkspace(active.runtime.cwd, parsed, folder === undefined ? {} : { folder });
   }
 
-  async shell(ref: PiSessionLookup, text: string, _managementContext?: ManagementEmbedContext): Promise<void> {
-    void _managementContext;
+  async shell(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
     await this.assertWritable(ref);
-    const active = await this.getActive(ref);
+    const active = await this.getActive(ref, managementContext);
     const { session } = active.runtime;
     const isExcluded = text.startsWith("!!");
     const command = (isExcluded ? text.slice(2) : text.slice(1)).trim();
@@ -756,10 +800,9 @@ export class PiSessionService {
     });
   }
 
-  async runCommand(ref: PiSessionLookup, text: string, _managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
-    void _managementContext;
+  async runCommand(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(ref);
-    const active = await this.getActive(ref);
+    const active = await this.getActive(ref, managementContext);
     return this.commandService.run(active.runtime.session.sessionId, text);
   }
 
@@ -831,7 +874,7 @@ export class PiSessionService {
   }
 
   async abort(ref: PiSessionLookup): Promise<void> {
-    const active = this.activeForLookup(ref);
+    const active = this.activeForLookupAny(ref);
     if (active === undefined) return;
     const sessionId = active.runtime.session.sessionId;
     this.clearCompactionPromptQueue(sessionId);
@@ -842,7 +885,7 @@ export class PiSessionService {
   }
 
   stop(ref: PiSessionLookup): void {
-    const active = this.activeForLookup(ref);
+    const active = this.activeForLookupAny(ref);
     if (active === undefined) return;
     void this.closeActive(active.runtime.session.sessionId).catch(() => {
       // Best-effort shutdown; callers that need errors await closeActive directly.
@@ -955,22 +998,25 @@ export class PiSessionService {
     if (await this.getArchived(ref) !== undefined) throw new Error("已归档会话为只读。请恢复会话后继续。");
   }
 
-  private async getOrOpen(ref: PiSessionLookup): Promise<PiAgentSession> {
-    return (await this.getActive(ref)).runtime.session;
+  private async getOrOpen(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<PiAgentSession> {
+    return (await this.getActive(ref, managementContext)).runtime.session;
   }
 
-  private async getActive(ref: PiSessionLookup): Promise<ActiveSession<PiSessionRuntime>> {
-    const active = this.activeForLookup(ref);
+  private async getActive(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ManagedActiveSession> {
+    const active = this.activeForLookup(ref, managementContext);
     if (active !== undefined) return active;
 
+    const mismatched = this.activeForLookupAny(ref);
+    if (mismatched !== undefined) await this.closeActive(mismatched.runtime.session.sessionId);
+
     const archived = await this.getArchived(ref);
-    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd);
+    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext);
 
     const match = isPiSessionRef(ref)
       ? (await this.sessionManager.list(ref.cwd)).find((s) => s.id === ref.id || s.id.startsWith(ref.id))
       : (await this.sessionManager.listAll?.() ?? []).find((s) => s.id === ref || s.id.startsWith(ref));
     if (!match) throw new Error("未找到会话");
-    return this.create(this.sessionManager.open(match.path), match.cwd);
+    return this.create(this.sessionManager.open(match.path), match.cwd, managementContext);
   }
 
   private async getArchived(ref: PiSessionLookup): Promise<ArchivedSessionRecord | undefined> {
@@ -980,7 +1026,18 @@ export class PiSessionService {
     return archived;
   }
 
-  private activeForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
+  private activeForLookup(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): ManagedActiveSession | undefined {
+    const key = managementContextKey(managementContext);
+    const sessionId = sessionIdFromLookup(ref);
+    const exact = this.active.get(sessionId);
+    if (exact !== undefined && lookupMatchesActiveSession(ref, exact) && exact.managementContextKey === key) return exact;
+    for (const [candidateId, active] of this.active.entries()) {
+      if (candidateId.startsWith(sessionId) && lookupMatchesActiveSession(ref, active) && active.managementContextKey === key) return active;
+    }
+    return undefined;
+  }
+
+  private activeForLookupAny(ref: PiSessionLookup): ManagedActiveSession | undefined {
     const sessionId = sessionIdFromLookup(ref);
     const exact = this.active.get(sessionId);
     if (exact !== undefined && lookupMatchesActiveSession(ref, exact)) return exact;
@@ -990,10 +1047,13 @@ export class PiSessionService {
     return undefined;
   }
 
-  private async create(sessionManager: PiSessionManager, cwd: string): Promise<ActiveSession<PiSessionRuntime>> {
-    const runtime = await this.createAgentRuntime(this.createRuntime, { cwd, agentDir: this.agentDir, sessionManager });
+  private async create(sessionManager: PiSessionManager, cwd: string, managementContext?: ManagementEmbedContext): Promise<ManagedActiveSession> {
+    const runtime = await this.createAgentRuntime(
+      this.createRuntime,
+      managementContext === undefined ? { cwd, agentDir: this.agentDir, sessionManager } : { cwd, agentDir: this.agentDir, sessionManager, managementContext },
+    );
     await this.bindSessionExtensions(runtime.session);
-    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
+    const active: ManagedActiveSession = { runtime, unsubscribe: noop, managementContextKey: managementContextKey(managementContext) };
     this.bindRuntime(active);
     runtime.setRebindSession(async (session) => {
       await this.bindSessionExtensions(session);
@@ -1014,7 +1074,7 @@ export class PiSessionService {
     });
   }
 
-  private bindRuntime(active: ActiveSession<PiSessionRuntime>): void {
+  private bindRuntime(active: ManagedActiveSession): void {
     active.unsubscribe();
     const { session } = active.runtime;
     for (const [sessionId, candidate] of this.active.entries()) {

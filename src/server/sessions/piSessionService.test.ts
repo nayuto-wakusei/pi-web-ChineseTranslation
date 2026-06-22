@@ -4,6 +4,7 @@ import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.j
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -46,6 +47,13 @@ function sessionRecord(id: string, cwd = "/workspace") {
 
 function sessionRef(id: string, cwd = "/workspace") {
   return { id, cwd };
+}
+
+function testManagementContext(): ManagementEmbedContext {
+  return {
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+    projects: [{ id: "project-1", name: "Project 1" }],
+  };
 }
 
 function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
@@ -169,6 +177,59 @@ describe("PiSessionService", () => {
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
     expect(fake.calls.dispose).toBe(1);
+  });
+
+  it("passes management embed context into runtime creation", async () => {
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime();
+    const managementContext = testManagementContext();
+    const createCalls: unknown[] = [];
+    const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+      createCalls.push(options);
+      await Promise.resolve();
+      return fake.runtime;
+    };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime,
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.start("/workspace", { managementContext });
+
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]).toMatchObject({ managementContext });
+
+    await service.dispose();
+  });
+
+  it("reopens an existing host-mode runtime before handling a managed prompt", async () => {
+    const hub = new CapturingSessionEventHub();
+    const hostRuntime = fakeRuntime("managed-session");
+    const managedRuntime = fakeRuntime("managed-session");
+    const createCalls: unknown[] = [];
+    const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+      createCalls.push(options);
+      await Promise.resolve();
+      return createCalls.length === 1 ? hostRuntime.runtime : managedRuntime.runtime;
+    };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("managed-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("managed-session"));
+    await service.prompt(sessionRef("managed-session"), "Build the thing", undefined, undefined, { managementContext: testManagementContext() });
+
+    expect(hostRuntime.calls.abort).toBe(1);
+    expect(hostRuntime.calls.dispose).toBe(1);
+    expect(managedRuntime.calls.prompt).toEqual([{ text: "Build the thing", options: undefined }]);
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls[0]).not.toHaveProperty("managementContext");
+    expect(createCalls[1]).toHaveProperty("managementContext");
+
+    await service.dispose();
   });
 
   it("opens legacy id-only lookups from the default session store gateway", async () => {

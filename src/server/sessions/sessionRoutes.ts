@@ -54,7 +54,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.get<{ Params: { sessionId: string }; Querystring: MessageQuery }>(`${prefix}/sessions/:sessionId/messages`, async (request, reply) => {
     try {
       const page = { ...optionalField("before", optionalNumber(request.query.before)), ...optionalField("limit", optionalNumber(request.query.limit)) };
-      return await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page);
+      return await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
@@ -62,7 +62,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/status`, async (request, reply) => {
     try {
-      return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query));
+      return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
@@ -70,7 +70,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/models`, async (request, reply) => {
     try {
-      return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query)) };
+      return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
@@ -126,7 +126,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/commands`, async (request, reply) => {
     try {
-      return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query));
+      return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }

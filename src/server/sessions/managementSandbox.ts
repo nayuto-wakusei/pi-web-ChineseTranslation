@@ -83,7 +83,7 @@ export function createBubblewrapPythonInvocation(options: BubblewrapPythonInvoca
     "/proc",
     "--dev",
     "/dev",
-    ...[...new Set(options.readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind", path, path]),
+    ...[...new Set(options.readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind-try", path, path]),
     "--bind",
     options.workspaceRoot,
     SANDBOX_WORKSPACE,
@@ -127,7 +127,7 @@ function bubblewrapBaseArgs(env: NodeJS.ProcessEnv | undefined, readOnlyPaths: r
     "/proc",
     "--dev",
     "/dev",
-    ...[...new Set(readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind", path, path]),
+    ...[...new Set(readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind-try", path, path]),
   ];
 }
 
