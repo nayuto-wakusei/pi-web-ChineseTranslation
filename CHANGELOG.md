@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.20
+
+### Patch Changes
+
+- Reduce shared client/server code bloat by splitting large shared modules into focused config, session, chat, and UI helpers while preserving runtime behavior.
+
 ## 1.202606.19
 
 ### Patch Changes
