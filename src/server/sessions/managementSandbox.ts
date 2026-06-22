@@ -35,6 +35,20 @@ export interface BubblewrapPythonInvocation {
   args: string[];
 }
 
+export interface BubblewrapShellInvocationOptions {
+  bubblewrapExecutable: string;
+  shellExecutable: string;
+  workspaceRoot: string;
+  script: string;
+  env?: NodeJS.ProcessEnv;
+  readOnlyPaths?: readonly string[];
+}
+
+export interface BubblewrapShellInvocation {
+  command: string;
+  args: string[];
+}
+
 export function createManagedSandboxEnvironment(options: ManagedSandboxEnvironmentOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of SAFE_HOST_ENV_KEYS) {
@@ -80,6 +94,41 @@ export function createBubblewrapPythonInvocation(options: BubblewrapPythonInvoca
     "-",
   ];
   return { command: options.bubblewrapExecutable, args };
+}
+
+export function createBubblewrapShellInvocation(options: BubblewrapShellInvocationOptions): BubblewrapShellInvocation {
+  const args = [
+    ...bubblewrapBaseArgs(options.env, options.readOnlyPaths),
+    "--bind",
+    options.workspaceRoot,
+    SANDBOX_WORKSPACE,
+    "--chdir",
+    SANDBOX_WORKSPACE,
+    options.shellExecutable,
+    "-lc",
+    options.script,
+  ];
+  return { command: options.bubblewrapExecutable, args };
+}
+
+function bubblewrapBaseArgs(env: NodeJS.ProcessEnv | undefined, readOnlyPaths: readonly string[] | undefined): string[] {
+  return [
+    "--unshare-net",
+    "--unshare-ipc",
+    "--unshare-pid",
+    "--die-with-parent",
+    "--clearenv",
+    ...Object.entries(env ?? {}).flatMap(([key, value]) => ["--setenv", key, value ?? ""]),
+    "--tmpfs",
+    "/tmp",
+    "--dir",
+    SANDBOX_HOME,
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    ...[...new Set(readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind", path, path]),
+  ];
 }
 
 export function bubblewrapUnavailableReason(output: string): string | undefined {

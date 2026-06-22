@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment } from "./managementSandbox.js";
+import { bubblewrapUnavailableReason, createBubblewrapPythonInvocation, createBubblewrapShellInvocation, createManagedPythonFallbackPrelude, createManagedSandboxEnvironment } from "./managementSandbox.js";
 
 describe("management sandbox environment", () => {
   it("does not inherit host secrets into managed Python", () => {
@@ -43,6 +43,35 @@ describe("management sandbox environment", () => {
       "python3",
       "-I",
       "-",
+    ]));
+    expect(invocation.args).not.toEqual(expect.arrayContaining(["--dev-bind", "/", "/"]));
+  });
+
+  it("builds a bubblewrap shell invocation for managed command runs", () => {
+    const invocation = createBubblewrapShellInvocation({
+      bubblewrapExecutable: "bwrap",
+      shellExecutable: "/bin/bash",
+      workspaceRoot: "/srv/pi/project",
+      script: "cat /etc/ssh/ssh_host_rsa_key",
+      env: { PATH: "/usr/bin:/bin", HOME: "/tmp/pi-web-home" },
+      readOnlyPaths: ["/usr", "/bin"],
+    });
+
+    expect(invocation.command).toBe("bwrap");
+    expect(invocation.args).toEqual(expect.arrayContaining([
+      "--unshare-net",
+      "--clearenv",
+      "--setenv",
+      "HOME",
+      "/tmp/pi-web-home",
+      "--bind",
+      "/srv/pi/project",
+      "/workspace",
+      "--chdir",
+      "/workspace",
+      "/bin/bash",
+      "-lc",
+      "cat /etc/ssh/ssh_host_rsa_key",
     ]));
     expect(invocation.args).not.toEqual(expect.arrayContaining(["--dev-bind", "/", "/"]));
   });

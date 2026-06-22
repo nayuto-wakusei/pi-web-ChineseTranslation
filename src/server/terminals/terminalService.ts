@@ -6,7 +6,7 @@ import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunSt
 import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import { createManagedSandboxEnvironment } from "../sessions/managementSandbox.js";
+import { createBubblewrapShellInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "../sessions/managementSandbox.js";
 
 const MAX_REPLAY_BUFFER = 200_000;
 
@@ -44,7 +44,11 @@ export class TerminalService {
   private readonly terminals = new Map<string, TerminalRecord>();
   private readonly commandRuns = new Map<string, TerminalCommandRun>();
 
-  constructor(private readonly events?: SessionEventHub, private readonly workspaceActivity?: Pick<WorkspaceActivityService, "updateTerminal" | "removeTerminal">) {}
+  constructor(
+    private readonly events?: SessionEventHub,
+    private readonly workspaceActivity?: Pick<WorkspaceActivityService, "updateTerminal" | "removeTerminal">,
+    private readonly spawnPty: typeof pty.spawn = pty.spawn,
+  ) {}
 
   list(cwd: string): TerminalInfo[] {
     return [...this.terminals.values()]
@@ -86,7 +90,7 @@ export class TerminalService {
     const running: TerminalCommandRun = { ...queued, status: "running", startedAt: new Date().toISOString() };
     this.commandRuns.set(commandRunId, running);
 
-    const managementEnv = managementEnvironment(options.managementContext);
+    const commandProcess = commandRunProcess(options);
     try {
       this.createTerminal({
         id: terminalId,
@@ -94,10 +98,10 @@ export class TerminalService {
         name: options.title,
         ...(options.cols === undefined ? {} : { cols: options.cols }),
         ...(options.rows === undefined ? {} : { rows: options.rows }),
-        shellArgs: ["-lc", commandRunShellScript(options.command)],
+        shellArgs: commandProcess.args,
         commandRunId,
-        shell: commandRunShell(),
-        ...(managementEnv === undefined ? {} : { env: managementEnv }),
+        shell: commandProcess.command,
+        ...(commandProcess.env === undefined ? {} : { env: commandProcess.env }),
       });
     } catch (error) {
       this.commandRuns.delete(commandRunId);
@@ -203,7 +207,7 @@ export class TerminalService {
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
     const shell = options.shell ?? interactiveShell();
-    const terminal = pty.spawn(shell, options.shellArgs, {
+    const terminal = this.spawnPty(shell, options.shellArgs, {
       name: "xterm-256color",
       cwd: options.cwd,
       cols: options.cols ?? 100,
@@ -345,6 +349,23 @@ function commandRunShell(env: NodeJS.ProcessEnv = process.env): string {
     return "bash";
   }
   return shell !== undefined && shell !== "" ? shell : "/bin/bash";
+}
+
+function commandRunProcess(options: RunTerminalCommandOptions): { command: string; args: string[]; env?: NodeJS.ProcessEnv } {
+  const script = commandRunShellScript(options.command);
+  const managementEnv = managementEnvironment(options.managementContext);
+  if (managementEnv === undefined) {
+    return { command: commandRunShell(), args: ["-lc", script] };
+  }
+  const invocation = createBubblewrapShellInvocation({
+    bubblewrapExecutable: "bwrap",
+    shellExecutable: commandRunShell(),
+    workspaceRoot: options.cwd,
+    script,
+    env: managementEnv,
+    readOnlyPaths: DEFAULT_BUBBLEWRAP_PATHS.filter((path) => existsSync(path)),
+  });
+  return { command: invocation.command, args: invocation.args, env: managementEnv };
 }
 
 function interactiveShell(env: NodeJS.ProcessEnv = process.env): string {

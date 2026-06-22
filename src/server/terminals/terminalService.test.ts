@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { IPty } from "node-pty";
 import { TerminalService } from "./terminalService";
+import type { ManagementEmbedContext } from "../managementEmbed";
+
+type PtySpawn = NonNullable<ConstructorParameters<typeof TerminalService>[2]>;
 
 // TerminalService spawns a POSIX shell (/bin/bash with -lc and commands like
 // printf/true/exit). The terminal feature is not supported on native Windows,
@@ -90,7 +94,86 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
       service.dispose();
     }
   });
+
+  it("runs managed command runs through bubblewrap", () => {
+    const calls: { command: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
+    const spawn: PtySpawn = (command, args, options) => {
+      calls.push({ command, args: Array.isArray(args) ? args : [args], env: options.env ?? {} });
+      return fakePty();
+    };
+    const service = new TerminalService(undefined, undefined, spawn);
+    try {
+      service.runCommand({
+        origin: "management",
+        projectId: "default-project",
+        workspaceId: "workspace-1",
+        cwd: process.cwd(),
+        title: "Managed command",
+        command: "cat /etc/ssh/ssh_host_rsa_key",
+        managementContext: managementContext(),
+      });
+
+      expect(calls).toHaveLength(1);
+      const call = calls[0];
+      if (call === undefined) throw new Error("spawn was not called");
+      expect(call.command).toBe("bwrap");
+      expect(call.args).toEqual(expect.arrayContaining([
+        "--unshare-net",
+        "--clearenv",
+        "--bind",
+        process.cwd(),
+        "/workspace",
+        "--chdir",
+        "/workspace",
+        commandRunTestShell(),
+        "-lc",
+      ]));
+      expect(call.args.join("\n")).toContain("cat /etc/ssh/ssh_host_rsa_key");
+      expect(call.env["PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN"]).toBeUndefined();
+      expect(call.env["HOME"]).toBe("/tmp/pi-web-home");
+      expect(call.env["PI_WEB_SANDBOX_PYTHON"]).toBe("/usr/bin/python3");
+    } finally {
+      service.dispose();
+    }
+  });
 });
+
+function fakePty(): IPty {
+  return {
+    onData: () => ({ dispose: () => undefined }),
+    onExit: () => ({ dispose: () => undefined }),
+    write: () => undefined,
+    resize: () => undefined,
+    kill: () => undefined,
+    process: "fake",
+    pid: 1,
+    cols: 100,
+    rows: 30,
+    handleFlowControl: false,
+    clear: () => undefined,
+    pause: () => undefined,
+    resume: () => undefined,
+  };
+}
+
+function managementContext(): ManagementEmbedContext {
+  return {
+    user: { id: "sandbox-check", rootUserId: "sandbox-check", roles: [], permissions: [] },
+    projects: [],
+    tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
+    sandbox: {
+      pythonExecutable: "/usr/bin/python3",
+      env: {
+        PATH: "/usr/bin:/bin:/usr/local/bin",
+      },
+    },
+  };
+}
+
+function commandRunTestShell(): string {
+  const shell = process.env["SHELL"]?.trim();
+  return shell !== undefined && shell !== "" && shell.toLowerCase().includes("bash") ? shell : "/bin/bash";
+}
 
 function terminalReplay(service: TerminalService, terminalId: string): Promise<string> {
   let output = "";
