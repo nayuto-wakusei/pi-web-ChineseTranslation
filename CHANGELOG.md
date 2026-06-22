@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.24
+
+### Patch Changes
+
+- 14acefe: Prevent management embed sessions from loading global AGENTS.md or CLAUDE.md context files while preserving project-local context files.
+- 14acefe: Fix management embed session recovery for localized missing-session errors and keep model/thinking-level controls in the managed runtime context.
+
 ## 1.202606.23
 
 ### Patch Changes
