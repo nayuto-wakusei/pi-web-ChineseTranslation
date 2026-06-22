@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.22
+
+### Patch Changes
+
+- c1ae62b: Sandbox ordinary Pi session tools in management embed mode and fail closed when the host cannot start the managed shell sandbox.
+
 ## 1.202606.21
 
 ### Patch Changes
