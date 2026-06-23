@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.25
+
+### Patch Changes
+
+- 8f278cf: Improve web client API parsing for PI WEB status and machine runtime responses.
+
 ## 1.202606.24
 
 ### Patch Changes
