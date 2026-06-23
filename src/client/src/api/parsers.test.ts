@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -31,12 +31,131 @@ describe("API parsers", () => {
     })).toMatchObject({ capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] });
   });
 
+  it("parses PI WEB status responses including installation, release, commands, and messages", () => {
+    const response = {
+      packageName: "@jmfederico/pi-web",
+      generatedAt: "now",
+      components: {
+        web: {
+          component: "web",
+          label: "Web/UI",
+          runtimeVersion: "1.2.3",
+          installedVersion: "1.2.2",
+          stale: true,
+          available: true,
+          installation: {
+            kind: "npm-global",
+            path: "/usr/local/lib/node_modules/@jmfederico/pi-web",
+            source: "@jmfederico/pi-web",
+            scope: "user",
+            npmRoot: "/usr/local/lib/node_modules",
+          },
+        },
+        sessiond: {
+          component: "sessiond",
+          label: "Session daemon",
+          runtimeVersion: "1.2.3",
+          installedVersion: "1.2.3",
+          stale: false,
+          available: false,
+          error: "not running",
+        },
+      },
+      release: {
+        packageName: "@jmfederico/pi-web",
+        latestVersion: "1.3.0",
+        updateAvailable: true,
+        checkedAt: "later",
+      },
+      commands: {
+        update: "npm install -g @jmfederico/pi-web@latest",
+        restart: "systemctl --user restart pi-web.target",
+        restartWeb: "systemctl --user restart pi-web-ui-dev.service",
+        restartSessiond: "systemctl --user restart pi-web-sessiond.service",
+        status: "systemctl --user status pi-web.target",
+      },
+      messages: [
+        {
+          id: "update-available",
+          severity: "warning",
+          title: "Update available",
+          body: "Install the latest release.",
+          command: "npm install -g @jmfederico/pi-web@latest",
+        },
+      ],
+    };
+
+    expect(parsePiWebStatusResponse(response)).toEqual(response);
+  });
+
   it("parses PI WEB plugin status responses", () => {
     expect(parsePiWebPluginsResponse({
       plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", machineSpecific: true, enabled: false }],
     })).toEqual({
       plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", machineSpecific: true, enabled: false }],
     });
+  });
+
+  it("parses machine health responses with nested PI WEB component status", () => {
+    const response = {
+      machineId: "machine-1",
+      ok: false,
+      checkedAt: "now",
+      status: "error",
+      web: {
+        component: "web",
+        label: "Web/UI",
+        runtimeVersion: "1.2.3",
+        installedVersion: "1.2.2",
+        stale: true,
+        available: true,
+        installation: {
+          kind: "local",
+          path: "/srv/pi-web",
+        },
+      },
+      sessiond: {
+        component: "sessiond",
+        label: "Session daemon",
+        runtimeVersion: "1.2.3",
+        installedVersion: "1.2.3",
+        stale: false,
+        available: false,
+        error: "not running",
+      },
+      error: "session daemon unavailable",
+    };
+
+    expect(parseMachineHealth(response)).toEqual(response);
+  });
+
+  it("parses machine runtime responses with nested runtime components and capabilities", () => {
+    const response = {
+      machineId: "machine-1",
+      ok: true,
+      checkedAt: "now",
+      packageName: "@jmfederico/pi-web",
+      generatedAt: "later",
+      components: {
+        web: {
+          component: "web",
+          label: "Web/UI",
+          runtimeVersion: "1.2.3",
+          available: true,
+          capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.promptAttachments],
+        },
+        sessiond: {
+          component: "sessiond",
+          label: "Session daemon",
+          available: false,
+          capabilities: [PI_WEB_CAPABILITIES.sessionsReload],
+          error: "socket missing",
+        },
+      },
+      capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.promptAttachments],
+    };
+
+    expect(parseMachineRuntime(response)).toEqual(response);
   });
 
   it("accepts legacy array message pages and paged message responses", () => {
@@ -169,5 +288,19 @@ describe("API parsers", () => {
     expect(parseCommandResult({ type: "select", requestId: "r1", title: "Pick", options: [{ value: "v", label: "Label", description: "desc" }] })).toEqual({ type: "select", requestId: "r1", title: "Pick", options: [{ value: "v", label: "Label", description: "desc" }] });
     expect(parseCommandResult({ type: "done", message: "ok", promptDraft: "resend me" })).toEqual({ type: "done", message: "ok", promptDraft: "resend me" });
     expect(() => parseCommandResult({ type: "later" })).toThrow("Invalid command result type");
+  });
+
+  it("parses simple command acknowledgement responses", () => {
+    expect(parseAccepted({ accepted: true })).toEqual({ accepted: true });
+    expect(parseClosed({ closed: true })).toEqual({ closed: true });
+    expect(parseAborted({ aborted: true })).toEqual({ aborted: true });
+    expect(parseStopped({ stopped: true })).toEqual({ stopped: true });
+    expect(parseRestored({ restored: true })).toEqual({ restored: true });
+    expect(parseDeleted({ deleted: true })).toEqual({ deleted: true });
+    expect(parseDetached({ detached: true })).toEqual({ detached: true });
+    expect(parseReloaded({ reloaded: true })).toEqual({ reloaded: true });
+    expect(parseArchived({ archived: true, sessionIds: ["s1"], archivedCount: 1, skippedAlreadyArchivedCount: 2 })).toEqual({ archived: true, sessionIds: ["s1"], archivedCount: 1, skippedAlreadyArchivedCount: 2 });
+    expect(() => parseAccepted({ accepted: false })).toThrow("Expected accepted response");
+    expect(() => parseArchived({ archived: true, sessionIds: [1] })).toThrow("Expected string array field: sessionIds");
   });
 });

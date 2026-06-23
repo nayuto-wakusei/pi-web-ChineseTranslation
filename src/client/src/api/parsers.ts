@@ -1,46 +1,9 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, Machine, MachineHealth, MachineKind, MachineRuntime, MachineStatus, MessagePage, ModelSelectionResponse, OAuthFlowState, PiWebCapability, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, Project, QueuedSessionMessage, SavedPromptAttachment, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
-import { isPiWebCapability } from "../../../shared/capabilities";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, OAuthFlowState, Project, QueuedSessionMessage, SavedPromptAttachment, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
+import { arrayOf, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function requireRecord(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error("Expected object response");
-  return value;
-}
-
-function requireString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (typeof value !== "string") throw new Error(`Expected string field: ${key}`);
-  return value;
-}
-
-function optionalString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`Expected optional string field: ${key}`);
-  return value;
-}
-
-function requireNumber(record: Record<string, unknown>, key: string): number {
-  const value = record[key];
-  if (typeof value !== "number") throw new Error(`Expected number field: ${key}`);
-  return value;
-}
-
-function requireBoolean(record: Record<string, unknown>, key: string): boolean {
-  const value = record[key];
-  if (typeof value !== "boolean") throw new Error(`Expected boolean field: ${key}`);
-  return value;
-}
-
-export function arrayOf<T>(parse: (value: unknown) => T): (value: unknown) => T[] {
-  return (value) => {
-    if (!Array.isArray(value)) throw new Error("Expected array response");
-    return value.map(parse);
-  };
-}
+export { arrayOf } from "./parsers/core";
+export { parseMachine, parseMachineHealth, parseMachineRuntime, parseMachinesResponse } from "./parsers/machines";
+export { parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse } from "./parsers/piWeb";
 
 function parseUnknownArray(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error("Expected array response");
@@ -56,72 +19,6 @@ export function parseMessagePage(value: unknown): MessagePage {
   if (Array.isArray(value)) return { messages: value, start: 0, total: value.length };
   const record = requireRecord(value);
   return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
-}
-
-export function parseMachinesResponse(value: unknown): Machine[] {
-  const record = requireRecord(value);
-  return arrayOf(parseMachine)(record["machines"]);
-}
-
-export function parseMachine(value: unknown): Machine {
-  const record = requireRecord(value);
-  const kind = requireMachineKind(record, "kind");
-  const baseUrl = optionalString(record, "baseUrl");
-  const status = optionalMachineStatus(record, "status");
-  const statusMessage = optionalString(record, "statusMessage");
-  return {
-    id: requireString(record, "id"),
-    name: requireString(record, "name"),
-    kind,
-    ...(baseUrl === undefined ? {} : { baseUrl }),
-    createdAt: requireString(record, "createdAt"),
-    updatedAt: requireString(record, "updatedAt"),
-    ...(status === undefined ? {} : { status }),
-    ...(statusMessage === undefined ? {} : { statusMessage }),
-  };
-}
-
-export function parseMachineHealth(value: unknown): MachineHealth {
-  const record = requireRecord(value);
-  const status = optionalMachineStatus(record, "status");
-  const error = optionalString(record, "error");
-  return {
-    machineId: requireString(record, "machineId"),
-    ok: requireBoolean(record, "ok"),
-    checkedAt: requireString(record, "checkedAt"),
-    ...(status === undefined ? {} : { status }),
-    ...(record["web"] === undefined ? {} : { web: parsePiWebComponentStatus(record["web"]) }),
-    ...(record["sessiond"] === undefined ? {} : { sessiond: parsePiWebComponentStatus(record["sessiond"]) }),
-    ...(error === undefined ? {} : { error }),
-  };
-}
-
-export function parseMachineRuntime(value: unknown): MachineRuntime {
-  const record = requireRecord(value);
-  const error = optionalString(record, "error");
-  return {
-    machineId: requireString(record, "machineId"),
-    ok: requireBoolean(record, "ok"),
-    checkedAt: requireString(record, "checkedAt"),
-    ...optionalField("packageName", optionalString(record, "packageName")),
-    ...optionalField("generatedAt", optionalString(record, "generatedAt")),
-    ...(record["components"] === undefined ? {} : { components: parsePiWebRuntimeComponents(record["components"]) }),
-    ...(record["capabilities"] === undefined ? {} : { capabilities: parsePiWebCapabilities(record["capabilities"]) }),
-    ...(error === undefined ? {} : { error }),
-  };
-}
-
-function requireMachineKind(record: Record<string, unknown>, key: string): MachineKind {
-  const value = requireString(record, key);
-  if (value !== "local" && value !== "remote") throw new Error(`Expected machine kind field: ${key}`);
-  return value;
-}
-
-function optionalMachineStatus(record: Record<string, unknown>, key: string): MachineStatus | undefined {
-  const value = optionalString(record, key);
-  if (value === undefined) return undefined;
-  if (value !== "unknown" && value !== "online" && value !== "offline" && value !== "error") throw new Error(`Expected machine status field: ${key}`);
-  return value;
 }
 
 export function parseProject(value: unknown): Project {
@@ -453,215 +350,6 @@ export function parseWorkspaceActivityResponse(value: unknown): WorkspaceActivit
   return { workspaces: arrayOf(parseWorkspaceActivity)(record["workspaces"]), generatedAt: requireString(record, "generatedAt") };
 }
 
-export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
-  const record = requireRecord(value);
-  return {
-    path: requireString(record, "path"),
-    exists: requireBoolean(record, "exists"),
-    config: parsePiWebConfigValues(record["config"]),
-    effectiveConfig: parsePiWebConfigValues(record["effectiveConfig"]),
-    envOverrides: parsePiWebConfigEnvOverrides(record["envOverrides"]),
-  };
-}
-
-function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
-  const record = requireRecord(value);
-  return {
-    ...optionalField("host", optionalString(record, "host")),
-    ...optionalField("port", optionalNumber(record, "port")),
-    ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
-    ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
-    ...optionalField("plugins", optionalPlugins(record["plugins"])),
-    ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
-    ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
-  };
-}
-
-function optionalAllowedHosts(value: unknown): PiWebConfigValues["allowedHosts"] | undefined {
-  if (value === undefined) return undefined;
-  if (value === true) return true;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value;
-  throw new Error("Invalid PI WEB allowedHosts field");
-}
-
-function optionalShortcuts(value: unknown): PiWebShortcutConfig | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB shortcuts field");
-  return Object.fromEntries(Object.entries(value).map(([actionId, shortcut]) => {
-    if (shortcut !== null && (typeof shortcut !== "string" || shortcut === "")) throw new Error("Invalid PI WEB shortcut field");
-    return [actionId, shortcut];
-  }));
-}
-
-function optionalPlugins(value: unknown): PiWebPluginConfigMap | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB plugins field");
-  return Object.fromEntries(Object.entries(value).map(([pluginId, config]) => {
-    if (!isRecord(config) || Array.isArray(config)) throw new Error("Invalid PI WEB plugin config field");
-    const enabled = config["enabled"];
-    if (enabled !== undefined && typeof enabled !== "boolean") throw new Error("Invalid PI WEB plugin enabled field");
-    const settings = config["settings"];
-    if (settings !== undefined && (!isRecord(settings) || Array.isArray(settings))) throw new Error("Invalid PI WEB plugin settings field");
-    return [pluginId, config];
-  }));
-}
-
-function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
-  const record = requireRecord(value);
-  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts"), spawnSessions: requireBoolean(record, "spawnSessions"), subsessions: requireBoolean(record, "subsessions") };
-}
-
-export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {
-  const record = requireRecord(value);
-  return { plugins: arrayOf(parsePiWebPluginInfo)(record["plugins"]) };
-}
-
-function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
-  const record = requireRecord(value);
-  return {
-    id: requireString(record, "id"),
-    module: requireString(record, "module"),
-    source: requireString(record, "source"),
-    scope: parsePiWebPluginScope(record["scope"]),
-    machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,
-    enabled: requireBoolean(record, "enabled"),
-  };
-}
-
-function parsePiWebPluginScope(value: unknown): PiWebPluginScope {
-  if (value !== "bundled" && value !== "local" && value !== "user" && value !== "project") throw new Error("Invalid PI WEB plugin scope");
-  return value;
-}
-
-function parseOptionalBoolean(value: unknown, key: string): boolean | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
-  return value;
-}
-
-export function parsePiWebStatusResponse(value: unknown): PiWebStatusResponse {
-  const record = requireRecord(value);
-  return {
-    packageName: requireString(record, "packageName"),
-    generatedAt: requireString(record, "generatedAt"),
-    components: parsePiWebComponents(record["components"]),
-    release: parsePiWebReleaseStatus(record["release"]),
-    commands: parsePiWebCommands(record["commands"]),
-    messages: arrayOf(parsePiWebStatusMessage)(record["messages"]),
-  };
-}
-
-export function parsePiWebRuntimeResponse(value: unknown): PiWebRuntimeResponse {
-  const record = requireRecord(value);
-  return {
-    packageName: requireString(record, "packageName"),
-    generatedAt: requireString(record, "generatedAt"),
-    components: parsePiWebRuntimeComponents(record["components"]),
-    capabilities: parsePiWebCapabilities(record["capabilities"]),
-  };
-}
-
-function parsePiWebComponents(value: unknown): PiWebStatusResponse["components"] {
-  const record = requireRecord(value);
-  return { web: parsePiWebComponentStatus(record["web"]), sessiond: parsePiWebComponentStatus(record["sessiond"]) };
-}
-
-function parsePiWebRuntimeComponents(value: unknown): PiWebRuntimeResponse["components"] {
-  const record = requireRecord(value);
-  return { web: parsePiWebRuntimeComponent(record["web"]), sessiond: parsePiWebRuntimeComponent(record["sessiond"]) };
-}
-
-function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
-  const record = requireRecord(value);
-  return {
-    component: parsePiWebServiceComponent(record["component"]),
-    label: requireString(record, "label"),
-    ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
-    available: requireBoolean(record, "available"),
-    capabilities: parsePiWebCapabilities(record["capabilities"]),
-    ...optionalField("error", optionalString(record, "error")),
-  };
-}
-
-function parsePiWebComponentStatus(value: unknown): PiWebComponentStatus {
-  const record = requireRecord(value);
-  return {
-    component: parsePiWebServiceComponent(record["component"]),
-    label: requireString(record, "label"),
-    ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
-    ...optionalField("installedVersion", optionalString(record, "installedVersion")),
-    stale: requireBoolean(record, "stale"),
-    available: requireBoolean(record, "available"),
-    ...optionalField("installation", optionalPiWebInstallationInfo(record["installation"])),
-    ...optionalField("error", optionalString(record, "error")),
-  };
-}
-
-function optionalPiWebInstallationInfo(value: unknown): PiWebInstallationInfo | undefined {
-  if (value === undefined) return undefined;
-  const record = requireRecord(value);
-  const kind = requireString(record, "kind");
-  if (kind !== "pi-package" && kind !== "npm-global" && kind !== "local" && kind !== "unknown") throw new Error("Invalid PI WEB installation kind");
-  const scope = record["scope"];
-  if (scope !== undefined && scope !== "user" && scope !== "project") throw new Error("Invalid PI WEB installation scope");
-  return {
-    kind,
-    ...optionalField("path", optionalString(record, "path")),
-    ...optionalField("source", optionalString(record, "source")),
-    ...(scope === undefined ? {} : { scope }),
-    ...optionalField("npmRoot", optionalString(record, "npmRoot")),
-  };
-}
-
-function parsePiWebReleaseStatus(value: unknown): PiWebReleaseStatus {
-  const record = requireRecord(value);
-  return {
-    packageName: requireString(record, "packageName"),
-    ...optionalField("latestVersion", optionalString(record, "latestVersion")),
-    updateAvailable: requireBoolean(record, "updateAvailable"),
-    ...optionalField("checkedAt", optionalString(record, "checkedAt")),
-    ...(record["skipped"] === true ? { skipped: true } : {}),
-    ...optionalField("error", optionalString(record, "error")),
-  };
-}
-
-function parsePiWebCommands(value: unknown): PiWebStatusResponse["commands"] {
-  const record = requireRecord(value);
-  return {
-    ...optionalField("update", optionalString(record, "update")),
-    ...optionalField("restart", optionalString(record, "restart")),
-    ...optionalField("restartWeb", optionalString(record, "restartWeb")),
-    ...optionalField("restartSessiond", optionalString(record, "restartSessiond")),
-    ...optionalField("status", optionalString(record, "status")),
-  };
-}
-
-function parsePiWebStatusMessage(value: unknown): PiWebStatusMessage {
-  const record = requireRecord(value);
-  return {
-    id: requireString(record, "id"),
-    severity: parsePiWebStatusSeverity(record["severity"]),
-    title: requireString(record, "title"),
-    body: requireString(record, "body"),
-    ...optionalField("command", optionalString(record, "command")),
-  };
-}
-
-function parsePiWebServiceComponent(value: unknown): PiWebServiceComponent {
-  if (value !== "web" && value !== "sessiond") throw new Error("Invalid PI WEB service component");
-  return value;
-}
-
-function parsePiWebCapabilities(value: unknown): PiWebCapability[] {
-  if (!Array.isArray(value) || !value.every(isPiWebCapability)) throw new Error("Invalid PI WEB capabilities");
-  return value;
-}
-
-function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
-  if (value !== "info" && value !== "warning" && value !== "error") throw new Error("Invalid PI WEB status severity");
-  return value;
-}
-
 export function parseCommandResult(value: unknown): CommandResult {
   const record = requireRecord(value);
   const type = requireString(record, "type");
@@ -681,9 +369,7 @@ function optionalSession(value: unknown): Pick<Extract<CommandResult, { type: "d
 }
 
 export function parseAccepted(value: unknown): { accepted: true } {
-  const record = requireRecord(value);
-  if (record["accepted"] !== true) throw new Error("Expected accepted response");
-  return { accepted: true };
+  return { accepted: requireTrueField(value, "accepted") };
 }
 
 export function parseSavedAttachments(value: unknown): SavedPromptAttachment[] {
@@ -697,21 +383,15 @@ function parseSavedAttachment(value: unknown): SavedPromptAttachment {
 }
 
 export function parseClosed(value: unknown): { closed: true } {
-  const record = requireRecord(value);
-  if (record["closed"] !== true) throw new Error("Expected closed response");
-  return { closed: true };
+  return { closed: requireTrueField(value, "closed") };
 }
 
 export function parseAborted(value: unknown): { aborted: true } {
-  const record = requireRecord(value);
-  if (record["aborted"] !== true) throw new Error("Expected aborted response");
-  return { aborted: true };
+  return { aborted: requireTrueField(value, "aborted") };
 }
 
 export function parseStopped(value: unknown): { stopped: true } {
-  const record = requireRecord(value);
-  if (record["stopped"] !== true) throw new Error("Expected stopped response");
-  return { stopped: true };
+  return { stopped: requireTrueField(value, "stopped") };
 }
 
 export function parseArchived(value: unknown): ArchiveSessionsResponse {
@@ -729,41 +409,19 @@ export function parseArchived(value: unknown): ArchiveSessionsResponse {
 }
 
 export function parseRestored(value: unknown): { restored: true } {
-  const record = requireRecord(value);
-  if (record["restored"] !== true) throw new Error("Expected restored response");
-  return { restored: true };
+  return { restored: requireTrueField(value, "restored") };
 }
 
 export function parseDeleted(value: unknown): { deleted: true } {
-  const record = requireRecord(value);
-  if (record["deleted"] !== true) throw new Error("Expected deleted response");
-  return { deleted: true };
+  return { deleted: requireTrueField(value, "deleted") };
 }
 
 export function parseDetached(value: unknown): { detached: true } {
-  const record = requireRecord(value);
-  if (record["detached"] !== true) throw new Error("Expected detached response");
-  return { detached: true };
+  return { detached: requireTrueField(value, "detached") };
 }
 
 export function parseReloaded(value: unknown): { reloaded: true } {
-  const record = requireRecord(value);
-  if (record["reloaded"] !== true) throw new Error("Expected reloaded response");
-  return { reloaded: true };
-}
-
-function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw new Error(`Invalid PI WEB ${key} field`);
-  return value;
-}
-
-function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "number") throw new Error(`Expected optional number field: ${key}`);
-  return value;
+  return { reloaded: requireTrueField(value, "reloaded") };
 }
 
 function numberOrNull(record: Record<string, unknown>, key: string): number | null {
@@ -771,8 +429,4 @@ function numberOrNull(record: Record<string, unknown>, key: string): number | nu
   if (value === null) return null;
   if (typeof value !== "number") throw new Error(`Expected number|null field: ${key}`);
   return value;
-}
-
-function optionalField(key: string, value: unknown): object {
-  return value === undefined ? {} : { [key]: value };
 }
