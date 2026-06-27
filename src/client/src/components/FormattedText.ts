@@ -2,6 +2,7 @@ import { css, LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { toSafeMarkdownHtml } from "../formatting/markdown";
+import { writeClipboard } from "../utils/clipboard";
 
 const formattedTextStyles = css`
   :host { display: block; }
@@ -93,11 +94,4 @@ export class FormattedText extends LitElement {
   static override styles = formattedTextStyles;
 }
 
-async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
+

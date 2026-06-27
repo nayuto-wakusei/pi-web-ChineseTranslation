@@ -8,6 +8,7 @@ import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
 import type { SessionActivity, SessionStatus } from "../api";
 import type { ChatLine, ChatPart } from "../chatTypes";
+import { writeClipboard } from "../utils/clipboard";
 import { chatStyles } from "./styles/chatStyles";
 import "./ConversationMeter";
 import "./FormattedText";
@@ -450,7 +451,7 @@ export class ChatView extends LitElement {
 
   private async copyMessage(message: ChatLine, key: string, event: MouseEvent): Promise<void> {
     event.stopPropagation();
-    const ok = await this.writeClipboard(this.messageCopyText(message));
+    const ok = await writeClipboard(this.messageCopyText(message));
     if (!ok) return;
     this.copiedMessageKey = key;
     window.setTimeout(() => {
@@ -458,14 +459,6 @@ export class ChatView extends LitElement {
     }, 1200);
   }
 
-  private async writeClipboard(text: string): Promise<boolean> {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 
   private messageMetaLabel(message: ChatLine): { short: string; full: string } {
     const cached = this.messageMetaCache.get(message);

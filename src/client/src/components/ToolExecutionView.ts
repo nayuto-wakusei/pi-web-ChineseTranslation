@@ -1,6 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ToolExecutionPart } from "../chatTypes";
+import { writeClipboard } from "../utils/clipboard";
 
 const MAX_COLLAPSED_DIFF_LINES = 180;
 
@@ -88,12 +89,10 @@ export class ToolExecutionView extends LitElement {
   }
 
   private async copyDiff(diff: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(diff);
-      this.copied = true;
+    const ok = await writeClipboard(diff);
+    this.copied = ok;
+    if (ok) {
       window.setTimeout(() => { this.copied = false; }, 1200);
-    } catch {
-      this.copied = false;
     }
   }
 
