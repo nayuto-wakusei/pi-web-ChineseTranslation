@@ -66,6 +66,7 @@
             <a href="remote-first">Remote-first</a>
             <a href="machines">Fleet</a>
             <a href="install">Install</a>
+            <a href="config">Config</a>
             <a href="plugins">Plugins</a>
             <a href="faq">FAQ</a>
           </div>
@@ -146,12 +147,58 @@
 
       <section class="section compact">
         <div class="container">
-          <div class="demo-frame">
+          <div class="demo-frame" data-demo-carousel>
             <div class="demo-caption">
-              <strong>Workspaces, sessions, transcripts, terminals — one Pi web UI.</strong>
-              <span>Bring your own repositories.</span>
+              <div class="demo-caption-copy">
+                <strong>Workspaces, sessions, transcripts, files — one Pi web UI on every screen.</strong>
+                <span>Bring your own repositories. Swipe through the screenshots or click one to enlarge.</span>
+              </div>
+              <div class="demo-controls" data-demo-controls hidden role="group" aria-label="Screenshot gallery controls">
+                <button class="demo-control" type="button" data-demo-prev aria-label="Previous screenshot">‹</button>
+                <div class="demo-dots" role="group" aria-label="Choose screenshot">
+                  <button class="demo-dot" type="button" data-demo-dot="0" aria-label="Show desktop screenshot" aria-current="true"></button>
+                  <button class="demo-dot" type="button" data-demo-dot="1" aria-label="Show tablet screenshot" aria-current="false"></button>
+                  <button class="demo-dot" type="button" data-demo-dot="2" aria-label="Show mobile screenshot" aria-current="false"></button>
+                </div>
+                <button class="demo-control" type="button" data-demo-next aria-label="Next screenshot">›</button>
+              </div>
             </div>
-            <img src="assets/pi-web-demo.gif" alt="PI WEB browser UI demo" />
+            <div class="demo-gallery" data-demo-gallery tabindex="0" aria-label="PI WEB screenshots">
+              <figure class="demo-shot demo-shot-desktop" data-demo-slide>
+                <div class="demo-shot-media">
+                  <button class="demo-lightbox-trigger" type="button" data-demo-lightbox-trigger aria-label="Open desktop screenshot preview">
+                    <img
+                      src="assets/pi-web-desktop.png"
+                      alt="PI WEB desktop screenshot showing an agent-created pi-web.dev screenshot selected in the file preview"
+                    />
+                  </button>
+                </div>
+                <figcaption><strong>Desktop</strong><span>Chat beside workspace file preview.</span></figcaption>
+              </figure>
+              <figure class="demo-shot" data-demo-slide>
+                <div class="demo-shot-media">
+                  <button class="demo-lightbox-trigger" type="button" data-demo-lightbox-trigger aria-label="Open tablet screenshot preview">
+                    <img src="assets/pi-web-tablet.png" alt="PI WEB tablet screenshot" />
+                  </button>
+                </div>
+                <figcaption><strong>Tablet</strong><span>The same live session on a wider touch screen.</span></figcaption>
+              </figure>
+              <figure class="demo-shot demo-shot-mobile" data-demo-slide>
+                <div class="demo-shot-media">
+                  <button class="demo-lightbox-trigger" type="button" data-demo-lightbox-trigger aria-label="Open mobile screenshot preview">
+                    <img src="assets/pi-web-mobile.png" alt="PI WEB mobile chat screenshot" />
+                  </button>
+                </div>
+                <figcaption><strong>Mobile</strong><span>Readable chat controls when you are away from the desk.</span></figcaption>
+              </figure>
+            </div>
+            <dialog class="demo-lightbox" data-demo-lightbox aria-label="Screenshot preview">
+              <div class="demo-lightbox-panel">
+                <button class="demo-lightbox-close" type="button" data-demo-lightbox-close aria-label="Close screenshot preview">×</button>
+                <img data-demo-lightbox-image alt="" />
+                <p data-demo-lightbox-caption></p>
+              </div>
+            </dialog>
           </div>
         </div>
       </section>
@@ -336,6 +383,7 @@
           <a href="remote-first">Remote-first</a>
           <a href="machines">Fleet</a>
           <a href="install">Install</a>
+          <a href="config">Config</a>
           <a href="plugins">Plugins</a>
           <a href="faq">FAQ</a>
           <a href="https://www.npmjs.com/package/@chainingintention/pi-web-cn">npm</a>

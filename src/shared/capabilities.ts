@@ -6,13 +6,15 @@ export type { PiWebCapability };
 export const KNOWN_PI_WEB_CAPABILITIES = Object.values(PI_WEB_CAPABILITIES);
 const knownPiWebCapabilities: ReadonlySet<string> = new Set(KNOWN_PI_WEB_CAPABILITIES);
 
-export const WEB_RUNTIME_CAPABILITIES = [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.sessionsReload, PI_WEB_CAPABILITIES.promptAttachments] as const satisfies readonly PiWebCapability[];
-export const SESSIOND_RUNTIME_CAPABILITIES = [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.sessionsReload, PI_WEB_CAPABILITIES.promptAttachments] as const satisfies readonly PiWebCapability[];
+export const WEB_RUNTIME_CAPABILITIES = [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.sessionsCleanup, PI_WEB_CAPABILITIES.sessionsReload, PI_WEB_CAPABILITIES.promptAttachments, PI_WEB_CAPABILITIES.workspaceFileSuggestions] as const satisfies readonly PiWebCapability[];
+export const SESSIOND_RUNTIME_CAPABILITIES = [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.sessionsCleanup, PI_WEB_CAPABILITIES.sessionsReload, PI_WEB_CAPABILITIES.promptAttachments] as const satisfies readonly PiWebCapability[];
 
 const EFFECTIVE_CAPABILITY_REQUIREMENTS = {
   [PI_WEB_CAPABILITIES.sessionsDeleteArchived]: ["web", "sessiond"],
+  [PI_WEB_CAPABILITIES.sessionsCleanup]: ["web", "sessiond"],
   [PI_WEB_CAPABILITIES.sessionsReload]: ["web", "sessiond"],
   [PI_WEB_CAPABILITIES.promptAttachments]: ["web", "sessiond"],
+  [PI_WEB_CAPABILITIES.workspaceFileSuggestions]: ["web"],
 } as const satisfies Record<PiWebCapability, readonly PiWebServiceComponent[]>;
 
 export function isPiWebCapability(value: unknown): value is PiWebCapability {

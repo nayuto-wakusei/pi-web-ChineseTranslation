@@ -90,7 +90,13 @@ function context(patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelCont
   return {
     machine: { id: "local", name: "local", kind: "local" },
     workspace: { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false },
-    files: { readFile: () => Promise.reject(new Error("unused")) },
+    files: {
+      readFile: () => Promise.reject(new Error("unused")),
+      writeFile: () => Promise.reject(new Error("unused")),
+      deleteFile: () => Promise.reject(new Error("unused")),
+      moveFile: () => Promise.reject(new Error("unused")),
+    },
+    prompt: { insertText: () => undefined, getText: () => "", getSelection: () => null },
     terminal: { open: () => undefined, runCommand: () => Promise.reject(new Error("unused")) },
     host: { requestRender: () => undefined },
     ...patch,

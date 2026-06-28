@@ -14,3 +14,11 @@ When working on this project, assume the session runtime owner is long-lived and
 If you make changes that affect `src/server/sessiond.ts`, session runtime ownership, the session daemon protocol, or any code path only loaded by the session daemon, inform the user that a manual restart of the session daemon is needed.
 
 Changes to the web/API/UI side generally only require the `pi-web-ui-dev.service` autoreload/restart path.
+
+## Configuration conventions
+
+- `$PI_WEB_DATA_DIR` (`~/.pi-web` by default) contains PI WEB-managed state such as `projects.json` and `machines.json`; do not treat it as the user-editable config API.
+- Global user/machine config lives at `$PI_WEB_CONFIG` or `~/.config/pi-web/config.json`.
+- Project-local PI WEB core config should use one commit-able file: `<project>/.pi-web/config.json`.
+- Core features should add keys to these config files, not create one project file per feature.
+- Plugins may own separate project config files, such as `.pi-web/tasks.json`.

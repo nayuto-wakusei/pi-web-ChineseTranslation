@@ -1,5 +1,5 @@
 import { createReadStream, type ReadStream } from "node:fs";
-import { lstat, mkdir, rename, rmdir, stat, unlink } from "node:fs/promises";
+import { lstat, mkdir, rename, rmdir, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { resolveInsideWorkspace, resolveParentInsideWorkspace } from "./pathSafety.js";
 
@@ -27,23 +27,6 @@ export interface WorkspaceDownload {
   size: number;
   modifiedAt: string;
   stream: ReadStream;
-}
-
-export async function moveWorkspaceFile(rootPath: string, input: WorkspaceMoveInput): Promise<WorkspacePathResponse> {
-  const move = await resolveMove(rootPath, input);
-  const s = await lstat(move.sourceTarget);
-  if (!s.isFile()) throw new Error("Path is not a file");
-  await rename(move.sourceTarget, move.destinationTarget);
-  return { path: move.destinationRelativePath };
-}
-
-export async function deleteWorkspaceFile(rootPath: string, path: string | undefined): Promise<WorkspaceDeleteResponse> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
-  const { target, relativePath } = await resolveInsideWorkspace(rootPath, path);
-  const s = await lstat(target);
-  if (!s.isFile()) throw new Error("Path is not a file");
-  await unlink(target);
-  return { deleted: true, path: relativePath };
 }
 
 export async function createWorkspaceDirectory(rootPath: string, input: WorkspacePathInput): Promise<WorkspacePathResponse> {

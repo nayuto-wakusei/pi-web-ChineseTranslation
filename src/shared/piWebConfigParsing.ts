@@ -4,8 +4,8 @@ import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
 export type ParsedPiWebConfig = PiWebConfigValues;
 
 type ParseContext =
-  | { format: "file"; includeMaxUploadBytes: true; path: string }
-  | { format: "request"; includeMaxUploadBytes: false };
+  | { format: "file"; path: string }
+  | { format: "request" };
 
 export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unknown> {
   return {
@@ -15,6 +15,8 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
+    ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
+    ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
@@ -22,12 +24,12 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
 }
 
 export function parsePiWebConfig(value: Record<string, unknown>, path: string): ParsedPiWebConfig {
-  return parsePiWebConfigFields(value, { format: "file", includeMaxUploadBytes: true, path });
+  return parsePiWebConfigFields(value, { format: "file", path });
 }
 
 export function parsePiWebConfigRequest(value: unknown): ParsedPiWebConfig {
   if (!isRecord(value)) throw new Error("PI WEB config update must include a config object");
-  return parsePiWebConfigFields(value, { format: "request", includeMaxUploadBytes: false });
+  return parsePiWebConfigFields(value, { format: "request" });
 }
 
 export function parsePort(value: unknown, key: string, path = "environment"): number {
@@ -59,7 +61,9 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], context) } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], context) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], context) } : {}),
-    ...(context.includeMaxUploadBytes && value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.path) } : {}),
+    ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], context.format === "file" ? context.path : "request") } : {}),
+    ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
+    ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.format === "file" ? context.path : "request") } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseBoolean(value["subsessions"], "subsessions", context) } : {}),
   };
@@ -187,6 +191,41 @@ function parseBooleanRecord(value: unknown, key: string, context: ParseContext):
 function parseStringArray(value: unknown, key: string, context: ParseContext): string[] {
   if (!isNonEmptyStringArray(value)) throw new Error(error(context, `${key} must be an array of non-empty strings`));
   return value;
+}
+
+export function parsePathAccessConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["pathAccess"]> {
+  if (!isRecord(value)) throw new Error(`PI WEB config pathAccess must be an object: ${path}`);
+  const allowedPaths = value["allowedPaths"];
+  return {
+    ...(allowedPaths !== undefined ? { allowedPaths: parseAllowedPaths(allowedPaths, path) } : {}),
+  };
+}
+
+function parseAllowedPaths(value: unknown, path: string): string[] {
+  if (!isNonEmptyStringArray(value)) throw new Error(`PI WEB config pathAccess.allowedPaths must be an array of non-empty strings: ${path}`);
+  return value;
+}
+
+export function parseUploadsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["uploads"]> {
+  if (!isRecord(value)) throw new Error(`PI WEB config uploads must be an object: ${path}`);
+  const defaultFolder = value["defaultFolder"];
+  return {
+    ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "uploads.defaultFolder", path) } : {}),
+  };
+}
+
+function parseWorkspaceRelativeFolder(value: unknown, key: string, path: string): string {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`PI WEB config ${key} must be a non-empty workspace-relative path: ${path}`);
+  if (isAbsoluteLike(value)) throw new Error(`PI WEB config ${key} must be workspace-relative: ${path}`);
+  const parts = value.split(/[\\/]+/).filter((part) => part !== "" && part !== ".");
+  if (parts.length === 0) throw new Error(`PI WEB config ${key} must be a non-empty workspace-relative path: ${path}`);
+  if (parts.some((part) => part === "..")) throw new Error(`PI WEB config ${key} must not contain path traversal: ${path}`);
+  return parts.join("/");
+}
+
+function isAbsoluteLike(value: string): boolean {
+  const withForwardSlashes = value.replace(/\\/g, "/");
+  return withForwardSlashes.startsWith("/") || /^[A-Za-z]:\//.test(withForwardSlashes);
 }
 
 function error(context: ParseContext, message: string): string {

@@ -5,5 +5,7 @@ export interface AppAction {
   shortcut?: string;
   group?: string;
   enabled?: boolean;
+  /** When present on a disabled action, keep it visible and explain why it cannot run. */
+  disabledReason?: string;
   run: () => void | Promise<void>;
 }

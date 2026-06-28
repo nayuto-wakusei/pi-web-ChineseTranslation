@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 export async function resolveInsideWorkspace(rootPath: string, relativePath: string | undefined): Promise<{ root: string; target: string; relativePath: string }> {
   const requested = normalizeRelativePath(relativePath);
@@ -16,13 +16,7 @@ export async function resolveInsideWorkspace(rootPath: string, relativePath: str
 export async function resolveParentInsideWorkspace(rootPath: string, relativePath: string): Promise<{ root: string; target: string; relativePath: string }> {
   const requested = normalizeRelativePath(relativePath);
   const root = await realpath(rootPath);
-  const requestedTarget = join(root, requested);
-  const parent = await realpath(dirname(requestedTarget)).catch((error: unknown) => {
-    if (isNodeErrorWithCode(error, "ENOENT")) throw new Error("Path does not exist");
-    throw error;
-  });
-  ensureInside(root, parent);
-  const target = join(parent, basename(requestedTarget));
+  const target = join(root, requested);
   ensureInside(root, target);
   return { root, target, relativePath: requested };
 }
@@ -36,11 +30,11 @@ export function normalizeRelativePath(input: string | undefined): string {
   return parts.join("/");
 }
 
-function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+export function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-function ensureInside(root: string, target: string): void {
+export function ensureInside(root: string, target: string): void {
   const rel = relative(root, target);
   if (rel === "") return;
   if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("Path escapes workspace");

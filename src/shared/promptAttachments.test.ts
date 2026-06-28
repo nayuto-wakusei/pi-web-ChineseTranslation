@@ -58,7 +58,32 @@ describe("parsePromptAttachments", () => {
 
   it("rejects unsupported kinds and mime types", () => {
     expect(() => parsePromptAttachments([{ kind: "video", mimeType: "image/png", data: tinyPngBase64 }])).toThrow(/unsupported kind/);
+    expect(() => parsePromptAttachments([{ kind: "file", mimeType: "application/pdf", data: tinyPngBase64 }])).toThrow(/unsupported kind/);
     expect(() => parsePromptAttachments([{ kind: "image", mimeType: "image/svg+xml", data: tinyPngBase64 }])).toThrow(/unsupported image type/);
+  });
+
+  it("accepts generic files only when file attachments are allowed", () => {
+    const result = parsePromptAttachments(
+      [{ kind: "file", mimeType: "application/pdf", data: "QUJD", name: "report.pdf" }],
+      { allowFileAttachments: true },
+    );
+    expect(result).toEqual([{ kind: "file", mimeType: "application/pdf", data: "QUJD", name: "report.pdf" }]);
+  });
+
+  it("accepts zero-byte generic files", () => {
+    const result = parsePromptAttachments(
+      [{ kind: "file", mimeType: "text/plain", data: "", name: "empty.txt" }],
+      { allowFileAttachments: true },
+    );
+    expect(result).toEqual([{ kind: "file", mimeType: "text/plain", data: "", name: "empty.txt" }]);
+  });
+
+  it("rejects generic files with empty mime types", () => {
+    expect(() => parsePromptAttachments([{ kind: "file", mimeType: "", data: "QUJD" }], { allowFileAttachments: true })).toThrow(/invalid file type/);
+  });
+
+  it("keeps image MIME validation when file attachments are allowed", () => {
+    expect(() => parsePromptAttachments([{ kind: "image", mimeType: "image/svg+xml", data: tinyPngBase64 }], { allowFileAttachments: true })).toThrow(/unsupported image type/);
   });
 
   it("rejects invalid base64 data", () => {

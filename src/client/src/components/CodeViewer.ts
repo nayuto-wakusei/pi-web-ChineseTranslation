@@ -55,6 +55,7 @@ export class CodeViewer extends LitElement {
           EditorView.editable.of(false),
           EditorView.lineWrapping,
           viewerTheme,
+          ...bidiTextExtensions(this.language),
           ...languageExtensions(this.language),
         ],
       }),
@@ -96,6 +97,19 @@ const viewerTheme = EditorView.theme({
     outline: "none",
   },
 });
+
+const bidiTextTheme = EditorView.theme({
+  ".cm-content": {
+    textAlign: "start",
+  },
+  ".cm-line": {
+    unicodeBidi: "plaintext",
+  },
+});
+
+function bidiTextExtensions(language: string | undefined): Extension[] {
+  return language === "markdown" ? [EditorView.contentAttributes.of({ dir: "auto" }), bidiTextTheme] : [];
+}
 
 function languageExtensions(language: string | undefined): Extension[] {
   if (language === undefined) return [];

@@ -61,6 +61,167 @@ for (const button of themeButtons) {
   });
 }
 
+const screenshotCarousels = document.querySelectorAll("[data-demo-carousel]");
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function setupScreenshotCarousel(carousel) {
+  const gallery = carousel.querySelector("[data-demo-gallery]");
+  const controls = carousel.querySelector("[data-demo-controls]");
+  const previousButton = carousel.querySelector("[data-demo-prev]");
+  const nextButton = carousel.querySelector("[data-demo-next]");
+  const dots = Array.from(carousel.querySelectorAll("[data-demo-dot]"));
+  const slides = Array.from(carousel.querySelectorAll("[data-demo-slide]"));
+  const lightbox = carousel.querySelector("[data-demo-lightbox]");
+  const lightboxImage = carousel.querySelector("[data-demo-lightbox-image]");
+  const lightboxCaption = carousel.querySelector("[data-demo-lightbox-caption]");
+  const lightboxCloseButton = carousel.querySelector("[data-demo-lightbox-close]");
+  const lightboxTriggers = Array.from(carousel.querySelectorAll("[data-demo-lightbox-trigger]"));
+
+  if (gallery === null || slides.length === 0) return;
+
+  let updateQueued = false;
+
+  function galleryHasOverflow() {
+    return gallery.scrollWidth > gallery.clientWidth + 4;
+  }
+
+  function closestSlideIndex() {
+    const galleryRect = gallery.getBoundingClientRect();
+    const galleryCenter = galleryRect.left + galleryRect.width / 2;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    slides.forEach((slide, index) => {
+      const rect = slide.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - galleryCenter);
+      if (distance < closestDistance) {
+        closestIndex = index;
+        closestDistance = distance;
+      }
+    });
+
+    return closestIndex;
+  }
+
+  function scrollToSlide(index) {
+    const slide = slides[index];
+    if (slide === undefined) return;
+
+    slide.scrollIntoView({
+      behavior: reducedMotionQuery.matches ? "auto" : "smooth",
+      block: "nearest",
+      inline: "start",
+    });
+  }
+
+  function closeLightbox() {
+    if (lightbox === null) return;
+
+    if (typeof lightbox.close === "function" && lightbox.open) {
+      lightbox.close();
+    } else {
+      lightbox.removeAttribute("open");
+    }
+  }
+
+  function openLightbox(trigger) {
+    const image = trigger.querySelector("img");
+    if (image === null || lightbox === null || lightboxImage === null) return;
+
+    const figure = trigger.closest("figure");
+    const captionParts = Array.from(figure?.querySelectorAll("figcaption strong, figcaption span") ?? [])
+      .map((node) => node.textContent?.trim())
+      .filter(Boolean);
+    const caption = captionParts.length > 0 ? captionParts.join(" — ") : "PI WEB screenshot";
+
+    lightboxImage.src = image.currentSrc || image.src;
+    lightboxImage.alt = image.alt;
+    if (lightboxCaption !== null) lightboxCaption.textContent = caption;
+
+    if (typeof lightbox.showModal === "function") {
+      lightbox.showModal();
+    } else {
+      lightbox.setAttribute("open", "");
+    }
+
+    lightboxCloseButton?.focus({ preventScroll: true });
+  }
+
+  function updateControls() {
+    const overflow = galleryHasOverflow();
+    const activeIndex = closestSlideIndex();
+    const atStart = gallery.scrollLeft <= 2;
+    const atEnd = gallery.scrollLeft + gallery.clientWidth >= gallery.scrollWidth - 2;
+
+    carousel.dataset.overflow = overflow ? "true" : "false";
+    gallery.tabIndex = overflow ? 0 : -1;
+    if (controls !== null) controls.hidden = !overflow;
+    if (previousButton !== null) previousButton.disabled = !overflow || atStart;
+    if (nextButton !== null) nextButton.disabled = !overflow || atEnd;
+
+    dots.forEach((dot, index) => {
+      dot.setAttribute("aria-current", index === activeIndex ? "true" : "false");
+    });
+  }
+
+  function queueUpdateControls() {
+    if (updateQueued) return;
+    updateQueued = true;
+    window.requestAnimationFrame(() => {
+      updateQueued = false;
+      updateControls();
+    });
+  }
+
+  previousButton?.addEventListener("click", () => {
+    scrollToSlide(Math.max(closestSlideIndex() - 1, 0));
+  });
+
+  nextButton?.addEventListener("click", () => {
+    scrollToSlide(Math.min(closestSlideIndex() + 1, slides.length - 1));
+  });
+
+  dots.forEach((dot) => {
+    const targetIndex = Number.parseInt(dot.getAttribute("data-demo-dot") ?? "", 10);
+    if (Number.isNaN(targetIndex)) return;
+
+    dot.addEventListener("click", () => {
+      scrollToSlide(targetIndex);
+    });
+  });
+
+  lightboxTriggers.forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      openLightbox(trigger);
+    });
+  });
+
+  lightboxCloseButton?.addEventListener("click", closeLightbox);
+
+  lightbox?.addEventListener("click", (event) => {
+    if (event.target === lightbox) closeLightbox();
+  });
+
+  lightbox?.addEventListener("close", () => {
+    lightboxImage?.removeAttribute("src");
+  });
+
+  gallery.addEventListener("scroll", queueUpdateControls, { passive: true });
+  window.addEventListener("resize", queueUpdateControls);
+
+  if ("ResizeObserver" in window) {
+    const resizeObserver = new window.ResizeObserver(queueUpdateControls);
+    resizeObserver.observe(gallery);
+    slides.forEach((slide) => resizeObserver.observe(slide));
+  }
+
+  updateControls();
+}
+
+for (const carousel of screenshotCarousels) {
+  setupScreenshotCarousel(carousel);
+}
+
 const copyButtons = document.querySelectorAll("[data-copy]");
 
 for (const button of copyButtons) {

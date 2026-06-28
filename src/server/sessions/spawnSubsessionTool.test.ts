@@ -56,9 +56,9 @@ describe("createSubsessionToolDefinitions", () => {
     ]));
     const { list: listTool } = tools({ list });
 
-    const result = await listTool.execute("call-2", {}, undefined, undefined, ctxFor("parent-1", undefined));
+    const result = await listTool.execute("call-2", {}, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
 
-    expect(list).toHaveBeenCalledWith("parent-1");
+    expect(list).toHaveBeenCalledWith("parent-1", "/sessions/parent-1.jsonl");
     expect(result.details).toEqual({ subsessions: [
       { sessionId: "child-1", cwd: "/repos/a", status: "working" },
       { sessionId: "child-2", cwd: "/repos/a", status: "idle" },
@@ -76,9 +76,9 @@ describe("createSubsessionToolDefinitions", () => {
     const check = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const, finalText: "all done", messageCount: 4 }));
     const { check: checkTool } = tools({ check });
 
-    const result = await checkTool.execute("call-4", { sessionId: "child-1" }, undefined, undefined, ctxFor("parent-1", undefined));
+    const result = await checkTool.execute("call-4", { sessionId: "child-1" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
 
-    expect(check).toHaveBeenCalledWith("parent-1", "child-1");
+    expect(check).toHaveBeenCalledWith("parent-1", "child-1", "/sessions/parent-1.jsonl");
     expect(result.details).toMatchObject({ sessionId: "child-1", status: "idle", finalText: "all done" });
     expect(firstText(result.content)).toContain("all done");
   });
@@ -99,9 +99,9 @@ describe("createSubsessionToolDefinitions", () => {
     }));
     const { read: readTool } = tools({ read });
 
-    const result = await readTool.execute("call-6", { sessionId: "child-1", roles: ["assistant"], maxChars: 200 }, undefined, undefined, ctxFor("parent-1", undefined));
+    const result = await readTool.execute("call-6", { sessionId: "child-1", roles: ["assistant"], maxChars: 200 }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
 
-    expect(read).toHaveBeenCalledWith("parent-1", "child-1", { roles: ["assistant"], maxChars: 200 });
+    expect(read).toHaveBeenCalledWith("parent-1", "child-1", { roles: ["assistant"], maxChars: 200 }, "/sessions/parent-1.jsonl");
     expect(result.details).toMatchObject({ sessionId: "child-1", matched: 1 });
     expect(firstText(result.content)).toContain("the answer");
   });

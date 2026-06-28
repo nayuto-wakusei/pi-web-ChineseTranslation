@@ -131,10 +131,10 @@ describe("core UI Chinese display copy", () => {
   });
 
   it("keeps the file upload control as one visible Chinese button", () => {
-    const text = source("plugins/core/panels.ts");
+    const text = source("components/WorkspaceFilesPanel.ts");
 
     expect(text).toContain("aria-label=\"上传文件\"");
-    expect(text).toContain("type=\"file\" multiple hidden");
+    expect(text).toContain("type=\"file\" multiple");
     expect(text).not.toContain(">选择文件<");
     expect(text).not.toContain("Choose file");
     expect(text).not.toContain("未选择文件");

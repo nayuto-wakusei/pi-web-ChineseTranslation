@@ -1,6 +1,6 @@
-import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionInfo, type SessionRef, type SessionStatus } from "../api";
+import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionCleanupExecuteResponse, type SessionInfo, type SessionRef, type SessionStatus } from "../api";
 import type { AppState } from "../appState";
-import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
+import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
 import { machineSessionKey } from "../machineKeys";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
@@ -356,6 +356,58 @@ export class SessionController {
       }
     }
     this.applyBulkSessionError("Delete", results);
+  }
+
+  async applySessionCleanupResult(result: SessionCleanupExecuteResponse, machineId = selectedMachineId(this.getState())): Promise<void> {
+    if (selectedMachineId(this.getState()) !== machineId) return;
+    const archivedIds = result.archivedSessionIds;
+    const deletedIds = result.deletedSessionIds;
+    if (archivedIds.length > 0 || deletedIds.length > 0) {
+      const state = this.getState();
+      const deletedIdSet = new Set(deletedIds);
+      const affectedIds = [...archivedIds, ...deletedIds];
+      const nextSessions = markSessionsArchived(state.sessions, archivedIds, result.generatedAt).filter((session) => !deletedIdSet.has(session.id));
+      const selectedAffected = state.selectedSession !== undefined && affectedIds.includes(state.selectedSession.id);
+      this.setState({
+        sessions: nextSessions,
+        sessionStatuses: omitKeys(state.sessionStatuses, affectedIds),
+        sessionActivities: omitKeys(state.sessionActivities, affectedIds),
+        ...(selectedAffected ? { status: undefined, activity: undefined } : {}),
+      });
+
+      if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
+        const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
+        if (next !== undefined) await this.selectSession(next);
+        else this.deselectSession({ forgetRememberedSelection: true });
+      } else {
+        const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
+        if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
+        else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+      }
+    }
+    await this.refreshCurrentWorkspaceSessions(machineId);
+  }
+
+  async refreshCurrentWorkspaceSessions(machineId = selectedMachineId(this.getState())): Promise<void> {
+    const workspace = this.getState().selectedWorkspace;
+    if (workspace === undefined) return;
+    try {
+      const sessions = mergeCachedNewSessions(workspace.path, await this.api.sessions(workspace.path, machineId), machineId);
+      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedWorkspace?.id !== workspace.id) return;
+      const selectedSession = this.getState().selectedSession;
+      this.setState({ sessions });
+      if (selectedSession === undefined) return;
+      const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
+      if (refreshedSelected !== undefined) {
+        if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
+        return;
+      }
+      const next = sessions.find((session) => session.archived !== true) ?? sessions[0];
+      if (next !== undefined) await this.selectSession(next);
+      else this.deselectSession({ forgetRememberedSelection: true });
+    } catch (error) {
+      if (selectedMachineId(this.getState()) === machineId && this.getState().selectedWorkspace?.id === workspace.id) this.setState({ error: String(error) });
+    }
   }
 
   async deleteCachedNewSession(session = this.getState().selectedSession) {
@@ -725,6 +777,12 @@ function omitSessionActivity(activities: Record<string, SessionActivity>, sessio
 
 function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([id]) => id !== key));
+}
+
+function omitKeys<T>(record: Record<string, T>, keys: readonly string[]): Record<string, T> {
+  if (keys.length === 0) return record;
+  const removed = new Set(keys);
+  return Object.fromEntries(Object.entries(record).filter(([id]) => !removed.has(id)));
 }
 
 function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {

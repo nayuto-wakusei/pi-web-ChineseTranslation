@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
+import type { SessionCleanupRequest } from "../../shared/apiTypes.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionRef, PiSessionService } from "./piSessionService.js";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
+import { normalizeSessionCleanupRequest } from "./sessionCleanup.js";
 
 type SessionLookup = string | PiSessionRef;
 
@@ -46,6 +48,22 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
         normalizeRequestCwd(requireString(body, "cwd")),
         managementContext === undefined ? undefined : { managementContext },
       );
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: SessionCleanupRequest | undefined }>(`${prefix}/sessions/cleanup/preview`, async (request, reply) => {
+    try {
+      return await sessions.cleanupPreview(normalizeSessionCleanupRequest(optionalRecord(request.body)));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: SessionCleanupRequest | undefined }>(`${prefix}/sessions/cleanup`, async (request, reply) => {
+    try {
+      return await sessions.cleanup(normalizeSessionCleanupRequest(optionalRecord(request.body)));
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configure PI WEB — config files, paths, and session tools</title>
+    <meta
+      name="description"
+      content="Configure PI WEB config files, external path access, session daemon tools, plugins, shortcuts, uploads, and runtime environment variables."
+    />
+    <link rel="canonical" href="https://pi-web.dev/config" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PI WEB" />
+    <meta property="og:title" content="Configure PI WEB" />
+    <meta
+      property="og:description"
+      content="Reference for PI WEB config files, path access allowlists, session daemon options, plugins, shortcuts, uploads, and environment variables."
+    />
+    <meta property="og:url" content="https://pi-web.dev/config" />
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Configure PI WEB" />
+    <meta
+      name="twitter:description"
+      content="Reference for PI WEB config files, path access allowlists, session daemon options, plugins, shortcuts, uploads, and environment variables."
+    />
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <script>
+      (() => {
+        const theme = window.localStorage.getItem("pi-web-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="container nav" aria-label="Main navigation">
+        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+        <div class="nav-links">
+          <div class="nav-pages">
+            <a href="remote-first">Remote-first</a>
+            <a href="machines">Fleet</a>
+            <a href="install">Install</a>
+            <a href="config" aria-current="page">Config</a>
+            <a href="plugins">Plugins</a>
+            <a href="faq">FAQ</a>
+          </div>
+          <div class="nav-actions">
+            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+              <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.7 5.47 7.79.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.56-.01-.57.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
+                />
+              </svg>
+              <span>GitHub</span>
+            </a>
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
+              <span data-theme-icon aria-hidden="true">◐</span>
+              <span data-theme-label>Theme</span>
+            </button>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <p class="eyebrow"><span class="pulse"></span> Configuration reference</p>
+          <h1>Configure PI WEB where your agents work.</h1>
+          <p>
+            PI WEB configuration covers the machine-local and project-local settings you usually need: bind address,
+            trusted development-host settings, UI preferences, plugin enablement, file-explorer path access, upload
+            limits, and session-daemon tools.
+          </p>
+        </div>
+      </section>
+
+      <section class="section compact">
+        <div class="container doc-layout">
+          <aside class="toc" aria-label="Config page contents">
+            <strong>On this page</strong>
+            <a href="#files">Config files</a>
+            <a href="#precedence">Precedence and reloads</a>
+            <a href="#global-config">Global config</a>
+            <a href="#project-config">Project config</a>
+            <a href="#keys">Config matrix</a>
+            <a href="#path-access">External path access</a>
+            <a href="#session-tools">Session tools</a>
+            <a href="#completion-tools">Completion tools</a>
+          </aside>
+
+          <div class="doc-content">
+            <section id="files">
+              <h2>Config files</h2>
+              <p>PI WEB uses a global config file for machine-local settings and a project-local file for repository settings.</p>
+              <ul>
+                <li><strong>Global config:</strong> <code>$PI_WEB_CONFIG</code>, or <code>$XDG_CONFIG_HOME/pi-web/config.json</code>, or <code>~/.config/pi-web/config.json</code>.</li>
+                <li><strong>Project config:</strong> <code>&lt;project&gt;/.pi-web/config.json</code> for commit-able project settings.</li>
+              </ul>
+              <p>
+                Each PI WEB machine has its own config. When using Fleet/machine federation, edit a remote machine's
+                config by opening that machine directly or changing files on that machine.
+              </p>
+              <p>
+                If you installed services with a custom config path, rerun
+                <code>pi-web install --config /path/to/config.json</code> after changing that path or after upgrading from
+                a version that only applied the custom path to the web service. This regenerates service files so the
+                web/API and session daemon use the same <code>PI_WEB_CONFIG</code>.
+              </p>
+            </section>
+
+            <section id="precedence">
+              <h2>Precedence and reloads</h2>
+              <p>Runtime values are resolved in this order:</p>
+              <div class="code-card">
+                <pre><code>defaults → config file → environment overrides</code></pre>
+              </div>
+              <p>
+                Environment overrides include <code>PI_WEB_HOST</code>, <code>PI_WEB_PORT</code> / <code>PORT</code>,
+                <code>PI_WEB_ALLOWED_HOSTS</code>, <code>PI_WEB_MAX_UPLOAD_BYTES</code>, <code>PI_WEB_SPAWN_SESSIONS</code>,
+                and <code>PI_WEB_SUBSESSIONS</code>.
+              </p>
+              <ul>
+                <li><code>host</code> / <code>port</code>: restart the web/API service or process.</li>
+                <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon.</li>
+                <li><code>spawnSessions</code> / <code>subsessions</code>: restart the session daemon.</li>
+                <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
+                <li><code>plugins</code>: reload the browser tab after changing plugin enablement.</li>
+                <li><code>shortcuts</code>: saved settings apply in the browser after config refresh/save.</li>
+              </ul>
+            </section>
+
+            <section id="global-config">
+              <h2>Global config example</h2>
+              <p>
+                <code>pi-web install</code> creates the initial file. You can also save settings from
+                <strong>Settings → General</strong>, <strong>Settings → Plugins</strong>, <strong>Settings → Keyboard</strong>,
+                and <strong>Settings → Session daemon</strong>.
+              </p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Example config.json</strong>
+                  <button class="copy-button" data-copy="#global-config-example">Copy</button>
+                </div>
+                <pre id="global-config-example"><code>{
+  "host": "127.0.0.1",
+  "port": 8504,
+  "pathAccess": {
+    "allowedPaths": ["~/SDKs", "/opt/reference"]
+  },
+  "maxUploadBytes": 67108864,
+  "spawnSessions": true,
+  "subsessions": false,
+  "plugins": {
+    "workspace-tasks": { "enabled": true },
+    "updates": { "enabled": true },
+    "info": { "enabled": false }
+  },
+  "shortcuts": {
+    "core:view.chat": "mod+1",
+    "core:session.stop": null
+  }
+}</code></pre>
+              </div>
+            </section>
+
+            <section id="project-config">
+              <h2>Project-local config</h2>
+              <p>
+                Project-local config lives at <code>&lt;project&gt;/.pi-web/config.json</code>. Use it for settings that should
+                follow a repository. When a project config defines <code>pathAccess</code>, PI WEB merges it after the
+                global path list.
+              </p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>.pi-web/config.json</strong>
+                  <button class="copy-button" data-copy="#project-config-example">Copy</button>
+                </div>
+                <pre id="project-config-example"><code>{
+  "version": 1,
+  "pathAccess": {
+    "allowedPaths": ["~/SDKs", "/opt/reference"]
+  }
+}</code></pre>
+              </div>
+              <p>
+                Project-local <code>pathAccess.allowedPaths</code> entries must still be host-absolute or
+                <code>~</code>-prefixed; relative roots are not supported. Plugins may own separate project files, such as
+                <code>.pi-web/tasks.json</code> for the built-in Workspace Tasks plugin.
+              </p>
+            </section>
+
+            <section id="keys">
+              <h2>Config matrix</h2>
+              <p>
+                Use this table as the quick reference for where a setting can live, which environment variable overrides
+                it, and whether project-local config overrides or merges with global config. Rows with JSON key
+                <code>—</code> are runtime-only environment variables, not config-file keys.
+              </p>
+              <div class="table-scroll" role="region" aria-label="PI WEB configuration matrix" tabindex="0">
+                <table class="config-matrix">
+                  <thead>
+                    <tr>
+                      <th scope="col">Config</th>
+                      <th scope="col">JSON key</th>
+                      <th scope="col">Env var</th>
+                      <th scope="col">Scope</th>
+                      <th scope="col">Project-local behavior</th>
+                      <th scope="col">Applies / restart</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="table-section"><th scope="rowgroup" colspan="6">Config-file keys</th></tr>
+                    <tr>
+                      <td>Web/API bind host</td>
+                      <td><code>host</code></td>
+                      <td><code>PI_WEB_HOST</code></td>
+                      <td>Global</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API</td>
+                    </tr>
+                    <tr>
+                      <td>Web/API port</td>
+                      <td><code>port</code></td>
+                      <td><code>PI_WEB_PORT</code>, <code>PORT</code></td>
+                      <td>Global</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API</td>
+                    </tr>
+                    <tr>
+                      <td>Dev-server allowed hosts</td>
+                      <td><code>allowedHosts</code></td>
+                      <td><code>PI_WEB_ALLOWED_HOSTS</code></td>
+                      <td>Global</td>
+                      <td>Not supported locally</td>
+                      <td>Restart dev web/UI</td>
+                    </tr>
+                    <tr>
+                      <td>External filesystem roots</td>
+                      <td><code>pathAccess.allowedPaths</code></td>
+                      <td>—</td>
+                      <td>Global + project</td>
+                      <td><strong>Merges:</strong> global roots first, then project roots; duplicates removed</td>
+                      <td>Next file request; refresh existing views if needed</td>
+                    </tr>
+                    <tr>
+                      <td>Upload/body limit</td>
+                      <td><code>maxUploadBytes</code></td>
+                      <td><code>PI_WEB_MAX_UPLOAD_BYTES</code></td>
+                      <td>Global</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API and session daemon</td>
+                    </tr>
+                    <tr>
+                      <td>Agent can spawn sessions</td>
+                      <td><code>spawnSessions</code></td>
+                      <td><code>PI_WEB_SPAWN_SESSIONS</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon</td>
+                    </tr>
+                    <tr>
+                      <td>Tracked subsessions (beta)</td>
+                      <td><code>subsessions</code></td>
+                      <td><code>PI_WEB_SUBSESSIONS</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally; also requires <code>spawnSessions</code></td>
+                      <td>Restart session daemon</td>
+                    </tr>
+                    <tr>
+                      <td>Plugin enablement/settings</td>
+                      <td><code>plugins.&lt;id&gt;.enabled</code>, <code>plugins.&lt;id&gt;.settings</code></td>
+                      <td>—</td>
+                      <td>Global</td>
+                      <td>Not core local config; plugins may read their own project files</td>
+                      <td>Reload browser tab</td>
+                    </tr>
+                    <tr>
+                      <td>Keyboard shortcuts</td>
+                      <td><code>shortcuts.&lt;actionId&gt;</code></td>
+                      <td>—</td>
+                      <td>Global</td>
+                      <td>Not supported locally</td>
+                      <td>Applies after settings save/config refresh</td>
+                    </tr>
+                    <tr>
+                      <td>Project config version</td>
+                      <td><code>version</code></td>
+                      <td>—</td>
+                      <td>Project</td>
+                      <td>Project-local only; must be <code>1</code> when present</td>
+                      <td>Next project-config read</td>
+                    </tr>
+                    <tr class="table-section"><th scope="rowgroup" colspan="6">Runtime-only environment variables</th></tr>
+                    <tr>
+                      <td>Global config file path</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_CONFIG</code> (<code>XDG_CONFIG_HOME</code> affects the default path)</td>
+                      <td>Process/env</td>
+                      <td>Selects the global config file; not a project config</td>
+                      <td>Restart services/processes after changing env</td>
+                    </tr>
+                    <tr>
+                      <td>Managed data directory</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_DATA_DIR</code></td>
+                      <td>Process/env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart services before changing; moves managed state location</td>
+                    </tr>
+                    <tr>
+                      <td>Session daemon socket</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_SESSIOND_SOCKET</code></td>
+                      <td>Web/API + session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart daemon and web/API; both must match</td>
+                    </tr>
+                    <tr>
+                      <td>Session daemon TCP port</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_SESSIOND_PORT</code></td>
+                      <td>Session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon; set <code>PI_WEB_SESSIOND_URL</code> for web/API too</td>
+                    </tr>
+                    <tr>
+                      <td>Session daemon TCP host</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_SESSIOND_HOST</code></td>
+                      <td>Session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon</td>
+                    </tr>
+                    <tr>
+                      <td>Web-to-daemon URL</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_SESSIOND_URL</code></td>
+                      <td>Web/API env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API</td>
+                    </tr>
+                    <tr>
+                      <td>Projects storage file</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_PROJECTS_FILE</code></td>
+                      <td>Web/API + session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart services; advanced state override</td>
+                    </tr>
+                    <tr>
+                      <td>Remote machines storage file</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_MACHINES_FILE</code></td>
+                      <td>Web/API env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API; advanced state override</td>
+                    </tr>
+                    <tr>
+                      <td>Pi session storage directory</td>
+                      <td>—</td>
+                      <td><code>PI_CODING_AGENT_SESSION_DIR</code></td>
+                      <td>Pi/session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon; follows Pi session priority</td>
+                    </tr>
+                    <tr>
+                      <td>Pi agent config directory</td>
+                      <td>—</td>
+                      <td><code>PI_CODING_AGENT_DIR</code></td>
+                      <td>Pi/Web/API/session daemon env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart services</td>
+                    </tr>
+                    <tr>
+                      <td>Skip update checks</td>
+                      <td>—</td>
+                      <td><code>PI_WEB_SKIP_VERSION_CHECK</code>, <code>PI_WEB_OFFLINE</code>, <code>PI_SKIP_VERSION_CHECK</code>, <code>PI_OFFLINE</code></td>
+                      <td>Web/API env</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API after env changes</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="path-access">
+              <h2>External path access</h2>
+              <p>
+                <code>pathAccess.allowedPaths</code> grants PI WEB's file explorer and absolute <code>@</code> path
+                completions access to specific filesystem roots outside the current workspace. By default,
+                workspace-relative file reads stay inside the workspace and absolute paths are denied.
+              </p>
+              <p>Accepted root forms:</p>
+              <ul>
+                <li>Unix absolute paths, for example <code>/opt/reference</code>.</li>
+                <li>Home-relative paths, for example <code>~/SDKs</code>.</li>
+                <li>Windows absolute paths on Windows hosts, for example <code>C:\Users\dev\SDKs</code>.</li>
+              </ul>
+              <p>
+                When an absolute request is served, PI WEB expands <code>~</code>, canonicalizes configured roots with
+                <code>realpath</code>, requires roots to be existing directories, and rejects symlink escapes outside the
+                allowed roots.
+              </p>
+              <div class="callout warning">
+                This is not a sandbox for the underlying Pi Coding Agent or your OS user. It only controls PI WEB UI/API
+                file exposure outside a workspace. Add only roots you trust PI WEB to list and read through the browser UI.
+              </div>
+            </section>
+
+            <section id="session-tools">
+              <h2>Session daemon tools</h2>
+              <h3><code>spawnSessions</code></h3>
+              <p>
+                Boolean. Controls whether agents receive the <code>spawn_session</code> tool. Defaults to
+                <code>true</code>. Set it to <code>false</code> if you do not want an agent to start independent PI WEB sessions.
+              </p>
+              <p>Environment override: <code>PI_WEB_SPAWN_SESSIONS=0|1|true|false</code>.</p>
+
+              <h3><code>subsessions</code></h3>
+              <p>
+                Boolean. Beta. Controls whether agents receive the tracked-subsession tools:
+                <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, and
+                <code>read_subsession</code>. Defaults to <code>false</code> and also requires <code>spawnSessions</code>
+                to be enabled.
+              </p>
+              <p>
+                Tracked subsessions let an agent delegate work to child sessions, get notified when children stop
+                working, and inspect their transcripts. Restart the session daemon after changing this setting.
+              </p>
+              <p>Environment override: <code>PI_WEB_SUBSESSIONS=0|1|true|false</code>.</p>
+            </section>
+
+
+            <section id="completion-tools">
+              <h2>Optional completion tools</h2>
+              <p>
+                File and path <code>@</code> completions work without extra tools. If <code>fzf</code> is available on the
+                PI WEB server's <code>PATH</code>, PI WEB uses it to improve completion filtering and ranking; otherwise it
+                falls back to built-in ranking.
+              </p>
+              <div class="doc-actions">
+                <a class="button primary" href="install">Install guide</a>
+                <a class="button" href="config.md">Markdown reference</a>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <span>PI WEB docs</span>
+        <div class="footer-links">
+          <a href="./">Home</a>
+          <a href="remote-first">Remote-first</a>
+          <a href="machines">Fleet</a>
+          <a href="install">Install</a>
+          <a href="config">Config</a>
+          <a href="plugins">Plugins</a>
+          <a href="faq">FAQ</a>
+          <a href="https://github.com/jmfederico/pi-web">GitHub</a>
+        </div>
+      </div>
+    </footer>
+    <script src="site.js"></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-import type { PromptAttachment } from "./apiTypes.js";
+import type { PromptAttachment, PromptFileAttachment, PromptImageAttachment } from "./apiTypes.js";
 
 /**
  * Image mime types supported by the pi coding agent. Mirrors
@@ -44,13 +44,20 @@ export function base64ByteLength(data: string): number {
 export interface AttachmentValidationOptions {
   /** When true, enforce the per-image base64 size cap (inline delivery). */
   enforceInlineSizeLimit?: boolean;
+  /** When true, accept general file attachments for save-to-folder delivery. */
+  allowFileAttachments?: boolean;
   maxAttachments?: number;
 }
+
+type ImageOnlyAttachmentValidationOptions = AttachmentValidationOptions & { allowFileAttachments?: false | undefined };
+type SaveAttachmentValidationOptions = AttachmentValidationOptions & { allowFileAttachments: true };
 
 /**
  * Validate and normalize untrusted prompt attachments. Throws on malformed,
  * unsupported, or oversized input so routes can return a 400.
  */
+export function parsePromptAttachments(value: unknown, options?: ImageOnlyAttachmentValidationOptions): PromptImageAttachment[];
+export function parsePromptAttachments(value: unknown, options: SaveAttachmentValidationOptions): PromptAttachment[];
 export function parsePromptAttachments(value: unknown, options: AttachmentValidationOptions = {}): PromptAttachment[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error("attachments must be an array");
@@ -67,19 +74,45 @@ function parsePromptAttachment(value: unknown, index: number, options: Attachmen
   if (!isRecord(value)) throw new Error(`attachment ${String(index)} must be an object`);
   const record = value;
   const kind = record["kind"];
-  if (kind !== "image") throw new Error(`attachment ${String(index)} has unsupported kind`);
+  if (kind === "image") return parseImageAttachment(record, index, options);
+  if (kind === "file" && options.allowFileAttachments === true) return parseFileAttachment(record, index);
+  throw new Error(`attachment ${String(index)} has unsupported kind`);
+}
+
+function parseImageAttachment(record: Record<string, unknown>, index: number, options: AttachmentValidationOptions): PromptImageAttachment {
   const mimeType = record["mimeType"];
   if (!isSupportedImageMimeType(mimeType)) throw new Error(`attachment ${String(index)} has unsupported image type`);
-  const data = record["data"];
-  if (typeof data !== "string" || data === "" || !base64Pattern.test(data)) throw new Error(`attachment ${String(index)} has invalid base64 data`);
+  const data = requireBase64Data(record["data"], index, { allowEmpty: false });
   if (options.enforceInlineSizeLimit === true && base64ByteLength(data) > MAX_INLINE_IMAGE_BASE64_BYTES) {
     throw new Error(`attachment ${String(index)} exceeds the inline image size limit`);
   }
-  const name = record["name"];
   return {
     kind: "image",
     mimeType,
     data,
-    ...(typeof name === "string" && name !== "" ? { name } : {}),
+    ...attachmentName(record),
   };
+}
+
+function parseFileAttachment(record: Record<string, unknown>, index: number): PromptFileAttachment {
+  const mimeType = record["mimeType"];
+  if (typeof mimeType !== "string" || mimeType.trim() === "") throw new Error(`attachment ${String(index)} has invalid file type`);
+  return {
+    kind: "file",
+    mimeType: mimeType.trim(),
+    data: requireBase64Data(record["data"], index, { allowEmpty: true }),
+    ...attachmentName(record),
+  };
+}
+
+function requireBase64Data(value: unknown, index: number, options: { allowEmpty: boolean }): string {
+  if (typeof value !== "string" || (!options.allowEmpty && value === "") || !base64Pattern.test(value)) {
+    throw new Error(`attachment ${String(index)} has invalid base64 data`);
+  }
+  return value;
+}
+
+function attachmentName(record: Record<string, unknown>): { name?: string } {
+  const name = record["name"];
+  return typeof name === "string" && name !== "" ? { name } : {};
 }

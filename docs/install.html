@@ -50,6 +50,7 @@
             <a href="remote-first">Remote-first</a>
             <a href="machines">Fleet</a>
             <a href="install" aria-current="page">Install</a>
+            <a href="config">Config</a>
             <a href="plugins">Plugins</a>
             <a href="faq">FAQ</a>
           </div>
@@ -265,27 +266,33 @@
               </p>
               <div class="code-card">
                 <div class="copy-row">
-                  <strong>Default config</strong>
+                  <strong>Common config</strong>
                   <button class="copy-button" data-copy="#config-example">Copy</button>
                 </div>
                 <pre id="config-example"><code>{
   "host": "127.0.0.1",
   "port": 8504,
-  "allowedHosts": []
+  "pathAccess": {
+    "allowedPaths": ["~/SDKs", "/opt/reference"]
+  },
+  "spawnSessions": true,
+  "subsessions": false
 }</code></pre>
               </div>
               <p>
-                The web server defaults to <code>127.0.0.1:8504</code> and stores PI WEB state in <code>~/.pi-web</code>.
+                Use <strong>Settings → General</strong> for host, port, and external filesystem roots; <strong>Settings → Session daemon</strong>
+                for agent-spawn tools; <strong>Settings → Plugins</strong> for plugin enablement; and <strong>Settings → Keyboard</strong>
+                for shortcut overrides.
               </p>
-              <ul>
-                <li><code>PI_WEB_CONFIG</code>: path to a config JSON file. Defaults to <code>~/.config/pi-web/config.json</code>.</li>
-                <li><code>PI_WEB_PORT</code> or <code>PORT</code>: web server port. Overrides the config file.</li>
-                <li><code>PI_WEB_HOST</code>: web server bind host. Overrides the config file. Use <code>127.0.0.1</code> for local/tunnel-only access, or a specific VPN/private-network IP for trusted remote access.</li>
-                <li><code>PI_WEB_DATA_DIR</code>: data directory, default <code>~/.pi-web</code>.</li>
-                <li><code>PI_WEB_SESSIOND_SOCKET</code>: Unix socket path for daemon communication.</li>
-                <li><code>PI_CODING_AGENT_SESSION_DIR</code>: Pi session storage directory. PI WEB follows Pi's priority for sessions: this environment variable, then <code>sessionDir</code> in Pi settings for the selected workspace, then Pi's default session directory.</li>
-                <li><code>PI_CODING_AGENT_DIR</code>: Pi agent config directory for auth, settings, resources, and default session storage.</li>
-              </ul>
+              <div class="callout">
+                Need the full schema, restart rules, project-local <code>.pi-web/config.json</code>, path access details, and
+                environment variable reference? Read the <a href="config">configuration reference</a>.
+              </div>
+              <p>
+                The web server defaults to <code>127.0.0.1:8504</code>, and PI WEB-managed state defaults to
+                <code>~/.pi-web</code>. External filesystem paths are denied by default unless listed in
+                <code>pathAccess.allowedPaths</code>.
+              </p>
             </section>
 
             <section id="uninstall">
@@ -334,6 +341,7 @@
           <a href="./">Home</a>
           <a href="remote-first">Remote-first</a>
           <a href="machines">Fleet</a>
+          <a href="config">Config</a>
           <a href="plugins">Plugins</a>
           <a href="faq">FAQ</a>
           <a href="https://github.com/jmfederico/pi-web">GitHub</a>

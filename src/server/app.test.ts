@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -15,6 +15,7 @@ import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
 import { machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
+import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import type { Project, Workspace } from "./types.js";
 
 let app: FastifyInstance;
@@ -22,12 +23,14 @@ let tempDir: string;
 let projectDir: string;
 let remoteClient: MachineClient | undefined;
 let sessionDaemonRequests: CapturedSessionDaemonRequest[];
+let piWebConfig: PiWebConfigValues;
 
 beforeEach(async () => {
   tempDir = await realpath(await mkdtemp(join(tmpdir(), "pi-web-app-test-")));
   projectDir = join(tempDir, "project");
   remoteClient = undefined;
   sessionDaemonRequests = [];
+  piWebConfig = {};
   app = await buildApp({
     projects: new ProjectService(new ProjectStore(join(tempDir, "projects.json"))),
     workspaces: new WorkspaceService(),
@@ -48,6 +51,7 @@ beforeEach(async () => {
       }),
     }),
     sessionDaemon: fakeSessionDaemon(),
+    config: fakeConfigService(),
     piWebPlugins: {
       manifest: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
       plugins: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] }),
@@ -151,6 +155,33 @@ describe("buildApp", () => {
     expect(request).toHaveBeenCalledWith("GET", "/api/projects?active=true", undefined);
   });
 
+  it("proxies remote workspace effective upload config through the existing federated workspace route", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const remoteWorkspaces = [{
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      isGitRepo: false,
+      isGitWorktree: false,
+      effectiveConfig: { uploads: { defaultFolder: "remote-project-uploads" } },
+    }];
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify(remoteWorkspaces)]),
+    }));
+    remoteClient = fakeRemoteClient({ request });
+
+    const response = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/projects/p1/workspaces` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(remoteWorkspaces);
+    expect(request).toHaveBeenCalledWith("GET", "/api/projects/p1/workspaces", undefined);
+  });
+
   it("preserves remote file preview security headers while proxying safe response metadata", async () => {
     const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();
@@ -175,6 +206,29 @@ describe("buildApp", () => {
     expect(response.headers["set-cookie"]).toBeUndefined();
     expect(response.body).toBe("<svg xmlns=\"http://www.w3.org/2000/svg\" />");
     expect(request).toHaveBeenCalledWith("GET", "/api/projects/p1/workspaces/w1/file/preview?path=diagram.svg", undefined);
+  });
+
+  it("proxies remote workspace file writes as raw request bodies", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify({ path: "image.png", size: payload.length, modifiedAt: "now", created: true })]),
+    }));
+    remoteClient = fakeRemoteClient({ request });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/file?path=${encodeURIComponent("image.png")}`,
+      payload,
+      headers: { "content-type": "application/octet-stream" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ path: "image.png", size: payload.length, modifiedAt: "now", created: true });
+    expect(request).toHaveBeenCalledWith("PUT", "/api/projects/p1/workspaces/w1/file?path=image.png", payload, { contentType: "application/octet-stream" });
   });
 
   it("proxies remote terminal command-run and continue routes", async () => {
@@ -204,6 +258,23 @@ describe("buildApp", () => {
     expect(closeWorkspaceTerminalsResponse.json()).toEqual({ method: "DELETE", path: "/api/projects/p1/workspaces/w1/terminals" });
     expect(continueResponse.json()).toEqual({ method: "POST", path: "/api/projects/p1/workspaces/w1/terminals/t1/continue" });
     expect(request).toHaveBeenCalledWith("POST", "/api/projects/p1/workspaces/w1/terminal-command-runs", createBody);
+  });
+
+  it("proxies remote session reloads through the selected machine", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify({ reloaded: true })]),
+    }));
+    remoteClient = fakeRemoteClient({ request });
+
+    const response = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/reload`, payload: { cwd: "/repo" } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ reloaded: true });
+    expect(request).toHaveBeenCalledWith("POST", "/api/sessions/s1/reload", { cwd: "/repo" });
   });
 
   it("forwards remote JSON request bodies and normalizes remote timeouts", async () => {
@@ -444,6 +515,47 @@ describe("buildApp", () => {
     ]);
   });
 
+  it("exposes the default upload config on workspace responses", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Upload Defaults", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+
+    expect(workspacesResponse.statusCode).toBe(200);
+    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        effectiveConfig: { uploads: { defaultFolder: ".pi-web/uploads" } },
+      }),
+    ]);
+  });
+
+  it("lets project-local upload config override global upload config on workspace responses", async () => {
+    piWebConfig = { uploads: { defaultFolder: "global-uploads" } };
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Project Upload Defaults", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    await mkdir(join(projectDir, ".pi-web"), { recursive: true });
+    await writeFile(join(projectDir, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, uploads: { defaultFolder: "project-uploads" } }, null, 2)}\n`);
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+
+    expect(workspacesResponse.statusCode).toBe(200);
+    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        effectiveConfig: { uploads: { defaultFolder: "project-uploads" } },
+      }),
+    ]);
+  });
+
   it("serves supported workspace images as previews", async () => {
     const addResponse = await app.inject({
       method: "POST",
@@ -478,12 +590,319 @@ describe("buildApp", () => {
     expect(tooLargeResponse.statusCode).toBe(400);
     expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
   });
+
+  it("keeps normal file suggestions workspace-local when path access config is invalid", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Local Suggestions", path: projectDir, create: true },
+    });
+    expect(addResponse.statusCode).toBe(200);
+    await writeFile(join(projectDir, "sdk.md"), "local sdk\n");
+    await mkdir(join(projectDir, ".pi-web"), { recursive: true });
+    await writeFile(join(projectDir, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, pathAccess: { allowedPaths: [""] } }, null, 2)}\n`);
+
+    const response = await app.inject({ method: "GET", url: `/api/files?cwd=${encodeURIComponent(projectDir)}&q=sdk&scope=all` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([{ path: "sdk.md", kind: "other" }]);
+  });
+
+  it("serves project-configured allowed external files through the workspace explorer", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "External", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const externalDir = join(tempDir, "external-docs");
+    const deniedFile = join(tempDir, "secret.md");
+    await mkdir(externalDir);
+    await writeFile(join(externalDir, "sdk.md"), "external sdk\n");
+    await writeFile(deniedFile, "secret\n");
+    await mkdir(join(projectDir, ".pi-web"), { recursive: true });
+    await writeFile(join(projectDir, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, pathAccess: { allowedPaths: [externalDir] } }, null, 2)}\n`);
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const fileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent(join(externalDir, "sdk.md"))}` });
+    const treeResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/tree?path=${encodeURIComponent(externalDir)}` });
+    const suggestionResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/files?q=${encodeURIComponent(join(externalDir, "s"))}` });
+    const localSuggestionResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/files?q=sdk` });
+    const deniedResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent(deniedFile)}` });
+
+    expect(fileResponse.statusCode).toBe(200);
+    expect(fileResponse.json()).toMatchObject({ path: join(externalDir, "sdk.md"), content: "external sdk\n", binary: false });
+    expect(treeResponse.statusCode).toBe(200);
+    expect(treeResponse.json()).toMatchObject({
+      path: externalDir,
+      entries: [expect.objectContaining({ name: "sdk.md", path: join(externalDir, "sdk.md"), type: "file" })],
+      truncated: false,
+    });
+    expect(suggestionResponse.statusCode).toBe(200);
+    expect(suggestionResponse.json()).toEqual([{ path: join(externalDir, "sdk.md"), kind: "other" }]);
+    expect(localSuggestionResponse.statusCode).toBe(200);
+    expect(localSuggestionResponse.json()).toEqual([]);
+    expect(deniedResponse.statusCode).toBe(400);
+    expect(deniedResponse.json()).toEqual({ error: "Path is outside allowed paths" });
+  });
+
+  it("writes workspace files through the HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "WriteTest", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    const writeTextResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("hello.txt")}`,
+      payload: "hello world",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(writeTextResponse.statusCode).toBe(200);
+    expect(writeTextResponse.json()).toMatchObject({ path: "hello.txt", created: true });
+    expect(typeof writeTextResponse.json<{ size: unknown }>().size).toBe("number");
+
+    const readResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("hello.txt")}` });
+    expect(readResponse.json<{ content: unknown }>().content).toBe("hello world");
+
+    const writeBinaryResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("image.png")}`,
+      payload: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      headers: { "content-type": "application/octet-stream" },
+    });
+    expect(writeBinaryResponse.statusCode).toBe(200);
+    expect(writeBinaryResponse.json()).toMatchObject({ path: "image.png", created: true });
+
+    const writeDeepResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("deep/nested/dir/file.txt")}`,
+      payload: "deep content",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(writeDeepResponse.statusCode).toBe(200);
+
+    const readDeepResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("deep/nested/dir/file.txt")}` });
+    expect(readDeepResponse.json<{ content: unknown }>().content).toBe("deep content");
+
+    const overwriteResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("hello.txt")}`,
+      payload: "updated",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(overwriteResponse.json()).toMatchObject({ path: "hello.txt", created: false });
+
+    const noOverwriteResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("hello.txt")}&overwrite=false`,
+      payload: "should fail",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(noOverwriteResponse.statusCode).toBe(400);
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+
+    const traversalResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
+      payload: "evil",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(traversalResponse.statusCode).toBe(400);
+    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+
+    const noPathResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+      payload: "no path",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(noPathResponse.statusCode).toBe(400);
+    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+
+    const noDirsResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("nonexistent/parent/file.txt")}&createDirs=false`,
+      payload: "should fail",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(noDirsResponse.statusCode).toBe(400);
+
+    await mkdir(join(projectDir, "subdir"), { recursive: true });
+    const dirWriteResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("subdir")}`,
+      payload: "should fail",
+      headers: { "content-type": "text/plain" },
+    });
+    expect(dirWriteResponse.statusCode).toBe(400);
+  });
+
+  it("deletes workspace files through the HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "DeleteTest", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("to-delete.txt")}`,
+      payload: "delete me",
+      headers: { "content-type": "text/plain" },
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("to-delete.txt")}`,
+    });
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toMatchObject({ path: "to-delete.txt", existed: true });
+
+    const deleteMissingResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}`,
+    });
+    expect(deleteMissingResponse.statusCode).toBe(200);
+    expect(deleteMissingResponse.json()).toMatchObject({ path: "missing.txt", existed: false });
+
+    const traversalResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
+    });
+    expect(traversalResponse.statusCode).toBe(400);
+    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+
+    const noPathResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
+    });
+    expect(noPathResponse.statusCode).toBe(400);
+    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+  });
+
+  it("moves workspace files through the HTTP contract", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "MoveTest", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("original.txt")}`,
+      payload: "move me",
+      headers: { "content-type": "text/plain" },
+    });
+
+    const moveResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("original.txt")}&toPath=${encodeURIComponent("moved.txt")}`,
+    });
+    expect(moveResponse.statusCode).toBe(200);
+    expect(moveResponse.json()).toMatchObject({ fromPath: "original.txt", toPath: "moved.txt" });
+    expect(typeof moveResponse.json<{ size: unknown }>().size).toBe("number");
+
+    const readSourceResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("original.txt")}` });
+    expect(readSourceResponse.statusCode).toBe(400);
+
+    const readTargetResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("moved.txt")}` });
+    expect(readTargetResponse.statusCode).toBe(200);
+    expect(readTargetResponse.json<{ content: unknown }>().content).toBe("move me");
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("source2.txt")}`,
+      payload: "source",
+      headers: { "content-type": "text/plain" },
+    });
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("target2.txt")}`,
+      payload: "target",
+      headers: { "content-type": "text/plain" },
+    });
+
+    const overwriteResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("source2.txt")}&toPath=${encodeURIComponent("target2.txt")}&overwrite=true`,
+    });
+    expect(overwriteResponse.statusCode).toBe(200);
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("source3.txt")}`,
+      payload: "s",
+      headers: { "content-type": "text/plain" },
+    });
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("target3.txt")}`,
+      payload: "t",
+      headers: { "content-type": "text/plain" },
+    });
+    const noOverwriteResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("source3.txt")}&toPath=${encodeURIComponent("target3.txt")}`,
+    });
+    expect(noOverwriteResponse.statusCode).toBe(400);
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+
+    const traversalFromResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("../../etc/passwd")}&toPath=${encodeURIComponent("safe.txt")}`,
+    });
+    expect(traversalFromResponse.statusCode).toBe(400);
+
+    const noParamsResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move`,
+    });
+    expect(noParamsResponse.statusCode).toBe(400);
+    expect(noParamsResponse.json<{ error: string }>().error).toContain("fromPath query parameter is required");
+  });
 });
 
 interface CapturedSessionDaemonRequest {
   method: string;
   path: string;
   body?: unknown;
+}
+
+function fakeConfigService() {
+  return {
+    read: () => piWebConfigResponse(piWebConfig),
+    write: (config: PiWebConfigValues) => {
+      piWebConfig = config;
+      return piWebConfigResponse(config);
+    },
+  };
+}
+
+function piWebConfigResponse(config: PiWebConfigValues): PiWebConfigResponse {
+  return {
+    path: join(tempDir, "config.json"),
+    exists: false,
+    config,
+    effectiveConfig: config,
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
+  };
 }
 
 function fakeSessionDaemon(): SessionProxyDaemon {

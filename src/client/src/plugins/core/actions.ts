@@ -1,5 +1,5 @@
 import { isSessionActive } from "../../../../shared/activity";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../../shared/capabilities";
+import { PI_WEB_CAPABILITIES, supportsPiWebCapability, type PiWebCapability } from "../../../../shared/capabilities";
 import type { AppState } from "../../appState";
 import { isCachedNewSessionInfo } from "../../cachedNewSessions";
 import { selectedMachineId } from "../../controllers/types";
@@ -182,6 +182,7 @@ export function createCoreActions(): PluginAction[] {
       description: "从磁盘重新读取所选会话，以获取其他进程写入的条目",
       group: "会话",
       enabled: hasReloadableSession,
+      disabledReason: reloadSessionDisabledReason,
       run: (context) => context.reloadSession(),
     },
     {
@@ -228,7 +229,19 @@ function hasCachedNewSession(context: { state: AppState }): boolean {
 function hasReloadableSession(context: { state: AppState }): boolean {
   const session = context.state.selectedSession;
   if (session === undefined || session.archived === true || isCachedNewSessionInfo(session)) return false;
-  const runtime = context.state.machineRuntimes[selectedMachineId(context.state)];
-  if (runtime?.ok !== true || !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload)) return false;
+  if (reloadSessionDisabledReason(context) !== undefined) return false;
   return !isSessionActive(context.state.status, context.state.activity);
+}
+
+function reloadSessionDisabledReason(context: { state: AppState }): string | undefined {
+  const session = context.state.selectedSession;
+  if (session === undefined || session.archived === true || isCachedNewSessionInfo(session)) return undefined;
+  if (isSessionActive(context.state.status, context.state.activity)) return undefined;
+  return missingCapabilityReason(context.state, PI_WEB_CAPABILITIES.sessionsReload, "reload sessions");
+}
+
+function missingCapabilityReason(state: AppState, capability: PiWebCapability, action: string): string | undefined {
+  const runtime = state.machineRuntimes[selectedMachineId(state)];
+  if (runtime?.ok === true && supportsPiWebCapability(runtime, capability)) return undefined;
+  return `Update and restart Pi-Web on ${state.selectedMachine?.name ?? "this machine"} to ${action}.`;
 }

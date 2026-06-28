@@ -16,6 +16,7 @@ export interface MachineJsonResponse {
 
 export interface MachineRequestOptions {
   timeoutMs?: number;
+  contentType?: string;
 }
 
 export interface MachineClient {
@@ -82,13 +83,14 @@ export class RemoteMachineClient implements MachineClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => { controller.abort(); }, options.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS);
     try {
+      const requestBody = serializeRequestBody(method, body);
       const init: RequestInit = {
         method,
-        headers: this.requestHeaders(body),
+        headers: this.requestHeaders(body, options),
         signal: controller.signal,
         redirect: "manual",
       };
-      if (body !== undefined && method !== "GET" && method !== "HEAD") init.body = JSON.stringify(body);
+      if (requestBody !== undefined) init.body = requestBody;
       return await this.fetchImpl(this.remoteUrl(path), init);
     } catch (error) {
       if (isAbortError(error)) throw new RemoteMachineRequestError("Remote machine request timed out", 504);
@@ -98,11 +100,11 @@ export class RemoteMachineClient implements MachineClient {
     }
   }
 
-  private requestHeaders(body: unknown): HeadersInit {
+  private requestHeaders(body: unknown, options: MachineRequestOptions): HeadersInit {
     return {
       ...this.remoteHeaders(),
       accept: "*/*",
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
+      ...(body === undefined ? {} : { "content-type": options.contentType ?? defaultContentTypeForBody(body) }),
     };
   }
 
@@ -145,6 +147,34 @@ function filterConfiguredHeaders(headers: Record<string, string> | undefined): R
 
 function headersToRecord(headers: Headers): Record<string, string> {
   return Object.fromEntries(headers.entries());
+}
+
+function serializeRequestBody(method: string, body: unknown): NonNullable<RequestInit["body"]> | undefined {
+  if (body === undefined || method === "GET" || method === "HEAD") return undefined;
+  if (isRawRequestBody(body)) return body;
+  if (ArrayBuffer.isView(body)) return copyArrayBufferView(body);
+  const serialized: string = JSON.stringify(body);
+  return serialized;
+}
+
+function defaultContentTypeForBody(body: unknown): string {
+  return isRawRequestBody(body) || ArrayBuffer.isView(body) ? "application/octet-stream" : "application/json";
+}
+
+function isRawRequestBody(body: unknown): body is NonNullable<RequestInit["body"]> {
+  return typeof body === "string"
+    || body instanceof URLSearchParams
+    || body instanceof Blob
+    || body instanceof FormData
+    || body instanceof ReadableStream
+    || body instanceof ArrayBuffer;
+}
+
+function copyArrayBufferView(view: ArrayBufferView): ArrayBuffer {
+  const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function readableFromWebResponseBody(body: Response["body"]): NodeJS.ReadableStream {

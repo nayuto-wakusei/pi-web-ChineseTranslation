@@ -1,4 +1,4 @@
-import type { FileSuggestion, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionRef, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
+import type { DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionCleanupRequest, SessionRef, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import { request } from "./http";
 import {
   arrayOf,
@@ -9,6 +9,7 @@ import {
   parseClosed,
   parseCommandResult,
   parseDeleted,
+  parseDeleteWorkspaceFileResponse,
   parseDetached,
   parseFileContentResponse,
   parseFileSuggestion,
@@ -21,6 +22,7 @@ import {
   parseMachinesResponse,
   parseMessagePage,
   parseModelSelectionResponse,
+  parseMoveWorkspaceFileResponse,
   parseOAuthFlowState,
   parsePiWebConfigResponse,
   parsePiWebPluginsResponse,
@@ -30,6 +32,8 @@ import {
   parseReloaded,
   parseRestored,
   parseSavedAttachments,
+  parseSessionCleanupExecuteResponse,
+  parseSessionCleanupPreviewResponse,
   parseSessionInfo,
   parseSessionStatus,
   parseSlashCommand,
@@ -37,6 +41,7 @@ import {
   parseTerminalCommandRun,
   parseTerminalInfo,
   parseThinkingLevelsResponse,
+  parseWriteWorkspaceFileResponse,
   parseWorkspace,
   parseWorkspaceActivityResponse,
   parseWorkspaceDeleteResponse,
@@ -129,8 +134,32 @@ export const workspacesApi = {
       { method: "POST", body: JSON.stringify({ path, contentBase64: await fileToBase64(file) }) },
     ),
   createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspaceUploadResponse, { method: "POST", body: JSON.stringify({ path, contentBase64: "" }) }),
-  moveWorkspaceFile: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
-  deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
+  writeWorkspaceFile: (projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId = "local") => {
+    const params = new URLSearchParams({ path });
+    if (options?.createDirs === false) params.set("createDirs", "false");
+    if (options?.overwrite === false) params.set("overwrite", "false");
+    const isBinary = content instanceof Uint8Array;
+    const body: BodyInit = isBinary ? new Uint8Array(content) : new TextEncoder().encode(content);
+    return request(
+      `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${params.toString()}`,
+      parseWriteWorkspaceFileResponse,
+      { method: "PUT", body, headers: { "Content-Type": isBinary ? "application/octet-stream" : "text/plain" } },
+    );
+  },
+  deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local"): Promise<DeleteWorkspaceFileResponse> => {
+    const params = new URLSearchParams({ path });
+    return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${params.toString()}`, parseDeleteWorkspaceFileResponse, { method: "DELETE" });
+  },
+  moveWorkspaceFile: (projectId: string, workspaceId: string, fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions, machineId = "local") => {
+    const params = new URLSearchParams({ fromPath, toPath });
+    if (options?.createDirs === false) params.set("createDirs", "false");
+    if (options?.overwrite === true) params.set("overwrite", "true");
+    return request(
+      `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file/move?${params.toString()}`,
+      parseMoveWorkspaceFileResponse,
+      { method: "POST" },
+    );
+  },
   createWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "POST", body: JSON.stringify({ path }) }),
   moveWorkspaceDirectory: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
   deleteWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
@@ -141,6 +170,8 @@ export const workspacesApi = {
 export const sessionsApi = {
   sessions: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo)),
   startSession: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions`, parseSessionInfo, { method: "POST", body: JSON.stringify({ cwd }) }),
+  cleanupPreview: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup/preview`, parseSessionCleanupPreviewResponse, { method: "POST", body: JSON.stringify(input) }),
+  cleanup: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup`, parseSessionCleanupExecuteResponse, { method: "POST", body: JSON.stringify(input) }),
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messageUrl(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "status", machineId), parseSessionStatus),
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "models", machineId), parseModelSelectionResponse),
@@ -271,14 +302,21 @@ export interface FileSuggestionQueryOptions {
   mode?: "file" | "path" | undefined;
   scope?: "tracked" | "all" | undefined;
   machineId?: string | undefined;
+  projectId?: string | undefined;
+  workspaceId?: string | undefined;
+  workspaceScoped?: boolean | undefined;
 }
 
 export const filesApi = {
   files: (cwd: string, query: string, options: FileSuggestionQueryOptions = {}) => {
-    const params = new URLSearchParams({ cwd, q: query });
+    const params = new URLSearchParams({ q: query });
     if (options.kind !== undefined) params.set("kind", options.kind);
     if (options.mode !== undefined) params.set("mode", options.mode);
     if (options.scope !== undefined) params.set("scope", options.scope);
+    if (options.workspaceScoped === true && options.projectId !== undefined && options.workspaceId !== undefined) {
+      return request(`${machinePrefix(options.machineId)}/projects/${encodeURIComponent(options.projectId)}/workspaces/${encodeURIComponent(options.workspaceId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion));
+    }
+    params.set("cwd", cwd);
     return request(`${machinePrefix(options.machineId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion));
   },
 };

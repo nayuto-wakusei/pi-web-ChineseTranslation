@@ -1,6 +1,7 @@
 import type { AuthProviderOption, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./chatTypes";
 import type { QualifiedContributionId } from "./plugins/ids";
+import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
 
 export interface AppState {
   machines: Machine[];
@@ -49,6 +50,8 @@ export interface AppState {
   selectedFilePath: string | undefined;
   selectedFileContent: FileContentResponse | undefined;
   fileTreeStale: boolean;
+  /** Manual workspace file upload batches, keyed by client-owned batch id. */
+  workspaceUploadBatches: Record<string, WorkspaceUploadBatchState>;
   gitStatus: GitStatusResponse | undefined;
   selectedDiffPath: string | undefined;
   selectedDiff: GitDiffResponse | undefined;
@@ -147,6 +150,7 @@ export function initialAppState(): AppState {
     selectedFilePath: undefined,
     selectedFileContent: undefined,
     fileTreeStale: false,
+    workspaceUploadBatches: {},
     gitStatus: undefined,
     selectedDiffPath: undefined,
     selectedDiff: undefined,

@@ -72,6 +72,16 @@ describe("Pi session manager gateway", () => {
     await expect(gateway.listAll()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "session-a", cwd }), expect.objectContaining({ id: "session-b", cwd: otherCwd })]));
   });
 
+  it("includes an absolute env-configured session directory in global listing", async () => {
+    const envSessionDir = join(tempDir, "env-sessions");
+    await writeSessionFile(defaultPiSessionDir(cwd, agentDir), "default-session", cwd);
+    await writeSessionFile(envSessionDir, "env-session", cwd);
+    const gateway = createPiSessionManagerGateway({ agentDir, env: { PI_CODING_AGENT_SESSION_DIR: envSessionDir } });
+
+    if (gateway.listAll === undefined) throw new Error("Expected legacy listing support");
+    await expect(gateway.listAll()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "default-session", cwd }), expect.objectContaining({ id: "env-session", cwd })]));
+  });
+
   it("lists only sessions for the requested cwd when a custom Pi sessionDir is shared", async () => {
     const sharedSessionDir = join(tempDir, "shared-sessions");
     const otherCwd = join(tempDir, "other-workspace");

@@ -34,6 +34,13 @@ export class SessionDirResolver {
     return defaultPiSessionsRoot(this.agentDir);
   }
 
+  globalEnvSessionDir(): string | undefined {
+    const envSessionDir = this.env[PI_SESSION_DIR_ENV];
+    if (envSessionDir === undefined || envSessionDir === "") return undefined;
+    const expanded = expandTildePath(envSessionDir);
+    return isAbsolute(expanded) ? expanded : undefined;
+  }
+
   resolve(cwd: string): SessionDirResolution {
     const envSessionDir = this.env[PI_SESSION_DIR_ENV];
     if (envSessionDir !== undefined && envSessionDir !== "") {
@@ -68,8 +75,13 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
     return SessionManager.create(cwd, resolution.sessionDir, options?.parentSession === undefined ? undefined : { parentSession: options.parentSession });
   }
 
-  listAll(): Promise<PiSessionListEntry[]> {
-    return listSessionsInDefaultPiStore(this.resolver.defaultSessionsRoot());
+  async listAll(): Promise<PiSessionListEntry[]> {
+    const envSessionDir = this.resolver.globalEnvSessionDir();
+    const [defaultSessions, envSessions] = await Promise.all([
+      listSessionsInDefaultPiStore(this.resolver.defaultSessionsRoot()),
+      envSessionDir === undefined ? Promise.resolve([]) : listSessionsInDir(envSessionDir),
+    ]);
+    return uniqueSessionsByPath([...defaultSessions, ...envSessions]);
   }
 
   open(path: string): PiSessionManager {
@@ -104,6 +116,12 @@ export function filterSessionsForCwd(sessions: readonly PiSessionListEntry[], cw
   // Sessions with an empty cwd (old session files) are excluded: resolve("") would
   // resolve to this process's cwd and produce false matches.
   return sessions.filter((session) => session.cwd !== "" && cwdPathsEqual(session.cwd, cwd));
+}
+
+function uniqueSessionsByPath(sessions: readonly PiSessionListEntry[]): PiSessionListEntry[] {
+  const byPath = new Map<string, PiSessionListEntry>();
+  for (const session of sessions) byPath.set(session.path, session);
+  return [...byPath.values()].sort((a, b) => b.modified.getTime() - a.modified.getTime());
 }
 
 export function defaultPiSessionsRoot(agentDir = getAgentDir()): string {

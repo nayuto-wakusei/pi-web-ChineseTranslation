@@ -1,5 +1,5 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, OAuthFlowState, Project, QueuedSessionMessage, SavedPromptAttachment, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
-import { arrayOf, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, OAuthFlowState, Project, QueuedSessionMessage, SavedPromptAttachment, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
+import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
 
 export { arrayOf } from "./parsers/core";
 export { parseMachine, parseMachineHealth, parseMachineRuntime, parseMachinesResponse } from "./parsers/machines";
@@ -38,6 +38,15 @@ export function parseWorkspace(value: unknown): Workspace {
     isMain: requireBoolean(record, "isMain"),
     isGitRepo: requireBoolean(record, "isGitRepo"),
     isGitWorktree: requireBoolean(record, "isGitWorktree"),
+    ...optionalField("effectiveConfig", optionalWorkspaceEffectiveConfig(record["effectiveConfig"])),
+  };
+}
+
+function optionalWorkspaceEffectiveConfig(value: unknown): Workspace["effectiveConfig"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid workspace effectiveConfig field");
+  return {
+    ...optionalField("uploads", optionalUploads(value["uploads"])),
   };
 }
 
@@ -92,6 +101,52 @@ export function parseSessionStatus(value: unknown): SessionStatus {
     ...optionalModel(record["model"]),
     ...optionalContextUsage(record["contextUsage"]),
     ...optionalField("thinkingLevel", optionalString(record, "thinkingLevel")),
+  };
+}
+
+export function parseSessionCleanupPreviewResponse(value: unknown): SessionCleanupPreviewResponse {
+  const record = requireRecord(value);
+  const skippedBusySessionIds = record["skippedBusySessionIds"] === undefined ? undefined : arrayOfString(record["skippedBusySessionIds"], "skippedBusySessionIds");
+  return {
+    generatedAt: requireString(record, "generatedAt"),
+    thresholds: parseSessionCleanupThresholds(record["thresholds"]),
+    projects: arrayOf(parseSessionCleanupProjectSummary)(record["projects"]),
+    totals: parseSessionCleanupTotals(record["totals"]),
+    ...(skippedBusySessionIds === undefined ? {} : { skippedBusySessionIds }),
+  };
+}
+
+export function parseSessionCleanupExecuteResponse(value: unknown): SessionCleanupExecuteResponse {
+  const record = requireRecord(value);
+  return {
+    ...parseSessionCleanupPreviewResponse(record),
+    archivedSessionIds: arrayOfString(record["archivedSessionIds"], "archivedSessionIds"),
+    deletedSessionIds: arrayOfString(record["deletedSessionIds"], "deletedSessionIds"),
+  };
+}
+
+function parseSessionCleanupThresholds(value: unknown): SessionCleanupThresholds {
+  const record = requireRecord(value);
+  return {
+    ...optionalField("archiveIdleDays", optionalNumber(record, "archiveIdleDays")),
+    ...optionalField("deleteArchivedDays", optionalNumber(record, "deleteArchivedDays")),
+  };
+}
+
+function parseSessionCleanupProjectSummary(value: unknown): SessionCleanupProjectSummary {
+  const record = requireRecord(value);
+  return {
+    cwd: requireString(record, "cwd"),
+    archiveCount: requireNumber(record, "archiveCount"),
+    deleteCount: requireNumber(record, "deleteCount"),
+  };
+}
+
+function parseSessionCleanupTotals(value: unknown): SessionCleanupTotals {
+  const record = requireRecord(value);
+  return {
+    archiveCount: requireNumber(record, "archiveCount"),
+    deleteCount: requireNumber(record, "deleteCount"),
   };
 }
 
@@ -260,6 +315,34 @@ export function parseFileContentResponse(value: unknown): FileContentResponse {
   return { path: requireString(record, "path"), ...optionalField("language", optionalString(record, "language")), ...optionalField("mediaType", optionalFileMediaType(record["mediaType"])), ...optionalField("mimeType", optionalString(record, "mimeType")), encoding, size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt"), content: requireString(record, "content"), truncated: requireBoolean(record, "truncated"), binary: requireBoolean(record, "binary") };
 }
 
+export function parseWriteWorkspaceFileResponse(value: unknown): WriteWorkspaceFileResponse {
+  const record = requireRecord(value);
+  return {
+    path: requireString(record, "path"),
+    size: requireNumber(record, "size"),
+    modifiedAt: requireString(record, "modifiedAt"),
+    created: requireBoolean(record, "created"),
+  };
+}
+
+export function parseDeleteWorkspaceFileResponse(value: unknown): DeleteWorkspaceFileResponse {
+  const record = requireRecord(value);
+  return {
+    path: requireString(record, "path"),
+    existed: requireBoolean(record, "existed"),
+  };
+}
+
+export function parseMoveWorkspaceFileResponse(value: unknown): MoveWorkspaceFileResponse {
+  const record = requireRecord(value);
+  return {
+    fromPath: requireString(record, "fromPath"),
+    toPath: requireString(record, "toPath"),
+    size: requireNumber(record, "size"),
+    modifiedAt: requireString(record, "modifiedAt"),
+  };
+}
+
 function optionalFileMediaType(value: unknown): FileContentResponse["mediaType"] | undefined {
   if (value === undefined) return undefined;
   if (value !== "image") throw new Error("Invalid file media type");
@@ -348,6 +431,14 @@ export function parseWorkspaceActivity(value: unknown): WorkspaceActivity {
 export function parseWorkspaceActivityResponse(value: unknown): WorkspaceActivityResponse {
   const record = requireRecord(value);
   return { workspaces: arrayOf(parseWorkspaceActivity)(record["workspaces"]), generatedAt: requireString(record, "generatedAt") };
+}
+
+function optionalUploads(value: unknown): NonNullable<Workspace["effectiveConfig"]>["uploads"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid uploads field");
+  return {
+    ...optionalField("defaultFolder", optionalString(value, "defaultFolder")),
+  };
 }
 
 export function parseCommandResult(value: unknown): CommandResult {

@@ -53,10 +53,11 @@ export class ActionPalette extends LitElement {
           </header>
           <div class="options">
             ${actions.length === 0 ? html`<div class="empty">未找到操作。</div>` : actions.map((action, index) => html`
-              <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @click=${() => { this.run(action); }}>
+              <button class=${`${index === this.selectedIndex ? "selected" : ""} ${action.enabled === false ? "disabled" : ""}`} ?disabled=${action.enabled === false} title=${action.disabledReason ?? action.title} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @click=${() => { this.run(action); }}>
                 <span class="main">
                   <strong>${action.title}</strong>
                   ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
+                  ${action.enabled === false && action.disabledReason !== undefined ? html`<small class="disabled-reason">${action.disabledReason}</small>` : null}
                 </span>
                 ${action.shortcut !== undefined ? html`<kbd>${formatShortcut(action.shortcut)}</kbd>` : null}
                 ${action.group !== undefined && action.group !== "" ? html`<small class="group">${action.group}</small>` : null}
@@ -79,14 +80,7 @@ export class ActionPalette extends LitElement {
   }
 
   private filteredActions(): AppAction[] {
-    const query = this.queryText.trim().toLowerCase();
-    return this.actions
-      .filter((action) => action.enabled !== false)
-      .filter((action) => {
-        if (query === "") return true;
-        const haystack = [action.title, action.description ?? "", action.group ?? "", action.shortcut ?? ""].join(" ").toLowerCase();
-        return haystack.includes(query);
-      });
+    return filterActionPaletteActions(this.actions, this.queryText);
   }
 
   private handleKeyDown(event: KeyboardEvent) {
@@ -108,8 +102,20 @@ export class ActionPalette extends LitElement {
   }
 
   private run(action: AppAction) {
+    if (action.enabled === false) return;
     this.onRun?.(action);
   }
 
   static override styles = actionPaletteStyles;
+}
+
+export function filterActionPaletteActions(actions: readonly AppAction[], queryText: string): AppAction[] {
+  const query = queryText.trim().toLowerCase();
+  return actions
+    .filter((action) => action.enabled !== false || action.disabledReason !== undefined)
+    .filter((action) => {
+      if (query === "") return true;
+      const haystack = [action.title, action.description ?? "", action.disabledReason ?? "", action.group ?? "", action.shortcut ?? ""].join(" ").toLowerCase();
+      return haystack.includes(query);
+    });
 }

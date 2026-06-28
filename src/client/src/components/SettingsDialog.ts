@@ -166,7 +166,7 @@ export class SettingsDialog extends LitElement {
     try {
       const response = await configApi.saveConfig(config);
       this.configResponse = response;
-      this.onConfigSaved?.(response.config);
+      this.onConfigSaved?.(response.effectiveConfig);
       this.showSavedMessage();
     } catch (error) {
       this.error = `保存配置失败：${errorMessage(error)}`;

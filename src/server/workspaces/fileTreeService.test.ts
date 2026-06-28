@@ -55,6 +55,22 @@ describe("listWorkspaceTree", () => {
     expect(tree.entries[0]).toMatchObject({ name: "main.ts", path: "src/client/main.ts", type: "file" });
   });
 
+  it("lists allowed absolute directories outside the workspace", async () => {
+    const root = await tempWorkspace();
+    const external = await tempWorkspace();
+    await mkdir(join(external, "docs"));
+    await writeFile(join(external, "sdk.ts"), "export {};\n");
+
+    const tree = await listWorkspaceTree(root, external, { allowedPaths: [external] });
+
+    expect(tree.path).toBe(external);
+    expect(tree.entries.map((entry) => [entry.name, entry.path, entry.type])).toEqual([
+      ["docs", join(external, "docs"), "directory"],
+      ["sdk.ts", join(external, "sdk.ts"), "file"],
+    ]);
+    await expect(listWorkspaceTree(root, external)).rejects.toThrow("Absolute paths are not allowed");
+  });
+
   it("rejects non-directory targets and unsafe paths", async () => {
     const root = await tempWorkspace();
     await writeFile(join(root, "file.txt"), "content");

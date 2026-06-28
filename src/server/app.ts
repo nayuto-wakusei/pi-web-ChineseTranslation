@@ -9,7 +9,9 @@ import { effectivePiWebConfig } from "../config.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
-import { listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
+import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
+import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
+import { loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
 import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
@@ -18,7 +20,7 @@ import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
-import { registerConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
+import { createFilePiWebConfigService, registerConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
 import { createPiWebStatusCache } from "./piWebStatusCache.js";
 import { getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
@@ -34,6 +36,7 @@ import {
   projectsFromManagedEmbedContext,
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
+import type { Project, Workspace } from "./types.js";
 
 export interface AppDependencies {
   projects?: ProjectService;
@@ -49,7 +52,14 @@ export interface AppDependencies {
   bodyLimit?: number;
 }
 
-function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
+interface LocalProjectRouteOptions {
+  config?: Pick<PiWebConfigService, "read">;
+  managementEmbed?: ManagementEmbedRuntime | undefined;
+}
+
+function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalProjectRouteOptions = {}): void {
+  const managementEmbed = options.managementEmbed;
+
   app.get(`${prefix}/projects`, async (request, reply) => {
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
@@ -93,24 +103,46 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
         const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId);
-        return await workspaces.list(project);
+        return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
       }
       const project = await projects.requireProject(request.params.projectId);
-      return await workspaces.list(project);
+      return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
     } catch (error) {
       return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 }
 
-function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string, managementEmbed?: ManagementEmbedRuntime): void {
+async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceService, config?: Pick<PiWebConfigService, "read">): Promise<Workspace[]> {
+  const [workspaceList, effectiveConfig] = await Promise.all([
+    workspaces.list(project),
+    workspaceEffectiveConfig(project.path, config),
+  ]);
+  return workspaceList.map((workspace) => ({ ...workspace, effectiveConfig }));
+}
+
+async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<NonNullable<Workspace["effectiveConfig"]>> {
+  const globalConfig = config === undefined ? {} : (await config.read()).effectiveConfig;
+  return { uploads: await loadEffectiveProjectUploadsConfig(projectPath, globalConfig) };
+}
+
+interface LocalFileSuggestionRouteOptions {
+  config?: Pick<PiWebConfigService, "read">;
+  managementEmbed?: ManagementEmbedRuntime | undefined;
+}
+
+function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalFileSuggestionRouteOptions = {}): void {
+  const managementEmbed = options.managementEmbed;
+
   app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/files`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
-      if (request.query.mode === "path") return await listPathSuggestions(cwd, request.query.q ?? "");
-      return await listFileSuggestions(cwd, request.query.q ?? "", { kind: request.query.kind, scope: request.query.scope });
+      const query = request.query.q ?? "";
+      const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForCwd(cwd, projects, workspaces, options.config) : undefined;
+      if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);
+      return await listFileSuggestions(cwd, query, { kind: request.query.kind, scope: request.query.scope, pathAccess });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -125,6 +157,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const workspaces = deps.workspaces ?? new WorkspaceService();
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService();
+  const configService = deps.config ?? createFilePiWebConfigService();
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const piWebStatusCache = createPiWebStatusCache(() => getPiWebStatus(sessionDaemon), {
     onError: (error) => { app.log.warn({ err: error }, "failed to refresh PI WEB status cache"); },
@@ -148,18 +181,18 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   app.get("/api/pi-web/version", async () => getPiWebVersionStatus(sessionDaemon));
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
   app.get("/api/plugins", async () => piWebPlugins.plugins());
-  registerConfigRoutes(app, deps.config);
+  registerConfigRoutes(app, configService);
 
   registerMachineRoutes(app, machines);
   registerMachinePluginProxyRoutes(app, machines);
 
-  registerLocalProjectRoutes(app, projects, workspaces, "/api", managementEmbed);
-  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
+  registerLocalProjectRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
+  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
 
   registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
-  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", managementEmbed);
-  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
   registerGitRoutes(app, projects, workspaces, "/api", managementEmbed);
   registerGitRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
   registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
@@ -167,8 +200,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
   registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
 
-  registerLocalFileSuggestionRoutes(app, "/api", managementEmbed);
-  registerLocalFileSuggestionRoutes(app, "/api/machines/local", managementEmbed);
+  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
+  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
 
   registerMachineProxyRoutes(app, machines);
 

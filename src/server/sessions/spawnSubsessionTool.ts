@@ -3,7 +3,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { TranscriptContentKind, TranscriptEntry, TranscriptRole, TranscriptView } from "./subsessionTranscript.js";
 
 /** Lifecycle phase of a tracked subsession as seen by its parent. */
-export type SubsessionStatus = "working" | "idle" | "error" | "archived" | "unknown";
+export type SubsessionStatus = "working" | "idle" | "error" | "unknown";
 
 export interface SpawnSubsessionResult {
   sessionId: string;
@@ -56,9 +56,9 @@ export interface SubsessionReadQuery {
 
 export interface SubsessionToolDeps {
   spawn(input: SpawnSubsessionInvocation): Promise<SpawnSubsessionResult>;
-  list(parentSessionId: string): Promise<SubsessionSummary[]>;
-  check(parentSessionId: string, sessionId: string): Promise<SubsessionCheckResult>;
-  read(parentSessionId: string, sessionId: string, query: SubsessionReadQuery): Promise<SubsessionReadResult>;
+  list(parentSessionId: string, parentSessionFile?: string): Promise<SubsessionSummary[]>;
+  check(parentSessionId: string, sessionId: string, parentSessionFile?: string): Promise<SubsessionCheckResult>;
+  read(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string): Promise<SubsessionReadResult>;
 }
 
 const SpawnSubsessionParams = Type.Object({
@@ -196,7 +196,8 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     parameters: ListSubsessionsParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
-      const subsessions = await deps.list(parentSessionId);
+      const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
+      const subsessions = await deps.list(parentSessionId, parentSessionFile);
       const text = subsessions.length === 0
         ? "You have not spawned any subsessions."
         : `Your subsessions:\n${subsessions.map(statusLine).join("\n")}`;
@@ -212,7 +213,8 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     parameters: CheckSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
-      const result = await deps.check(parentSessionId, params.sessionId);
+      const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
+      const result = await deps.check(parentSessionId, params.sessionId, parentSessionFile);
       const body = result.finalText === "" ? "(no output yet)" : result.finalText;
       return {
         content: [{ type: "text", text: `Subsession ${result.sessionId} [${result.status}]:\n\n${body}` }],
@@ -229,8 +231,9 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     parameters: ReadSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
+      const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
       const { sessionId, ...query } = params;
-      const result = await deps.read(parentSessionId, sessionId, query);
+      const result = await deps.read(parentSessionId, sessionId, query, parentSessionFile);
       return {
         content: [{ type: "text", text: renderTranscript(result) }],
         details: result,

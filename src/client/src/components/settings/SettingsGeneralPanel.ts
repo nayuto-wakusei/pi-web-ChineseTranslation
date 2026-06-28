@@ -72,6 +72,14 @@ export class SettingsGeneralPanel extends LitElement {
             <small>每行输入一个 host，或选择“允许所有 host”写入 <code>true</code>。</small>
           </div>
 
+          <label class="field">
+            <span class="field-heading">
+              <span>External filesystem roots</span>
+            </span>
+            <textarea .value=${this.draft.allowedPathsText} rows="4" placeholder="~/SDKs&#10;/opt/reference" spellcheck="false" @input=${(event: Event) => { this.updateDraft({ allowedPathsText: textAreaValue(event) }); }}></textarea>
+            <small>Global allowlist for absolute <code>@</code> completions and file explorer reads outside a workspace. Enter one absolute path, Windows absolute path, or <code>~</code>-prefixed path per line. Leave empty to deny external paths by default.</small>
+          </label>
+
           ${this.renderEffectiveConfig()}
 
           <footer class="form-actions">
@@ -101,6 +109,7 @@ export class SettingsGeneralPanel extends LitElement {
           <div><dt>Host</dt><dd>${effective.host ?? html`<span class="muted">默认 127.0.0.1</span>`}</dd></div>
           <div><dt>端口</dt><dd>${effective.port ?? html`<span class="muted">默认 8504</span>`}</dd></div>
           <div><dt>允许的 hosts</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
+          <div><dt>外部根目录</dt><dd>${formatAllowedPaths(effective.pathAccess?.allowedPaths)}</dd></div>
         </dl>
       </section>
     `;
@@ -135,6 +144,11 @@ function formatAllowedHosts(value: PiWebConfigValues["allowedHosts"]): string | 
   if (value === true) return "任意 host";
   if (Array.isArray(value)) return value.length === 0 ? html`<span class="muted">未列出</span>` : value.join(", ");
   return html`<span class="muted">未设置</span>`;
+}
+
+function formatAllowedPaths(value: string[] | undefined): string | TemplateResult {
+  if (value === undefined || value.length === 0) return html`<span class="muted">已禁止外部路径</span>`;
+  return value.join(", ");
 }
 
 function inputValue(event: Event): string {

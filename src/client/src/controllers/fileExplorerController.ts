@@ -1,14 +1,68 @@
-import { api as defaultApi } from "../api";
+import {
+  api as defaultApi,
+  uploadWorkspaceFiles as defaultUploadWorkspaceFiles,
+  WorkspaceUploadBatchError,
+  WorkspaceUploadCancelledError,
+  type WorkspaceUploadBatchProgress,
+  type WorkspaceUploadTask,
+  type WriteWorkspaceFileResponse,
+} from "../api";
 import { queryNamespace, setNamespacedQueryKey } from "../namespacedQueryArgs";
+import {
+  cancelWorkspaceUploadBatch,
+  completeWorkspaceUploadBatch,
+  createWorkspaceUploadBatchState,
+  failWorkspaceUploadBatch,
+  updateWorkspaceUploadBatchProgress,
+  type WorkspaceUploadBatchState,
+} from "../workspaceUploadState";
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
 
 const FILES_ROUTE_NAMESPACE = queryNamespace("core:workspace.files");
 
-export class FileExplorerController {
-  private readonly api: typeof defaultApi;
+type FileExplorerApi = Pick<typeof defaultApi, "workspaceFile" | "workspaceTree" | "createWorkspaceFile" | "createWorkspaceDirectory" | "moveWorkspaceFile" | "moveWorkspaceDirectory" | "deleteWorkspaceFile" | "deleteWorkspaceDirectory" | "downloadWorkspaceFile">;
+type UploadWorkspaceFiles = typeof defaultUploadWorkspaceFiles;
 
-  constructor(private readonly getState: GetState, private readonly setState: SetState, private readonly updateUrl: UpdateUrl, deps: { api?: typeof defaultApi } = {}) {
+export interface FileExplorerControllerDependencies {
+  api?: FileExplorerApi;
+  uploadWorkspaceFiles?: UploadWorkspaceFiles;
+  createUploadBatchId?: () => string;
+  now?: () => string;
+}
+
+export interface StartWorkspaceUploadOptions {
+  destinationFolder: string;
+  createDirs?: boolean;
+  overwrite?: boolean;
+  selectUploadedFile?: boolean;
+}
+
+export interface WorkspaceUploadRun {
+  batchId: string;
+  done: Promise<void>;
+}
+
+export class FileExplorerController {
+  private readonly api: FileExplorerApi;
+  private readonly uploadWorkspaceFiles: UploadWorkspaceFiles;
+  private readonly createUploadBatchId: () => string;
+  private readonly now: () => string;
+  private readonly uploadTasks = new Map<string, WorkspaceUploadTask<WriteWorkspaceFileResponse[]>>();
+  private uploadBatchSequence = 0;
+
+  constructor(
+    private readonly getState: GetState,
+    private readonly setState: SetState,
+    private readonly updateUrl: UpdateUrl,
+    deps: FileExplorerControllerDependencies = {},
+  ) {
     this.api = deps.api ?? defaultApi;
+    this.uploadWorkspaceFiles = deps.uploadWorkspaceFiles ?? defaultUploadWorkspaceFiles;
+    this.createUploadBatchId = deps.createUploadBatchId ?? (() => {
+      this.uploadBatchSequence += 1;
+      return `workspace-upload-${String(this.uploadBatchSequence)}`;
+    });
+    this.now = deps.now ?? (() => new Date().toISOString());
   }
 
   async refreshFiles(): Promise<void> {
@@ -83,28 +137,6 @@ export class FileExplorerController {
     }
   }
 
-  async uploadFiles(files: readonly File[]): Promise<void> {
-    const project = this.getState().selectedProject;
-    const workspace = this.getState().selectedWorkspace;
-    if (project === undefined || workspace === undefined || files.length === 0) return;
-    try {
-      const machineId = selectedMachineId(this.getState());
-      const uploadDir = selectedUploadDirectory(this.getState());
-      const uploadedPaths: string[] = [];
-      for (const file of files) {
-        const path = joinWorkspacePath(uploadDir, uploadFileName(file));
-        await this.api.uploadWorkspaceFile(project.id, workspace.id, path, file, machineId);
-        uploadedPaths.push(path);
-      }
-      await this.refreshFiles();
-      const lastPath = uploadedPaths.at(-1);
-      if (lastPath !== undefined) await this.selectFile(lastPath);
-      this.setState({ error: "" });
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
-  }
-
   async createFile(path: string): Promise<void> {
     const project = this.getState().selectedProject;
     const workspace = this.getState().selectedWorkspace;
@@ -145,7 +177,7 @@ export class FileExplorerController {
         await this.refreshFiles();
         this.selectDirectory(toPath);
       } else {
-        await this.api.moveWorkspaceFile(project.id, workspace.id, fromPath, toPath, machineId);
+        await this.api.moveWorkspaceFile(project.id, workspace.id, fromPath, toPath, undefined, machineId);
         await this.refreshFiles();
         await this.selectFile(toPath);
       }
@@ -190,6 +222,123 @@ export class FileExplorerController {
     setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", undefined, { replace: true });
     this.updateUrl({ replace: true });
   }
+
+  startWorkspaceUpload(files: readonly File[], options: StartWorkspaceUploadOptions): WorkspaceUploadRun | undefined {
+    const project = this.getState().selectedProject;
+    const workspace = this.getState().selectedWorkspace;
+    if (project === undefined || workspace === undefined) {
+      this.setState({ error: "Select a workspace before uploading files." });
+      return undefined;
+    }
+    if (files.length === 0) return undefined;
+
+    const machineId = selectedMachineId(this.getState());
+    const overwrite = options.overwrite ?? false;
+    const createDirs = options.createDirs ?? true;
+    let batch: WorkspaceUploadBatchState;
+    try {
+      batch = createWorkspaceUploadBatchState({
+        id: this.createUploadBatchId(),
+        projectId: project.id,
+        workspaceId: workspace.id,
+        machineId,
+        destinationFolder: options.destinationFolder,
+        overwrite,
+        createDirs,
+        files,
+        startedAt: this.now(),
+      });
+    } catch (error) {
+      this.setState({ error: String(error) });
+      return undefined;
+    }
+
+    this.setUploadBatch(batch);
+    let task: WorkspaceUploadTask<WriteWorkspaceFileResponse[]>;
+    try {
+      task = this.uploadWorkspaceFiles(project.id, workspace.id, files, {
+        destinationFolder: options.destinationFolder,
+        machineId,
+        overwrite,
+        createDirs,
+        onProgress: (progress) => { this.updateUploadProgress(batch.id, progress); },
+      });
+    } catch (error) {
+      this.failUploadBatch(batch.id, error);
+      return { batchId: batch.id, done: Promise.resolve() };
+    }
+
+    this.uploadTasks.set(batch.id, task);
+    const done = task.promise
+      .then(async (responses) => { await this.completeUploadBatch(batch.id, responses, options); })
+      .catch(async (error: unknown) => { await this.handleUploadFailure(batch.id, error, options); })
+      .finally(() => { this.uploadTasks.delete(batch.id); });
+    return { batchId: batch.id, done };
+  }
+
+  cancelWorkspaceUpload(batchId: string): void {
+    const batch = this.getUploadBatch(batchId);
+    if (batch?.status !== "uploading") return;
+    this.setUploadBatch(cancelWorkspaceUploadBatch(batch, this.now()));
+    this.uploadTasks.get(batchId)?.cancel();
+  }
+
+  clearWorkspaceUpload(batchId: string): void {
+    this.uploadTasks.get(batchId)?.cancel();
+    this.uploadTasks.delete(batchId);
+    this.setState({ workspaceUploadBatches: omitKey(this.getState().workspaceUploadBatches, batchId) });
+  }
+
+  private updateUploadProgress(batchId: string, progress: WorkspaceUploadBatchProgress): void {
+    const batch = this.getUploadBatch(batchId);
+    if (batch?.status !== "uploading") return;
+    this.setUploadBatch(updateWorkspaceUploadBatchProgress(batch, progress));
+  }
+
+  private async completeUploadBatch(batchId: string, responses: WriteWorkspaceFileResponse[], options: StartWorkspaceUploadOptions): Promise<void> {
+    const batch = this.getUploadBatch(batchId);
+    if (batch?.status !== "uploading") return;
+    this.setUploadBatch(completeWorkspaceUploadBatch(batch, responses, this.now()), { error: "" });
+    if (!this.isCurrentWorkspaceBatch(batch)) return;
+    await this.refreshFiles();
+    const uploadedPath = responses[0]?.path;
+    if (options.selectUploadedFile !== false && uploadedPath !== undefined && this.isCurrentWorkspaceBatch(batch)) await this.selectFile(uploadedPath);
+  }
+
+  private async handleUploadFailure(batchId: string, error: unknown, options: StartWorkspaceUploadOptions): Promise<void> {
+    const batch = this.failUploadBatch(batchId, error);
+    if (!(error instanceof WorkspaceUploadBatchError) || error.responses.length === 0 || batch === undefined || !this.isCurrentWorkspaceBatch(batch)) return;
+    await this.refreshFiles();
+    const uploadedPath = error.responses[0]?.path;
+    if (options.selectUploadedFile !== false && uploadedPath !== undefined && this.isCurrentWorkspaceBatch(batch)) await this.selectFile(uploadedPath);
+  }
+
+  private failUploadBatch(batchId: string, error: unknown): WorkspaceUploadBatchState | undefined {
+    const batch = this.getUploadBatch(batchId);
+    if (batch?.status !== "uploading") return undefined;
+    if (isWorkspaceUploadCancelled(error)) {
+      const cancelled = cancelWorkspaceUploadBatch(batch, this.now());
+      this.setUploadBatch(cancelled);
+      return cancelled;
+    }
+    const message = errorMessage(error);
+    const failed = failWorkspaceUploadBatch(batch, message, this.now());
+    this.setUploadBatch(failed, { error: message });
+    return failed;
+  }
+
+  private getUploadBatch(batchId: string): WorkspaceUploadBatchState | undefined {
+    return this.getState().workspaceUploadBatches[batchId];
+  }
+
+  private setUploadBatch(batch: WorkspaceUploadBatchState, patch: { error?: string } = {}): void {
+    this.setState({ workspaceUploadBatches: { ...this.getState().workspaceUploadBatches, [batch.id]: batch }, ...patch });
+  }
+
+  private isCurrentWorkspaceBatch(batch: WorkspaceUploadBatchState): boolean {
+    const state = this.getState();
+    return state.selectedProject?.id === batch.projectId && state.selectedWorkspace?.id === batch.workspaceId && selectedMachineId(state) === batch.machineId;
+  }
 }
 
 function isUnavailableFileError(error: unknown): boolean {
@@ -197,17 +346,16 @@ function isUnavailableFileError(error: unknown): boolean {
   return message.includes("Path does not exist") || message.includes("ENOENT") || message.includes("no such file or directory");
 }
 
-function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+function isWorkspaceUploadCancelled(error: unknown): boolean {
+  return error instanceof WorkspaceUploadCancelledError;
 }
 
-function selectedUploadDirectory(state: ReturnType<GetState>): string {
-  const path = state.selectedFilePath;
-  if (path === undefined || path === "") return "";
-  const entry = findFileTreeEntry(state.fileTree, state.expandedDirs, path);
-  if (entry?.type === "directory") return path;
-  const separator = path.lastIndexOf("/");
-  return separator === -1 ? "" : path.slice(0, separator);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
 }
 
 function selectedPathKind(state: ReturnType<GetState>): "file" | "directory" {
@@ -224,12 +372,4 @@ function findFileTreeEntry(rootEntries: ReturnType<GetState>["fileTree"], expand
     if (match !== undefined) return match;
   }
   return undefined;
-}
-
-function uploadFileName(file: File): string {
-  return file.name.split(/[\\/]+/u).filter((part) => part !== "").at(-1) ?? file.name;
-}
-
-function joinWorkspacePath(dir: string, name: string): string {
-  return dir === "" ? name : `${dir}/${name}`;
 }

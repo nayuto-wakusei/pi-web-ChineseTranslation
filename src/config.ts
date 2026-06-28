@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { PiWebConfigValues } from "./shared/apiTypes.js";
-import { isRecord, parseAllowedHostsEnv, parseMaxUploadBytes, parsePiWebConfig, parsePort, piWebConfigRecord } from "./shared/piWebConfigParsing.js";
+import { isRecord, parseAllowedHostsEnv, parseMaxUploadBytes, parsePathAccessConfig, parsePiWebConfig, parsePort, parseUploadsConfig, piWebConfigRecord } from "./shared/piWebConfigParsing.js";
+
+export { parsePathAccessConfig, parseUploadsConfig };
 
 export type PiWebConfig = PiWebConfigValues;
 
@@ -32,6 +34,12 @@ export function defaultPiWebDataDir(): string {
  * per-image inline limit so several images fit in one request).
  */
 export const DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+export const DEFAULT_UPLOADS_FOLDER = ".pi-web/uploads";
+
+export function effectiveUploadsConfig(config: Pick<PiWebConfig, "uploads"> = {}): NonNullable<PiWebConfig["uploads"]> {
+  return { defaultFolder: config.uploads?.defaultFolder ?? DEFAULT_UPLOADS_FOLDER };
+}
 
 export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number {
   const fromEnv = env["PI_WEB_MAX_UPLOAD_BYTES"];
@@ -82,6 +90,7 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedPiWebConf
       ...(port !== undefined && port !== "" ? { port: parsePort(port, "PI_WEB_PORT") } : {}),
       ...(allowedHosts !== undefined && allowedHosts !== "" ? { allowedHosts: parseAllowedHostsEnv(allowedHosts) } : {}),
       ...(maxUpload !== undefined && maxUpload !== "" ? { maxUploadBytes: parseMaxUploadBytes(maxUpload, "PI_WEB_MAX_UPLOAD_BYTES") } : {}),
+      uploads: effectiveUploadsConfig(loaded.config),
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
       spawnSessions: spawnSessionsEnabled(env, loaded.config),
@@ -102,6 +111,8 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["shortcuts"];
   delete existing["plugins"];
   delete existing["managementEmbed"];
+  delete existing["pathAccess"];
+  delete existing["uploads"];
   delete existing["maxUploadBytes"];
   delete existing["spawnSessions"];
   delete existing["subsessions"];

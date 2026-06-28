@@ -2,11 +2,13 @@ import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionManagerGateway, type PiSessionRef } from "./piSessionService.js";
 import { registerSessionRoutes } from "./sessionRoutes.js";
 import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import type { ThinkingLevel } from "../../shared/thinkingLevels.js";
+import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
 
 let app: FastifyInstance;
 let service: PiSessionService;
@@ -174,15 +176,67 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
+
+  it("normalizes cleanup requests for preview and execute routes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectCwds: ["/repo-a", "/repo-a"] } });
+      const executeResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: null, deleteArchivedDays: 7, projectCwds: ["/repo-b"] } });
+
+      expect(previewResponse.statusCode).toBe(200);
+      expect(executeResponse.statusCode).toBe(200);
+      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectCwds: ["/repo-a"] }]);
+      expect(routeService.cleanupCalls).toEqual([{ thresholds: { deleteArchivedDays: 7 }, projectCwds: ["/repo-b"] }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects invalid cleanup thresholds before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: -1 } });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "archiveIdleDays field must be a non-negative integer" });
+      expect(routeService.cleanupCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
 });
 
 class CapturingRouteSessionService extends PiSessionService {
   readonly calls: unknown[] = [];
   readonly reloadCalls: (string | PiSessionRef)[] = [];
+  readonly cleanupPreviewCalls: NormalizedSessionCleanupRequest[] = [];
+  readonly cleanupCalls: NormalizedSessionCleanupRequest[] = [];
   reloadError: Error | undefined;
 
   constructor(eventHub: SessionEventHub) {
     super(eventHub, { sessionManager: new RejectingSessionManager(), heartbeatIntervalMs: 60_000 });
+  }
+
+  override cleanupPreview(request: NormalizedSessionCleanupRequest): Promise<SessionCleanupPreviewResponse> {
+    this.cleanupPreviewCalls.push(request);
+    return Promise.resolve({ generatedAt: "2026-06-25T00:00:00.000Z", thresholds: request.thresholds, projects: [], totals: { archiveCount: 0, deleteCount: 0 } });
+  }
+
+  override cleanup(request: NormalizedSessionCleanupRequest): Promise<SessionCleanupExecuteResponse> {
+    this.cleanupCalls.push(request);
+    return Promise.resolve({ generatedAt: "2026-06-25T00:00:00.000Z", thresholds: request.thresholds, projects: [], totals: { archiveCount: 0, deleteCount: 0 }, archivedSessionIds: [], deletedSessionIds: [] });
   }
 
   override reload(lookup: string | PiSessionRef): Promise<void> {

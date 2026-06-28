@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { WebSocket } from "ws";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES } from "../../shared/federatedRoutes.js";
 import { bridgeSockets } from "../webSocketBridge.js";
-import { RemoteMachineRequestError } from "./machineClient.js";
+import { RemoteMachineRequestError, type MachineRequestOptions } from "./machineClient.js";
 import { MachineService } from "./machineService.js";
 
 export const REMOTE_HTTP_ROUTES = FEDERATED_HTTP_ROUTES;
@@ -24,7 +24,7 @@ export function registerMachineProxyRoutes(app: FastifyInstance, machines = new 
     app.route<{ Params: { machineId: string }; Body: unknown }>({
       method: spec.method,
       url: `/api/machines/:machineId${spec.path}`,
-      handler: (request, reply) => proxyHttpRequest(machines, request.params.machineId, request.method, request.url, request.body, reply),
+      handler: (request, reply) => proxyHttpRequest(machines, request.params.machineId, request.method, request.url, request.body, request.headers["content-type"], reply),
     });
   }
 
@@ -35,7 +35,7 @@ export function registerMachineProxyRoutes(app: FastifyInstance, machines = new 
   }
 }
 
-async function proxyHttpRequest(machines: MachineService, machineId: string, method: string, requestUrl: string, body: unknown, reply: FastifyReply): Promise<FastifyReply> {
+async function proxyHttpRequest(machines: MachineService, machineId: string, method: string, requestUrl: string, body: unknown, contentType: string | string[] | undefined, reply: FastifyReply): Promise<FastifyReply> {
   if (machineId === "local") {
     return reply.code(501).send({ error: "Local machine route is not registered for this endpoint" });
   }
@@ -46,7 +46,10 @@ async function proxyHttpRequest(machines: MachineService, machineId: string, met
   }
 
   try {
-    const upstream = await client.request(method, remoteApiPath(machineId, requestUrl), body);
+    const requestOptions = proxyRequestOptions(body, contentType);
+    const upstream = requestOptions === undefined
+      ? await client.request(method, remoteApiPath(machineId, requestUrl), body)
+      : await client.request(method, remoteApiPath(machineId, requestUrl), body, requestOptions);
     reply.code(upstream.statusCode);
     applySafeHeaders(reply, upstream.headers);
     if (upstream.body === undefined) return await reply.send();
@@ -80,6 +83,20 @@ function remoteApiPath(machineId: string, requestUrl: string): string {
   const stripped = requestUrl.startsWith(machinePrefix) ? requestUrl.slice(machinePrefix.length) : requestUrl;
   const compatPath = stripped.startsWith("/") ? stripped : `/${stripped}`;
   return `/api${compatPath}`;
+}
+
+function proxyRequestOptions(body: unknown, contentType: string | string[] | undefined): MachineRequestOptions | undefined {
+  if (!isRawProxyBody(body)) return undefined;
+  const value = firstHeaderValue(contentType);
+  return value === undefined || value === "" ? undefined : { contentType: value };
+}
+
+function isRawProxyBody(body: unknown): boolean {
+  return typeof body === "string" || body instanceof ArrayBuffer || ArrayBuffer.isView(body);
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function applySafeHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {

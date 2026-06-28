@@ -38,7 +38,13 @@ function context(patch: { isGitRepo?: boolean } = {}): WorkspacePanelContext {
       isGitRepo: patch.isGitRepo ?? true,
       isGitWorktree: false,
     },
-    files: { readFile: () => Promise.reject(new Error("unused")) },
+    files: {
+      readFile: () => Promise.reject(new Error("unused")),
+      writeFile: () => Promise.reject(new Error("unused")),
+      deleteFile: () => Promise.reject(new Error("unused")),
+      moveFile: () => Promise.reject(new Error("unused")),
+    },
+    prompt: { insertText: () => undefined, getText: () => "", getSelection: () => null },
     terminal: { open: () => undefined, runCommand: () => Promise.reject(new Error("unused")) },
     host: { requestRender: () => undefined },
   };

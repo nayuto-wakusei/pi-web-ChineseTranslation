@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
     expect(parsePiWebConfigResponse({
       path: "/tmp/config.json",
       exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } } },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true },
+      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
+      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
       envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
     })).toEqual({
       path: "/tmp/config.json",
       exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } } },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true },
+      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
+      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
       envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
     });
   });
@@ -163,6 +163,31 @@ describe("API parsers", () => {
     expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
   });
 
+  it("parses session cleanup preview and execute responses", () => {
+    const preview = {
+      generatedAt: "2026-06-25T12:00:00.000Z",
+      thresholds: { archiveIdleDays: 14, deleteArchivedDays: 30 },
+      projects: [
+        { cwd: "/repo-a", archiveCount: 2, deleteCount: 1 },
+        { cwd: "/repo-b", archiveCount: 0, deleteCount: 3 },
+      ],
+      totals: { archiveCount: 2, deleteCount: 4 },
+      skippedBusySessionIds: ["busy-1"],
+    };
+
+    expect(parseSessionCleanupPreviewResponse(preview)).toEqual(preview);
+    expect(parseSessionCleanupExecuteResponse({ ...preview, archivedSessionIds: ["s1", "s2"], deletedSessionIds: ["a1"] })).toEqual({
+      ...preview,
+      archivedSessionIds: ["s1", "s2"],
+      deletedSessionIds: ["a1"],
+    });
+  });
+
+  it("rejects malformed session cleanup responses", () => {
+    expect(() => parseSessionCleanupPreviewResponse({ generatedAt: "now", thresholds: {}, projects: [{ cwd: "/repo", archiveCount: "2", deleteCount: 0 }], totals: { archiveCount: 2, deleteCount: 0 } })).toThrow("Expected number field: archiveCount");
+    expect(() => parseSessionCleanupExecuteResponse({ generatedAt: "now", thresholds: {}, projects: [], totals: { archiveCount: 0, deleteCount: 0 }, archivedSessionIds: ["s1"], deletedSessionIds: [1] })).toThrow("Expected string array field: deletedSessionIds");
+  });
+
   it("validates session status including optional model and nullable context usage", () => {
     expect(parseSessionStatus({
       sessionId: "s1",
@@ -190,6 +215,50 @@ describe("API parsers", () => {
       model: { provider: "p", id: "m", contextWindow: 100, reasoning: { effort: "low" }, input: ["text", "image"] },
       contextUsage: { tokens: null, contextWindow: 100, percent: 0.5 },
       thinkingLevel: "medium",
+    });
+  });
+
+  it("parses workspace effective upload config when present", () => {
+    expect(parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      branch: "main",
+      isMain: true,
+      isGitRepo: true,
+      isGitWorktree: false,
+      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" } },
+    })).toEqual({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      branch: "main",
+      isMain: true,
+      isGitRepo: true,
+      isGitWorktree: false,
+      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" } },
+    });
+  });
+
+  it("accepts legacy workspace responses without effective config", () => {
+    expect(parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      isGitRepo: false,
+      isGitWorktree: false,
+    })).toEqual({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      isGitRepo: false,
+      isGitWorktree: false,
     });
   });
 

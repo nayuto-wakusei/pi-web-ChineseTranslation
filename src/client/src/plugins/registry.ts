@@ -60,6 +60,7 @@ export class PluginRegistry {
     return this.actions.filter((action) => this.isContributionActive(action.pluginId, action.machineId, selectedMachineId, action.sourcePluginId)).map((action) => {
       const scopedContext = pluginRuntimeContextFor(context, action.pluginId);
       const enabled = action.enabled?.(scopedContext);
+      const disabledReason = enabled === false ? action.disabledReason?.(scopedContext) : undefined;
       const qualified: QualifiedPluginAction = {
         id: action.id,
         pluginId: action.pluginId,
@@ -72,6 +73,7 @@ export class PluginRegistry {
       if (action.shortcut !== undefined) qualified.shortcut = action.shortcut;
       if (action.group !== undefined) qualified.group = action.group;
       if (enabled !== undefined) qualified.enabled = enabled;
+      if (disabledReason !== undefined && disabledReason !== "") qualified.disabledReason = disabledReason;
       return qualified;
     });
   }

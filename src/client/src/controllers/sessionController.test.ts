@@ -553,6 +553,55 @@ describe("SessionController", () => {
     expect(state.selectedSession?.id).toBe(nextSession.id);
   });
 
+  it("applies cleanup execution results and refreshes the current workspace sessions", async () => {
+    const archivedAt = "2026-06-25T12:00:00.000Z";
+    const deletedArchived = { ...oldSession, id: "deleted-archived", path: "/tmp/deleted-archived.jsonl", archived: true, archivedAt: "2026-05-01T00:00:00.000Z" };
+    const nextSession = { ...oldSession, id: "next-session", path: "/tmp/next-session.jsonl" };
+    const refreshedArchived = { ...oldSession, archived: true, archivedAt };
+    const sessionsCalls: { cwd: string; machineId: string }[] = [];
+    let state: AppState = {
+      ...initialAppState(),
+      selectedWorkspace: workspace,
+      selectedSession: oldSession,
+      sessions: [oldSession, deletedArchived, nextSession],
+      sessionStatuses: { [oldSession.id]: status(oldSession.id), [deletedArchived.id]: status(deletedArchived.id), [nextSession.id]: status(nextSession.id) },
+      sessionActivities: { [oldSession.id]: { sessionId: oldSession.id, phase: "idle", label: "idle", at: archivedAt } },
+    };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      sessions: (cwd, machineId) => {
+        sessionsCalls.push({ cwd, machineId: machineId ?? "local" });
+        return Promise.resolve([refreshedArchived, nextSession]);
+      },
+      messages: () => Promise.resolve(emptyPage),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.applySessionCleanupResult({
+      generatedAt: archivedAt,
+      thresholds: { archiveIdleDays: 30, deleteArchivedDays: 60 },
+      projects: [{ cwd: workspace.path, archiveCount: 1, deleteCount: 1 }],
+      totals: { archiveCount: 1, deleteCount: 1 },
+      archivedSessionIds: [oldSession.id],
+      deletedSessionIds: [deletedArchived.id],
+    });
+
+    expect(sessionsCalls).toEqual([{ cwd: workspace.path, machineId: "local" }]);
+    expect(state.sessions.map((session) => session.id)).toEqual([oldSession.id, nextSession.id]);
+    expect(state.sessions[0]).toMatchObject({ id: oldSession.id, archived: true, archivedAt });
+    expect(state.selectedSession?.id).toBe(nextSession.id);
+    expect(state.sessionStatuses[oldSession.id]).toBeUndefined();
+    expect(state.sessionStatuses[deletedArchived.id]).toBeUndefined();
+    expect(state.sessionActivities[oldSession.id]).toBeUndefined();
+  });
+
   it("does not delete archived sessions when the selected machine runtime does not support it", async () => {
     const archivedSession = { ...oldSession, archived: true, archivedAt: "later" };
     const deletedIds: string[] = [];
