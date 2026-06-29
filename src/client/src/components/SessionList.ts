@@ -138,7 +138,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   private renderCleanupButton() {
-    return html`<button class="cleanup-entry" title=${this.canCleanup ? "Preview session cleanup" : this.cleanupUnavailableMessage} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onCleanup?.(); }}>Clean up</button>`;
+    return html`<button class="cleanup-entry" title=${this.canCleanup ? "预览会话清理" : this.cleanupUnavailableMessage} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onCleanup?.(); }}>清理</button>`;
   }
 
   private renderArchivedHeading(archivedSessions: SessionInfo[]) {

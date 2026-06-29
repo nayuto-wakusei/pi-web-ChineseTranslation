@@ -130,6 +130,27 @@ describe("core UI Chinese display copy", () => {
     expect(text).not.toContain(">Archive<");
   });
 
+  it("localizes session cleanup actions and dialog copy", () => {
+    const text = [
+      source("components/PiWebApp.ts"),
+      source("components/SessionList.ts"),
+      source("components/SessionCleanupDialog.ts"),
+      source("sessionCleanupUi.ts"),
+    ].join("\n");
+
+    expect(text).toContain("清理会话");
+    expect(text).toContain("预览并手动清理所选机器上的空闲或已归档会话");
+    expect(text).toContain("归档空闲超过");
+    expect(text).toContain("删除是永久操作");
+    expect(text).toContain("运行清理");
+    expect(text).not.toContain("Clean up sessions");
+    expect(text).not.toContain("Clean Up Sessions");
+    expect(text).not.toContain("Preview manual cleanup");
+    expect(text).not.toContain("Archive non-archived sessions");
+    expect(text).not.toContain("Deletion is permanent");
+    expect(text).not.toContain("Run cleanup");
+  });
+
   it("keeps the file upload control as one visible Chinese button", () => {
     const text = source("components/WorkspaceFilesPanel.ts");
 

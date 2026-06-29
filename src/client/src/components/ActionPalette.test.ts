@@ -15,10 +15,10 @@ describe("filterActionPaletteActions", () => {
 
   it("matches disabled reasons in search", () => {
     const actions: AppAction[] = [
-      action("cleanup", "Clean Up Sessions", { enabled: false, disabledReason: "Selected server does not support cleanup." }),
+      action("cleanup", "清理会话", { enabled: false, disabledReason: "所选服务器不支持清理。" }),
     ];
 
-    expect(filterActionPaletteActions(actions, "support cleanup").map((item) => item.id)).toEqual(["cleanup"]);
+    expect(filterActionPaletteActions(actions, "不支持清理").map((item) => item.id)).toEqual(["cleanup"]);
   });
 });
 
