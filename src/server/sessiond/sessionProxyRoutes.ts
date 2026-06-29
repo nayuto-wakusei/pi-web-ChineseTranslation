@@ -86,7 +86,7 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
   const path = stripPrefix(url, "");
   if (path.startsWith("/sessions?")) {
     const cwd = new URL(`http://local${path}`).searchParams.get("cwd");
-    if (cwd !== null) await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd);
+    if (cwd !== null) await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
     return body;
   }
   if (path === "/sessions" && isRecord(body) && typeof body["cwd"] === "string") {

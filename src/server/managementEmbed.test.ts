@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -47,6 +47,14 @@ describe("management embed sandbox policy", () => {
     await expect(assertManagedCwd(root, context, outside)).rejects.toThrow("outside the managed project sandbox");
   });
 
+  it("creates an authorized project root when asserting it for a managed action", async () => {
+    const context = contextFor([{ id: "p1", name: "Project 1" }]);
+    const projectPath = join(root, "root-user", "p1");
+
+    await expect(assertManagedCwd(root, context, projectPath)).resolves.toBe(projectPath);
+    await expect(pathExists(projectPath)).resolves.toBe(true);
+  });
+
   it("synthesizes pi-web projects from the authorized embed context", async () => {
     const project = await projectFromManagedEmbedContext(root, contextFor([{ id: "p1", name: "Project 1" }]), "p1");
 
@@ -67,6 +75,20 @@ describe("management embed sandbox policy", () => {
         path: join(root, "account-1"),
       }),
     ]);
+  });
+
+  it("lists managed projects without creating their directories", async () => {
+    const projects = await projectsFromManagedEmbedContext(root, contextFor([{ id: "p1", name: "Project 1" }]));
+
+    expect(projects).toEqual([expect.objectContaining({ path: join(root, "root-user", "p1") })]);
+    await expect(pathExists(join(root, "root-user", "p1"))).resolves.toBe(false);
+  });
+
+  it("lists default managed projects without creating their directories", async () => {
+    const projects = await projectsFromManagedEmbedContext(root, contextFor([]));
+
+    expect(projects).toEqual([expect.objectContaining({ path: join(root, "account-1") })]);
+    await expect(pathExists(join(root, "account-1"))).resolves.toBe(false);
   });
 
   it("detects management mode and token from bridge headers", () => {
@@ -303,6 +325,15 @@ function cookiePair(reply: { headers: Record<string, string[] | undefined> }): s
   const cookie = reply.headers["set-cookie"]?.[0];
   if (cookie === undefined) throw new Error("Expected set-cookie header");
   return cookie.split(";")[0] ?? "";
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function seconds(ms: number): number {

@@ -30,7 +30,7 @@ export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: 
 async function deleteWorkspace(projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon, projectId: string, workspaceId: string, managementEmbed: ManagementEmbedRuntime | undefined, managementContext: ManagementEmbedContext | undefined): Promise<TerminalCommandRun> {
   const project = managementContext === undefined
     ? await projects.requireProject(projectId)
-    : await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), managementContext, projectId);
+    : await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), managementContext, projectId, { create: false });
   const projectWorkspaces = await workspaces.list(project);
   const targetWorkspace = projectWorkspaces.find((workspace) => workspace.id === workspaceId);
   if (targetWorkspace === undefined) throw new Error("Workspace not found");

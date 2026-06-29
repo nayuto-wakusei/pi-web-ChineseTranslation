@@ -62,6 +62,10 @@ export interface ManagementEmbedReplyTarget {
   header(name: string, value: string): unknown;
 }
 
+export interface ManagedProjectPathOptions {
+  create?: boolean;
+}
+
 export function readManagementEmbedRequest(headers: Record<string, string | string[] | undefined>, query?: Record<string, unknown>): ManagementEmbedRequest {
   const modeHeader = firstHeader(headers[MANAGEMENT_EMBED_MODE_HEADER]);
   const tokenHeader = firstHeader(headers[MANAGEMENT_EMBED_TOKEN_HEADER]);
@@ -136,40 +140,42 @@ export function createManagementEmbedRuntime(
   };
 }
 
-export async function managedProjectPath(projectRoot: string, rootUserId: string, projectId: string): Promise<string> {
+export async function managedProjectPath(projectRoot: string, rootUserId: string, projectId: string, options: ManagedProjectPathOptions = {}): Promise<string> {
   const root = await ensureRealDirectory(projectRoot);
   const requested = join(root, safePathSegment(rootUserId), safePathSegment(projectId));
   ensureInside(root, requested);
-  await mkdir(requested, { recursive: true });
-  const target = await realpath(requested);
+  const target = await projectPathTarget(requested, options.create !== false);
   ensureInside(root, target);
   return target;
 }
 
-export async function projectFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, projectId: string): Promise<Project> {
+export async function projectFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, projectId: string, options: ManagedProjectPathOptions = {}): Promise<Project> {
   const entry = authorizedManagedProjects(context).find((project) => project.id === projectId);
   if (entry === undefined) throw new Error("Project is not authorized for this management session");
   const path = context.projects.length === 0 && entry.id === DEFAULT_MANAGED_PROJECT_ID
-    ? await defaultManagedProjectPath(projectRoot, context.user.id)
-    : await pathForManagedProjectEntry(projectRoot, context, entry);
+    ? await defaultManagedProjectPath(projectRoot, context.user.id, options)
+    : await pathForManagedProjectEntry(projectRoot, context, entry, options);
   return { id: entry.id, name: entry.name !== "" ? entry.name : entry.id, path, createdAt: new Date(0).toISOString() };
 }
 
 export async function projectsFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext): Promise<Project[]> {
-  return Promise.all(authorizedManagedProjects(context).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id)));
+  return Promise.all(authorizedManagedProjects(context).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id, { create: false })));
 }
 
-export async function assertManagedCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string): Promise<string> {
+export async function assertManagedCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string, options: ManagedProjectPathOptions = {}): Promise<string> {
   const root = await ensureRealDirectory(projectRoot);
-  const requested = await realpath(resolve(cwd));
-  ensureInside(root, requested);
+  const create = options.create !== false;
   const authorizedRoots = context.projects.length === 0
-    ? [await defaultManagedProjectPath(root, context.user.id)]
+    ? [await defaultManagedProjectPath(root, context.user.id, { create })]
     : await Promise.all(context.projects.map(async (project) => {
       const projectRootOverride = project.root?.trim();
       if (projectRootOverride !== undefined && projectRootOverride !== "") return realpath(resolve(projectRootOverride));
-      return managedProjectPath(root, context.user.rootUserId, project.id);
+      return managedProjectPath(root, context.user.rootUserId, project.id, { create });
     }));
+  const resolvedCwd = resolve(cwd);
+  if (create && authorizedRoots.some((authorized) => pathsEqual(authorized, resolvedCwd))) await mkdir(resolvedCwd, { recursive: true });
+  const requested = await realpath(resolvedCwd);
+  ensureInside(root, requested);
   if (!authorizedRoots.some((authorized) => isInside(authorized, requested))) {
     throw new Error("Path is outside the managed project sandbox");
   }
@@ -339,10 +345,11 @@ async function pathForManagedProjectEntry(
   projectRoot: string,
   context: ManagementEmbedContext,
   project: ManagementEmbedContext["projects"][number],
+  options: ManagedProjectPathOptions,
 ): Promise<string> {
   const entryRoot = project.root?.trim();
   if (entryRoot !== undefined && entryRoot !== "") return assertManagedCwd(projectRoot, context, entryRoot);
-  return managedProjectPath(projectRoot, context.user.rootUserId, project.id);
+  return managedProjectPath(projectRoot, context.user.rootUserId, project.id, options);
 }
 
 function authorizedManagedProjects(context: ManagementEmbedContext): ManagementEmbedContext["projects"] {
@@ -356,14 +363,23 @@ function defaultManagedProject(context: ManagementEmbedContext): ManagementEmbed
   };
 }
 
-async function defaultManagedProjectPath(projectRoot: string, userId: string): Promise<string> {
+async function defaultManagedProjectPath(projectRoot: string, userId: string, options: ManagedProjectPathOptions = {}): Promise<string> {
   const root = await ensureRealDirectory(projectRoot);
   const requested = join(root, safePathSegment(userId));
   ensureInside(root, requested);
-  await mkdir(requested, { recursive: true });
-  const target = await realpath(requested);
+  const target = await projectPathTarget(requested, options.create !== false);
   ensureInside(root, target);
   return target;
+}
+
+async function projectPathTarget(requested: string, create: boolean): Promise<string> {
+  if (create) await mkdir(requested, { recursive: true });
+  try {
+    return await realpath(requested);
+  } catch (error) {
+    if (!create && (isNodeErrorWithCode(error, "ENOENT") || isNodeErrorWithCode(error, "ENOTDIR"))) return requested;
+    throw error;
+  }
 }
 
 function defaultManagedProjectRoot(homeDir: string): string {
@@ -392,6 +408,10 @@ function isInside(root: string, target: string): boolean {
   return sep === "/" || !rel.split(sep).includes("..");
 }
 
+function pathsEqual(left: string, right: string): boolean {
+  return relative(left, right) === "";
+}
+
 function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
   if (typeof field !== "string" || field.trim() === "") throw new Error(`Management embed ${key} is required`);
@@ -418,4 +438,8 @@ function booleanRecord(value: Record<string, unknown>): Record<string, boolean> 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }

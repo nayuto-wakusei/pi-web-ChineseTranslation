@@ -102,7 +102,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
-        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId);
+        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId, { create: false });
         return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
       }
       const project = await projects.requireProject(request.params.projectId);
@@ -138,7 +138,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd);
+      const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd, { create: false });
       const query = request.query.q ?? "";
       const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForCwd(cwd, projects, workspaces, options.config) : undefined;
       if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);

@@ -37,7 +37,7 @@ async function resolveRouteWorkspaceContext(
   const managementContext = await managementContextForRequest(request, managementEmbed, reply);
   if (managementContext === undefined) return resolveWorkspaceContext(projects, workspaces, projectId, workspaceId);
   if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId);
+  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId, { create: false });
   const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
   if (workspace === undefined) throw new Error("Workspace not found");
   return { project, workspace, root: workspace.path };

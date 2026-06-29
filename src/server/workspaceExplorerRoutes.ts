@@ -27,7 +27,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/tree`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTree(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -36,7 +36,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await readWorkspaceFile(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -45,7 +45,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.put<{ Params: { projectId: string; workspaceId: string }; Body: Buffer; Querystring: { path?: string; createDirs?: string; overwrite?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       const writeOptions: WriteWorkspaceFileOptions = {
         createDirs: request.query.createDirs !== "false",
         overwrite: request.query.overwrite !== "false",
@@ -58,7 +58,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceUploadInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, { bodyLimit: WORKSPACE_UPLOAD_BODY_LIMIT_BYTES }, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       if (request.isMultipart()) return await uploadWorkspaceFileFromMultipart(context.root, request);
       return await uploadWorkspaceFile(context.root, request.body);
     } catch (error) {
@@ -68,7 +68,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.delete<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await deleteWorkspaceFile(context.root, request.query.path);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -77,7 +77,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.post<{ Params: { projectId: string; workspaceId: string }; Querystring: { fromPath?: string; toPath?: string; createDirs?: string; overwrite?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/move`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await moveWorkspaceFile(context.root, request.query.fromPath, request.query.toPath, {
         createDirs: request.query.createDirs !== "false",
         overwrite: request.query.overwrite === "true",
@@ -89,7 +89,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/download`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       const download = await readWorkspaceFileDownload(context.root, request.query.path);
       return await reply
         .type("application/octet-stream")
@@ -105,7 +105,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspacePathInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await createWorkspaceDirectory(context.root, request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -114,7 +114,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.patch<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceMoveInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await moveWorkspaceDirectory(context.root, request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -123,7 +123,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.delete<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await deleteWorkspaceDirectory(context.root, request.query.path);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -132,7 +132,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/preview`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       const preview = await readWorkspaceImagePreview(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
       return await reply
         .type(preview.mimeType)
@@ -149,7 +149,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/files`, async (request, reply) => {
     try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId);
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       const query = request.query.q ?? "";
       const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForWorkspaceContext(context, options.config) : undefined;
       if (request.query.mode === "path") return await listPathSuggestions(context.root, query, pathAccess);
@@ -209,11 +209,12 @@ async function resolveRouteWorkspaceContext(
   reply: FastifyReply,
   projectId: string,
   workspaceId: string,
+  options: { createManagedProject: boolean },
 ): Promise<WorkspaceContext> {
   const managementContext = await managementContextForRequest(request, managementEmbed, reply);
   if (managementContext === undefined) return resolveWorkspaceContext(projects, workspaces, projectId, workspaceId);
   if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId);
+  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId, { create: options.createManagedProject });
   const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
   if (workspace === undefined) throw new Error("Workspace not found");
   return { project, workspace, root: workspace.path };
