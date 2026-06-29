@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
-import { startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
+import { selectedWorkspacePathKind, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 describe("workspaceUploadBatchesForScope", () => {
   it("filters upload batches to the selected project, workspace, and machine", () => {
@@ -63,6 +63,27 @@ describe("workspace upload defaults", () => {
 
     expect(startDirectWorkspaceUpload({ workspaceUploadDefaultFolder: "project/uploads", onStartWorkspaceUpload }, [])).toBeUndefined();
     expect(onStartWorkspaceUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe("workspace file actions", () => {
+  it("uses the selected directory for new path defaults", () => {
+    expect(workspaceNewPathDefault("src", "directory", "new-file.txt")).toBe("src/new-file.txt");
+  });
+
+  it("uses the selected file parent directory for new path defaults", () => {
+    expect(workspaceNewPathDefault("src/index.ts", "file", "new-file.txt")).toBe("src/new-file.txt");
+  });
+
+  it("finds selected path kinds in root and expanded directory entries", () => {
+    expect(selectedWorkspacePathKind([
+      { name: "src", path: "src", type: "directory", modifiedAt: "2026-06-29T00:00:00.000Z" },
+    ], {
+      src: [{ name: "index.ts", path: "src/index.ts", type: "file", size: 1, modifiedAt: "2026-06-29T00:00:00.000Z" }],
+    }, "src")).toBe("directory");
+    expect(selectedWorkspacePathKind([], {
+      src: [{ name: "index.ts", path: "src/index.ts", type: "file", size: 1, modifiedAt: "2026-06-29T00:00:00.000Z" }],
+    }, "src/index.ts")).toBe("file");
   });
 });
 

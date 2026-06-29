@@ -39,6 +39,9 @@ export class WorkspaceFilesPanel extends LitElement {
   override render(): TemplateResult {
     const context = this.context;
     if (context === undefined) return html`<p class="muted">文件不可用。</p>`;
+    const selectedPath = context.selectedFilePath;
+    const selectedKind = selectedWorkspacePathKind(context.fileTree, context.expandedDirs, selectedPath);
+    const canDelete = selectedPath !== undefined && selectedPath !== "";
     return html`
       <section
         class=${this.dragActive ? "files-panel dragging" : "files-panel"}
@@ -51,7 +54,10 @@ export class WorkspaceFilesPanel extends LitElement {
           <strong>文件</strong>
           ${context.fileTreeStale ? html`<span class="stale">过期</span>` : null}
           <div class="toolbar-actions">
+            <button @click=${() => { this.promptCreateFile(context, selectedKind); }}>新建文件</button>
+            <button @click=${() => { this.promptCreateDirectory(context, selectedKind); }}>新建文件夹</button>
             <button aria-label="上传文件" @click=${this.openFilePicker}>上传</button>
+            <button class="danger" title=${canDelete ? `删除 ${selectedPath}` : "请选择要删除的文件或文件夹"} ?disabled=${!canDelete} @click=${() => { this.confirmDeleteSelectedPath(context); }}>删除</button>
             <button @click=${context.onRefreshFiles}>刷新</button>
           </div>
           <input id="workspace-upload-input" class="visually-hidden" type="file" multiple @change=${this.handleFileInputChange} />
@@ -79,7 +85,7 @@ export class WorkspaceFilesPanel extends LitElement {
   private renderTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry, depth: number): TemplateResult {
     const children = context.expandedDirs[entry.path];
     const hasChildren = children !== undefined;
-    const selected = entry.type !== "directory" && context.selectedFilePath === entry.path;
+    const selected = context.selectedFilePath === entry.path;
     return html`
       <button class=${selected ? "row selected" : "row"} style=${`--depth:${String(depth)}`} @click=${() => { this.selectTreeEntry(context, entry); }}>
         <span>${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
@@ -90,13 +96,18 @@ export class WorkspaceFilesPanel extends LitElement {
   }
 
   private selectTreeEntry(context: WorkspacePanelContext, entry: FileTreeEntry): void {
-    if (entry.type === "directory") context.onExpandDir(entry.path);
-    else context.onSelectFile(entry.path);
+    if (entry.type === "directory") {
+      context.onSelectDirectory(entry.path);
+      context.onExpandDir(entry.path);
+      return;
+    }
+    context.onSelectFile(entry.path);
   }
 
   private renderFileViewer(context: WorkspacePanelContext): TemplateResult {
     const file = context.selectedFileContent;
     if (context.selectedFilePath === undefined || context.selectedFilePath === "") return html`<p class="muted">请选择文件。</p>`;
+    if (selectedWorkspacePathKind(context.fileTree, context.expandedDirs, context.selectedFilePath) === "directory") return html`<p class="muted">已选择文件夹：${context.selectedFilePath}</p>`;
     if (file === undefined) return html`<p class="muted">正在加载 ${context.selectedFilePath}…</p>`;
     if (file.mediaType === "image") return this.renderImageViewer(context, file);
     if (file.binary) return html`<p class="muted">二进制文件：${file.path} · ${formatFileSize(file.size)}</p>`;
@@ -228,6 +239,22 @@ export class WorkspaceFilesPanel extends LitElement {
     this.uploadInput?.click();
   };
 
+  private promptCreateFile(context: WorkspacePanelContext, selectedKind: FileTreeEntry["type"] | undefined): void {
+    const path = promptWorkspacePath("新建文件路径", workspaceNewPathDefault(context.selectedFilePath, selectedKind, "new-file.txt"));
+    if (path !== undefined) context.onCreateFile(path);
+  }
+
+  private promptCreateDirectory(context: WorkspacePanelContext, selectedKind: FileTreeEntry["type"] | undefined): void {
+    const path = promptWorkspacePath("新建文件夹路径", workspaceNewPathDefault(context.selectedFilePath, selectedKind, "new-folder"));
+    if (path !== undefined) context.onCreateDirectory(path);
+  }
+
+  private confirmDeleteSelectedPath(context: WorkspacePanelContext): void {
+    const path = context.selectedFilePath;
+    if (path === undefined || path === "") return;
+    if (window.confirm(`删除 ${path}？此操作无法撤销。`)) context.onDeleteSelectedPath();
+  }
+
   private readonly handleFileInputChange = (event: Event): void => {
     const input = event.currentTarget instanceof HTMLInputElement ? event.currentTarget : undefined;
     const files = fileListToArray(input?.files);
@@ -332,6 +359,8 @@ export class WorkspaceFilesPanel extends LitElement {
       .files-panel { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
       .toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
       .toolbar .toolbar-actions button { margin-left: 0; }
+      .toolbar .toolbar-actions button.danger { color: var(--pi-danger); }
+      .toolbar .toolbar-actions button.danger:not(:disabled):hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
       .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
       .drop-overlay { position: absolute; inset: 52px 10px 10px; z-index: 15; display: grid; place-items: center; border: 2px dashed var(--pi-accent); border-radius: 12px; background: color-mix(in srgb, var(--pi-bg-overlay) 90%, var(--pi-accent) 10%); color: var(--pi-text); opacity: 0; pointer-events: none; transition: opacity .12s ease; }
       .files-panel.dragging .drop-overlay { opacity: 1; }
@@ -399,6 +428,18 @@ export function workspaceUploadReviewDefaults(destinationFolder: string): { dest
   return { destinationFolder, createDirs: true, overwrite: false };
 }
 
+export function selectedWorkspacePathKind(fileTree: readonly FileTreeEntry[], expandedDirs: Record<string, readonly FileTreeEntry[]>, selectedPath: string | undefined): FileTreeEntry["type"] | undefined {
+  if (selectedPath === undefined) return undefined;
+  return findWorkspaceTreeEntry(fileTree, expandedDirs, selectedPath)?.type;
+}
+
+export function workspaceNewPathDefault(selectedPath: string | undefined, selectedKind: FileTreeEntry["type"] | undefined, basename: string): string {
+  if (selectedPath === undefined || selectedPath === "") return basename;
+  if (selectedKind === "directory") return joinWorkspacePath(selectedPath, basename);
+  const parent = workspaceParentPath(selectedPath);
+  return parent === "" ? basename : joinWorkspacePath(parent, basename);
+}
+
 export function startDirectWorkspaceUpload(
   context: Pick<WorkspacePanelContext, "workspaceUploadDefaultFolder" | "onStartWorkspaceUpload">,
   files: readonly File[],
@@ -414,6 +455,32 @@ export function startDirectWorkspaceUpload(
 
 function workspaceContextKey(context: WorkspacePanelContext): string {
   return `${context.machine.id}:${context.workspace.projectId}:${context.workspace.id}`;
+}
+
+function promptWorkspacePath(message: string, defaultPath: string): string | undefined {
+  const path = window.prompt(message, defaultPath);
+  if (path === null) return undefined;
+  const trimmed = path.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function findWorkspaceTreeEntry(fileTree: readonly FileTreeEntry[], expandedDirs: Record<string, readonly FileTreeEntry[]>, path: string): FileTreeEntry | undefined {
+  const rootMatch = fileTree.find((entry) => entry.path === path);
+  if (rootMatch !== undefined) return rootMatch;
+  for (const entries of Object.values(expandedDirs)) {
+    const match = entries.find((entry) => entry.path === path);
+    if (match !== undefined) return match;
+  }
+  return undefined;
+}
+
+function workspaceParentPath(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index < 0 ? "" : path.slice(0, index);
+}
+
+function joinWorkspacePath(parent: string, basename: string): string {
+  return parent === "" ? basename : `${parent.replace(/\/+$/u, "")}/${basename.replace(/^\/+/u, "")}`;
 }
 
 function fileListToArray(files: FileList | null | undefined): File[] {
