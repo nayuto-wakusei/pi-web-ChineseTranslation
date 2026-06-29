@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.27
+
+### Patch Changes
+
+- e4b5229: Translate session cleanup dialog, sidebar button, command action, validation, and confirmation copy into Chinese.
+- 93ad68c: Add workspace file panel actions for creating files, creating folders, and deleting the selected path.
+
 ## 1.202606.26
 
 ### Patch Changes
