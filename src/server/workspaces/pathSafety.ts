@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
 export async function resolveInsideWorkspace(rootPath: string, relativePath: string | undefined): Promise<{ root: string; target: string; relativePath: string }> {
   const requested = normalizeRelativePath(relativePath);
@@ -17,8 +17,23 @@ export async function resolveParentInsideWorkspace(rootPath: string, relativePat
   const requested = normalizeRelativePath(relativePath);
   const root = await realpath(rootPath);
   const target = join(root, requested);
+  const parent = await realpathNearestExistingParent(target, root);
+  ensureInside(root, parent);
   ensureInside(root, target);
   return { root, target, relativePath: requested };
+}
+
+async function realpathNearestExistingParent(target: string, root: string): Promise<string> {
+  let parent = target === root ? root : dirname(target);
+  while (parent !== root) {
+    try {
+      return await realpath(parent);
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
+      parent = dirname(parent);
+    }
+  }
+  return realpath(root);
 }
 
 export function normalizeRelativePath(input: string | undefined): string {

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
@@ -64,7 +65,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await app.close();
-  await rm(tempDir, { recursive: true, force: true });
+  await removeTempDir(tempDir);
 });
 
 describe("buildApp", () => {
@@ -918,6 +919,23 @@ function fakeSessionDaemon(): SessionProxyDaemon {
     },
     connectWebSocket: () => { throw new Error("WebSocket not configured for test"); },
   };
+}
+
+async function removeTempDir(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isRetryableRemoveError(error) || attempt === 4) throw error;
+      await delay(50 * (attempt + 1));
+    }
+  }
+}
+
+function isRetryableRemoveError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return error.code === "EBUSY" || error.code === "ENOTEMPTY" || error.code === "EPERM";
 }
 
 function fakeRemoteClient(overrides: Partial<MachineClient>): MachineClient {
