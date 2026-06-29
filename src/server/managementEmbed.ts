@@ -67,8 +67,8 @@ export function readManagementEmbedRequest(headers: Record<string, string | stri
   const tokenHeader = firstHeader(headers[MANAGEMENT_EMBED_TOKEN_HEADER]);
   const embedQuery = typeof query?.["embed"] === "string" ? query["embed"].trim() : undefined;
   const tokenQuery = typeof query?.["token"] === "string" ? query["token"].trim() : undefined;
-  const isManagement = modeHeader === "management" || embedQuery === "management" || tokenHeader !== undefined || tokenQuery !== undefined;
-  const token = tokenHeader ?? tokenQuery;
+  const isManagement = modeHeader === "management" || embedQuery === "management" || tokenHeader !== undefined;
+  const token = isManagement ? tokenHeader ?? tokenQuery : undefined;
   return {
     ...(isManagement ? { mode: "management" as const } : {}),
     ...(token === undefined ? {} : { token }),
@@ -77,13 +77,13 @@ export function readManagementEmbedRequest(headers: Record<string, string | stri
 
 export async function managementContextForRequest(request: ManagementEmbedRequestSource, runtime: ManagementEmbedRuntime | undefined, reply?: ManagementEmbedReplyTarget): Promise<ManagementEmbedContext | undefined> {
   const embed = readManagementEmbedRequest(request.headers, isRecord(request.query) ? request.query : undefined);
+  if (embed.mode !== "management") return undefined;
   const sessionId = readCookie(request.headers["cookie"], runtime?.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE);
   if (runtime?.enabled === true && sessionId !== undefined && runtime.readSession !== undefined) {
     const sessionContext = runtime.readSession(sessionId);
     if (sessionContext !== undefined) return sessionContext;
-    if (embed.mode === "management" && (embed.token === undefined || embed.token === "")) throw new Error("Management embed session is invalid or expired");
+    if (embed.token === undefined || embed.token === "") throw new Error("Management embed session is invalid or expired");
   }
-  if (embed.mode !== "management") return undefined;
   if (runtime?.enabled !== true) throw new Error("Management embed mode is not configured");
   if (embed.token === undefined || embed.token === "") throw new Error("Management embed token is required");
   const context = await runtime.authenticate(embed.token);

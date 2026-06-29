@@ -76,6 +76,10 @@ describe("management embed sandbox policy", () => {
     });
   });
 
+  it("does not treat ordinary token query parameters as management embed mode", () => {
+    expect(readManagementEmbedRequest({}, { token: "ordinary-page-token" })).toEqual({});
+  });
+
   it("defaults the management project root under the runtime user home directory", () => {
     const runtime = createManagementEmbedRuntime({
       enabled: true,
@@ -147,6 +151,17 @@ describe("management embed local token authentication", () => {
     const context = await managementContextForRequest(requestFor({ cookie }, { embed: "management", token: expiredToken }), runtime, replyFor());
 
     expect(context?.projects).toEqual([]);
+  });
+
+  it("ignores management session cookies on ordinary page requests", async () => {
+    const runtime = runtimeFor("secret-1");
+    const entryReply = replyFor();
+    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }])), "secret-1");
+    await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, entryReply);
+
+    await expect(
+      managementContextForRequest(requestFor({ cookie: cookiePair(entryReply) }, { project: "personal-project", workspace: "w1", session: "s1" }), runtime, replyFor()),
+    ).resolves.toBeUndefined();
   });
 
   it("expires management sessions server-side after 24 hours", async () => {
