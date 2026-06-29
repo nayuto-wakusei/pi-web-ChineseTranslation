@@ -364,7 +364,7 @@ export class WorkspaceFilesPanel extends LitElement {
       form { min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 16px; }
       form > label { display: grid; gap: 6px; }
       form > label > span, .review-files > strong { font-weight: 600; }
-      input[type="text"], form > label > input:not([type]) { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 8px 9px; font: inherit; }
+      input[type="text"], form > label > input:not([type]) { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); }
       input:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
       .dialog-options { display: grid; gap: 8px; }
       .dialog-options label { display: flex; align-items: center; gap: 8px; color: var(--pi-text); }

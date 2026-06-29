@@ -8,7 +8,7 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { api, type FileSuggestion, type PromptAttachment, type SessionStatus, type SlashCommand } from "../api";
 import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
 import { capturePromptAttachments, effectivePromptAttachmentDelivery, isInlinePromptAttachment, promptAttachmentsCanUseInlineDelivery, type CapturedAttachment } from "../promptAttachmentCapture";
-import { inputModeForDraft } from "../inputModes";
+import { inputModeForDraft, inputModesEqual, type InputMode } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
 import { detectPromptCompletionTrigger, fileCompletionInsertText, type PromptCompletionTrigger } from "../promptCompletions";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
@@ -42,7 +42,14 @@ export class PromptEditor extends LitElement {
   @property({ attribute: false }) availableThinkingLevels: readonly string[] = [];
   @query(".markdown-editor") private editorHost?: HTMLDivElement;
   @query(".attachment-input") private attachmentInput?: HTMLInputElement;
-  @state() private draft = "";
+  // `draft` is the live document text but is intentionally NOT reactive: it
+  // changes on every keystroke and the visible text is owned by CodeMirror, not
+  // by Lit's render. Re-rendering the surrounding template on each keystroke is
+  // wasted work and, on iOS, can interrupt an in-progress touch gesture (the
+  // long-press edit/paste callout). Only `currentInputMode` (shell vs. normal)
+  // is reactive, since that is the only draft-derived value the template shows.
+  private draft = "";
+  @state() private currentInputMode: InputMode = { kind: "normal" };
   @state() private completions: CompletionItem[] = [];
   @state() private selectedIndex = 0;
   @state() private attachments: PendingAttachment[] = [];
@@ -64,8 +71,20 @@ export class PromptEditor extends LitElement {
     if (previousKey !== undefined) saveDraft(previousKey, this.draft);
     const currentKey = draftStorageKey(this.machineId, this.sessionId);
     this.draft = currentKey !== undefined ? loadDraft(currentKey) : "";
+    this.currentInputMode = inputModeForDraft(this.draft);
     this.completions = [];
     this.selectedIndex = 0;
+  }
+
+  protected override shouldUpdate(changed: PropertyValues<this>): boolean {
+    // Status updates churn once per token during streaming and hand us a fresh
+    // object reference each time. When nothing else changed, only re-render if a
+    // status field the template actually displays differs, so streaming does not
+    // disturb the editor DOM (and any in-progress touch gesture survives).
+    if (changed.has("status") && changed.size === 1) {
+      return !sessionStatusRenderEqual(changed.get("status"), this.status);
+    }
+    return true;
   }
 
   override firstUpdated(): void {
@@ -74,7 +93,7 @@ export class PromptEditor extends LitElement {
 
   protected override updated(changed: PropertyValues) {
     if (changed.has("disabled")) this.updateEditorDisabledState();
-    if (changed.has("draft") || changed.has("sessionId") || changed.has("machineId")) this.syncEditorDoc();
+    if (changed.has("sessionId") || changed.has("machineId")) this.syncEditorDoc();
   }
 
   override disconnectedCallback(): void {
@@ -84,8 +103,8 @@ export class PromptEditor extends LitElement {
   }
 
   override render() {
-    const inputMode = inputModeForDraft(this.draft);
-    const shellMode = inputMode.kind === "shell";
+    const shellInputMode = this.currentInputMode.kind === "shell" ? this.currentInputMode : undefined;
+    const shellMode = shellInputMode !== undefined;
     const queuesInput = this.canSteer || this.isCompacting;
     const busy = this.disabled || this.sending;
     return html`
@@ -94,7 +113,7 @@ export class PromptEditor extends LitElement {
           <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
           <input class="attachment-input" type="file" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
           <button class="editor-attach icon-button" ?disabled=${busy} title="附加文件" aria-label="附加文件" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
-          ${shellMode ? html`<div class="mode-hint">Shell 命令${inputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
+          ${shellMode ? html`<div class="mode-hint">Shell 命令${shellInputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
           ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
@@ -288,6 +307,8 @@ export class PromptEditor extends LitElement {
     this.draft = value;
     const key = draftStorageKey(this.machineId, this.sessionId);
     if (key !== undefined) saveDraft(key, this.draft);
+    const nextInputMode = inputModeForDraft(this.draft);
+    if (!inputModesEqual(nextInputMode, this.currentInputMode)) this.currentInputMode = nextInputMode;
     void this.refreshCompletions();
   }
 
@@ -432,14 +453,31 @@ export class PromptEditor extends LitElement {
 
   private resetComposer() {
     this.draft = "";
+    this.currentInputMode = { kind: "normal" };
     const key = draftStorageKey(this.machineId, this.sessionId);
     if (key !== undefined) clearDraft(key);
     this.completions = [];
     this.attachments = [];
     this.attachmentError = undefined;
+    // `draft` is not reactive, so the cleared text will not flow to CodeMirror
+    // via `updated()`; push it to the editor document explicitly.
+    this.syncEditorDoc();
   }
 
   static override styles = promptEditorStyles;
+}
+
+// The only `status` fields the template reads directly are the model identity
+// and thinking level (shown in renderCompactStatus). Everything else the editor
+// cares about (canSteer/canStop/isCompacting/sending) is passed as a separate
+// property that Lit already diffs by value. Comparing just these fields lets us
+// ignore the per-token status churn that does not change anything on screen.
+function sessionStatusRenderEqual(a: SessionStatus | undefined, b: SessionStatus | undefined): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return a.model?.id === b.model?.id
+    && a.model?.provider === b.model?.provider
+    && a.thinkingLevel === b.thinkingLevel;
 }
 
 function draftStorageKey(machineId: unknown, sessionId: unknown): string | undefined {

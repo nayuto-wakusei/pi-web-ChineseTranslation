@@ -1,15 +1,19 @@
 import { Type } from "typebox";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export interface SpawnSessionResult {
   sessionId: string;
   cwd: string;
 }
 
+export type SpawnSessionModel = NonNullable<ExtensionContext["model"]>;
+
 export interface SpawnSessionInvocation {
   spawningCwd: string;
   prompt: string;
   cwd: string | undefined;
+  /** Current model from the dispatching session, used as the spawned session's default. */
+  model?: SpawnSessionModel;
 }
 
 export interface SpawnSessionToolDeps {
@@ -40,11 +44,16 @@ export function createSpawnSessionToolDefinition(spawningCwd: string, deps: Spaw
     description: "启动一个新的独立 pi-web 会话，并发送初始提示。可用于派遣新的代理继续工作或执行计划。新会话会自行运行，人类可以打开并交互；你不会收到它的输出。",
     promptSnippet: "spawn_session：使用第一条提示启动新的独立会话",
     parameters: SpawnSessionParams,
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       // Failures throw: the agent loop turns the thrown message into an error
       // tool result the model sees, so the spawning agent can adapt (e.g. pick a
       // valid workspace) rather than crash.
-      const result = await deps.spawn({ spawningCwd, prompt: params.prompt, cwd: params.cwd });
+      const result = await deps.spawn({
+        spawningCwd,
+        prompt: params.prompt,
+        cwd: params.cwd,
+        ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      });
       return {
         content: [{ type: "text", text: `已在 ${result.cwd} 启动会话 ${result.sessionId}。` }],
         details: result,

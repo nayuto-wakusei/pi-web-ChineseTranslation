@@ -3,11 +3,13 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { createSubsessionToolDefinitions, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 
-function ctxFor(sessionId: string, sessionFile: string | undefined): ExtensionContext {
+const dispatchModel = { provider: "anthropic", id: "claude-sonnet" };
+
+function ctxFor(sessionId: string, sessionFile: string | undefined, model?: unknown): ExtensionContext {
   const sessionManager = { getSessionId: () => sessionId, getSessionFile: () => sessionFile };
-  // The subsession tools only read sessionManager.getSessionId/getSessionFile.
+  // The subsession tools only read sessionManager.getSessionId/getSessionFile and model.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test stub with the minimal surface the tools use.
-  return { sessionManager } as unknown as ExtensionContext;
+  return { sessionManager, ...(model === undefined ? {} : { model }) } as unknown as ExtensionContext;
 }
 
 function tools(deps: Partial<SubsessionToolDeps>) {
@@ -36,7 +38,7 @@ describe("createSubsessionToolDefinitions", () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" }));
     const { spawn: spawnTool } = tools({ spawn });
 
-    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
+    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel));
 
     expect(spawn).toHaveBeenCalledWith({
       spawningCwd: "/repos/a",
@@ -44,9 +46,25 @@ describe("createSubsessionToolDefinitions", () => {
       parentSessionFile: "/sessions/parent-1.jsonl",
       prompt: "do it",
       cwd: "/repos/a-feature",
+      model: dispatchModel,
     });
     expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a-feature" });
     expect(firstText(result.content)).toContain("Started subsession child-1");
+  });
+
+  it("spawn_subsession omits the inherited model when the dispatching session has no current model", async () => {
+    const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-2", cwd: "/repos/a" }));
+    const { spawn: spawnTool } = tools({ spawn });
+
+    await spawnTool.execute("call-modeless", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
+
+    expect(spawn).toHaveBeenCalledWith({
+      spawningCwd: "/repos/a",
+      parentSessionId: "parent-1",
+      parentSessionFile: undefined,
+      prompt: "do it",
+      cwd: undefined,
+    });
   });
 
   it("list_subsessions reports the caller's subsessions and their status", async () => {

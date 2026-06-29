@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TranscriptContentKind, TranscriptEntry, TranscriptRole, TranscriptView } from "./subsessionTranscript.js";
 
 /** Lifecycle phase of a tracked subsession as seen by its parent. */
@@ -10,6 +10,8 @@ export interface SpawnSubsessionResult {
   cwd: string;
 }
 
+export type SpawnSubsessionModel = NonNullable<ExtensionContext["model"]>;
+
 export interface SpawnSubsessionInvocation {
   /** cwd of the session that invoked the tool (used for project-scope checks). */
   spawningCwd: string;
@@ -19,6 +21,8 @@ export interface SpawnSubsessionInvocation {
   parentSessionFile: string | undefined;
   prompt: string;
   cwd: string | undefined;
+  /** Current model from the dispatching session, used as the spawned session's default. */
+  model?: SpawnSubsessionModel;
 }
 
 export interface SubsessionSummary {
@@ -180,7 +184,14 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
       const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
-      const result = await deps.spawn({ spawningCwd, parentSessionId, parentSessionFile, prompt: params.prompt, cwd: params.cwd });
+      const result = await deps.spawn({
+        spawningCwd,
+        parentSessionId,
+        parentSessionFile,
+        prompt: params.prompt,
+        cwd: params.cwd,
+        ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      });
       return {
         content: [{ type: "text", text: `Started subsession ${result.sessionId} in ${result.cwd}. You will be notified when it stops working.` }],
         details: result,

@@ -1,6 +1,6 @@
 import { open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSessionFromServices,
@@ -138,6 +138,12 @@ interface PersistedChildSubsessionLink {
   spawnedSessionId: string;
 }
 
+interface StartSessionOptions {
+  parentSession?: string;
+  managementContext?: ManagementEmbedContext;
+  initialModel?: AgentModel;
+}
+
 function requirePromptText(value: unknown): string {
   if (typeof value !== "string") throw new Error("提示文本为必填项");
   return value;
@@ -169,7 +175,7 @@ export interface PiSessionListEntry {
 }
 
 
-type AgentModel = Model<Api>;
+type AgentModel = NonNullable<SpawnSessionInvocation["model"]>;
 type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
 
 export interface PiSessionManager {
@@ -250,7 +256,7 @@ export interface PiSessionRuntime {
   dispose(): Promise<void>;
 }
 
-type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & { managementContext?: ManagementEmbedContext };
+type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & { managementContext?: ManagementEmbedContext; initialModel?: AgentModel };
 type PiCreateAgentSessionRuntimeFactory = (options: PiCreateRuntimeFactoryOptions) => ReturnType<CreateAgentSessionRuntimeFactory>;
 
 interface AgentContextFilesResult {
@@ -283,28 +289,51 @@ interface CreateAgentRuntimeOptions {
   agentDir: string;
   sessionManager: PiSessionManager;
   managementContext?: ManagementEmbedContext;
+  initialModel?: AgentModel;
 }
 
 type CreateAgentRuntime = (createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
 
 function defaultCreateAgentRuntime(createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
   if (!(options.sessionManager instanceof SessionManager)) throw new Error("Default runtime creation requires an SDK SessionManager");
-  const runtimeFactory: CreateAgentSessionRuntimeFactory = (runtimeOptions) => {
-    return createRuntime(options.managementContext === undefined ? runtimeOptions : { ...runtimeOptions, managementContext: options.managementContext });
+  const runtimeFactory = createRuntimeWithContextAndOneShotInitialModel(createRuntime, options.managementContext, options.initialModel);
+  return createAgentSessionRuntime(runtimeFactory, {
+    cwd: options.cwd,
+    agentDir: options.agentDir,
+    sessionManager: options.sessionManager,
+  });
+}
+
+function createRuntimeWithContextAndOneShotInitialModel(
+  createRuntime: PiCreateAgentSessionRuntimeFactory,
+  managementContext: ManagementEmbedContext | undefined,
+  initialModel: AgentModel | undefined,
+): CreateAgentSessionRuntimeFactory {
+  // The inherited model belongs only to the session being spawned. Do not keep
+  // reapplying it if that runtime later creates/forks/switches sessions itself.
+  let pendingInitialModel = initialModel;
+  return async (options) => {
+    const model = pendingInitialModel;
+    pendingInitialModel = undefined;
+    return createRuntime({
+      ...options,
+      ...(managementContext === undefined ? {} : { managementContext }),
+      ...(model === undefined ? {} : { initialModel: model }),
+    });
   };
-  return createAgentSessionRuntime(runtimeFactory, { ...options, sessionManager: options.sessionManager });
 }
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
 function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext }) => {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel }) => {
     if (managementContext !== undefined) {
       return createManagementRuntimeFactory(authStorage, modelRegistry, spawn, subsessions, managementContext)({
         cwd,
         agentDir,
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+        ...(initialModel === undefined ? {} : { initialModel }),
       });
     }
 
@@ -314,13 +343,13 @@ function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: Mo
       ...(spawn === undefined ? [] : [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))]),
       ...(subsessions === undefined ? [] : createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool))),
     ];
-    const options = {
+    const result = await createAgentSessionFromServices({
       services,
       sessionManager,
-      ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
       customTools,
-    };
-    const result = await createAgentSessionFromServices(options);
+      ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+      ...(initialModel === undefined ? {} : { model: initialModel }),
+    });
     return { ...result, services, diagnostics: services.diagnostics };
   };
 }
@@ -332,7 +361,7 @@ function createManagementRuntimeFactory(
   subsessions: SubsessionToolDeps | undefined,
   managementContext: ManagementEmbedContext,
 ): PiCreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel }) => {
     const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const services = await createAgentSessionServices({
@@ -357,6 +386,7 @@ function createManagementRuntimeFactory(
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
         tools: managementAgentToolNames(managementContext),
+        ...(initialModel === undefined ? {} : { model: initialModel }),
       };
       const result = await createAgentSessionFromServices(options);
       return { ...result, services, diagnostics: services.diagnostics };
@@ -590,11 +620,14 @@ export class PiSessionService {
     return [...unarchivedSessions, ...archivedSessions];
   }
 
-  async start(cwd: string, options: { parentSession?: string; managementContext?: ManagementEmbedContext } = {}): Promise<ClientSession> {
+  async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
     const active = await this.create(
       this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession }),
       cwd,
-      options.managementContext,
+      {
+        ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
+        ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
+      },
     );
     const { session } = active.runtime;
     const created: ClientSession = {
@@ -624,7 +657,7 @@ export class PiSessionService {
     if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
     const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
-    const created = await this.start(decision.cwd);
+    const created = await this.start(decision.cwd, input.model === undefined ? {} : { initialModel: input.model });
     await this.prompt(created.id, input.prompt);
     this.logger.info(
       { spawningCwd: input.spawningCwd, sessionId: created.id, cwd: decision.cwd, promptLength: input.prompt.length },
@@ -643,10 +676,10 @@ export class PiSessionService {
     if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
     const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
-    const created = await this.start(
-      decision.cwd,
-      input.parentSessionFile === undefined ? undefined : { parentSession: input.parentSessionFile },
-    );
+    const created = await this.start(decision.cwd, {
+      ...(input.parentSessionFile === undefined ? {} : { parentSession: input.parentSessionFile }),
+      ...(input.model === undefined ? {} : { initialModel: input.model }),
+    });
     const parentSessionFile = nonEmptyString(input.parentSessionFile);
     const link: TrackedSubsessionLink = {
       parentSessionId: input.parentSessionId,
@@ -1415,13 +1448,15 @@ export class PiSessionService {
     if (mismatched !== undefined) await this.closeActive(mismatched.runtime.session.sessionId);
 
     const archived = await this.getArchived(ref);
-    if (archived?.archivePath !== undefined) return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext);
+    if (archived?.archivePath !== undefined) {
+      return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext === undefined ? {} : { managementContext });
+    }
 
     const match = isPiSessionRef(ref)
       ? (await this.sessionManager.list(ref.cwd)).find((s) => s.id === ref.id || s.id.startsWith(ref.id))
       : (await this.sessionManager.listAll?.() ?? []).find((s) => s.id === ref || s.id.startsWith(ref));
     if (!match) throw new Error("未找到会话");
-    return this.create(this.sessionManager.open(match.path), match.cwd, managementContext);
+    return this.create(this.sessionManager.open(match.path), match.cwd, managementContext === undefined ? {} : { managementContext });
   }
 
   private async getArchived(ref: PiSessionLookup): Promise<ArchivedSessionRecord | undefined> {
@@ -1452,13 +1487,16 @@ export class PiSessionService {
     return undefined;
   }
 
-  private async create(sessionManager: PiSessionManager, cwd: string, managementContext?: ManagementEmbedContext): Promise<ManagedActiveSession> {
-    const runtime = await this.createAgentRuntime(
-      this.createRuntime,
-      managementContext === undefined ? { cwd, agentDir: this.agentDir, sessionManager } : { cwd, agentDir: this.agentDir, sessionManager, managementContext },
-    );
+  private async create(sessionManager: PiSessionManager, cwd: string, options: Pick<StartSessionOptions, "managementContext" | "initialModel"> = {}): Promise<ManagedActiveSession> {
+    const runtime = await this.createAgentRuntime(this.createRuntime, {
+      cwd,
+      agentDir: this.agentDir,
+      sessionManager,
+      ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
+      ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
+    });
     await this.bindSessionExtensions(runtime.session);
-    const active: ManagedActiveSession = { runtime, unsubscribe: noop, managementContextKey: managementContextKey(managementContext) };
+    const active: ManagedActiveSession = { runtime, unsubscribe: noop, managementContextKey: managementContextKey(options.managementContext) };
     this.bindRuntime(active);
     runtime.setRebindSession(async (session) => {
       await this.bindSessionExtensions(session);

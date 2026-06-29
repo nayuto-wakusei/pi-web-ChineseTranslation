@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api as defaultApi, type MessagePage, type PromptAttachment, type SessionActivity, type SessionInfo, type SessionRef, type SessionStatus, type Workspace } from "../api";
+import type { SessionUiEvent } from "../sessionSocket";
 import { isCachedNewSessionInfo, loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSession } from "../cachedNewSessions";
 import { initialAppState, type AppState } from "../appState";
 import { machineSessionKey } from "../machineKeys";
@@ -52,6 +53,28 @@ class FakeSocket implements SessionEventSocket {
   }
 }
 
+class EmitSocket implements SessionEventSocket {
+  readonly connectedSessionIds: string[] = [];
+  private handler: ((event: SessionUiEvent) => void) | undefined;
+
+  connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void): void {
+    this.connectedSessionIds.push(session.id);
+    this.handler = onEvent;
+  }
+
+  setHandler(onEvent: (event: SessionUiEvent) => void): void {
+    this.handler = onEvent;
+  }
+
+  emit(event: SessionUiEvent): void {
+    this.handler?.(event);
+  }
+
+  close(): void {
+    this.handler = undefined;
+  }
+}
+
 const workspace: Workspace = {
   id: "workspace-1",
   projectId: "project-1",
@@ -93,9 +116,114 @@ function status(sessionId: string): SessionStatus {
   };
 }
 
+const framesById = new Map<number, () => void>();
+let nextFrameId = 1;
+
+// The controller coalesces status/activity/transcript updates behind
+// requestAnimationFrame. The node test environment has no rAF, so install a
+// controllable one: callbacks are queued and only run when a test drives a
+// frame, mirroring how the browser defers them until paint.
+beforeEach(() => {
+  framesById.clear();
+  nextFrameId = 1;
+  vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {
+    const id = nextFrameId++;
+    framesById.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { framesById.delete(id); });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function runPendingAnimationFrames(): void {
+  const frames = Array.from(framesById.values());
+  framesById.clear();
+  for (const frame of frames) frame();
+}
+
 describe("SessionController", () => {
   afterEach(() => {
     Object.defineProperty(globalThis, "localStorage", { value: undefined, configurable: true });
+  });
+
+  it("coalesces rapid status updates into a single state write per frame", () => {
+    const setStateCalls: Partial<AppState>[] = [];
+    let state: AppState = { ...initialAppState(), selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { setStateCalls.push(patch); state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), isStreaming: true, messageCount: 1 } });
+    controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), isStreaming: true, messageCount: 2 } });
+    controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), isStreaming: true, messageCount: 3 } });
+
+    // Nothing applies until the frame is flushed; last-write-wins per session.
+    expect(setStateCalls).toHaveLength(0);
+    expect(state.sessionStatuses[oldSession.id]).toBeUndefined();
+
+    runPendingAnimationFrames();
+
+    expect(setStateCalls).toHaveLength(1);
+    expect(state.sessionStatuses[oldSession.id]).toMatchObject({ sessionId: oldSession.id, messageCount: 3 });
+    expect(state.status?.messageCount).toBe(3);
+  });
+
+  it("applies the latest activity per session on flush", () => {
+    const setStateCalls: Partial<AppState>[] = [];
+    let state: AppState = { ...initialAppState(), selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { setStateCalls.push(patch); state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "activity.update", activity: { sessionId: oldSession.id, phase: "active", label: "running tool", at: "t1" } });
+    controller.applyGlobalEvent({ type: "activity.update", activity: { sessionId: oldSession.id, phase: "idle", label: "idle", at: "t2" } });
+
+    expect(setStateCalls).toHaveLength(0);
+
+    controller.flushPendingUpdates();
+
+    expect(state.sessionActivities[oldSession.id]).toMatchObject({ phase: "idle", label: "idle" });
+    expect(state.activity?.phase).toBe("idle");
+  });
+
+  it("coalesces status updates delivered over the per-session socket until the frame is flushed", async () => {
+    const socket = new EmitSocket();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => Promise.resolve(emptyPage),
+      status: () => Promise.resolve(status(oldSession.id)),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket },
+    );
+    await controller.selectSession(oldSession, { updateUrl: false });
+
+    socket.emit({ type: "status.update", status: { ...status(oldSession.id), isStreaming: true, messageCount: 7 } });
+    socket.emit({ type: "status.update", status: { ...status(oldSession.id), isStreaming: true, messageCount: 8 } });
+
+    // Buffered, not applied synchronously.
+    expect(state.sessionStatuses[oldSession.id]?.messageCount).toBeUndefined();
+
+    controller.flushPendingUpdates();
+
+    expect(state.sessionStatuses[oldSession.id]?.messageCount).toBe(8);
+    expect(state.status?.messageCount).toBe(8);
   });
 
   it("clears stale active activity when an idle status arrives", () => {
@@ -116,6 +244,7 @@ describe("SessionController", () => {
     );
 
     controller.applyGlobalEvent({ type: "status.update", status: status(oldSession.id) });
+    controller.flushPendingUpdates();
 
     expect(state.activity).toBeUndefined();
     expect(state.sessionActivities[oldSession.id]).toBeUndefined();
@@ -137,6 +266,7 @@ describe("SessionController", () => {
     );
 
     controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), messageCount: 3 } });
+    controller.flushPendingUpdates();
 
     expect(state.sessions[0]?.messageCount).toBe(3);
     expect(state.selectedSession?.messageCount).toBe(3);
@@ -356,6 +486,7 @@ describe("SessionController", () => {
 
     const send = controller.send("hello");
     controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), messageCount: 1 } });
+    controller.flushPendingUpdates();
     resolvePrompt?.();
     await send;
 

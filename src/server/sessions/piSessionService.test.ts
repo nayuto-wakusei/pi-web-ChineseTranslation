@@ -60,6 +60,12 @@ function testManagementContext(): ManagementEmbedContext {
   };
 }
 
+function testModel(): NonNullable<PiAgentSession["model"]> {
+  const model = ModelRegistry.inMemory(AuthStorage.inMemory()).find("anthropic", "claude-3-5-sonnet-20241022");
+  if (model === undefined) throw new Error("test model not found");
+  return model;
+}
+
 function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
   const promptCalls: { text: string; options: unknown }[] = [];
   const customMessageCalls: { message: { customType: string; content: string; display: boolean; details?: unknown }; options: unknown }[] = [];
@@ -1029,6 +1035,28 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
+    it("uses the dispatching session's model as the spawned session's initial model", async () => {
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const model = testModel();
+      let initialModel: PiAgentSession["model"];
+      const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+        await Promise.resolve();
+        initialModel = options.initialModel;
+        return fake.runtime;
+      };
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime,
+        sessionManager: sessionGateway([]),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.spawnSession({ spawningCwd: "/workspace", prompt: "continue", cwd: "/workspace-feature", model });
+
+      expect(initialModel).toBe(model);
+      await service.dispose();
+    });
+
     it("rejects an out-of-project target without starting a session", async () => {
       const { fake, service } = spawnService({ allowed: false, reason: "out-of-project", allowedCwds: ["/workspace"] });
 
@@ -1107,6 +1135,35 @@ describe("PiSessionService", () => {
         { sessionId: "child-1", cwd: "/workspace-feature", status: "idle" },
       ]);
       void parent;
+      await service.dispose();
+    });
+
+    it("uses the parent session's model as the tracked child's initial model", async () => {
+      const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
+      const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
+      const model = testModel();
+      const initialModels: PiAgentSession["model"][] = [];
+      const runtimes = [parent.runtime, child.runtime];
+      let index = 0;
+      const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+        await Promise.resolve();
+        initialModels.push(options.initialModel);
+        const runtime = runtimes[index] ?? child.runtime;
+        index += 1;
+        return runtime;
+      };
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime,
+        sessionManager: sessionGateway([]),
+        archiveStore: emptyArchiveStore(),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature", model });
+
+      expect(initialModels).toEqual([undefined, model]);
       await service.dispose();
     });
 

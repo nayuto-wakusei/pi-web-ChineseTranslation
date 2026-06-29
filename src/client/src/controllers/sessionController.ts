@@ -34,7 +34,9 @@ export class SessionController {
   private selectionSeq = 0;
   private catchupStreamSessionId: string | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
-  private pendingTranscriptFrame: number | undefined;
+  private pendingStatusBySession = new Map<string, SessionStatus>();
+  private pendingActivityBySession = new Map<string, SessionActivity>();
+  private pendingFrame: number | undefined;
 
   constructor(
     private readonly getState: GetState,
@@ -49,22 +51,22 @@ export class SessionController {
   }
 
   applyGlobalEvent(event: GlobalSessionEvent): void {
-    if (event.type === "status.update") this.applyStatus(event.status);
-    else if (event.type === "activity.update") this.applyActivity(event.activity);
+    if (event.type === "status.update") this.queueStatusUpdate(event.status);
+    else if (event.type === "activity.update") this.queueActivityUpdate(event.activity);
     else if (event.type === "session.created") this.applyCreatedSession(event.session);
     else this.applySessionName(event.sessionId, event.name);
   }
 
   dispose() {
     this.socket.close();
-    this.clearPendingTranscriptEvents();
+    this.clearPendingUpdates();
   }
 
   clearActiveSession() {
     this.selectionSeq += 1;
     this.socket.close();
     this.catchupStreamSessionId = undefined;
-    this.clearPendingTranscriptEvents();
+    this.clearPendingUpdates();
     // Note: sendingPrompts is intentionally NOT cleared here. Deselecting a
     // session must not cancel the in-flight upload indicator of the session
     // that is still sending; the per-session entry is cleared by send()'s
@@ -113,7 +115,7 @@ export class SessionController {
     const seq = ++this.selectionSeq;
     this.socket.close();
     this.catchupStreamSessionId = undefined;
-    this.clearPendingTranscriptEvents();
+    this.clearPendingUpdates();
     const transcriptKey = this.sessionCacheKey(session.id);
     const cached = this.transcripts.cachedView(transcriptKey);
     this.setState({
@@ -563,7 +565,7 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (sessionId === undefined || session?.id !== sessionId || session.archived === true) return;
     try {
-      this.flushPendingTranscriptEvents();
+      this.flushPendingUpdates();
       const [page, status] = await Promise.all([this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState())), this.api.status(session, selectedMachineId(this.getState()))]);
       if (this.getState().selectedSession?.id !== sessionId) return;
       const history = this.transcripts.mergeHistory(this.sessionCacheKey(sessionId), page);
@@ -694,19 +696,29 @@ export class SessionController {
       if (isTranscriptEvent(event)) return;
     }
 
+    // Status and activity arrive once per token (the server republishes them on
+    // every transcript event). Buffer them alongside high-frequency transcript
+    // deltas so the host component renders at most once per animation frame
+    // instead of once per token. Coalescing these here is what keeps the prompt
+    // editor's DOM stable during streaming, so in-progress touch gestures (e.g.
+    // the iOS long-press edit/paste callout) are not interrupted by a re-render.
+    if (event.type === "status.update") {
+      this.queueStatusUpdate(event.status);
+      return;
+    }
+    if (event.type === "activity.update") {
+      this.queueActivityUpdate(event.activity);
+      return;
+    }
     if (isHighFrequencyTranscriptEvent(event)) {
       this.queueTranscriptEvent(event);
       return;
     }
 
-    this.flushPendingTranscriptEvents();
+    this.flushPendingUpdates();
     const transcript = this.transcripts.applyLiveEvent(this.getState().messages, event);
     if (transcript) {
       this.setState({ messages: transcript });
-    } else if (event.type === "status.update") {
-      this.applyStatus(event.status);
-    } else if (event.type === "activity.update") {
-      this.applyActivity(event.activity);
     } else if (event.type === "session.name") {
       this.applySessionName(event.sessionId, event.name);
     }
@@ -714,27 +726,60 @@ export class SessionController {
 
   private queueTranscriptEvent(event: SessionUiEvent): void {
     this.pendingTranscriptEvents.push(event);
-    if (this.pendingTranscriptFrame !== undefined) return;
-    this.pendingTranscriptFrame = requestAnimationFrame(() => {
-      this.pendingTranscriptFrame = undefined;
-      this.flushPendingTranscriptEvents();
+    this.schedulePendingFlush();
+  }
+
+  private queueStatusUpdate(status: SessionStatus): void {
+    this.pendingStatusBySession.set(status.sessionId, status);
+    this.schedulePendingFlush();
+  }
+
+  private queueActivityUpdate(activity: SessionActivity): void {
+    this.pendingActivityBySession.set(activity.sessionId, activity);
+    this.schedulePendingFlush();
+  }
+
+  private schedulePendingFlush(): void {
+    if (this.pendingFrame !== undefined) return;
+    this.pendingFrame = requestAnimationFrame(() => {
+      this.pendingFrame = undefined;
+      this.flushPendingUpdates();
     });
   }
 
-  private flushPendingTranscriptEvents(): void {
-    if (this.pendingTranscriptEvents.length === 0) return;
-    const events = this.pendingTranscriptEvents;
-    this.pendingTranscriptEvents = [];
-    let messages = this.getState().messages;
-    for (const event of events) messages = this.transcripts.applyLiveEvent(messages, event) ?? messages;
-    if (messages !== this.getState().messages) this.setState({ messages });
+  // Apply buffered transcript deltas, activity, and status in one task. Activity
+  // is applied before status to mirror the server's publish order, so an idle
+  // status can clear the now-stale active activity it supersedes. Status and
+  // activity are last-write-wins per session, so iterating the maps applies only
+  // the latest buffered value per session. These writes run in a single task, so
+  // Lit batches them into one render.
+  flushPendingUpdates(): void {
+    if (this.pendingTranscriptEvents.length > 0) {
+      const events = this.pendingTranscriptEvents;
+      this.pendingTranscriptEvents = [];
+      let messages = this.getState().messages;
+      for (const event of events) messages = this.transcripts.applyLiveEvent(messages, event) ?? messages;
+      if (messages !== this.getState().messages) this.setState({ messages });
+    }
+    if (this.pendingActivityBySession.size > 0) {
+      const activities = Array.from(this.pendingActivityBySession.values());
+      this.pendingActivityBySession.clear();
+      for (const activity of activities) this.applyActivity(activity);
+    }
+    if (this.pendingStatusBySession.size > 0) {
+      const statuses = Array.from(this.pendingStatusBySession.values());
+      this.pendingStatusBySession.clear();
+      for (const status of statuses) this.applyStatus(status);
+    }
   }
 
-  private clearPendingTranscriptEvents(): void {
+  private clearPendingUpdates(): void {
     this.pendingTranscriptEvents = [];
-    if (this.pendingTranscriptFrame === undefined) return;
-    cancelAnimationFrame(this.pendingTranscriptFrame);
-    this.pendingTranscriptFrame = undefined;
+    this.pendingStatusBySession.clear();
+    this.pendingActivityBySession.clear();
+    if (this.pendingFrame === undefined) return;
+    cancelAnimationFrame(this.pendingFrame);
+    this.pendingFrame = undefined;
   }
 
   // Stream catch-up is a single mode with two coupled facets that must never
