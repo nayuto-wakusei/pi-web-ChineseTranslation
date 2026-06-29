@@ -1151,8 +1151,8 @@ export class PiWebApp extends LitElement {
   }
 
   private archivedDeleteUnavailableMessage(): string {
-    const machineName = this.state.selectedMachine?.name ?? "this machine";
-    return `Update and restart Pi-Web on ${machineName} to delete archived sessions.`;
+    const machineName = this.state.selectedMachine?.name ?? "此机器";
+    return `请更新并重启 ${machineName} 上的 Pi-Web 后再删除已归档会话。`;
   }
 
   private sessionCleanupUnavailableMessage(): string {
@@ -1183,14 +1183,14 @@ export class PiWebApp extends LitElement {
       if (selectedMachineId(this.state) !== machineId) return;
       this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview, previewRequest: request, result: undefined, loading: false, error: "" };
     } catch (error) {
-      if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, loading: false, error: `Failed to preview cleanup: ${errorMessage(error)}` };
+      if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, loading: false, error: `预览清理失败：${errorMessage(error)}` };
     }
   }
 
   private async runSessionCleanup(request: SessionCleanupRequest): Promise<void> {
     const dialog = this.sessionCleanupDialog;
     if (dialog?.preview === undefined || sessionCleanupRequestKey(dialog.previewRequest) !== sessionCleanupRequestKey(request)) {
-      this.sessionCleanupDialog = { ...(dialog ?? {}), error: "Preview cleanup before running it." };
+      this.sessionCleanupDialog = { ...(dialog ?? {}), error: "运行清理前请先预览。" };
       return;
     }
     if (!this.canCleanupSessions()) {
@@ -1205,7 +1205,7 @@ export class PiWebApp extends LitElement {
       this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: request, result, running: false, error: "" };
       await this.sessions.applySessionCleanupResult(result, machineId);
     } catch (error) {
-      if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: `Failed to run cleanup: ${errorMessage(error)}` };
+      if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: `运行清理失败：${errorMessage(error)}` };
     }
   }
 
@@ -1491,8 +1491,8 @@ export class PiWebApp extends LitElement {
     return [
       {
         id: "app.sessions.cleanup",
-        title: "Clean Up Sessions",
-        description: "Preview and manually clean up idle or archived sessions on the selected machine",
+        title: "清理会话",
+        description: "预览并手动清理所选机器上的空闲或已归档会话",
         group: "Sessions",
         ...(canCleanup ? {} : { enabled: false, disabledReason: this.sessionCleanupUnavailableMessage() }),
         run: () => { this.openSessionCleanupDialog(); },

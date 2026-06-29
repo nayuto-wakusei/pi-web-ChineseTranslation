@@ -29,9 +29,9 @@ describe("session cleanup UI helpers", () => {
   });
 
   it("validates threshold inputs before preview or execution", () => {
-    expect(validateSessionCleanupDraft({ ...draft, archiveIdleDays: "1.5" })).toEqual({ ok: false, error: "Archive idle sessions after must be a non-negative whole number of days." });
-    expect(validateSessionCleanupDraft({ ...draft, deleteArchivedDays: "-1" })).toEqual({ ok: false, error: "Delete archived sessions after must be a non-negative whole number of days." });
-    expect(validateSessionCleanupDraft({ ...draft, archiveIdleEnabled: false, deleteArchivedEnabled: false })).toEqual({ ok: false, error: "Enable at least one cleanup action." });
+    expect(validateSessionCleanupDraft({ ...draft, archiveIdleDays: "1.5" })).toEqual({ ok: false, error: "归档空闲会话天数必须是非负整数天数。" });
+    expect(validateSessionCleanupDraft({ ...draft, deleteArchivedDays: "-1" })).toEqual({ ok: false, error: "删除已归档会话天数必须是非负整数天数。" });
+    expect(validateSessionCleanupDraft({ ...draft, archiveIdleEnabled: false, deleteArchivedEnabled: false })).toEqual({ ok: false, error: "请至少启用一项清理操作。" });
   });
 
   it("requires a current preview before cleanup can run", () => {
@@ -76,8 +76,8 @@ describe("session cleanup UI helpers", () => {
       confirmMessages.push(message);
       return true;
     })).toBe(true);
-    expect(confirmMessages[0]).toContain("permanently delete 1 archived session");
-    expect(sessionCleanupConfirmationMessage(preview)).toContain("cannot be undone");
-    expect(sessionCleanupUnavailableMessage("Remote Dev")).toBe("Update and restart Pi-Web on Remote Dev to clean up sessions.");
+    expect(confirmMessages[0]).toContain("永久删除 1 个已归档会话");
+    expect(sessionCleanupConfirmationMessage(preview)).toContain("无法撤销");
+    expect(sessionCleanupUnavailableMessage("远端开发机")).toBe("请更新并重启 远端开发机 上的 Pi-Web 后再清理会话。");
   });
 });
