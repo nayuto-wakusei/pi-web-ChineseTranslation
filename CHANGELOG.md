@@ -1,5 +1,14 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202606.26
+
+### Patch Changes
+
+- 17f2175: Avoid creating managed project directories while loading read-only management embed project and workspace views.
+- a874798: Make spawned and tracked subsessions inherit the dispatching session's current model instead of falling back to the last globally selected model.
+- 2009e6a: Keep the chat prompt input stable during streaming so mobile touch gestures (such as the iOS long-press paste/edit callout) are no longer interrupted. Session status and activity updates are now coalesced into a single render per animation frame instead of one per token, the prompt editor ignores status changes that do not affect what it displays, and per-keystroke draft state no longer triggers surrounding re-renders.
+- 7063c2c: Prevent iOS Safari from zooming into small text inputs across the web UI.
+
 ## 1.202606.25
 
 ### Patch Changes
