@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.1
+
+### Patch Changes
+
+- 5310299: Fix management embed workspaces so authorized project directories are created before the workspace file tree loads.
+
 ## 1.202607.0
 
 ### Patch Changes
