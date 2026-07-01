@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -186,6 +186,27 @@ describe("API parsers", () => {
   it("rejects malformed session cleanup responses", () => {
     expect(() => parseSessionCleanupPreviewResponse({ generatedAt: "now", thresholds: {}, projects: [{ cwd: "/repo", archiveCount: "2", deleteCount: 0 }], totals: { archiveCount: 2, deleteCount: 0 } })).toThrow("Expected number field: archiveCount");
     expect(() => parseSessionCleanupExecuteResponse({ generatedAt: "now", thresholds: {}, projects: [], totals: { archiveCount: 0, deleteCount: 0 }, archivedSessionIds: ["s1"], deletedSessionIds: [1] })).toThrow("Expected string array field: deletedSessionIds");
+  });
+
+  it("parses bulk session mutation responses", () => {
+    const failure = { sessionId: "busy", error: "Session is busy" };
+    expect(parseSessionBulkArchiveResponse({ archived: true, archivedSessionIds: ["s1"], failures: [failure], generatedAt: "now" })).toEqual({
+      archived: true,
+      archivedSessionIds: ["s1"],
+      failures: [failure],
+      generatedAt: "now",
+    });
+    expect(parseSessionBulkDeleteArchivedResponse({ deleted: true, deletedSessionIds: ["s2"], failures: [], generatedAt: "later" })).toEqual({
+      deleted: true,
+      deletedSessionIds: ["s2"],
+      failures: [],
+      generatedAt: "later",
+    });
+  });
+
+  it("rejects malformed bulk session mutation responses", () => {
+    expect(() => parseSessionBulkArchiveResponse({ archived: true, archivedSessionIds: ["s1"], failures: [{ sessionId: "s2" }], generatedAt: "now" })).toThrow("Expected string field: error");
+    expect(() => parseSessionBulkDeleteArchivedResponse({ deleted: true, deletedSessionIds: [1], failures: [], generatedAt: "now" })).toThrow("Expected string array field: deletedSessionIds");
   });
 
   it("validates session status including optional model and nullable context usage", () => {

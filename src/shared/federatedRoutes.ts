@@ -42,6 +42,8 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/sessions" },
   { method: "POST", path: "/sessions/cleanup/preview" },
   { method: "POST", path: "/sessions/cleanup" },
+  { method: "POST", path: "/sessions/bulk/archive" },
+  { method: "POST", path: "/sessions/bulk/delete-archived" },
   { method: "GET", path: "/sessions/:sessionId/messages" },
   { method: "GET", path: "/sessions/:sessionId/status" },
   { method: "GET", path: "/sessions/:sessionId/models" },

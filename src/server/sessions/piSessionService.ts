@@ -36,7 +36,7 @@ import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
-import type { SavedPromptAttachment } from "../../shared/apiTypes.js";
+import type { SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef } from "../../shared/apiTypes.js";
 
 import { cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
@@ -155,7 +155,11 @@ function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefi
   throw new Error('Prompt streamingBehavior must be "steer" or "followUp"');
 }
 
-type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived"> & { deleteArchived?: (sessionId: string) => Promise<void> };
+type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived"> & {
+  archiveMany?: (sessions: readonly ArchiveSessionInput[]) => Promise<ArchivedSessionRecord[]>;
+  deleteArchived?: (sessionId: string) => Promise<void>;
+  deleteArchivedMany?: (sessionIds: readonly string[]) => Promise<string[]>;
+};
 
 export type PiSessionRef = ClientSessionRef;
 
@@ -174,6 +178,19 @@ export interface PiSessionListEntry {
   parentSessionPath?: string;
 }
 
+
+interface BulkSessionLookupContext {
+  sessionsByCwd: Map<string, PiSessionListEntry[]>;
+  allSessions?: readonly PiSessionListEntry[];
+}
+
+interface BulkArchivePlanItem {
+  input: ArchiveSessionInput;
+}
+
+interface BulkDeletePlanItem {
+  record: ArchivedSessionRecord;
+}
 
 type AgentModel = NonNullable<SpawnSessionInvocation["model"]>;
 type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
@@ -545,10 +562,12 @@ export class PiSessionService {
 
   async cleanup(request: NormalizedSessionCleanupRequest): Promise<ClientSessionCleanupExecuteResponse> {
     const plan = await this.cleanupPlan(request);
-    if (plan.deleteRecords.length > 0 && this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+    if (plan.deleteRecords.length > 0 && this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
 
     const archiveInputs: ArchiveSessionInput[] = [];
+    const readyArchiveInputs: ArchiveSessionInput[] = [];
     const deleteRecords: ArchivedSessionRecord[] = [];
+    const readyDeleteRecords: ArchivedSessionRecord[] = [];
     const skippedBusySessionIds = new Set(plan.skippedBusySessionIds);
 
     for (const input of plan.archiveInputs) {
@@ -557,9 +576,10 @@ export class PiSessionService {
         continue;
       }
       await this.closeActive(input.sessionId);
-      await this.archiveStore.archive(input);
-      archiveInputs.push(input);
+      readyArchiveInputs.push(input);
     }
+    await this.archiveStoreArchiveMany(readyArchiveInputs);
+    archiveInputs.push(...readyArchiveInputs);
 
     for (const record of plan.deleteRecords) {
       if (this.activeSessionHasWork(record.sessionId)) {
@@ -567,10 +587,11 @@ export class PiSessionService {
         continue;
       }
       await this.closeActive(record.sessionId);
-      if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
-      await this.archiveStore.deleteArchived?.(record.sessionId);
-      deleteRecords.push(record);
+      readyDeleteRecords.push(record);
     }
+    await this.ensureArchivedRecordsMoved(readyDeleteRecords);
+    const deletedSessionIds = new Set(await this.archiveStoreDeleteArchivedMany(readyDeleteRecords.map((record) => record.sessionId)));
+    deleteRecords.push(...readyDeleteRecords.filter((record) => deletedSessionIds.has(record.sessionId)));
 
     return summarizeSessionCleanupExecution({
       archiveInputs,
@@ -1232,6 +1253,70 @@ export class PiSessionService {
     await this.archiveStore.archive(archiveInput);
   }
 
+  async archiveMany(refs: readonly SessionBulkMutationRef[]): Promise<SessionBulkArchiveResponse> {
+    const uniqueRefs = uniqueBulkSessionRefs(refs);
+    const [archivedRecords, sessionContext] = await Promise.all([
+      this.archiveStore.list(),
+      this.bulkSessionLookupContext(uniqueRefs),
+    ]);
+    const failures: SessionBulkFailure[] = [];
+    const alreadyArchivedSessionIds: string[] = [];
+    const planItems: BulkArchivePlanItem[] = [];
+
+    for (const ref of uniqueRefs) {
+      const archived = findArchivedRecordForBulkRef(archivedRecords, ref);
+      if (archived !== undefined) {
+        alreadyArchivedSessionIds.push(archived.sessionId);
+        continue;
+      }
+
+      const active = this.activeForLookup(bulkRefToLookup(ref));
+      const listed = findListedSessionForBulkRef(sessionContext, ref);
+      const resolvedSessionId = active?.runtime.session.sessionId ?? listed?.id ?? ref.id;
+      if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
+        failures.push({ sessionId: resolvedSessionId, error: "Stop current session activity before archiving" });
+        continue;
+      }
+
+      try {
+        if (listed !== undefined) {
+          planItems.push({ input: archiveInputFromListEntry(listed) });
+        } else if (active !== undefined) {
+          planItems.push({ input: archiveInputFromActiveSession(active.runtime.session) });
+        } else {
+          failures.push({ sessionId: ref.id, error: "Session not found" });
+        }
+      } catch (error: unknown) {
+        failures.push({ sessionId: resolvedSessionId, error: errorMessage(error) });
+      }
+    }
+
+    const readyInputs: ArchiveSessionInput[] = [];
+    for (const item of planItems) {
+      try {
+        await this.closeActive(item.input.sessionId);
+        readyInputs.push(item.input);
+      } catch (error: unknown) {
+        failures.push({ sessionId: item.input.sessionId, error: errorMessage(error) });
+      }
+    }
+
+    const archivedSessionIds = [...alreadyArchivedSessionIds];
+    try {
+      const archived = await this.archiveStoreArchiveMany(readyInputs);
+      archivedSessionIds.push(...archived.map((record) => record.sessionId));
+    } catch (error: unknown) {
+      for (const input of readyInputs) failures.push({ sessionId: input.sessionId, error: errorMessage(error) });
+    }
+
+    return {
+      archived: true,
+      archivedSessionIds: uniqueStrings(archivedSessionIds),
+      failures,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   async archiveTree(ref: PiSessionLookup): Promise<ClientArchiveSessionsResponse> {
     const session = await this.getOrOpen(ref);
     const catalog = await this.workspaceArchiveCandidates(session.sessionManager.getCwd());
@@ -1242,7 +1327,7 @@ export class PiSessionService {
 
     const archiveInputs = plan.unarchivedTargets.map((target) => archiveInputFromCandidate(target));
     for (const input of archiveInputs) await this.closeActive(input.sessionId);
-    for (const input of archiveInputs) await this.archiveStore.archive(input);
+    await this.archiveStoreArchiveMany(archiveInputs);
 
     return {
       archived: true,
@@ -1267,6 +1352,61 @@ export class PiSessionService {
     await this.closeActive(record.sessionId);
     if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
     await this.archiveStore.deleteArchived(record.sessionId);
+  }
+
+  async deleteArchivedMany(refs: readonly SessionBulkMutationRef[]): Promise<SessionBulkDeleteArchivedResponse> {
+    if (this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
+
+    const uniqueRefs = uniqueBulkSessionRefs(refs);
+    const archivedRecords = await this.archiveStore.list();
+    const failures: SessionBulkFailure[] = [];
+    const planItems: BulkDeletePlanItem[] = [];
+
+    for (const ref of uniqueRefs) {
+      const record = findArchivedRecordForBulkRef(archivedRecords, ref);
+      if (record === undefined) {
+        failures.push({ sessionId: ref.id, error: "Archived session not found" });
+        continue;
+      }
+
+      const active = this.activeForLookup({ id: record.sessionId, cwd: record.cwd });
+      if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
+        failures.push({ sessionId: record.sessionId, error: "Stop current session activity before deleting archived session" });
+        continue;
+      }
+      planItems.push({ record });
+    }
+
+    const readyRecords: ArchivedSessionRecord[] = [];
+    for (const item of planItems) {
+      try {
+        await this.closeActive(item.record.sessionId);
+        readyRecords.push(item.record);
+      } catch (error: unknown) {
+        failures.push({ sessionId: item.record.sessionId, error: errorMessage(error) });
+      }
+    }
+
+    const moveFailures = await this.moveLegacyArchivedRecordsForDelete(readyRecords);
+    failures.push(...moveFailures);
+    const moveFailureIds = new Set(moveFailures.map((failure) => failure.sessionId));
+    const deleteIds = readyRecords
+      .map((record) => record.sessionId)
+      .filter((sessionId) => !moveFailureIds.has(sessionId));
+
+    let deletedSessionIds: string[] = [];
+    try {
+      deletedSessionIds = await this.archiveStoreDeleteArchivedMany(deleteIds);
+    } catch (error: unknown) {
+      for (const sessionId of deleteIds) failures.push({ sessionId, error: errorMessage(error) });
+    }
+
+    return {
+      deleted: true,
+      deletedSessionIds,
+      failures,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   async reload(ref: PiSessionLookup): Promise<void> {
@@ -1304,6 +1444,71 @@ export class PiSessionService {
     void this.closeActive(active.runtime.session.sessionId).catch(() => {
       // Best-effort shutdown; callers that need errors await closeActive directly.
     });
+  }
+
+  private async bulkSessionLookupContext(refs: readonly SessionBulkMutationRef[]): Promise<BulkSessionLookupContext> {
+    const cwdSet = new Set<string>();
+    let needsAllSessions = false;
+    for (const ref of refs) {
+      if (ref.cwd === undefined) needsAllSessions = true;
+      else cwdSet.add(ref.cwd);
+    }
+
+    const [sessionsByCwd, allSessions] = await Promise.all([
+      this.listSessionsByCwd([...cwdSet]),
+      needsAllSessions ? this.sessionManager.listAll?.() ?? Promise.resolve([]) : Promise.resolve(undefined),
+    ]);
+    return allSessions === undefined ? { sessionsByCwd } : { sessionsByCwd, allSessions };
+  }
+
+  private async listSessionsByCwd(cwds: readonly string[]): Promise<Map<string, PiSessionListEntry[]>> {
+    const uniqueCwds = uniqueStrings(cwds);
+    const entries = await Promise.all(uniqueCwds.map(async (cwd) => [cwd, await this.sessionManager.list(cwd)] as const));
+    return new Map(entries);
+  }
+
+  private async archiveStoreArchiveMany(inputs: readonly ArchiveSessionInput[]): Promise<ArchivedSessionRecord[]> {
+    if (inputs.length === 0) return [];
+    if (this.archiveStore.archiveMany !== undefined) return this.archiveStore.archiveMany(inputs);
+    const records: ArchivedSessionRecord[] = [];
+    for (const input of inputs) records.push(await this.archiveStore.archive(input));
+    return records;
+  }
+
+  private async archiveStoreDeleteArchivedMany(sessionIds: readonly string[]): Promise<string[]> {
+    if (sessionIds.length === 0) return [];
+    if (this.archiveStore.deleteArchivedMany !== undefined) return this.archiveStore.deleteArchivedMany(sessionIds);
+    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+    for (const sessionId of sessionIds) await this.archiveStore.deleteArchived(sessionId);
+    return [...sessionIds];
+  }
+
+  private async moveLegacyArchivedRecordsForDelete(records: readonly ArchivedSessionRecord[]): Promise<SessionBulkFailure[]> {
+    const legacyRecords = records.filter((record) => record.archivePath === undefined);
+    if (legacyRecords.length === 0) return [];
+
+    let sessionsByCwd: Map<string, PiSessionListEntry[]>;
+    try {
+      sessionsByCwd = await this.listSessionsByCwd(legacyRecords.map((record) => record.cwd));
+    } catch (error: unknown) {
+      return legacyRecords.map((record) => ({ sessionId: record.sessionId, error: errorMessage(error) }));
+    }
+
+    const moveInputs = legacyRecords
+      .map((record) => findSessionByIdOrPrefix(sessionsByCwd.get(record.cwd) ?? [], record.sessionId))
+      .filter(isDefined)
+      .map(archiveInputFromListEntry);
+    if (moveInputs.length === 0) return [];
+
+    try {
+      await this.archiveStoreArchiveMany(moveInputs);
+      return [];
+    } catch (error: unknown) {
+      const failedIds = new Set(moveInputs.map((input) => input.sessionId));
+      return legacyRecords
+        .filter((record) => failedIds.has(record.sessionId))
+        .map((record) => ({ sessionId: record.sessionId, error: errorMessage(error) }));
+    }
   }
 
   private async cleanupPlan(request: NormalizedSessionCleanupRequest) {
@@ -1351,7 +1556,20 @@ export class PiSessionService {
   private async ensureArchivedRecordMoved(record: ArchivedSessionRecord): Promise<ArchivedSessionRecord> {
     const session = (await this.sessionManager.list(record.cwd)).find((candidate) => candidate.id === record.sessionId);
     if (session === undefined) return record;
-    return this.archiveStore.archive(archiveInputFromListEntry(session));
+    const [moved] = await this.archiveStoreArchiveMany([archiveInputFromListEntry(session)]);
+    return moved ?? record;
+  }
+
+  private async ensureArchivedRecordsMoved(records: readonly ArchivedSessionRecord[]): Promise<void> {
+    const legacyRecords = records.filter((record) => record.archivePath === undefined);
+    if (legacyRecords.length === 0) return;
+
+    const sessionsByCwd = await this.listSessionsByCwd(legacyRecords.map((record) => record.cwd));
+    const moveInputs = legacyRecords
+      .map((record) => sessionsByCwd.get(record.cwd)?.find((candidate) => candidate.id === record.sessionId))
+      .filter(isDefined)
+      .map(archiveInputFromListEntry);
+    await this.archiveStoreArchiveMany(moveInputs);
   }
 
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
@@ -1790,6 +2008,43 @@ function previewResponseFromPlan(plan: SessionCleanupPlan): ClientSessionCleanup
     totals: plan.totals,
     ...(plan.skippedBusySessionIds.length === 0 ? {} : { skippedBusySessionIds: plan.skippedBusySessionIds }),
   };
+}
+
+function uniqueBulkSessionRefs(refs: readonly SessionBulkMutationRef[]): SessionBulkMutationRef[] {
+  const seen = new Set<string>();
+  const unique: SessionBulkMutationRef[] = [];
+  for (const ref of refs) {
+    const key = `${ref.cwd ?? ""}\0${ref.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(ref);
+  }
+  return unique;
+}
+
+function bulkRefToLookup(ref: SessionBulkMutationRef): PiSessionLookup {
+  return ref.cwd === undefined ? ref.id : { id: ref.id, cwd: ref.cwd };
+}
+
+function findArchivedRecordForBulkRef(records: readonly ArchivedSessionRecord[], ref: SessionBulkMutationRef): ArchivedSessionRecord | undefined {
+  return records.find((record) => (ref.cwd === undefined || record.cwd === ref.cwd) && (record.sessionId === ref.id || record.sessionId.startsWith(ref.id)));
+}
+
+function findListedSessionForBulkRef(context: BulkSessionLookupContext, ref: SessionBulkMutationRef): PiSessionListEntry | undefined {
+  if (ref.cwd !== undefined) return findSessionByIdOrPrefix(context.sessionsByCwd.get(ref.cwd) ?? [], ref.id);
+  return context.allSessions === undefined ? undefined : findSessionByIdOrPrefix(context.allSessions, ref.id);
+}
+
+function findSessionByIdOrPrefix(sessions: readonly PiSessionListEntry[], sessionId: string): PiSessionListEntry | undefined {
+  return sessions.find((session) => session.id === sessionId) ?? sessions.find((session) => session.id.startsWith(sessionId));
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel {

@@ -71,6 +71,53 @@ describe("SessionArchiveStore", () => {
     expect(await exists(record.archivePath)).toBe(false);
     await expect(store.list()).resolves.toEqual([]);
   });
+
+  it("archives and permanently deletes sessions in batches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-archive-batch-"));
+    tempRoots.push(root);
+    const activeDir = join(root, "active");
+    await mkdir(activeDir, { recursive: true });
+    const sourceA = join(activeDir, "2026-01-01_a.jsonl");
+    const sourceB = join(activeDir, "2026-01-01_b.jsonl");
+    await writeFile(sourceA, "a\n", "utf8");
+    await writeFile(sourceB, "b\n", "utf8");
+
+    const store = new SessionArchiveStore(join(root, "archived-sessions.json"), join(root, "archived-files"));
+    const records = await store.archiveMany([
+      {
+        sessionId: "a",
+        cwd: "/workspace",
+        path: sourceA,
+        created: "2026-01-01T00:00:00.000Z",
+        modified: "2026-01-01T00:01:00.000Z",
+        messageCount: 1,
+        firstMessage: "a",
+      },
+      {
+        sessionId: "b",
+        cwd: "/workspace",
+        path: sourceB,
+        created: "2026-01-01T00:00:00.000Z",
+        modified: "2026-01-01T00:02:00.000Z",
+        messageCount: 2,
+        firstMessage: "b",
+      },
+    ]);
+
+    expect(records.map((record) => record.sessionId)).toEqual(["a", "b"]);
+    expect(await exists(sourceA)).toBe(false);
+    expect(await exists(sourceB)).toBe(false);
+    await expect(store.list()).resolves.toMatchObject([{ sessionId: "a" }, { sessionId: "b" }]);
+
+    const archivePaths = records.map((record) => record.archivePath);
+    if (archivePaths.some((path) => path === undefined)) throw new Error("Expected archive paths");
+    await expect(store.deleteArchivedMany(["a", "b", "missing"])).resolves.toEqual(["a", "b"]);
+    for (const archivePath of archivePaths) {
+      if (archivePath === undefined) throw new Error("Expected archive path");
+      expect(await exists(archivePath)).toBe(false);
+    }
+    await expect(store.list()).resolves.toEqual([]);
+  });
 });
 
 async function exists(path: string): Promise<boolean> {

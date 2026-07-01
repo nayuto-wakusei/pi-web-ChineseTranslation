@@ -3,6 +3,7 @@ export type MachineStatus = "unknown" | "online" | "offline" | "error";
 
 export const PI_WEB_CAPABILITIES = {
   sessionsDeleteArchived: "sessions.deleteArchived",
+  sessionsBulkMutations: "sessions.bulkMutations",
   sessionsCleanup: "sessions.cleanup",
   sessionsReload: "sessions.reload",
   promptAttachments: "prompt.attachments",
@@ -181,6 +182,34 @@ export interface ArchiveSessionsResponse {
   sessionIds?: string[];
   archivedCount?: number;
   skippedAlreadyArchivedCount?: number;
+}
+
+export interface SessionBulkMutationRef {
+  id: string;
+  cwd?: string;
+}
+
+export interface SessionBulkMutationRequest {
+  sessions: SessionBulkMutationRef[];
+}
+
+export interface SessionBulkFailure {
+  sessionId: string;
+  error: string;
+}
+
+export interface SessionBulkArchiveResponse {
+  archived: true;
+  archivedSessionIds: string[];
+  failures: SessionBulkFailure[];
+  generatedAt: string;
+}
+
+export interface SessionBulkDeleteArchivedResponse {
+  deleted: true;
+  deletedSessionIds: string[];
+  failures: SessionBulkFailure[];
+  generatedAt: string;
 }
 
 export interface SessionCleanupRequest {

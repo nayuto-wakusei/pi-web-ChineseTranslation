@@ -1,4 +1,4 @@
-import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionCleanupExecuteResponse, type SessionInfo, type SessionRef, type SessionStatus } from "../api";
+import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionInfo, type SessionRef, type SessionStatus } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -14,6 +14,7 @@ import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchiv
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
 
 const MESSAGE_PAGE_SIZE = 100;
+const BULK_FALLBACK_CONCURRENCY = 4;
 
 export interface SessionEventSocket {
   connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId?: string): void;
@@ -25,6 +26,12 @@ export interface SessionControllerDependencies {
   api?: typeof defaultApi;
   socket?: SessionEventSocket;
   transcripts?: ChatTranscriptStore;
+}
+
+interface BulkSessionMutationResult {
+  succeededIds: string[];
+  failures: string[];
+  generatedAt?: string;
 }
 
 export class SessionController {
@@ -313,22 +320,22 @@ export class SessionController {
     const candidates = uniqueSessionsById(sessions).filter((session) => session.archived !== true && !isCachedNewSessionInfo(session));
     if (candidates.length === 0) return;
 
-    const machineId = selectedMachineId(this.getState());
-    const results = await Promise.allSettled(candidates.map(async (session) => {
-      await this.api.archive(session, machineId);
-      return session.id;
-    }));
-    const archivedIds = fulfilledValues(results);
-    if (archivedIds.length > 0) {
-      const state = this.getState();
-      const nextSessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
-      const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
-      this.setState({ sessions: nextSessions });
+    try {
+      const machineId = selectedMachineId(this.getState());
+      const { succeededIds: archivedIds, failures, generatedAt } = await this.archiveSessionBatch(candidates, machineId);
+      if (archivedIds.length > 0) {
+        const state = this.getState();
+        const nextSessions = markSessionsArchived(state.sessions, archivedIds, generatedAt ?? new Date().toISOString());
+        const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
+        this.setState({ sessions: nextSessions });
 
-      if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-      else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+        if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
+        else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+      }
+      this.applyBulkSessionFailures("Archive", failures);
+    } catch (error) {
+      this.setState({ error: `Archive failed: ${errorMessage(error)}` });
     }
-    this.applyBulkSessionError("Archive", results);
   }
 
   async deleteArchivedSessions(sessions: readonly SessionInfo[]): Promise<void> {
@@ -341,23 +348,51 @@ export class SessionController {
       this.setState({ error: "Deleting archived sessions requires an updated Pi-Web runtime on this machine." });
       return;
     }
-    const results = await Promise.allSettled(candidates.map(async (session) => {
+    try {
+      const { succeededIds: deletedIds, failures } = await this.deleteArchivedSessionBatch(candidates, machineId);
+      if (deletedIds.length > 0) {
+        const deletedIdSet = new Set(deletedIds);
+        const state = this.getState();
+        const nextSessions = state.sessions.filter((session) => !deletedIdSet.has(session.id));
+        this.setState({ sessions: nextSessions });
+        if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
+          const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
+          if (next !== undefined) await this.selectSession(next);
+          else this.deselectSession({ forgetRememberedSelection: true });
+        }
+      }
+      this.applyBulkSessionFailures("Delete", failures);
+    } catch (error) {
+      this.setState({ error: `Delete failed: ${errorMessage(error)}` });
+    }
+  }
+
+  private async archiveSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
+    const runtime = this.getState().machineRuntimes[machineId];
+    if (runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsBulkMutations)) {
+      const response = await this.api.archiveMany(sessions, machineId);
+      return { succeededIds: response.archivedSessionIds, failures: bulkFailureMessages(response.failures), generatedAt: response.generatedAt };
+    }
+
+    const results = await allSettledWithConcurrency(sessions, BULK_FALLBACK_CONCURRENCY, async (session) => {
+      await this.api.archive(session, machineId);
+      return session.id;
+    });
+    return { succeededIds: fulfilledValues(results), failures: settledSessionFailureMessages(sessions, results) };
+  }
+
+  private async deleteArchivedSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
+    const runtime = this.getState().machineRuntimes[machineId];
+    if (runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsBulkMutations)) {
+      const response = await this.api.deleteArchivedMany(sessions, machineId);
+      return { succeededIds: response.deletedSessionIds, failures: bulkFailureMessages(response.failures) };
+    }
+
+    const results = await allSettledWithConcurrency(sessions, BULK_FALLBACK_CONCURRENCY, async (session) => {
       await this.api.deleteArchived(session, machineId);
       return session.id;
-    }));
-    const deletedIds = fulfilledValues(results);
-    if (deletedIds.length > 0) {
-      const deletedIdSet = new Set(deletedIds);
-      const state = this.getState();
-      const nextSessions = state.sessions.filter((session) => !deletedIdSet.has(session.id));
-      this.setState({ sessions: nextSessions });
-      if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
-        const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
-        if (next !== undefined) await this.selectSession(next);
-        else this.deselectSession({ forgetRememberedSelection: true });
-      }
-    }
-    this.applyBulkSessionError("Delete", results);
+    });
+    return { succeededIds: fulfilledValues(results), failures: settledSessionFailureMessages(sessions, results) };
   }
 
   async applySessionCleanupResult(result: SessionCleanupExecuteResponse, machineId = selectedMachineId(this.getState())): Promise<void> {
@@ -581,8 +616,7 @@ export class SessionController {
     }
   }
 
-  private applyBulkSessionError(action: string, results: readonly PromiseSettledResult<string>[]): void {
-    const failures = rejectedReasons(results);
+  private applyBulkSessionFailures(action: string, failures: readonly string[]): void {
     if (failures.length === 0) return;
     this.setState({ error: `${action} failed for ${String(failures.length)} session${failures.length === 1 ? "" : "s"}: ${failures.join("; ")}` });
   }
@@ -845,8 +879,39 @@ function fulfilledValues<T>(results: readonly PromiseSettledResult<T>[]): T[] {
   return results.filter(isFulfilled).map((result) => result.value);
 }
 
-function rejectedReasons(results: readonly PromiseSettledResult<unknown>[]): string[] {
-  return results.filter(isRejected).map((result) => errorMessage(result.reason));
+function bulkFailureMessages(failures: readonly SessionBulkFailure[]): string[] {
+  return failures.map((failure) => `${failure.sessionId}: ${failure.error}`);
+}
+
+function settledSessionFailureMessages(sessions: readonly SessionInfo[], results: readonly PromiseSettledResult<unknown>[]): string[] {
+  return results.flatMap((result, index) => {
+    if (!isRejected(result)) return [];
+    const sessionId = sessions[index]?.id ?? "unknown";
+    return [`${sessionId}: ${errorMessage(result.reason)}`];
+  });
+}
+
+async function allSettledWithConcurrency<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+  const indexedItems = items.map((item, index) => ({ item, index }));
+  const results: PromiseSettledResult<R>[] = [];
+  let nextIndex = 0;
+
+  async function runWorker(): Promise<void> {
+    while (nextIndex < indexedItems.length) {
+      const entry = indexedItems[nextIndex];
+      if (entry === undefined) return;
+      nextIndex += 1;
+      try {
+        results[entry.index] = { status: "fulfilled", value: await worker(entry.item) };
+      } catch (reason) {
+        results[entry.index] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), indexedItems.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
 }
 
 function isFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfilledResult<T> {

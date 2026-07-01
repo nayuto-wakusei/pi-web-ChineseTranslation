@@ -53,24 +53,39 @@ export class SessionArchiveStore {
   }
 
   async archive(session: ArchiveSessionInput): Promise<ArchivedSessionRecord> {
+    const [record] = await this.archiveMany([session]);
+    if (record === undefined) throw new Error("Archive operation did not produce a record");
+    return record;
+  }
+
+  async archiveMany(sessions: readonly ArchiveSessionInput[]): Promise<ArchivedSessionRecord[]> {
+    if (sessions.length === 0) return [];
     return this.exclusive(async () => {
       const data = await this.read();
-      const existingIndex = data.sessions.findIndex((record) => record.sessionId === session.sessionId);
-      const existing = existingIndex === -1 ? undefined : data.sessions[existingIndex];
-      const archivePath = existing?.archivePath ?? this.archivePathFor(session);
-      const record = archiveRecordFromInput(session, {
-        archivedAt: existing?.archivedAt ?? new Date().toISOString(),
-        originalPath: existing?.originalPath ?? session.path,
-        archivePath,
-      });
+      const records: ArchivedSessionRecord[] = [];
+      const filesToRemove: { source: string; archivePath: string }[] = [];
 
-      await copySessionFileToArchive(session.path, archivePath);
+      for (const session of sessions) {
+        const existingIndex = data.sessions.findIndex((record) => record.sessionId === session.sessionId);
+        const existing = existingIndex === -1 ? undefined : data.sessions[existingIndex];
+        const archivePath = existing?.archivePath ?? this.archivePathFor(session);
+        const record = archiveRecordFromInput(session, {
+          archivedAt: existing?.archivedAt ?? new Date().toISOString(),
+          originalPath: existing?.originalPath ?? session.path,
+          archivePath,
+        });
 
-      if (existingIndex === -1) data.sessions.push(record);
-      else data.sessions[existingIndex] = record;
+        await copySessionFileToArchive(session.path, archivePath);
+
+        if (existingIndex === -1) data.sessions.push(record);
+        else data.sessions[existingIndex] = record;
+        records.push(record);
+        filesToRemove.push({ source: session.path, archivePath });
+      }
+
       await this.write(data);
-      await removeActiveSessionFile(session.path, archivePath);
-      return record;
+      for (const file of filesToRemove) await removeActiveSessionFile(file.source, file.archivePath);
+      return records;
     });
   }
 
@@ -90,14 +105,25 @@ export class SessionArchiveStore {
   }
 
   async deleteArchived(sessionId: string): Promise<void> {
-    await this.exclusive(async () => {
-      const data = await this.read();
-      const record = data.sessions.find((session) => session.sessionId === sessionId);
-      if (record === undefined) return;
+    await this.deleteArchivedMany([sessionId]);
+  }
 
-      if (record.archivePath !== undefined && await pathExists(record.archivePath)) await unlink(record.archivePath);
-      const sessions = data.sessions.filter((session) => session.sessionId !== sessionId);
+  async deleteArchivedMany(sessionIds: readonly string[]): Promise<string[]> {
+    const targetIds = uniqueStrings(sessionIds);
+    if (targetIds.length === 0) return [];
+    return this.exclusive(async () => {
+      const data = await this.read();
+      const targetIdSet = new Set(targetIds);
+      const records = data.sessions.filter((session) => targetIdSet.has(session.sessionId));
+      if (records.length === 0) return [];
+
+      for (const record of records) {
+        if (record.archivePath !== undefined && await pathExists(record.archivePath)) await unlink(record.archivePath);
+      }
+      const sessions = data.sessions.filter((session) => !targetIdSet.has(session.sessionId));
       await this.write({ sessions });
+      const deletedIds = new Set(records.map((record) => record.sessionId));
+      return targetIds.filter((sessionId) => deletedIds.has(sessionId));
     });
   }
 
@@ -252,6 +278,10 @@ function optionalNumber(record: Record<string, unknown>, key: string): number | 
 
 function safeFileName(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_") || "session";
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

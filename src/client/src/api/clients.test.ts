@@ -78,6 +78,23 @@ describe("session API compatibility", () => {
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ archiveIdleDays: 7, projectCwds: ["/repo"] });
   });
 
+  it("posts bulk session mutation requests through the selected machine", async () => {
+    const archived = { archived: true, archivedSessionIds: ["s 1"], failures: [{ sessionId: "s 2", error: "busy" }], generatedAt: "now" };
+    const deleted = { deleted: true, deletedSessionIds: ["s 1"], failures: [], generatedAt: "later" };
+    const fetchMock = stubSequenceFetch([jsonResponse(archived), jsonResponse(deleted)]);
+
+    await expect(sessionsApi.archiveMany([{ id: "s 1", cwd: "/repo" }, "s 2"], "remote a")).resolves.toEqual(archived);
+    await expect(sessionsApi.deleteArchivedMany([{ id: "s 1", cwd: "/repo" }], "remote a")).resolves.toEqual(deleted);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/sessions/bulk/archive");
+    expect(fetchCall(fetchMock, 0)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ sessions: [{ id: "s 1", cwd: "/repo" }, { id: "s 2" }] });
+    expect(fetchCall(fetchMock, 1)[0]).toBe("/api/machines/remote%20a/sessions/bulk/delete-archived");
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ sessions: [{ id: "s 1", cwd: "/repo" }] });
+  });
+
   it("keeps legacy session-id calls free of cwd context", async () => {
     const fetchMock = stubJsonFetch({ accepted: true });
 
