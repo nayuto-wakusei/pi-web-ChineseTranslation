@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.0
+
+### Patch Changes
+
+- d165d69: Improve bulk session archive and delete reliability by adding true bulk mutation support for large session selections.
+
 ## 1.202606.27
 
 ### Patch Changes
