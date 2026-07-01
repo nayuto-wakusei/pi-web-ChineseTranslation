@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -18,6 +18,7 @@ import { machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import type { Project, Workspace } from "./types.js";
+import type { ManagementEmbedRuntime } from "./managementEmbed.js";
 
 let app: FastifyInstance;
 let tempDir: string;
@@ -535,6 +536,51 @@ describe("buildApp", () => {
     ]);
   });
 
+  it("creates managed project directories before exposing their workspace tree", async () => {
+    await app.close();
+    const managementRoot = join(tempDir, "managed");
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: managementRoot,
+      authenticate: () => Promise.resolve({
+        user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+        projects: [{ id: "p1", name: "Managed Project" }],
+      }),
+    };
+    app = await buildApp({
+      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json"))),
+      workspaces: new WorkspaceService(),
+      machines: new MachineService(new MachineStore(join(tempDir, "managed-machines.json"))),
+      sessionDaemon: fakeSessionDaemon(),
+      config: fakeConfigService(),
+      piWebPlugins: {
+        manifest: () => Promise.resolve({ plugins: [] }),
+        plugins: () => Promise.resolve({ plugins: [] }),
+        readAsset: () => Promise.resolve(undefined),
+      },
+      managementEmbed,
+      clientDist: false,
+      logger: false,
+    });
+    const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token" };
+
+    const projectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers });
+    expect(projectsResponse.statusCode).toBe(200);
+    const [project] = projectsResponse.json<Project[]>();
+    if (project === undefined) throw new Error("Expected managed project");
+    await expect(pathExists(project.path)).resolves.toBe(false);
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces`, headers });
+    expect(workspacesResponse.statusCode).toBe(200);
+    const [workspace] = workspacesResponse.json<Workspace[]>();
+    if (workspace === undefined) throw new Error("Expected managed workspace");
+    await expect(pathExists(workspace.path)).resolves.toBe(true);
+
+    const treeResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/tree`, headers });
+    expect(treeResponse.statusCode).toBe(200);
+    expect(treeResponse.json()).toMatchObject({ path: "", entries: [], truncated: false });
+  });
+
   it("lets project-local upload config override global upload config on workspace responses", async () => {
     piWebConfig = { uploads: { defaultFolder: "global-uploads" } };
     const addResponse = await app.inject({
@@ -936,6 +982,15 @@ async function removeTempDir(path: string): Promise<void> {
 function isRetryableRemoveError(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("code" in error)) return false;
   return error.code === "EBUSY" || error.code === "ENOTEMPTY" || error.code === "EPERM";
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function fakeRemoteClient(overrides: Partial<MachineClient>): MachineClient {

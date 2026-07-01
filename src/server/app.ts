@@ -102,7 +102,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
-        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId, { create: false });
+        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
         return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
       }
       const project = await projects.requireProject(request.params.projectId);
