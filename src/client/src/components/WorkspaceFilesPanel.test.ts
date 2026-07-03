@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
-import { selectedWorkspacePathKind, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
+import { canDownloadWorkspacePath, selectedWorkspacePathKind, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 describe("workspaceUploadBatchesForScope", () => {
   it("filters upload batches to the selected project, workspace, and machine", () => {
@@ -67,6 +67,13 @@ describe("workspace upload defaults", () => {
 });
 
 describe("workspace file actions", () => {
+  it("only enables downloads for selected files", () => {
+    expect(canDownloadWorkspacePath("README.md", "file")).toBe(true);
+    expect(canDownloadWorkspacePath("src", "directory")).toBe(false);
+    expect(canDownloadWorkspacePath(undefined, undefined)).toBe(false);
+    expect(canDownloadWorkspacePath("", undefined)).toBe(false);
+  });
+
   it("uses the selected directory for new path defaults", () => {
     expect(workspaceNewPathDefault("src", "directory", "new-file.txt")).toBe("src/new-file.txt");
   });
