@@ -1,5 +1,6 @@
 import { realtimeEvents, sessionEvents } from "./api";
 import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
+import type { SocketScope } from "./api/sockets";
 
 export type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes";
 
@@ -13,6 +14,8 @@ export class SessionSocket {
   private hasOpened = false;
   private onReconnect: (() => void) | undefined;
   private machineId = "local";
+
+  constructor(private readonly scope: SocketScope = "normal") {}
 
   connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId = "local"): void {
     this.close();
@@ -42,7 +45,7 @@ export class SessionSocket {
 
   private open(): void {
     if (this.session === undefined || this.session.id === "" || this.session.cwd === "" || !this.shouldReconnect) return;
-    const socket = sessionEvents(this.session, this.machineId);
+    const socket = sessionEvents(this.session, this.machineId, this.scope);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectDelay = 500;
@@ -80,6 +83,8 @@ export class RealtimeSocket {
   private shouldReconnect = false;
   private machineId = "local";
 
+  constructor(private readonly scope: SocketScope = "normal") {}
+
   connect(onEvent: (event: RealtimeEvent) => void, onOpen?: () => void, machineId = "local"): void {
     this.close();
     this.machineId = machineId;
@@ -101,7 +106,7 @@ export class RealtimeSocket {
 
   private open(): void {
     if (!this.shouldReconnect) return;
-    const socket = realtimeEvents(this.machineId);
+    const socket = realtimeEvents(this.machineId, this.scope);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectDelay = 500;

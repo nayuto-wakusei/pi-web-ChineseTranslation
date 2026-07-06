@@ -1,16 +1,21 @@
 import type { SessionRef } from "../../../shared/apiTypes";
+import { currentApiScope, type ApiScope, withManagementEmbedQuery } from "./managementEmbed";
 
 type SessionLookup = SessionRef | string;
 
-export function sessionEvents(session: SessionLookup, machineId = "local"): WebSocket {
+export type SocketScope = ApiScope;
+
+export function sessionEvents(session: SessionLookup, machineId = "local", scope: SocketScope = currentApiScope()): WebSocket {
   const cwd = typeof session === "string" ? undefined : session.cwd;
   const query = cwd === undefined || cwd === "" ? "" : `?${new URLSearchParams({ cwd }).toString()}`;
   const sessionId = typeof session === "string" ? session : session.id;
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/${encodeURIComponent(sessionId)}/events${query}`);
+  const path = withManagementEmbedQuery(`${machinePrefix(machineId)}/sessions/${encodeURIComponent(sessionId)}/events${query}`, undefined, scope);
+  return new WebSocket(`${webSocketBaseUrl()}${path}`);
 }
 
-export function globalSessionEvents(machineId = "local"): WebSocket {
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/sessions/events`);
+export function globalSessionEvents(machineId = "local", scope: SocketScope = currentApiScope()): WebSocket {
+  const path = withManagementEmbedQuery(`${machinePrefix(machineId)}/sessions/events`, undefined, scope);
+  return new WebSocket(`${webSocketBaseUrl()}${path}`);
 }
 
 export function terminalSocket(projectId: string, workspaceId: string, terminalId: string, initialSize?: { cols: number; rows: number }, machineId = "local"): WebSocket {
@@ -18,8 +23,9 @@ export function terminalSocket(projectId: string, workspaceId: string, terminalI
   return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/socket${sizeQuery}`);
 }
 
-export function realtimeEvents(machineId = "local"): WebSocket {
-  return new WebSocket(`${webSocketBaseUrl()}${machinePrefix(machineId)}/events`);
+export function realtimeEvents(machineId = "local", scope: SocketScope = currentApiScope()): WebSocket {
+  const path = withManagementEmbedQuery(`${machinePrefix(machineId)}/events`, undefined, scope);
+  return new WebSocket(`${webSocketBaseUrl()}${path}`);
 }
 
 function machinePrefix(machineId: string): string {

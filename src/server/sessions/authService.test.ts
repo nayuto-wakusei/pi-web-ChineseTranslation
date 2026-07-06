@@ -9,7 +9,7 @@ describe("AuthService", () => {
     expect(auth.saveApiKey("anthropic", "sk-test")).toEqual({ accepted: true });
 
     expect(authStorage.get("anthropic")).toEqual({ type: "api_key", key: "sk-test" });
-    expect(changes).toEqual([{}]);
+    expect(changes).toEqual([{ scope: "normal" }]);
     auth.dispose();
   });
 
@@ -19,7 +19,7 @@ describe("AuthService", () => {
     expect(auth.logoutProvider("anthropic")).toEqual({ accepted: true });
 
     expect(authStorage.get("anthropic")).toBeUndefined();
-    expect(changes).toEqual([{ removedProviderId: "anthropic" }]);
+    expect(changes).toEqual([{ scope: "normal", removedProviderId: "anthropic" }]);
     auth.dispose();
   });
 

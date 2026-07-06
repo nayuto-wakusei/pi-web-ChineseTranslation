@@ -28,4 +28,24 @@ describe("management embed API routing", () => {
 
     expect(url).toBe("/api/projects");
   });
+
+  it("leaves management page API requests unchanged when the caller uses normal scope", () => {
+    const url = withManagementEmbed(
+      "/api/projects",
+      new URL("http://pi.example.test/?embed=management&token=launch-token"),
+      "normal",
+    );
+
+    expect(url).toBe("/api/projects");
+  });
+
+  it("adds management embed parameters when the caller uses management scope", () => {
+    const url = withManagementEmbed(
+      "/api/projects",
+      new URL("http://pi.example.test/?embed=management&token=launch-token"),
+      "management",
+    );
+
+    expect(url).toBe("/api/projects?embed=management&token=launch-token");
+  });
 });

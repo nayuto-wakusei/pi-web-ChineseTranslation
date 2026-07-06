@@ -45,4 +45,30 @@ describe("machine-scoped socket urls", () => {
       "wss://pi.example.test/api/machines/remote-a/projects/p%201/workspaces/w%2F1/terminals/t%3F1/socket?cols=120&rows=40",
     ]);
   });
+
+  it("adds management embed parameters to session and realtime sockets in management scope", () => {
+    vi.stubGlobal("location", { protocol: "https:", host: "pi.example.test", href: "https://pi.example.test/?embed=management&token=launch-token" });
+
+    sessionEvents({ id: "s1", cwd: "/repo" }, "local", "management");
+    globalSessionEvents("local", "management");
+    realtimeEvents("local", "management");
+
+    expect(webSocketUrls).toEqual([
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&embed=management&token=launch-token",
+      "wss://pi.example.test/api/machines/local/sessions/events?embed=management&token=launch-token",
+      "wss://pi.example.test/api/machines/local/events?embed=management&token=launch-token",
+    ]);
+  });
+
+  it("does not add management embed parameters to normal-scope sockets on a management page", () => {
+    vi.stubGlobal("location", { protocol: "https:", host: "pi.example.test", href: "https://pi.example.test/?embed=management&token=launch-token" });
+
+    sessionEvents({ id: "s1", cwd: "/repo" }, "local", "normal");
+    realtimeEvents("local", "normal");
+
+    expect(webSocketUrls).toEqual([
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo",
+      "wss://pi.example.test/api/machines/local/events",
+    ]);
+  });
 });

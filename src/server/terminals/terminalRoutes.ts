@@ -16,9 +16,9 @@ export interface TerminalRouteService {
   resize(id: string, cols: number, rows: number): void;
   continue(id: string, managementContext?: ManagementEmbedContext): TerminalInfo;
   runCommand(options: RunTerminalCommandOptions): TerminalCommandRun;
-  listCommandRuns(filter?: TerminalCommandRunFilter): TerminalCommandRun[];
-  getCommandRun(runId: string): TerminalCommandRun | undefined;
-  cancelCommandRun(runId: string): TerminalCommandRun;
+  listCommandRuns(filter?: TerminalCommandRunFilter, managementContext?: ManagementEmbedContext): TerminalCommandRun[];
+  getCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun | undefined;
+  cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun;
 }
 
 export function registerTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService, prefix = ""): void {
@@ -61,7 +61,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
 
   app.get<{ Querystring: TerminalCommandRunQuery }>(`${prefix}/terminal-command-runs`, (request, reply) => {
     try {
-      return terminals.listCommandRuns(parseCommandRunFilter(request.query));
+      return terminals.listCommandRuns(parseCommandRunFilter(request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -69,14 +69,14 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
 
   app.post<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId/cancel`, (request, reply) => {
     try {
-      return terminals.cancelCommandRun(request.params.runId);
+      return terminals.cancelCommandRun(request.params.runId, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.get<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId`, (request, reply) => {
-    const run = terminals.getCommandRun(request.params.runId);
+    const run = terminals.getCommandRun(request.params.runId, managementContextFromHeaders(request.headers));
     if (run === undefined) return reply.code(404).send({ error: "Terminal command run not found" });
     return run;
   });

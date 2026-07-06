@@ -25,6 +25,7 @@ import {
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
+import { authScopeFromEventScope, eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
 import { SessionCommandService } from "./sessionCommandService.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
@@ -81,8 +82,8 @@ function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: fals
   return new Error(`cwd 必须是此项目的工作区。允许的路径：${decision.allowedCwds.join(", ")}`);
 }
 
-function authLossWarningKey(sessionId: string, provider: string, modelId: string): string {
-  return `${sessionId}:${provider}/${modelId}`;
+function authLossWarningKey(sessionId: string, eventScope: string, provider: string, modelId: string): string {
+  return `${eventScope}:${sessionId}:${provider}/${modelId}`;
 }
 
 function sessionIdFromLookup(ref: PiSessionLookup): string {
@@ -93,20 +94,14 @@ function isPiSessionRef(ref: PiSessionLookup): ref is PiSessionRef {
   return typeof ref !== "string";
 }
 
-type ManagedActiveSession = ActiveSession<PiSessionRuntime> & { managementContextKey: string | undefined };
+type ManagedActiveSession = ActiveSession<PiSessionRuntime> & { managementContextKey: string | undefined; eventScope: string };
 
 function lookupMatchesActiveSession(ref: PiSessionLookup, active: ActiveSession<PiSessionRuntime>): boolean {
   return !isPiSessionRef(ref) || cwdPathsEqual(active.runtime.cwd, ref.cwd);
 }
 
-function managementContextKey(context: ManagementEmbedContext | undefined): string | undefined {
-  if (context === undefined) return undefined;
-  return JSON.stringify({
-    userId: context.user.id,
-    rootUserId: context.user.rootUserId,
-    projects: context.projects.map((project) => project.id).sort(),
-    sandboxEnv: context.sandbox?.env ?? {},
-  });
+function activeSessionKey(sessionId: string, eventScope: string): string {
+  return `${eventScope}\0${sessionId}`;
 }
 
 type QueuedPromptKind = "steer" | "followUp";
@@ -186,6 +181,7 @@ interface BulkSessionLookupContext {
 
 interface BulkArchivePlanItem {
   input: ArchiveSessionInput;
+  active?: ManagedActiveSession;
 }
 
 interface BulkDeletePlanItem {
@@ -342,10 +338,12 @@ function createRuntimeWithContextAndOneShotInitialModel(
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
-function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
+function createDefaultRuntimeFactory(modelRegistry: ModelRegistryInstance, managementModelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel }) => {
+    const scopedModelRegistry = managementContext === undefined ? modelRegistry : managementModelRegistry;
+    const authStorage = scopedModelRegistry.authStorage;
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(authStorage, modelRegistry, spawn, subsessions, managementContext)({
+      return createManagementRuntimeFactory(authStorage, scopedModelRegistry, spawn, subsessions, managementContext)({
         cwd,
         agentDir,
         sessionManager,
@@ -354,7 +352,7 @@ function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: Mo
       });
     }
 
-    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry: scopedModelRegistry });
     const customTools = [
       ...managedAgentToolDefinitions(cwd),
       ...(spawn === undefined ? [] : [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))]),
@@ -454,6 +452,7 @@ export interface PiSessionServiceDependencies {
   createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
   modelRegistry?: ModelRegistryInstance;
+  managementModelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
   /**
@@ -504,6 +503,7 @@ export class PiSessionService {
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
   private readonly modelRegistry: ModelRegistryInstance;
+  private readonly managementModelRegistry: ModelRegistryInstance;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
   private readonly spawnTargets: SpawnTargetResolver | undefined;
   private readonly logger: PiSessionLogger;
@@ -514,6 +514,7 @@ export class PiSessionService {
     this.agentDir = deps.agentDir ?? getAgentDir();
     this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({ agentDir: this.agentDir });
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
+    this.managementModelRegistry = deps.managementModelRegistry ?? this.modelRegistry;
     this.spawnTargets = deps.spawnTargets;
     this.logger = deps.logger ?? noopLogger;
     this.now = deps.now ?? (() => new Date());
@@ -521,8 +522,8 @@ export class PiSessionService {
     // also require the spawn capability (they share its project-scope resolver).
     const subsessionsActive = this.spawnTargets !== undefined && deps.subsessionsEnabled === true;
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
-      this.modelRegistry.authStorage,
       this.modelRegistry,
+      this.managementModelRegistry,
       this.spawnTargets === undefined ? undefined : (input) => this.spawnSession(input),
       !subsessionsActive ? undefined : {
         spawn: (input) => this.spawnSubsession(input),
@@ -535,8 +536,8 @@ export class PiSessionService {
     this.workspaceActivity = deps.workspaceActivity;
     this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
-      (sessionId) => this.getActive(sessionId),
-      (sessionId, text) => this.prompt(sessionId, text, undefined, undefined, { echoUserMessage: false }),
+      (sessionId, eventScope) => this.getActiveForCommand(sessionId, eventScope),
+      (sessionId, text, eventScope) => this.submitCommandPrompt(sessionId, text, eventScope),
       events,
       {
         onCompactionStart: (session) => {
@@ -617,13 +618,13 @@ export class PiSessionService {
     this.subsessionNotifyArmed.clear();
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
-      this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd());
+      this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd(), active.eventScope);
       await active.runtime.session.abort();
       await active.runtime.dispose();
     }));
   }
 
-  async list(cwd: string): Promise<ClientSession[]> {
+  async list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]> {
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     const archivedForCwd = await Promise.all(
@@ -633,7 +634,7 @@ export class PiSessionService {
     );
     const archivedById = new Map(archivedForCwd.map((record) => [record.sessionId, record]));
     const unarchivedSessions = sessions.filter((session) => !archivedById.has(session.id)).map(clientSessionFromListEntry);
-    this.workspaceActivity?.reconcileSessionActivity(cwd, this.reconcilableSessionIds(cwd, unarchivedSessions.map((session) => session.id), archivedById));
+    this.workspaceActivity?.reconcileSessionActivity(cwd, this.reconcilableSessionIds(cwd, unarchivedSessions.map((session) => session.id), archivedById), eventScopeFromManagementContext(managementContext));
     const archivedSessions = archivedForCwd
       .sort(compareArchivedRecords)
       .map((record) => clientSessionFromArchivedRecord(record, sessionsById.get(record.sessionId)))
@@ -665,7 +666,7 @@ export class PiSessionService {
     };
     // Broadcast so other clients (and the spawning agent's UI) can add the new
     // session to their list without a manual reload.
-    this.events.publishGlobal({ type: "session.created", session: created });
+    this.events.publishGlobal({ type: "session.created", session: created }, active.eventScope);
     return created;
   }
 
@@ -772,15 +773,11 @@ export class PiSessionService {
   }
 
   private activeChildForSubsessionLink(link: TrackedSubsessionLink): ActiveSession<PiSessionRuntime> | undefined {
-    const active = this.active.get(link.childSessionId);
-    if (active === undefined) return undefined;
-    return activeSessionFileMatches(active, link.childSessionFile) ? active : undefined;
+    return this.activeSessionsForId(link.childSessionId).find((active) => activeSessionFileMatches(active, link.childSessionFile));
   }
 
   private activeParentForSubsessionLink(link: TrackedSubsessionLink): ActiveSession<PiSessionRuntime> | undefined {
-    const active = this.active.get(link.parentSessionId);
-    if (active === undefined) return undefined;
-    return activeSessionFileMatches(active, link.parentSessionFile) ? active : undefined;
+    return this.activeSessionsForId(link.parentSessionId).find((active) => activeSessionFileMatches(active, link.parentSessionFile));
   }
 
   private subsessionLinkForActiveChild(session: PiAgentSession): TrackedSubsessionLink | undefined {
@@ -835,7 +832,7 @@ export class PiSessionService {
   }
 
   private persistSubsessionChildMarker(parentSessionId: string, childSessionId: string): void {
-    const child = this.active.get(childSessionId)?.runtime.session;
+    const child = this.activeForSessionId(childSessionId)?.runtime.session;
     if (child === undefined) return;
     if (child.sessionManager.appendCustomEntry === undefined) return;
     try {
@@ -852,7 +849,7 @@ export class PiSessionService {
     const hydrationKey = subsessionHydratedParentKey(parentSessionId, parentSessionFile);
     if (this.subsessionHydratedParents.has(hydrationKey)) return;
 
-    const activeParent = this.active.get(parentSessionId);
+    const activeParent = this.activeForSessionId(parentSessionId);
     if (activeParent !== undefined && (parentSessionFile === undefined || activeSessionFileMatches(activeParent, parentSessionFile))) {
       const activeParentFile = nonEmptyString(activeParent.runtime.session.sessionFile);
       await this.registerPersistedSubsessionLinks(parentSessionId, activeParent.runtime.session.sessionManager, activeParentFile);
@@ -988,7 +985,7 @@ export class PiSessionService {
 
   private subsessionStatus(session: PiAgentSession): SubsessionStatus {
     if (this.hasActiveWork(session)) return "working";
-    if (this.activities.get(session.sessionId)?.phase === "error") return "error";
+    if (this.activityForSession(session)?.phase === "error") return "error";
     return "idle";
   }
 
@@ -1008,7 +1005,7 @@ export class PiSessionService {
     }
     if (this.subsessionNotifyArmed.get(childId) !== true) return;
     this.subsessionNotifyArmed.set(childId, false);
-    const status: SubsessionStatus = this.activities.get(childId)?.phase === "error" ? "error" : "idle";
+    const status: SubsessionStatus = this.activityForSession(session)?.phase === "error" ? "error" : "idle";
     const finalText = finalAssistantText(historyMessages(session));
     const preview = finalText === "" ? "(no output)" : truncateForNotification(finalText);
     const text = `Subsession ${childId} stopped working (status: ${status}). Latest output:\n\n${preview}\n\nUse check_subsession with sessionId "${childId}" for its status and latest output, or read_subsession to look through its full transcript.`;
@@ -1171,12 +1168,13 @@ export class PiSessionService {
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
     this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
-    if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) });
+    const eventScope = this.eventScopeForSession(session);
+    if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
     const promptOptions = buildPromptOptions(behavior, images);
     const promptPromise = session.prompt(text, promptOptions).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "error", "error", message);
-      this.events.publish(session.sessionId, { type: "session.error", message });
+      this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
     });
     void promptPromise;
     return promptPromise;
@@ -1190,11 +1188,11 @@ export class PiSessionService {
     this.publishStatus(session);
   }
 
-  async saveAttachments(ref: PiSessionLookup, attachments: unknown, folder?: string): Promise<SavedPromptAttachment[]> {
+  async saveAttachments(ref: PiSessionLookup, attachments: unknown, folder?: string, managementContext?: ManagementEmbedContext): Promise<SavedPromptAttachment[]> {
     const parsed = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false, allowFileAttachments: true });
     if (parsed.length === 0) return [];
     await this.assertWritable(ref);
-    const active = await this.getActive(ref);
+    const active = await this.getActive(ref, managementContext);
     return saveAttachmentsToWorkspace(active.runtime.cwd, parsed, folder === undefined ? {} : { folder });
   }
 
@@ -1207,10 +1205,11 @@ export class PiSessionService {
     if (!command) throw new Error("用法：!<shell command>");
     if (session.isBashRunning) throw new Error("已有 bash 命令正在运行");
 
+    const eventScope = active.eventScope;
     this.publishActivity(session, "running bash", "active", command);
-    this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded });
+    this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded }, eventScope);
     void session.executeBash(command, (chunk) => {
-      this.events.publish(session.sessionId, { type: "shell.chunk", chunk });
+      this.events.publish(session.sessionId, { type: "shell.chunk", chunk }, eventScope);
       this.publishActivity(session, "running bash", "active", command);
       this.publishStatus(session);
     }, { excludeFromContext: isExcluded }).then((result) => {
@@ -1221,13 +1220,13 @@ export class PiSessionService {
         cancelled: result.cancelled,
         truncated: result.truncated,
         ...(result.fullOutputPath === undefined ? {} : { fullOutputPath: result.fullOutputPath }),
-      });
+      }, eventScope);
       this.publishActivity(session, "bash complete", result.exitCode === 0 ? "idle" : "error", command);
       this.publishStatus(session);
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      this.events.publish(session.sessionId, { type: "shell.end", output: message, isError: true });
-      this.events.publish(session.sessionId, { type: "session.error", message });
+      this.events.publish(session.sessionId, { type: "shell.end", output: message, isError: true }, eventScope);
+      this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
       this.publishActivity(session, "bash failed", "error", message);
       this.publishStatus(session);
     });
@@ -1236,24 +1235,25 @@ export class PiSessionService {
   async runCommand(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(ref);
     const active = await this.getActive(ref, managementContext);
-    return this.commandService.run(active.runtime.session.sessionId, text);
+    return this.commandService.run(active.runtime.session.sessionId, text, active.eventScope);
   }
 
-  async respondToCommand(ref: PiSessionLookup, requestId: string, value: string): Promise<ClientCommandResult> {
+  async respondToCommand(ref: PiSessionLookup, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(ref);
-    const active = await this.getActive(ref);
-    return this.commandService.respond(active.runtime.session.sessionId, requestId, value);
+    const active = await this.getActive(ref, managementContext);
+    return this.commandService.respond(active.runtime.session.sessionId, requestId, value, active.eventScope);
   }
 
-  async archive(ref: PiSessionLookup): Promise<void> {
-    const session = await this.getOrOpen(ref);
+  async archive(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
+    const active = await this.getActive(ref, managementContext);
+    const session = active.runtime.session;
     if (this.hasActiveWork(session)) throw new Error("归档前请先停止当前会话活动");
     const archiveInput = await this.archiveInputForSession(session);
-    await this.closeActive(session.sessionId);
+    await this.closeActiveSession(active);
     await this.archiveStore.archive(archiveInput);
   }
 
-  async archiveMany(refs: readonly SessionBulkMutationRef[]): Promise<SessionBulkArchiveResponse> {
+  async archiveMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkArchiveResponse> {
     const uniqueRefs = uniqueBulkSessionRefs(refs);
     const [archivedRecords, sessionContext] = await Promise.all([
       this.archiveStore.list(),
@@ -1270,7 +1270,7 @@ export class PiSessionService {
         continue;
       }
 
-      const active = this.activeForLookup(bulkRefToLookup(ref));
+      const active = this.activeForLookup(bulkRefToLookup(ref), managementContext);
       const listed = findListedSessionForBulkRef(sessionContext, ref);
       const resolvedSessionId = active?.runtime.session.sessionId ?? listed?.id ?? ref.id;
       if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
@@ -1280,9 +1280,9 @@ export class PiSessionService {
 
       try {
         if (listed !== undefined) {
-          planItems.push({ input: archiveInputFromListEntry(listed) });
+          planItems.push({ input: archiveInputFromListEntry(listed), ...(active === undefined ? {} : { active }) });
         } else if (active !== undefined) {
-          planItems.push({ input: archiveInputFromActiveSession(active.runtime.session) });
+          planItems.push({ input: archiveInputFromActiveSession(active.runtime.session), active });
         } else {
           failures.push({ sessionId: ref.id, error: "Session not found" });
         }
@@ -1294,7 +1294,8 @@ export class PiSessionService {
     const readyInputs: ArchiveSessionInput[] = [];
     for (const item of planItems) {
       try {
-        await this.closeActive(item.input.sessionId);
+        if (item.active !== undefined) await this.closeActiveSession(item.active);
+        else await this.closeActiveInScope(item.input.sessionId, eventScopeFromManagementContext(managementContext));
         readyInputs.push(item.input);
       } catch (error: unknown) {
         failures.push({ sessionId: item.input.sessionId, error: errorMessage(error) });
@@ -1317,8 +1318,8 @@ export class PiSessionService {
     };
   }
 
-  async archiveTree(ref: PiSessionLookup): Promise<ClientArchiveSessionsResponse> {
-    const session = await this.getOrOpen(ref);
+  async archiveTree(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientArchiveSessionsResponse> {
+    const session = await this.getOrOpen(ref, managementContext);
     const catalog = await this.workspaceArchiveCandidates(session.sessionManager.getCwd());
     const root = findArchiveCandidateByIdOrPrefix(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false);
     const plan = planSessionArchiveTree(root, catalog);
@@ -1326,7 +1327,7 @@ export class PiSessionService {
     if (busy !== undefined) throw new Error(`归档 ${sessionDisplayName(busy)} 前请先停止当前会话活动`);
 
     const archiveInputs = plan.unarchivedTargets.map((target) => archiveInputFromCandidate(target));
-    for (const input of archiveInputs) await this.closeActive(input.sessionId);
+    for (const input of archiveInputs) await this.closeActiveInScope(input.sessionId, eventScopeFromManagementContext(managementContext));
     await this.archiveStoreArchiveMany(archiveInputs);
 
     return {
@@ -1337,24 +1338,24 @@ export class PiSessionService {
     };
   }
 
-  async restore(ref: PiSessionLookup): Promise<void> {
+  async restore(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     const archived = await this.getArchived(ref);
     if (archived === undefined) throw new Error("未找到会话");
-    await this.closeActive(archived.sessionId);
+    await this.closeActiveInScope(archived.sessionId, eventScopeFromManagementContext(managementContext));
     await this.archiveStore.restore(archived.sessionId);
   }
 
-  async deleteArchived(ref: PiSessionLookup): Promise<void> {
+  async deleteArchived(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     const record = await this.getArchived(ref);
     if (record === undefined) throw new Error("未找到已归档会话");
     if (this.archiveStore.deleteArchived === undefined) throw new Error("归档存储不支持删除");
 
-    await this.closeActive(record.sessionId);
+    await this.closeActiveInScope(record.sessionId, eventScopeFromManagementContext(managementContext));
     if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
     await this.archiveStore.deleteArchived(record.sessionId);
   }
 
-  async deleteArchivedMany(refs: readonly SessionBulkMutationRef[]): Promise<SessionBulkDeleteArchivedResponse> {
+  async deleteArchivedMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkDeleteArchivedResponse> {
     if (this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
 
     const uniqueRefs = uniqueBulkSessionRefs(refs);
@@ -1369,7 +1370,7 @@ export class PiSessionService {
         continue;
       }
 
-      const active = this.activeForLookup({ id: record.sessionId, cwd: record.cwd });
+      const active = this.activeForLookup({ id: record.sessionId, cwd: record.cwd }, managementContext);
       if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
         failures.push({ sessionId: record.sessionId, error: "Stop current session activity before deleting archived session" });
         continue;
@@ -1380,7 +1381,7 @@ export class PiSessionService {
     const readyRecords: ArchivedSessionRecord[] = [];
     for (const item of planItems) {
       try {
-        await this.closeActive(item.record.sessionId);
+        await this.closeActiveInScope(item.record.sessionId, eventScopeFromManagementContext(managementContext));
         readyRecords.push(item.record);
       } catch (error: unknown) {
         failures.push({ sessionId: item.record.sessionId, error: errorMessage(error) });
@@ -1409,17 +1410,18 @@ export class PiSessionService {
     };
   }
 
-  async reload(ref: PiSessionLookup): Promise<void> {
+  async reload(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const active = await this.getActive(ref, managementContext);
+    const session = active.runtime.session;
     if (this.hasActiveWork(session)) throw new Error("重新加载前请先停止当前会话活动");
-    await this.closeActive(session.sessionId);
-    const reopened = await this.getActive(ref);
+    await this.closeActiveSession(active);
+    const reopened = await this.getActive(ref, managementContext);
     this.publishStatus(reopened.runtime.session);
   }
 
-  async detachParent(ref: PiSessionLookup): Promise<void> {
-    const session = await this.getOrOpen(ref);
+  async detachParent(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
+    const session = await this.getOrOpen(ref, managementContext);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
     await clearParentSession(sessionFile);
@@ -1427,8 +1429,8 @@ export class PiSessionService {
     this.unregisterSubsession(session.sessionId);
   }
 
-  async abort(ref: PiSessionLookup): Promise<void> {
-    const active = this.activeForLookupAny(ref);
+  async abort(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
+    const active = this.activeForLookup(ref, managementContext);
     if (active === undefined) return;
     const sessionId = active.runtime.session.sessionId;
     this.clearCompactionPromptQueue(sessionId);
@@ -1438,10 +1440,10 @@ export class PiSessionService {
     this.publishStatus(active.runtime.session);
   }
 
-  stop(ref: PiSessionLookup): void {
-    const active = this.activeForLookupAny(ref);
+  stop(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): void {
+    const active = this.activeForLookup(ref, managementContext);
     if (active === undefined) return;
-    void this.closeActive(active.runtime.session.sessionId).catch(() => {
+    void this.closeActiveSession(active).catch(() => {
       // Best-effort shutdown; callers that need errors await closeActive directly.
     });
   }
@@ -1531,8 +1533,7 @@ export class PiSessionService {
   }
 
   private activeSessionHasWork(sessionId: string): boolean {
-    const active = this.active.get(sessionId);
-    return active !== undefined && this.hasActiveWork(active.runtime.session);
+    return this.activeSessionsForId(sessionId).some((active) => this.hasActiveWork(active.runtime.session));
   }
 
   private reconcilableSessionIds(cwd: string, listedSessionIds: string[], archivedById: Map<string, ArchivedSessionRecord>): string[] {
@@ -1545,7 +1546,7 @@ export class PiSessionService {
   }
 
   private async ensureArchivedSessionMoved(record: ArchivedSessionRecord, session: PiSessionListEntry | undefined): Promise<ArchivedSessionRecord> {
-    if (session === undefined || this.active.has(record.sessionId)) return record;
+    if (session === undefined || this.activeSessionsForId(record.sessionId).length > 0) return record;
     try {
       return await this.archiveStore.archive(archiveInputFromListEntry(session));
     } catch {
@@ -1630,11 +1631,20 @@ export class PiSessionService {
   }
 
   private async closeActive(sessionId: string): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
-    this.active.delete(sessionId);
-    this.activities.delete(sessionId);
-    this.workspaceActivity?.removeSession(sessionId, active.runtime.session.sessionManager.getCwd());
+    const activeSessions = this.activeSessionsForId(sessionId);
+    await Promise.all(activeSessions.map((active) => this.closeActiveSession(active)));
+  }
+
+  private async closeActiveInScope(sessionId: string, eventScope: string): Promise<void> {
+    const active = this.activeForSessionIdAndScope(sessionId, eventScope);
+    if (active !== undefined) await this.closeActiveSession(active);
+  }
+
+  private async closeActiveSession(active: ManagedActiveSession): Promise<void> {
+    const sessionId = active.runtime.session.sessionId;
+    this.active.delete(activeSessionKey(sessionId, active.eventScope));
+    this.activities.delete(activeSessionKey(sessionId, active.eventScope));
+    this.workspaceActivity?.removeSession(sessionId, active.runtime.session.sessionManager.getCwd(), active.eventScope);
     this.clearAuthLossWarningsForSession(sessionId);
     this.clearCompactionPromptQueue(sessionId);
     // Disarm subsession notification before teardown so the abort below cannot
@@ -1662,9 +1672,6 @@ export class PiSessionService {
     const active = this.activeForLookup(ref, managementContext);
     if (active !== undefined) return active;
 
-    const mismatched = this.activeForLookupAny(ref);
-    if (mismatched !== undefined) await this.closeActive(mismatched.runtime.session.sessionId);
-
     const archived = await this.getArchived(ref);
     if (archived?.archivePath !== undefined) {
       return this.create(this.sessionManager.open(archived.archivePath), archived.cwd, managementContext === undefined ? {} : { managementContext });
@@ -1686,10 +1693,12 @@ export class PiSessionService {
 
   private activeForLookup(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): ManagedActiveSession | undefined {
     const key = managementContextKey(managementContext);
+    const eventScope = eventScopeFromManagementContext(managementContext);
     const sessionId = sessionIdFromLookup(ref);
-    const exact = this.active.get(sessionId);
+    const exact = this.active.get(activeSessionKey(sessionId, eventScope));
     if (exact !== undefined && lookupMatchesActiveSession(ref, exact) && exact.managementContextKey === key) return exact;
-    for (const [candidateId, active] of this.active.entries()) {
+    for (const active of this.active.values()) {
+      const candidateId = active.runtime.session.sessionId;
       if (candidateId.startsWith(sessionId) && lookupMatchesActiveSession(ref, active) && active.managementContextKey === key) return active;
     }
     return undefined;
@@ -1697,12 +1706,38 @@ export class PiSessionService {
 
   private activeForLookupAny(ref: PiSessionLookup): ManagedActiveSession | undefined {
     const sessionId = sessionIdFromLookup(ref);
-    const exact = this.active.get(sessionId);
+    const exact = this.activeForSessionId(sessionId);
     if (exact !== undefined && lookupMatchesActiveSession(ref, exact)) return exact;
-    for (const [candidateId, active] of this.active.entries()) {
+    for (const active of this.active.values()) {
+      const candidateId = active.runtime.session.sessionId;
       if (candidateId.startsWith(sessionId) && lookupMatchesActiveSession(ref, active)) return active;
     }
     return undefined;
+  }
+
+  private getActiveForCommand(sessionId: string, eventScope: string | undefined): Promise<ManagedActiveSession> {
+    const active = eventScope === undefined ? this.activeForSessionId(sessionId) : this.activeForSessionIdAndScope(sessionId, eventScope);
+    if (active === undefined) throw new Error(`Session not active: ${sessionId}`);
+    return Promise.resolve(active);
+  }
+
+  private submitCommandPrompt(sessionId: string, text: string, eventScope: string | undefined): Promise<void> {
+    const active = this.activeForSessionIdAndScope(sessionId, eventScope);
+    if (active === undefined) throw new Error(`Session not active: ${sessionId}`);
+    return this.submitPrompt(active.runtime.session, text, undefined, [], false);
+  }
+
+  private activeForSessionId(sessionId: string): ManagedActiveSession | undefined {
+    return this.activeSessionsForId(sessionId)[0];
+  }
+
+  private activeForSessionIdAndScope(sessionId: string, eventScope: string | undefined): ManagedActiveSession | undefined {
+    if (eventScope === undefined) return undefined;
+    return this.active.get(activeSessionKey(sessionId, eventScope));
+  }
+
+  private activeSessionsForId(sessionId: string): ManagedActiveSession[] {
+    return [...new Set(this.active.values())].filter((active) => active.runtime.session.sessionId === sessionId);
   }
 
   private async create(sessionManager: PiSessionManager, cwd: string, options: Pick<StartSessionOptions, "managementContext" | "initialModel"> = {}): Promise<ManagedActiveSession> {
@@ -1713,15 +1748,15 @@ export class PiSessionService {
       ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
       ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
     });
+    const active: ManagedActiveSession = { runtime, unsubscribe: noop, managementContextKey: managementContextKey(options.managementContext), eventScope: eventScopeFromManagementContext(options.managementContext) };
+    this.active.set(activeSessionKey(runtime.session.sessionId, active.eventScope), active);
     await this.bindSessionExtensions(runtime.session);
-    const active: ManagedActiveSession = { runtime, unsubscribe: noop, managementContextKey: managementContextKey(options.managementContext) };
     this.bindRuntime(active);
     runtime.setRebindSession(async (session) => {
       await this.bindSessionExtensions(session);
       this.bindRuntime(active);
       await this.recoverSubsessionTrackingForOpenedSession(session);
     });
-    this.active.set(runtime.session.sessionId, active);
     await this.recoverSubsessionTrackingForOpenedSession(runtime.session);
     this.publishStatus(runtime.session);
     return active;
@@ -1732,7 +1767,7 @@ export class PiSessionService {
       onError: (error) => {
         const message = `${error.extensionPath}: ${error.error}`;
         this.publishActivity(session, "extension error", "error", message);
-        this.events.publish(session.sessionId, { type: "session.error", message });
+        this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
       },
     });
   }
@@ -1743,11 +1778,11 @@ export class PiSessionService {
     for (const [sessionId, candidate] of this.active.entries()) {
       if (candidate === active) {
         this.active.delete(sessionId);
-        if (sessionId !== session.sessionId) this.clearCompactionPromptQueue(sessionId);
+        if (!sessionId.endsWith(`\0${session.sessionId}`)) this.clearCompactionPromptQueue(candidate.runtime.session.sessionId);
       }
     }
     active.unsubscribe = session.subscribe((event) => {
-      this.events.publish(session.sessionId, toClientEvent(event));
+      this.events.publish(session.sessionId, toClientEvent(event), active.eventScope);
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
       if (eventType === "compaction_end") this.scheduleCompactionQueueDrain(session.sessionId);
@@ -1755,7 +1790,7 @@ export class PiSessionService {
       this.publishStatus(session);
       this.updateSubsessionTracking(session);
     });
-    this.active.set(session.sessionId, active);
+    this.active.set(activeSessionKey(session.sessionId, active.eventScope), active);
   }
 
   private scheduleCompactionQueueDrain(sessionId: string, delayMs = 0): void {
@@ -1768,7 +1803,7 @@ export class PiSessionService {
   }
 
   private drainCompactionPromptQueue(sessionId: string): void {
-    const active = this.active.get(sessionId);
+    const active = this.activeForSessionId(sessionId);
     if (active === undefined) return;
     const { session } = active.runtime;
     if (session.isCompacting) {
@@ -1836,21 +1871,24 @@ export class PiSessionService {
     this.publishSessionName(session);
   }
 
-  applyAuthChange(change: AuthChange = {}): void {
+  applyAuthChange(change: Partial<AuthChange> = {}): void {
     this.modelRegistry.refresh();
+    this.managementModelRegistry.refresh();
+    const changedScope = change.scope ?? "normal";
     for (const active of this.active.values()) {
+      if (authScopeFromEventScope(active.eventScope) !== changedScope) continue;
       const { session } = active.runtime;
       session.modelRegistry.refresh();
-      this.syncCurrentModelAuthWarning(session, change.removedProviderId);
+      this.syncCurrentModelAuthWarning(session, active.eventScope, change.removedProviderId);
       this.publishStatus(session);
     }
   }
 
-  private syncCurrentModelAuthWarning(session: PiAgentSession, removedProviderId: string | undefined): void {
+  private syncCurrentModelAuthWarning(session: PiAgentSession, eventScope: string, removedProviderId: string | undefined): void {
     const model = session.model;
     if (model === undefined) return;
     if (model.provider === "unknown" && model.id === "unknown") return;
-    const warningKey = authLossWarningKey(session.sessionId, model.provider, model.id);
+    const warningKey = authLossWarningKey(session.sessionId, eventScope, model.provider, model.id);
     const registered = session.modelRegistry.find(model.provider, model.id);
     if (registered === undefined) return;
     if (session.modelRegistry.hasConfiguredAuth(registered)) {
@@ -1863,13 +1901,12 @@ export class PiSessionService {
       type: "command.output",
       level: "error",
       message: `Authentication for ${model.provider}/${model.id} was removed. Use /model to select another model.`,
-    });
+    }, eventScope);
   }
 
   private clearAuthLossWarningsForSession(sessionId: string): void {
-    const prefix = `${sessionId}:`;
     for (const key of this.authLossWarnings) {
-      if (key.startsWith(prefix)) this.authLossWarnings.delete(key);
+      if (key.includes(`:${sessionId}:`)) this.authLossWarnings.delete(key);
     }
   }
 
@@ -1877,8 +1914,9 @@ export class PiSessionService {
     const event = session.sessionName === undefined
       ? { type: "session.name", sessionId: session.sessionId } as const
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
-    this.events.publish(session.sessionId, event);
-    this.events.publishGlobal(event);
+    const eventScope = this.eventScopeForSession(session);
+    this.events.publish(session.sessionId, event, eventScope);
+    this.events.publishGlobal(event, eventScope);
   }
 
   private publishHeartbeats(): void {
@@ -1888,7 +1926,7 @@ export class PiSessionService {
       // the session still reports active work transiently, so the event-driven
       // latch may not fire. The heartbeat re-checks once the session settles.
       this.updateSubsessionTracking(session);
-      const activity = this.activities.get(session.sessionId);
+      const activity = this.activities.get(activeSessionKey(session.sessionId, active.eventScope));
       if (!this.hasActiveWork(session)) {
         if (activity?.phase === "active") this.publishStatus(session);
         continue;
@@ -1941,30 +1979,44 @@ export class PiSessionService {
   private publishActivity(session: PiAgentSession, label: string, phase: "active" | "idle" | "error", detail?: string): void {
     const at = new Date().toISOString();
     const stored = detail === undefined ? { phase, label, at } : { phase, label, detail, at };
-    this.activities.set(session.sessionId, stored);
+    const eventScope = this.eventScopeForSession(session);
+    this.activities.set(activeSessionKey(session.sessionId, eventScope), stored);
     const activity = detail === undefined ? { sessionId: session.sessionId, phase, label, at } : { sessionId: session.sessionId, phase, label, detail, at };
-    this.workspaceActivity?.applySessionActivity(session.sessionManager.getCwd(), activity);
-    this.events.publish(session.sessionId, { type: "activity.update", activity });
-    this.events.publishGlobal({ type: "activity.update", activity });
+    this.workspaceActivity?.applySessionActivity(session.sessionManager.getCwd(), activity, eventScope);
+    this.events.publish(session.sessionId, { type: "activity.update", activity }, eventScope);
+    this.events.publishGlobal({ type: "activity.update", activity }, eventScope);
   }
 
   private publishStatus(session: PiAgentSession): void {
     const status = this.statusFromSession(session);
     this.clearStaleActiveActivity(session);
-    this.workspaceActivity?.applySessionStatus(session.sessionManager.getCwd(), status);
-    this.events.publish(session.sessionId, { type: "status.update", status });
-    this.events.publishGlobal({ type: "status.update", status });
+    const eventScope = this.eventScopeForSession(session);
+    this.workspaceActivity?.applySessionStatus(session.sessionManager.getCwd(), status, eventScope);
+    this.events.publish(session.sessionId, { type: "status.update", status }, eventScope);
+    this.events.publishGlobal({ type: "status.update", status }, eventScope);
   }
 
   private clearStaleActiveActivity(session: PiAgentSession): void {
-    const current = this.activities.get(session.sessionId);
+    const eventScope = this.eventScopeForSession(session);
+    const current = this.activities.get(activeSessionKey(session.sessionId, eventScope));
     if (current?.phase !== "active" || this.hasActiveWork(session)) return;
     const at = new Date().toISOString();
     const stored = { phase: "idle" as const, label: "idle", at };
-    this.activities.set(session.sessionId, stored);
+    this.activities.set(activeSessionKey(session.sessionId, eventScope), stored);
     const activity = { sessionId: session.sessionId, ...stored };
-    this.events.publish(session.sessionId, { type: "activity.update", activity });
-    this.events.publishGlobal({ type: "activity.update", activity });
+    this.events.publish(session.sessionId, { type: "activity.update", activity }, eventScope);
+    this.events.publishGlobal({ type: "activity.update", activity }, eventScope);
+  }
+
+  private activityForSession(session: PiAgentSession): { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string } | undefined {
+    return this.activities.get(activeSessionKey(session.sessionId, this.eventScopeForSession(session)));
+  }
+
+  private eventScopeForSession(session: PiAgentSession): string {
+    for (const active of this.active.values()) {
+      if (active.runtime.session === session) return active.eventScope;
+    }
+    return NORMAL_SESSION_EVENT_SCOPE;
   }
 
   private statusFromSession(session: PiAgentSession): ClientSessionStatus {

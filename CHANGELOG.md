@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.3-beta.0
+
+### Patch Changes
+
+- Keep management-embed session actions, credentials, realtime events, and sandbox permissions isolated from normal PI WEB sessions.
+
 ## 1.202607.2
 
 ### Patch Changes

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
@@ -19,7 +20,7 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { effectivePiWebConfig, maxUploadBytes, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
+import { effectivePiWebConfig, maxUploadBytes, piWebDataDir, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
 
 const { config } = effectivePiWebConfig();
 const app = Fastify({ logger: true, bodyLimit: maxUploadBytes(process.env, config) });
@@ -27,21 +28,27 @@ await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();
 const workspaceActivity = new WorkspaceActivityService(eventHub);
-const auth = new AuthService();
+const auth = new AuthService({ scope: "normal" });
+const managementAuth = new AuthService({
+  scope: "management",
+  modelRegistry: ModelRegistry.create(AuthStorage.create(join(piWebDataDir(), "management-embed", "auth.json"))),
+});
 const spawnTargets = spawnSessionsEnabled(process.env, config)
   ? new ProjectScopedSpawnTargetResolver({ projects: new ProjectService(new ProjectStore()), workspaces: new WorkspaceService() })
   : undefined;
 const sessions = new PiSessionService(eventHub, {
   modelRegistry: auth.modelRegistry,
+  managementModelRegistry: managementAuth.modelRegistry,
   workspaceActivity,
   logger: app.log,
   ...(spawnTargets === undefined ? {} : { spawnTargets }),
   subsessionsEnabled: spawnTargets !== undefined && subsessionsEnabled(process.env, config),
 });
 auth.subscribe((change) => { sessions.applyAuthChange(change); });
+managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
 const terminals = new TerminalService(eventHub, workspaceActivity);
 registerWorkspaceActivityRoutes(app, workspaceActivity);
-registerAuthRoutes(app, auth);
+registerAuthRoutes(app, { normal: auth, management: managementAuth });
 registerSessionRoutes(app, sessions, eventHub);
 registerTerminalRoutes(app, terminals);
 
@@ -70,6 +77,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   app.log.info({ signal }, "shutting down session daemon");
   terminals.dispose();
   auth.dispose();
+  managementAuth.dispose();
   await sessions.dispose();
   await app.close();
 }

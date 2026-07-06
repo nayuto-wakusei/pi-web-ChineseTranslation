@@ -4,6 +4,7 @@ import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionRef, PiSessionService } from "./piSessionService.js";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
+import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { normalizeSessionCleanupRequest } from "./sessionCleanup.js";
 
 type SessionLookup = string | PiSessionRef;
@@ -34,7 +35,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
-      return await sessions.list(normalizeRequestCwd(request.query.cwd));
+      return await sessions.list(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -71,7 +72,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Body: SessionBulkMutationRequest | undefined }>(`${prefix}/sessions/bulk/archive`, async (request, reply) => {
     try {
-      return await sessions.archiveMany(bulkMutationRefsFromBody(request.body));
+      return await sessions.archiveMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -79,7 +80,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Body: SessionBulkMutationRequest | undefined }>(`${prefix}/sessions/bulk/delete-archived`, async (request, reply) => {
     try {
-      return await sessions.deleteArchivedMany(bulkMutationRefsFromBody(request.body));
+      return await sessions.deleteArchivedMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -181,7 +182,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
       const body = optionalRecord(request.body);
       const folder = body["folder"];
       if (folder !== undefined && typeof folder !== "string") throw new Error("folder field must be a string");
-      const attachments = await sessions.saveAttachments(sessionLookupFromBody(request.params.sessionId, body), body["attachments"], folder);
+      const attachments = await sessions.saveAttachments(sessionLookupFromBody(request.params.sessionId, body), body["attachments"], folder, managementContextFromHeaders(request.headers));
       return { attachments };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -210,7 +211,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; requestId?: unknown; value?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/commands/respond`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      return await sessions.respondToCommand(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "requestId"), requireString(body, "value"));
+      return await sessions.respondToCommand(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "requestId"), requireString(body, "value"), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -218,7 +219,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/abort`, async (request, reply) => {
     try {
-      await sessions.abort(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      await sessions.abort(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { aborted: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -227,7 +228,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/stop`, (request, reply) => {
     try {
-      sessions.stop(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      sessions.stop(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { stopped: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -236,7 +237,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/archive`, async (request, reply) => {
     try {
-      await sessions.archive(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      await sessions.archive(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { archived: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -245,7 +246,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/archive-tree`, async (request, reply) => {
     try {
-      return await sessions.archiveTree(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      return await sessions.archiveTree(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -253,7 +254,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/restore`, async (request, reply) => {
     try {
-      await sessions.restore(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      await sessions.restore(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { restored: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -262,7 +263,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.delete<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId`, async (request, reply) => {
     try {
-      await sessions.deleteArchived(sessionLookupFromQuery(request.params.sessionId, request.query));
+      await sessions.deleteArchived(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
       return { deleted: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -271,7 +272,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/reload`, async (request, reply) => {
     try {
-      await sessions.reload(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      await sessions.reload(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { reloaded: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -280,7 +281,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
 
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/detach-parent`, async (request, reply) => {
     try {
-      await sessions.detachParent(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      await sessions.detachParent(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { detached: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
@@ -290,15 +291,15 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
     // Only the id matters for event subscription; cwd is intentionally ignored
     // so a malformed value cannot throw inside the websocket handler.
-    eventHub.add(request.params.sessionId, socket);
+    eventHub.add(request.params.sessionId, socket, eventScopeFromHeaders(request.headers));
   });
 
-  app.get(`${prefix}/sessions/events`, { websocket: true }, (socket) => {
-    eventHub.addGlobal(socket);
+  app.get(`${prefix}/sessions/events`, { websocket: true }, (socket, request) => {
+    eventHub.addGlobal(socket, eventScopeFromHeaders(request.headers));
   });
 
-  app.get(`${prefix}/events`, { websocket: true }, (socket) => {
-    eventHub.addGlobal(socket);
+  app.get(`${prefix}/events`, { websocket: true }, (socket, request) => {
+    eventHub.addGlobal(socket, eventScopeFromHeaders(request.headers));
   });
 }
 
@@ -326,6 +327,10 @@ function sessionLookupFromQuery(id: string, query: SessionQuery): SessionLookup 
 function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
   const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
   return decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function eventScopeFromHeaders(headers: Record<string, string | string[] | undefined>): string {
+  return eventScopeFromManagementContext(managementContextFromHeaders(headers));
 }
 
 function sessionLookupFromBody(id: string, body: Record<string, unknown>): SessionLookup {

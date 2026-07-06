@@ -1,4 +1,11 @@
-export function withManagementEmbed(url: string, pageUrl: URL | undefined = currentPageUrl()): string {
+export type ApiScope = "normal" | "management";
+
+export function currentApiScope(pageUrl: URL | undefined = currentPageUrl()): ApiScope {
+  return managementEmbedParams(pageUrl) === undefined ? "normal" : "management";
+}
+
+export function withManagementEmbed(url: string, pageUrl: URL | undefined = currentPageUrl(), scope: ApiScope = "management"): string {
+  if (scope === "normal") return url;
   if (pageUrl === undefined) return url;
   const params = managementEmbedParams(pageUrl);
   if (params === undefined) return url;
@@ -10,7 +17,21 @@ export function withManagementEmbed(url: string, pageUrl: URL | undefined = curr
   return `${requestUrl.pathname}${requestUrl.search}${requestUrl.hash}`;
 }
 
-function managementEmbedParams(pageUrl: URL): { embed: "management"; token: string } | undefined {
+export function withManagementEmbedQuery(url: string, pageUrl: URL | undefined = currentPageUrl(), scope: ApiScope = "management"): string {
+  if (scope === "normal") return url;
+  if (pageUrl === undefined) return url;
+  const params = managementEmbedParams(pageUrl);
+  if (params === undefined) return url;
+
+  const requestUrl = new URL(url, pageUrl.origin);
+  requestUrl.searchParams.set("embed", params.embed);
+  requestUrl.searchParams.set("token", params.token);
+
+  return `${requestUrl.pathname}${requestUrl.search}`;
+}
+
+function managementEmbedParams(pageUrl: URL | undefined): { embed: "management"; token: string } | undefined {
+  if (pageUrl === undefined) return undefined;
   const embed = pageUrl.searchParams.get("embed");
   const token = pageUrl.searchParams.get("token")?.trim();
   if (embed !== "management" || token === undefined || token === "") return undefined;

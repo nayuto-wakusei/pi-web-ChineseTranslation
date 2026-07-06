@@ -1,14 +1,16 @@
 import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
+import { WebSocket } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkMutationRef, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse } from "../../shared/apiTypes.js";
-import { SessionEventHub } from "../realtime/sessionEventHub.js";
+import { SessionEventHub, type RealtimeSocket } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionManagerGateway, type PiSessionRef } from "./piSessionService.js";
 import { registerSessionRoutes } from "./sessionRoutes.js";
 import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import type { ThinkingLevel } from "../../shared/thinkingLevels.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
+import type { ClientArchiveSessionsResponse } from "../types.js";
 
 let app: FastifyInstance;
 let service: PiSessionService;
@@ -50,7 +52,7 @@ describe("session routes", () => {
 
       expect(statusResponse.statusCode).toBe(200);
       expect(promptResponse.statusCode).toBe(200);
-      expect(routeService.calls).toEqual(["session-1", { lookup: "session-1", text: "hello" }]);
+      expect(routeService.calls).toEqual(["session-1", { route: "prompt", lookup: "session-1", text: "hello", managementContext: undefined }]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -68,7 +70,7 @@ describe("session routes", () => {
     try {
       const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { text: "look", attachments } });
       expect(promptResponse.statusCode).toBe(200);
-      expect(routeService.calls.at(-1)).toEqual({ lookup: "session-1", text: "look", attachments });
+      expect(routeService.calls.at(-1)).toEqual({ route: "prompt", lookup: "session-1", text: "look", attachments, managementContext: undefined });
 
       const saveResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/attachments", payload: { attachments, folder: "uploads" } });
       expect(saveResponse.statusCode).toBe(200);
@@ -95,7 +97,7 @@ describe("session routes", () => {
 
       expect(statusResponse.statusCode).toBe(200);
       expect(promptResponse.statusCode).toBe(200);
-      expect(routeService.calls).toEqual([{ id: "session-1", cwd: requestCwd }, { lookup: { id: "session-1", cwd: requestCwd }, text: "hello" }]);
+      expect(routeService.calls).toEqual([{ id: "session-1", cwd: requestCwd }, { route: "prompt", lookup: { id: "session-1", cwd: requestCwd }, text: "hello", managementContext: undefined }]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -119,18 +121,57 @@ describe("session routes", () => {
       const thinkingLevelsResponse = await routeApp.inject({ method: "GET", url: `/sessions/session-1/thinking-levels?cwd=${encodeURIComponent(requestCwd)}`, headers });
       const setThinkingResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/thinking-level", headers, payload: { cwd: requestCwd, level: "medium" } });
       const cycleThinkingResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/thinking-level/cycle", headers, payload: { cwd: requestCwd } });
+      const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", headers, payload: { cwd: requestCwd, text: "hello" } });
+      const attachmentResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/attachments", headers, payload: { cwd: requestCwd, attachments: [{ mimeType: "text/plain", data: Buffer.from("hi").toString("base64"), name: "note.txt" }] } });
+      const shellResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/shell", headers, payload: { cwd: requestCwd, text: "!pwd" } });
+      const runCommandResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/commands/run", headers, payload: { cwd: requestCwd, text: "/help" } });
+      const respondCommandResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/commands/respond", headers, payload: { cwd: requestCwd, requestId: "req-1", value: "yes" } });
+      const abortResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/abort", headers, payload: { cwd: requestCwd } });
+      const stopResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/stop", headers, payload: { cwd: requestCwd } });
+      const archiveResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/archive", headers, payload: { cwd: requestCwd } });
+      const archiveTreeResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/archive-tree", headers, payload: { cwd: requestCwd } });
+      const restoreResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/restore", headers, payload: { cwd: requestCwd } });
+      const deleteResponse = await routeApp.inject({ method: "DELETE", url: `/sessions/session-1?cwd=${encodeURIComponent(requestCwd)}`, headers });
+      const reloadResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/reload", headers, payload: { cwd: requestCwd } });
+      const detachResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/detach-parent", headers, payload: { cwd: requestCwd } });
 
       expect(setModelResponse.statusCode).toBe(200);
       expect(cycleModelResponse.statusCode).toBe(200);
       expect(thinkingLevelsResponse.statusCode).toBe(200);
       expect(setThinkingResponse.statusCode).toBe(200);
       expect(cycleThinkingResponse.statusCode).toBe(200);
+      expect(promptResponse.statusCode).toBe(200);
+      expect(attachmentResponse.statusCode).toBe(200);
+      expect(shellResponse.statusCode).toBe(200);
+      expect(runCommandResponse.statusCode).toBe(200);
+      expect(respondCommandResponse.statusCode).toBe(200);
+      expect(abortResponse.statusCode).toBe(200);
+      expect(stopResponse.statusCode).toBe(200);
+      expect(archiveResponse.statusCode).toBe(200);
+      expect(archiveTreeResponse.statusCode).toBe(200);
+      expect(restoreResponse.statusCode).toBe(200);
+      expect(deleteResponse.statusCode).toBe(200);
+      expect(reloadResponse.statusCode).toBe(200);
+      expect(detachResponse.statusCode).toBe(200);
       expect(routeService.calls).toEqual([
         { route: "setModel", lookup: { id: "session-1", cwd: requestCwd }, provider: "openai", modelId: "gpt-test", managementContext },
         { route: "cycleModel", lookup: { id: "session-1", cwd: requestCwd }, direction: "backward", managementContext },
         { route: "availableThinkingLevels", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
         { route: "setThinkingLevel", lookup: { id: "session-1", cwd: requestCwd }, level: "medium", managementContext },
         { route: "cycleThinkingLevel", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "prompt", lookup: { id: "session-1", cwd: requestCwd }, text: "hello", managementContext },
+        { route: "saveAttachments", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "shell", lookup: { id: "session-1", cwd: requestCwd }, text: "!pwd", managementContext },
+        { route: "runCommand", lookup: { id: "session-1", cwd: requestCwd }, text: "/help", managementContext },
+        { route: "respondToCommand", lookup: { id: "session-1", cwd: requestCwd }, requestId: "req-1", value: "yes", managementContext },
+        { route: "abort", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "stop", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "archive", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "archiveTree", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "restore", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "deleteArchived", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "reload", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
+        { route: "detachParent", lookup: { id: "session-1", cwd: requestCwd }, managementContext },
       ]);
     } finally {
       await routeService.dispose();
@@ -259,7 +300,44 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
+
+  it("subscribes websocket clients with the decoded management context scope", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new CapturingRouteEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    await routeApp.listen({ host: "127.0.0.1", port: 0 });
+
+    const managementContext = testManagementContext();
+    const normalSocket = new WebSocket(`${serverUrl(routeApp)}/sessions/session-1/events`);
+    const managedSocket = new WebSocket(`${serverUrl(routeApp)}/sessions/session-1/events`, {
+      headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) },
+    });
+
+    try {
+      await Promise.all([waitForOpen(normalSocket), waitForOpen(managedSocket)]);
+
+      expect(eventHub.sessionSubscriptions[0]).toEqual({ sessionId: "session-1", scope: "normal" });
+      expect(eventHub.sessionSubscriptions[1]?.sessionId).toBe("session-1");
+      expect(eventHub.sessionSubscriptions[1]?.scope).toContain("account-1");
+    } finally {
+      normalSocket.close();
+      managedSocket.close();
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
 });
+
+class CapturingRouteEventHub extends SessionEventHub {
+  readonly sessionSubscriptions: { sessionId: string; scope: string }[] = [];
+
+  override add(sessionId: string, socket: RealtimeSocket, scope = "normal"): void {
+    this.sessionSubscriptions.push({ sessionId, scope });
+    super.add(sessionId, socket, scope);
+  }
+}
 
 class CapturingRouteSessionService extends PiSessionService {
   readonly calls: unknown[] = [];
@@ -294,9 +372,35 @@ class CapturingRouteSessionService extends PiSessionService {
     return Promise.resolve({ deleted: true, deletedSessionIds: refs.map((ref) => ref.id), failures: [], generatedAt: "2026-06-25T00:00:00.000Z" });
   }
 
-  override reload(lookup: string | PiSessionRef): Promise<void> {
+  override reload(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
     this.reloadCalls.push(lookup);
+    this.calls.push({ route: "reload", lookup, managementContext });
     if (this.reloadError !== undefined) return Promise.reject(this.reloadError);
+    return Promise.resolve();
+  }
+
+  override archive(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "archive", lookup, managementContext });
+    return Promise.resolve();
+  }
+
+  override archiveTree(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<ClientArchiveSessionsResponse> {
+    this.calls.push({ route: "archiveTree", lookup, managementContext });
+    return Promise.resolve({ archived: true, sessionIds: [typeof lookup === "string" ? lookup : lookup.id], archivedCount: 1, skippedAlreadyArchivedCount: 0 });
+  }
+
+  override restore(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "restore", lookup, managementContext });
+    return Promise.resolve();
+  }
+
+  override deleteArchived(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "deleteArchived", lookup, managementContext });
+    return Promise.resolve();
+  }
+
+  override detachParent(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "detachParent", lookup, managementContext });
     return Promise.resolve();
   }
 
@@ -305,9 +409,25 @@ class CapturingRouteSessionService extends PiSessionService {
     return Promise.resolve(statusForLookup(lookup));
   }
 
-  override prompt(lookup: string | PiSessionRef, text: unknown, _streamingBehavior?: unknown, attachments?: unknown): Promise<void> {
-    this.calls.push(attachments === undefined ? { lookup, text } : { lookup, text, attachments });
+  override prompt(lookup: string | PiSessionRef, text: unknown, _streamingBehavior?: unknown, attachments?: unknown, options?: { managementContext?: ManagementEmbedContext }): Promise<void> {
+    const managementContext = options?.managementContext;
+    this.calls.push(attachments === undefined ? { route: "prompt", lookup, text, managementContext } : { route: "prompt", lookup, text, attachments, managementContext });
     return Promise.resolve();
+  }
+
+  override shell(lookup: string | PiSessionRef, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "shell", lookup, text, managementContext });
+    return Promise.resolve();
+  }
+
+  override runCommand(lookup: string | PiSessionRef, text: string, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "runCommand", lookup, text, managementContext });
+    return Promise.resolve({ type: "done" as const, message: "done" });
+  }
+
+  override respondToCommand(lookup: string | PiSessionRef, requestId: string, value: string, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "respondToCommand", lookup, requestId, value, managementContext });
+    return Promise.resolve({ type: "done" as const, message: "done" });
   }
 
   override setModel(lookup: string | PiSessionRef, provider: string, modelId: string, managementContext?: ManagementEmbedContext) {
@@ -335,7 +455,17 @@ class CapturingRouteSessionService extends PiSessionService {
     return Promise.resolve(statusForLookup(lookup));
   }
 
-  override saveAttachments(_lookup: string | PiSessionRef, attachments: unknown, folder?: string) {
+  override abort(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): Promise<void> {
+    this.calls.push({ route: "abort", lookup, managementContext });
+    return Promise.resolve();
+  }
+
+  override stop(lookup: string | PiSessionRef, managementContext?: ManagementEmbedContext): void {
+    this.calls.push({ route: "stop", lookup, managementContext });
+  }
+
+  override saveAttachments(lookup: string | PiSessionRef, attachments: unknown, folder?: string, managementContext?: ManagementEmbedContext) {
+    this.calls.push({ route: "saveAttachments", lookup, managementContext });
     const list = Array.isArray(attachments) ? attachments : [];
     return Promise.resolve(list.map((attachment: { mimeType: string; data: string; name?: string }) => ({
       path: `${folder ?? ".pi-web/attachments"}/${attachment.name ?? "file.png"}`,
@@ -391,4 +521,19 @@ function testManagementContext(): ManagementEmbedContext {
     user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
     projects: [{ id: "project-1", name: "Project 1" }],
   };
+}
+
+function serverUrl(instance: FastifyInstance): string {
+  const address = instance.server.address();
+  if (address === null || typeof address === "string") throw new Error("Expected TCP server address");
+  return `ws://127.0.0.1:${String(address.port)}`;
+}
+
+function waitForOpen(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.OPEN) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    socket.once("open", () => { resolve(); });
+    socket.once("error", reject);
+    socket.once("close", () => { reject(new Error("WebSocket closed before opening")); });
+  });
 }

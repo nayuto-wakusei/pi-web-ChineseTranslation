@@ -1,8 +1,9 @@
 import { isSessionActive, isWorkspaceActivityActive } from "../../shared/activity.js";
 import type { RealtimeEvent, SessionActivity, SessionStatus, TerminalInfo, WorkspaceActivity, WorkspaceActivityResponse } from "../../shared/apiTypes.js";
+import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/sessionEventScope.js";
 
 export interface WorkspaceActivityPublisher {
-  publishRealtime(event: RealtimeEvent): void;
+  publishRealtime(event: RealtimeEvent, scope?: SessionEventScope): void;
 }
 
 interface SessionRecord {
@@ -21,94 +22,116 @@ export class WorkspaceActivityService {
 
   constructor(private readonly publisher?: WorkspaceActivityPublisher) {}
 
-  applySessionStatus(cwd: string, status: SessionStatus): void {
-    const previousCwd = this.sessions.get(status.sessionId)?.cwd;
-    const record = this.sessions.get(status.sessionId) ?? { cwd };
+  applySessionStatus(cwd: string, status: SessionStatus, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(status.sessionId, scope);
+    const previousCwd = this.sessions.get(key)?.cwd;
+    const record = this.sessions.get(key) ?? { cwd };
     record.cwd = cwd;
     record.status = status;
     if (!isSessionActive(status) && record.activity?.phase === "active") delete record.activity;
-    this.sessions.set(status.sessionId, record);
-    this.pruneIdleSession(status.sessionId);
-    this.publishChangedCwds(previousCwd, cwd);
+    this.sessions.set(key, record);
+    this.pruneIdleSession(status.sessionId, scope);
+    this.publishChangedCwds(previousCwd, cwd, scope);
   }
 
-  applySessionActivity(cwd: string, activity: SessionActivity): void {
-    const previousCwd = this.sessions.get(activity.sessionId)?.cwd;
-    const record = this.sessions.get(activity.sessionId) ?? { cwd };
+  applySessionActivity(cwd: string, activity: SessionActivity, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(activity.sessionId, scope);
+    const previousCwd = this.sessions.get(key)?.cwd;
+    const record = this.sessions.get(key) ?? { cwd };
     record.cwd = cwd;
     record.activity = activity;
-    this.sessions.set(activity.sessionId, record);
-    this.pruneIdleSession(activity.sessionId);
-    this.publishChangedCwds(previousCwd, cwd);
+    this.sessions.set(key, record);
+    this.pruneIdleSession(activity.sessionId, scope);
+    this.publishChangedCwds(previousCwd, cwd, scope);
   }
 
-  removeSession(sessionId: string, cwd?: string): void {
-    const previousCwd = this.sessions.get(sessionId)?.cwd ?? cwd;
-    this.sessions.delete(sessionId);
-    this.publishCwd(previousCwd);
+  removeSession(sessionId: string, cwd?: string, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(sessionId, scope);
+    const previousCwd = this.sessions.get(key)?.cwd ?? cwd;
+    this.sessions.delete(key);
+    this.publishCwd(previousCwd, scope);
   }
 
-  reconcileSessionActivity(cwd: string, sessionIds: Iterable<string>): void {
+  reconcileSessionActivity(cwd: string, sessionIds: Iterable<string>, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const knownSessionIds = new Set(sessionIds);
     let changed = false;
-    for (const [sessionId, record] of this.sessions.entries()) {
+    for (const [key, record] of this.sessions.entries()) {
+      const { id, scope: recordScope } = unscopedKey(key);
+      if (recordScope !== scope) continue;
+      const sessionId = id;
       if (record.cwd !== cwd || knownSessionIds.has(sessionId)) continue;
-      this.sessions.delete(sessionId);
+      this.sessions.delete(key);
       changed = true;
     }
-    if (changed) this.publishCwd(cwd);
+    if (changed) this.publishCwd(cwd, scope);
   }
 
-  updateTerminal(terminal: Pick<TerminalInfo, "id" | "cwd" | "exited">): void {
-    const previousCwd = this.terminals.get(terminal.id)?.cwd;
-    if (terminal.exited) this.terminals.delete(terminal.id);
-    else this.terminals.set(terminal.id, { cwd: terminal.cwd });
-    this.publishChangedCwds(previousCwd, terminal.cwd);
+  updateTerminal(terminal: Pick<TerminalInfo, "id" | "cwd" | "exited">, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(terminal.id, scope);
+    const previousCwd = this.terminals.get(key)?.cwd;
+    if (terminal.exited) this.terminals.delete(key);
+    else this.terminals.set(key, { cwd: terminal.cwd });
+    this.publishChangedCwds(previousCwd, terminal.cwd, scope);
   }
 
-  removeTerminal(terminalId: string, cwd?: string): void {
-    const previousCwd = this.terminals.get(terminalId)?.cwd ?? cwd;
-    this.terminals.delete(terminalId);
-    this.publishCwd(previousCwd);
+  removeTerminal(terminalId: string, cwd?: string, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(terminalId, scope);
+    const previousCwd = this.terminals.get(key)?.cwd ?? cwd;
+    this.terminals.delete(key);
+    this.publishCwd(previousCwd, scope);
   }
 
-  snapshot(): WorkspaceActivityResponse {
+  snapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): WorkspaceActivityResponse {
     return {
-      workspaces: this.activeCwds().map((cwd) => this.summaryForCwd(cwd)).filter(isWorkspaceActivityActive),
+      workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)).filter(isWorkspaceActivityActive),
       generatedAt: new Date().toISOString(),
     };
   }
 
-  private pruneIdleSession(sessionId: string): void {
-    const record = this.sessions.get(sessionId);
-    if (record !== undefined && !isSessionActive(record.status, record.activity)) this.sessions.delete(sessionId);
+  private pruneIdleSession(sessionId: string, scope: SessionEventScope): void {
+    const key = scopedKey(sessionId, scope);
+    const record = this.sessions.get(key);
+    if (record !== undefined && !isSessionActive(record.status, record.activity)) this.sessions.delete(key);
   }
 
-  private publishChangedCwds(previousCwd: string | undefined, cwd: string): void {
-    this.publishCwd(previousCwd);
-    if (previousCwd !== cwd) this.publishCwd(cwd);
+  private publishChangedCwds(previousCwd: string | undefined, cwd: string, scope: SessionEventScope): void {
+    this.publishCwd(previousCwd, scope);
+    if (previousCwd !== cwd) this.publishCwd(cwd, scope);
   }
 
-  private publishCwd(cwd: string | undefined): void {
+  private publishCwd(cwd: string | undefined, scope: SessionEventScope): void {
     if (cwd === undefined || cwd === "") return;
-    this.publisher?.publishRealtime({ type: "workspace.activity", activity: this.summaryForCwd(cwd) });
+    this.publisher?.publishRealtime({ type: "workspace.activity", activity: this.summaryForCwd(cwd, scope) }, scope);
   }
 
-  private activeCwds(): string[] {
+  private activeCwds(scope: SessionEventScope): string[] {
     const cwds = new Set<string>();
-    for (const record of this.sessions.values()) {
+    for (const [key, record] of this.sessions.entries()) {
+      if (unscopedKey(key).scope !== scope) continue;
       if (isSessionActive(record.status, record.activity)) cwds.add(record.cwd);
     }
-    for (const record of this.terminals.values()) cwds.add(record.cwd);
+    for (const [key, record] of this.terminals.entries()) {
+      if (unscopedKey(key).scope === scope) cwds.add(record.cwd);
+    }
     return [...cwds].sort((a, b) => a.localeCompare(b));
   }
 
-  private summaryForCwd(cwd: string): WorkspaceActivity {
+  private summaryForCwd(cwd: string, scope: SessionEventScope): WorkspaceActivity {
     return {
       cwd,
-      hasSessionActivity: [...this.sessions.values()].some((record) => record.cwd === cwd && isSessionActive(record.status, record.activity)),
-      hasTerminalActivity: [...this.terminals.values()].some((terminal) => terminal.cwd === cwd),
+      hasSessionActivity: [...this.sessions.entries()].some(([key, record]) => unscopedKey(key).scope === scope && record.cwd === cwd && isSessionActive(record.status, record.activity)),
+      hasTerminalActivity: [...this.terminals.entries()].some(([key, terminal]) => unscopedKey(key).scope === scope && terminal.cwd === cwd),
       updatedAt: new Date().toISOString(),
     };
   }
+}
+
+function scopedKey(id: string, scope: SessionEventScope): string {
+  return `${scope}\0${id}`;
+}
+
+function unscopedKey(key: string): { scope: SessionEventScope; id: string } {
+  const separator = key.indexOf("\0");
+  if (separator === -1) return { scope: NORMAL_SESSION_EVENT_SCOPE, id: key };
+  return { scope: key.slice(0, separator), id: key.slice(separator + 1) };
 }

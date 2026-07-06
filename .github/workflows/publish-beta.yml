@@ -1,4 +1,4 @@
-name: Publish npm package
+name: Publish npm beta package
 
 on:
   release:
@@ -10,9 +10,9 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
-    name: Publish to npm
-    if: ${{ github.event_name != 'release' || (github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-')) }}
+  publish-beta:
+    name: Publish beta to npm
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == true || contains(github.event.release.tag_name, '-') }}
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -35,7 +35,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish
+      - name: Publish beta
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag beta

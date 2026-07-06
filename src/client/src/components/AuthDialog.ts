@@ -60,7 +60,7 @@ export class AuthDialog extends LitElement {
       case "providers": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有可用提供商。</div>` : state.providers.map((provider) => this.renderProviderButton(provider))}</div>`;
       case "apiKey": return html`
         <div class="form">
-          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会由 pi 存入 <code>auth.json</code>。</p>
+          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会保存到当前模式的凭据文件。</p>
           <input type="password" autocomplete="off" placeholder="API key" .value=${state.value} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onApiKeyInput?.(event.target.value); }}>
           ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
           <div class="actions"><button @click=${() => { this.cancel(); }}>取消</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? "正在保存…" : "保存 API key"}</button></div>

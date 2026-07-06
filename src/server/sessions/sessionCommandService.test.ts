@@ -50,7 +50,7 @@ async function promptAccepted(): Promise<void> {
 }
 
 function eventPublisher() {
-  return { publish: vi.fn<(sessionId: string, event: SessionUiEvent) => void>() };
+  return { publish: vi.fn<(sessionId: string, event: SessionUiEvent, eventScope?: string) => void>() };
 }
 
 describe("SessionCommandService", () => {
@@ -66,6 +66,24 @@ describe("SessionCommandService", () => {
     await expect(service.run("s1", "/template arg")).resolves.toMatchObject({ type: "done" });
     await expect(service.run("s1", "/skill:skill-a arg")).resolves.toMatchObject({ type: "done" });
     expect(prompt).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses the supplied event scope for runtime command prompts and events", async () => {
+    const active = activeSession();
+    const getScopedActive = vi.fn((sessionId: string, eventScope?: string) => {
+      expect(sessionId).toBe("s1");
+      expect(eventScope).toBe("management:account-1");
+      return getActive(active);
+    });
+    const prompt = vi.fn(promptAccepted);
+    const events = eventPublisher();
+    const service = new SessionCommandService(getScopedActive, prompt, events);
+
+    await expect(service.run("s1", "/ext arg", "management:account-1")).resolves.toEqual({ type: "done" });
+    await expect(service.run("s1", "/name Scoped name", "management:account-1")).resolves.toMatchObject({ type: "done" });
+
+    expect(prompt).toHaveBeenCalledWith("s1", "/ext arg", "management:account-1");
+    expect(events.publish).toHaveBeenCalledWith("s1", { type: "session.name", sessionId: "s1", name: "Scoped name" }, "management:account-1");
   });
 
   it("renames sessions and returns updated client session metadata", async () => {
@@ -101,7 +119,7 @@ describe("SessionCommandService", () => {
         type: "command.output",
         level: "success",
         message: "压缩完成。\n压缩前 tokens：123\n\nshort summary",
-      });
+      }, undefined);
     });
     expect(active.runtime.session.compact).toHaveBeenCalledWith("focus on tests");
   });
@@ -126,6 +144,17 @@ describe("SessionCommandService", () => {
     await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
   });
 
+  it("keeps fork selection responses scoped to the request that created them", async () => {
+    const active = activeSession();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+
+    const result = await service.run("s1", "/fork", "management:account-1");
+    if (result.type !== "select") throw new Error("Expected select result");
+
+    await expect(service.respond("s1", result.requestId, "m1")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
+    await expect(service.respond("s1", result.requestId, "m1", "management:account-1")).resolves.toMatchObject({ type: "done", message: "会话已分叉" });
+  });
+
   it("names forked sessions from the source title with the next available counter", async () => {
     const active = activeSession({ sessionName: "Build auth" });
     const forked = activeSession({ sessionId: "forked", sessionName: undefined }).runtime.session;
@@ -146,7 +175,7 @@ describe("SessionCommandService", () => {
       session: { id: "forked", name: "Build auth — 分叉 2" },
     });
     expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — 分叉 2");
-    expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — 分叉 2" });
+    expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — 分叉 2" }, undefined);
   });
 
   it("names cloned sessions as copies of the source title", async () => {

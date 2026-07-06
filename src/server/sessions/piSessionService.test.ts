@@ -10,15 +10,15 @@ import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
-  readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
-  readonly globalEvents: GlobalSessionEvent[] = [];
+  readonly sessionEvents: { sessionId: string; event: SessionUiEvent; scope?: string }[] = [];
+  readonly globalEvents: { event: GlobalSessionEvent; scope?: string }[] = [];
 
-  override publish(sessionId: string, event: SessionUiEvent): void {
-    this.sessionEvents.push({ sessionId, event });
+  override publish(sessionId: string, event: SessionUiEvent, scope?: string): void {
+    this.sessionEvents.push({ sessionId, event, ...(scope === undefined ? {} : { scope }) });
   }
 
-  override publishGlobal(event: GlobalSessionEvent): void {
-    this.globalEvents.push(event);
+  override publishGlobal(event: GlobalSessionEvent, scope?: string): void {
+    this.globalEvents.push({ event, ...(scope === undefined ? {} : { scope }) });
   }
 }
 
@@ -223,8 +223,8 @@ describe("PiSessionService", () => {
     expect(fake.calls.bindExtensions).toHaveLength(1);
     expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0 });
     expect(service.activeCount()).toBe(1);
-    expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
-    expect(hub.globalEvents.some((event) => event.type === "session.created" && event.session.id === "session-1" && event.session.cwd === "/workspace")).toBe(true);
+    expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
+    expect(hub.globalEvents.some(({ event }) => event.type === "session.created" && event.session.id === "session-1" && event.session.cwd === "/workspace")).toBe(true);
 
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
@@ -255,7 +255,7 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
-  it("reopens an existing host-mode runtime before handling a managed prompt", async () => {
+  it("keeps an existing host-mode runtime while handling a managed prompt in a separate runtime", async () => {
     const hub = new CapturingSessionEventHub();
     const hostRuntime = fakeRuntime("managed-session");
     const managedRuntime = fakeRuntime("managed-session");
@@ -274,17 +274,18 @@ describe("PiSessionService", () => {
     await service.status(sessionRef("managed-session"));
     await service.prompt(sessionRef("managed-session"), "Build the thing", undefined, undefined, { managementContext: testManagementContext() });
 
-    expect(hostRuntime.calls.abort).toBe(1);
-    expect(hostRuntime.calls.dispose).toBe(1);
+    expect(hostRuntime.calls.abort).toBe(0);
+    expect(hostRuntime.calls.dispose).toBe(0);
     expect(managedRuntime.calls.prompt).toEqual([{ text: "Build the thing", options: undefined }]);
     expect(createCalls).toHaveLength(2);
     expect(createCalls[0]).not.toHaveProperty("managementContext");
     expect(createCalls[1]).toHaveProperty("managementContext");
+    expect(service.activeCount()).toBe(2);
 
     await service.dispose();
   });
 
-  it("reopens an existing host-mode runtime before reading managed thinking levels", async () => {
+  it("keeps an existing host-mode runtime while reading managed thinking levels from a separate runtime", async () => {
     const hub = new CapturingSessionEventHub();
     const hostRuntime = fakeRuntime("managed-session");
     const managedRuntime = fakeRuntime("managed-session", { getAvailableThinkingLevels: () => ["off", "medium"] });
@@ -303,11 +304,74 @@ describe("PiSessionService", () => {
     await service.status(sessionRef("managed-session"));
     await expect(service.availableThinkingLevels(sessionRef("managed-session"), testManagementContext())).resolves.toEqual(["off", "medium"]);
 
-    expect(hostRuntime.calls.abort).toBe(1);
-    expect(hostRuntime.calls.dispose).toBe(1);
+    expect(hostRuntime.calls.abort).toBe(0);
+    expect(hostRuntime.calls.dispose).toBe(0);
     expect(createCalls).toHaveLength(2);
     expect(createCalls[0]).not.toHaveProperty("managementContext");
     expect(createCalls[1]).toHaveProperty("managementContext");
+    expect(service.activeCount()).toBe(2);
+
+    await service.dispose();
+  });
+
+  it("aborts only the runtime for the requested session scope", async () => {
+    const hub = new CapturingSessionEventHub();
+    const hostRuntime = fakeRuntime("managed-session");
+    const managedRuntime = fakeRuntime("managed-session");
+    const createCalls: unknown[] = [];
+    const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+      createCalls.push(options);
+      await Promise.resolve();
+      return createCalls.length === 1 ? hostRuntime.runtime : managedRuntime.runtime;
+    };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("managed-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+    const managementContext = testManagementContext();
+
+    await service.status(sessionRef("managed-session"));
+    await service.status(sessionRef("managed-session"), managementContext);
+    await service.abort(sessionRef("managed-session"), managementContext);
+
+    expect(hostRuntime.calls.abort).toBe(0);
+    expect(managedRuntime.calls.abort).toBe(1);
+
+    await service.dispose();
+  });
+
+  it("reloads only the runtime for the requested session scope", async () => {
+    const hub = new CapturingSessionEventHub();
+    const hostRuntime = fakeRuntime("managed-session");
+    const firstManagedRuntime = fakeRuntime("managed-session");
+    const secondManagedRuntime = fakeRuntime("managed-session");
+    const runtimes = [hostRuntime.runtime, firstManagedRuntime.runtime, secondManagedRuntime.runtime];
+    let createCalls = 0;
+    const createAgentRuntime: RuntimeCreator = async () => {
+      await Promise.resolve();
+      const runtime = runtimes[createCalls];
+      createCalls += 1;
+      if (runtime === undefined) throw new Error("unexpected runtime creation");
+      return runtime;
+    };
+    const service = new PiSessionService(hub, {
+      createAgentRuntime,
+      sessionManager: sessionGateway([sessionRecord("managed-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+    const managementContext = testManagementContext();
+
+    await service.status(sessionRef("managed-session"));
+    await service.status(sessionRef("managed-session"), managementContext);
+    await service.reload(sessionRef("managed-session"), managementContext);
+
+    expect(hostRuntime.calls.abort).toBe(0);
+    expect(hostRuntime.calls.dispose).toBe(0);
+    expect(firstManagedRuntime.calls.abort).toBe(1);
+    expect(firstManagedRuntime.calls.dispose).toBe(1);
+    expect(secondManagedRuntime.calls.abort).toBe(0);
+    expect(service.activeCount()).toBe(2);
 
     await service.dispose();
   });
@@ -376,9 +440,10 @@ describe("PiSessionService", () => {
     expect(hub.sessionEvents).toContainEqual({
       sessionId: "extension-session",
       event: { type: "session.error", message: "pi-mcp-adapter: MCP failed" },
+      scope: "normal",
     });
-    const extensionErrorActivity = hub.globalEvents.find((event) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
-    expect(extensionErrorActivity).toMatchObject({
+    const extensionErrorActivity = hub.globalEvents.find(({ event }) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
+    expect(extensionErrorActivity?.event).toMatchObject({
       type: "activity.update",
       activity: { sessionId: "extension-session", phase: "error", label: "extension error", detail: "pi-mcp-adapter: MCP failed" },
     });
@@ -410,8 +475,8 @@ describe("PiSessionService", () => {
       listener?.({ type: "agent_start" });
 
       const activityPhases = () => hub.globalEvents
-        .filter((event) => event.type === "activity.update")
-        .map((event) => event.activity.phase);
+        .filter((entry): entry is { event: Extract<GlobalSessionEvent, { type: "activity.update" }>; scope?: string } => entry.event.type === "activity.update")
+        .map(({ event }) => event.activity.phase);
       expect(activityPhases()).toEqual(["active"]);
 
       fake.session.isStreaming = false;
@@ -444,7 +509,7 @@ describe("PiSessionService", () => {
     hub.globalEvents.length = 0;
     listener?.({ type: "tool_execution_end", toolName: "read", isError: false });
 
-    expect(hub.globalEvents.filter((event) => event.type === "activity.update")).toMatchObject([
+    expect(hub.globalEvents.filter(({ event }) => event.type === "activity.update").map(({ event }) => event)).toMatchObject([
       { activity: { sessionId: "completion-session", phase: "idle", label: "tool complete", detail: "read" } },
     ]);
 
@@ -1182,13 +1247,53 @@ describe("PiSessionService", () => {
 
     const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
     expect(warningCount()).toBe(1);
-    expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
+    expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
     authStorage.set("anthropic", { type: "api_key", key: "sk-new" });
     service.applyAuthChange();
     authStorage.logout("anthropic");
     service.applyAuthChange({ removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
+
+    await service.dispose();
+  });
+
+  it("applies auth changes only to runtimes in the changed auth scope", async () => {
+    const hub = new CapturingSessionEventHub();
+    const normalStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-normal" } });
+    const managementStorage = AuthStorage.inMemory();
+    const normalRegistry = ModelRegistry.inMemory(normalStorage);
+    const managementRegistry = ModelRegistry.inMemory(managementStorage);
+    const model = normalRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    if (model === undefined) throw new Error("Expected Anthropic model fixture");
+    const normalRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: normalRegistry });
+    const managedRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: managementRegistry });
+    let createCalls = 0;
+
+    const service = new PiSessionService(hub, {
+      modelRegistry: normalRegistry,
+      managementModelRegistry: managementRegistry,
+      createAgentRuntime: async () => {
+        createCalls += 1;
+        return await Promise.resolve(createCalls === 1 ? normalRuntime.runtime : managedRuntime.runtime);
+      },
+      sessionManager: sessionGateway([sessionRecord("auth-scope-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("auth-scope-session"));
+    await service.status(sessionRef("auth-scope-session"), testManagementContext());
+    hub.sessionEvents.length = 0;
+
+    normalStorage.logout("anthropic");
+    service.applyAuthChange({ removedProviderId: "anthropic", scope: "normal" });
+
+    expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && scope === "normal")).toHaveLength(1);
+    expect(hub.sessionEvents.some(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toBe(false);
+
+    service.applyAuthChange({ removedProviderId: "anthropic", scope: "management" });
+
+    expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toHaveLength(1);
 
     await service.dispose();
   });

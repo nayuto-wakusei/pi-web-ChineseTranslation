@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
 import { filesApi, machinesApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { setApiScope } from "./http";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -27,6 +28,7 @@ const commandRun: TerminalCommandRun = {
 };
 
 afterEach(() => {
+  setApiScope("normal");
   vi.unstubAllGlobals();
 });
 
@@ -199,6 +201,16 @@ describe("machine-scoped terminal command-run API", () => {
 
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote-a/terminal-command-runs/missing");
   });
+
+  it("adds management embed parameters when reading command runs on a management page", async () => {
+    vi.stubGlobal("location", { href: "http://pi.example.test/?embed=management&token=launch-token" });
+    setApiScope("management");
+    const fetchMock = stubJsonFetch(commandRun);
+
+    await terminalsApi.getCommandRun("run 1", "local");
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/local/terminal-command-runs/run%201?embed=management&token=launch-token");
+  });
 });
 
 describe("workspace file write API", () => {
@@ -261,6 +273,17 @@ describe("workspace file write API", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url] = fetchCall(fetchMock, 0);
     expect(url).toContain("/api/machines/remote%20a/");
+  });
+
+  it("adds management embed parameters to local multipart uploads", async () => {
+    vi.stubGlobal("location", { href: "http://pi.example.test/?embed=management&token=launch-token" });
+    setApiScope("management");
+    const fetchMock = stubJsonFetch({ path: "image.png", size: 4, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
+    const file = new File(["data"], "image.png", { type: "image/png" });
+
+    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "image.png", file);
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?embed=management&token=launch-token");
   });
 });
 

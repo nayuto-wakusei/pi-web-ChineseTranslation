@@ -2,8 +2,48 @@ import { describe, expect, it } from "vitest";
 import type { IPty } from "node-pty";
 import { TerminalService } from "./terminalService";
 import type { ManagementEmbedContext } from "../managementEmbed";
+import { SessionEventHub } from "../realtime/sessionEventHub";
+import type { RealtimeEvent, TerminalInfo } from "../../shared/apiTypes";
 
 type PtySpawn = NonNullable<ConstructorParameters<typeof TerminalService>[2]>;
+
+class CapturingTerminalEventHub extends SessionEventHub {
+  readonly realtimeEvents: { event: RealtimeEvent; scope?: string }[] = [];
+
+  override publishRealtime(event: RealtimeEvent, scope?: string): void {
+    this.realtimeEvents.push({ event, ...(scope === undefined ? {} : { scope }) });
+  }
+}
+
+describe("TerminalService scoped management events", () => {
+  it("publishes managed command-run terminal and workspace activity events to the management scope", () => {
+    const hub = new CapturingTerminalEventHub();
+    const activityUpdates: { terminal: Pick<TerminalInfo, "id" | "cwd" | "exited">; scope?: string }[] = [];
+    const spawn: PtySpawn = () => fakePty();
+    const service = new TerminalService(hub, {
+      updateTerminal: (terminal, scope) => { activityUpdates.push({ terminal, ...(scope === undefined ? {} : { scope }) }); },
+      removeTerminal: () => undefined,
+    }, spawn);
+
+    try {
+      service.runCommand({
+        origin: "management",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        cwd: process.cwd(),
+        title: "Managed command",
+        command: "echo scoped",
+        managementContext: managementContext(),
+      });
+
+      expect(hub.realtimeEvents[0]?.event.type).toBe("terminal.created");
+      expect(hub.realtimeEvents[0]?.scope).toContain("sandbox-check");
+      expect(activityUpdates[0]?.scope).toContain("sandbox-check");
+    } finally {
+      service.dispose();
+    }
+  });
+});
 
 // TerminalService spawns a POSIX shell (/bin/bash with -lc and commands like
 // printf/true/exit). The terminal feature is not supported on native Windows,

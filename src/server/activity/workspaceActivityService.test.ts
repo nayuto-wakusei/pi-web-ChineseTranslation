@@ -88,4 +88,22 @@ describe("WorkspaceActivityService", () => {
     expect(service.snapshot().workspaces).toEqual([]);
     expect(events.at(-1)).toMatchObject({ type: "workspace.activity", activity: { cwd: "/repo", hasSessionActivity: false, hasTerminalActivity: false } });
   });
+
+  it("keeps workspace activity snapshots and realtime events scoped", () => {
+    const events: { event: RealtimeEvent; scope?: string }[] = [];
+    const service = new WorkspaceActivityService({ publishRealtime: (event, scope) => events.push({ event, ...(scope === undefined ? {} : { scope }) }) });
+
+    service.applySessionActivity("/repo", { sessionId: "s1", phase: "active", label: "normal work", at: "now" }, "normal");
+    service.applySessionActivity("/repo", { sessionId: "s1", phase: "active", label: "managed work", at: "now" }, "management:account-1");
+    service.updateTerminal({ id: "t1", cwd: "/repo", exited: false }, "management:account-1");
+
+    expect(service.snapshot("normal").workspaces).toMatchObject([{ cwd: "/repo", hasSessionActivity: true, hasTerminalActivity: false }]);
+    expect(service.snapshot("management:account-1").workspaces).toMatchObject([{ cwd: "/repo", hasSessionActivity: true, hasTerminalActivity: true }]);
+    expect(events.map(({ scope }) => scope)).toEqual(["normal", "management:account-1", "management:account-1"]);
+
+    service.removeSession("s1", "/repo", "normal");
+
+    expect(service.snapshot("normal").workspaces).toEqual([]);
+    expect(service.snapshot("management:account-1").workspaces).toMatchObject([{ cwd: "/repo", hasSessionActivity: true, hasTerminalActivity: true }]);
+  });
 });

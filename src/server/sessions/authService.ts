@@ -1,9 +1,11 @@
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { AuthProvidersResponse, AuthType, OAuthFlowState } from "../../shared/apiTypes.js";
+import type { AuthScope } from "../realtime/sessionEventScope.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
 export interface AuthChange {
+  scope: AuthScope;
   removedProviderId?: string;
 }
 
@@ -11,6 +13,7 @@ type AuthChangeListener = (change: AuthChange) => void;
 type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
 
 export interface AuthServiceDependencies {
+  scope?: AuthScope;
   modelRegistry?: ModelRegistryInstance;
   authFlows?: OAuthLoginFlowService;
 }
@@ -18,9 +21,11 @@ export interface AuthServiceDependencies {
 export class AuthService {
   readonly modelRegistry: ModelRegistryInstance;
   private readonly authFlows: OAuthLoginFlowService;
+  private readonly scope: AuthScope;
   private readonly listeners = new Set<AuthChangeListener>();
 
   constructor(deps: AuthServiceDependencies = {}) {
+    this.scope = deps.scope ?? "normal";
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
     this.authFlows = deps.authFlows ?? new OAuthLoginFlowService();
   }
@@ -80,10 +85,10 @@ export class AuthService {
     return this.authFlows.cancel(flowId);
   }
 
-  private refreshAuthState(change: AuthChange = {}): void {
+  private refreshAuthState(change: Partial<Omit<AuthChange, "scope">> = {}): void {
     this.modelRegistry.authStorage.reload();
     this.modelRegistry.refresh();
-    this.emit(change);
+    this.emit({ scope: this.scope, ...change });
   }
 
   private emit(change: AuthChange): void {

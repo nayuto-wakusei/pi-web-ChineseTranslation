@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   effectiveWorkspaceUploadFolder,
   uploadWorkspaceFile,
@@ -11,6 +11,13 @@ import {
   type WorkspaceFileUploadProgress,
   type WorkspaceUploadXhr,
 } from "./workspaceUploads";
+
+const originalLocation = globalThis.location;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Object.defineProperty(globalThis, "location", { value: originalLocation, configurable: true });
+});
 
 describe("workspace upload helpers", () => {
   it("resolves effective upload defaults and workspace-relative paths", () => {
@@ -52,6 +59,22 @@ describe("workspace upload helpers", () => {
       { loaded: 2, total: 5, percent: 0.4, lengthComputable: true },
       { loaded: 5, total: 5, percent: 1, lengthComputable: true },
     ]);
+  });
+
+  it("adds management embed parameters to XHR workspace uploads on a management page", () => {
+    Object.defineProperty(globalThis, "location", {
+      value: { href: "http://pi.example.test/?embed=management&token=launch-token" },
+      configurable: true,
+    });
+    const xhrs = new FakeXhrQueue();
+    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+
+    uploadWorkspaceFile("p 1", "w/1", { path: "manual/hello.txt", file }, {
+      machineId: "local",
+      xhrFactory: xhrs.factory,
+    });
+
+    expect(xhrs.only().url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=manual%2Fhello.txt&embed=management&token=launch-token");
   });
 
   it("cancels an in-flight workspace file upload", async () => {

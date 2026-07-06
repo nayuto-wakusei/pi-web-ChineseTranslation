@@ -40,11 +40,11 @@ export interface CommandActiveSession<TSession extends CommandSession = CommandS
   runtime: CommandRuntime<TSession>;
 }
 
-export type GetCommandActiveSession<TSession extends CommandSession = CommandSession> = (sessionId: string) => Promise<CommandActiveSession<TSession>>;
+export type GetScopedCommandActiveSession<TSession extends CommandSession = CommandSession> = (sessionId: string, eventScope?: string) => Promise<CommandActiveSession<TSession>>;
 
 export interface CommandEventPublisher {
-  publish(sessionId: string, event: SessionUiEvent): void;
-  publishGlobal?(event: Extract<SessionUiEvent, { type: "session.name" }>): void;
+  publish(sessionId: string, event: SessionUiEvent, eventScope?: string): void;
+  publishGlobal?(event: Extract<SessionUiEvent, { type: "session.name" }>, eventScope?: string): void;
 }
 
 export interface SessionCommandNaming {
@@ -55,6 +55,7 @@ type RelatedSessionKind = "fork" | "copy";
 
 interface PendingCommandSelect {
   sessionId: string;
+  eventScope: string | undefined;
   command: "fork";
 }
 
@@ -62,8 +63,8 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   private readonly pendingSelects = new Map<string, PendingCommandSelect>();
 
   constructor(
-    private readonly getActive: GetCommandActiveSession<TSession>,
-    private readonly prompt: (sessionId: string, text: string) => Promise<void>,
+    private readonly getActive: GetScopedCommandActiveSession<TSession>,
+    private readonly prompt: (sessionId: string, text: string, eventScope?: string) => Promise<void>,
     private readonly events: CommandEventPublisher,
     private readonly lifecycle: {
       onCompactionStart?: (session: TSession) => void;
@@ -72,8 +73,8 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     private readonly naming: SessionCommandNaming = {},
   ) {}
 
-  async run(sessionId: string, text: string): Promise<ClientCommandResult> {
-    const active = await this.getActive(sessionId);
+  async run(sessionId: string, text: string, eventScope?: string): Promise<ClientCommandResult> {
+    const active = await this.getActive(sessionId, eventScope);
     const session = active.runtime.session;
     const [name = "", ...args] = text.trim().replace(/^\//, "").split(/\s+/);
     const rest = args.join(" ").trim();
@@ -84,43 +85,43 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
         // into a skill block) and streams the canonical message back. That is the
         // authoritative feedback, so we don't synthesize an extra "Accepted" line
         // that would only vanish on reload.
-        await this.prompt(sessionId, text);
+        await this.prompt(sessionId, text, eventScope);
         return { type: "done" };
       }
       return { type: "unsupported", message: `未知命令：/${name}` };
     }
 
     if (name === "session") return { type: "done", message: formatSessionStats(session) };
-    if (name === "name") return this.nameSession(active, rest);
-    if (name === "compact") return this.compact(session, rest);
-    if (name === "clone") return this.clone(active);
-    if (name === "fork") return this.fork(active);
+    if (name === "name") return this.nameSession(active, rest, eventScope);
+    if (name === "compact") return this.compact(session, rest, eventScope);
+    if (name === "clone") return this.clone(active, eventScope);
+    if (name === "fork") return this.fork(active, eventScope);
 
     return { type: "unsupported", message: `Web UI 尚未实现 /${name}` };
   }
 
-  async respond(sessionId: string, requestId: string, value: string): Promise<ClientCommandResult> {
+  async respond(sessionId: string, requestId: string, value: string, eventScope?: string): Promise<ClientCommandResult> {
     const pending = this.pendingSelects.get(requestId);
-    if (pending?.sessionId !== sessionId) return { type: "unsupported", message: "命令请求已过期" };
+    if (pending?.sessionId !== sessionId || pending.eventScope !== eventScope) return { type: "unsupported", message: "命令请求已过期" };
     this.pendingSelects.delete(requestId);
 
-    const active = await this.getActive(sessionId);
+    const active = await this.getActive(sessionId, eventScope);
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const relatedName = await this.nextRelatedSessionName(active, "fork");
     const result = await active.runtime.fork(value);
     if (result.cancelled) return { type: "done", message: "已取消分叉" };
-    this.tryNameRelatedSession(active.runtime.session, relatedName);
+    this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
     return { type: "done", message: "会话已分叉", session: clientSessionFromRuntime(active.runtime), ...promptDraft(result.selectedText) };
   }
 
-  private nameSession(active: CommandActiveSession<TSession>, name: string): ClientCommandResult {
+  private nameSession(active: CommandActiveSession<TSession>, name: string, eventScope: string | undefined): ClientCommandResult {
     if (name === "") return { type: "unsupported", message: "用法：/name <会话名称>" };
     active.runtime.session.setSessionName(name);
-    this.publishSessionName(active.runtime.session);
+    this.publishSessionName(active.runtime.session, eventScope);
     return { type: "done", message: `会话已命名：${name}`, session: clientSessionFromRuntime(active.runtime) };
   }
 
-  private compact(session: TSession, instructions: string): ClientCommandResult {
+  private compact(session: TSession, instructions: string, eventScope: string | undefined): ClientCommandResult {
     this.lifecycle.onCompactionStart?.(session);
     void session.compact(instructions === "" ? undefined : instructions)
       .then((result) => {
@@ -128,35 +129,35 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
           type: "command.output",
           level: "success",
           message: formatCompactionResult(result),
-        });
+        }, eventScope);
         this.lifecycle.onCompactionEnd?.(session, "success");
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `压缩失败：${message}` });
-        this.events.publish(session.sessionId, { type: "session.error", message });
+        this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `压缩失败：${message}` }, eventScope);
+        this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
         this.lifecycle.onCompactionEnd?.(session, "error", message);
       });
     return { type: "done", message: "已开始压缩…" };
   }
 
-  private async clone(active: CommandActiveSession<TSession>): Promise<ClientCommandResult> {
+  private async clone(active: CommandActiveSession<TSession>, eventScope: string | undefined): Promise<ClientCommandResult> {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const leafId = active.runtime.session.sessionManager.getLeafId();
     if (leafId === null || leafId === "") return { type: "unsupported", message: "无法克隆：没有当前会话条目" };
     const relatedName = await this.nextRelatedSessionName(active, "copy");
     const result = await active.runtime.fork(leafId, { position: "at" });
     if (result.cancelled) return { type: "done", message: "已取消克隆" };
-    this.tryNameRelatedSession(active.runtime.session, relatedName);
+    this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
     return { type: "done", message: "会话已克隆", session: clientSessionFromRuntime(active.runtime) };
   }
 
-  private fork(active: CommandActiveSession<TSession>): ClientCommandResult {
+  private fork(active: CommandActiveSession<TSession>, eventScope: string | undefined): ClientCommandResult {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const messages = active.runtime.session.getUserMessagesForForking();
     if (!messages.length) return { type: "unsupported", message: "没有可用于分叉的用户消息" };
     const requestId = crypto.randomUUID();
-    this.pendingSelects.set(requestId, { sessionId: active.runtime.session.sessionId, command: "fork" });
+    this.pendingSelects.set(requestId, { sessionId: active.runtime.session.sessionId, eventScope, command: "fork" });
     return {
       type: "select",
       requestId,
@@ -177,22 +178,22 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     return uniqueRelatedSessionName(sourceTitle, kind, sourceName === undefined ? existingNames : [...existingNames, sourceName]);
   }
 
-  private tryNameRelatedSession(session: TSession, name: string): void {
+  private tryNameRelatedSession(session: TSession, name: string, eventScope: string | undefined): void {
     try {
       session.setSessionName(name);
-      this.publishSessionName(session);
+      this.publishSessionName(session, eventScope);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `会话已创建，但命名失败：${message}` });
+      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `会话已创建，但命名失败：${message}` }, eventScope);
     }
   }
 
-  private publishSessionName(session: TSession): void {
+  private publishSessionName(session: TSession, eventScope: string | undefined): void {
     const event = session.sessionName === undefined
       ? { type: "session.name", sessionId: session.sessionId } as const
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
-    this.events.publish(session.sessionId, event);
-    this.events.publishGlobal?.(event);
+    this.events.publish(session.sessionId, event, eventScope);
+    this.events.publishGlobal?.(event, eventScope);
   }
 
   private isRuntimeCommand(session: TSession, name: string): boolean {

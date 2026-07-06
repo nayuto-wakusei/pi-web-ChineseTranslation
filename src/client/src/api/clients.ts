@@ -1,5 +1,5 @@
 import type { DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionRef, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
-import { request } from "./http";
+import { request, requestOptional, scopedApiUrl } from "./http";
 import {
   arrayOf,
   parseAborted,
@@ -236,13 +236,7 @@ export const terminalsApi = {
 };
 
 async function getOptionalTerminalCommandRun(runId: string, machineId: string): Promise<TerminalCommandRun | undefined> {
-  const response = await fetch(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`);
-  if (response.status === 404) return undefined;
-  if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(apiErrorMessage(body) ?? response.statusText);
-  }
-  return parseTerminalCommandRun(await response.json());
+  return requestOptional(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`, parseTerminalCommandRun);
 }
 
 function terminalCommandRunFilterQuery(filter: TerminalCommandRunFilter | undefined): string {
@@ -278,7 +272,7 @@ async function uploadLocalWorkspaceFile(projectId: string, workspaceId: string, 
   const formData = new FormData();
   formData.set("path", path);
   formData.set("file", file, file.name);
-  const response = await fetch(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, {
+  const response = await fetch(scopedApiUrl(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`), {
     method: "POST",
     body: formData,
   });

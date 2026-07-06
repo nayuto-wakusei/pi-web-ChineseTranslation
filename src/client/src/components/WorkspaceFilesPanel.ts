@@ -58,7 +58,7 @@ export class WorkspaceFilesPanel extends LitElement {
             <button @click=${() => { this.promptCreateFile(context, selectedKind); }}>新建文件</button>
             <button @click=${() => { this.promptCreateDirectory(context, selectedKind); }}>新建文件夹</button>
             <button aria-label="上传文件" @click=${this.openFilePicker}>上传</button>
-            <button title=${canDownload ? `下载 ${selectedPath ?? ""}` : "请选择要下载的文件"} ?disabled=${!canDownload} @click=${context.onDownloadSelectedFile}>下载</button>
+            <button title=${canDownload && selectedPath !== undefined ? `下载 ${selectedPath}` : "请选择要下载的文件"} ?disabled=${!canDownload} @click=${context.onDownloadSelectedFile}>下载</button>
             <button class="danger" title=${canDelete ? `删除 ${selectedPath}` : "请选择要删除的文件或文件夹"} ?disabled=${!canDelete} @click=${() => { this.confirmDeleteSelectedPath(context); }}>删除</button>
             <button @click=${context.onRefreshFiles}>刷新</button>
           </div>

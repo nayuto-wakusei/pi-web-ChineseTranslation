@@ -3,6 +3,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
+import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedRuntime } from "../managementEmbed";
 
 let app: FastifyInstance;
 let daemon: FakeSessionDaemon;
@@ -47,11 +48,40 @@ describe("machine-scoped session proxy routes", () => {
       socket.close();
     }
   });
+
+  it("forwards management context headers to session daemon websockets", async () => {
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Project 1" }],
+    };
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: "/managed",
+      authenticate: () => Promise.resolve(managementContext),
+    };
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}/api/machines/local/sessions/session-1/events?embed=management&token=launch-token`);
+
+    try {
+      await waitForOpen(socket);
+      expect(daemon.websocketPaths).toEqual(["/sessions/session-1/events?embed=management&token=launch-token"]);
+      expect(decodeManagementContext(daemon.websocketHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
+    } finally {
+      socket.close();
+    }
+  });
 });
 
 class FakeSessionDaemon {
   readonly requests: { method: string; path: string; body: unknown }[] = [];
   readonly websocketPaths: string[] = [];
+  readonly websocketHeaders: (Record<string, string> | undefined)[] = [];
   private readonly sockets = new Set<WebSocket>();
 
   private constructor(private readonly upstream: WebSocketServer) {
@@ -72,8 +102,9 @@ class FakeSessionDaemon {
     return Promise.resolve({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });
   }
 
-  connectWebSocket(path: string): WebSocket {
+  connectWebSocket(path: string, headers?: Record<string, string>): WebSocket {
     this.websocketPaths.push(path);
+    this.websocketHeaders.push(headers);
     return new WebSocket(`${webSocketServerUrl(this.upstream)}${path}`);
   }
 
