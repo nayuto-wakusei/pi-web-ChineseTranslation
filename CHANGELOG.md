@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.3
+
+### Patch Changes
+
+- a551d60: Add a normal mode password gate with first-run setup, login, and password changes from the action palette.
+
 ## 1.202607.3-beta.0
 
 ### Patch Changes
