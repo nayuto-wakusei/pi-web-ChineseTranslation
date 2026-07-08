@@ -20,12 +20,13 @@ describe("settings config drafts", () => {
       allowedHostsMode: "list",
       allowedHostsText: "example.local, 192.168.1.20\n",
       allowedPathsText: "/tmp\n~/SDKs\n",
-    }, { shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false } }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 })).toEqual({
+    }, { shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false } }, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 })).toEqual({
       host: "127.0.0.1",
       port: 9000,
       allowedHosts: ["example.local", "192.168.1.20"],
       shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null },
       plugins: { info: { enabled: false } },
+      normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" },
       pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
       uploads: { defaultFolder: "manual/uploads" },
       maxUploadBytes: 1234,

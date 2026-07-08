@@ -1,6 +1,6 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, piWebApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, piWebApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
@@ -51,6 +51,8 @@ import "./StatusBar";
 import "./CommandPicker";
 import "./ActionPalette";
 import "./AuthDialog";
+import "./NormalAuthDialog";
+import type { NormalAuthDialogMode, NormalAuthPasswordForm } from "./NormalAuthDialog";
 import "./ProjectDialog";
 import "./MachineDialog";
 import type { MachineDialogSubmit } from "./MachineDialog";
@@ -283,8 +285,13 @@ export class PiWebApp extends LitElement {
   @state() private isRefreshingApp = false;
   @state() private sessionCleanupDialog: SessionCleanupDialogState | undefined;
   @state() private settingsSection: SettingsSection | undefined = readSettingsSection();
+  @state() private normalAuthStatus: NormalAuthStatusResponse | undefined;
+  @state() private normalAuthLoading = true;
+  @state() private normalAuthError = "";
+  @state() private normalAuthDialogMode: NormalAuthDialogMode | undefined;
   @state() private shortcutConfig: PiWebShortcutConfig = {};
   @state() private workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(undefined);
+  private appStartupStarted = false;
   private readonly onPopState = () => void this.withChatScrollTransition(async () => {
     this.restoreSettingsRoute();
     await this.restoreRoute(false);
@@ -341,12 +348,38 @@ export class PiWebApp extends LitElement {
     window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
+    void this.initializeNormalAuth();
+  }
+
+  private startAuthenticatedApp(): void {
+    if (this.appStartupStarted) return;
+    this.appStartupStarted = true;
     this.connectRealtime();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
     void this.refreshWorkspaceActivity();
     void this.loadClientConfig();
     void this.ensureGatewayPluginsLoaded();
     void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
+  }
+
+  private async initializeNormalAuth(): Promise<void> {
+    if (this.apiScope === "management") {
+      this.normalAuthStatus = { configured: true, authenticated: true };
+      this.normalAuthLoading = false;
+      this.startAuthenticatedApp();
+      return;
+    }
+    this.normalAuthLoading = true;
+    this.normalAuthError = "";
+    try {
+      const status = await normalAuthApi.status();
+      this.normalAuthStatus = status;
+      if (status.authenticated) this.startAuthenticatedApp();
+    } catch (error) {
+      this.normalAuthError = `检查普通模式密码失败：${errorMessage(error)}`;
+    } finally {
+      this.normalAuthLoading = false;
+    }
   }
 
   override disconnectedCallback(): void {
@@ -451,6 +484,32 @@ export class PiWebApp extends LitElement {
   private applyClientConfig(config: PiWebConfigValues): void {
     this.shortcutConfig = config.shortcuts ?? {};
     this.workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(config);
+  }
+
+  private async submitNormalAuth(form: NormalAuthPasswordForm): Promise<void> {
+    const mode = this.normalAuthDialogMode ?? this.normalAuthGateMode();
+    if (mode === undefined || this.normalAuthLoading) return;
+    this.normalAuthLoading = true;
+    this.normalAuthError = "";
+    try {
+      if (mode === "setup") await normalAuthApi.setup(form.password);
+      else if (mode === "change") await normalAuthApi.changePassword(form.currentPassword ?? "", form.password);
+      else await normalAuthApi.login(form.password);
+      const status = await normalAuthApi.status();
+      this.normalAuthStatus = status;
+      this.normalAuthDialogMode = undefined;
+      if (status.authenticated) this.startAuthenticatedApp();
+    } catch (error) {
+      this.normalAuthError = errorMessage(error);
+    } finally {
+      this.normalAuthLoading = false;
+    }
+  }
+
+  private normalAuthGateMode(): NormalAuthDialogMode | undefined {
+    if (this.apiScope === "management") return undefined;
+    if (this.normalAuthStatus?.authenticated === true) return undefined;
+    return this.normalAuthStatus?.configured === true ? "login" : "setup";
   }
 
   private async refreshAppData(): Promise<void> {
@@ -1486,7 +1545,21 @@ export class PiWebApp extends LitElement {
   }
 
   private getDefaultActions(): AppAction[] {
-    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.sessionActions(), ...this.navigationFocusActions(), ...this.panelLayoutActions()];
+    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.normalAuthActions(), ...this.sessionActions(), ...this.navigationFocusActions(), ...this.panelLayoutActions()];
+  }
+
+  private normalAuthActions(): AppAction[] {
+    if (this.apiScope === "management") return [];
+    return [
+      {
+        id: "app.normal-auth.change-password",
+        title: "修改普通模式密码",
+        description: "更改进入普通模式所需的本地密码",
+        group: "偏好设置",
+        enabled: this.normalAuthStatus?.authenticated === true,
+        run: () => { this.normalAuthDialogMode = "change"; this.normalAuthError = ""; },
+      },
+    ];
   }
 
   private sessionActions(): AppAction[] {
@@ -2019,6 +2092,10 @@ export class PiWebApp extends LitElement {
 
   override render() {
     const state = this.state;
+    const gateMode = this.normalAuthGateMode();
+    if (this.apiScope === "normal" && (gateMode !== undefined || this.normalAuthStatus === undefined)) {
+      return this.renderNormalAuthDialog(gateMode ?? "login");
+    }
     return html`
       <div class=${this.panelCollapse.shellClass(state.mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
@@ -2046,7 +2123,20 @@ export class PiWebApp extends LitElement {
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
+        ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
       </div>
+    `;
+  }
+
+  private renderNormalAuthDialog(mode: NormalAuthDialogMode) {
+    return html`
+      <normal-auth-dialog
+        .mode=${mode}
+        .loading=${this.normalAuthLoading}
+        .error=${this.normalAuthError}
+        .onSubmit=${(form: NormalAuthPasswordForm) => { void this.submitNormalAuth(form); }}
+        .onCancel=${() => { this.normalAuthDialogMode = undefined; this.normalAuthError = ""; }}
+      ></normal-auth-dialog>
     `;
   }
 

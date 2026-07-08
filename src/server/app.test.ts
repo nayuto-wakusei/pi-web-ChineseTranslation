@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { pbkdf2Sync } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, InjectOptions, LightMyRequestCallback, LightMyRequestChain, LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { ProjectService } from "./projects/projectService.js";
@@ -62,6 +63,8 @@ beforeEach(async () => {
     clientDist: false,
     logger: false,
   });
+  const setupResponse = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "test-password" } });
+  installDefaultAuthCookie(app, authCookie(setupResponse));
 });
 
 afterEach(async () => {
@@ -316,6 +319,76 @@ describe("buildApp", () => {
     expect(emptyListResponse.json<Project[]>()).toEqual([]);
   });
 
+  it("requires ordinary mode password setup before serving normal API routes", async () => {
+    piWebConfig = {};
+
+    const blockedResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: "" } });
+    const statusResponse = await app.inject({ method: "GET", url: "/api/normal-auth/status" });
+    const setupResponse = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "secret-pass" } });
+    const cookie = authCookie(setupResponse);
+    const projectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie } });
+    const secondSetupResponse = await app.inject({ method: "POST", url: "/api/normal-auth/setup", headers: { cookie }, payload: { password: "other-pass" } });
+
+    expect(blockedResponse.statusCode).toBe(401);
+    expect(blockedResponse.json()).toEqual({ error: "Ordinary mode password setup is required" });
+    expect(statusResponse.statusCode).toBe(200);
+    expect(statusResponse.json()).toEqual({ configured: false, authenticated: false });
+    expect(setupResponse.statusCode).toBe(200);
+    expect(setupResponse.json()).toEqual({ accepted: true });
+    expect(piWebConfig.normalAuth?.passwordHash).toMatch(/^pbkdf2-sha256\$\d+\$/u);
+    expect(piWebConfig.normalAuth?.passwordHash).not.toContain("secret-pass");
+    expect(projectsResponse.statusCode).toBe(200);
+    expect(projectsResponse.json()).toEqual([]);
+    expect(secondSetupResponse.statusCode).toBe(409);
+  });
+
+  it("logs in with the configured ordinary mode password and rejects wrong passwords", async () => {
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("secret-pass") } };
+
+    const blockedResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: "" } });
+    const wrongLoginResponse = await app.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "wrong-pass" } });
+    const loginResponse = await app.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "secret-pass" } });
+    const statusResponse = await app.inject({ method: "GET", url: "/api/normal-auth/status", headers: { cookie: authCookie(loginResponse) } });
+    const projectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: authCookie(loginResponse) } });
+
+    expect(blockedResponse.statusCode).toBe(401);
+    expect(wrongLoginResponse.statusCode).toBe(401);
+    expect(loginResponse.statusCode).toBe(200);
+    expect(loginResponse.headers["set-cookie"]).toContain("HttpOnly");
+    expect(statusResponse.json()).toEqual({ configured: true, authenticated: true });
+    expect(projectsResponse.statusCode).toBe(200);
+  });
+
+  it("allows ordinary mode API requests with the configured password as a bearer token", async () => {
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("secret-pass") } };
+
+    const wrongBearerResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { authorization: "Bearer wrong-pass", cookie: "" } });
+    const bearerResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { authorization: "Bearer secret-pass", cookie: "" } });
+
+    expect(wrongBearerResponse.statusCode).toBe(401);
+    expect(bearerResponse.statusCode).toBe(200);
+    expect(bearerResponse.json()).toEqual([]);
+  });
+
+  it("changes ordinary mode password and invalidates old sessions", async () => {
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("old-pass") } };
+    const loginResponse = await app.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "old-pass" } });
+    const oldCookie = authCookie(loginResponse);
+
+    const changeResponse = await app.inject({ method: "POST", url: "/api/normal-auth/change-password", headers: { cookie: oldCookie }, payload: { currentPassword: "old-pass", newPassword: "new-pass" } });
+    const oldCookieResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: oldCookie } });
+    const oldPasswordLoginResponse = await app.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "old-pass" } });
+    const newPasswordLoginResponse = await app.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "new-pass" } });
+
+    expect(changeResponse.statusCode).toBe(200);
+    expect(changeResponse.json()).toEqual({ accepted: true });
+    expect(changeResponse.headers["set-cookie"]).toContain("HttpOnly");
+    expect(piWebConfig.normalAuth?.passwordHash).not.toBe(testPasswordHash("old-pass"));
+    expect(oldCookieResponse.statusCode).toBe(401);
+    expect(oldPasswordLoginResponse.statusCode).toBe(401);
+    expect(newPasswordLoginResponse.statusCode).toBe(200);
+  });
+
   it("serves local session and terminal proxy routes through machine-scoped aliases", async () => {
     const sessionsResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions?cwd=${encodeURIComponent(projectDir)}` });
 
@@ -538,6 +611,7 @@ describe("buildApp", () => {
 
   it("creates managed project directories before exposing their workspace tree", async () => {
     await app.close();
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("ordinary-pass") } };
     const managementRoot = join(tempDir, "managed");
     const managementEmbed: ManagementEmbedRuntime = {
       enabled: true,
@@ -564,7 +638,9 @@ describe("buildApp", () => {
     });
     const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token" };
 
+    const ordinaryProjectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: "" } });
     const projectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers });
+    expect(ordinaryProjectsResponse.statusCode).toBe(401);
     expect(projectsResponse.statusCode).toBe(200);
     const [project] = projectsResponse.json<Project[]>();
     if (project === undefined) throw new Error("Expected managed project");
@@ -582,7 +658,7 @@ describe("buildApp", () => {
   });
 
   it("lets project-local upload config override global upload config on workspace responses", async () => {
-    piWebConfig = { uploads: { defaultFolder: "global-uploads" } };
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("test-password") }, uploads: { defaultFolder: "global-uploads" } };
     const addResponse = await app.inject({
       method: "POST",
       url: "/api/projects",
@@ -950,6 +1026,46 @@ function piWebConfigResponse(config: PiWebConfigValues): PiWebConfigResponse {
     effectiveConfig: config,
     envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
   };
+}
+
+function authCookie(response: LightMyRequestResponse): string {
+  const header = response.headers["set-cookie"];
+  const value = typeof header === "string" ? header : Array.isArray(header) && typeof header[0] === "string" ? header[0] : undefined;
+  if (typeof value !== "string") throw new Error("Expected auth cookie");
+  return value.split(";")[0] ?? value;
+}
+
+function installDefaultAuthCookie(target: FastifyInstance, cookie: string): void {
+  const originalInject = target.inject.bind(target);
+  function injectWithDefaultAuth(options: InjectOptions | string, callback: LightMyRequestCallback): void;
+  function injectWithDefaultAuth(options: InjectOptions | string): Promise<LightMyRequestResponse>;
+  function injectWithDefaultAuth(): LightMyRequestChain;
+  function injectWithDefaultAuth(options?: InjectOptions | string, callback?: LightMyRequestCallback): void | Promise<LightMyRequestResponse> | LightMyRequestChain {
+    if (options === undefined) return originalInject();
+    const nextOptions = withDefaultAuthCookie(options, cookie);
+    if (callback !== undefined) {
+      originalInject(nextOptions, callback);
+      return;
+    }
+    return originalInject(nextOptions);
+  }
+  target.inject = injectWithDefaultAuth;
+}
+
+function withDefaultAuthCookie(options: InjectOptions | string, cookie: string): InjectOptions | string {
+  if (typeof options === "string") return options;
+  const url = typeof options.url === "string" ? options.url : "";
+  if (!url.startsWith("/api/") || url.startsWith("/api/normal-auth/")) return options;
+  const headers = options.headers ?? {};
+  if (headers.cookie !== undefined) return options;
+  return { ...options, headers: { ...headers, cookie } };
+}
+
+function testPasswordHash(password: string): string {
+  const salt = Buffer.from("test-salt");
+  const iterations = 120_000;
+  const hash = pbkdf2Sync(password, salt, iterations, 32, "sha256");
+  return `pbkdf2-sha256$${String(iterations)}$${salt.toString("base64url")}$${hash.toString("base64url")}`;
 }
 
 function fakeSessionDaemon(): SessionProxyDaemon {

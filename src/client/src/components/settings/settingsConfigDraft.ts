@@ -26,6 +26,7 @@ export function configFromDraft(draft: ConfigDraft, baseConfig: PiWebConfigValue
   const config: PiWebConfigValues = {
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),
+    ...(baseConfig.normalAuth === undefined ? {} : { normalAuth: baseConfig.normalAuth }),
     ...(baseConfig.uploads === undefined ? {} : { uploads: baseConfig.uploads }),
     ...(baseConfig.maxUploadBytes === undefined ? {} : { maxUploadBytes: baseConfig.maxUploadBytes }),
     ...(baseConfig.spawnSessions === undefined ? {} : { spawnSessions: baseConfig.spawnSessions }),

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { filesApi, machinesApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { filesApi, machinesApi, normalAuthApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { setApiScope } from "./http";
 
 const workspace: Workspace = {
@@ -59,6 +59,38 @@ describe("machine-scoped runtime API", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/runtime");
+  });
+});
+
+describe("ordinary mode auth API", () => {
+  it("reads ordinary mode auth status", async () => {
+    const fetchMock = stubJsonFetch({ configured: true, authenticated: false });
+
+    await expect(normalAuthApi.status()).resolves.toEqual({ configured: true, authenticated: false });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/normal-auth/status");
+  });
+
+  it("sets up, logs in, and changes ordinary mode passwords", async () => {
+    const fetchMock = stubSequenceFetch([
+      jsonResponse({ accepted: true }),
+      jsonResponse({ accepted: true }),
+      jsonResponse({ accepted: true }),
+    ]);
+
+    await normalAuthApi.setup("first-pass");
+    await normalAuthApi.login("first-pass");
+    await normalAuthApi.changePassword("first-pass", "next-pass");
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/normal-auth/setup",
+      "/api/normal-auth/login",
+      "/api/normal-auth/change-password",
+    ]);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ password: "first-pass" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ password: "first-pass" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ currentPassword: "first-pass", newPassword: "next-pass" });
   });
 });
 

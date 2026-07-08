@@ -68,6 +68,7 @@ export interface PiWebConfigValues {
   allowedHosts?: string[] | true;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
+  normalAuth?: PiWebNormalAuthConfig;
   managementEmbed?: PiWebManagementEmbedConfig;
   /** External filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
@@ -84,6 +85,10 @@ export interface PiWebConfigValues {
    * while the capability stabilizes. Requires spawnSessions to be enabled.
    */
   subsessions?: boolean;
+}
+
+export interface PiWebNormalAuthConfig {
+  passwordHash?: string;
 }
 
 export interface PiWebManagementEmbedConfig {
@@ -134,6 +139,11 @@ export interface PiWebConfigResponse {
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
   envOverrides: PiWebConfigEnvOverrides;
+}
+
+export interface NormalAuthStatusResponse {
+  configured: boolean;
+  authenticated: boolean;
 }
 
 export interface Project {

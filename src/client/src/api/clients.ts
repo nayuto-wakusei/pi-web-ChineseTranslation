@@ -23,6 +23,7 @@ import {
   parseMessagePage,
   parseModelSelectionResponse,
   parseMoveWorkspaceFileResponse,
+  parseNormalAuthStatusResponse,
   parseOAuthFlowState,
   parsePiWebConfigResponse,
   parsePiWebPluginsResponse,
@@ -116,6 +117,13 @@ export const machinesApi = {
 export const configApi = {
   config: () => request("/api/config", parsePiWebConfigResponse),
   saveConfig: (config: PiWebConfigValues) => request("/api/config", parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
+};
+
+export const normalAuthApi = {
+  status: () => request("/api/normal-auth/status", parseNormalAuthStatusResponse),
+  setup: (password: string) => request("/api/normal-auth/setup", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
+  login: (password: string) => request("/api/normal-auth/login", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
+  changePassword: (currentPassword: string, newPassword: string) => request("/api/normal-auth/change-password", parseAccepted, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
 };
 
 export const pluginsApi = {
@@ -338,6 +346,7 @@ export const api = {
   ...piWebApi,
   ...machinesApi,
   ...configApi,
+  ...normalAuthApi,
   ...pluginsApi,
   ...activityApi,
   ...projectsApi,

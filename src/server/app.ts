@@ -28,6 +28,7 @@ import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
 import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
+import { NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth.js";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
@@ -166,6 +167,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
   const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
+  const normalAuth = new NormalModeAuthService(configService);
+  registerNormalAuthRoutes(app, normalAuth);
+  registerNormalModeAuthGate(app, normalAuth, managementEmbed);
 
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
 

@@ -6,6 +6,8 @@ import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, effectivePiWebConfig,
 
 let tempDir: string;
 let configPath: string;
+const TEST_PASSWORD_HASH = "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo";
+const NEXT_TEST_PASSWORD_HASH = "pbkdf2-sha256$120000$c2FsdDI$bmV4dC1oYXNo";
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "pi-web-config-test-"));
@@ -18,18 +20,39 @@ afterEach(async () => {
 
 describe("PI WEB config persistence", () => {
   it("writes and reads the configured PI WEB config path", () => {
-    const saved = savePiWebConfig({ host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual\\incoming" } }, testOptions());
+    const saved = savePiWebConfig({ host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual\\incoming" } }, testOptions());
 
-    expect(saved).toEqual({ path: configPath, exists: true, config: { host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual/incoming" } } });
+    expect(saved).toEqual({ path: configPath, exists: true, config: { host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual/incoming" } } });
     expect(loadPiWebConfig(testOptions())).toEqual(saved);
   });
 
   it("preserves unrelated config keys while replacing managed keys", async () => {
-    await writeFile(configPath, `${JSON.stringify({ host: "old", port: 8504, allowedHosts: true, plugins: { info: { enabled: false } }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "old" }, future: { enabled: true } }, null, 2)}\n`, "utf8");
+    await writeFile(configPath, `${JSON.stringify({ host: "old", port: 8504, allowedHosts: true, plugins: { info: { enabled: false } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "old" }, future: { enabled: true } }, null, 2)}\n`, "utf8");
 
-    savePiWebConfig({ port: 9000, allowedHosts: [], pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } }, testOptions());
+    savePiWebConfig({ port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } }, testOptions());
 
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ future: { enabled: true }, port: 9000, allowedHosts: [], pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } });
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ future: { enabled: true }, port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } });
+  });
+
+  it("preserves normalAuth when saving settings that do not include it", async () => {
+    await writeFile(configPath, `${JSON.stringify({ normalAuth: { passwordHash: TEST_PASSWORD_HASH }, future: { enabled: true } }, null, 2)}\n`, "utf8");
+
+    savePiWebConfig({ port: 9000, allowedHosts: [] }, testOptions());
+
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+      future: { enabled: true },
+      normalAuth: { passwordHash: TEST_PASSWORD_HASH },
+      port: 9000,
+      allowedHosts: [],
+    });
+  });
+
+  it("rejects empty and malformed normal auth password hashes", async () => {
+    await writeFile(configPath, `${JSON.stringify({ normalAuth: { passwordHash: "" } }, null, 2)}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config normalAuth.passwordHash must use pbkdf2-sha256 format");
+
+    await writeFile(configPath, `${JSON.stringify({ normalAuth: { passwordHash: "not-a-real-hash" } }, null, 2)}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config normalAuth.passwordHash must use pbkdf2-sha256 format");
   });
 
   it("rejects invalid plugin config", async () => {

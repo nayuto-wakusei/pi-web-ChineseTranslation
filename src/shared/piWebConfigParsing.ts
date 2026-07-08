@@ -14,6 +14,7 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
     ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
+    ...(config.normalAuth !== undefined ? { normalAuth: config.normalAuth } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
@@ -60,6 +61,7 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], context) } : {}),
     ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], context) } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], context) } : {}),
+    ...(value["normalAuth"] !== undefined ? { normalAuth: parseNormalAuth(value["normalAuth"], context) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], context) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
@@ -127,6 +129,36 @@ function parsePlugins(value: unknown, context: ParseContext): NonNullable<PiWebC
     if (settings !== undefined && (!isRecord(settings) || Array.isArray(settings))) throw new Error(context.format === "request" ? "PI WEB config plugin settings must be objects" : `PI WEB config plugin settings must be objects: ${context.path}`);
     return [pluginId, config];
   }));
+}
+
+function parseNormalAuth(value: unknown, context: ParseContext): NonNullable<PiWebConfigValues["normalAuth"]> {
+  if (!isRecord(value) || Array.isArray(value)) throw new Error(error(context, "normalAuth must be an object"));
+  return {
+    ...(value["passwordHash"] === undefined ? {} : { passwordHash: parseNormalAuthPasswordHash(value["passwordHash"], context) }),
+  };
+}
+
+function parseNormalAuthPasswordHash(value: unknown, context: ParseContext): string {
+  if (typeof value !== "string") throw new Error(error(context, "normalAuth.passwordHash must use pbkdf2-sha256 format"));
+  const [algorithm, iterationsValue, saltValue, hashValue, extra] = value.split("$");
+  const iterations = Number(iterationsValue);
+  if (
+    algorithm !== "pbkdf2-sha256"
+    || extra !== undefined
+    || !Number.isInteger(iterations)
+    || iterations < 1
+    || saltValue === undefined
+    || hashValue === undefined
+    || !isBase64Url(saltValue)
+    || !isBase64Url(hashValue)
+  ) {
+    throw new Error(error(context, "normalAuth.passwordHash must use pbkdf2-sha256 format"));
+  }
+  return value;
+}
+
+function isBase64Url(value: string): boolean {
+  return value !== "" && /^[A-Za-z0-9_-]+$/u.test(value);
 }
 
 function parseManagementEmbed(value: unknown, context: ParseContext): NonNullable<PiWebConfigValues["managementEmbed"]> {
