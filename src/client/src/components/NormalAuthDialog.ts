@@ -109,7 +109,7 @@ export class NormalAuthDialog extends LitElement {
     input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 8px 10px; font: inherit; cursor: pointer; }
     button:disabled { opacity: .6; cursor: default; }
-    .primary { border-color: var(--pi-accent); background: var(--pi-accent); color: var(--pi-accent-contrast); }
+    .primary { border-color: var(--pi-accent); background: var(--pi-accent); color: #fff; }
     .close-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--pi-muted); padding: 0; font-size: 24px; }
     .message { margin: 0; border: 1px solid var(--pi-danger-border); border-radius: 8px; background: var(--pi-danger-surface); color: var(--pi-danger); padding: 10px; }
     footer { display: flex; justify-content: flex-end; gap: 8px; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalAuthPasswordFormError } from "./NormalAuthDialog";
+import { NormalAuthDialog, normalAuthPasswordFormError } from "./NormalAuthDialog";
 
 describe("normal auth dialog validation", () => {
   it("requires password confirmation when setting the first password", () => {
@@ -13,3 +13,13 @@ describe("normal auth dialog validation", () => {
     expect(normalAuthPasswordFormError("change", { currentPassword: "old-pass", password: "new-pass", confirmPassword: "new-pass" })).toBeUndefined();
   });
 });
+
+describe("normal auth dialog styles", () => {
+  it("keeps the primary action text white on accent backgrounds", () => {
+    expect(normalAuthDialogStyles()).toContain(".primary { border-color: var(--pi-accent); background: var(--pi-accent); color: #fff;");
+  });
+});
+
+function normalAuthDialogStyles(): string {
+  return NormalAuthDialog.styles.cssText;
+}
