@@ -20,7 +20,7 @@ export const BUILTIN_COMMANDS: ClientCommand[] = [
   { name: "new", description: "启动新会话", source: "builtin" },
   { name: "compact", description: "手动压缩会话上下文", source: "builtin" },
   { name: "resume", description: "恢复另一个会话", source: "builtin" },
-  { name: "reload", description: "重新加载键位、扩展、技能、提示词和主题", source: "builtin" },
+  { name: "reload", description: "重新加载当前会话的 Pi 运行时资源", source: "builtin" },
   { name: "quit", description: "退出 pi", source: "builtin" },
 ];
 

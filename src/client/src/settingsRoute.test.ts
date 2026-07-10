@@ -37,6 +37,8 @@ describe("settings route helpers", () => {
     expect(parseSettingsSection("general")).toBe("general");
     expect(parseSettingsSection("sessiond")).toBe("sessiond");
     expect(parseSettingsSection("sessions")).toBe("sessiond");
+    expect(parseSettingsSection("packages")).toBe("packages");
+    expect(parseSettingsSection("pi-packages")).toBe("packages");
     expect(parseSettingsSection("plugins")).toBe("plugins");
     expect(parseSettingsSection("shortcuts")).toBe("shortcuts");
     expect(parseSettingsSection("keyboard")).toBe("shortcuts");

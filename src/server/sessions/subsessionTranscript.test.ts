@@ -81,12 +81,12 @@ describe("buildTranscriptView", () => {
     expect(callPart.args).toEqual({ command: "ls" });
   });
 
-  it("search keeps only matching entries across text and tool names", () => {
-    const messages = [assistant("the auth flow"), assistant("unrelated"), toolResult("error in auth.ts", "read")];
+  it("search keeps only entries matching text or tool-call names", () => {
+    const messages = [assistant("the auth flow"), assistant("unrelated"), toolResult("error in auth.ts", "read"), toolCall("auth-search")];
     const view = buildTranscriptView(messages, { search: "auth" });
 
-    expect(view.matched).toBe(2);
-    expect(view.entries.map((entry) => entry.index)).toEqual([0, 2]);
+    expect(view.matched).toBe(3);
+    expect(view.entries.map((entry) => entry.index)).toEqual([0, 2, 3]);
   });
 
   it("search runs against full content even when maxChars would clip the match away", () => {

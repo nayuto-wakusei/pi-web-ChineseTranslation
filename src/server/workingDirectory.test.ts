@@ -13,8 +13,7 @@ describe("normalizeRequestCwd", () => {
     expect(normalizeRequestCwd(join(absoluteBase, ".", "nested", ".."))).toBe(absoluteBase);
   });
 
-  it("treats Windows backslash and forward-slash paths as equal", () => {
-    if (process.platform !== "win32") return;
+  it.skipIf(process.platform !== "win32")("treats Windows backslash and forward-slash paths as equal", () => {
     expect(normalizeRequestCwd("C:/Users/dev/project")).toBe("C:\\Users\\dev\\project");
   });
 
@@ -47,8 +46,7 @@ describe("cwdPathsEqual", () => {
     expect(cwdPathsEqual(absoluteBase, join(absoluteBase, "."))).toBe(true);
   });
 
-  it("treats Windows backslash and forward-slash paths as equal", () => {
-    if (process.platform !== "win32") return;
+  it.skipIf(process.platform !== "win32")("treats Windows backslash and forward-slash paths as equal", () => {
     expect(cwdPathsEqual("C:\\Users\\dev\\project", "C:/Users/dev/project")).toBe(true);
   });
 

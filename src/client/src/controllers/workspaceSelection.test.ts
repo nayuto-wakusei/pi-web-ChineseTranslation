@@ -22,7 +22,7 @@ describe("selectPreferredWorkspace", () => {
     expect(selectPreferredWorkspace(workspaces, { latestWorkspaceId: "old" })?.id).toBe("main");
   });
 
-  it("preserves explicit invalid target behavior", () => {
+  it("does not fall back to remembered workspace when the explicit target is invalid", () => {
     const workspaces = [testWorkspace("main"), testWorkspace("feature")];
 
     expect(selectPreferredWorkspace(workspaces, { targetWorkspaceId: "old", latestWorkspaceId: "feature" })).toBeUndefined();

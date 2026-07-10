@@ -47,6 +47,12 @@ export interface CommandEventPublisher {
   publishGlobal?(event: Extract<SessionUiEvent, { type: "session.name" }>, eventScope?: string): void;
 }
 
+export interface SessionCommandLifecycle<TSession extends CommandSession = CommandSession> {
+  onCompactionStart?: (session: TSession) => void;
+  onCompactionEnd?: (session: TSession, result: "success" | "error", detail?: string) => void;
+  reloadSession?: (session: TSession) => Promise<void>;
+}
+
 export interface SessionCommandNaming {
   listSessionNames?: (cwd: string) => Promise<readonly string[]>;
 }
@@ -66,10 +72,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     private readonly getActive: GetScopedCommandActiveSession<TSession>,
     private readonly prompt: (sessionId: string, text: string, eventScope?: string) => Promise<void>,
     private readonly events: CommandEventPublisher,
-    private readonly lifecycle: {
-      onCompactionStart?: (session: TSession) => void;
-      onCompactionEnd?: (session: TSession, result: "success" | "error", detail?: string) => void;
-    } = {},
+    private readonly lifecycle: SessionCommandLifecycle<TSession> = {},
     private readonly naming: SessionCommandNaming = {},
   ) {}
 
@@ -94,6 +97,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     if (name === "session") return { type: "done", message: formatSessionStats(session) };
     if (name === "name") return this.nameSession(active, rest, eventScope);
     if (name === "compact") return this.compact(session, rest, eventScope);
+    if (name === "reload") return this.reload(session);
     if (name === "clone") return this.clone(active, eventScope);
     if (name === "fork") return this.fork(active, eventScope);
 
@@ -139,6 +143,19 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
         this.lifecycle.onCompactionEnd?.(session, "error", message);
       });
     return { type: "done", message: "已开始压缩…" };
+  }
+
+  private async reload(session: TSession): Promise<ClientCommandResult> {
+    if (sessionHasActiveWork(session)) return { type: "unsupported", message: "会话活动期间无法重新加载，请先停止当前活动。" };
+    if (this.lifecycle.reloadSession === undefined) return { type: "unsupported", message: "当前会话运行时不支持 /reload。" };
+
+    try {
+      await this.lifecycle.reloadSession(session);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { type: "unsupported", message: `重新加载失败：${message}` };
+    }
+    return { type: "done", message: "会话运行时资源已重新加载。扩展、技能、提示词模板、主题以及上下文/系统提示词文件已刷新；PI WEB 浏览器插件变更仍需另行刷新浏览器页面。" };
   }
 
   private async clone(active: CommandActiveSession<TSession>, eventScope: string | undefined): Promise<ClientCommandResult> {

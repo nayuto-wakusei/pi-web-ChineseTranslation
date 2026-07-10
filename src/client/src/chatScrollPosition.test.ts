@@ -135,7 +135,7 @@ describe("ChatScrollController", () => {
     expect(JSON.parse(storage.getItem(key) ?? "{}")).toEqual({ mode: "bottom" });
   });
 
-  it("captures the session id when scheduling a delayed save", () => {
+  it("cancels the previous delayed save and passes the latest session id", () => {
     const scheduler = new ManualScheduler();
     const controller = new ChatScrollController(new MemoryScrollStorage(), scheduler);
     const saved: string[] = [];

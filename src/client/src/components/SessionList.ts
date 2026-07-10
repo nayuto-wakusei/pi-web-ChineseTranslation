@@ -2,6 +2,8 @@ import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
+import { shortSessionId } from "../sessionLabels";
+import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
 import { isSessionActive } from "../../../shared/activity";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
 import { ListMenuController } from "./ListMenuController";
@@ -11,7 +13,7 @@ import { listStyles } from "./styles/listStyles";
 
 function sessionLabel(session: SessionInfo): string {
   if (session.name !== undefined && session.name !== "") return session.name;
-  return session.firstMessage !== "" ? session.firstMessage : session.id.slice(0, 8);
+  return session.firstMessage !== "" ? session.firstMessage : shortSessionId(session.id);
 }
 
 export interface SessionRow {
@@ -29,10 +31,12 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
   @property({ attribute: false }) sending: Record<string, true> = {};
   @property({ attribute: false }) selected?: SessionInfo;
+  @property({ type: Number }) startingCount = 0;
   @property({ type: Boolean }) canStart = false;
   @property({ type: Boolean }) canDeleteArchived = false;
   @property({ type: Boolean }) canReload = false;
   @property({ type: Boolean }) canCleanup = false;
+  @property({ type: Boolean }) authoritativeSessionPersistence = false;
   @property({ type: String }) archivedDeleteUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再删除已归档会话。";
   @property({ type: String }) cleanupUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再清理会话。";
   @property({ type: Boolean, reflect: true }) collapsible = false;
@@ -93,6 +97,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         ${this.collapsed ? null : html`
           <div class="list-body">
             ${this.renderCurrentSelectionToolbar(currentSelectableSessions)}
+            ${this.startingCount > 0 ? this.renderStartingSession() : null}
             ${currentRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0, "current"))}
             ${archivedRows.length > 0 ? html`
               ${this.renderArchivedHeading(archivedRows.map((row) => row.session))}
@@ -114,7 +119,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           会话
           ${this.renderCurrentSelectionButton(currentSessions)}
           ${this.renderCleanupButton()}
-          <button ?disabled=${!this.canStart} @click=${() => this.onStart?.()}>+</button>
+          ${this.renderStartButton()}
         </h2>
       `;
     }
@@ -126,7 +131,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         ${this.renderCurrentSelectionButton(currentSessions)}
         <small class="section-count">${sessionCount}</small>
         ${this.renderCleanupButton()}
-        <button ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>
+        ${this.renderStartButton()}
       </h2>
     `;
   }
@@ -139,6 +144,23 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   private renderCleanupButton() {
     return html`<button class="cleanup-entry" title=${this.canCleanup ? "预览会话清理" : this.cleanupUnavailableMessage} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onCleanup?.(); }}>清理</button>`;
+  }
+
+  private renderStartButton() {
+    const title = this.startingCount > 0 ? "Start another session" : "Start a new session";
+    return html`<button class="start-session-button" title=${title} aria-label=${title} ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>`;
+  }
+
+  private renderStartingSession() {
+    const plural = this.startingCount !== 1;
+    return html`
+      <div class="pending-session-row starting-session" role="status" aria-live="polite">
+        <div class="action-main">
+          <span class="action-name"><span class="activity-indicator sending" aria-hidden="true"></span>${plural ? `Starting ${String(this.startingCount)} sessions…` : "Starting session…"}</span>
+          <small>Waiting for ${plural ? "new sessions" : "the new session"} to be created</small>
+        </div>
+      </div>
+    `;
   }
 
   private renderArchivedHeading(archivedSessions: SessionInfo[]) {
@@ -156,7 +178,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     if (visibleSessions.length === 0 || !this.selectionScopes.has("current")) return null;
 
     const selectedSessions = this.selectedSessions("current");
-    const archivableSessions = selectedSessions.filter((session) => !isCachedNewSessionInfo(session));
+    const archivableSessions = selectedSessions.filter((session) => isArchivableSessionInfo(session, this.statuses[session.id], this.sessionPersistenceOptions()));
     const allVisibleSelected = visibleSessions.length > 0 && visibleSessions.every((session) => this.selectedSessionIds.has(session.id));
     const visibleSelectedCount = visibleSessions.filter((session) => this.selectedSessionIds.has(session.id)).length;
     return html`
@@ -195,6 +217,12 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const selectionActive = this.selectionScopes.has(scope);
     const showsCheckbox = selectionActive && canBulkSelect;
     const bulkSelected = showsCheckbox && this.selectedSessionIds.has(session.id);
+    const status = this.statuses[session.id];
+    const activity = this.activities[session.id];
+    const persistenceOptions = this.sessionPersistenceOptions();
+    const canArchive = isArchivableSessionInfo(session, status, persistenceOptions);
+    const canDeleteTransient = isTransientNewSessionInfo(session, status, persistenceOptions);
+    const canReloadSession = canArchive && this.canReload;
     return html`
       <div
         class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""}"
@@ -206,25 +234,27 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       >
         <div class="action-main ${selectionActive ? "selecting" : ""}">
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${`选择 ${sessionLabel(session)}`} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
-          <span class="action-name" dir="auto">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderSessionMetaPrefix(session)}${String(session.messageCount)} 条消息</small>
+          <span class="action-name" dir="auto">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} 条消息</small>
           ${this.renderActivity(session)}
         </div>
         <div class="action-menu">
           <button class="action-menu-toggle" title="会话操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(session.id, event.currentTarget); }}>⋯</button>
           ${this.menu.isOpen(session.id) ? html`
             <div class="action-menu-panel" style=${this.menu.menuStyle}>
-              ${isCachedNewSessionInfo(session)
-                ? html`<button title="删除浏览器缓存的新会话" @click=${() => { this.menu.close(); this.onDelete?.(session); }}>删除</button>`
-                : session.archived === true
-                  ? html`
+              ${session.archived === true
+                ? html`
                     <button title="恢复会话" @click=${() => { this.menu.close(); this.onRestore?.(session); }}>恢复</button>
                     <button class="danger" title=${this.canDeleteArchived ? "永久删除已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.menu.close(); this.confirmDeleteArchived(session); }}>删除已归档会话</button>
                   `
+                : canDeleteTransient
+                  ? html`<button title="删除临时新会话" @click=${() => { this.menu.close(); this.onDelete?.(session); }}>删除</button>`
                   : html`
-                    ${this.canReload ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "当前会话活动结束后才能重新加载" : "从磁盘重新加载会话"} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.menu.close(); this.onReload?.(session); }}>重新加载</button>` : null}
+                    ${canArchive ? html`
+                      <button title="归档会话" @click=${() => { this.menu.close(); this.onArchive?.(session); }}>归档</button>
+                      ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.menu.close(); this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
+                    ` : null}
                     ${session.parentSessionPath !== undefined ? html`<button title="从父会话分离" @click=${() => { this.menu.close(); this.onDetachParent?.(session); }}>从父会话分离</button>` : null}
-                    <button title="归档会话" @click=${() => { this.menu.close(); this.onArchive?.(session); }}>归档</button>
-                    ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.menu.close(); this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
+                    ${canReloadSession ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "当前会话活动结束后才能从磁盘重新加载" : "从磁盘重新加载会话，不刷新 Pi 运行时资源"} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.menu.close(); this.onReload?.(session); }}>从磁盘重新加载</button>` : null}
                   `}
             </div>
           ` : null}
@@ -269,7 +299,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   private archiveSelectedCurrent(): void {
-    const sessions = this.selectedSessions("current").filter((session) => !isCachedNewSessionInfo(session));
+    const sessions = this.selectedSessions("current").filter((session) => isArchivableSessionInfo(session, this.statuses[session.id], this.sessionPersistenceOptions()));
     this.selectedSessionIds = removeSessionIds(this.selectedSessionIds, sessions.map((session) => session.id));
     void this.onArchiveMany?.(sessions);
   }
@@ -339,10 +369,18 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     this.renderRoot.querySelector<HTMLElement>(".action-row.selected")?.scrollIntoView({ block: "nearest" });
   }
 
-  private renderSessionMetaPrefix(session: SessionInfo) {
-    if (isCachedNewSessionInfo(session)) return "新建 · ";
+  private renderSessionMetaPrefix(session: SessionInfo, status: SessionStatus | undefined, activity: SessionActivity | undefined) {
+    if (isTransientNewSessionInfo(session, status, this.sessionPersistenceOptions())) {
+      if (activity?.phase === "active") return "创建中 · ";
+      if (activity?.phase === "error") return "错误 · ";
+      return "新建 · ";
+    }
     if (session.archived === true) return "只读 · ";
     return "";
+  }
+
+  private sessionPersistenceOptions() {
+    return { authoritative: this.authoritativeSessionPersistence };
   }
 
   private renderActivity(session: SessionInfo) {
@@ -354,6 +392,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     h2 { min-height: 30px; }
     h2 > .section-count { flex: 0 0 auto; display: inline; color: var(--pi-muted); font-size: inherit; }
     .bulk-select-entry { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; font-size: 13px; line-height: 1; text-transform: none; }
+    .start-session-button { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 9px; }
     .cleanup-entry { flex: 0 0 auto; padding: 5px 7px; font-size: 12px; text-transform: none; }
     .bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
     .bulk-row button { padding: 5px 7px; font-size: 12px; }
@@ -364,6 +403,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     button.danger, .action-menu-panel button.danger { color: var(--pi-danger); }
     button.danger:hover, .action-menu-panel button.danger:hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
     .action-row.bulk-selected .action-main { border-color: var(--pi-accent); box-shadow: inset 3px 0 0 var(--pi-accent); }
+    .pending-session-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); margin: 6px 0; cursor: default; }
+    .pending-session-row.starting-session .action-main { border-radius: 8px; border-style: dashed; color: var(--pi-muted); }
+    .pending-session-row.starting-session .action-name { display: flex; align-items: center; gap: 6px; max-height: none; -webkit-line-clamp: 1; }
+    .pending-session-row.starting-session .activity-indicator { flex: 0 0 auto; margin: 0; }
     .action-main.selecting { padding-left: calc(32px + var(--depth, 0) * 16px); }
     .session-checkbox { position: absolute; top: 9px; left: calc(8px + var(--depth, 0) * 16px); z-index: 2; margin: 0; }
   `];

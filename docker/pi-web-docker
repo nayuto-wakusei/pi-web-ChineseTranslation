@@ -1,0 +1,741 @@
+#!/usr/bin/env sh
+set -eu
+
+log() {
+  printf '%s\n' "$*" >&2
+}
+
+die() {
+  log "pi-web-docker: $*"
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: pi-web-docker [--dev] [--allow-root] <command> [args...]
+
+Runtime/production mode is the default. Development mode must be selected
+explicitly with --dev.
+
+Commands:
+  install                 Run the production one-line/bootstrap installer
+  start                   Start the PI WEB Docker stack
+  stop                    Stop the PI WEB Docker stack without deleting data
+  restart                 Restart web and sessiond
+  restart-web             Restart only the web service
+  restart-sessiond        Restart only the session daemon
+  update                  Rebuild/update and recreate the Docker stack
+  status                  Show Docker Compose service status
+  logs [web|sessiond|data-init]
+                          Follow Docker Compose logs
+  shell [web|sessiond]    Open a shell in a service container
+  doctor                  Print static Docker command diagnostics
+  cli <pi-web args...>    Run the pi-web CLI in the web container
+
+Update and restart commands launched inside a PI WEB Docker container start an
+independent helper container first so work can continue after web/sessiond exits.
+EOF
+}
+
+is_truthy() {
+  case "${1:-}" in
+    ""|0|false|FALSE|False) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+is_unsigned_int() {
+  case "${1:-}" in
+    ""|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+assert_no_args() {
+  checked_command=$1
+  shift
+  [ "$#" -eq 0 ] || die "$checked_command does not accept positional arguments"
+}
+
+assert_at_most_one_arg() {
+  checked_command=$1
+  shift
+  [ "$#" -le 1 ] || die "$checked_command accepts at most one target"
+}
+
+entrypoint_dir() {
+  script_path=${0:-}
+  case "$script_path" in
+    */*) script_dir=$(dirname "$script_path") ;;
+    *) script_dir=. ;;
+  esac
+  unset CDPATH
+  cd "$script_dir" 2>/dev/null && pwd -P
+}
+
+ENTRYPOINT_DIR=$(entrypoint_dir) || die "could not resolve entrypoint directory"
+PI_WEB_DOCKER_SELECTED_MODE=runtime
+PI_WEB_DOCKER_ALLOW_ROOT=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dev)
+      PI_WEB_DOCKER_SELECTED_MODE=dev
+      shift
+      ;;
+    --allow-root)
+      PI_WEB_DOCKER_ALLOW_ROOT=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown global option: $1"
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+command_name=${1:-}
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+if [ -z "$command_name" ]; then
+  usage >&2
+  exit 2
+fi
+
+docker_mode() {
+  case "$PI_WEB_DOCKER_SELECTED_MODE" in
+    runtime|dev) printf '%s\n' "$PI_WEB_DOCKER_SELECTED_MODE" ;;
+    *) die "unsupported Docker mode: $PI_WEB_DOCKER_SELECTED_MODE" ;;
+  esac
+}
+
+mode_flag() {
+  case "$(docker_mode)" in
+    runtime) return 0 ;;
+    dev) printf '%s\n' --dev ;;
+  esac
+}
+
+absolute_existing_dir() {
+  dir=$1
+  (cd "$dir" && pwd -P)
+}
+
+strip_wrapping_quotes() {
+  value=$1
+  case "$value" in
+    \"*\")
+      case "$value" in
+        *\") value=${value#\"}; value=${value%\"} ;;
+      esac
+      ;;
+    \'*\')
+      case "$value" in
+        *\') value=${value#\'}; value=${value%\'} ;;
+      esac
+      ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+env_file_value() {
+  file=$1
+  key=$2
+  [ -f "$file" ] || return 1
+  raw=$(awk -v key="$key" '
+    function trim(value) {
+      sub(/^[ \t]+/, "", value)
+      sub(/[ \t\r]+$/, "", value)
+      return value
+    }
+    /^[ \t]*(#|$)/ { next }
+    {
+      line = $0
+      sub(/^[ \t]*export[ \t]+/, "", line)
+      name = line
+      sub(/=.*/, "", name)
+      name = trim(name)
+      if (name == key) {
+        sub(/^[^=]*=/, "", line)
+        print trim(line)
+        found = 1
+        exit
+      }
+    }
+    END { if (!found) exit 1 }
+  ' "$file") || return 1
+  strip_wrapping_quotes "$raw"
+}
+
+runtime_root() {
+  root=${PI_WEB_DOCKER_INSTALL_DIR:-}
+  if [ -z "$root" ]; then
+    root=$ENTRYPOINT_DIR
+  fi
+  case "$root" in
+    /*) ;;
+    *) die "PI WEB Docker runtime root must be an absolute path: $root" ;;
+  esac
+  [ -d "$root" ] || die "PI WEB Docker runtime root does not exist: $root"
+  printf '%s\n' "$root"
+}
+
+dev_root() {
+  root=${PI_WEB_DOCKER_DEV_REPO_ROOT:-}
+  if [ -z "$root" ]; then
+    if [ -f "$ENTRYPOINT_DIR/compose.dev.yml" ] && [ -d "$ENTRYPOINT_DIR/.." ]; then
+      root=$(absolute_existing_dir "$ENTRYPOINT_DIR/..") || die "could not resolve Docker development repo root"
+    elif [ -f "$ENTRYPOINT_DIR/docker/compose.dev.yml" ]; then
+      root=$ENTRYPOINT_DIR
+    fi
+  fi
+  [ -n "$root" ] || die "PI_WEB_DOCKER_DEV_REPO_ROOT must be set or pi-web-docker must run from this checkout's docker/ directory"
+  case "$root" in
+    /*) ;;
+    *) die "PI WEB Docker development repo root must be an absolute path: $root" ;;
+  esac
+  [ -d "$root" ] || die "PI WEB Docker development repo root does not exist: $root"
+  printf '%s\n' "$root"
+}
+
+control_root() {
+  case "$(docker_mode)" in
+    runtime) runtime_root ;;
+    dev) dev_root ;;
+  esac
+}
+
+enforce_dev_root_safety() {
+  [ "$(docker_mode)" = dev ] || return 0
+  [ "$PI_WEB_DOCKER_ALLOW_ROOT" != 1 ] || return 0
+  uid=$(id -u 2>/dev/null || printf '0')
+  [ "$uid" != 0 ] || die "refusing to run Docker development mode as root; retry with --allow-root if this is intentional"
+}
+
+enforce_container_mode_match() {
+  is_truthy "${PI_WEB_DOCKER_RUNTIME:-}" || return 0
+  runtime_mode=${PI_WEB_DOCKER_MODE:-}
+  [ -n "$runtime_mode" ] || return 0
+  case "$runtime_mode" in
+    runtime|dev) ;;
+    *) die "unsupported PI_WEB_DOCKER_MODE inside PI WEB Docker runtime: $runtime_mode" ;;
+  esac
+  selected_mode=$(docker_mode)
+  [ "$runtime_mode" = "$selected_mode" ] || die "this PI WEB Docker container is in $runtime_mode mode; rerun pi-web-docker with the matching mode flag"
+}
+
+docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    die "Docker Compose is required (docker compose plugin or docker-compose)"
+  fi
+}
+
+is_checkout_runtime_default_root() {
+  root=$1
+  [ -z "${PI_WEB_DOCKER_INSTALL_DIR:-}" ] || return 1
+  [ -f "$root/compose.dev.yml" ] || return 1
+  [ -f "$root/../package.json" ] || return 1
+  [ -f "$root/pi-web-docker" ] || return 1
+}
+
+runtime_command_hint() {
+  command=${command_name:-status}
+  printf '%s\n' "$command"
+}
+
+default_runtime_entrypoint_hint() {
+  if [ -n "${XDG_DATA_HOME:-}" ]; then
+    printf '%s\n' "$XDG_DATA_HOME/pi-web-docker/pi-web-docker"
+  elif [ -n "${HOME:-}" ]; then
+    printf '%s\n' "$HOME/.local/share/pi-web-docker/pi-web-docker"
+  else
+    printf '%s\n' '~/.local/share/pi-web-docker/pi-web-docker'
+  fi
+}
+
+die_missing_runtime_asset() {
+  root=$1
+  missing_path=$2
+  if is_checkout_runtime_default_root "$root"; then
+    command_hint=$(runtime_command_hint)
+    runtime_entrypoint=$(default_runtime_entrypoint_hint)
+    log "pi-web-docker: runtime install assets were not found in $root."
+    log "Missing generated asset: $missing_path"
+    log ""
+    log "You appear to be running this checkout's Docker command in runtime mode."
+    log "For development, use:"
+    log ""
+    log "  ./docker/pi-web-docker --dev $command_hint"
+    log ""
+    log "For an installed runtime, use the installed command, usually:"
+    log ""
+    log "  $runtime_entrypoint $command_hint"
+    log ""
+    log "Or set PI_WEB_DOCKER_INSTALL_DIR to your runtime install directory."
+    exit 1
+  fi
+
+  die "runtime install asset not found at $missing_path; run pi-web-docker install first"
+}
+
+require_runtime_compose_assets() {
+  root=$1
+  [ -f "$root/compose.yml" ] || die_missing_runtime_asset "$root" "$root/compose.yml"
+  [ -f "$root/compose.override.yml" ] || die_missing_runtime_asset "$root" "$root/compose.override.yml"
+  [ -f "$root/.env" ] || die_missing_runtime_asset "$root" "$root/.env"
+}
+
+runtime_compose() {
+  root=$(runtime_root)
+  require_runtime_compose_assets "$root"
+  project_name=$(required_env_file_value "$root/.env" COMPOSE_PROJECT_NAME)
+  (
+    cd "$root" || exit 1
+    docker_compose --project-name "$project_name" --env-file .env -f compose.yml -f compose.override.yml "$@"
+  )
+}
+
+dev_compose() {
+  root=$(dev_root)
+  wrapper=$root/docker/internal/dev/compose
+  [ -x "$wrapper" ] || die "dev Compose helper is not executable at $wrapper"
+  (
+    cd "$root" || exit 1
+    PI_WEB_DOCKER_ALLOW_ROOT=$PI_WEB_DOCKER_ALLOW_ROOT "$wrapper" "$@"
+  )
+}
+
+compose_for_install() {
+  case "$(docker_mode)" in
+    runtime) runtime_compose "$@" ;;
+    dev) dev_compose "$@" ;;
+  esac
+}
+
+entrypoint_installer() {
+  installer=$ENTRYPOINT_DIR/install.sh
+  [ -x "$installer" ] || die "installer not found or not executable at $installer"
+  printf '%s\n' "$installer"
+}
+
+runtime_installer() {
+  root=$1
+  installer=$root/install.sh
+  [ -x "$installer" ] || die "runtime installer not found or not executable at $installer; run pi-web-docker install first"
+  printf '%s\n' "$installer"
+}
+
+run_install() {
+  [ "$(docker_mode)" = runtime ] || die "install is only available in runtime mode; omit --dev"
+  installer=$(entrypoint_installer)
+  exec "$installer" "$@"
+}
+
+run_start() {
+  assert_no_args start "$@"
+  require_command docker
+  case "$(docker_mode)" in
+    runtime) runtime_compose up -d ;;
+    dev) dev_compose up -d --build ;;
+  esac
+}
+
+run_stop() {
+  assert_no_args stop "$@"
+  require_command docker
+  compose_for_install down
+}
+
+run_status() {
+  assert_no_args status "$@"
+  require_command docker
+  compose_for_install ps
+}
+
+run_restart_web() {
+  assert_no_args restart-web "$@"
+  compose_for_install restart web
+}
+
+run_restart_sessiond() {
+  assert_no_args restart-sessiond "$@"
+  compose_for_install restart sessiond
+}
+
+run_restart_all() {
+  assert_no_args restart "$@"
+  # Restart web first to mirror native service commands. Detached helpers keep
+  # running after sessiond restarts, so this is safe when launched from PI WEB.
+  compose_for_install restart web sessiond
+}
+
+run_runtime_host_update() {
+  root=$(runtime_root)
+  require_runtime_compose_assets "$root"
+  installer=$(runtime_installer "$root")
+  PI_WEB_DOCKER_REFRESH_ASSETS=1
+  export PI_WEB_DOCKER_REFRESH_ASSETS
+  exec "$installer" --install-dir "$root"
+}
+
+run_update() {
+  assert_no_args update "$@"
+  case "$(docker_mode)" in
+    runtime)
+      if ! is_truthy "${PI_WEB_DOCKER_RUNTIME:-}"; then
+        run_runtime_host_update
+      fi
+      cache_bust=${CACHE_BUST:-pi-web-docker-$(date -u +%Y%m%dT%H%M%SZ)}
+      log "Building PI WEB runtime image with CACHE_BUST=$cache_bust ..."
+      CACHE_BUST=$cache_bust runtime_compose build --pull --no-cache
+      log "Recreating PI WEB runtime services ..."
+      runtime_compose up -d --force-recreate --remove-orphans
+      ;;
+    dev)
+      log "Rebuilding PI WEB development image ..."
+      dev_compose build --pull
+      log "Recreating PI WEB development services ..."
+      dev_compose up -d --force-recreate --remove-orphans
+      ;;
+  esac
+}
+
+validate_logs_target() {
+  target=${1:-}
+  case "$target" in
+    ""|web|sessiond) return 0 ;;
+    data-init)
+      [ "$(docker_mode)" = dev ] || die "logs data-init is only available with --dev"
+      return 0
+      ;;
+    *) die "logs target must be web, sessiond, or data-init" ;;
+  esac
+}
+
+run_logs() {
+  assert_at_most_one_arg logs "$@"
+  require_command docker
+  target=${1:-}
+  validate_logs_target "$target"
+  if [ -n "$target" ]; then
+    compose_for_install logs -f "$target"
+  else
+    compose_for_install logs -f
+  fi
+}
+
+validate_shell_target() {
+  target=${1:-web}
+  case "$target" in
+    web|sessiond) printf '%s\n' "$target" ;;
+    *) die "shell target must be web or sessiond" ;;
+  esac
+}
+
+run_shell() {
+  assert_at_most_one_arg shell "$@"
+  require_command docker
+  target=$(validate_shell_target "${1:-web}")
+  compose_for_install exec "$target" bash
+}
+
+run_doctor() {
+  assert_no_args doctor "$@"
+  root=$(control_root)
+  printf 'PI WEB Docker mode: %s\n' "$(docker_mode)"
+  printf 'PI WEB Docker root: %s\n' "$root"
+  case "$(docker_mode)" in
+    runtime)
+      [ -f "$root/.env" ] && printf 'Runtime env: %s\n' "$root/.env" || printf 'Runtime env: missing (%s/.env)\n' "$root"
+      [ -f "$root/compose.yml" ] && printf 'Runtime Compose file: %s\n' "$root/compose.yml" || printf 'Runtime Compose file: missing (%s/compose.yml)\n' "$root"
+      [ -f "$root/compose.override.yml" ] && printf 'Runtime Compose override: %s\n' "$root/compose.override.yml" || printf 'Runtime Compose override: missing (%s/compose.override.yml)\n' "$root"
+      [ -x "$root/install.sh" ] && printf 'Runtime installer: %s\n' "$root/install.sh" || printf 'Runtime installer: missing or not executable (%s/install.sh)\n' "$root"
+      ;;
+    dev)
+      dev_config=$root/.pi-web/docker-compose-dev.local.env
+      dev_env=$root/.pi-web/docker-compose-dev.generated.env
+      dev_override=$root/.pi-web/docker-compose-dev.host.generated.yml
+      dev_compose_file=$root/docker/compose.dev.yml
+      dev_wrapper=$root/docker/internal/dev/compose
+      [ -f "$dev_config" ] && printf 'Dev config: %s\n' "$dev_config" || printf 'Dev config: missing (%s)\n' "$dev_config"
+      [ -f "$dev_env" ] && printf 'Generated dev env: %s\n' "$dev_env" || printf 'Generated dev env: missing (%s)\n' "$dev_env"
+      [ -f "$dev_override" ] && printf 'Generated dev Compose override: %s\n' "$dev_override" || printf 'Generated dev Compose override: missing (%s)\n' "$dev_override"
+      [ -f "$dev_compose_file" ] && printf 'Dev Compose file: %s\n' "$dev_compose_file" || printf 'Dev Compose file: missing (%s)\n' "$dev_compose_file"
+      [ -x "$dev_wrapper" ] && printf 'Dev Compose helper: %s\n' "$dev_wrapper" || printf 'Dev Compose helper: missing or not executable (%s)\n' "$dev_wrapper"
+      if [ -f "$dev_env" ]; then
+        dev_uid=$(env_file_value "$dev_env" PI_WEB_UID 2>/dev/null || true)
+        dev_gid=$(env_file_value "$dev_env" PI_WEB_GID 2>/dev/null || true)
+        [ -n "$dev_uid" ] && printf 'Generated dev UID: %s\n' "$dev_uid"
+        [ -n "$dev_gid" ] && printf 'Generated dev GID: %s\n' "$dev_gid"
+      fi
+      ;;
+  esac
+  if command -v docker >/dev/null 2>&1; then
+    docker --version || true
+    if docker compose version >/dev/null 2>&1; then
+      docker compose version || true
+    elif command -v docker-compose >/dev/null 2>&1; then
+      docker-compose --version || true
+    else
+      printf '%s\n' 'Docker Compose: not found'
+    fi
+  else
+    printf '%s\n' 'Docker CLI: not found'
+  fi
+}
+
+run_cli() {
+  [ "$#" -gt 0 ] || die "cli requires pi-web arguments"
+  require_command docker
+  compose_for_install exec web pi-web "$@"
+}
+
+current_container_ref() {
+  if [ -n "${PI_WEB_DOCKER_CONTAINER_ID:-}" ]; then
+    printf '%s\n' "$PI_WEB_DOCKER_CONTAINER_ID"
+    return 0
+  fi
+
+  hostname_value=$(hostname 2>/dev/null || true)
+  [ -n "$hostname_value" ] || return 1
+  if docker container inspect "$hostname_value" >/dev/null 2>&1; then
+    printf '%s\n' "$hostname_value"
+    return 0
+  fi
+
+  return 1
+}
+
+helper_image() {
+  env_file=$1
+  case "$(docker_mode)" in
+    runtime)
+      image=$(env_file_value "$env_file" PI_WEB_IMAGE 2>/dev/null || true)
+      [ -n "$image" ] || image=${PI_WEB_IMAGE:-}
+      ;;
+    dev)
+      image=$(env_file_value "$env_file" PI_WEB_DEV_IMAGE 2>/dev/null || true)
+      [ -n "$image" ] || image=${PI_WEB_DEV_IMAGE:-}
+      ;;
+  esac
+
+  if [ -z "${image:-}" ]; then
+    image=${PI_WEB_DOCKER_HELPER_IMAGE:-}
+  fi
+
+  if [ -n "${image:-}" ]; then
+    printf '%s\n' "$image"
+    return 0
+  fi
+
+  container_ref=$(current_container_ref) || die "could not detect this Docker container; set PI_WEB_DOCKER_HELPER_IMAGE explicitly"
+  image=$(docker container inspect "$container_ref" --format '{{.Config.Image}}' 2>/dev/null || true)
+  [ -n "$image" ] && [ "$image" != "<no value>" ] || die "could not detect this container's image; set PI_WEB_DOCKER_HELPER_IMAGE explicitly"
+  printf '%s\n' "$image"
+}
+
+control_env_file() {
+  root=$1
+  case "$(docker_mode)" in
+    runtime) candidate=$root/.env ;;
+    dev) candidate=$root/.pi-web/docker-compose-dev.generated.env ;;
+  esac
+  [ -f "$candidate" ] || die "generated $(docker_mode) Docker env not found at $candidate; run pi-web-docker $(mode_flag || true) status or start from the host first"
+  printf '%s\n' "$candidate"
+}
+
+control_root_env_key() {
+  case "$(docker_mode)" in
+    runtime) printf '%s\n' PI_WEB_DOCKER_INSTALL_DIR ;;
+    dev) printf '%s\n' PI_WEB_DOCKER_DEV_REPO_ROOT ;;
+  esac
+}
+
+required_env_file_value() {
+  file=$1
+  key=$2
+  value=$(env_file_value "$file" "$key" 2>/dev/null || true)
+  [ -n "$value" ] || die "generated Docker env $file must define $key for detached helpers"
+  printf '%s\n' "$value"
+}
+
+cleanup_old_helpers() {
+  root=${1:-}
+  project_name=${2:-}
+  base_filters="label=pi-web.docker-helper=true"
+  if [ -n "$root" ] && [ -n "$project_name" ]; then
+    ids=$(docker ps -aq --filter "$base_filters" --filter "label=pi-web.docker-helper.root=$root" --filter "label=pi-web.docker-helper.project=$project_name" --filter status=exited 2>/dev/null || true)
+  elif [ -n "$root" ]; then
+    ids=$(docker ps -aq --filter "$base_filters" --filter "label=pi-web.docker-helper.root=$root" --filter status=exited 2>/dev/null || true)
+  else
+    ids=$(docker ps -aq --filter "$base_filters" --filter status=exited 2>/dev/null || true)
+  fi
+  old_ids=$(docker ps -aq --filter label=pi-web.docker-control=true --filter status=exited 2>/dev/null || true)
+  ids="$ids $old_ids"
+  for id in $ids; do
+    [ -n "$id" ] || continue
+    docker rm "$id" >/dev/null 2>&1 || true
+  done
+}
+
+start_detached_helper() {
+  action=$1
+  is_truthy "${PI_WEB_DOCKER_RUNTIME:-}" || die "detached helpers are only available inside the PI WEB Docker runtime"
+  require_command docker
+  selected_mode=$(docker_mode)
+  root=$(control_root)
+  env_file=$(control_env_file "$root")
+  root_key=$(control_root_env_key)
+  env_root=$(required_env_file_value "$env_file" "$root_key")
+  [ "$env_root" = "$root" ] || die "generated Docker env $env_file has $root_key=$env_root, but selected $selected_mode root is $root"
+  project_name=$(required_env_file_value "$env_file" COMPOSE_PROJECT_NAME)
+  helper_uid=$(required_env_file_value "$env_file" PI_WEB_UID)
+  helper_gid=$(required_env_file_value "$env_file" PI_WEB_GID)
+  helper_docker_gid=$(required_env_file_value "$env_file" DOCKER_GID)
+  is_unsigned_int "$helper_uid" || die "generated Docker env must define numeric PI_WEB_UID for detached helpers"
+  is_unsigned_int "$helper_gid" || die "generated Docker env must define numeric PI_WEB_GID for detached helpers"
+  is_unsigned_int "$helper_docker_gid" || die "generated Docker env must define numeric DOCKER_GID for detached helpers"
+  if [ "$selected_mode" = dev ] && [ "$helper_uid" -eq 0 ] && [ "$PI_WEB_DOCKER_ALLOW_ROOT" != 1 ]; then
+    die "refusing to start a Docker development helper as root; regenerate dev env with a non-root PI_WEB_UID or retry with --allow-root if intentional"
+  fi
+  helper_user=$helper_uid:$helper_gid
+  helper_group_add=$helper_docker_gid
+  image=$(helper_image "$env_file")
+  container_ref=$(current_container_ref) || die "could not detect this Docker container; set PI_WEB_DOCKER_CONTAINER_ID to enable detached helpers"
+  cleanup_old_helpers "$root" "$project_name"
+
+  timestamp=$(date -u +%Y%m%d%H%M%S)
+  helper_name=pi-web-docker-$action-$timestamp-$$
+  generated_env_keys="PI_WEB_UID PI_WEB_GID DOCKER_GID PI_WEB_DOCKER_HOST_PROFILE HOSTEXEC_MODE PI_WEB_DOCKER_EXTRA_HOST_PATHS PI_WEB_DOCKER_DATA_DIR PI_WEB_DOCKER_INSTALL_DIR PI_WEB_DOCKER_DEV_REPO_ROOT PI_WEB_DOCKER_REF PI_WEB_BIND_ADDR PI_WEB_PORT PI_WEB_DEV_API_BIND_ADDR PI_WEB_DEV_BIND_ADDR PI_WEB_DEV_API_PORT PI_WEB_DEV_PORT PI_WEB_VERSION PI_VERSION PI_WEB_OPENSUSE_IMAGE PI_WEB_NODEJS_MAJOR PI_WEB_NODEJS_REPO PI_WEB_EXTRA_ZYPPER_PACKAGES PI_WEB_IMAGE PI_WEB_DEV_IMAGE COMPOSE_PROJECT_NAME HOSTEXEC_IMAGE PI_WEB_MAX_UPLOAD_BYTES"
+
+  set -- run -d \
+    --env-file "$env_file" \
+    --name "$helper_name" \
+    --label pi-web.docker-helper=true \
+    --label "pi-web.docker-helper.action=$action" \
+    --label "pi-web.docker-helper.mode=$selected_mode" \
+    --label "pi-web.docker-helper.root=$root" \
+    --label "pi-web.docker-helper.project=$project_name" \
+    --group-add "$helper_group_add" \
+    --user "$helper_user" \
+    --volumes-from "$container_ref" \
+    --workdir "$root" \
+    --env PI_WEB_DOCKER_RUNTIME=1 \
+    --env "PI_WEB_DOCKER_MODE=$selected_mode" \
+    --env "PI_WEB_DOCKER_ALLOW_ROOT=$PI_WEB_DOCKER_ALLOW_ROOT" \
+    --env "PI_WEB_DOCKER_HELPER_IMAGE=$image" \
+    --env "COMPOSE_PROJECT_NAME=$project_name"
+
+  # Keep --env-file for traceability, then pass parsed values explicitly so
+  # helper process env matches Compose dotenv semantics for quoted values.
+  for key in $generated_env_keys; do
+    if value=$(env_file_value "$env_file" "$key" 2>/dev/null); then
+      set -- "$@" --env "$key=$value"
+    fi
+  done
+
+  case "$selected_mode" in
+    runtime) set -- "$@" --env "PI_WEB_DOCKER_INSTALL_DIR=$root" ;;
+    dev) set -- "$@" --env "PI_WEB_DOCKER_DEV_REPO_ROOT=$root" ;;
+  esac
+  if [ "${CACHE_BUST+x}" = x ]; then
+    set -- "$@" --env "CACHE_BUST=$CACHE_BUST"
+  fi
+  set -- "$@" "$image" pi-web-docker
+
+  flag=$(mode_flag || true)
+  if [ -n "$flag" ]; then
+    set -- "$@" "$flag"
+  fi
+  if [ "$PI_WEB_DOCKER_ALLOW_ROOT" = 1 ]; then
+    set -- "$@" --allow-root
+  fi
+  set -- "$@" __run-detached "$action"
+
+  container_id=$(docker "$@") || die "could not start detached Docker helper"
+  printf 'Started detached PI WEB Docker helper: %s\n' "$helper_name"
+  printf 'Container ID: %s\n' "$container_id"
+  printf 'Follow progress with: docker logs -f %s\n' "$helper_name"
+}
+
+run_detached_action() {
+  action=${1:-}
+  [ "$#" -eq 1 ] || die "__run-detached requires exactly one action"
+  is_truthy "${PI_WEB_DOCKER_RUNTIME:-}" || die "detached actions only run inside the PI WEB Docker runtime"
+  require_command docker
+  log "PI WEB Docker helper running action: $action"
+  case "$action" in
+    update) run_update ;;
+    restart) run_restart_all ;;
+    restart-web) run_restart_web ;;
+    restart-sessiond) run_restart_sessiond ;;
+    *) die "unsupported detached action: $action" ;;
+  esac
+  log "PI WEB Docker helper completed action: $action"
+}
+
+run_restart_or_update() {
+  action=$1
+  shift
+  assert_no_args "$action" "$@"
+  if is_truthy "${PI_WEB_DOCKER_RUNTIME:-}"; then
+    start_detached_helper "$action"
+    return 0
+  fi
+
+  case "$action" in
+    update) run_update ;;
+    restart) run_restart_all ;;
+    restart-web) run_restart_web ;;
+    restart-sessiond) run_restart_sessiond ;;
+    *) die "unsupported action: $action" ;;
+  esac
+}
+
+case "$command_name" in
+  help|-h|--help)
+    usage
+    ;;
+  install)
+    run_install "$@"
+    ;;
+  start|stop|status|logs|shell|doctor|cli|update|restart|restart-web|restart-sessiond|__run-detached)
+    enforce_dev_root_safety
+    enforce_container_mode_match
+    case "$command_name" in
+      start) run_start "$@" ;;
+      stop) run_stop "$@" ;;
+      status) run_status "$@" ;;
+      logs) run_logs "$@" ;;
+      shell) run_shell "$@" ;;
+      doctor) run_doctor "$@" ;;
+      cli) run_cli "$@" ;;
+      update|restart|restart-web|restart-sessiond) run_restart_or_update "$command_name" "$@" ;;
+      __run-detached) run_detached_action "$@" ;;
+    esac
+    ;;
+  *)
+    usage >&2
+    die "unknown command: $command_name"
+    ;;
+esac

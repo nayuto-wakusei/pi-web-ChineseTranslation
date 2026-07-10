@@ -93,17 +93,21 @@ describe("resolveThemePreference", () => {
     expect(resolution.activeTheme?.id).toBe("themes:classic");
   });
 
-  it("does not overwrite a missing selected theme preference in the resolution result", () => {
-    const missingThemeId: QualifiedContributionId = "plugin:missing";
+  it("falls back to Classic without mutating a missing selected theme preference", () => {
+    const preference = {
+      themeId: "plugin:missing",
+      auto: true,
+    } satisfies { themeId: QualifiedContributionId; auto: boolean };
     const resolution = resolveThemePreference({
       themes,
       themePairs,
-      preference: { themeId: missingThemeId, auto: true },
+      preference,
       prefersLight: false,
     });
 
     expect(resolution.selectedTheme?.id).toBe("themes:classic");
-    expect(missingThemeId).toBe("plugin:missing");
+    expect(resolution.activeTheme?.id).toBe("themes:classic");
+    expect(preference).toEqual({ themeId: "plugin:missing", auto: true });
   });
 
   it("can look up a pair from either member theme", () => {

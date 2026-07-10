@@ -6,7 +6,7 @@
     <title>PI WEB fleet — remote Pi web UI machines</title>
     <meta
       name="description"
-      content="Connect trusted PI WEB runtimes through machine federation so one web UI can supervise local and remote projects, sessions, files, git state, terminals, and plugins."
+      content="Connect trusted PI WEB runtimes through machine federation so one web UI can supervise local and remote projects, sessions, files, git state, terminals, Pi packages, and plugins."
     />
     <link rel="canonical" href="https://pi-web.dev/machines" />
     <meta property="og:type" content="website" />
@@ -81,7 +81,7 @@
           <p>
             Most PI WEB setups only need one runtime. When you do have more than one, machine federation lets the PI WEB
             instance you opened act as a gateway to other trusted runtimes while each machine keeps its own repositories,
-            credentials, sessions, and plugins.
+            credentials, sessions, Pi package settings, and plugins.
           </p>
         </div>
       </section>
@@ -111,7 +111,7 @@
               <p>
                 After registration, the browser keeps talking to the current PI WEB origin. The gateway contacts the
                 selected remote PI WEB server and routes that machine's projects, workspaces, sessions, files, git state,
-                activity, and terminals to the browser UI.
+                activity, terminals, and Pi package-management operations to the browser UI.
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -125,7 +125,7 @@ PI WEB gateway you opened
   │
   ├─ [ Remote PI WEB runtime A ]
   │     ↓ selected machine
-  │     projects, workspaces, sessions, terminals, plugins
+  │     projects, workspaces, sessions, terminals, Pi packages, plugins
   │
   └─ [ Remote PI WEB runtime B ]</code></pre>
               </div>
@@ -151,7 +151,7 @@ PI WEB gateway you opened
                 <article class="card">
                   <div class="card-icon">⌁</div>
                   <h3>Local ownership</h3>
-                  <p>Each target machine keeps its own Pi auth, sessions, worktrees, terminal state, and plugins.</p>
+                  <p>Each target machine keeps its own Pi auth, sessions, worktrees, terminal state, Pi package settings, and plugins.</p>
                 </article>
               </div>
             </section>
@@ -213,6 +213,7 @@ PI WEB gateway you opened
                 <li>Pi sessions, transcripts, prompts, model controls, and commands.</li>
                 <li>Activity indicators and realtime updates.</li>
                 <li>Terminals and terminal command runs.</li>
+                <li>Pi package listing, install, remove, and update from <strong>Settings → Pi packages</strong> when supported by the target PI WEB runtime.</li>
                 <li>Remote plugins from the selected machine.</li>
               </ul>
             </section>
@@ -220,8 +221,9 @@ PI WEB gateway you opened
             <section id="auth-credentials">
               <h2>Credentials stay on the target machine</h2>
               <p>
-                Model-provider credentials, Pi configuration, OAuth state, repositories, and active session runtimes stay
-                on the selected target machine. The gateway does not copy them into its own Pi configuration.
+                Model-provider credentials, Pi configuration, Pi package-manager settings, OAuth state, repositories, and
+                active session runtimes stay on the selected target machine. The gateway does not copy them into its own
+                Pi configuration.
               </p>
               <ul>
                 <li>API-key provider configuration can be proxied through the gateway.</li>

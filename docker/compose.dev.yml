@@ -1,0 +1,119 @@
+name: pi-web-dev
+
+x-pi-web-dev-build: &pi-web-dev-build
+  context: ..
+  dockerfile: docker/Dockerfile.dev
+  args:
+    OPENSUSE_IMAGE: ${PI_WEB_OPENSUSE_IMAGE:-opensuse/tumbleweed}
+    NODEJS_MAJOR: ${PI_WEB_NODEJS_MAJOR:-22}
+    NODEJS_REPO: ${PI_WEB_NODEJS_REPO:-auto}
+    PI_WEB_EXTRA_ZYPPER_PACKAGES: ${PI_WEB_EXTRA_ZYPPER_PACKAGES:-}
+    PI_WEB_UID: ${PI_WEB_UID:-1000}
+    PI_WEB_GID: ${PI_WEB_GID:-1000}
+
+x-pi-web-dev-environment: &pi-web-dev-environment
+  HOME: /data/home
+  XDG_CONFIG_HOME: /data/config
+  PI_WEB_DATA_DIR: /data/pi-web
+  PI_WEB_SESSIOND_SOCKET: /data/pi-web/sessiond.sock
+  PI_CODING_AGENT_DIR: /data/pi-agent
+  HOSTEXEC_IMAGE: ${HOSTEXEC_IMAGE:-alpine:3.22}
+  HOSTEXEC_MODE: ${HOSTEXEC_MODE:-disabled}
+  PI_WEB_UID: ${PI_WEB_UID:-1000}
+  PI_WEB_GID: ${PI_WEB_GID:-1000}
+  DOCKER_GID: ${DOCKER_GID:-0}
+  PI_WEB_MAX_UPLOAD_BYTES: ${PI_WEB_MAX_UPLOAD_BYTES:-67108864}
+  PI_WEB_DOCKER_RUNTIME: "1"
+  PI_WEB_DOCKER_MODE: dev
+  PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}
+  PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
+  COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web-dev}
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+  NPM_CONFIG_CACHE: /data/npm-cache
+
+x-pi-web-dev-data-volume: &pi-web-dev-data-volume
+  type: bind
+  source: ${PI_WEB_DOCKER_DATA_DIR:-${HOME}/.local/share/pi-web-docker/data}
+  target: /data
+
+x-pi-web-dev-volumes: &pi-web-dev-volumes
+  - type: bind
+    source: ..
+    target: /workspace
+  - type: volume
+    source: node_modules
+    target: /workspace/node_modules
+  - *pi-web-dev-data-volume
+
+services:
+  data-init:
+    build: *pi-web-dev-build
+    image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        mkdir -p /data/home /data/config /data/npm-cache /data/pi-web /data/pi-agent
+        chown -R "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}" /data
+    user: "0:0"
+    security_opt:
+      - label=disable
+    environment:
+      PI_WEB_UID: ${PI_WEB_UID:-1000}
+      PI_WEB_GID: ${PI_WEB_GID:-1000}
+    volumes:
+      - *pi-web-dev-data-volume
+
+  sessiond:
+    build: *pi-web-dev-build
+    image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
+    command: ["npm", "run", "start:sessiond"]
+    working_dir: /workspace
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    security_opt:
+      - label=disable
+    environment: *pi-web-dev-environment
+    volumes: *pi-web-dev-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /data/pi-web/sessiond.sock"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 5s
+
+  web:
+    build: *pi-web-dev-build
+    image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
+    command: ["bash", "-lc", "trap 'kill 0' EXIT; npm run dev:web & npm run dev:client & wait"]
+    working_dir: /workspace
+    depends_on:
+      sessiond:
+        condition: service_healthy
+    user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    security_opt:
+      - label=disable
+    environment:
+      <<: *pi-web-dev-environment
+      PI_WEB_HOST: 0.0.0.0
+      PI_WEB_PORT: "8504"
+    ports:
+      - "${PI_WEB_DEV_API_BIND_ADDR:-127.0.0.1}:${PI_WEB_DEV_API_PORT:-8504}:8504"
+      - "${PI_WEB_DEV_BIND_ADDR:-127.0.0.1}:${PI_WEB_DEV_PORT:-8505}:8505"
+    volumes: *pi-web-dev-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8504/api/pi-web/runtime >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  node_modules:

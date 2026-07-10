@@ -1,33 +1,20 @@
-import type { Api, AssistantMessage, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 
 const SESSION_NAME_TIMEOUT_MS = 10_000;
 const SESSION_NAME_MAX_INPUT_CHARS = 4_000;
 const SESSION_NAME_MAX_LENGTH = 60;
 const FALLBACK_SESSION_NAME_MAX_WORDS = 6;
-const PI_AI_COMPAT_MODULE = ["@earendil-works/pi-ai", "compat"].join("/");
+const RELAY_HANDOFF_FIRST_LINE = /^Relay\s+"([^"\n]+)"\s+leg\s+(\d+)\s+begins now\.?\s*(?:\n|$)/;
 
-interface SessionNameApiProvider {
-  streamSimple(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream;
+export function deterministicSessionName(firstMessage: unknown): string | undefined {
+  if (typeof firstMessage !== "string") return undefined;
+
+  return relayHandoffSessionName(firstMessage.trimStart());
 }
 
-interface PiAiProviderRegistryModule {
-  getApiProvider?: (api: Api) => SessionNameApiProvider | undefined;
-}
-
-type ModuleImporter = (specifier: string) => Promise<unknown>;
-
-let piAiProviderRegistryModulePromise: Promise<PiAiProviderRegistryModule> | undefined;
-
-export async function generateShortSessionName<TApi extends Api>(modelRegistry: ModelRegistry, model: Model<TApi>, firstMessage: string): Promise<string | undefined> {
-  const providerRegistry = await getPiAiProviderRegistryModule();
-  const provider = providerRegistry.getApiProvider?.(model.api);
-  if (provider === undefined) return undefined;
-
-  const auth = await modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) return undefined;
-
-  const stream = provider.streamSimple(
+export async function generateShortSessionName<TApi extends Api>(streamFn: StreamFn, model: Model<TApi>, firstMessage: string): Promise<string | undefined> {
+  const stream = await streamFn(
     model,
     {
       systemPrompt: "Generate a concise title for a coding-agent chat session. Return only the title, with no quotes or punctuation wrapper.",
@@ -41,8 +28,6 @@ export async function generateShortSessionName<TApi extends Api>(modelRegistry: 
       maxTokens: 24,
       reasoning: "minimal",
       signal: AbortSignal.timeout(SESSION_NAME_TIMEOUT_MS),
-      ...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-      ...(auth.headers === undefined ? {} : { headers: auth.headers }),
     },
   );
 
@@ -81,40 +66,29 @@ export function cleanSessionName(value: string): string | undefined {
   return title === "" ? undefined : title;
 }
 
-async function getPiAiProviderRegistryModule(importer: ModuleImporter = (specifier) => import(specifier)): Promise<PiAiProviderRegistryModule> {
-  piAiProviderRegistryModulePromise ??= loadPiAiProviderRegistryModule(importer);
-  return piAiProviderRegistryModulePromise;
+function relayHandoffSessionName(firstMessage: string): string | undefined {
+  const match = RELAY_HANDOFF_FIRST_LINE.exec(firstMessage);
+  if (match === null) return undefined;
+
+  const relayName = match[1]?.replace(/\s+/g, " ").trim();
+  const legNumber = match[2];
+  if (relayName === undefined || relayName === "" || legNumber === undefined) return undefined;
+
+  return cleanSessionName(formatRelaySessionName(relayName, legNumber));
 }
 
-async function loadPiAiProviderRegistryModule(importer: ModuleImporter): Promise<PiAiProviderRegistryModule> {
-  const compatModule = await importOptionalPiAiModule(PI_AI_COMPAT_MODULE, importer);
-  if (hasGetApiProvider(compatModule)) return compatModule;
-
-  const rootModule = await importer("@earendil-works/pi-ai");
-  if (hasGetApiProvider(rootModule)) return rootModule;
-  return {};
+function formatRelaySessionName(relayName: string, legNumber: string): string {
+  const prefix = "Relay ";
+  const suffix = ` leg ${legNumber}`;
+  const maxRelayNameLength = Math.max(1, SESSION_NAME_MAX_LENGTH - prefix.length - suffix.length);
+  const displayedRelayName = truncateRelayName(relayName, maxRelayNameLength);
+  return `${prefix}${displayedRelayName}${suffix}`;
 }
 
-async function importOptionalPiAiModule(specifier: string, importer: ModuleImporter): Promise<unknown> {
-  try {
-    return await importer(specifier);
-  } catch (error) {
-    if (isModuleUnavailableError(error)) return undefined;
-    throw error;
-  }
-}
-
-function hasGetApiProvider(moduleValue: unknown): moduleValue is PiAiProviderRegistryModule {
-  return typeof moduleValue === "object"
-    && moduleValue !== null
-    && "getApiProvider" in moduleValue
-    && typeof moduleValue.getApiProvider === "function";
-}
-
-function isModuleUnavailableError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = "code" in error ? error.code : undefined;
-  return code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+function truncateRelayName(relayName: string, maxLength: number): string {
+  if (relayName.length <= maxLength) return relayName;
+  const truncated = relayName.slice(0, maxLength).replace(/[\s._-]+$/g, "").trim();
+  return truncated === "" ? relayName.slice(0, maxLength).trim() : truncated;
 }
 
 function textFromAssistant(message: AssistantMessage): string {

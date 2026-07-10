@@ -22,6 +22,7 @@ import { selectedMachineId } from "../controllers/types";
 import { sessionCleanupRequestKey, sessionCleanupUnavailableMessage } from "../sessionCleanupUi";
 import { RealtimeSocket, SessionSocket } from "../sessionSocket";
 import { isManagementEmbedMode } from "../embedMode";
+import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
 import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
@@ -1191,7 +1192,10 @@ export class PiWebApp extends LitElement {
 
   private canDeleteArchivedSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
+    // COMPAT-CAP sessions.deleteArchived: older federated machines may support
+    // the legacy DELETE route without advertising runtime capabilities. Only
+    // block when capability discovery succeeds and reports no support.
+    return runtime?.ok !== true || supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
   }
 
   private canReloadSessions(): boolean {
@@ -1202,6 +1206,10 @@ export class PiWebApp extends LitElement {
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
+  }
+
+  private hasAuthoritativeSessionPersistence(): boolean {
+    return runtimeHasAuthoritativeSessionPersistence(this.selectedMachineRuntime());
   }
 
   private supportsWorkspaceFileSuggestions(machineId = selectedMachineId(this.state)): boolean {
@@ -1294,10 +1302,12 @@ export class PiWebApp extends LitElement {
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
         .selectedSession=${this.state.selectedSession}
+        .startingSessionCount=${this.state.startingSessionCount}
         .canStartSession=${!!this.state.selectedWorkspace}
         .canDeleteArchivedSessions=${this.canDeleteArchivedSessions()}
         .canReloadSessions=${this.canReloadSessions()}
         .canCleanupSessions=${this.canCleanupSessions()}
+        .authoritativeSessionPersistence=${this.hasAuthoritativeSessionPersistence()}
         .archivedDeleteUnavailableMessage=${this.archivedDeleteUnavailableMessage()}
         .cleanupUnavailableMessage=${this.sessionCleanupUnavailableMessage()}
         .collapsible=${true}
@@ -1316,7 +1326,7 @@ export class PiWebApp extends LitElement {
         .onSelectWorkspace=${(workspace: Workspace) => this.selectNavigationItem("workspaces", "sessions", () => this.workspaces.selectWorkspace(workspace))}
         .onDeleteWorkspace=${(workspace: Workspace) => { void this.deleteWorkspace(workspace); }}
         .onArchivedCollapsed=${() => { this.sessions.clearSelectionAfterArchivedCollapse(); }}
-        .onStartSession=${() => this.selectNavigationItem("sessions", "chat", () => this.sessions.startSession())}
+        .onStartSession=${() => this.startSessionFromNavigation()}
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
@@ -1349,6 +1359,24 @@ export class PiWebApp extends LitElement {
 
     if (!isCurrentSelection()) return;
     await this.focusNavigationTarget(nextTarget);
+  }
+
+  private async startSessionFromNavigation(): Promise<void> {
+    const seq = ++this.navigationSelectionSeq;
+    const isCurrentSelection = () => seq === this.navigationSelectionSeq;
+
+    this.navigationSections.advanceAfterSelection("sessions");
+    await this.startSessionAndOpenChat(isCurrentSelection);
+  }
+
+  private async startSessionAndOpenChat(shouldComplete: () => boolean = () => true): Promise<void> {
+    // `startSession()` remains in flight until the backend session resolves;
+    // open the chat as soon as the controller has inserted the temporary row.
+    const start = this.sessions.startSession().catch((error: unknown) => {
+      if (shouldComplete()) this.setState({ error: String(error) });
+    });
+    if (shouldComplete()) await this.focusChatComposer();
+    void start;
   }
 
   private async focusNavigationTarget(target: NavigationFocusTarget): Promise<void> {
@@ -1742,7 +1770,7 @@ export class PiWebApp extends LitElement {
       refreshAppData: () => this.refreshAppData(),
       reloadPage: () => { this.hardReloadApp(); },
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
-      startSession: () => this.withChatScrollTransition(() => this.sessions.startSession()),
+      startSession: () => this.withChatScrollTransition(() => this.startSessionAndOpenChat()),
       archiveSession: () => this.sessions.archiveSession(),
       reloadSession: () => this.sessions.reloadSession(),
       deleteCachedNewSession: () => this.sessions.deleteCachedNewSession(),
@@ -2106,7 +2134,7 @@ export class PiWebApp extends LitElement {
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession ? html`
-            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[state.selectedSession.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[state.selectedSession.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[state.selectedSession.id] ?? []} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
             <status-bar .status=${state.status}></status-bar>
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
@@ -2122,7 +2150,7 @@ export class PiWebApp extends LitElement {
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
-        ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
+        ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
         ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
       </div>
     `;

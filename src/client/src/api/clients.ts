@@ -1,4 +1,4 @@
-import type { DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionRef, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionRef, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import { request, requestOptional, scopedApiUrl } from "./http";
 import {
   arrayOf,
@@ -25,6 +25,8 @@ import {
   parseMoveWorkspaceFileResponse,
   parseNormalAuthStatusResponse,
   parseOAuthFlowState,
+  parsePiPackageMutationResponse,
+  parsePiPackagesResponse,
   parsePiWebConfigResponse,
   parsePiWebPluginsResponse,
   parsePiWebRuntimeResponse,
@@ -114,9 +116,17 @@ export const machinesApi = {
   runtime: (machineId: string) => request(`/api/machines/${encodeURIComponent(machineId)}/runtime`, parseMachineRuntime),
 };
 
+function configUrl(machineId?: string): string {
+  return machineId === undefined ? "/api/config" : `${machinePrefix(machineId)}/config`;
+}
+
+function pluginsUrl(machineId?: string): string {
+  return machineId === undefined ? "/api/plugins" : `${machinePrefix(machineId)}/plugins`;
+}
+
 export const configApi = {
-  config: () => request("/api/config", parsePiWebConfigResponse),
-  saveConfig: (config: PiWebConfigValues) => request("/api/config", parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
+  config: (machineId?: string) => request(configUrl(machineId), parsePiWebConfigResponse),
+  saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configUrl(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };
 
 export const normalAuthApi = {
@@ -127,7 +137,28 @@ export const normalAuthApi = {
 };
 
 export const pluginsApi = {
-  plugins: () => request("/api/plugins", parsePiWebPluginsResponse),
+  plugins: (machineId?: string) => request(pluginsUrl(machineId), parsePiWebPluginsResponse),
+};
+
+function piPackageUrl(endpoint = "", machineId?: string): string {
+  const baseUrl = machineId === undefined ? "/api/pi-packages" : `${machinePrefix(machineId)}/pi-packages`;
+  return endpoint === "" ? baseUrl : `${baseUrl}/${endpoint}`;
+}
+
+export const piPackagesApi = {
+  packages: (machineId?: string) => request(piPackageUrl("", machineId), parsePiPackagesResponse),
+  install: (source: string, machineId?: string) => {
+    const body: PiPackageInstallRequest = { source };
+    return request(piPackageUrl("install", machineId), parsePiPackageMutationResponse, { method: "POST", body: JSON.stringify(body) });
+  },
+  remove: (source: string, scope?: PiPackageScope, machineId?: string) => {
+    const body: PiPackageRemoveRequest = scope === undefined ? { source } : { source, scope };
+    return request(piPackageUrl("remove", machineId), parsePiPackageMutationResponse, { method: "POST", body: JSON.stringify(body) });
+  },
+  update: (source?: string, machineId?: string) => {
+    const body: PiPackageUpdateRequest | undefined = source === undefined ? undefined : { source };
+    return request(piPackageUrl("update", machineId), parsePiPackageMutationResponse, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  },
 };
 
 export const activityApi = {
@@ -348,6 +379,7 @@ export const api = {
   ...configApi,
   ...normalAuthApi,
   ...pluginsApi,
+  ...piPackagesApi,
   ...activityApi,
   ...projectsApi,
   ...workspacesApi,

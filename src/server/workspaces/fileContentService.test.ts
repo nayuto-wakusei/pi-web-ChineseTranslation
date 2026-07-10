@@ -130,13 +130,14 @@ describe("writeWorkspaceFile", () => {
     expect(content).toBe("const greeting = 'hello';\n");
   });
 
-  it("writes binary content", async () => {
+  it("writes binary content without text re-encoding", async () => {
     const root = await tempWorkspace();
     const binaryData = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
     const result = await writeWorkspaceFile(root, "image.png", binaryData);
 
     expect(result).toMatchObject({ path: "image.png", created: true, size: 6 });
+    await expect(readFile(join(root, "image.png"))).resolves.toEqual(binaryData);
   });
 
   it("overwrites existing files by default", async () => {
@@ -190,14 +191,12 @@ describe("writeWorkspaceFile", () => {
   it("prevents writing through symlinks that escape the workspace", async () => {
     const root = await tempWorkspace();
     await mkdir(join(root, "subdir"), { recursive: true });
-    // Create a symlink inside the workspace that points outside
-    const { symlink } = await import("node:fs/promises");
     const outsideDir = await mkdtemp(join(tmpdir(), "pi-web-outside-"));
     roots.push(outsideDir);
     await symlink(outsideDir, join(root, "subdir", "escape"), "junction");
 
-    // Attempting to write through the symlink should be blocked
-    await expect(writeWorkspaceFile(root, "subdir/escape/evil.txt", Buffer.from("evil"))).rejects.toThrow();
+    await expect(writeWorkspaceFile(root, "subdir/escape/evil.txt", Buffer.from("evil"))).rejects.toThrow("Path escapes workspace");
+    await expect(readFile(join(outsideDir, "evil.txt"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
@@ -227,7 +226,7 @@ describe("deleteWorkspaceFile", () => {
     await expect(deleteWorkspaceFile(root, "mydir")).rejects.toThrow("Path is a directory");
   });
 
-  it("rejects path traversal", async () => {
+  it("rejects traversal and absolute paths", async () => {
     const root = await tempWorkspace();
 
     await expect(deleteWorkspaceFile(root, "../secret.txt")).rejects.toThrow("Path traversal is not allowed");
@@ -253,7 +252,7 @@ describe("deleteWorkspaceFile", () => {
 
     expect(result).toMatchObject({ path: "link.txt", existed: true });
     // The symlink should be gone, but the target file should still exist
-    await expect(readWorkspaceFile(root, "link.txt")).rejects.toThrow();
+    await expect(readWorkspaceFile(root, "link.txt")).rejects.toThrow("Path does not exist");
     const realContent = await readFile(join(outsideDir, "real.txt"), "utf8");
     expect(realContent).toBe("real content");
   });
@@ -307,6 +306,8 @@ describe("moveWorkspaceFile", () => {
     await writeFile(join(root, "file.txt"), "data");
 
     await expect(moveWorkspaceFile(root, "file.txt", "missing/dir/file.txt", { createDirs: false })).rejects.toThrow();
+    const source = await readWorkspaceFile(root, "file.txt");
+    expect(source.content).toBe("data");
   });
 
   it("overwrites target when overwrite is true", async () => {
@@ -327,9 +328,11 @@ describe("moveWorkspaceFile", () => {
     await writeFile(join(root, "target.txt"), "target");
 
     await expect(moveWorkspaceFile(root, "source.txt", "target.txt")).rejects.toThrow("File already exists");
-    // Source should still exist
+    // Source and target should remain unchanged
     const source = await readWorkspaceFile(root, "source.txt");
     expect(source.content).toBe("source");
+    const target = await readWorkspaceFile(root, "target.txt");
+    expect(target.content).toBe("target");
   });
 
   it("rejects source path traversal", async () => {
@@ -342,7 +345,9 @@ describe("moveWorkspaceFile", () => {
     const root = await tempWorkspace();
     await writeFile(join(root, "source.txt"), "data");
 
-    await expect(moveWorkspaceFile(root, "source.txt", "../secret.txt")).rejects.toThrow();
+    await expect(moveWorkspaceFile(root, "source.txt", "../secret.txt")).rejects.toThrow("Path traversal is not allowed");
+    const source = await readWorkspaceFile(root, "source.txt");
+    expect(source.content).toBe("data");
   });
 
   it("rejects moving a directory", async () => {
@@ -370,6 +375,21 @@ describe("moveWorkspaceFile", () => {
     roots.push(outsideDir);
     await symlink(outsideDir, join(root, "subdir", "escape"), "junction");
 
-    await expect(moveWorkspaceFile(root, "subdir/file.txt", "subdir/escape/evil.txt")).rejects.toThrow();
+    await expect(moveWorkspaceFile(root, "subdir/file.txt", "subdir/escape/evil.txt")).rejects.toThrow("Path escapes workspace");
+    const source = await readWorkspaceFile(root, "subdir/file.txt");
+    expect(source.content).toBe("data");
+    await expect(readFile(join(outsideDir, "evil.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("prevents moving a source symlink that escapes the workspace", async () => {
+    const root = await tempWorkspace();
+    const outsideDir = await mkdtemp(join(tmpdir(), "pi-web-move-source-outside-"));
+    roots.push(outsideDir);
+    await writeFile(join(outsideDir, "secret.txt"), "secret");
+    await symlink(join(outsideDir, "secret.txt"), join(root, "source-link.txt"));
+
+    await expect(moveWorkspaceFile(root, "source-link.txt", "moved.txt")).rejects.toThrow("Path escapes workspace");
+    await expect(readWorkspaceFile(root, "moved.txt")).rejects.toThrow("Path does not exist");
+    await expect(readFile(join(outsideDir, "secret.txt"), "utf8")).resolves.toBe("secret");
   });
 });

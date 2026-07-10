@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
-import { additionalCommands, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel } from "./updatesLogic";
+import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel } from "./updatesLogic";
 
 function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {
   return {
@@ -16,13 +16,13 @@ function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponen
 
 function status(overrides: Partial<PiWebStatusResponse> = {}): PiWebStatusResponse {
   return {
-    packageName: "@jmfederico/pi-web",
+    packageName: "@chainingintention/pi-web-cn",
     generatedAt: "2026-06-14T00:00:00.000Z",
     components: {
       web: component({ component: "web", label: "Web/UI" }),
       sessiond: component({ component: "sessiond", label: "Session daemon" }),
     },
-    release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
+    release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
     commands: {},
     messages: [],
     ...overrides,
@@ -36,7 +36,7 @@ function stateWith(value: PiWebStatusResponse | undefined): PluginRuntimeState {
 describe("recommendedCommand", () => {
   it("recommends update & restart when an update is available", () => {
     const result = recommendedCommand(status({
-      release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
+      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
       commands: { update: "pi-web update && pi-web restart", restart: "pi-web restart" },
     }));
     expect(result).toEqual({ label: "更新并重启全部服务", command: "pi-web update && pi-web restart" });
@@ -44,7 +44,7 @@ describe("recommendedCommand", () => {
 
   it("falls through to restart when an update is available but the update command is empty", () => {
     const result = recommendedCommand(status({
-      release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
+      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
       components: {
         web: component({ stale: true }),
         sessiond: component({ component: "sessiond", label: "Session daemon" }),
@@ -76,8 +76,33 @@ describe("recommendedCommand", () => {
     expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
   });
 
+  it("recommends restart when the session daemon is stale", () => {
+    const result = recommendedCommand(status({
+      components: {
+        web: component(),
+        sessiond: component({ component: "sessiond", label: "Session daemon", stale: true }),
+      },
+      commands: { restart: "pi-web restart" },
+    }));
+    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
+  });
+
   it("returns nothing when everything is current and available", () => {
     expect(recommendedCommand(status({ commands: { restart: "pi-web restart" } }))).toBeUndefined();
+  });
+
+  it("preserves explicit Docker command text", () => {
+    expect(recommendedCommand(status({
+      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
+      commands: { update: "pi-web-docker update", restart: "pi-web-docker restart" },
+    }))).toEqual({ label: "更新并重启全部服务", command: "pi-web-docker update" });
+    expect(recommendedCommand(status({
+      components: {
+        web: component({ stale: true, installation: { kind: "docker", dockerMode: "dev" } }),
+        sessiond: component({ component: "sessiond", label: "Session daemon", installation: { kind: "docker", dockerMode: "dev" } }),
+      },
+      commands: { restart: "pi-web-docker --dev restart" },
+    }))).toEqual({ label: "重启全部服务", command: "pi-web-docker --dev restart" });
   });
 
   it("does not fabricate a restart command when one is not configured", () => {
@@ -118,6 +143,39 @@ describe("additionalCommands", () => {
       { label: "状态", command: "pi-web status" },
     ]);
   });
+
+  it("presents Docker runtime and development commands exactly as reported", () => {
+    expect(additionalCommands(status({
+      commands: {
+        update: "pi-web-docker update",
+        restart: "pi-web-docker restart",
+        restartWeb: "pi-web-docker restart-web",
+        restartSessiond: "pi-web-docker restart-sessiond",
+        status: "pi-web-docker status",
+      },
+    }), undefined)).toEqual([
+      { label: "更新", command: "pi-web-docker update" },
+      { label: "全部重启", command: "pi-web-docker restart" },
+      { label: "重启 Web/UI", command: "pi-web-docker restart-web" },
+      { label: "重启会话守护进程", command: "pi-web-docker restart-sessiond" },
+      { label: "状态", command: "pi-web-docker status" },
+    ]);
+
+    expect(additionalCommands(status({
+      commands: {
+        update: "pi-web-docker --dev update",
+        restart: "pi-web-docker --dev restart",
+        restartWeb: "pi-web-docker --dev restart-web",
+        restartSessiond: "pi-web-docker --dev restart-sessiond",
+        status: "pi-web-docker --dev status",
+      },
+    }), { label: "更新并重启全部服务", command: "pi-web-docker --dev update" })).toEqual([
+      { label: "全部重启", command: "pi-web-docker --dev restart" },
+      { label: "重启 Web/UI", command: "pi-web-docker --dev restart-web" },
+      { label: "重启会话守护进程", command: "pi-web-docker --dev restart-sessiond" },
+      { label: "状态", command: "pi-web-docker --dev status" },
+    ]);
+  });
 });
 
 describe("shouldShowUpdatesPanel", () => {
@@ -134,12 +192,17 @@ describe("shouldShowUpdatesPanel", () => {
     expect(shouldShowUpdatesPanel(stateWith(value))).toBe(true);
   });
 
+  it("shows the panel when a federated Docker runtime hint is available before status is parsed", () => {
+    expect(shouldShowUpdatesPanel(undefined, { dockerMode: "dev" })).toBe(true);
+    expect(shouldShowUpdatesPanel(undefined, { dockerMode: "runtime" })).toBe(true);
+  });
+
   it("hides the panel when status is unavailable", () => {
     expect(shouldShowUpdatesPanel(stateWith(undefined))).toBe(false);
     expect(shouldShowUpdatesPanel(undefined)).toBe(false);
   });
 
-  it("shows the panel for local or unknown installs", () => {
+  it("shows the panel for local, Docker, or unknown installs", () => {
     const local = status({
       components: {
         web: component({ installation: { kind: "local" } }),
@@ -147,6 +210,14 @@ describe("shouldShowUpdatesPanel", () => {
       },
     });
     expect(shouldShowUpdatesPanel(stateWith(local))).toBe(true);
+
+    const docker = status({
+      components: {
+        web: component({ installation: { kind: "docker", dockerMode: "runtime" } }),
+        sessiond: component({ component: "sessiond", label: "Session daemon", installation: { kind: "docker", dockerMode: "runtime" } }),
+      },
+    });
+    expect(shouldShowUpdatesPanel(stateWith(docker))).toBe(true);
 
     const unknown = status({
       components: {
@@ -165,6 +236,38 @@ describe("shouldShowUpdatesPanel", () => {
       },
     });
     expect(shouldShowUpdatesPanel(stateWith(value))).toBe(false);
+  });
+});
+
+describe("fallbackDockerStatus", () => {
+  it("creates Docker development commands from a federated runtime hint", () => {
+    const fallback = fallbackDockerStatus({ dockerMode: "dev" }, "generated");
+    expect(fallback?.generatedAt).toBe("generated");
+    expect(fallback?.components.web.installation).toEqual({ kind: "docker", dockerMode: "dev" });
+    expect(fallback?.commands).toEqual({
+      update: "pi-web-docker --dev update",
+      restart: "pi-web-docker --dev restart",
+      restartWeb: "pi-web-docker --dev restart-web",
+      restartSessiond: "pi-web-docker --dev restart-sessiond",
+      status: "pi-web-docker --dev status",
+    });
+    expect(fallback?.messages[0]?.id).toBe("docker-status-compatibility");
+  });
+
+  it("creates Docker runtime commands without the development prefix", () => {
+    const fallback = fallbackDockerStatus({ dockerMode: "runtime" });
+    expect(fallback?.components.sessiond.installation).toEqual({ kind: "docker", dockerMode: "runtime" });
+    expect(fallback?.commands).toEqual({
+      update: "pi-web-docker update",
+      restart: "pi-web-docker restart",
+      restartWeb: "pi-web-docker restart-web",
+      restartSessiond: "pi-web-docker restart-sessiond",
+      status: "pi-web-docker status",
+    });
+  });
+
+  it("does not create a fallback without a Docker runtime hint", () => {
+    expect(fallbackDockerStatus({})).toBeUndefined();
   });
 });
 
@@ -190,11 +293,13 @@ describe("installationLabel", () => {
     expect(installationLabel({ kind: "unknown" })).toBe("安装来源未知");
     expect(installationLabel({ kind: "npm-global" })).toBe("全局 npm 包");
     expect(installationLabel({ kind: "local" })).toBe("本地 checkout");
+    expect(installationLabel({ kind: "docker", dockerMode: "runtime" })).toBe("Docker 运行时");
+    expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker 开发运行时");
   });
 
   it("includes source and scope for pi-package installs", () => {
-    expect(installationLabel({ kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user" }))
-      .toBe("npm:@jmfederico/pi-web · user");
+    expect(installationLabel({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user" }))
+      .toBe("npm:@chainingintention/pi-web-cn · user");
   });
 
   it("defaults the source and omits scope when absent", () => {

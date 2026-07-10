@@ -15,9 +15,11 @@ function activity(cwd: string, patch: Partial<WorkspaceActivity> = {}): Workspac
 }
 
 describe("workspace activity aggregation", () => {
-  it("matches activity to workspace paths", () => {
-    const ws = workspace("p1", "/repo");
-    expect(workspaceActivityFor(ws, { "/repo": activity("/repo") })?.hasSessionActivity).toBe(true);
+  it("matches activity to workspace paths rather than ids", () => {
+    const ws = { ...workspace("p1", "/repo"), id: "workspace-1" };
+    const matched = activity("/repo");
+
+    expect(workspaceActivityFor(ws, { "/repo": matched, "workspace-1": activity("workspace-1") })).toEqual(matched);
   });
 
   it("uses a terminal indicator only when there is no session activity", () => {

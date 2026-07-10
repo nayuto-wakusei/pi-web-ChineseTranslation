@@ -47,10 +47,18 @@ describe("workspace deletion state", () => {
     });
   });
 
-  it("reports pending workspace deletions for disabling repeated actions", () => {
-    const state = { workspaceDeletionRuns: { w1: run("new", "w1", "2026-05-25T00:00:01.000Z", "running") } };
+  it("reports only queued or running workspace deletions as pending", () => {
+    const state = {
+      workspaceDeletionRuns: {
+        w1: run("running", "w1", "2026-05-25T00:00:01.000Z", "running"),
+        w2: run("queued", "w2", "2026-05-25T00:00:02.000Z", "queued"),
+        w3: run("succeeded", "w3", "2026-05-25T00:00:03.000Z", "succeeded"),
+        w4: run("failed", "w4", "2026-05-25T00:00:04.000Z", "failed"),
+      },
+    };
 
     expect(isWorkspaceDeletionPending(state, workspace)).toBe(true);
-    expect(pendingWorkspaceDeletionIds(state.workspaceDeletionRuns)).toEqual(["w1"]);
+    expect(isWorkspaceDeletionPending(state, { ...workspace, id: "w3" })).toBe(false);
+    expect(pendingWorkspaceDeletionIds(state.workspaceDeletionRuns)).toEqual(["w1", "w2"]);
   });
 });

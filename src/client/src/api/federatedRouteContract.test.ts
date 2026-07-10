@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../../shared/apiTypes";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
-import { activityApi, filesApi, gitApi, piWebApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { activityApi, configApi, filesApi, gitApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./sockets";
 import { workspaceImagePreviewUrl } from "./urls";
 
@@ -28,6 +28,13 @@ describe("federated route contract", () => {
 
     await Promise.all([
       ignoreParseFailure(piWebApi.piWebStatus(machineId)),
+      ignoreParseFailure(configApi.config(machineId)),
+      ignoreParseFailure(configApi.saveConfig({ spawnSessions: true }, machineId)),
+      ignoreParseFailure(pluginsApi.plugins(machineId)),
+      ignoreParseFailure(piPackagesApi.packages(machineId)),
+      ignoreParseFailure(piPackagesApi.install("npm:@acme/tools", machineId)),
+      ignoreParseFailure(piPackagesApi.remove("npm:@acme/tools", "user", machineId)),
+      ignoreParseFailure(piPackagesApi.update("npm:@acme/tools", machineId)),
       ignoreParseFailure(activityApi.workspaceActivity(machineId)),
       ignoreParseFailure(projectsApi.projects(machineId)),
       ignoreParseFailure(projectsApi.addProject("/repo", "Repo", false, machineId)),
@@ -65,6 +72,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.cycleThinkingLevel(session, machineId)),
       ignoreParseFailure(sessionsApi.commands(session, machineId)),
       ignoreParseFailure(sessionsApi.prompt(session, "hello", "followUp", machineId)),
+      ignoreParseFailure(sessionsApi.saveAttachments(session, [{ kind: "image", mimeType: "image/png", data: "QUJD", name: "shot.png" }], machineId, "uploads")),
       ignoreParseFailure(sessionsApi.shell(session, "ls", machineId)),
       ignoreParseFailure(sessionsApi.runCommand(session, "/help", machineId)),
       ignoreParseFailure(sessionsApi.respondToCommand(session, "req 1", "yes", machineId)),

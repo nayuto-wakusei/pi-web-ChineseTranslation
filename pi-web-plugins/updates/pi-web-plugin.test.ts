@@ -20,7 +20,7 @@ describe("updates plugin Chinese display text", () => {
     const panel = activation.contributions.workspacePanels?.[0];
 
     expect(serializeTemplate(panel?.render(context()))).toContain("正在检查 PI WEB 更新状态");
-    expect(serializeTemplate(panel?.badge?.(context()))).toBe("测试版");
+    expect(serializeTemplate(panel?.badge?.(context()))).toBe("");
 
     const rendered = serializeTemplate(panel?.render(context({
       state: {
@@ -45,7 +45,7 @@ describe("updates plugin Chinese display text", () => {
     })));
 
     expect(rendered).toContain("警告");
-    expect(rendered).toContain("测试版");
+    expect(rendered).not.toContain("测试版");
     expect(rendered).toContain("已安装服务");
     expect(rendered).toContain("会话守护进程");
     expect(rendered).toContain("建议命令");

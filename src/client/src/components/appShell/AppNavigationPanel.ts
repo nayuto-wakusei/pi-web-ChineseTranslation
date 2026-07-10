@@ -39,10 +39,12 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean }) projectsCollapsed = false;
   @property({ type: Boolean }) workspacesCollapsed = false;
   @property({ type: Boolean }) sessionsCollapsed = false;
+  @property({ type: Number }) startingSessionCount = 0;
   @property({ type: Boolean }) canStartSession = false;
   @property({ type: Boolean }) canDeleteArchivedSessions = false;
   @property({ type: Boolean }) canReloadSessions = false;
   @property({ type: Boolean }) canCleanupSessions = false;
+  @property({ type: Boolean }) authoritativeSessionPersistence = false;
   @property({ type: String }) archivedDeleteUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再删除已归档会话。";
   @property({ type: String }) cleanupUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再清理会话。";
   @property({ attribute: false }) onShowActions?: () => void;
@@ -159,10 +161,12 @@ export class AppNavigationPanel extends LitElement {
         .activities=${this.sessionActivities}
         .sending=${this.sendingPrompts}
         .selected=${this.selectedSession}
+        .startingCount=${this.startingSessionCount}
         .canStart=${this.canStartSession}
         .canDeleteArchived=${this.canDeleteArchivedSessions}
         .canReload=${this.canReloadSessions}
         .canCleanup=${this.canCleanupSessions}
+        .authoritativeSessionPersistence=${this.authoritativeSessionPersistence}
         .archivedDeleteUnavailableMessage=${this.archivedDeleteUnavailableMessage}
         .cleanupUnavailableMessage=${this.cleanupUnavailableMessage}
         .collapsible=${this.collapsible}

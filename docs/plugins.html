@@ -90,10 +90,11 @@
           <aside class="toc" aria-label="Plugin page contents">
             <strong>On this page</strong>
             <a href="#extend">What can be extended</a>
+            <a href="#packages-vs-plugins">Pi packages vs PI WEB plugins</a>
             <a href="#ask-ai">What to ask AI to build</a>
             <a href="#example">Canonical example</a>
             <a href="#built-in-plugins">Built-in plugins</a>
-            <a href="#manage-plugins">Manage plugins</a>
+            <a href="#manage-plugins">Manage PI WEB plugins</a>
             <a href="#remote-machine-plugins">Remote machine plugins</a>
             <a href="#production">Production usage</a>
             <a href="#agent-docs">AI-friendly docs</a>
@@ -123,6 +124,44 @@
                 point is missing, unclear, or awkward, please
                 <a href="https://github.com/jmfederico/pi-web/issues">open a GitHub issue</a>.
               </div>
+            </section>
+
+            <section id="packages-vs-plugins">
+              <h2>Pi packages vs PI WEB plugins</h2>
+              <p>
+                <strong>Pi packages</strong> are packages managed by Pi (<code>pi install</code>, <code>pi remove</code>,
+                <code>pi update</code>). A Pi package can provide extensions, skills, prompt templates, themes,
+                context/system prompt files, and/or PI WEB browser plugins. Many Pi packages do not include a PI WEB plugin.
+              </p>
+              <p>
+                <strong>PI WEB plugins</strong> are browser-side UI modules discovered from bundled, local, dev, and
+                installed Pi-package sources. Enabling or disabling a PI WEB plugin is a PI WEB config task; installing,
+                removing, or updating a Pi package is a Pi package-manager task.
+              </p>
+              <p>
+                Use <strong>Settings → Pi packages</strong> to view configured Pi packages or install/remove/update a
+                package. Enter only the package source, such as <code>npm:@scope/package</code>, a git/URL source, or a
+                local path. PI WEB uses Pi's default package location, equivalent to <code>pi install &lt;source&gt;</code>,
+                and does not ask for an install location.
+              </p>
+              <p>
+                When machine federation is enabled, <strong>Settings → Pi packages</strong> targets the currently selected
+                machine. The panel labels whether changes will run on the local/gateway machine or on a selected remote
+                PI WEB machine. If an older or unavailable remote PI WEB server does not expose package-management routes,
+                PI WEB reports the package management operation as unsupported or unavailable instead of silently falling
+                back to the gateway.
+              </p>
+              <p>
+                Use <strong>Settings → PI WEB plugins</strong> to enable or disable discovered PI WEB browser plugins
+                before the browser imports them. In a federated setup, this plugin enablement surface targets the
+                currently selected machine and labels where changes are saved. If an older or unavailable remote PI WEB
+                server does not advertise selected-machine settings support, PI WEB reports the plugin settings as
+                unsupported or unavailable instead of silently falling back to the gateway. After installing, removing, or
+                updating a Pi package, type <code>/reload</code> in each idle PI WEB session on the target machine to
+                refresh Pi runtime resources such as extensions, skills, prompt templates, themes, and context/system
+                prompt files as supported by Pi. Reload the browser page separately for newly discovered or changed
+                PI WEB browser plugins. A routine session daemon restart is not required.
+              </p>
             </section>
 
             <section id="ask-ai">
@@ -204,7 +243,7 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
                 plugins appear in <code>/pi-web-plugins/manifest.json</code>.
               </p>
               <p>
-                Built-in plugins can be managed from <strong>Settings → Plugins</strong> or with the top-level
+                Built-in plugins can be managed from <strong>Settings → PI WEB plugins</strong> or with the top-level
                 <code>plugins</code> config key.
               </p>
 
@@ -258,11 +297,11 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
   "version": 1,
   "tasks": [
     {
-      "id": "docker.start",
-      "title": "Start Docker",
-      "group": "Docker",
-      "description": "Start the local Docker Compose environment.",
-      "command": "./docker/scripts/docker-compose-dev up -d"
+      "id": "app.start",
+      "title": "Start app",
+      "group": "Development",
+      "description": "Start the local development server.",
+      "command": "npm run dev"
     },
     {
       "id": "db.reset",
@@ -285,12 +324,20 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
             </section>
 
             <section id="manage-plugins">
-              <h2>Manage plugins</h2>
+              <h2>Manage PI WEB plugins</h2>
               <p>
-                Open <strong>Settings → Plugins</strong> to review discovered bundled, local, dev, and Pi package plugins
-                for the PI WEB gateway you opened. PI WEB can disable any discovered plugin before the browser imports
-                it. Core app contributions such as the command palette, base workspace tools, and themes are not managed
-                through this plugin list.
+                Open <strong>Settings → PI WEB plugins</strong> to review discovered bundled, local, dev, and Pi package
+                plugins for the selected PI WEB machine. When the local machine is selected, this is the gateway plugin
+                list; when a remote machine is selected, the list comes from that remote PI WEB server and includes
+                disabled discovered plugins it exposes. PI WEB can disable any discovered selected-machine plugin before
+                the browser imports it. Core app contributions such as the command palette, base workspace tools, and
+                themes are not managed through this plugin list.
+              </p>
+              <p>
+                This surface is only for PI WEB plugin enablement. To install, remove, or update Pi packages that may
+                provide plugins or other Pi resources, use <strong>Settings → Pi packages</strong>. In a federated setup,
+                both the Pi packages panel and the PI WEB plugins panel target the selected machine; plugin enablement
+                still writes the PI WEB <code>plugins</code> config key rather than changing Pi package-manager settings.
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -336,7 +383,8 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
               </ul>
               <p>
                 Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable
-                one, open that machine directly or update its config file.
+                one, select that machine and use <strong>Settings → PI WEB plugins</strong> when the remote server exposes
+                selected-machine settings, or open that machine directly/update its config file.
               </p>
               <p>
                 Plugin package metadata can set <code>machineSpecific: true</code>. Use it for plugins like Updates whose

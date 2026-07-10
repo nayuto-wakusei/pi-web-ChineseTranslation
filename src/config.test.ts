@@ -20,9 +20,24 @@ afterEach(async () => {
 
 describe("PI WEB config persistence", () => {
   it("writes and reads the configured PI WEB config path", () => {
-    const saved = savePiWebConfig({ host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual\\incoming" } }, testOptions());
+    const requestedConfig = {
+      host: "0.0.0.0",
+      port: 9000,
+      allowedHosts: ["example.local"],
+      shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null },
+      plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } },
+      normalAuth: { passwordHash: TEST_PASSWORD_HASH },
+      pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
+      uploads: { defaultFolder: "manual\\incoming" },
+    };
+    const normalizedConfig = {
+      ...requestedConfig,
+      uploads: { defaultFolder: "manual/incoming" },
+    };
 
-    expect(saved).toEqual({ path: configPath, exists: true, config: { host: "0.0.0.0", port: 9000, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] }, uploads: { defaultFolder: "manual/incoming" } } });
+    const saved = savePiWebConfig(requestedConfig, testOptions());
+
+    expect(saved).toEqual({ path: configPath, exists: true, config: normalizedConfig });
     expect(loadPiWebConfig(testOptions())).toEqual(saved);
   });
 

@@ -1,0 +1,82 @@
+name: pi-web
+
+x-pi-web-build: &pi-web-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    OPENSUSE_IMAGE: ${PI_WEB_OPENSUSE_IMAGE:-opensuse/tumbleweed}
+    NODEJS_MAJOR: ${PI_WEB_NODEJS_MAJOR:-22}
+    NODEJS_REPO: ${PI_WEB_NODEJS_REPO:-auto}
+    PI_WEB_EXTRA_ZYPPER_PACKAGES: ${PI_WEB_EXTRA_ZYPPER_PACKAGES:-}
+    PI_WEB_UID: ${PI_WEB_UID:-1000}
+    PI_WEB_GID: ${PI_WEB_GID:-1000}
+    PI_WEB_VERSION: ${PI_WEB_VERSION:-latest}
+    PI_VERSION: ${PI_VERSION:-latest}
+    CACHE_BUST: ${CACHE_BUST:-local}
+
+x-pi-web-environment: &pi-web-environment
+  HOME: /data/home
+  XDG_CONFIG_HOME: /data/config
+  PI_WEB_DATA_DIR: /data/pi-web
+  PI_WEB_SESSIOND_SOCKET: /data/pi-web/sessiond.sock
+  PI_CODING_AGENT_DIR: /data/pi-agent
+  HOSTEXEC_IMAGE: ${HOSTEXEC_IMAGE:-alpine:3.22}
+  HOSTEXEC_MODE: ${HOSTEXEC_MODE:-disabled}
+  PI_WEB_MAX_UPLOAD_BYTES: ${PI_WEB_MAX_UPLOAD_BYTES:-67108864}
+  PI_WEB_DOCKER_RUNTIME: "1"
+  PI_WEB_DOCKER_MODE: runtime
+  PI_WEB_DOCKER_INSTALL_DIR: ${PI_WEB_DOCKER_INSTALL_DIR:?set by docker/install.sh}
+  PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_IMAGE:-pi-web:local}
+  COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web}
+
+x-pi-web-volumes: &pi-web-volumes
+  - type: bind
+    source: ${PI_WEB_DOCKER_DATA_DIR:-./data}
+    target: /data
+
+services:
+  sessiond:
+    build: *pi-web-build
+    image: ${PI_WEB_IMAGE:-pi-web:local}
+    command: ["pi-web-sessiond"]
+    restart: unless-stopped
+    user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    security_opt:
+      - label=disable
+    environment: *pi-web-environment
+    volumes: *pi-web-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /data/pi-web/sessiond.sock"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  web:
+    build: *pi-web-build
+    image: ${PI_WEB_IMAGE:-pi-web:local}
+    command: ["pi-web-server"]
+    restart: unless-stopped
+    depends_on:
+      sessiond:
+        condition: service_healthy
+    user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    security_opt:
+      - label=disable
+    environment:
+      <<: *pi-web-environment
+      PI_WEB_HOST: 0.0.0.0
+      PI_WEB_PORT: "8504"
+    ports:
+      - "${PI_WEB_BIND_ADDR:-127.0.0.1}:${PI_WEB_PORT:-8504}:8504"
+    volumes: *pi-web-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8504/api/pi-web/runtime >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s

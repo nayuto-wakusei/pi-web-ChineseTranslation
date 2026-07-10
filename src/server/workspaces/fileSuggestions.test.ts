@@ -76,6 +76,37 @@ describe("file suggestions", () => {
     ]);
   });
 
+  it("waits for both git probes before falling back in all-file scope", async () => {
+    let releaseUntracked: (() => void) | undefined;
+    let resolved = false;
+    const deps: FileSuggestionDependencies = {
+      execFile: (file, args) => {
+        if (file === "git" && args.join(" ") === "ls-files -z") return Promise.reject(new Error("not a git repository"));
+        if (file === "git" && args.join(" ") === "ls-files --others --exclude-standard -z") {
+          return new Promise<{ stdout: string }>((resolve) => {
+            releaseUntracked = () => {
+              resolve({ stdout: "" });
+            };
+          });
+        }
+        if (file === "rg") return Promise.resolve({ stdout: "sdk.md\n" });
+        return Promise.reject(new Error(`unexpected command: ${file} ${args.join(" ")}`));
+      },
+    };
+
+    const suggestions = listFileSuggestions("/repo", "sdk", { scope: "all" }, deps).then((value) => {
+      resolved = true;
+      return value;
+    });
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
+    expect(releaseUntracked).toBeDefined();
+
+    releaseUntracked?.();
+    await expect(suggestions).resolves.toEqual([{ path: "sdk.md", kind: "other" }]);
+  });
+
   it("keeps git untracked files in all-file scope when the broad scan misses them", async () => {
     const deps: FileSuggestionDependencies = {
       execFile: (file, args) => {

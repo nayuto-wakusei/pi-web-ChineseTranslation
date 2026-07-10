@@ -1,6 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
@@ -71,7 +73,7 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
   const customMessageCalls: { message: { customType: string; content: string; display: boolean; details?: unknown }; options: unknown }[] = [];
   const bindExtensionCalls: unknown[] = [];
   const listeners: ((event: unknown) => void)[] = [];
-  const calls = { abort: 0, bindExtensions: bindExtensionCalls, clearQueue: 0, dispose: 0, prompt: promptCalls, sendCustomMessage: customMessageCalls };
+  const calls = { abort: 0, bindExtensions: bindExtensionCalls, clearQueue: 0, dispose: 0, prompt: promptCalls, reload: 0, sendCustomMessage: customMessageCalls };
   const session: TestSession = {
     sessionId,
     sessionFile: `/tmp/${sessionId}.jsonl`,
@@ -102,6 +104,10 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     },
     getSessionStats: () => ({ sessionId, totalMessages: 0, userMessages: 0, assistantMessages: 0, toolCalls: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 }),
     getContextUsage: () => undefined,
+    reload: () => {
+      calls.reload += 1;
+      return Promise.resolve();
+    },
     prompt: (text: string, options: unknown) => {
       calls.prompt.push({ text, options });
       return Promise.resolve();
@@ -129,6 +135,7 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     setSessionName: (name: string) => { session.sessionName = name; },
     compact: () => Promise.resolve({ summary: "", tokensBefore: 0 }),
     getUserMessagesForForking: () => [],
+    agent: { streamFn: () => { throw new Error("streamFn should not be called in this test"); } },
     ...patch,
   };
   const runtime: PiSessionRuntime = {
@@ -376,6 +383,35 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("reports persistence from actual session-file existence for fresh active sessions", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-persisted-"));
+    const sessionFile = join(dir, "new-session.jsonl");
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("new-session", { sessionFile });
+    let service: PiSessionService | undefined;
+    try {
+      service = new PiSessionService(hub, {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        sessionManager: sessionGateway([]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      const session = await service.start("/workspace");
+      const createdEvent = hub.globalEvents.find(({ event }) => event.type === "session.created")?.event;
+
+      expect(session).toMatchObject({ id: "new-session", path: sessionFile, persisted: false });
+      expect(createdEvent).toMatchObject({ type: "session.created", session: { id: "new-session", persisted: false } });
+      await expect(service.status(sessionRef("new-session"))).resolves.toMatchObject({ sessionId: "new-session", persisted: false });
+
+      await writeFile(sessionFile, '{"type":"session","id":"new-session"}\n', "utf8");
+
+      await expect(service.status(sessionRef("new-session"))).resolves.toMatchObject({ sessionId: "new-session", persisted: true });
+    } finally {
+      await service?.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("opens legacy id-only lookups from the default session store gateway", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime("legacy-session");
@@ -538,7 +574,7 @@ describe("PiSessionService", () => {
 
     const sessions = await service.list("/workspace");
     expect(sessions).toHaveLength(2);
-    expect(sessions[0]).toMatchObject({ id: "active" });
+    expect(sessions[0]).toMatchObject({ id: "active", persisted: true });
     expect(sessions[0]?.archived).toBeUndefined();
     expect(sessions[1]).toMatchObject({ id: "archived", archived: true, archivedAt: "2026-01-01T00:00:00.000Z" });
 
@@ -924,6 +960,29 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("runs /reload by refreshing the active runtime resources in place", async () => {
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("runtime-reload-session");
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("runtime-reload-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.runCommand(sessionRef("runtime-reload-session"), "/reload")).resolves.toEqual({
+      type: "done",
+      message: "会话运行时资源已重新加载。扩展、技能、提示词模板、主题以及上下文/系统提示词文件已刷新；PI WEB 浏览器插件变更仍需另行刷新浏览器页面。",
+    });
+
+    expect(fake.calls.reload).toBe(1);
+    expect(fake.calls.abort).toBe(0);
+    expect(fake.calls.dispose).toBe(0);
+    expect(hub.globalEvents.some(({ event }) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "resources reloaded")).toBe(true);
+    expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "runtime-reload-session")).toBe(true);
+
+    await service.dispose();
+  });
+
   it("reloads a session by closing the active runtime and re-opening it from disk", async () => {
     const first = fakeRuntime("reload-session");
     const second = fakeRuntime("reload-session");
@@ -1067,15 +1126,58 @@ describe("PiSessionService", () => {
 
   it("rejects malformed prompt text before opening the runtime", async () => {
     const fake = fakeRuntime("prompt-session");
+    let createCalls = 0;
+    const createAgentRuntime: RuntimeCreator = async () => {
+      createCalls += 1;
+      await Promise.resolve();
+      return fake.runtime;
+    };
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createAgentRuntime: runtimeCreator(fake.runtime),
+      createAgentRuntime,
       sessionManager: sessionGateway([sessionRecord("prompt-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
     await expect(service.prompt("prompt-session", undefined)).rejects.toThrow("提示文本为必填项");
 
+    expect(createCalls).toBe(0);
     expect(fake.calls.prompt).toEqual([]);
+    await service.dispose();
+  });
+
+  it("generates a session name for the first prompt via the session's agent.streamFn", async () => {
+    const model = testModel();
+    const streamCalls: unknown[] = [];
+    const streamFn: StreamFn = (streamModel, context, options) => {
+      streamCalls.push({ streamModel, context, options });
+      const stream = createAssistantMessageEventStream();
+      const message: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "Fix login bug" }],
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: model.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop",
+        timestamp: Date.now(),
+      };
+      stream.push({ type: "done", reason: "stop", message });
+      stream.end(message);
+      return stream;
+    };
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("name-session", { model, agent: { streamFn } });
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("name-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.prompt(sessionRef("name-session"), "Please fix the login bug");
+    await vi.waitFor(() => { expect(fake.session.sessionName).toBe("Fix login bug"); });
+
+    expect(streamCalls).toHaveLength(1);
+    expect(hub.sessionEvents.some(({ event }) => event.type === "session.name" && event.name === "Fix login bug")).toBe(true);
     await service.dispose();
   });
 
@@ -1427,7 +1529,7 @@ describe("PiSessionService", () => {
     }
 
     it("records the parent, delivers the prompt, and lists the tracked child", async () => {
-      const { parent, child, service } = subsessionService({ allowed: true, cwd: "/workspace-feature" });
+      const { child, service } = subsessionService({ allowed: true, cwd: "/workspace-feature" });
       await service.start("/workspace"); // bring the parent online so it can be notified
 
       const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature" });
@@ -1437,7 +1539,6 @@ describe("PiSessionService", () => {
       await expect(service.listSubsessions("parent-1")).resolves.toEqual([
         { sessionId: "child-1", cwd: "/workspace-feature", status: "idle" },
       ]);
-      void parent;
       await service.dispose();
     });
 

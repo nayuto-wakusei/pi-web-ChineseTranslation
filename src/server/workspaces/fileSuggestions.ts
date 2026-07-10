@@ -253,13 +253,16 @@ async function listTrackedFiles(cwd: string, exec: CommandRunner): Promise<Clien
 }
 
 async function listGitFiles(cwd: string, exec: CommandRunner): Promise<ClientFileSuggestion[]> {
-  const [tracked, untracked] = await Promise.all([
+  const [trackedResult, untrackedResult] = await Promise.allSettled([
     git(cwd, ["ls-files", "-z"], exec),
     git(cwd, ["ls-files", "--others", "--exclude-standard", "-z"], exec),
-  ]);
+  ] as const);
+  if (trackedResult.status === "rejected") throw trackedResult.reason;
+  if (untrackedResult.status === "rejected") throw untrackedResult.reason;
+
   return [
-    ...withDirectories(nulRecords(tracked), "tracked"),
-    ...withDirectories(nulRecords(untracked), "untracked"),
+    ...withDirectories(nulRecords(trackedResult.value), "tracked"),
+    ...withDirectories(nulRecords(untrackedResult.value), "untracked"),
   ];
 }
 

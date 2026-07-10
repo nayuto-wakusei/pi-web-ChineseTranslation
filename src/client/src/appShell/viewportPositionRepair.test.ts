@@ -80,15 +80,27 @@ describe("ViewportPositionRepairer", () => {
     const timer = firstMapEntry(scheduler.timers);
     expect(timer[1].delayMs).toBe(VIEWPORT_POSITION_REPAIR_DELAY_MS);
 
+    scheduler.documentElement.scrollTop = 56;
+    scheduler.body.scrollTop = 78;
     scheduler.runAnimationFrame(firstFrame);
-    expect(scheduler.scrollCalls).toHaveLength(2);
+    expect(scheduler.scrollCalls).toEqual([[0, 0], [0, 0]]);
+    expect(scheduler.documentElement.scrollTop).toBe(0);
+    expect(scheduler.body.scrollTop).toBe(0);
     const secondFrame = firstMapKey(scheduler.animationFrames);
 
+    scheduler.documentElement.scrollTop = 90;
+    scheduler.body.scrollTop = 123;
     scheduler.runAnimationFrame(secondFrame);
-    expect(scheduler.scrollCalls).toHaveLength(3);
+    expect(scheduler.scrollCalls).toEqual([[0, 0], [0, 0], [0, 0]]);
+    expect(scheduler.documentElement.scrollTop).toBe(0);
+    expect(scheduler.body.scrollTop).toBe(0);
 
+    scheduler.documentElement.scrollTop = 34;
+    scheduler.body.scrollTop = 12;
     scheduler.runTimer(timer[0]);
-    expect(scheduler.scrollCalls).toHaveLength(4);
+    expect(scheduler.scrollCalls).toEqual([[0, 0], [0, 0], [0, 0], [0, 0]]);
+    expect(scheduler.documentElement.scrollTop).toBe(0);
+    expect(scheduler.body.scrollTop).toBe(0);
   });
 
   it("replaces pending scheduled repairs", () => {
@@ -102,6 +114,10 @@ describe("ViewportPositionRepairer", () => {
 
     expect(scheduler.canceledAnimationFrames).toEqual([firstFrame]);
     expect(scheduler.clearedTimers).toEqual([firstTimer]);
+    expect(scheduler.animationFrames.has(firstFrame)).toBe(false);
+    expect(scheduler.timers.has(firstTimer)).toBe(false);
+    expect(scheduler.animationFrames.size).toBe(1);
+    expect(scheduler.timers.size).toBe(1);
   });
 
   it("clears pending work when repair is no longer needed", () => {
@@ -115,5 +131,7 @@ describe("ViewportPositionRepairer", () => {
 
     expect(scheduler.canceledAnimationFrames).toEqual([firstFrame]);
     expect(scheduler.clearedTimers).toEqual([firstTimer]);
+    expect(scheduler.animationFrames.size).toBe(0);
+    expect(scheduler.timers.size).toBe(0);
   });
 });

@@ -33,7 +33,7 @@ describe("auth provider options", () => {
     expect(isApiKeyLoginProvider("openai", new Set(["openai-codex"]))).toBe(true);
   });
 
-  it("includes Anthropic in both OAuth and API key login options", () => {
+  it("builds login options for OAuth-only, dual-auth, and API-key providers", () => {
     const options = getLoginProviderOptions(registry());
     expect(options).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "anthropic", authType: "oauth" }),
@@ -44,7 +44,7 @@ describe("auth provider options", () => {
     expect(options).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "openai-codex", authType: "api_key" })]));
   });
 
-  it("returns only stored credentials for logout", () => {
+  it("returns only currently stored credentials for logout", () => {
     expect(getLogoutProviderOptions(registry())).toEqual([
       expect.objectContaining({ id: "openai", authType: "api_key" }),
     ]);

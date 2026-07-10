@@ -48,6 +48,7 @@ export function stripCachedNewSessionMarker(session: SessionInfo): SessionInfo {
     id: session.id,
     path: session.path,
     cwd: session.cwd,
+    ...(session.persisted === undefined ? {} : { persisted: session.persisted }),
     ...(session.name === undefined ? {} : { name: session.name }),
     created: session.created,
     modified: session.modified,

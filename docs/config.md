@@ -11,7 +11,9 @@ PI WEB uses two config files:
 - **Global PI WEB config:** `$PI_WEB_CONFIG`, or `$XDG_CONFIG_HOME/pi-web/config.json`, or `~/.config/pi-web/config.json`.
 - **Project-local PI WEB config:** `<project>/.pi-web/config.json` for commit-able project settings.
 
-Each PI WEB machine has its own config. When using Fleet/machine federation, edit a remote machine's config by opening that machine directly or changing files on that machine.
+Each PI WEB machine has its own config. When using Fleet/machine federation, Settings uses the selected machine for config that affects work running there: session daemon tools, PI WEB plugin enablement, external path access, and upload defaults. Gateway/browser-only settings stay local to the gateway: keyboard shortcuts, remote machine registry/tokens, and gateway host/port/allowed-hosts. Remote servers that do not advertise selected-machine settings support report those settings as unavailable instead of silently falling back to the gateway.
+
+Pi package settings are separate from PI WEB config. They live in Pi's package-manager settings on the target machine and are managed by Pi (`pi install`, `pi remove`, `pi update`) or **Settings → Pi packages**. In a federated setup, **Settings → Pi packages** targets the currently selected machine. The PI WEB `plugins` config key only enables or disables discovered PI WEB browser plugins on the machine whose config you are editing; it does not install, remove, or update Pi packages.
 
 If you installed services with a custom config path, rerun `pi-web install --config /path/to/config.json` after changing that path or after upgrading from a version that only applied the custom path to the web service. This regenerates service files so the web/API and session daemon use the same `PI_WEB_CONFIG`.
 
@@ -29,12 +31,13 @@ Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALL
 
 Process restarts depend on the key:
 
-- `host` / `port`: restart the web/API service or process.
-- `maxUploadBytes`: restart both the web/API process and the session daemon.
-- `spawnSessions` / `subsessions`: restart the session daemon.
+- `host` / `port`: restart the gateway web/API service or process.
+- `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
+- `spawnSessions` / `subsessions`: restart the session daemon on that machine.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
-- `plugins`: reload the browser tab after changing plugin enablement.
+- `plugins`: reload the browser tab after changing PI WEB plugin enablement.
+- Pi package install/remove/update: not a PI WEB config key; after a mutation, type `/reload` in each idle PI WEB session on the target machine to refresh Pi runtime resources such as extensions, skills, prompt templates, themes, and context/system prompt files as supported by Pi. Reload the browser page separately for PI WEB browser plugin changes. A routine session daemon restart is not required.
 - `shortcuts`: saved settings apply in the browser after config refresh/save.
 
 ## Global config example
@@ -88,7 +91,7 @@ Plugins may own separate project files, such as `.pi-web/tasks.json` for the bui
 
 ## Configuration matrix
 
-Rows with JSON key `—` are runtime-only environment variables, not config-file keys.
+Rows with JSON key `—` are runtime-only environment variables, not config-file keys. `Global` means machine-global. In Settings, selected-machine-safe global keys (`pathAccess`, `uploads`, `maxUploadBytes`, `spawnSessions`, `subsessions`, and `plugins`) are edited for the selected machine; gateway host/port/allowed-hosts, keyboard shortcuts, and machine registry/tokens stay local.
 
 | Config | JSON key | Env var | Scope | Project-local behavior | Applies / restart |
 | --- | --- | --- | --- | --- | --- |
@@ -98,9 +101,9 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Dev-server allowed hosts | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | Global | Not supported locally | Restart dev web/UI |
 | External filesystem roots | `pathAccess.allowedPaths` | — | Global + project | **Merges**: global roots first, then project roots; duplicates removed | Next file request; refresh existing views if needed |
 | Manual file upload default folder | `uploads.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
-| Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon |
-| Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon |
-| Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon |
+| Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
+| Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
+| Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
 | Plugin enablement/settings | `plugins.<id>.enabled`, `plugins.<id>.settings` | — | Global | Not core local config; plugins may read their own project files | Reload browser tab |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
@@ -133,6 +136,8 @@ Accepted root forms:
 
 When an absolute request is served, PI WEB expands `~`, canonicalizes the configured roots with `realpath`, requires roots to be existing directories, and rejects symlink escapes outside the allowed roots.
 
+In **Settings → General**, external filesystem roots are saved on the selected machine. Gateway host, port, and allowed-hosts fields stay on the gateway config.
+
 This is not a sandbox for the underlying Pi Coding Agent or your OS user. It only controls PI WEB UI/API file exposure outside a workspace.
 
 ### Manual upload defaults
@@ -156,9 +161,9 @@ The value must be a non-empty workspace-relative folder. PI WEB normalizes repea
 
 Manual uploads use the workspace file-write path: paths stay workspace-relative, parent folder creation is enabled by default, and overwrite is disabled by default. Direct drag/drop always keeps `overwrite` off; the review dialog lets you explicitly enable overwrite when needed. Browser-owned XHR progress is shown per batch/file, conflicts and errors stay visible in the upload progress UI, and the final file-write response is the source of truth.
 
-For machine federation, current remote PI WEB servers return `workspace.effectiveConfig.uploads.defaultFolder` on the existing workspace-list response. Older remote servers can omit that optional field without breaking clients; the Files panel falls back to the global/default upload folder.
+For machine federation, Settings saves the global upload default on the selected machine. Current remote PI WEB servers also return `workspace.effectiveConfig.uploads.defaultFolder` on the existing workspace-list response. Older remote servers can omit that optional field without breaking clients; the Files panel falls back to the global/default upload folder.
 
-The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX_UPLOAD_BYTES`.
+The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX_UPLOAD_BYTES` on the machine serving the upload.
 
 ### Session daemon tools
 
@@ -168,9 +173,13 @@ The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX
 
 Tracked subsessions let an agent delegate work to child sessions, get notified when children stop working, and inspect their transcripts.
 
+In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
+
 ### Plugin config
 
-Plugins are enabled by default. Set `plugins.<id>.enabled` to `false` to remove a plugin from `/pi-web-plugins/manifest.json` before the browser imports it.
+The `plugins` key is only for PI WEB browser plugin enablement/settings on the machine whose config you are editing. It does not install, remove, or update Pi packages; use **Settings → Pi packages** or Pi's package manager for package operations. In a federated setup, **Settings → PI WEB plugins** and **Settings → Pi packages** both target the currently selected machine, and each panel labels where changes will be saved or run.
+
+Plugins are enabled by default. Set `plugins.<id>.enabled` to `false` to remove a plugin from that machine's `/pi-web-plugins/manifest.json` before the browser imports it. Settings lists discovered plugins from the selected machine, including disabled entries exposed by that machine.
 
 ```json
 {

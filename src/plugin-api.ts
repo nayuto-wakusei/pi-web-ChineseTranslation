@@ -8,6 +8,7 @@ export type {
   FileTreeResponse,
   MachineKind,
   PiWebComponentStatus,
+  PiWebDockerMode,
   PiWebInstallationInfo,
   PiWebInstallationKind,
   PiWebReleaseStatus,

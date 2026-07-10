@@ -1,6 +1,8 @@
+import { statSync } from "node:fs";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
   AuthStorage,
   createAgentSessionFromServices,
@@ -32,7 +34,7 @@ import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInp
 import { findArchiveCandidateByIdOrPrefix, planSessionArchiveTree } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { AuthChange } from "./authService.js";
-import { fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
+import { deterministicSessionName, fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
@@ -245,6 +247,7 @@ export interface PiAgentSession {
   compact(instructions?: string): Promise<{ summary: string; tokensBefore: number }>;
   getUserMessagesForForking(): readonly { entryId: string; text: string }[];
   getSessionStats(): { sessionId: string; totalMessages: number; userMessages: number; assistantMessages: number; toolCalls: number; tokens: ClientSessionStatus["tokens"]; cost: number };
+  reload(): Promise<void>;
   getContextUsage(): ClientSessionStatus["contextUsage"] | undefined;
   prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] }): Promise<void>;
   sendCustomMessage(message: { customType: string; content: string; display: boolean; details?: unknown }, options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }): Promise<void>;
@@ -259,6 +262,15 @@ export interface PiAgentSession {
   setThinkingLevel(level: ClientThinkingLevel): void;
   cycleThinkingLevel(): ClientThinkingLevel | undefined;
   setSessionName(name: string): void;
+  /**
+   * Narrow re-expression of `AgentSession.agent` (an `@earendil-works/pi-agent-core`
+   * `Agent`), exposing only `streamFn` — the resolved-auth/headers/retry "call this
+   * model" function pi's own compaction/branch-summarization code uses internally.
+   * Lets callers (e.g. session title generation) issue one-off model calls without
+   * depending on pi-ai's deprecated `/compat` provider registry or leaking the full
+   * `Agent`/`AgentSession` surface.
+   */
+  agent: { streamFn: StreamFn };
 }
 
 export interface PiSessionRuntime {
@@ -548,6 +560,7 @@ export class PiSessionService {
           this.publishActivity(session, result === "success" ? "compaction complete" : "compaction failed", result === "success" ? "idle" : "error", detail);
           this.publishStatus(session);
         },
+        reloadSession: (session) => this.reloadSessionRuntime(session),
       },
       { listSessionNames: (cwd) => this.listSessionNames(cwd) },
     );
@@ -656,6 +669,7 @@ export class PiSessionService {
       id: session.sessionId,
       path: session.sessionFile ?? "",
       cwd,
+      persisted: sessionFileExists(session.sessionFile),
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       messageCount: session.messages.length,
@@ -1242,6 +1256,22 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const active = await this.getActive(ref, managementContext);
     return this.commandService.respond(active.runtime.session.sessionId, requestId, value, active.eventScope);
+  }
+
+  private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
+    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before reloading");
+    this.publishActivity(session, "reloading resources", "active");
+    try {
+      await session.reload();
+      this.publishActivity(session, "resources reloaded", "idle");
+      this.publishStatus(session);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.publishActivity(session, "reload failed", "error", message);
+      this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
+      this.publishStatus(session);
+      throw error;
+    }
   }
 
   async archive(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
@@ -1855,10 +1885,17 @@ export class PiSessionService {
 
   private maybeGenerateSessionName(session: PiAgentSession, firstMessage: string): void {
     if (session.sessionName !== undefined || session.messages.length !== 0 || session.isStreaming || session.isCompacting) return;
+
+    const deterministicName = deterministicSessionName(firstMessage);
+    if (deterministicName !== undefined) {
+      this.applyGeneratedSessionName(session, deterministicName);
+      return;
+    }
+
     const model = session.model;
     if (model === undefined) return;
 
-    void generateShortSessionName(this.modelRegistry, model, firstMessage).then((name) => {
+    void generateShortSessionName(session.agent.streamFn, model, firstMessage).then((name) => {
       this.applyGeneratedSessionName(session, name ?? fallbackSessionName(firstMessage));
     }).catch(() => {
       this.applyGeneratedSessionName(session, fallbackSessionName(firstMessage));
@@ -2025,6 +2062,7 @@ export class PiSessionService {
     const contextUsage = session.getContextUsage();
     return {
       sessionId: session.sessionId,
+      persisted: sessionFileExists(session.sessionFile),
       ...(model === undefined ? {} : { model }),
       thinkingLevel: session.thinkingLevel,
       isStreaming: session.isStreaming,
@@ -2117,6 +2155,7 @@ function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession 
     id: session.id,
     path: session.path,
     cwd: session.cwd,
+    persisted: true,
     ...(session.name === undefined ? {} : { name: session.name }),
     created: session.created.toISOString(),
     modified: session.modified.toISOString(),
@@ -2208,6 +2247,15 @@ function subsessionHydratedParentKey(parentSessionId: string, parentSessionFile:
 
 function sessionPathsEqual(a: string, b: string): boolean {
   return cwdPathsEqual(a, b);
+}
+
+function sessionFileExists(sessionFile: string | undefined): sessionFile is string {
+  if (sessionFile === undefined || sessionFile === "") return false;
+  try {
+    return statSync(sessionFile).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function sessionFileMatches(session: PiAgentSession, expectedSessionFile: string | undefined): boolean {

@@ -1,5 +1,5 @@
 import type { PiWebCapability, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity } from "../../../../shared/apiTypes";
-import { isPiWebCapability } from "../../../../shared/capabilities";
+import { parseKnownPiWebCapabilities } from "../../../../shared/capabilities";
 import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireRecord, requireString } from "./core";
 
 export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
@@ -179,15 +179,18 @@ function optionalPiWebInstallationInfo(value: unknown): PiWebInstallationInfo | 
   if (value === undefined) return undefined;
   const record = requireRecord(value);
   const kind = requireString(record, "kind");
-  if (kind !== "pi-package" && kind !== "npm-global" && kind !== "local" && kind !== "unknown") throw new Error("Invalid PI WEB installation kind");
+  if (kind !== "pi-package" && kind !== "npm-global" && kind !== "local" && kind !== "docker" && kind !== "unknown") throw new Error("Invalid PI WEB installation kind");
   const scope = record["scope"];
   if (scope !== undefined && scope !== "user" && scope !== "project") throw new Error("Invalid PI WEB installation scope");
+  const dockerMode = record["dockerMode"];
+  if (dockerMode !== undefined && dockerMode !== "runtime" && dockerMode !== "dev") throw new Error("Invalid PI WEB Docker mode");
   return {
     kind,
     ...optionalField("path", optionalString(record, "path")),
     ...optionalField("source", optionalString(record, "source")),
     ...(scope === undefined ? {} : { scope }),
     ...optionalField("npmRoot", optionalString(record, "npmRoot")),
+    ...(dockerMode === undefined ? {} : { dockerMode }),
   };
 }
 
@@ -231,8 +234,9 @@ function parsePiWebServiceComponent(value: unknown): PiWebServiceComponent {
 }
 
 export function parsePiWebCapabilities(value: unknown): PiWebCapability[] {
-  if (!Array.isArray(value) || !value.every(isPiWebCapability)) throw new Error("Invalid PI WEB capabilities");
-  return value;
+  const capabilities = parseKnownPiWebCapabilities(value);
+  if (capabilities === undefined) throw new Error("Invalid PI WEB capabilities");
+  return capabilities;
 }
 
 function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {

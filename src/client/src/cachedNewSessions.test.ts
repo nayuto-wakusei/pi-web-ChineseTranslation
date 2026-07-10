@@ -57,9 +57,12 @@ describe("cached new sessions", () => {
     rememberCachedNewSession(baseSession, "local", storage);
     rememberCachedNewSession({ ...baseSession, id: "other", cwd: "/other" }, "local", storage);
 
-    expect(mergeCachedNewSessions("/repo", [], "local", storage).map((session) => session.id)).toEqual(["session-1"]);
-    expect(mergeCachedNewSessions("/repo", [baseSession], "local", storage).map((session) => session.id)).toEqual(["session-1"]);
-    expect(isCachedNewSessionInfo(mergeCachedNewSessions("/repo", [baseSession], "local", storage)[0])).toBe(false);
+    const cachedOnly = mergeCachedNewSessions("/repo", [], "local", storage);
+    const mergedWithServerSession = mergeCachedNewSessions("/repo", [baseSession], "local", storage);
+
+    expect(cachedOnly.map((session) => session.id)).toEqual(["session-1"]);
+    expect(mergedWithServerSession.map((session) => session.id)).toEqual(["session-1"]);
+    expect(isCachedNewSessionInfo(mergedWithServerSession[0])).toBe(false);
     expect(loadCachedNewSessions(storage).map((session) => session.id)).toEqual(["other"]);
   });
 

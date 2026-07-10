@@ -1,8 +1,12 @@
-import type { PiWebInstallationInfo, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebDockerMode, PiWebInstallationInfo, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
 
 export interface CommandEntry {
   label: string;
   command: string;
+}
+
+export interface UpdatesRuntimeHint {
+  dockerMode?: PiWebDockerMode;
 }
 
 // The single command users should run when they do not want to think: if an
@@ -45,16 +49,45 @@ export function messageCount(state: PluginRuntimeState | undefined): number {
   return messagesFor(state).length;
 }
 
-export function isLocalOrUnknownInstallation(installation: PiWebInstallationInfo | undefined): boolean {
-  return installation === undefined || installation.kind === "local" || installation.kind === "unknown";
+export function isSelfManagedInstallation(installation: PiWebInstallationInfo | undefined): boolean {
+  return installation === undefined || installation.kind === "local" || installation.kind === "docker" || installation.kind === "unknown";
 }
 
-export function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined): boolean {
+export function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined, hint: UpdatesRuntimeHint = {}): boolean {
   const status = statusFor(state);
+  if (hint.dockerMode !== undefined) return true;
   if (messageCount(state) > 0) return true;
   if (status === undefined) return false;
-  return isLocalOrUnknownInstallation(status.components.web.installation)
-    || isLocalOrUnknownInstallation(status.components.sessiond.installation);
+  return isSelfManagedInstallation(status.components.web.installation)
+    || isSelfManagedInstallation(status.components.sessiond.installation);
+}
+
+export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = "联邦状态不可用"): PiWebStatusResponse | undefined {
+  if (hint.dockerMode === undefined) return undefined;
+  const commandPrefix = hint.dockerMode === "dev" ? "pi-web-docker --dev" : "pi-web-docker";
+  const installation: PiWebInstallationInfo = { kind: "docker", dockerMode: hint.dockerMode };
+  return {
+    packageName: "@chainingintention/pi-web-cn",
+    generatedAt,
+    components: {
+      web: { component: "web", label: "Web/UI", stale: false, available: true, installation },
+      sessiond: { component: "sessiond", label: "Session daemon", stale: false, available: true, installation },
+    },
+    release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false, skipped: true },
+    commands: {
+      update: `${commandPrefix} update`,
+      restart: `${commandPrefix} restart`,
+      restartWeb: `${commandPrefix} restart-web`,
+      restartSessiond: `${commandPrefix} restart-sessiond`,
+      status: `${commandPrefix} status`,
+    },
+    messages: [{
+      id: "docker-status-compatibility",
+      severity: "info",
+      title: "Docker 更新命令可用",
+      body: "当前更新插件由 Docker PI WEB 运行时加载，但网关尚未提供 Docker 状态详情。仍可使用下方 Docker 维护命令。",
+    }],
+  };
 }
 
 export function formatVersion(version: string | undefined): string {
@@ -70,5 +103,6 @@ export function installationLabel(installation: PiWebInstallationInfo | undefine
   }
   if (installation.kind === "npm-global") return "全局 npm 包";
   if (installation.kind === "local") return "本地 checkout";
+  if (installation.kind === "docker") return installation.dockerMode === "dev" ? "Docker 开发运行时" : "Docker 运行时";
   return "安装来源未知";
 }

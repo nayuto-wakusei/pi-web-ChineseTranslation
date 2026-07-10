@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { filesApi, machinesApi, normalAuthApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import type { PiWebConfigValues, TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
+import { configApi, filesApi, machinesApi, normalAuthApi, piPackagesApi, piWebApi, pluginsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { setApiScope } from "./http";
 
 const workspace: Workspace = {
@@ -91,6 +91,108 @@ describe("ordinary mode auth API", () => {
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ password: "first-pass" });
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ password: "first-pass" });
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ currentPassword: "first-pass", newPassword: "next-pass" });
+  });
+});
+
+describe("settings config and plugin APIs", () => {
+  it("preserves gateway config and plugin routes by default", async () => {
+    const fetchMock = stubSequenceFetch([
+      jsonResponse(piWebConfigResponse({ host: "127.0.0.1" })),
+      jsonResponse(piWebConfigResponse({ spawnSessions: true })),
+      jsonResponse(piWebPluginsResponse()),
+    ]);
+
+    await expect(configApi.config()).resolves.toMatchObject({ config: { host: "127.0.0.1" } });
+    await expect(configApi.saveConfig({ spawnSessions: true })).resolves.toMatchObject({ config: { spawnSessions: true } });
+    await expect(pluginsApi.plugins()).resolves.toEqual(piWebPluginsResponse());
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/config",
+      "/api/config",
+      "/api/plugins",
+    ]);
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("PUT");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ config: { spawnSessions: true } });
+  });
+
+  it("uses machine-scoped config and plugin routes when a machine id is provided", async () => {
+    const fetchMock = stubSequenceFetch([
+      jsonResponse(piWebConfigResponse({ spawnSessions: false })),
+      jsonResponse(piWebConfigResponse({ spawnSessions: true })),
+      jsonResponse(piWebPluginsResponse()),
+    ]);
+
+    await expect(configApi.config("remote a")).resolves.toMatchObject({ config: { spawnSessions: false } });
+    await expect(configApi.saveConfig({ spawnSessions: true }, "remote a")).resolves.toMatchObject({ config: { spawnSessions: true } });
+    await expect(pluginsApi.plugins("remote a")).resolves.toEqual(piWebPluginsResponse());
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/machines/remote%20a/config",
+      "/api/machines/remote%20a/config",
+      "/api/machines/remote%20a/plugins",
+    ]);
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("PUT");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ config: { spawnSessions: true } });
+  });
+});
+
+describe("Pi package API", () => {
+  it("preserves the legacy local Pi package-management routes by default", async () => {
+    const packages = [{ source: "npm:@acme/tools", scope: "user", filtered: false, installedPath: "/home/test/.pi/packages/tools" }];
+    const fetchMock = stubSequenceFetch([
+      jsonResponse({ packages }),
+      jsonResponse({ action: "install", source: "npm:@acme/new-tools", packages }),
+      jsonResponse({ action: "remove", source: "../project-tools", scope: "project", removed: true, packages }),
+      jsonResponse({ action: "update", source: "npm:@acme/tools", packages }),
+      jsonResponse({ action: "update", packages }),
+    ]);
+
+    await expect(piPackagesApi.packages()).resolves.toEqual({ packages });
+    await piPackagesApi.install("npm:@acme/new-tools");
+    await piPackagesApi.remove("../project-tools", "project");
+    await piPackagesApi.update("npm:@acme/tools");
+    await piPackagesApi.update();
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/pi-packages",
+      "/api/pi-packages/install",
+      "/api/pi-packages/remove",
+      "/api/pi-packages/update",
+      "/api/pi-packages/update",
+    ]);
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ source: "npm:@acme/new-tools" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ source: "../project-tools", scope: "project" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 3)[1]))).toEqual({ source: "npm:@acme/tools" });
+    expect(fetchCall(fetchMock, 4)[1]?.body).toBeUndefined();
+  });
+
+  it("uses machine-scoped Pi package-management routes when a machine id is provided", async () => {
+    const packages = [{ source: "npm:@acme/tools", scope: "user", filtered: false, installedPath: "/home/test/.pi/packages/tools" }];
+    const fetchMock = stubSequenceFetch([
+      jsonResponse({ packages }),
+      jsonResponse({ packages }),
+      jsonResponse({ action: "install", source: "npm:@acme/new-tools", packages }),
+      jsonResponse({ action: "remove", source: "../project-tools", removed: true, packages }),
+      jsonResponse({ action: "update", packages }),
+    ]);
+
+    await expect(piPackagesApi.packages("local")).resolves.toEqual({ packages });
+    await expect(piPackagesApi.packages("remote a")).resolves.toEqual({ packages });
+    await piPackagesApi.install("npm:@acme/new-tools", "remote a");
+    await piPackagesApi.remove("../project-tools", undefined, "remote a");
+    await piPackagesApi.update(undefined, "remote a");
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/machines/local/pi-packages",
+      "/api/machines/remote%20a/pi-packages",
+      "/api/machines/remote%20a/pi-packages/install",
+      "/api/machines/remote%20a/pi-packages/remove",
+      "/api/machines/remote%20a/pi-packages/update",
+    ]);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ source: "npm:@acme/new-tools" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 3)[1]))).toEqual({ source: "../project-tools" });
+    expect(fetchCall(fetchMock, 4)[1]?.body).toBeUndefined();
   });
 });
 
@@ -351,6 +453,20 @@ function fetchCall(fetchMock: FetchMock, index: number): Parameters<FetchLike> {
 function requestBody(init: RequestInit | undefined): string {
   if (typeof init?.body !== "string") throw new Error("Expected string request body");
   return init.body;
+}
+
+function piWebConfigResponse(config: PiWebConfigValues) {
+  return {
+    path: "/tmp/pi-web/config.json",
+    exists: true,
+    config,
+    effectiveConfig: config,
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
+  };
+}
+
+function piWebPluginsResponse() {
+  return { plugins: [{ id: "info", module: "/pi-web-plugins/info/plugin.js", source: "test", scope: "local", machineSpecific: false, enabled: true }] };
 }
 
 function jsonResponse(value: unknown): Response {

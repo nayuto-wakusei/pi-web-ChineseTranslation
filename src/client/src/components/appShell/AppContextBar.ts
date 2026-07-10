@@ -1,6 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
+import { shortSessionId } from "../../sessionLabels";
 import type { NavigationSection } from "../../appShell/navigationState";
 
 @customElement("app-context-bar")
@@ -193,7 +194,7 @@ function workspaceContextTitle(workspace: Workspace | undefined): string {
 function sessionContextLabel(session: SessionInfo | undefined): string {
   const name = session?.name?.trim();
   const firstMessage = session?.firstMessage.trim();
-  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session?.id.slice(0, 8) ?? "未选择会话";
+  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? "未选择会话" : shortSessionId(session.id);
 }
 
 function sessionContextTitle(session: SessionInfo | undefined): string {

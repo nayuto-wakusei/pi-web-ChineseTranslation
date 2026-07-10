@@ -1,6 +1,6 @@
 import type { TemplateResult } from "lit";
 import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusResponse, PluginRuntimeState, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
-import { additionalCommands, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor } from "./updatesLogic.js";
+import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor, type UpdatesRuntimeHint } from "./updatesLogic.js";
 
 function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, command: string): void {
   void terminal.runCommand({
@@ -105,6 +105,17 @@ function renderCommand(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal |
   `;
 }
 
+function updatesRuntimeHintFromModuleUrl(moduleUrl: string): UpdatesRuntimeHint {
+  try {
+    const dockerMode = new URL(moduleUrl).searchParams.get("piWebDockerMode");
+    return dockerMode === "runtime" || dockerMode === "dev" ? { dockerMode } : {};
+  } catch {
+    return {};
+  }
+}
+
+const runtimeHint = updatesRuntimeHintFromModuleUrl(import.meta.url);
+
 function renderCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, status: PiWebStatusResponse): TemplateResult | undefined {
   const recommended = recommendedCommand(status);
   const additional = additionalCommands(status, recommended);
@@ -128,7 +139,7 @@ function renderCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal 
 }
 
 function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, state: PluginRuntimeState | undefined): TemplateResult {
-  const status = statusFor(state);
+  const status = statusFor(state) ?? fallbackDockerStatus(runtimeHint);
   if (status === undefined) {
     return html`
       <section class="toolbar"><strong>更新</strong></section>
@@ -161,7 +172,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
         .updates-command > span { grid-column: 1 / -1; }
       }
     </style>
-    <section class="toolbar"><strong>更新</strong><span class="stale">测试版</span>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
+    <section class="toolbar"><strong>更新</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
     <section class="viewer updates-status">
       <section>
         ${messages.length === 0 ? html`<p class="muted">没有 PI WEB 更新或重启消息。</p>` : messages.map((message) => html`
@@ -220,10 +231,10 @@ const plugin: PiWebPlugin = {
             </svg>
           `,
           order: 100,
-          visible: (context) => shouldShowUpdatesPanel(context.state),
+          visible: (context) => shouldShowUpdatesPanel(context.state, runtimeHint),
           badge: (context) => {
             const count = messageCount(context.state);
-            return html`测试版${count > 0 ? html` · ${String(count)}` : null}`;
+            return count > 0 ? count : undefined;
           },
           render: (context) => renderUpdatesPanel(html, context.terminal, context.state),
         },

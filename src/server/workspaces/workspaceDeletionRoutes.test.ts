@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 describe("workspace deletion routes", () => {
-  it("closes target workspace terminals before starting the deletion terminal command", async () => {
+  it("closes target workspace terminals before starting deletion from the main workspace", async () => {
     const response = await app.inject({ method: "DELETE", url: "/api/projects/p1/workspaces/feature" });
 
     expect(response.statusCode).toBe(200);

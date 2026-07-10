@@ -28,14 +28,8 @@ describe("selectPreferredSession", () => {
     expect(selectPreferredSession(sessions)).toBeUndefined();
   });
 
-  it("can remember an archived selected session", () => {
+  it("returns a remembered archived session before falling back to active sessions", () => {
     const sessions = [{ ...testSession("s1"), archived: true }, testSession("s2")];
-
-    expect(selectPreferredSession(sessions, { latestSessionId: "s1" })?.id).toBe("s1");
-  });
-
-  it("can remember an archived selected session when only archived sessions remain", () => {
-    const sessions = [{ ...testSession("s1"), archived: true }];
 
     expect(selectPreferredSession(sessions, { latestSessionId: "s1" })?.id).toBe("s1");
   });

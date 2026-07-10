@@ -1,4 +1,4 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse, WorkspaceUploadResponse } from "../../../shared/apiTypes";
 import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
 
 export { arrayOf } from "./parsers/core";
@@ -17,6 +17,12 @@ function parseUnknownArray(value: unknown): unknown[] {
 
 function arrayOfString(value: unknown, key: string): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error(`Expected string array field: ${key}`);
+  return value;
+}
+
+function parseOptionalBoolean(value: unknown, key: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
   return value;
 }
 
@@ -74,12 +80,14 @@ export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteRes
 export function parseSessionInfo(value: unknown): SessionInfo {
   const record = requireRecord(value);
   const name = optionalString(record, "name");
+  const persisted = parseOptionalBoolean(record["persisted"], "persisted");
   const parentSessionPath = optionalString(record, "parentSessionPath");
   const archivedAt = optionalString(record, "archivedAt");
   return {
     id: requireString(record, "id"),
     path: requireString(record, "path"),
     cwd: requireString(record, "cwd"),
+    ...(persisted === undefined ? {} : { persisted }),
     ...(name === undefined ? {} : { name }),
     created: requireString(record, "created"),
     modified: requireString(record, "modified"),
@@ -95,6 +103,7 @@ export function parseSessionStatus(value: unknown): SessionStatus {
   const record = requireRecord(value);
   return {
     sessionId: requireString(record, "sessionId"),
+    ...optionalField("persisted", parseOptionalBoolean(record["persisted"], "persisted")),
     isStreaming: requireBoolean(record, "isStreaming"),
     isCompacting: requireBoolean(record, "isCompacting"),
     isBashRunning: requireBoolean(record, "isBashRunning"),
@@ -471,6 +480,45 @@ function optionalUploads(value: unknown): NonNullable<Workspace["effectiveConfig
   return {
     ...optionalField("defaultFolder", optionalString(value, "defaultFolder")),
   };
+}
+
+export function parsePiPackagesResponse(value: unknown): PiPackagesResponse {
+  const record = requireRecord(value);
+  return { packages: arrayOf(parsePiPackageInfo)(record["packages"]) };
+}
+
+export function parsePiPackageMutationResponse(value: unknown): PiPackageMutationResponse {
+  const record = requireRecord(value);
+  const source = optionalString(record, "source");
+  const scope = record["scope"] === undefined ? undefined : parsePiPackageScope(record["scope"]);
+  const removed = parseOptionalBoolean(record["removed"], "removed");
+  return {
+    action: parsePiPackageMutationAction(record["action"]),
+    ...optionalField("source", source),
+    ...optionalField("scope", scope),
+    ...optionalField("removed", removed),
+    packages: arrayOf(parsePiPackageInfo)(record["packages"]),
+  };
+}
+
+function parsePiPackageInfo(value: unknown): PiPackageInfo {
+  const record = requireRecord(value);
+  return {
+    source: requireString(record, "source"),
+    scope: parsePiPackageScope(record["scope"]),
+    filtered: requireBoolean(record, "filtered"),
+    ...optionalField("installedPath", optionalString(record, "installedPath")),
+  };
+}
+
+function parsePiPackageScope(value: unknown): PiPackageScope {
+  if (value !== "user" && value !== "project") throw new Error("Invalid Pi package scope");
+  return value;
+}
+
+function parsePiPackageMutationAction(value: unknown): PiPackageMutationAction {
+  if (value !== "install" && value !== "remove" && value !== "update") throw new Error("Invalid Pi package mutation action");
+  return value;
 }
 
 export function parseCommandResult(value: unknown): CommandResult {

@@ -9,7 +9,7 @@ const dispatchModel = { provider: "anthropic", id: "claude-sonnet" };
 const ctxWithModel = { model: dispatchModel } as ExtensionContext;
 
 describe("createSpawnSessionToolDefinition", () => {
-  it("passes the spawning cwd and params to the spawn callback and reports success", async () => {
+  it("passes the spawning cwd, explicit cwd, dispatching model, and prompt to spawn callback", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-1", cwd: "/repos/a-feature" }));
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
 
@@ -20,20 +20,11 @@ describe("createSpawnSessionToolDefinition", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "已在 /repos/a-feature 启动会话 new-1。" });
   });
 
-  it("defaults cwd to undefined so the service falls back to the spawning cwd", async () => {
+  it("forwards omitted cwd as undefined and omits a missing dispatching model", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-2", cwd: "/repos/a" }));
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
 
     await tool.execute("call-2", { prompt: "continue" }, undefined, undefined, ctx);
-
-    expect(spawn).toHaveBeenCalledWith({ spawningCwd: "/repos/a", prompt: "continue", cwd: undefined });
-  });
-
-  it("omits the inherited model when the dispatching session has no current model", async () => {
-    const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-3", cwd: "/repos/a" }));
-    const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
-
-    await tool.execute("call-3", { prompt: "continue" }, undefined, undefined, ctx);
 
     expect(spawn).toHaveBeenCalledWith({ spawningCwd: "/repos/a", prompt: "continue", cwd: undefined });
   });

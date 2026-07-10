@@ -3,28 +3,33 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues, PiWebShortcutConfig } from "../../api";
 import { formatShortcut, isShortcutSequenceStarter, parseShortcutInput, resolveShortcutBindings, shortcutSequenceTimeoutMs, shortcutTokenFromEvent, type ShortcutBindingResolution } from "../../keyboardShortcuts";
-import { renderSettingsMessages, settingsPanelSharedStyles } from "./settingsPanelShared";
 import { readPromptEnterPreference, writePromptEnterPreference, type PromptEnterPreference } from "../../promptEnterBehavior";
+import "./SettingsPanelFrame";
+import type { SettingsNotice } from "./SettingsPanelFrame";
 
 const RECORD_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
 
 const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: string; description: string }[] = [
   {
     value: "auto",
-    label: "Auto/default",
-    description: "Desktop-like Enter sends; mobile, coarse pointer, or narrow screens insert a new line.",
+    label: "自动/默认",
+    description: "桌面环境按 Enter 发送；移动设备、粗略指针或窄屏环境按 Enter 换行。",
   },
   {
     value: "send",
-    label: "Enter sends message",
-    description: "Enter sends the chat message; Shift+Enter adds a new line when supported.",
+    label: "Enter 发送消息",
+    description: "Enter 发送聊天消息；支持时 Shift+Enter 插入新行。",
   },
   {
     value: "newline",
-    label: "Enter inserts new line",
-    description: "Enter adds a line break; Shift+Enter sends the chat message when supported.",
+    label: "Enter 插入新行",
+    description: "Enter 插入换行；支持时 Shift+Enter 发送聊天消息。",
   },
 ];
+
+function renderShortcutsDescription(): TemplateResult {
+  return html`按操作编辑应用快捷键。输入 <code>mod+k</code> 或 <code>mod+g p</code> 这类快捷键，也可以从键盘录制、设为无或恢复默认。快捷键冲突时，自定义快捷键优先于默认值；同级按 action id 排序，较短快捷键会遮蔽相同前缀的较长序列。`;
+}
 
 @customElement("settings-shortcuts-panel")
 export class SettingsShortcutsPanel extends LitElement {
@@ -88,47 +93,51 @@ export class SettingsShortcutsPanel extends LitElement {
     const groups = shortcutGroups(this.actions);
     const shortcutResolutions = this.shortcutResolutions();
     return html`
-      <div class="section-heading">
-        <div>
-          <h2>键盘快捷键</h2>
-          <p>按操作编辑应用快捷键。输入 <code>mod+k</code> 或 <code>mod+g p</code> 这类快捷键，也可以从键盘录制、设为无或恢复默认。快捷键冲突时，自定义快捷键优先于默认值；同级按 action id 排序，较短快捷键会遮蔽相同前缀的较长序列。</p>
-        </div>
-        <button class="secondary" ?disabled=${this.loading} @click=${() => { void this.onReload?.(); }}>Reload</button>
-      </div>
-      ${this.renderMessages()}
-      ${this.renderPromptEnterPreferenceCard()}
-      ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">正在加载快捷键…</div>` : html`
-        <div class="config-path-card">
-          <span>配置文件</span>
-          <code>${this.configResponse?.path ?? "未知"}</code>
-          <small>快捷键覆盖项保存在 <code>shortcuts</code> 下。值为 <code>null</code> 时会禁用该操作快捷键。</small>
-        </div>
-        ${groups.length === 0 ? html`<div class="loading-card">没有已注册操作。</div>` : groups.map((group) => html`
-          <section class="shortcut-group">
-            <h3>${group.name}</h3>
-            <div class="shortcut-list">
-              ${group.actions.map((action) => this.renderShortcutRow(action, shortcutResolutions.get(action.id)))}
-            </div>
-          </section>
-        `)}
-      `}
+      <settings-panel-frame
+        heading="键盘快捷键"
+        .description=${renderShortcutsDescription()}
+        actionLabel="重新加载"
+        .actionDisabled=${this.loading}
+        .notices=${this.panelNotices()}
+        .onAction=${this.onReload}
+      >
+        ${this.renderPromptEnterPreferenceCard()}
+        ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">正在加载快捷键…</div>` : html`
+          <div class="config-path-card">
+            <span>配置文件</span>
+            <code>${this.configResponse?.path ?? "未知"}</code>
+            <small>快捷键覆盖项保存在 <code>shortcuts</code> 下。值为 <code>null</code> 时会禁用该操作快捷键。</small>
+          </div>
+          ${groups.length === 0 ? html`<div class="loading-card">没有已注册操作。</div>` : groups.map((group) => html`
+            <section class="shortcut-group">
+              <h3>${group.name}</h3>
+              <div class="shortcut-list">
+                ${group.actions.map((action) => this.renderShortcutRow(action, shortcutResolutions.get(action.id)))}
+              </div>
+            </section>
+          `)}
+        `}
+      </settings-panel-frame>
     `;
   }
 
-  private renderMessages(): TemplateResult | null {
+  private panelNotices(): readonly SettingsNotice[] {
+    const notices: SettingsNotice[] = [];
     const error = this.localError || this.error;
-    return renderSettingsMessages(error, this.savedMessage);
+    if (error !== "") notices.push({ type: "error", content: error });
+    if (this.savedMessage !== "") notices.push({ type: "success", content: this.savedMessage });
+    return notices;
   }
 
   private renderPromptEnterPreferenceCard(): TemplateResult {
     return html`
       <section class="prompt-enter-card" aria-labelledby="prompt-enter-preference-title">
         <div class="prompt-enter-copy">
-          <span class="card-eyebrow">Chat composer</span>
-          <h3 id="prompt-enter-preference-title">Enter key behavior</h3>
-          <p>Choose what Enter does in this browser. Shift+Enter does the opposite when supported; automatic touch-keyboard capitalization is ignored to avoid accidental sends.</p>
+          <span class="card-eyebrow">聊天输入框</span>
+          <h3 id="prompt-enter-preference-title">Enter 键行为</h3>
+          <p>选择当前浏览器中 Enter 键的行为。支持时 Shift+Enter 执行相反操作；为避免误发送，会忽略触摸键盘的自动大写状态。</p>
         </div>
-        <div class="prompt-enter-options" role="radiogroup" aria-label="Enter and Shift Enter behavior in the chat composer">
+        <div class="prompt-enter-options" role="radiogroup" aria-label="聊天输入框中的 Enter 和 Shift Enter 行为">
           ${PROMPT_ENTER_OPTIONS.map((option) => html`
             <label class="prompt-enter-option">
               <input
@@ -332,8 +341,20 @@ export class SettingsShortcutsPanel extends LitElement {
     this.recordingListenerActive = false;
   }
 
-  static override styles = [settingsPanelSharedStyles, css`
-    .prompt-enter-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; display: grid; grid-template-columns: minmax(0, .85fr) minmax(260px, 1fr); gap: 12px; align-items: start; margin-bottom: 14px; }
+  static override styles = css`
+    :host { display: block; }
+    h3, p { margin: 0; }
+    h3 { font-size: 13px; line-height: 1.3; }
+    p { color: var(--pi-muted); line-height: 1.45; }
+    button, input { font: inherit; }
+    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+    button:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
+    .primary { border-color: var(--pi-accent); background: var(--pi-selection-bg); color: var(--pi-text-bright); }
+    .loading-card, .config-path-card, .prompt-enter-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
+    .loading-card, .config-path-card { color: var(--pi-muted); }
+    .config-path-card { display: grid; gap: 5px; }
+    .config-path-card span, .card-eyebrow { color: var(--pi-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .prompt-enter-card { display: grid; grid-template-columns: minmax(0, .85fr) minmax(260px, 1fr); gap: 12px; align-items: start; }
     .prompt-enter-copy { display: grid; gap: 5px; min-width: 0; }
     .prompt-enter-copy p, .prompt-enter-option small { font-size: 12px; }
     .prompt-enter-options { display: grid; gap: 7px; }
@@ -342,7 +363,8 @@ export class SettingsShortcutsPanel extends LitElement {
     .prompt-enter-option input:focus { border-color: transparent; box-shadow: none; outline: 2px solid var(--pi-accent-border); outline-offset: 2px; }
     .prompt-enter-option span { display: grid; gap: 2px; }
     .prompt-enter-option small { color: var(--pi-muted); line-height: 1.35; }
-    .shortcut-group { margin: 0 0 16px; }
+    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    .shortcut-group { margin: 0; }
     .shortcut-group h3 { margin: 0 0 8px; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
     .shortcut-list { border: 1px solid var(--pi-border); border-radius: 10px; overflow: hidden; }
     .shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 48%); gap: 14px; align-items: start; padding: 12px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-surface); }
@@ -375,7 +397,7 @@ export class SettingsShortcutsPanel extends LitElement {
       .shortcut-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
       .shortcut-status, .shortcut-actions { justify-content: flex-start; }
     }
-  `];
+  `;
 }
 
 interface RecordingState {

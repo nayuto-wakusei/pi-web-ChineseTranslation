@@ -3,12 +3,12 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { ChatDisclosureController } from "../chatDisclosure";
 import { groupChatMessages, summarizeChatGroup, type ChatGroup } from "../chatGroups";
+import { writeClipboardText } from "../clipboard";
 import { capturePrependScrollAnchor, PREPEND_RESTORE_SETTLE_FRAMES, restorePrependScrollAnchor, type PrependScrollAnchor } from "../chatScrollAnchoring";
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
-import type { SessionActivity, SessionStatus } from "../api";
 import type { ChatLine, ChatPart } from "../chatTypes";
-import { writeClipboard } from "../utils/clipboard";
+import type { QueuedSessionMessage, SessionActivity, SessionStatus } from "../api";
 import { chatStyles } from "./styles/chatStyles";
 import "./ConversationMeter";
 import "./FormattedText";
@@ -66,6 +66,19 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+export interface QueuedMessageSection {
+  heading: string;
+  detail: string;
+  messages: QueuedSessionMessage[];
+}
+
+export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
+  return [
+    clientQueued.length === 0 ? undefined : { heading: "等待会话启动", detail: "后端会话准备好后将自动发送", messages: clientQueued },
+    serverQueued.length === 0 ? undefined : { heading: "排队消息", detail: `${String(serverQueued.length)} 条待处理 · 停止会清空队列`, messages: serverQueued },
+  ].filter((section): section is QueuedMessageSection => section !== undefined);
+}
+
 @customElement("chat-view")
 export class ChatView extends LitElement {
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -79,6 +92,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
+  @property({ attribute: false }) clientQueuedMessages: QueuedSessionMessage[] = [];
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) activity?: SessionActivity;
   @property({ attribute: false }) onLoadMore?: () => void;
@@ -248,15 +262,18 @@ export class ChatView extends LitElement {
   }
 
   private renderQueuedMessages() {
-    const queued = this.status?.queuedMessages ?? [];
-    if (queued.length === 0) return null;
+    const serverQueued = this.status?.queuedMessages ?? [];
+    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued).map((section) => this.renderQueuedMessageList(section))}`;
+  }
+
+  private renderQueuedMessageList(section: QueuedMessageSection) {
     return html`
       <aside class="queued-messages" aria-live="polite">
         <div class="queued-header">
-          <strong>排队消息</strong>
-          <small>${queued.length} 条待处理 · 停止会清空队列</small>
+          <strong>${section.heading}</strong>
+          <small>${section.detail}</small>
         </div>
-        ${queued.map((message, index) => html`
+        ${section.messages.map((message, index) => html`
           <div class="queued-message">
             <span class="queued-kind">${message.kind === "steer" ? "引导" : "跟进"} ${String(index + 1)}</span>
             ${message.imageCount !== undefined && message.imageCount > 0 ? html`<small>含 ${message.imageCount} 张图片</small>` : null}
@@ -451,8 +468,8 @@ export class ChatView extends LitElement {
 
   private async copyMessage(message: ChatLine, key: string, event: MouseEvent): Promise<void> {
     event.stopPropagation();
-    const ok = await writeClipboard(this.messageCopyText(message));
-    if (!ok) return;
+    const copied = await writeClipboardText(this.messageCopyText(message));
+    if (!copied) return;
     this.copiedMessageKey = key;
     window.setTimeout(() => {
       if (this.copiedMessageKey === key) this.copiedMessageKey = undefined;

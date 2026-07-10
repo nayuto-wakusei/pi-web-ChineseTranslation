@@ -223,6 +223,10 @@ function installationLabel(installation: PiWebInstallationInfo | undefined): str
     return `global npm package${npmRoot}${path}`;
   }
   if (installation.kind === "local") return installation.path === undefined ? "local checkout" : `local checkout · ${installation.path}`;
+  if (installation.kind === "docker") {
+    const mode = installation.dockerMode === "dev" ? "Docker development runtime" : "Docker runtime";
+    return installation.path === undefined ? mode : `${mode} · ${installation.path}`;
+  }
   return installation.path === undefined ? "installation unknown" : `installation unknown · ${installation.path}`;
 }
 

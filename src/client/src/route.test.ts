@@ -8,9 +8,10 @@ afterEach(() => {
   Object.defineProperty(globalThis, "window", { value: originalWindow, configurable: true });
 });
 
-function installWindow(href: string): { pushed: string[] } {
+function installWindow(href: string): { pushed: string[]; replaced: string[] } {
   const url = new URL(href);
   const pushed: string[] = [];
+  const replaced: string[] = [];
   const fakeWindow = {
     location: {
       href: url.href,
@@ -23,12 +24,12 @@ function installWindow(href: string): { pushed: string[] } {
         pushed.push(String(next));
       }),
       replaceState: vi.fn((_state: object, _title: string, next: URL | string) => {
-        pushed.push(String(next));
+        replaced.push(String(next));
       }),
     },
   };
   Object.defineProperty(globalThis, "window", { value: fakeWindow, configurable: true });
-  return { pushed };
+  return { pushed, replaced };
 }
 
 describe("route helpers", () => {
@@ -51,8 +52,8 @@ describe("route helpers", () => {
     expect(readRoute()).toMatchObject({ tool: undefined, view: undefined });
   });
 
-  it("writes compact URLs and preserves path/hash", () => {
-    const { pushed } = installWindow("http://localhost/app?old=1#section");
+  it("writes compact URLs with push history and preserves path/hash", () => {
+    const { pushed, replaced } = installWindow("http://localhost/app?old=1#section");
     const route: AppRoute = {
       machineId: "remote",
       projectId: "project/id",
@@ -65,13 +66,15 @@ describe("route helpers", () => {
     writeRoute(route);
 
     expect(pushed).toEqual(["http://localhost/app?old=1&machine=remote&project=project%2Fid&workspace=workspace+id&tool=core%3Aworkspace.files&view=chat#section"]);
+    expect(replaced).toEqual([]);
   });
 
-  it("does not push history when the route is unchanged", () => {
-    const { pushed } = installWindow("http://localhost/app?project=p1&tool=core%3Aworkspace.git");
+  it("does not write history when the route is unchanged", () => {
+    const { pushed, replaced } = installWindow("http://localhost/app?project=p1&tool=core%3Aworkspace.git");
 
     writeRoute({ machineId: undefined, projectId: "p1", workspaceId: undefined, sessionId: undefined, tool: "core:workspace.git", view: undefined });
 
     expect(pushed).toEqual([]);
+    expect(replaced).toEqual([]);
   });
 });
