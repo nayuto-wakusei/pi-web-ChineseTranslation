@@ -1,5 +1,28 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.4
+
+### Patch Changes
+
+- d6cfffd: Allow chat copy buttons to work from HTTP private-network addresses by falling back when the browser Clipboard API is unavailable.
+- 856ba73: Include Vim in the default Docker runtime and development images.
+- 3df4041: Manage Pi packages from Settings on the selected PI WEB machine, including federated remote machines, while keeping gateway-local Settings scopes clear.
+- 829b350: Fix the Docker runtime installer so one-line installs can fetch Docker assets into a fresh install directory.
+- 3cb81b1: Improve session-start feedback so concurrent new sessions stay visible without disrupting session-list navigation.
+- ad62853: Show full chat tool file paths and commands in horizontally scrollable headers, repeat them in expanded tool details, and keep result output horizontally scrollable.
+- eb17276: Preserve archive and archived-session delete actions for older federated PI WEB machines that do not yet advertise session persistence or delete capabilities.
+- 8ade238: Add PI WEB settings for managing Pi packages separately from PI WEB plugin enablement, including install/remove/update flows and browser/session reload guidance.
+- c9ad5b0: Keep ordinary-mode authentication primary actions readable on accent backgrounds.
+- 386c67e: Raise the minimum supported Pi version to 0.80, removing reliance on Pi's deprecated `pi-ai` compat API for session-name generation in favor of the stable `pi-agent-core` streaming interface.
+- 10efb7f: Name Relay handoff sessions deterministically from their relay name and leg number.
+- 0b17b9d: Promote the Updates tab to stable by removing its beta label while keeping update message counts visible.
+- 0a1b7f9: Keep gateway Settings panels responsive while selected-machine Pi packages load or fail separately, report Pi package-management support through runtime capabilities, guide remote Pi package-management UI when support is known unavailable, and serialize Pi package mutations to avoid concurrent settings/install-root races within a PI WEB server process.
+- 64b2b32: Make Settings edit machine-scoped PI WEB config on the selected machine for session daemon tools, plugin enablement, external path access, and upload defaults while keeping gateway/browser-only settings local, and show those forms as unavailable when a remote machine does not advertise support.
+- d2e10cd: Show the random-looking suffix for unnamed sessions so newly created empty sessions are easier to distinguish.
+- 889672f: Add `/reload` support for PI WEB sessions so installed Pi package resources can be refreshed in existing sessions without restarting the session daemon, while keeping browser plugin reload guidance separate.
+- 2665d1e: Create editable chats immediately when starting sessions, open the chat right away on mobile, queue sends until the backend session is ready, reconcile concurrent session-created broadcasts, and use server-backed persistence signals for session archive/delete/reload actions.
+- b61a9c0: Standardize Settings tabs so descriptions, notices, and controls render in a consistent order, with unavailable remote settings hiding blocked controls.
+
 ## 1.202607.3
 
 ### Patch Changes
