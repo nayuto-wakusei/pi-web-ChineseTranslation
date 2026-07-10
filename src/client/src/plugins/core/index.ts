@@ -1,5 +1,5 @@
 import type { PiWebPlugin } from "../types";
-import { isManagementEmbedMode } from "../../embedMode";
+import { isManagementEmbedMode } from "../../api/managementEmbed";
 import { createCoreActions } from "./actions";
 import { createCoreWorkspacePanels } from "./panels";
 

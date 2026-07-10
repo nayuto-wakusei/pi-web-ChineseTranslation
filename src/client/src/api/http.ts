@@ -24,7 +24,7 @@ export async function request<T>(url: string, parse: (value: unknown) => T, init
 
 export async function requestOptional<T>(url: string, parse: (value: unknown) => T): Promise<T | undefined> {
   const response = await fetch(scopedApiUrl(url));
-  if (response.status === 404) return undefined;
+  if (response.status === 204 || response.status === 404) return undefined;
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
     throw new Error(errorMessage(body) ?? response.statusText);

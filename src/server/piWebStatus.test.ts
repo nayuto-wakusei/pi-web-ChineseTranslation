@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { comparePackageVersions, getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
+import { comparePackageVersions, getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus, systemdNpmGlobalUpdateCommand } from "./piWebStatus.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import type { PiWebComponentStatus } from "../shared/apiTypes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
@@ -31,6 +31,19 @@ describe("PI WEB status", () => {
     expect(comparePackageVersions("1.202605.9", "1.202605.8")).toBeGreaterThan(0);
     expect(comparePackageVersions("1.202605.8", "1.202605.8")).toBe(0);
     expect(comparePackageVersions("1.202605.7", "1.202605.8")).toBeLessThan(0);
+  });
+
+  it("stops native services before replacing a global npm installation", () => {
+    const command = systemdNpmGlobalUpdateCommand(
+      ["pi-web.service", "pi-web-sessiond.service"],
+      ["pi-web-sessiond.service", "pi-web.service"],
+    );
+
+    expect(command).toContain("systemd-run --user --collect --unit=pi-web-update");
+    expect(command).toContain("systemctl --user stop pi-web.service pi-web-sessiond.service");
+    expect(command).toContain("npm install -g @chainingintention/pi-web-cn");
+    expect(command).toContain("systemctl --user start pi-web-sessiond.service pi-web.service");
+    expect(command.indexOf("systemctl --user stop")).toBeLessThan(command.indexOf("npm install -g"));
   });
 
   it("returns installed and running version components without release metadata", async () => {

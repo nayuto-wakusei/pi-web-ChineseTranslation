@@ -276,7 +276,6 @@ export class ChatView extends LitElement {
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
             <span class="queued-kind">${message.kind === "steer" ? "引导" : "跟进"} ${String(index + 1)}</span>
-            ${message.imageCount !== undefined && message.imageCount > 0 ? html`<small>含 ${message.imageCount} 张图片</small>` : null}
             <formatted-text .text=${message.text}></formatted-text>
           </div>
         `)}

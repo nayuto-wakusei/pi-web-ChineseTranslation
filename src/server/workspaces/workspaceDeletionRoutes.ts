@@ -7,6 +7,7 @@ import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import {
   encodeManagementContext,
   managementContextForRequest,
+  managementProjectRoot,
   managementToolAllowed,
   MANAGEMENT_EMBED_CONTEXT_HEADER,
   projectFromManagedEmbedContext,
@@ -70,11 +71,6 @@ async function requestJson(daemon: SessionProxyDaemon, method: string, path: str
 
 function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
   return context === undefined ? undefined : { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
-}
-
-function managementProjectRoot(managementEmbed: ManagementEmbedRuntime | undefined): string {
-  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  return managementEmbed.projectRoot;
 }
 
 function responseError(body: unknown, statusCode: number): string {

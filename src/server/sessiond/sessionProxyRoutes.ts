@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { WebSocket, type RawData } from "ws";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
-import { assertManagedCwd, encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
@@ -97,11 +97,6 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
 
 function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
   return context === undefined ? undefined : { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
-}
-
-function managementProjectRoot(managementEmbed: ManagementEmbedRuntime | undefined): string {
-  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  return managementEmbed.projectRoot;
 }
 
 function stripPrefix(url: string, prefix: string): string {

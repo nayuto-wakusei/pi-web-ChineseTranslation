@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { withManagementEmbed } from "./managementEmbed";
+import { isManagementEmbedMode, withManagementEmbed } from "./managementEmbed";
 
 describe("management embed API routing", () => {
+  it.each([
+    ["?embed=management", true],
+    ["?embed=management&token=", true],
+    ["?embed=normal", false],
+    ["", false],
+  ])("detects management UI mode from %j", (search, expected) => {
+    expect(isManagementEmbedMode(search)).toBe(expected);
+  });
+
   it("adds management embed query parameters to same-origin API requests", () => {
     const url = withManagementEmbed(
       "/api/projects",

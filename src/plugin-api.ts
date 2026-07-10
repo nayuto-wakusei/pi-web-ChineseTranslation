@@ -131,6 +131,8 @@ export interface Workspace {
 export interface WorkspaceFiles {
   /** Read a file from the workspace. Works for local and federated machines. */
   readFile(path: string): Promise<FileContentResponse>;
+  /** Read an optional file without treating a missing path as an error. */
+  readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
   /** Write content to a workspace file. Creates intermediate directories by default.
    *  Works for local and federated machines. Auto-refreshes the file explorer after success. */
   writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;

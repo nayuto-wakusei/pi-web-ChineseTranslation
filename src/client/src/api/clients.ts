@@ -1,5 +1,5 @@
 import type { DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionRef, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
-import { request, requestOptional, scopedApiUrl } from "./http";
+import { request, requestOptional } from "./http";
 import {
   arrayOf,
   parseAborted,
@@ -51,7 +51,6 @@ import {
   parseWorkspaceActivityResponse,
   parseWorkspaceDeleteResponse,
   parseWorkspacePathOperationResponse,
-  parseWorkspaceUploadResponse,
 } from "./parsers";
 import { machineGitDiffUrl, messageUrl, workspaceFileDownloadUrl } from "./urls";
 
@@ -172,31 +171,27 @@ export const projectsApi = {
   projectDirectories: (query: string, machineId = "local") => request(`${machinePrefix(machineId)}/project-directories?q=${encodeURIComponent(query)}`, arrayOf(parseFileSuggestion)),
 };
 
+function writeWorkspaceFile(projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId = "local") {
+  const params = new URLSearchParams({ path });
+  if (options?.createDirs === false) params.set("createDirs", "false");
+  if (options?.overwrite === false) params.set("overwrite", "false");
+  const isBinary = content instanceof Uint8Array;
+  const body: BodyInit = isBinary ? new Uint8Array(content) : new TextEncoder().encode(content);
+  return request(
+    `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${params.toString()}`,
+    parseWriteWorkspaceFileResponse,
+    { method: "PUT", body, headers: { "Content-Type": isBinary ? "application/octet-stream" : "text/plain" } },
+  );
+}
+
 export const workspacesApi = {
   workspaces: (projectId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${projectId}/workspaces`, arrayOf(parseWorkspace)),
   deleteWorkspace: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE" }),
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
-  uploadWorkspaceFile: async (projectId: string, workspaceId: string, path: string, file: File, machineId = "local") => machineId === "local"
-    ? uploadLocalWorkspaceFile(projectId, workspaceId, path, file)
-    : request(
-      `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`,
-      parseWorkspaceUploadResponse,
-      { method: "POST", body: JSON.stringify({ path, contentBase64: await fileToBase64(file) }) },
-    ),
-  createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`, parseWorkspaceUploadResponse, { method: "POST", body: JSON.stringify({ path, contentBase64: "" }) }),
-  writeWorkspaceFile: (projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId = "local") => {
-    const params = new URLSearchParams({ path });
-    if (options?.createDirs === false) params.set("createDirs", "false");
-    if (options?.overwrite === false) params.set("overwrite", "false");
-    const isBinary = content instanceof Uint8Array;
-    const body: BodyInit = isBinary ? new Uint8Array(content) : new TextEncoder().encode(content);
-    return request(
-      `${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${params.toString()}`,
-      parseWriteWorkspaceFileResponse,
-      { method: "PUT", body, headers: { "Content-Type": isBinary ? "application/octet-stream" : "text/plain" } },
-    );
-  },
+  optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse),
+  createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => writeWorkspaceFile(projectId, workspaceId, path, new Uint8Array(), undefined, machineId),
+  writeWorkspaceFile,
   deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local"): Promise<DeleteWorkspaceFileResponse> => {
     const params = new URLSearchParams({ path });
     return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${params.toString()}`, parseDeleteWorkspaceFileResponse, { method: "DELETE" });
@@ -214,7 +209,6 @@ export const workspacesApi = {
   createWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "POST", body: JSON.stringify({ path }) }),
   moveWorkspaceDirectory: (projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory`, parseWorkspacePathOperationResponse, { method: "PATCH", body: JSON.stringify({ fromPath, toPath }) }),
   deleteWorkspaceDirectory: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/directory?path=${encodeURIComponent(path)}`, parseWorkspaceDeleteResponse, { method: "DELETE" }),
-  workspaceDownloadUrl: (projectId: string, workspaceId: string, path: string, machineId = "local") => workspaceFileDownloadUrl(projectId, workspaceId, path, { machineId }),
   downloadWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => downloadWorkspaceFile(projectId, workspaceId, path, machineId),
 };
 
@@ -294,32 +288,6 @@ function apiErrorMessage(value: unknown): string | undefined {
   if (!isRecord(value)) return undefined;
   const error = value["error"];
   return typeof error === "string" ? error : undefined;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return arrayBufferToBase64(await file.arrayBuffer());
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-async function uploadLocalWorkspaceFile(projectId: string, workspaceId: string, path: string, file: File): Promise<ReturnType<typeof parseWorkspaceUploadResponse>> {
-  const formData = new FormData();
-  formData.set("path", path);
-  formData.set("file", file, file.name);
-  const response = await fetch(scopedApiUrl(`${machinePrefix("local")}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file`), {
-    method: "POST",
-    body: formData,
-  });
-  if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(apiErrorMessage(body) ?? response.statusText);
-  }
-  return parseWorkspaceUploadResponse(await response.json());
 }
 
 async function downloadWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId: string): Promise<void> {

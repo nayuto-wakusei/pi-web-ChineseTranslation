@@ -9,6 +9,7 @@ const missingWorkspaceFileError = "Path does not exist";
 
 export interface WorkspaceTasksFileReader {
   readFile(path: string): Promise<WorkspaceTasksFileContent>;
+  readOptionalFile?(path: string): Promise<WorkspaceTasksFileContent | undefined>;
 }
 
 interface WorkspaceTasksFileContent {
@@ -25,7 +26,11 @@ export type WorkspaceTasksConfigLoadResult =
 export async function loadWorkspaceTasksConfig(files: WorkspaceTasksFileReader): Promise<WorkspaceTasksConfigLoadResult> {
   let file: WorkspaceTasksFileContent;
   try {
-    file = await files.readFile(TASKS_CONFIG_PATH);
+    const optionalFile = files.readOptionalFile === undefined
+      ? await files.readFile(TASKS_CONFIG_PATH)
+      : await files.readOptionalFile(TASKS_CONFIG_PATH);
+    if (optionalFile === undefined) return missing();
+    file = optionalFile;
   } catch (error) {
     if (errorMessage(error) === missingWorkspaceFileError) return missing();
     return unavailable(`无法读取 ${TASKS_CONFIG_PATH}: ${formatUnknownError(error)}`);

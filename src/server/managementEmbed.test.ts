@@ -211,49 +211,39 @@ describe("management embed local token authentication", () => {
     expect(context?.projects).toEqual([{ id: "p1", name: "Project 1" }]);
   });
 
-  it("rejects tampered entry tokens", async () => {
-    const runtime = runtimeFor("secret-1");
-    const token = signToken(tokenPayload(contextFor([])), "secret-1");
-    const tampered = token.replace(/.$/, token.endsWith("a") ? "b" : "a");
-
+  it.each([
+    {
+      name: "tampered entry tokens",
+      token: () => {
+        const signed = signToken(tokenPayload(contextFor([])), "secret-1");
+        return signed.replace(/.$/, signed.endsWith("a") ? "b" : "a");
+      },
+      error: "Management embed token is invalid",
+    },
+    {
+      name: "opaque entry tokens from the old introspection flow",
+      token: () => "A05PRNxpc93qJNSkZGTLpBw9xkEtJ4OkhLN1Mw4SITM",
+      error: "Management embed token is invalid",
+    },
+    {
+      name: "expired entry tokens",
+      token: () => signToken(tokenPayload(contextFor([]), { exp: seconds(nowMs - 1_000) }), "secret-1"),
+      error: "Management embed token is expired",
+    },
+    {
+      name: "entry tokens from the wrong issuer",
+      token: () => signToken(tokenPayload(contextFor([]), { iss: "other-issuer" }), "secret-1"),
+      error: "Management embed token is invalid",
+    },
+    {
+      name: "entry tokens for the wrong audience",
+      token: () => signToken(tokenPayload(contextFor([]), { aud: "other-audience" }), "secret-1"),
+      error: "Management embed token is invalid",
+    },
+  ])("rejects $name", async ({ token, error }) => {
     await expect(
-      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": tampered }), runtime, replyFor()),
-    ).rejects.toThrow("Management embed token is invalid");
-  });
-
-  it("rejects opaque entry tokens from the old introspection flow", async () => {
-    const runtime = runtimeFor("secret-1");
-
-    await expect(
-      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "A05PRNxpc93qJNSkZGTLpBw9xkEtJ4OkhLN1Mw4SITM" }), runtime, replyFor()),
-    ).rejects.toThrow("Management embed token is invalid");
-  });
-
-  it("rejects expired entry tokens", async () => {
-    const runtime = runtimeFor("secret-1");
-    const token = signToken(tokenPayload(contextFor([]), { exp: seconds(nowMs - 1_000) }), "secret-1");
-
-    await expect(
-      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
-    ).rejects.toThrow("Management embed token is expired");
-  });
-
-  it("rejects entry tokens from the wrong issuer", async () => {
-    const runtime = runtimeFor("secret-1");
-    const token = signToken(tokenPayload(contextFor([]), { iss: "other-issuer" }), "secret-1");
-
-    await expect(
-      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
-    ).rejects.toThrow("Management embed token is invalid");
-  });
-
-  it("rejects entry tokens for the wrong audience", async () => {
-    const runtime = runtimeFor("secret-1");
-    const token = signToken(tokenPayload(contextFor([]), { aud: "other-audience" }), "secret-1");
-
-    await expect(
-      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, replyFor()),
-    ).rejects.toThrow("Management embed token is invalid");
+      managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token() }), runtimeFor("secret-1"), replyFor()),
+    ).rejects.toThrow(error);
   });
 });
 

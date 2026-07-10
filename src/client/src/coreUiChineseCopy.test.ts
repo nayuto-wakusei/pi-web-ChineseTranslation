@@ -5,159 +5,105 @@ import { describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
+interface CopyCase {
+  name: string;
+  paths: readonly string[];
+  expected: readonly string[];
+  forbidden: readonly string[];
+}
+
+const copyCases: readonly CopyCase[] = [
+  {
+    name: "localizes the navigation/sidebar labels shown in the main shell",
+    paths: ["components/appShell/AppNavigationPanel.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "components/SessionList.ts"],
+    expected: ["操作", "项目", "工作区", "会话", "启动新会话", "再启动一个会话"],
+    forbidden: [">Actions<", "▾ Projects", "▾ Workspaces", "▾ Sessions", "No project selected", "No workspace selected", "No session selected", "Start a new session", "Start another session", " messages"],
+  },
+  {
+    name: "localizes the prompt editor controls and placeholder",
+    paths: ["components/PromptEditor.ts"],
+    expected: ["给 pi 发送消息", "使用 / 输入命令", "发送", "停止"],
+    forbidden: ["Message pi...", "Use / for commands", ">Send<", ">Stop<"],
+  },
+  {
+    name: "localizes the chat event labels and history boundary copy",
+    paths: ["components/ChatView.ts", "chatGroups.ts"],
+    expected: ["会话开始", "事件", "显示消息"],
+    forbidden: ["Beginning of session", "Showing messages", "live events"],
+  },
+  {
+    name: "localizes the terminal panel controls visible above the shell",
+    paths: ["components/TerminalPanel.ts"],
+    expected: ["按键", "+ 终端"],
+    forbidden: [">Keys<", "+ Shell"],
+  },
+  {
+    name: "localizes the empty states shown before project and workspace selection",
+    paths: ["components/PiWebApp.ts", "components/WorkspacePanel.ts"],
+    expected: ["选择项目和工作区以开始会话。", "选择项目", "从侧边栏选择一个项目，然后选择工作区来查看文件、Git 或终端。"],
+    forbidden: ["Select a project and workspace to start a session.", "Select a project", "Choose a project from the sidebar", "Choose a workspace to inspect files, Git, or terminals."],
+  },
+  {
+    name: "localizes the command palette navigation and panel layout actions",
+    paths: ["components/PiWebApp.ts"],
+    expected: [
+      "聚焦机器", "将键盘焦点移到机器选择器", "聚焦项目", "将键盘焦点移到项目列表",
+      "聚焦工作区", "将键盘焦点移到工作区列表", "聚焦会话", "将键盘焦点移到会话列表",
+      "重置导航面板宽度", "将导航面板恢复为默认宽度", "重置工作区面板宽度", "将工作区面板恢复为默认宽度",
+      "重置面板宽度", "将所有侧边面板恢复为默认宽度", "导航", "视图",
+      "调整导航面板大小", "展开导航面板", "折叠导航面板",
+      "调整工作区面板大小", "展开工作区面板", "折叠工作区面板",
+    ],
+    forbidden: [
+      "Focus Machines", "Move keyboard focus to the machine selector", "Reset Navigation Panel Size", "Restore the navigation panel to its default width",
+      "Resize navigation panel", "Expand navigation panel", "Collapse navigation panel",
+      "Resize workspace panel", "Expand workspace panel", "Collapse workspace panel",
+    ],
+  },
+  {
+    name: "localizes the live activity dock state labels",
+    paths: ["components/ChatView.ts"],
+    expected: ["activityStateLabel(activity.label)", "return activityStateLabel(state);", "空闲"],
+    forbidden: [
+      "if (activity === undefined) return state;",
+      "return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;",
+    ],
+  },
+  {
+    name: "localizes model picker and session bulk action copy",
+    paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
+    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "完成"],
+    forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
+  },
+  {
+    name: "localizes session cleanup actions and dialog copy",
+    paths: ["components/PiWebApp.ts", "components/SessionList.ts", "components/SessionCleanupDialog.ts", "sessionCleanupUi.ts"],
+    expected: ["清理会话", "预览并手动清理所选机器上的空闲或已归档会话", "归档空闲超过", "删除是永久操作", "运行清理"],
+    forbidden: ["Clean up sessions", "Clean Up Sessions", "Preview manual cleanup", "Archive non-archived sessions", "Deletion is permanent", "Run cleanup"],
+  },
+  {
+    name: "keeps the file upload control as one visible Chinese button",
+    paths: ["components/WorkspaceFilesPanel.ts"],
+    expected: ["aria-label=\"上传文件\"", "type=\"file\" multiple"],
+    forbidden: [">选择文件<", "Choose file", "未选择文件"],
+  },
+  {
+    name: "localizes the document and installable app metadata",
+    paths: ["../index.html", "../public/manifest.webmanifest"],
+    expected: ["lang=\"zh-CN\"", "用于管理持久 Pi Coding Agent 会话的远程 Web 界面和浏览器控制平面。"],
+    forbidden: ["lang=\"en\"", "Remote web UI and browser control plane for persistent Pi Coding Agent sessions."],
+  },
+];
+
 function source(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
 describe("core UI Chinese display copy", () => {
-  it("localizes the navigation/sidebar labels shown in the main shell", () => {
-    const text = [
-      source("components/appShell/AppNavigationPanel.ts"),
-      source("components/ProjectList.ts"),
-      source("components/WorkspaceList.ts"),
-      source("components/SessionList.ts"),
-    ].join("\n");
+  it.each(copyCases)("$name", ({ paths, expected, forbidden }) => {
+    const text = paths.map(source).join("\n");
 
-    expect(text).toContain("操作");
-    expect(text).toContain("项目");
-    expect(text).toContain("工作区");
-    expect(text).toContain("会话");
-    expect(text).not.toContain(">Actions<");
-    expect(text).not.toContain("▾ Projects");
-    expect(text).not.toContain("▾ Workspaces");
-    expect(text).not.toContain("▾ Sessions");
-    expect(text).not.toContain("No project selected");
-    expect(text).not.toContain("No workspace selected");
-    expect(text).not.toContain("No session selected");
-    expect(text).not.toContain(" messages");
-  });
-
-  it("localizes the prompt editor controls and placeholder", () => {
-    const text = source("components/PromptEditor.ts");
-
-    expect(text).toContain("给 pi 发送消息");
-    expect(text).toContain("使用 / 输入命令");
-    expect(text).toContain("发送");
-    expect(text).toContain("停止");
-    expect(text).not.toContain("Message pi...");
-    expect(text).not.toContain("Use / for commands");
-    expect(text).not.toContain(">Send<");
-    expect(text).not.toContain(">Stop<");
-  });
-
-  it("localizes the chat event labels and history boundary copy", () => {
-    const text = `${source("components/ChatView.ts")}\n${source("chatGroups.ts")}`;
-
-    expect(text).toContain("会话开始");
-    expect(text).toContain("事件");
-    expect(text).toContain("显示消息");
-    expect(text).not.toContain("Beginning of session");
-    expect(text).not.toContain("Showing messages");
-    expect(text).not.toContain("live events");
-  });
-
-  it("localizes the terminal panel controls visible above the shell", () => {
-    const text = source("components/TerminalPanel.ts");
-
-    expect(text).toContain("按键");
-    expect(text).toContain("+ 终端");
-    expect(text).not.toContain(">Keys<");
-    expect(text).not.toContain("+ Shell");
-  });
-
-  it("localizes the empty states shown before project and workspace selection", () => {
-    const text = `${source("components/PiWebApp.ts")}\n${source("components/WorkspacePanel.ts")}`;
-
-    expect(text).toContain("选择项目和工作区以开始会话。");
-    expect(text).toContain("选择项目");
-    expect(text).toContain("从侧边栏选择一个项目，然后选择工作区来查看文件、Git 或终端。");
-    expect(text).not.toContain("Select a project and workspace to start a session.");
-    expect(text).not.toContain("Select a project");
-    expect(text).not.toContain("Choose a project from the sidebar");
-    expect(text).not.toContain("Choose a workspace to inspect files, Git, or terminals.");
-  });
-
-  it("localizes the command palette navigation and panel layout actions", () => {
-    const text = source("components/PiWebApp.ts");
-
-    expect(text).toContain("聚焦机器");
-    expect(text).toContain("将键盘焦点移到机器选择器");
-    expect(text).toContain("聚焦项目");
-    expect(text).toContain("将键盘焦点移到项目列表");
-    expect(text).toContain("聚焦工作区");
-    expect(text).toContain("将键盘焦点移到工作区列表");
-    expect(text).toContain("聚焦会话");
-    expect(text).toContain("将键盘焦点移到会话列表");
-    expect(text).toContain("重置导航面板宽度");
-    expect(text).toContain("将导航面板恢复为默认宽度");
-    expect(text).toContain("重置工作区面板宽度");
-    expect(text).toContain("将工作区面板恢复为默认宽度");
-    expect(text).toContain("重置面板宽度");
-    expect(text).toContain("将所有侧边面板恢复为默认宽度");
-    expect(text).toContain("导航");
-    expect(text).toContain("视图");
-    expect(text).not.toContain("Focus Machines");
-    expect(text).not.toContain("Move keyboard focus to the machine selector");
-    expect(text).not.toContain("Reset Navigation Panel Size");
-    expect(text).not.toContain("Restore the navigation panel to its default width");
-  });
-
-  it("localizes the live activity dock state labels", () => {
-    const text = source("components/ChatView.ts");
-
-    expect(text).toContain("activityStateLabel(activity.label)");
-    expect(text).toContain("return activityStateLabel(state);");
-    expect(text).toContain("空闲");
-    expect(text).not.toContain("if (activity === undefined) return state;");
-    expect(text).not.toContain("return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;");
-  });
-
-  it("localizes model picker and session bulk action copy", () => {
-    const text = `${source("components/PiWebApp.ts")}\n${source("components/SessionList.ts")}`;
-
-    expect(text).toContain("选择模型");
-    expect(text).toContain("当前");
-    expect(text).toContain("选择可见");
-    expect(text).toContain("已选");
-    expect(text).toContain("归档所选");
-    expect(text).toContain("完成");
-    expect(text).not.toContain("Select Model");
-    expect(text).not.toContain("✓ current");
-    expect(text).not.toContain("Select visible");
-    expect(text).not.toContain("} selected");
-    expect(text).not.toContain("Archive selected");
-    expect(text).not.toContain(">Done<");
-    expect(text).not.toContain(">Archive<");
-  });
-
-  it("localizes session cleanup actions and dialog copy", () => {
-    const text = [
-      source("components/PiWebApp.ts"),
-      source("components/SessionList.ts"),
-      source("components/SessionCleanupDialog.ts"),
-      source("sessionCleanupUi.ts"),
-    ].join("\n");
-
-    expect(text).toContain("清理会话");
-    expect(text).toContain("预览并手动清理所选机器上的空闲或已归档会话");
-    expect(text).toContain("归档空闲超过");
-    expect(text).toContain("删除是永久操作");
-    expect(text).toContain("运行清理");
-    expect(text).not.toContain("Clean up sessions");
-    expect(text).not.toContain("Clean Up Sessions");
-    expect(text).not.toContain("Preview manual cleanup");
-    expect(text).not.toContain("Archive non-archived sessions");
-    expect(text).not.toContain("Deletion is permanent");
-    expect(text).not.toContain("Run cleanup");
-  });
-
-  it("keeps the file upload control as one visible Chinese button", () => {
-    const text = source("components/WorkspaceFilesPanel.ts");
-
-    expect(text).toContain("aria-label=\"上传文件\"");
-    expect(text).toContain("type=\"file\" multiple");
-    expect(text).not.toContain(">选择文件<");
-    expect(text).not.toContain("Choose file");
-    expect(text).not.toContain("未选择文件");
+    for (const copy of expected) expect(text).toContain(copy);
+    for (const copy of forbidden) expect(text).not.toContain(copy);
   });
 });

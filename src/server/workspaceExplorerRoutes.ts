@@ -1,20 +1,16 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { MultipartValue } from "@fastify/multipart";
+import type { FastifyInstance } from "fastify";
 import type { WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import type { ProjectService } from "./projects/projectService.js";
 import { deleteWorkspaceFile, moveWorkspaceFile, readWorkspaceFile, writeWorkspaceFile } from "./workspaces/fileContentService.js";
-import { uploadWorkspaceFile, uploadWorkspaceFileStream, type WorkspaceUploadInput } from "./workspaces/fileUploadService.js";
 import { createWorkspaceDirectory, deleteWorkspaceDirectory, moveWorkspaceDirectory, readWorkspaceFileDownload, type WorkspaceMoveInput, type WorkspacePathInput } from "./workspaces/fileOperationService.js";
 import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { listWorkspaceTree } from "./workspaces/fileTreeService.js";
 import { readWorkspaceImagePreview } from "./workspaces/imagePreviewService.js";
-import { resolveWorkspaceContext, type WorkspaceContext } from "./workspaces/workspaceContext.js";
+import { resolveRouteWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
 import { pathAccessForWorkspaceContext } from "./workspaces/effectivePathAccess.js";
-import { managementContextForRequest, projectFromManagedEmbedContext, type ManagementEmbedRuntime } from "./managementEmbed.js";
+import type { ManagementEmbedRuntime } from "./managementEmbed.js";
 import type { WorkspaceService } from "./workspaces/workspaceService.js";
-
-const WORKSPACE_UPLOAD_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
 
 export interface WorkspaceExplorerRouteOptions {
   config?: Pick<PiWebConfigService, "read">;
@@ -34,11 +30,15 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
     }
   });
 
-  app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
+  app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string; optional?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await readWorkspaceFile(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
+      if (isMissingPathError(error)) {
+        if (request.query.optional === "true") return reply.code(204).send();
+        return reply.code(404).send({ error: error.message });
+      }
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -51,16 +51,6 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         overwrite: request.query.overwrite !== "false",
       };
       return await writeWorkspaceFile(context.root, request.query.path, request.body, writeOptions);
-    } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceUploadInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, { bodyLimit: WORKSPACE_UPLOAD_BODY_LIMIT_BYTES }, async (request, reply) => {
-    try {
-      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
-      if (request.isMultipart()) return await uploadWorkspaceFileFromMultipart(context.root, request);
-      return await uploadWorkspaceFile(context.root, request.body);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -169,22 +159,6 @@ function registerWorkspaceFileContentParsers(app: FastifyInstance): void {
   try { app.addContentTypeParser(/^([a-z]+\/[a-z0-9.+-]+)$/u, { parseAs: "buffer" }, (_request, body, done) => { done(null, body); }); } catch { /* already registered */ }
 }
 
-async function uploadWorkspaceFileFromMultipart(rootPath: string, request: FastifyRequest) {
-  const file = await request.file();
-  if (file === undefined) throw new Error("Upload body must include path and file");
-  const pathField = file.fields["path"];
-  const value = Array.isArray(pathField) ? pathField[0] : pathField;
-  const path = isMultipartStringField(value) ? value.value : undefined;
-  return await uploadWorkspaceFileStream(rootPath, path, file.file);
-}
-
-function isMultipartStringField(value: unknown): value is MultipartValue<string> {
-  return typeof value === "object"
-    && value !== null
-    && Reflect.get(value, "type") === "field"
-    && typeof Reflect.get(value, "value") === "string";
-}
-
 function contentDispositionAttachment(filename: string): string {
   const fallback = filename
     .replace(/[^\x20-\x7E]/gu, "_")
@@ -201,21 +175,6 @@ function encodeRFC5987Value(value: string): string {
     .replaceAll("*", "%2A");
 }
 
-async function resolveRouteWorkspaceContext(
-  projects: ProjectService,
-  workspaces: WorkspaceService,
-  managementEmbed: ManagementEmbedRuntime | undefined,
-  request: Parameters<typeof managementContextForRequest>[0],
-  reply: FastifyReply,
-  projectId: string,
-  workspaceId: string,
-  options: { createManagedProject: boolean },
-): Promise<WorkspaceContext> {
-  const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-  if (managementContext === undefined) return resolveWorkspaceContext(projects, workspaces, projectId, workspaceId);
-  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId, { create: options.createManagedProject });
-  const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
-  if (workspace === undefined) throw new Error("Workspace not found");
-  return { project, workspace, root: workspace.path };
+function isMissingPathError(error: unknown): error is Error {
+  return error instanceof Error && error.message === "Path does not exist";
 }

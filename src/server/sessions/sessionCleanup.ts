@@ -1,6 +1,7 @@
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds } from "../../shared/apiTypes.js";
 import type { PiSessionListEntry } from "./piSessionService.js";
 import type { ArchivedSessionRecord, ArchiveSessionInput } from "./sessionArchiveStore.js";
+import { archiveInputFromListEntry } from "./sessionArchiveMapping.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -171,20 +172,6 @@ function uniqueSessionsById(sessions: readonly PiSessionListEntry[]): PiSessionL
     if (existing === undefined || session.modified.getTime() > existing.modified.getTime()) sessionsById.set(session.id, session);
   }
   return [...sessionsById.values()];
-}
-
-function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveSessionInput {
-  return {
-    sessionId: session.id,
-    cwd: session.cwd,
-    path: session.path,
-    created: session.created.toISOString(),
-    modified: session.modified.toISOString(),
-    messageCount: session.messageCount,
-    firstMessage: session.firstMessage,
-    ...(session.name === undefined ? {} : { name: session.name }),
-    ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
-  };
 }
 
 function projectSummary(projectsByCwd: Map<string, SessionCleanupProjectSummary>, cwd: string): SessionCleanupProjectSummary {

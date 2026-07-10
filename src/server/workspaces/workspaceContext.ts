@@ -10,6 +10,10 @@ export interface WorkspaceContext {
 
 export async function resolveWorkspaceContext(projects: ProjectService, workspaces: WorkspaceService, projectId: string, workspaceId: string): Promise<WorkspaceContext> {
   const project = await projects.requireProject(projectId);
+  return resolveProjectWorkspaceContext(workspaces, project, workspaceId);
+}
+
+export async function resolveProjectWorkspaceContext(workspaces: WorkspaceService, project: Project, workspaceId: string): Promise<WorkspaceContext> {
   const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
   if (!workspace) throw new Error("Workspace not found");
   return { project, workspace, root: workspace.path };

@@ -313,18 +313,6 @@ export interface SessionActivity {
 export interface QueuedSessionMessage {
   kind: "steer" | "followUp";
   text: string;
-  imageCount?: number;
-}
-
-export interface PromptImage {
-  type: "image";
-  data: string;
-  mimeType: string;
-}
-
-export interface PromptInput {
-  text: string;
-  images?: PromptImage[];
 }
 
 /**
@@ -376,7 +364,6 @@ export interface SessionModel {
   name?: string;
   contextWindow?: number;
   reasoning?: unknown;
-  input?: ("text" | "image")[];
 }
 
 // Domain type is owned by pi and re-exported from the shared thinking-levels
@@ -492,12 +479,6 @@ export interface FileContentResponse {
   content: string;
   truncated: boolean;
   binary: boolean;
-}
-
-export interface WorkspaceUploadResponse {
-  path: string;
-  size: number;
-  modifiedAt: string;
 }
 
 export interface WorkspacePathOperationResponse {

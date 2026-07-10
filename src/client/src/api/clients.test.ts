@@ -409,15 +409,25 @@ describe("workspace file write API", () => {
     expect(url).toContain("/api/machines/remote%20a/");
   });
 
-  it("adds management embed parameters to local multipart uploads", async () => {
+  it("creates empty files through the scoped write route", async () => {
     vi.stubGlobal("location", { href: "http://pi.example.test/?embed=management&token=launch-token" });
     setApiScope("management");
-    const fetchMock = stubJsonFetch({ path: "image.png", size: 4, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
-    const file = new File(["data"], "image.png", { type: "image/png" });
+    const fetchMock = stubJsonFetch({ path: "new.txt", size: 0, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
 
-    await workspacesApi.uploadWorkspaceFile("p 1", "w/1", "image.png", file);
+    await workspacesApi.createWorkspaceFile("p 1", "w/1", "new.txt");
 
-    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?embed=management&token=launch-token");
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=new.txt&embed=management&token=launch-token");
+    expect(init?.method).toBe("PUT");
+  });
+
+  it("reads optional workspace files without treating a missing file as an error", async () => {
+    const fetchMock = stubResponseFetch(new Response(null, { status: 204 }));
+
+    await expect(workspacesApi.optionalWorkspaceFile("p 1", "w/1", ".pi-web/tasks.json")).resolves.toBeUndefined();
+
+    const [url] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=.pi-web%2Ftasks.json&optional=true");
   });
 });
 

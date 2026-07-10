@@ -1,15 +1,5 @@
 import { css } from "lit";
 
-export interface CompletionItem {
-  kind: "command" | "file";
-  replaceFrom: number;
-  replaceTo: number;
-  insertText: string;
-  detail: string;
-  description?: string;
-  cursorOffset?: number;
-}
-
 export const workspacePanelStyles = css`
   :host { display: flex; flex-direction: column; min-height: 0; color: var(--pi-text); background: var(--pi-bg); font: 13px system-ui, sans-serif; container-type: inline-size; }
   header { flex: 0 0 auto; min-width: 0; border-bottom: 1px solid var(--pi-border); }

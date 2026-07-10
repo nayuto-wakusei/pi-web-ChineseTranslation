@@ -68,7 +68,7 @@ describe("FileExplorerController", () => {
       ...defaultApi,
       createWorkspaceFile: (_projectId, _workspaceId, path) => {
         calls.push(`create-file:${path}`);
-        return Promise.resolve({ path, size: 0, modifiedAt: "now" });
+        return Promise.resolve({ path, size: 0, modifiedAt: "now", created: true });
       },
       createWorkspaceDirectory: (_projectId, _workspaceId, path) => {
         calls.push(`create-dir:${path}`);

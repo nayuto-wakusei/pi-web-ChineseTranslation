@@ -1,7 +1,7 @@
 {
   "name": "PI WEB",
   "short_name": "PI WEB",
-  "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
+  "description": "用于管理持久 Pi Coding Agent 会话的远程 Web 界面和浏览器控制平面。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

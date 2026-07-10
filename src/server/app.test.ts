@@ -78,6 +78,26 @@ afterEach(async () => {
 });
 
 describe("buildApp", () => {
+  it("uses the SPA fallback only for HTML navigation requests", async () => {
+    await app.close();
+    const clientDist = join(tempDir, "client");
+    await mkdir(clientDist, { recursive: true });
+    await writeFile(join(clientDist, "index.html"), "<!doctype html><title>PI WEB test client</title>", "utf8");
+    app = await buildApp({ clientDist, logger: false });
+
+    const navigation = await app.inject({ method: "GET", url: "/settings", headers: { accept: "text/html" } });
+    expect(navigation.statusCode).toBe(200);
+    expect(navigation.body).toContain("PI WEB test client");
+
+    const missingAsset = await app.inject({ method: "GET", url: "/assets/missing.js", headers: { accept: "*/*" } });
+    expect(missingAsset.statusCode).toBe(404);
+    expect(missingAsset.json()).toEqual({ error: "Not Found" });
+
+    const missingImage = await app.inject({ method: "GET", url: "/missing.png", headers: { accept: "image/*" } });
+    expect(missingImage.statusCode).toBe(404);
+    expect(missingImage.json()).toEqual({ error: "Not Found" });
+  });
+
   it("lists synthesized local machine through the HTTP contract", async () => {
     const response = await app.inject({ method: "GET", url: "/api/machines" });
 
@@ -926,6 +946,14 @@ describe("buildApp", () => {
     const workspace = workspacesResponse.json<Workspace[]>()[0];
     if (workspace === undefined) throw new Error("Expected workspace");
 
+    const missingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}` });
+    expect(missingFileResponse.statusCode).toBe(404);
+    expect(missingFileResponse.json()).toEqual({ error: "Path does not exist" });
+
+    const optionalMissingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}&optional=true` });
+    expect(optionalMissingFileResponse.statusCode).toBe(204);
+    expect(optionalMissingFileResponse.body).toBe("");
+
     const writeTextResponse = await app.inject({
       method: "PUT",
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("hello.txt")}`,
@@ -947,6 +975,15 @@ describe("buildApp", () => {
     });
     expect(writeBinaryResponse.statusCode).toBe(200);
     expect(writeBinaryResponse.json()).toMatchObject({ path: "image.png", created: true });
+
+    const createEmptyResponse = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("empty.txt")}`,
+      payload: Buffer.alloc(0),
+      headers: { "content-type": "application/octet-stream" },
+    });
+    expect(createEmptyResponse.statusCode).toBe(200);
+    expect(createEmptyResponse.json()).toMatchObject({ path: "empty.txt", size: 0, created: true });
 
     const writeDeepResponse = await app.inject({
       method: "PUT",
@@ -1086,7 +1123,7 @@ describe("buildApp", () => {
     expect(typeof moveResponse.json<{ size: unknown }>().size).toBe("number");
 
     const readSourceResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("original.txt")}` });
-    expect(readSourceResponse.statusCode).toBe(400);
+    expect(readSourceResponse.statusCode).toBe(404);
 
     const readTargetResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("moved.txt")}` });
     expect(readTargetResponse.statusCode).toBe(200);

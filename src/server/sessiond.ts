@@ -21,9 +21,10 @@ import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 import { effectivePiWebConfig, maxUploadBytes, piWebDataDir, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
+import { requestLoggerOptions } from "./requestLogging.js";
 
 const { config } = effectivePiWebConfig();
-const app = Fastify({ logger: true, bodyLimit: maxUploadBytes(process.env, config) });
+const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(process.env, config) });
 await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();

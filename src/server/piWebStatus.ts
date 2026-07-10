@@ -29,6 +29,7 @@ interface NativeServiceRef {
 }
 
 interface NativeServiceCommands {
+  npmGlobalUpdate?: string;
   restart?: string;
   restartWeb?: string;
   restartSessiond?: string;
@@ -430,7 +431,7 @@ async function commandsFor(components: PiWebStatusResponse["components"]): Promi
   const restartWeb = serviceCommands.restartWeb ?? cliCommands.restart;
   const restartSessiond = serviceCommands.restartSessiond ?? cliCommands.restart;
   const status = serviceCommands.status ?? cliCommands.status;
-  const update = await updateCommandFor(installation, restart);
+  const update = await updateCommandFor(installation, restart, serviceCommands.npmGlobalUpdate);
 
   return {
     ...(update === undefined ? {} : { update }),
@@ -469,7 +470,7 @@ function restartCommandFor(installation: PiWebInstallationInfo | undefined, serv
   return cliCommands.restart ?? serviceCommands.restart;
 }
 
-async function updateCommandFor(installation: PiWebInstallationInfo | undefined, restartCommand: string | undefined): Promise<string | undefined> {
+async function updateCommandFor(installation: PiWebInstallationInfo | undefined, restartCommand: string | undefined, npmGlobalUpdateCommand?: string): Promise<string | undefined> {
   if (restartCommand === undefined) return undefined;
   if (installation?.kind === "pi-package") {
     if (!(await hasCommand("pi"))) return undefined;
@@ -480,6 +481,7 @@ async function updateCommandFor(installation: PiWebInstallationInfo | undefined,
     return `cd ${shellQuote(installation.path)} && git pull --ff-only && npm install && npm run build && ${restartCommand}`;
   }
   if (installation?.kind !== "npm-global" || !(await hasCommand("npm"))) return undefined;
+  if (npmGlobalUpdateCommand !== undefined) return npmGlobalUpdateCommand;
   return `npm install -g ${PI_WEB_PACKAGE_NAME} && ${restartCommand}`;
 }
 
@@ -491,13 +493,24 @@ async function nativeServiceCommands(): Promise<NativeServiceCommands> {
   const web = installedServiceRefs(installed, ["web", "uiDev"]);
   const sessiond = installedServiceRefs(installed, ["sessiond"]);
   const restartable = web.length === 0 ? [] : installedServiceRefs(installed, restartServiceOrder, restartServiceOrder);
+  const startable = web.length === 0 ? [] : installedServiceRefs(installed, startServiceOrder, startServiceOrder);
   const status = installedServiceRefs(installed);
   return {
+    ...(backend === "systemd" && restartable.length > 0 && startable.length > 0
+      ? { npmGlobalUpdate: systemdNpmGlobalUpdateCommand(restartable.map((service) => service.systemdName), startable.map((service) => service.systemdName)) }
+      : {}),
     ...(restartable.length === 0 ? {} : { restart: restartNativeServicesCommand(backend, restartable, "pi-web-restart") }),
     ...(web.length === 0 ? {} : { restartWeb: restartNativeServicesCommand(backend, web, "pi-web-restart-web") }),
     ...(sessiond.length === 0 ? {} : { restartSessiond: restartNativeServicesCommand(backend, sessiond, "pi-web-restart-sessiond") }),
     ...(status.length === 0 ? {} : { status: statusNativeServicesCommand(backend, status) }),
   };
+}
+
+export function systemdNpmGlobalUpdateCommand(stopServices: readonly string[], startServices: readonly string[]): string {
+  const stopCommand = `systemctl --user stop ${stopServices.join(" ")}`;
+  const startCommand = `systemctl --user start ${startServices.join(" ")}`;
+  const script = `set -eu; trap ${shellQuote(startCommand)} EXIT; ${stopCommand}; npm install -g ${PI_WEB_PACKAGE_NAME}`;
+  return `systemd-run --user --collect --unit=pi-web-update -- /bin/sh -lc ${shellQuote(script)}`;
 }
 
 async function nativeServiceBackend(): Promise<NativeServiceBackendKind | undefined> {

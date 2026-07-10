@@ -3,6 +3,7 @@ import type { ProjectService } from "./projects/projectService.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { resolveWorkspaceContext } from "./workspaces/workspaceContext.js";
+import { resolveManagedWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
 import type { WorkspaceService } from "./workspaces/workspaceService.js";
 import { terminalSizeQuery } from "./terminals/terminalSize.js";
 import { bridgeSockets } from "./webSocketBridge.js";
@@ -11,7 +12,6 @@ import {
   managementContextForRequest,
   managementToolAllowed,
   MANAGEMENT_EMBED_CONTEXT_HEADER,
-  projectFromManagedEmbedContext,
   type ManagementEmbedContext,
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
@@ -77,7 +77,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
       if (managementContext !== undefined && !managementToolAllowed(managementContext, "terminal-command-runs")) return await reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
       const context = managementContext === undefined
         ? await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId)
-        : await resolveManagedWorkspaceContext(workspaces, managementEmbed, managementContext, request.params.projectId, request.params.workspaceId);
+        : await resolveManagedWorkspaceContext(workspaces, managementEmbed, managementContext, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await proxyJson(daemon, "POST", "/terminal-command-runs", {
         origin: request.body.origin,
         projectId: request.params.projectId,
@@ -172,20 +172,6 @@ async function proxyJson(daemon: SessionProxyDaemon, method: string, path: strin
   if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
   const value: unknown = upstream.body !== "" ? JSON.parse(upstream.body) : undefined;
   return value;
-}
-
-async function resolveManagedWorkspaceContext(
-  workspaces: WorkspaceService,
-  managementEmbed: ManagementEmbedRuntime | undefined,
-  managementContext: ManagementEmbedContext,
-  projectId: string,
-  workspaceId: string,
-) {
-  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  const project = await projectFromManagedEmbedContext(managementEmbed.projectRoot, managementContext, projectId);
-  const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
-  if (workspace === undefined) throw new Error("Workspace not found");
-  return { project, workspace, root: workspace.path };
 }
 
 function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
-import type { PiWebStatusResponse, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebStatusResponse } from "@chainingintention/pi-web-cn/plugin-api";
+import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
 
 describe("updates plugin Chinese display text", () => {
@@ -19,10 +20,10 @@ describe("updates plugin Chinese display text", () => {
     const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
-    expect(serializeTemplate(panel?.render(context()))).toContain("正在检查 PI WEB 更新状态");
-    expect(serializeTemplate(panel?.badge?.(context()))).toBe("");
+    expect(serializeTemplate(panel?.render(createWorkspacePanelContext()))).toContain("正在检查 PI WEB 更新状态");
+    expect(serializeTemplate(panel?.badge?.(createWorkspacePanelContext()))).toBe("");
 
-    const rendered = serializeTemplate(panel?.render(context({
+    const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
       state: {
         piWebStatus: {
           packageName: "@chainingintention/pi-web-cn",
@@ -60,7 +61,7 @@ describe("updates plugin Chinese display text", () => {
     const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
-    const rendered = serializeTemplate(panel?.render(context({
+    const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
       state: {
         piWebStatus: statusWithCommands(),
       },
@@ -74,62 +75,49 @@ describe("updates plugin Chinese display text", () => {
     vi.stubGlobal("navigator", {});
     const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
-    const panelContext = context({ state: { piWebStatus: statusWithCommands() } });
+    const panelContext = createWorkspacePanelContext({ state: { piWebStatus: statusWithCommands() } });
     Reflect.set(panelContext, "terminal", undefined);
     const rendered = panel?.render(panelContext);
-    const handlers = templateValues(rendered).filter((value): value is () => void => typeof value === "function");
+    const handler = copyButtonHandler(rendered);
 
-    expect(handlers.length).toBeGreaterThan(0);
-    for (const handler of handlers) {
-      expect(() => { handler(); }).not.toThrow();
-    }
+    expect(() => { handler(); }).not.toThrow();
   });
 });
 
-function context(patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
-  return {
-    machine: { id: "local", name: "local", kind: "local" },
-    workspace: { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false },
-    files: {
-      readFile: () => Promise.reject(new Error("unused")),
-      writeFile: () => Promise.reject(new Error("unused")),
-      deleteFile: () => Promise.reject(new Error("unused")),
-      moveFile: () => Promise.reject(new Error("unused")),
-    },
-    prompt: { insertText: () => undefined, getText: () => "", getSelection: () => null },
-    terminal: { open: () => undefined, runCommand: () => Promise.reject(new Error("unused")) },
-    host: { requestRender: () => undefined },
-    ...patch,
-  };
+type CopyButtonHandler = (event?: Event) => void;
+
+// This node-only plugin test would need a full plugin-host DOM harness just to verify one click binding.
+// Anchor the narrow escape hatch to the stable visible "复制" label instead of invoking every template function.
+function copyButtonHandler(value: unknown): CopyButtonHandler {
+  const handler = findCopyButtonHandler(value);
+  if (handler === undefined) throw new Error("Expected a 复制 button handler");
+  return handler;
 }
 
-function serializeTemplate(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (Array.isArray(value)) return value.map(serializeTemplate).join("");
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-
-  if (typeof value === "object" && "strings" in value && "values" in value) {
-    const strings = value.strings;
-    const values = value.values;
-    if (isStringArray(strings) && isUnknownArray(values)) {
-      return strings.reduce((output: string, part: string, index: number) => `${output}${part}${serializeTemplate(values[index])}`, "");
+function findCopyButtonHandler(value: unknown): CopyButtonHandler | undefined {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const handler = findCopyButtonHandler(entry);
+      if (handler !== undefined) return handler;
     }
+    return undefined;
   }
-  return "";
-}
+  if (typeof value !== "object" || value === null) return undefined;
 
-function templateValues(value: unknown): unknown[] {
-  if (value === undefined || value === null) return [];
-  if (Array.isArray(value)) return value.flatMap(templateValues);
-  if (typeof value === "object" && "strings" in value && "values" in value) {
-    const values = Reflect.get(value, "values");
-    if (isUnknownArray(values)) return values.flatMap((entry) => [entry, ...templateValues(entry)]);
+  const strings: unknown = Reflect.get(value, "strings");
+  const values: unknown = Reflect.get(value, "values");
+  if (!isUnknownArray(strings) || !isUnknownArray(values)) return undefined;
+  for (let index = 0; index < values.length; index += 1) {
+    const candidate = values[index];
+    const before: unknown = strings[index];
+    const after: unknown = strings[index + 1];
+    if (typeof candidate === "function" && typeof before === "string" && before.includes("@click=") && typeof after === "string" && after.includes(">复制</button>")) {
+      return (event?: Event) => { Reflect.apply(candidate, undefined, [event]); };
+    }
+    const nested = findCopyButtonHandler(candidate);
+    if (nested !== undefined) return nested;
   }
-  return [];
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
+  return undefined;
 }
 
 function isUnknownArray(value: unknown): value is unknown[] {

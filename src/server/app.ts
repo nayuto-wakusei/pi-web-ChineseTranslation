@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
-import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { effectivePiWebConfig } from "../config.js";
@@ -31,10 +30,12 @@ import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
 import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
 import { NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth.js";
+import { requestLoggerOptions } from "./requestLogging.js";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
   managementContextForRequest,
+  managementProjectRoot,
   projectFromManagedEmbedContext,
   projectsFromManagedEmbedContext,
   type ManagementEmbedRuntime,
@@ -67,7 +68,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   app.get(`${prefix}/projects`, async (request, reply) => {
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      if (context !== undefined) return await projectsFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context);
+      if (context !== undefined) return await projectsFromManagedEmbedContext(managementProjectRoot(managementEmbed), context);
       return await projects.list();
     } catch (error) {
       return reply.code(401).send({ error: error instanceof Error ? error.message : String(error) });
@@ -106,7 +107,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
-        const project = await projectFromManagedEmbedContext(managementEmbedProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
+        const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
         return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
       }
       const project = await projects.requireProject(request.params.projectId);
@@ -142,7 +143,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementEmbedProjectRoot(managementEmbed), context, request.query.cwd, { create: false });
+      const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementProjectRoot(managementEmbed), context, request.query.cwd, { create: false });
       const query = request.query.q ?? "";
       const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForCwd(cwd, projects, workspaces, options.config) : undefined;
       if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);
@@ -154,8 +155,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
 }
 
 export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger ?? true, ...(deps.bodyLimit === undefined ? {} : { bodyLimit: deps.bodyLimit }) });
-  await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 1 } });
+  const app = Fastify({ logger: deps.logger ?? requestLoggerOptions(), ...(deps.bodyLimit === undefined ? {} : { bodyLimit: deps.bodyLimit }) });
   await app.register(fastifyWebsocket);
 
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
@@ -172,8 +172,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   });
   const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
   const normalAuth = new NormalModeAuthService(configService);
-  registerNormalAuthRoutes(app, normalAuth);
-  registerNormalModeAuthGate(app, normalAuth, managementEmbed);
+  const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
+  registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
 
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
 
@@ -221,13 +221,15 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const clientDist = deps.clientDist ?? (existsSync(packagedClientDist) ? packagedClientDist : join(process.cwd(), "dist", "client"));
   if (clientDist !== false && existsSync(clientDist)) {
     await app.register(fastifyStatic, { root: clientDist });
-    app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
+    app.setNotFoundHandler((request, reply) => {
+      const pathname = new URL(request.url, "http://pi-web.local").pathname;
+      const acceptsHtml = request.headers.accept?.split(",").some((value) => value.trim().split(";", 1)[0] === "text/html") ?? false;
+      if (request.method === "GET" && acceptsHtml && !pathname.startsWith("/api/") && !pathname.startsWith("/assets/") && !pathname.startsWith("/pi-web-plugins/")) {
+        return reply.sendFile("index.html");
+      }
+      return reply.code(404).send({ error: "Not Found" });
+    });
   }
 
   return app;
-}
-
-function managementEmbedProjectRoot(managementEmbed: ManagementEmbedRuntime | undefined): string {
-  if (managementEmbed === undefined) throw new Error("Management embed mode is not configured");
-  return managementEmbed.projectRoot;
 }

@@ -38,6 +38,19 @@ describe("workspace tasks client", () => {
     });
   });
 
+  it("uses the optional read contract without producing a failed request", async () => {
+    const readFile = vi.fn<WorkspaceTasksFileReader["readFile"]>();
+    const readOptionalFile = vi.fn<NonNullable<WorkspaceTasksFileReader["readOptionalFile"]>>(() => Promise.resolve(undefined));
+
+    await expect(loadWorkspaceTasksConfig({ readFile, readOptionalFile })).resolves.toEqual({
+      kind: "missing",
+      message: "这里还没有配置工作区任务。",
+      hint: `${TASKS_CONFIG_PATH} 是可选文件。如果需要自定义任务，请在当前工作区创建它。`,
+    });
+    expect(readOptionalFile).toHaveBeenCalledWith(TASKS_CONFIG_PATH);
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
   it("returns a visible unavailable state instead of throwing on read failures", async () => {
     const files: WorkspaceTasksFileReader = { readFile: () => Promise.reject(new Error("nope")) };
 

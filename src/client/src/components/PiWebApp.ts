@@ -21,7 +21,7 @@ import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
 import { sessionCleanupRequestKey, sessionCleanupUnavailableMessage } from "../sessionCleanupUi";
 import { RealtimeSocket, SessionSocket } from "../sessionSocket";
-import { isManagementEmbedMode } from "../embedMode";
+import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
 import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
@@ -1097,9 +1097,9 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="navigation"
         controls="navigation-panel"
-        resizeLabel="Resize navigation panel"
-        expandLabel="Expand navigation panel"
-        collapseLabel="Collapse navigation panel"
+        resizeLabel="调整导航面板大小"
+        expandLabel="展开导航面板"
+        collapseLabel="折叠导航面板"
         .collapsed=${this.panelCollapse.navigationPanelCollapsed}
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("navigation")}
@@ -1120,9 +1120,9 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="workspace"
         controls="workspace-panel"
-        resizeLabel="Resize workspace panel"
-        expandLabel="Expand workspace panel"
-        collapseLabel="Collapse workspace panel"
+        resizeLabel="调整工作区面板大小"
+        expandLabel="展开工作区面板"
+        collapseLabel="折叠工作区面板"
         .collapsed=${this.panelCollapse.workspacePanelCollapsed}
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("workspace")}
@@ -1492,6 +1492,7 @@ export class PiWebApp extends LitElement {
   private createWorkspaceFiles(workspace: Workspace, machineId: string): WorkspaceFiles {
     return {
       readFile: (path: string) => workspacesApi.workspaceFile(workspace.projectId, workspace.id, path, machineId),
+      readOptionalFile: (path: string) => workspacesApi.optionalWorkspaceFile(workspace.projectId, workspace.id, path, machineId),
       writeFile: async (path, content, options) => {
         const result = await workspacesApi.writeWorkspaceFile(workspace.projectId, workspace.id, path, content, options, machineId);
         void this.files.refreshFiles();

@@ -1,4 +1,5 @@
 import type { SessionUiEvent } from "../types.js";
+import { summarizeToolArgs } from "./toolSummary.js";
 
 export function toClientEvent(event: unknown): SessionUiEvent {
   const eventType = getString(event, "type");
@@ -11,7 +12,7 @@ export function toClientEvent(event: unknown): SessionUiEvent {
   }
   if (eventType === "tool_execution_start") {
     const args = getProperty(event, "args");
-    return { type: "tool.start", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", summary: summarizeToolArgs(args), args };
+    return { type: "tool.start", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", summary: summarizeToolArgs(args) || stringifyPrimitive(args), args };
   }
   if (eventType === "tool_execution_update") {
     const partialResult = getProperty(event, "partialResult");
@@ -42,27 +43,6 @@ export function getString(value: unknown, key: string): string | undefined {
 export function getBoolean(value: unknown, key: string): boolean | undefined {
   const property = getProperty(value, key);
   return typeof property === "boolean" ? property : undefined;
-}
-
-function summarizeToolArgs(args: unknown): string {
-  if (!isRecord(args)) return stringifyPrimitive(args);
-  const command = getString(args, "command");
-  if (command !== undefined) return command;
-  const path = getString(args, "path");
-  if (path !== undefined) return path;
-  if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
-  const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
-  const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
-  return entries.map(([key, value]) => `${key}: ${shortToolValue(value)}`).join(" · ");
-}
-
-function shortToolValue(value: unknown): string {
-  if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object" && value !== null) return "object";
-  return "";
 }
 
 function toolResultContent(result: unknown): unknown {

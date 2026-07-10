@@ -4,6 +4,8 @@ import { mkdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
 import type { Project } from "./types.js";
 import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
+import { isRecord } from "../shared/piWebConfigParsing.js";
+import { createFixedTtlSessionStore, readCookie, type HttpSession } from "./httpSessions.js";
 
 export const MANAGEMENT_EMBED_MODE_HEADER = "x-pi-web-embed-mode";
 export const MANAGEMENT_EMBED_TOKEN_HEADER = "x-pi-web-embed-token";
@@ -43,10 +45,7 @@ export interface ManagementEmbedRuntimeOptions {
   randomSessionId?: () => string;
 }
 
-export interface ManagementEmbedSession {
-  id: string;
-  maxAgeSeconds: number;
-}
+export type ManagementEmbedSession = HttpSession;
 
 export interface ManagementEmbedRequest {
   mode?: "management";
@@ -114,7 +113,7 @@ export function createManagementEmbedRuntime(
   const audience = configuredAudience !== undefined && configuredAudience !== "" ? configuredAudience : DEFAULT_MANAGEMENT_TOKEN_AUDIENCE;
   const now = options.now ?? (() => new Date());
   const randomSessionId = options.randomSessionId ?? (() => randomBytes(32).toString("base64url"));
-  const sessionStore = createManagementSessionStore(now, randomSessionId);
+  const sessionStore = createFixedTtlSessionStore<ManagementEmbedContext>(MANAGEMENT_SESSION_TTL_MS, () => now().getTime(), randomSessionId);
   if (sharedSecret === undefined || sharedSecret === "") {
     return {
       enabled: true,
@@ -138,6 +137,11 @@ export function createManagementEmbedRuntime(
     readSession: sessionStore.read,
     sessionCookieName: MANAGEMENT_SESSION_COOKIE,
   };
+}
+
+export function managementProjectRoot(runtime: ManagementEmbedRuntime | undefined): string {
+  if (runtime === undefined) throw new Error("Management embed mode is not configured");
+  return runtime.projectRoot;
 }
 
 export async function managedProjectPath(projectRoot: string, rootUserId: string, projectId: string, options: ManagedProjectPathOptions = {}): Promise<string> {
@@ -231,47 +235,8 @@ function verifyManagementEntryToken(
   return parseIntrospectionPayload({ active: true, ...parsed });
 }
 
-function createManagementSessionStore(now: () => Date, randomSessionId: () => string): {
-  create: (context: ManagementEmbedContext) => ManagementEmbedSession;
-  read: (id: string) => ManagementEmbedContext | undefined;
-} {
-  const sessions = new Map<string, { context: ManagementEmbedContext; createdAt: number; expiresAt: number; lastUsedAt: number }>();
-  return {
-    create: (context) => {
-      const createdAt = now().getTime();
-      const id = randomSessionId();
-      sessions.set(id, { context, createdAt, expiresAt: createdAt + MANAGEMENT_SESSION_TTL_MS, lastUsedAt: createdAt });
-      return { id, maxAgeSeconds: MANAGEMENT_SESSION_TTL_MS / 1000 };
-    },
-    read: (id) => {
-      const session = sessions.get(id);
-      const nowMs = now().getTime();
-      if (session === undefined) return undefined;
-      if (session.expiresAt <= nowMs) {
-        sessions.delete(id);
-        return undefined;
-      }
-      session.lastUsedAt = nowMs;
-      return session.context;
-    },
-  };
-}
-
 function writeSessionCookie(reply: ManagementEmbedReplyTarget, name: string, session: ManagementEmbedSession): void {
   reply.header("set-cookie", `${name}=${session.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${String(session.maxAgeSeconds)}`);
-}
-
-function readCookie(header: string | string[] | undefined, name: string): string | undefined {
-  const value = firstHeader(header);
-  if (value === undefined) return undefined;
-  for (const part of value.split(";")) {
-    const [rawKey, ...rawValue] = part.split("=");
-    if (rawKey?.trim() === name) {
-      const cookieValue = rawValue.join("=").trim();
-      return cookieValue === "" ? undefined : cookieValue;
-    }
-  }
-  return undefined;
 }
 
 function parseJsonBase64Url(value: string): unknown {
@@ -434,10 +399,6 @@ function stringRecord(value: Record<string, unknown>): Record<string, string> {
 
 function booleanRecord(value: Record<string, unknown>): Record<string, boolean> {
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {

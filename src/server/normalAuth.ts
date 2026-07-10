@@ -2,13 +2,20 @@ import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isRecord } from "../shared/piWebConfigParsing.js";
 import type { PiWebConfigService } from "./configRoutes.js";
+import { createFixedTtlSessionStore, readCookie, type FixedTtlSessionStore } from "./httpSessions.js";
 import { managementContextForRequest, readManagementEmbedRequest, type ManagementEmbedRuntime } from "./managementEmbed.js";
 
 export const NORMAL_AUTH_COOKIE = "pi_web_normal_session";
 const HASH_ALGORITHM = "pbkdf2-sha256";
 const HASH_ITERATIONS = 120_000;
 const HASH_BYTES = 32;
-const SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_MAX_AGE_SECONDS = SESSION_TTL_MS / 1000;
+const DEFAULT_LOGIN_RATE_LIMIT: LoginRateLimitConfig = {
+  maxFailures: 5,
+  windowMs: 60_000,
+  maxTrackedAddresses: 10_000,
+};
 
 export interface NormalAuthStatus {
   configured: boolean;
@@ -18,14 +25,27 @@ export interface NormalAuthStatus {
 type SetupResult = { status: "created"; sessionId: string } | { status: "already-configured" };
 type ChangePasswordResult = { status: "changed"; sessionId: string } | { status: "unauthorized" } | { status: "invalid-password" };
 
+interface LoginRateLimitConfig {
+  maxFailures: number;
+  windowMs: number;
+  maxTrackedAddresses: number;
+}
+
+interface NormalAuthRouteOptions {
+  now?: () => number;
+  rateLimit?: LoginRateLimitConfig;
+}
+
 export class NormalModeAuthService {
-  private readonly sessions = new Map<string, number>();
+  private readonly sessions: FixedTtlSessionStore<true>;
 
   constructor(
     private readonly config: Pick<PiWebConfigService, "read" | "write">,
-    private readonly now: () => number = () => Date.now(),
-    private readonly newSessionId: () => string = () => randomUUID(),
-  ) {}
+    now: () => number = () => Date.now(),
+    newSessionId: () => string = () => randomUUID(),
+  ) {
+    this.sessions = createFixedTtlSessionStore(SESSION_TTL_MS, now, newSessionId);
+  }
 
   async status(cookieHeader: string | string[] | undefined): Promise<NormalAuthStatus> {
     const passwordHash = await this.passwordHash();
@@ -74,23 +94,19 @@ export class NormalModeAuthService {
   }
 
   private createSession(): string {
-    const sessionId = this.newSessionId();
-    this.sessions.set(sessionId, this.now() + SESSION_MAX_AGE_SECONDS * 1000);
-    return sessionId;
+    return this.sessions.create(true).id;
   }
 
   private isAuthenticated(cookieHeader: string | string[] | undefined): boolean {
     const sessionId = readCookie(cookieHeader, NORMAL_AUTH_COOKIE);
     if (sessionId === undefined) return false;
-    const expiresAt = this.sessions.get(sessionId);
-    if (expiresAt === undefined) return false;
-    if (expiresAt > this.now()) return true;
-    this.sessions.delete(sessionId);
-    return false;
+    return this.sessions.read(sessionId) === true;
   }
 }
 
-export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeAuthService): void {
+export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeAuthService, options: NormalAuthRouteOptions = {}): FailedLoginAttemptTracker {
+  const loginAttempts = new FailedLoginAttemptTracker(options.rateLimit ?? DEFAULT_LOGIN_RATE_LIMIT, options.now ?? (() => Date.now()));
+
   app.get("/api/normal-auth/status", async (request) => await auth.status(request.headers.cookie));
 
   app.post<{ Body: unknown }>("/api/normal-auth/setup", async (request, reply) => {
@@ -109,12 +125,19 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
   });
 
   app.post<{ Body: unknown }>("/api/normal-auth/login", async (request, reply) => {
+    const retryAfterSeconds = loginAttempts.retryAfterSeconds(request.ip);
+    if (retryAfterSeconds !== undefined) {
+      await sendLoginRateLimit(reply, retryAfterSeconds);
+      return;
+    }
     try {
       const sessionId = await auth.login(bodyRecord(request.body)["password"]);
       if (sessionId === undefined) {
+        loginAttempts.recordFailure(request.ip);
         await reply.code(401).send({ error: "Invalid ordinary mode password" });
         return;
       }
+      loginAttempts.clear(request.ip);
       setSessionCookie(reply, sessionId);
       return { accepted: true };
     } catch (error) {
@@ -142,9 +165,55 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
       return;
     }
   });
+  return loginAttempts;
 }
 
-export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalModeAuthService, managementEmbed: ManagementEmbedRuntime | undefined): void {
+export class FailedLoginAttemptTracker {
+  private readonly failuresByAddress = new Map<string, number[]>();
+
+  constructor(
+    private readonly config: LoginRateLimitConfig,
+    private readonly now: () => number,
+  ) {}
+
+  retryAfterSeconds(address: string): number | undefined {
+    const now = this.now();
+    const failures = this.currentFailures(address, now);
+    if (failures.length < this.config.maxFailures) return undefined;
+    return Math.max(1, Math.ceil(((failures[0] ?? now) + this.config.windowMs - now) / 1000));
+  }
+
+  recordFailure(address: string): void {
+    const now = this.now();
+    const failures = this.currentFailures(address, now);
+    if (!this.failuresByAddress.has(address)) this.makeRoom(now);
+    this.failuresByAddress.set(address, [...failures, now]);
+  }
+
+  clear(address: string): void {
+    this.failuresByAddress.delete(address);
+  }
+
+  private currentFailures(address: string, now: number): number[] {
+    const failures = this.failuresByAddress.get(address);
+    if (failures === undefined) return [];
+    const windowStart = now - this.config.windowMs;
+    const current = failures.filter((failedAt) => failedAt > windowStart);
+    if (current.length === 0) this.failuresByAddress.delete(address);
+    else if (current.length !== failures.length) this.failuresByAddress.set(address, current);
+    return current;
+  }
+
+  private makeRoom(now: number): void {
+    if (this.failuresByAddress.size < this.config.maxTrackedAddresses) return;
+    for (const address of this.failuresByAddress.keys()) this.currentFailures(address, now);
+    if (this.failuresByAddress.size < this.config.maxTrackedAddresses) return;
+    const oldestAddress = this.failuresByAddress.keys().next().value;
+    if (oldestAddress !== undefined) this.failuresByAddress.delete(oldestAddress);
+  }
+}
+
+export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalModeAuthService, managementEmbed: ManagementEmbedRuntime | undefined, loginAttempts = new FailedLoginAttemptTracker(DEFAULT_LOGIN_RATE_LIMIT, () => Date.now())): void {
   app.addHook("preValidation", async (request, reply) => {
     if (!requiresNormalAuth(request)) return;
     if (isManagementRequest(request)) {
@@ -155,8 +224,20 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
         return;
       }
     }
+    const bearer = bearerToken(request.headers.authorization);
+    if (bearer !== undefined) {
+      const retryAfterSeconds = loginAttempts.retryAfterSeconds(request.ip);
+      if (retryAfterSeconds !== undefined) {
+        await sendLoginRateLimit(reply, retryAfterSeconds);
+        return;
+      }
+    }
     const authorization = await auth.authorize(request.headers.cookie, request.headers.authorization);
-    if (authorization === "authorized") return;
+    if (authorization === "authorized") {
+      if (bearer !== undefined) loginAttempts.clear(request.ip);
+      return;
+    }
+    if (bearer !== undefined) loginAttempts.recordFailure(request.ip);
     const error = authorization === "setup-required" ? "Ordinary mode password setup is required" : "Ordinary mode login is required";
     await reply.code(401).send({ error });
   });
@@ -176,6 +257,14 @@ function bearerToken(header: string | string[] | undefined): string | undefined 
   if (value === undefined) return undefined;
   const match = /^Bearer\s+(.+)$/iu.exec(value.trim());
   return match?.[1]?.trim();
+}
+
+async function sendLoginRateLimit(reply: FastifyReply, retryAfterSeconds: number): Promise<void> {
+  reply.header("retry-after", String(retryAfterSeconds));
+  await reply.code(429).send({
+    error: "Too many failed ordinary mode login attempts",
+    retryAfterSeconds,
+  });
 }
 
 function setSessionCookie(reply: FastifyReply, sessionId: string): void {
@@ -215,20 +304,6 @@ function requirePassword(value: unknown, field: string): string {
 function bodyRecord(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) throw new Error("Request body must be an object");
   return body;
-}
-
-function readCookie(header: string | string[] | undefined, name: string): string | undefined {
-  const values = Array.isArray(header) ? header : header === undefined ? [] : [header];
-  for (const value of values) {
-    for (const part of value.split(";")) {
-      const [rawName, ...rawValue] = part.trim().split("=");
-      if (rawName === name) {
-        const cookieValue = rawValue.join("=").trim();
-        return cookieValue === "" ? undefined : cookieValue;
-      }
-    }
-  }
-  return undefined;
 }
 
 function errorMessage(error: unknown): string {

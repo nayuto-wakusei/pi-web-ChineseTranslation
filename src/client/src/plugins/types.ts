@@ -50,6 +50,7 @@ export interface PluginMachine {
 
 export interface WorkspaceFiles {
   readFile(path: string): Promise<FileContentResponse>;
+  readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
   writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
   deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
   moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;

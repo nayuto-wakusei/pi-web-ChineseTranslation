@@ -10,6 +10,8 @@
  * pure transform over an array so it can be unit-tested without a live session.
  */
 
+import { summarizeToolArgs } from "./toolSummary.js";
+
 /** Message roles the parent can ask for, mapped from raw history roles. */
 export type TranscriptRole = "assistant" | "user" | "tool" | "system" | "custom";
 
@@ -258,28 +260,6 @@ function contentPart(part: unknown): FullPart[] {
   }
   if (type === "image") return [{ kind: "image" }];
   return [];
-}
-
-/** Compact one-line description of tool arguments (mirrors the UI's summary). */
-function summarizeToolArgs(args: unknown): string {
-  if (!isRecord(args)) return typeof args === "string" ? args : "";
-  const command = getString(args, "command");
-  if (command !== undefined) return command;
-  const path = getString(args, "path");
-  if (path !== undefined) return path;
-  if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
-  const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
-  const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
-  return entries.map(([key, value]) => `${key}: ${shortValue(value)}`).join(" · ");
-}
-
-function shortValue(value: unknown): string {
-  if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object" && value !== null) return "object";
-  return "";
 }
 
 function stringifyContent(content: unknown): string {
