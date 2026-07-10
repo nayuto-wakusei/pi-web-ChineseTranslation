@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.5
+
+### Patch Changes
+
+- 12618f7: Protect management access tokens in request logs, throttle password and Bearer login failures, stop native services before global npm upgrades, handle optional task configuration without failed requests, return correct missing-resource responses, and finish Chinese UI metadata and accessibility labels.
+
 ## 1.202607.4
 
 ### Patch Changes
