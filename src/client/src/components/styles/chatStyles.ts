@@ -3,7 +3,7 @@ import { css } from "lit";
 export const chatStyles = css`
   :host { position: relative; z-index: 0; display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; max-height: 100%; overflow: hidden; contain: size layout; color: var(--pi-text); font: 14px system-ui, sans-serif; }
   .chat-wrap { position: relative; flex: 1 1 0; min-height: 0; max-height: 100%; overflow: hidden; }
-  .chat { height: 100%; min-height: 0; overflow: auto; overflow-anchor: none; padding: 26px 16px 64px; box-sizing: border-box; }
+  .chat { position: absolute; inset: 0; min-height: 0; overflow: auto; overflow-anchor: none; padding: 26px 16px 64px; box-sizing: border-box; }
   .scroll-marker { display: block; height: 0; overflow: hidden; pointer-events: none; }
   .activity-dock { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 20; display: flex; align-items: center; gap: 8px; min-width: 0; box-sizing: border-box; border: 1px solid var(--pi-border); border-radius: 999px; background: var(--pi-bg-overlay); color: var(--pi-muted); padding: 8px 12px; font-size: 13px; pointer-events: none; box-shadow: 0 8px 28px var(--pi-shadow); backdrop-filter: blur(6px); }
   .activity-dock.active { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-bg-overlay); }
