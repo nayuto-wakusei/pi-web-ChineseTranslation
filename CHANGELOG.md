@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.5-dev.0
+
+### Patch Changes
+
+- cfcd4f8: Fix long conversations so the chat scrollbar can reach the complete bottom of the transcript.
+
 ## 1.202607.5
 
 ### Patch Changes
