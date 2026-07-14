@@ -55,6 +55,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onDelete?: (session: SessionInfo) => void;
   @property({ attribute: false }) onDeleteArchived?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onDeleteArchivedMany?: (sessions: SessionInfo[]) => void | Promise<void>;
+  @property({ attribute: false }) onRename?: (session: SessionInfo, name: string) => void | Promise<void>;
   @property({ attribute: false }) onDetachParent?: (session: SessionInfo) => void;
   @property({ attribute: false }) onReload?: (session: SessionInfo) => void;
   @property({ attribute: false }) onCleanup?: () => void;
@@ -221,6 +222,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const activity = this.activities[session.id];
     const persistenceOptions = this.sessionPersistenceOptions();
     const canArchive = isArchivableSessionInfo(session, status, persistenceOptions);
+    const canRename = isRenamableSession(session, status, persistenceOptions);
     const canDeleteTransient = isTransientNewSessionInfo(session, status, persistenceOptions);
     const canReloadSession = canArchive && this.canReload;
     return html`
@@ -249,6 +251,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
                 : canDeleteTransient
                   ? html`<button title="删除临时新会话" @click=${() => { this.menu.close(); this.onDelete?.(session); }}>删除</button>`
                   : html`
+                    ${canRename ? html`<button title="重命名会话" @click=${() => { this.renameSession(session); }}>重命名</button>` : null}
                     ${canArchive ? html`
                       <button title="归档会话" @click=${() => { this.menu.close(); this.onArchive?.(session); }}>归档</button>
                       ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.menu.close(); this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
@@ -282,6 +285,12 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   private confirmArchiveWithDescendants(session: SessionInfo, descendantCount: number): void {
     if (confirm(`归档“${sessionLabel(session)}”及其 ${String(descendantCount)} 个后代会话？`)) this.onArchiveWithDescendants?.(session);
+  }
+
+  private renameSession(session: SessionInfo): void {
+    this.menu.close();
+    const name = sessionRenameInput(session);
+    if (name !== undefined) void this.onRename?.(session, name);
   }
 
   private confirmDeleteArchived(session: SessionInfo): void {
@@ -410,6 +419,16 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .action-main.selecting { padding-left: calc(32px + var(--depth, 0) * 16px); }
     .session-checkbox { position: absolute; top: 9px; left: calc(8px + var(--depth, 0) * 16px); z-index: 2; margin: 0; }
   `];
+}
+
+export function sessionRenameInput(session: SessionInfo): string | undefined {
+  const name = globalThis.prompt("重命名会话", sessionLabel(session));
+  const trimmed = name?.trim();
+  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
+export function isRenamableSession(session: SessionInfo | undefined, status?: SessionStatus, options?: Parameters<typeof isArchivableSessionInfo>[2]): boolean {
+  return isArchivableSessionInfo(session, status, options);
 }
 
 function sessionSelectionScope(session: SessionInfo): SessionSelectionScope {

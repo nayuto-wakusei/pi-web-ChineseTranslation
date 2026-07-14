@@ -65,6 +65,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onDeleteCachedNewSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onDeleteArchivedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onDeleteArchivedSessions?: (sessions: SessionInfo[]) => void | Promise<void>;
+  @property({ attribute: false }) onRenameSession?: (session: SessionInfo, name: string) => void | Promise<void>;
   @property({ attribute: false }) onDetachParentSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onReloadSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
@@ -182,6 +183,7 @@ export class AppNavigationPanel extends LitElement {
         .onDelete=${(session: SessionInfo) => this.onDeleteCachedNewSession?.(session)}
         .onDeleteArchived=${(session: SessionInfo) => this.onDeleteArchivedSession?.(session)}
         .onDeleteArchivedMany=${(sessions: SessionInfo[]) => this.onDeleteArchivedSessions?.(sessions)}
+        .onRename=${(session: SessionInfo, name: string) => this.onRenameSession?.(session, name)}
         .onDetachParent=${(session: SessionInfo) => this.onDetachParentSession?.(session)}
         .onReload=${(session: SessionInfo) => this.onReloadSession?.(session)}
         .onCleanup=${() => this.onCleanupSessions?.()}

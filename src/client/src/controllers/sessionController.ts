@@ -266,6 +266,21 @@ export class SessionController {
     await this.deliverCommandToSession(session, text, selectedMachineId(this.getState()), { applyResult: true });
   }
 
+  async renameSession(session: SessionInfo, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed === "" || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
+    try {
+      const result = await this.api.runCommand(session, `/name ${trimmed}`, selectedMachineId(this.getState()));
+      if (result.type === "done") {
+        this.applySessionName(session.id, result.session?.name ?? trimmed);
+        return;
+      }
+      this.setState({ error: result.type === "unsupported" ? result.message : "重命名会话失败" });
+    } catch (error) {
+      this.setState({ error: String(error) });
+    }
+  }
+
   private enqueuePendingSessionSend(session: ClientPendingStartSessionInfo, input: QueuedPendingSessionSendInput): void {
     const pending = this.pendingSessionStarts.get(session.id);
     if (pending === undefined || pending.discarded) {
