@@ -1,7 +1,6 @@
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export type SessionEventScope = string;
-export type AuthScope = "normal" | "management";
 
 export const NORMAL_SESSION_EVENT_SCOPE = "normal";
 
@@ -32,10 +31,6 @@ export function managementContextKey(context: ManagementEmbedContext | undefined
 export function eventScopeFromManagementContext(context: ManagementEmbedContext | undefined): SessionEventScope {
   const key = managementContextKey(context);
   return key === undefined ? NORMAL_SESSION_EVENT_SCOPE : `management:${key}`;
-}
-
-export function authScopeFromEventScope(scope: SessionEventScope): AuthScope {
-  return scope === NORMAL_SESSION_EVENT_SCOPE ? "normal" : "management";
 }
 
 function sortedStrings(values: readonly string[] | undefined): string[] | undefined {

@@ -10,6 +10,7 @@ import { SessionEventHub } from "./realtime/sessionEventHub.js";
 import { AuthService } from "./sessions/authService.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
+import { ProjectAuthService } from "./sessions/projectAuthService.js";
 import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
 import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
 import { ProjectService } from "./projects/projectService.js";
@@ -29,27 +30,29 @@ await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();
 const workspaceActivity = new WorkspaceActivityService(eventHub);
-const auth = new AuthService({ scope: "normal" });
+const projects = new ProjectService(new ProjectStore());
+const workspaces = new WorkspaceService();
+const projectAuth = new ProjectAuthService({ projects, workspaces });
 const managementAuth = new AuthService({
-  scope: "management",
   modelRegistry: ModelRegistry.create(AuthStorage.create(join(piWebDataDir(), "management-embed", "auth.json"))),
 });
 const spawnTargets = spawnSessionsEnabled(process.env, config)
-  ? new ProjectScopedSpawnTargetResolver({ projects: new ProjectService(new ProjectStore()), workspaces: new WorkspaceService() })
+  ? new ProjectScopedSpawnTargetResolver({ projects, workspaces })
   : undefined;
 const sessions = new PiSessionService(eventHub, {
-  modelRegistry: auth.modelRegistry,
+  modelRegistry: managementAuth.modelRegistry,
   managementModelRegistry: managementAuth.modelRegistry,
+  normalModelRegistryForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRegistry,
   workspaceActivity,
   logger: app.log,
   ...(spawnTargets === undefined ? {} : { spawnTargets }),
   subsessionsEnabled: spawnTargets !== undefined && subsessionsEnabled(process.env, config),
 });
-auth.subscribe((change) => { sessions.applyAuthChange(change); });
+projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
 managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
 const terminals = new TerminalService(eventHub, workspaceActivity);
 registerWorkspaceActivityRoutes(app, workspaceActivity);
-registerAuthRoutes(app, { normal: auth, management: managementAuth });
+registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
 registerSessionRoutes(app, sessions, eventHub);
 registerTerminalRoutes(app, terminals);
 
@@ -77,7 +80,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   app.log.info({ signal }, "shutting down session daemon");
   terminals.dispose();
-  auth.dispose();
+  await projectAuth.dispose();
   managementAuth.dispose();
   await sessions.dispose();
   await app.close();

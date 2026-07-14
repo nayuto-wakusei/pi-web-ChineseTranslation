@@ -209,6 +209,18 @@ function emptyArchiveStore(): NonNullable<PiSessionServiceDependencies["archiveS
 }
 
 describe("PiSessionService", () => {
+  it("rejects normal session access when the cwd has no project registry", async () => {
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      normalModelRegistryForCwd: () => Promise.reject(new Error("cwd 必须属于一个已注册项目")),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.list("/unregistered")).rejects.toThrow("已注册项目");
+    await expect(service.start("/unregistered")).rejects.toThrow("已注册项目");
+    await service.dispose();
+  });
+
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
@@ -1344,23 +1356,23 @@ describe("PiSessionService", () => {
     hub.globalEvents.length = 0;
 
     authStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic" });
-    service.applyAuthChange({ removedProviderId: "anthropic" });
+    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
+    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
 
     const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
     authStorage.set("anthropic", { type: "api_key", key: "sk-new" });
-    service.applyAuthChange();
+    service.applyAuthChange({ modelRegistry });
     authStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic" });
+    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
 
     await service.dispose();
   });
 
-  it("applies auth changes only to runtimes in the changed auth scope", async () => {
+  it("applies auth changes only to runtimes using the changed model registry", async () => {
     const hub = new CapturingSessionEventHub();
     const normalStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-normal" } });
     const managementStorage = AuthStorage.inMemory();
@@ -1388,12 +1400,12 @@ describe("PiSessionService", () => {
     hub.sessionEvents.length = 0;
 
     normalStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic", scope: "normal" });
+    service.applyAuthChange({ modelRegistry: normalRegistry, removedProviderId: "anthropic" });
 
     expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && scope === "normal")).toHaveLength(1);
     expect(hub.sessionEvents.some(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toBe(false);
 
-    service.applyAuthChange({ removedProviderId: "anthropic", scope: "management" });
+    service.applyAuthChange({ modelRegistry: managementRegistry, removedProviderId: "anthropic" });
 
     expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toHaveLength(1);
 

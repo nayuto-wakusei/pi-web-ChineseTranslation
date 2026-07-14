@@ -217,6 +217,7 @@ export class PiWebApp extends LitElement {
     () => this.state,
     (patch) => { this.setState(patch); },
     (status) => { this.sessions.applySessionStatus(status); },
+    { scope: this.apiScope },
   );
   private readonly workspaces = new WorkspaceController(
     () => this.state,

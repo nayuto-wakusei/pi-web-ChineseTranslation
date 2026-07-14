@@ -76,6 +76,12 @@ const copyCases: readonly CopyCase[] = [
     forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
   },
   {
+    name: "labels provider auth as project-scoped",
+    paths: ["components/AuthDialog.ts", "plugins/core/actions.ts"],
+    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证"],
+    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout"],
+  },
+  {
     name: "localizes session cleanup actions and dialog copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts", "components/SessionCleanupDialog.ts", "sessionCleanupUi.ts"],
     expected: ["清理会话", "预览并手动清理所选机器上的空闲或已归档会话", "归档空闲超过", "删除是永久操作", "运行清理"],

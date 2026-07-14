@@ -58,6 +58,16 @@ const machinePrefix = (machineId = "local") => `/api/machines/${encodeURICompone
 
 type SessionLookup = SessionRef | string;
 
+export interface AuthRequestTarget {
+  machineId: string;
+  projectId?: string;
+}
+
+interface AuthProvidersOptions extends AuthRequestTarget {
+  mode?: "login" | "logout";
+  authType?: "oauth" | "api_key";
+}
+
 function sessionId(session: SessionLookup): string {
   return typeof session === "string" ? session : session.id;
 }
@@ -100,6 +110,13 @@ function sessionBulkMutationRef(session: SessionLookup): SessionBulkMutationRef 
   const id = sessionId(session);
   const cwd = sessionCwd(session);
   return cwd === undefined || cwd === "" ? { id } : { id, cwd };
+}
+
+function authUrl(endpoint: string, target: AuthRequestTarget): string {
+  const params = new URLSearchParams();
+  if (target.projectId !== undefined) params.set("projectId", target.projectId);
+  const query = params.toString();
+  return `${machinePrefix(target.machineId)}/auth/${endpoint}${query === "" ? "" : `?${query}`}`;
 }
 
 export const piWebApi = {
@@ -241,19 +258,20 @@ export const sessionsApi = {
   deleteArchived: (session: SessionLookup, machineId = "local") => request(sessionBaseQueryUrl(session, machineId), parseDeleted, { method: "DELETE" }),
   detachParent: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "detach-parent", machineId), parseDetached, { method: "POST", body: sessionBody(session) }),
   reloadSession: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "reload", machineId), parseReloaded, { method: "POST", body: sessionBody(session) }),
-  authProviders: (options?: { mode?: "login" | "logout"; authType?: "oauth" | "api_key"; machineId?: string }) => {
+  authProviders: (options: AuthProvidersOptions) => {
     const params = new URLSearchParams();
-    if (options?.mode !== undefined) params.set("mode", options.mode);
-    if (options?.authType !== undefined) params.set("authType", options.authType);
+    if (options.mode !== undefined) params.set("mode", options.mode);
+    if (options.authType !== undefined) params.set("authType", options.authType);
+    if (options.projectId !== undefined) params.set("projectId", options.projectId);
     const query = params.toString();
-    return request(`${machinePrefix(options?.machineId)}/auth/providers${query === "" ? "" : `?${query}`}`, parseAuthProvidersResponse);
+    return request(`${machinePrefix(options.machineId)}/auth/providers${query === "" ? "" : `?${query}`}`, parseAuthProvidersResponse);
   },
-  saveApiKey: (providerId: string, key: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/api-key`, parseAccepted, { method: "POST", body: JSON.stringify({ providerId, key }) }),
-  logoutProvider: (providerId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/logout`, parseAccepted, { method: "POST", body: JSON.stringify({ providerId }) }),
-  startOAuthLogin: (providerId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ providerId }) }),
-  oauthFlow: (flowId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth/${encodeURIComponent(flowId)}`, parseOAuthFlowState),
-  respondOAuthFlow: (flowId: string, requestId: string, value: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth/${encodeURIComponent(flowId)}/respond`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ requestId, value }) }),
-  cancelOAuthFlow: (flowId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth/${encodeURIComponent(flowId)}/cancel`, parseOAuthFlowState, { method: "POST" }),
+  saveApiKey: (providerId: string, key: string, target: AuthRequestTarget) => request(authUrl("api-key", target), parseAccepted, { method: "POST", body: JSON.stringify({ providerId, key }) }),
+  logoutProvider: (providerId: string, target: AuthRequestTarget) => request(authUrl("logout", target), parseAccepted, { method: "POST", body: JSON.stringify({ providerId }) }),
+  startOAuthLogin: (providerId: string, target: AuthRequestTarget) => request(authUrl("oauth", target), parseOAuthFlowState, { method: "POST", body: JSON.stringify({ providerId }) }),
+  oauthFlow: (flowId: string, target: AuthRequestTarget) => request(authUrl(`oauth/${encodeURIComponent(flowId)}`, target), parseOAuthFlowState),
+  respondOAuthFlow: (flowId: string, requestId: string, value: string, target: AuthRequestTarget) => request(authUrl(`oauth/${encodeURIComponent(flowId)}/respond`, target), parseOAuthFlowState, { method: "POST", body: JSON.stringify({ requestId, value }) }),
+  cancelOAuthFlow: (flowId: string, target: AuthRequestTarget) => request(authUrl(`oauth/${encodeURIComponent(flowId)}/cancel`, target), parseOAuthFlowState, { method: "POST" }),
 };
 
 export const terminalsApi = {

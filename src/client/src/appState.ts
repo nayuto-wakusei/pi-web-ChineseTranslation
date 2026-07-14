@@ -1,4 +1,4 @@
-import type { AuthProviderOption, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./chatTypes";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
@@ -67,12 +67,17 @@ export interface AppState {
   error: string;
 }
 
+export interface AuthDialogTarget extends AuthRequestTarget {
+  machineKind?: Machine["kind"];
+  projectName?: string;
+}
+
 export type AuthDialogState =
-  | { step: "method" }
-  | { step: "providers"; mode: "login"; authType?: "oauth" | "api_key"; providers: AuthProviderOption[] }
-  | { step: "apiKey"; provider: AuthProviderOption; value: string; saving?: boolean; error?: string }
-  | { step: "oauth"; flow: OAuthFlowState; responding?: boolean; inputValue?: string; error?: string }
-  | { step: "logout"; providers: AuthProviderOption[] };
+  | { step: "method"; target: AuthDialogTarget }
+  | { step: "providers"; mode: "login"; authType?: "oauth" | "api_key"; providers: AuthProviderOption[]; target: AuthDialogTarget }
+  | { step: "apiKey"; provider: AuthProviderOption; value: string; saving?: boolean; error?: string; target: AuthDialogTarget }
+  | { step: "oauth"; flow: OAuthFlowState; responding?: boolean; inputValue?: string; error?: string; target: AuthDialogTarget }
+  | { step: "logout"; providers: AuthProviderOption[]; target: AuthDialogTarget };
 
 export type WorkspaceScopedStateReset = Pick<AppState,
   | "sessions"

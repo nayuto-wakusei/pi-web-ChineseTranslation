@@ -5,13 +5,14 @@ import { AuthService, type AuthChange } from "./authService.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
 describe("AuthService", () => {
-  it("saves API keys and emits a global auth change", () => {
+  it("saves API keys and emits a scoped auth change", () => {
     const { auth, authStorage, changes } = createAuthService();
 
     expect(auth.saveApiKey("anthropic", "sk-test")).toEqual({ accepted: true });
 
     expect(authStorage.get("anthropic")).toEqual({ type: "api_key", key: "sk-test" });
-    expect(changes).toEqual([{ scope: "normal" }]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ modelRegistry: auth.modelRegistry });
     auth.dispose();
   });
 
@@ -21,7 +22,8 @@ describe("AuthService", () => {
     expect(auth.logoutProvider("anthropic")).toEqual({ accepted: true });
 
     expect(authStorage.get("anthropic")).toBeUndefined();
-    expect(changes).toEqual([{ scope: "normal", removedProviderId: "anthropic" }]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ modelRegistry: auth.modelRegistry, removedProviderId: "anthropic" });
     auth.dispose();
   });
 
@@ -61,7 +63,8 @@ describe("AuthService", () => {
 
     expect(reload).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledOnce();
-    expect(changes).toEqual([{ scope: "normal" }]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ modelRegistry });
     auth.dispose();
     expect(authFlows.disposed).toBe(true);
   });

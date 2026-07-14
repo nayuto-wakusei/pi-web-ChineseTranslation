@@ -72,6 +72,15 @@ describe("ordinary mode auth API", () => {
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/normal-auth/status");
   });
 
+  it("includes the selected project in provider auth requests", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.saveApiKey("anthropic", "sk-test", { machineId: "remote a", projectId: "project/1" });
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/auth/api-key?projectId=project%2F1");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ providerId: "anthropic", key: "sk-test" });
+  });
+
   it("sets up, logs in, and changes ordinary mode passwords", async () => {
     const fetchMock = stubSequenceFetch([
       jsonResponse({ accepted: true }),

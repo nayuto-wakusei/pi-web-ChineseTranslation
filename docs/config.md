@@ -11,6 +11,13 @@ PI WEB uses two config files:
 - **Global PI WEB config:** `$PI_WEB_CONFIG`, or `$XDG_CONFIG_HOME/pi-web/config.json`, or `~/.config/pi-web/config.json`.
 - **Project-local PI WEB config:** `<project>/.pi-web/config.json` for commit-able project settings.
 
+Normal-mode provider credentials and custom models are stored separately for each registered project under the managed data directory (`$PI_WEB_DATA_DIR`, or `~/.pi-web`):
+
+- Each project has its own managed `auth.json` and `models.json`.
+- All worktrees belonging to the same project share those two files.
+- On first use, PI WEB copies the existing global Pi files from the effective Pi agent directory (by default `~/.pi/agent/auth.json` and `~/.pi/agent/models.json`) into the project store. Later changes are independent; the global files are not a fallback.
+- Normal-mode auth requests and new session/list requests must resolve to a registered project. Existing active sessions keep the project registry they were opened with, even if the project is later closed. Management-embed mode keeps its separate managed credential store.
+
 Each PI WEB machine has its own config. When using Fleet/machine federation, Settings uses the selected machine for config that affects work running there: session daemon tools, PI WEB plugin enablement, external path access, and upload defaults. Gateway/browser-only settings stay local to the gateway: keyboard shortcuts, remote machine registry/tokens, and gateway host/port/allowed-hosts. Remote servers that do not advertise selected-machine settings support report those settings as unavailable instead of silently falling back to the gateway.
 
 Pi package settings are separate from PI WEB config. They live in Pi's package-manager settings on the target machine and are managed by Pi (`pi install`, `pi remove`, `pi update`) or **Settings → Pi packages**. In a federated setup, **Settings → Pi packages** targets the currently selected machine. The PI WEB `plugins` config key only enables or disables discovered PI WEB browser plugins on the machine whose config you are editing; it does not install, remove, or update Pi packages.

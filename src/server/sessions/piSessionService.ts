@@ -27,7 +27,7 @@ import {
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { authScopeFromEventScope, eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
+import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
 import { SessionCommandService } from "./sessionCommandService.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
@@ -350,9 +350,9 @@ function createRuntimeWithContextAndOneShotInitialModel(
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
-function createDefaultRuntimeFactory(modelRegistry: ModelRegistryInstance, managementModelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
+function createDefaultRuntimeFactory(normalModelRegistryForCwd: (cwd: string) => Promise<ModelRegistryInstance>, managementModelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel }) => {
-    const scopedModelRegistry = managementContext === undefined ? modelRegistry : managementModelRegistry;
+    const scopedModelRegistry = managementContext === undefined ? await normalModelRegistryForCwd(cwd) : managementModelRegistry;
     const authStorage = scopedModelRegistry.authStorage;
     if (managementContext !== undefined) {
       return createManagementRuntimeFactory(authStorage, scopedModelRegistry, spawn, subsessions, managementContext)({
@@ -464,6 +464,8 @@ export interface PiSessionServiceDependencies {
   createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
   modelRegistry?: ModelRegistryInstance;
+  /** Resolve the normal-mode registry for a session cwd. */
+  normalModelRegistryForCwd?: (cwd: string) => Promise<ModelRegistryInstance>;
   managementModelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
@@ -515,6 +517,7 @@ export class PiSessionService {
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
   private readonly modelRegistry: ModelRegistryInstance;
+  private readonly normalModelRegistryForCwd: (cwd: string) => Promise<ModelRegistryInstance>;
   private readonly managementModelRegistry: ModelRegistryInstance;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
   private readonly spawnTargets: SpawnTargetResolver | undefined;
@@ -526,6 +529,7 @@ export class PiSessionService {
     this.agentDir = deps.agentDir ?? getAgentDir();
     this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({ agentDir: this.agentDir });
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
+    this.normalModelRegistryForCwd = deps.normalModelRegistryForCwd ?? (() => Promise.resolve(this.modelRegistry));
     this.managementModelRegistry = deps.managementModelRegistry ?? this.modelRegistry;
     this.spawnTargets = deps.spawnTargets;
     this.logger = deps.logger ?? noopLogger;
@@ -534,7 +538,7 @@ export class PiSessionService {
     // also require the spawn capability (they share its project-scope resolver).
     const subsessionsActive = this.spawnTargets !== undefined && deps.subsessionsEnabled === true;
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
-      this.modelRegistry,
+      this.normalModelRegistryForCwd,
       this.managementModelRegistry,
       this.spawnTargets === undefined ? undefined : (input) => this.spawnSession(input),
       !subsessionsActive ? undefined : {
@@ -638,6 +642,7 @@ export class PiSessionService {
   }
 
   async list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]> {
+    if (managementContext === undefined) await this.normalModelRegistryForCwd(cwd);
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     const archivedForCwd = await Promise.all(
@@ -656,6 +661,7 @@ export class PiSessionService {
   }
 
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
+    if (options.managementContext === undefined) await this.normalModelRegistryForCwd(cwd);
     const active = await this.create(
       this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession }),
       cwd,
@@ -1908,14 +1914,12 @@ export class PiSessionService {
     this.publishSessionName(session);
   }
 
-  applyAuthChange(change: Partial<AuthChange> = {}): void {
-    this.modelRegistry.refresh();
-    this.managementModelRegistry.refresh();
-    const changedScope = change.scope ?? "normal";
+  applyAuthChange(change: AuthChange): void {
+    const changedRegistry = change.modelRegistry;
+    changedRegistry.refresh();
     for (const active of this.active.values()) {
-      if (authScopeFromEventScope(active.eventScope) !== changedScope) continue;
       const { session } = active.runtime;
-      session.modelRegistry.refresh();
+      if (session.modelRegistry !== changedRegistry) continue;
       this.syncCurrentModelAuthWarning(session, active.eventScope, change.removedProviderId);
       this.publishStatus(session);
     }
