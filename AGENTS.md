@@ -22,7 +22,9 @@ This project is expected to run locally using split systemd user services:
 - `pi-web-sessiond.service` runs `npm run start:sessiond` in non-autoreload, non-auto-restart mode.
 - `pi-web-ui-dev.service` runs the web/API, bundled-plugin watcher, and Vite UI with `npm run dev:web` and `npm run dev:client`.
 
-`src/server/index.ts` and `src/server/app.ts` own the browser-facing Fastify gateway. `src/server/sessiond.ts` owns long-lived Pi sessions, provider auth, terminals, activity, and realtime session events. The gateway reaches the daemon through `src/sessiond/sessionDaemonClient.ts` and proxy routes.
+`src/server/index.ts` and `src/server/app.ts` own the browser-facing Fastify gateway. `src/server/sessiond.ts` owns long-lived Pi sessions, normal-mode project-scoped provider auth, terminals, activity, and realtime session events. The gateway reaches the daemon through `src/sessiond/sessionDaemonClient.ts` and proxy routes.
+
+Normal-mode session runtimes resolve their credential and model registry from the owning registered project through `ProjectAuthService`; management-embed mode uses its separate managed `AuthService` and storage. Do not collapse those two auth ownership boundaries.
 
 Browser disconnects and UI/API restarts must not stop active Pi sessions. Keep daemon-owned state and side effects out of the autoreloading web process.
 
@@ -38,6 +40,8 @@ The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead
 - Centralize browser transport in `src/client/src/api/`: endpoint families in `clients.ts`, URL construction in `urls.ts`, HTTP/auth scoping in `http.ts`, and sockets in `sockets.ts`.
 - Management embed is a cross-process security boundary. The web gateway authenticates and constrains the request; the daemon consumes the forwarded management context and uses the separate management provider-auth store. Preserve that context on every applicable HTTP mutation and WebSocket route.
 - Normal-mode browser access auth and Pi model-provider auth are unrelated. Do not conflate `normalAuth.passwordHash` with provider API keys or auth files.
+- Normal-mode provider-auth endpoints require a `projectId` and must resolve it to a registered project. Carry the typed `AuthRequestTarget` through provider lookup, API-key save/logout, and every OAuth lifecycle request; management-embed requests instead derive their store from the forwarded management context.
+- Normal-mode session operations must resolve their `cwd` to exactly one registered project's workspace before listing, starting, or opening a runtime. That resolution selects the model registry; never fall back to ambient global Pi credentials. Process auth changes by exact model-registry identity so credentials changed for one project cannot refresh or warn sessions belonging to another.
 
 ## Client and plugins
 
@@ -46,11 +50,15 @@ The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead
 - `src/plugin-api.ts` is the source of the stable public plugin API. `src/plugin-api/unstable.ts` is explicitly unstable. Do not hand-edit generated `plugin-api.d.ts`; run `npm run build:plugin-api`.
 - Plugins should prefer documented context helpers over direct private `/api/...` calls. Keep activation cheap and declarative, and preserve machine scoping for remote plugin contributions and assets.
 - When changing Chinese UI copy, update the owning component/plugin and relevant copy assertions, including `src/client/src/coreUiChineseCopy.test.ts` where applicable.
+- `AuthController` snapshots the machine and, in normal mode, selected project into `AuthDialogTarget` when an auth flow starts. Keep that target through asynchronous OAuth polling and only refresh the session status while it remains selected; do not retarget an in-flight flow from mutable current UI state.
+- Session-list components render menu interaction only; route rename mutations through `SessionController` and the existing `/name` command path. Rename only persisted, unarchived sessions, trim/reject blank names, preserve the currently selected conversation when renaming another row, and keep list/selection metadata synchronized through `session.name` events.
+- Preserve the chat scroll layout invariant: `.chat-wrap` owns the constrained flex area and `.chat` is the absolute `inset: 0` scrolling element. Do not replace it with `height: 100%`, or long transcripts can no longer reach their bottom.
 
 ## Configuration conventions
 
-- `$PI_WEB_DATA_DIR` (`~/.pi-web` by default) contains PI WEB-managed state such as `projects.json`, `machines.json`, plugin discovery state, and daemon IPC/auth data. Do not treat it as the user-editable config API.
+- `$PI_WEB_DATA_DIR` (`~/.pi-web` by default) contains PI WEB-managed state such as `projects.json`, `machines.json`, plugin discovery state, daemon IPC/auth data, and normal-mode per-project provider credential/model stores. Do not treat it as the user-editable config API.
 - Global user/machine config lives at `$PI_WEB_CONFIG` or `~/.config/pi-web/config.json`. The web process and daemon must use the same effective global config.
+- Normal-mode `auth.json` and `models.json` live under the managed data directory in a stable store keyed by the normalized absolute project path, not in the checkout or the commit-able project config. All worktrees of one project share that store. On first use, copy the effective global Pi agent files once (or create empty defaults if absent); later global-file changes are not a fallback and must not overwrite an existing project store. Keep the files private and preserve the separate management-embed credential store.
 - Project-local PI WEB core config uses one commit-able file: `<project>/.pi-web/config.json`.
 - Core features add keys to these config files rather than creating one project file per feature. Plugins may own separate project files such as `.pi-web/tasks.json`.
 - In federated UI flows, machine-affecting settings target the selected machine. Gateway bind/allowed-host settings, machine registration/tokens, and browser shortcut preferences remain local to the gateway/browser.
@@ -62,6 +70,8 @@ Use `.agents/skills/code-quality-architecture/SKILL.md` whenever writing, modify
 Use `.agents/skills/testing-guide/SKILL.md` whenever writing, modifying, reviewing, or planning tests, closing coverage gaps, triaging failures, or creating test helpers/harnesses.
 
 Run the narrowest meaningful test first. Also run `npm run typecheck` for source or exported-type changes. Use `npm run verify` (`typecheck`, `lint`, `knip`, and Vitest) for cross-cutting work and before final merge review.
+
+For project-auth changes, cover first-use bootstrap/isolation, client target propagation, and the federated route contract. For session rename changes, cover menu eligibility/input and controller behavior when the renamed row is not the active conversation. Keep the chat layout assertion in `src/client/src/components/shared.test.ts` when changing transcript scrolling styles.
 
 ## Changes and releases
 
