@@ -25,6 +25,7 @@ Commands:
   restart-web             Restart only the web service
   restart-sessiond        Restart only the session daemon
   update                  Rebuild/update and recreate the Docker stack
+                          (development mode requires a clean Git checkout)
   status                  Show Docker Compose service status
   logs [web|sessiond|data-init]
                           Follow Docker Compose logs
@@ -33,7 +34,8 @@ Commands:
   cli <pi-web args...>    Run the pi-web CLI in the web container
 
 Update and restart commands launched inside a PI WEB Docker container start an
-independent helper container first so work can continue after web/sessiond exits.
+independent helper container first, then stream the helper logs inline. The
+helper continues running if the terminal or web/sessiond exits.
 EOF
 }
 
@@ -228,6 +230,60 @@ enforce_dev_root_safety() {
   [ "$uid" != 0 ] || die "refusing to run Docker development mode as root; retry with --allow-root if this is intentional"
 }
 
+dev_git_operation() {
+  git_dir=$1
+  if [ -f "$git_dir/MERGE_HEAD" ]; then
+    printf '%s\n' merge
+  elif [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ] || [ -f "$git_dir/REBASE_HEAD" ]; then
+    printf '%s\n' rebase
+  elif [ -f "$git_dir/CHERRY_PICK_HEAD" ]; then
+    printf '%s\n' cherry-pick
+  elif [ -f "$git_dir/REVERT_HEAD" ]; then
+    printf '%s\n' revert
+  elif [ -d "$git_dir/sequencer" ]; then
+    printf '%s\n' sequenced-operation
+  elif [ -f "$git_dir/BISECT_LOG" ]; then
+    printf '%s\n' bisect
+  else
+    return 1
+  fi
+}
+
+require_clean_dev_update_checkout() {
+  [ "$(docker_mode)" = dev ] || return 0
+  root=$(dev_root)
+  require_command git
+
+  git_root=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) \
+    || die "Docker development update requires a Git checkout at $root"
+  git_root=$(absolute_existing_dir "$git_root") \
+    || die "could not resolve Git checkout root: $git_root"
+  [ "$git_root" = "$root" ] \
+    || die "Docker development root $root must be the Git checkout root ($git_root)"
+  git_dir=$(git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) \
+    || die "could not resolve Git metadata for $root"
+
+  operation=$(dev_git_operation "$git_dir" 2>/dev/null || true)
+  if [ -n "$operation" ]; then
+    log "pi-web-docker: refusing to update the Docker development stack while a Git $operation is in progress: $root"
+    checkout_status=$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)
+    if [ -n "$checkout_status" ]; then
+      log "Checkout status:"
+      printf '%s\n' "$checkout_status" >&2
+    fi
+    die "resolve or abort the Git $operation before rerunning pi-web-docker --dev update"
+  fi
+
+  checkout_status=$(git -C "$root" status --porcelain=v1 --untracked-files=all) \
+    || die "could not inspect Git checkout status at $root"
+  if [ -n "$checkout_status" ]; then
+    log "pi-web-docker: refusing to update the Docker development stack because the checkout has uncommitted changes: $root"
+    log "Checkout status:"
+    printf '%s\n' "$checkout_status" >&2
+    die "commit, stash, or remove these changes before rerunning pi-web-docker --dev update; no files were changed"
+  fi
+}
+
 enforce_container_mode_match() {
   is_truthy "${PI_WEB_DOCKER_RUNTIME:-}" || return 0
   runtime_mode=${PI_WEB_DOCKER_MODE:-}
@@ -400,6 +456,7 @@ run_runtime_host_update() {
 
 run_update() {
   assert_no_args update "$@"
+  require_clean_dev_update_checkout
   case "$(docker_mode)" in
     runtime)
       if ! is_truthy "${PI_WEB_DOCKER_RUNTIME:-}"; then
@@ -598,6 +655,35 @@ cleanup_old_helpers() {
   done
 }
 
+stream_detached_helper_logs() {
+  helper_name=$1
+  printf '\n'
+  printf 'Streaming detached PI WEB Docker helper logs inline.\n'
+  printf 'If this terminal disconnects, the helper keeps running.\n'
+  printf 'Reconnect with: docker logs -f %s\n' "$helper_name"
+  printf '\n'
+
+  if docker logs -f "$helper_name"; then
+    logs_status=0
+  else
+    logs_status=$?
+  fi
+
+  if [ "$logs_status" -ne 0 ]; then
+    log "pi-web-docker: detached helper log streaming stopped with status $logs_status"
+    log "pi-web-docker: reconnect with: docker logs -f $helper_name"
+    return "$logs_status"
+  fi
+
+  helper_status=$(docker inspect --format '{{.State.ExitCode}}' "$helper_name" 2>/dev/null || true)
+  if is_unsigned_int "$helper_status" && [ "$helper_status" -ne 0 ]; then
+    log "pi-web-docker: detached helper exited with status $helper_status"
+    return "$helper_status"
+  fi
+
+  return 0
+}
+
 start_detached_helper() {
   action=$1
   is_truthy "${PI_WEB_DOCKER_RUNTIME:-}" || die "detached helpers are only available inside the PI WEB Docker runtime"
@@ -626,7 +712,7 @@ start_detached_helper() {
 
   timestamp=$(date -u +%Y%m%d%H%M%S)
   helper_name=pi-web-docker-$action-$timestamp-$$
-  generated_env_keys="PI_WEB_UID PI_WEB_GID DOCKER_GID PI_WEB_DOCKER_HOST_PROFILE HOSTEXEC_MODE PI_WEB_DOCKER_EXTRA_HOST_PATHS PI_WEB_DOCKER_DATA_DIR PI_WEB_DOCKER_INSTALL_DIR PI_WEB_DOCKER_DEV_REPO_ROOT PI_WEB_DOCKER_REF PI_WEB_BIND_ADDR PI_WEB_PORT PI_WEB_DEV_API_BIND_ADDR PI_WEB_DEV_BIND_ADDR PI_WEB_DEV_API_PORT PI_WEB_DEV_PORT PI_WEB_VERSION PI_VERSION PI_WEB_OPENSUSE_IMAGE PI_WEB_NODEJS_MAJOR PI_WEB_NODEJS_REPO PI_WEB_EXTRA_ZYPPER_PACKAGES PI_WEB_IMAGE PI_WEB_DEV_IMAGE COMPOSE_PROJECT_NAME HOSTEXEC_IMAGE PI_WEB_MAX_UPLOAD_BYTES"
+  generated_env_keys="PI_WEB_UID PI_WEB_GID DOCKER_GID PI_WEB_DOCKER_HOST_PROFILE HOSTEXEC_MODE PI_WEB_DOCKER_EXTRA_HOST_PATHS PI_WEB_DOCKER_DATA_DIR PI_WEB_DOCKER_INSTALL_DIR PI_WEB_DOCKER_DEV_REPO_ROOT PI_WEB_DOCKER_REF PI_WEB_BIND_ADDR PI_WEB_PORT PI_WEB_DEV_API_BIND_ADDR PI_WEB_DEV_BIND_ADDR PI_WEB_DEV_API_PORT PI_WEB_DEV_PORT PI_WEB_VERSION PI_WEB_OPENSUSE_IMAGE PI_WEB_NODEJS_MAJOR PI_WEB_NODEJS_REPO PI_WEB_EXTRA_ZYPPER_PACKAGES PI_WEB_IMAGE PI_WEB_DEV_IMAGE COMPOSE_PROJECT_NAME HOSTEXEC_IMAGE PI_WEB_MAX_UPLOAD_BYTES"
 
   set -- run -d \
     --env-file "$env_file" \
@@ -675,7 +761,7 @@ start_detached_helper() {
   container_id=$(docker "$@") || die "could not start detached Docker helper"
   printf 'Started detached PI WEB Docker helper: %s\n' "$helper_name"
   printf 'Container ID: %s\n' "$container_id"
-  printf 'Follow progress with: docker logs -f %s\n' "$helper_name"
+  stream_detached_helper_logs "$helper_name"
 }
 
 run_detached_action() {
@@ -699,6 +785,11 @@ run_restart_or_update() {
   shift
   assert_no_args "$action" "$@"
   if is_truthy "${PI_WEB_DOCKER_RUNTIME:-}"; then
+    # Fail before scheduling a helper, then recheck inside the helper in
+    # run_update so a checkout change cannot race the detached operation.
+    if [ "$action" = update ]; then
+      require_clean_dev_update_checkout
+    fi
     start_detached_helper "$action"
     return 0
   fi

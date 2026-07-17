@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { sanitizedGitEnv } from "./git/gitEnv.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const dockerEntrypoint = join(repoRoot, "docker", "pi-web-docker");
@@ -46,21 +47,33 @@ describe("Docker command assets", () => {
   });
 
   it("packages the canonical Docker command and internal support assets", async () => {
-    const [dockerfile, devDockerfile, runtimeCompose, devCompose, installer, devWrapper, dockerignore] = await Promise.all([
+    const [dockerfile, devDockerfile, runtimeCompose, devCompose, installer, devWrapper, dependencySync, dockerignore] = await Promise.all([
       readRepoFile("docker/Dockerfile"),
       readRepoFile("docker/Dockerfile.dev"),
       readRepoFile("docker/compose.yml"),
       readRepoFile("docker/compose.dev.yml"),
       readRepoFile("docker/install.sh"),
       readRepoFile("docker/internal/dev/compose"),
+      readRepoFile("docker/internal/dev/sync-node-modules"),
       readRepoFile("docker/.dockerignore"),
     ]);
+    const customImageHooksIndex = devDockerfile.indexOf("for script in /tmp/pi-web-custom-image.d/*.sh");
+    const dependencyGenerationIndex = devDockerfile.indexOf("/opt/pi-web-dev-dependencies/generation");
 
     expect(dockerfile).toContain("COPY pi-web-docker /usr/local/bin/pi-web-docker");
     expect(dockerfile).toContain("COPY internal/bin/hostexec /usr/local/bin/hostexec");
     expect(dockerfile).toContain("COPY internal/image/install-opensuse-base /usr/local/sbin/install-pi-web-opensuse-base");
+    expect(dockerfile).toContain("--include=peer");
+    expect(dockerfile).toContain('peer_pi_bin="${global_root}/@chainingintention/pi-web-cn/node_modules/.bin/pi"');
+    expect(dockerfile).not.toContain("@earendil-works/pi-coding-agent@");
     expect(devDockerfile).toContain("COPY docker/pi-web-docker /usr/local/bin/pi-web-docker");
     expect(devDockerfile).toContain("COPY docker/internal/bin/hostexec /usr/local/bin/hostexec");
+    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");
+    expect(devDockerfile).toContain("/opt/pi-web-dev-dependencies/node_modules");
+    // Hooks can mutate the dependency seed, so its cache generation must be finalized afterward.
+    expect(customImageHooksIndex).toBeGreaterThanOrEqual(0);
+    expect(dependencyGenerationIndex).toBeGreaterThan(customImageHooksIndex);
+    expect(dependencySync).toContain(".pi-web-dev-dependency-generation");
     expect(dockerignore).toContain("!pi-web-docker");
     expect(dockerignore).toContain("!internal/bin/hostexec");
     expect(installer).toContain("write_asset pi-web-docker 0755");
@@ -82,6 +95,8 @@ describe("Docker command assets", () => {
     expect(devCompose).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}");
     expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
     expect(devCompose).toContain("COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web-dev}");
+    expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
+    expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
   });
 
   dockerCommandIt("fetches remote installer assets without clobbering the write target", async () => {
@@ -246,6 +261,84 @@ describe("Docker command assets", () => {
     expect(await readFile(helperLog, "utf8")).toBe("allow=1 args=ps\n");
   });
 
+  dockerCommandIt("refuses development updates when the checkout has uncommitted files", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    await writeFile(join(devRoot, "staged.txt"), "changed\n", "utf8");
+    await execUtf8("git", ["-C", devRoot, "add", "staged.txt"], cleanProcessEnv());
+    await writeFile(join(devRoot, "modified.txt"), "changed\n", "utf8");
+    await writeFile(join(devRoot, "untracked.txt"), "untracked\n", "utf8");
+
+    const result = await runDockerCommandAllowFailure(
+      ["--dev", "update"],
+      devHostEnv(fakeDocker, devRoot, join(tempDir, "home")),
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing to update the Docker development stack because the checkout has uncommitted changes");
+    expect(result.stderr).toContain("staged.txt");
+    expect(result.stderr).toContain("modified.txt");
+    expect(result.stderr).toContain("?? untracked.txt");
+    expect(result.stderr).toContain("commit, stash, or remove these changes");
+    await expect(readFile(helperLog, "utf8")).rejects.toThrow();
+  });
+
+  dockerCommandIt("refuses dirty development updates before scheduling a detached helper", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    await writeFile(join(devRoot, "untracked.txt"), "untracked\n", "utf8");
+
+    const result = await runDockerCommandAllowFailure(["--dev", "update"], devRuntimeEnv(fakeDocker, devRoot));
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("checkout has uncommitted changes");
+    expect(result.stdout).not.toContain("Started detached PI WEB Docker helper");
+    await expect(readFile(fakeDocker.logPath, "utf8")).rejects.toThrow();
+    await expect(readFile(helperLog, "utf8")).rejects.toThrow();
+  });
+
+  dockerCommandIt("refuses development updates while a Git operation is in progress", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    const head = (await execUtf8("git", ["-C", devRoot, "rev-parse", "HEAD"], cleanProcessEnv())).stdout.trim();
+    await writeFile(join(devRoot, ".git", "MERGE_HEAD"), `${head}\n`, "utf8");
+
+    const result = await runDockerCommandAllowFailure(
+      ["--dev", "update"],
+      devHostEnv(fakeDocker, devRoot, join(tempDir, "home")),
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("while a Git merge is in progress");
+    expect(result.stderr).toContain("resolve or abort the Git merge");
+    await expect(readFile(helperLog, "utf8")).rejects.toThrow();
+  });
+
+  dockerCommandIt("allows clean development updates and dirty development starts", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    const env = devHostEnv(fakeDocker, devRoot, join(tempDir, "home"));
+
+    await runDockerCommand(["--dev", "update"], env);
+    await writeFile(join(devRoot, "in-progress-work.txt"), "dirty by design\n", "utf8");
+    await runDockerCommand(["--dev", "start"], env);
+
+    expect(await readFile(helperLog, "utf8")).toBe([
+      "allow=0 args=build --pull",
+      "allow=0 args=up -d --force-recreate --remove-orphans",
+      "allow=0 args=up -d --build",
+      "",
+    ].join("\n"));
+  });
+
   dockerCommandIt("starts development detached helpers as the generated dev user", async () => {
     const devRoot = await createDevGeneratedEnv({ uid: 1234, gid: 2345, dockerGid: 3456 });
     const fakeDocker = await installFakeDocker();
@@ -308,7 +401,9 @@ describe("Docker command assets", () => {
     const result = await runDockerCommand(["restart-sessiond"], runtimeEnv(fakeDocker, installDir));
 
     expect(result.stdout).toContain("Started detached PI WEB Docker helper");
-    expect(result.stdout).toContain("Follow progress with: docker logs -f pi-web-docker-restart-sessiond-");
+    expect(result.stdout).toContain("Streaming detached PI WEB Docker helper logs inline.");
+    expect(result.stdout).toContain("Reconnect with: docker logs -f pi-web-docker-restart-sessiond-");
+    expect(result.stdout).toContain("fake helper log");
     const log = await readFile(fakeDocker.logPath, "utf8");
     expect(log).toContain("container inspect");
     expect(log).toContain("run -d");
@@ -437,9 +532,28 @@ async function createDevRepoFixtureWithFakeHelper(logPath: string): Promise<stri
   await mkdir(dirname(helperPath), { recursive: true });
   await writeFile(helperPath, `#!/usr/bin/env sh
 set -eu
-printf 'allow=%s args=%s\n' "\${PI_WEB_DOCKER_ALLOW_ROOT:-}" "$*" >${shellSingleQuote(logPath)}
+printf 'allow=%s args=%s\n' "\${PI_WEB_DOCKER_ALLOW_ROOT:-}" "$*" >>${shellSingleQuote(logPath)}
 `, "utf8");
   await chmod(helperPath, 0o755);
+  return devRoot;
+}
+
+async function createCleanDevGitRepoWithFakeHelper(logPath: string): Promise<string> {
+  const devRoot = await createDevRepoFixtureWithFakeHelper(logPath);
+  await Promise.all([
+    writeFile(join(devRoot, "staged.txt"), "clean\n", "utf8"),
+    writeFile(join(devRoot, "modified.txt"), "clean\n", "utf8"),
+  ]);
+  const env = cleanProcessEnv();
+  await execUtf8("git", ["init", "--quiet", devRoot], env);
+  await execUtf8("git", ["-C", devRoot, "add", "."], env);
+  await execUtf8("git", [
+    "-C", devRoot,
+    "-c", "user.name=PI WEB Test",
+    "-c", "user.email=pi-web-test@example.invalid",
+    "-c", "core.hooksPath=/dev/null",
+    "commit", "--quiet", "--no-gpg-sign", "-m", "test fixture",
+  ], env);
   return devRoot;
 }
 
@@ -524,6 +638,22 @@ case "\${1:-}" in
     ;;
   run)
     printf 'fake-helper-container-id\n'
+    exit 0
+    ;;
+  logs)
+    printf 'fake helper log\n'
+    exit 0
+    ;;
+  inspect)
+    for arg in "$@"; do
+      case "$arg" in
+        *State.ExitCode*)
+          printf '0\n'
+          exit 0
+          ;;
+      esac
+    done
+    printf '{}\n'
     exit 0
     ;;
 esac
@@ -613,7 +743,7 @@ async function withUnixSocket<T>(socketPath: string, callback: () => Promise<T>)
 }
 
 function cleanProcessEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+  const env = sanitizedGitEnv(process.env);
   for (const key of Object.keys(env)) {
     if (key === "COMPOSE_PROJECT_NAME" || key === "DOCKER_GID" || key === "HOSTEXEC_IMAGE" || key === "XDG_DATA_HOME" || key.startsWith("PI_WEB_")) {
       Reflect.deleteProperty(env, key);

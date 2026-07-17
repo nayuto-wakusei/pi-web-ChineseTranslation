@@ -664,7 +664,7 @@ describe("buildApp", () => {
     const scopedPluginId = machineScopedPluginId(remote.id, "remote-tools");
     expect(manifestResponse.statusCode).toBe(200);
     expect(manifestResponse.json()).toEqual({
-      plugins: [{ id: "remote-tools", module: `/pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local", machineSpecific: true }],
+      plugins: [{ id: "remote-tools", module: `../../../../pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local", machineSpecific: true }],
     });
     expect(requestJson).toHaveBeenCalledWith("GET", "/pi-web-plugins/manifest.json", undefined, { timeoutMs: 10000 });
 
@@ -697,7 +697,7 @@ describe("buildApp", () => {
 
     expect(manifestResponse.statusCode).toBe(200);
     expect(manifestResponse.json()).toEqual({
-      plugins: [{ id: "safe-tools", module: `/pi-web-plugins/${machineScopedPluginId(remote.id, "safe-tools")}/nested/pi-web-plugin.js?v=1`, source: "local", scope: "local" }],
+      plugins: [{ id: "safe-tools", module: `../../../../pi-web-plugins/${machineScopedPluginId(remote.id, "safe-tools")}/nested/pi-web-plugin.js?v=1`, source: "local", scope: "local" }],
     });
   });
 
@@ -1236,7 +1236,7 @@ function piWebConfigResponse(config: PiWebConfigValues): PiWebConfigResponse {
     exists: false,
     config,
     effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
   };
 }
 

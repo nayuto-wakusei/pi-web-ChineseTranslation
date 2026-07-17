@@ -14,8 +14,7 @@ import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
 
-const shortTimestampFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-const fullTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
 const partialStreamNoticeBodies = [
   "你打开此会话时助手已经在回复。完整答案很快会显示。",
@@ -67,6 +66,7 @@ function clampNumber(value: number, min: number, max: number): number {
 }
 
 export interface QueuedMessageSection {
+  source: "client" | "server";
   heading: string;
   detail: string;
   messages: QueuedSessionMessage[];
@@ -74,9 +74,31 @@ export interface QueuedMessageSection {
 
 export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
   return [
-    clientQueued.length === 0 ? undefined : { heading: "等待会话启动", detail: "后端会话准备好后将自动发送", messages: clientQueued },
-    serverQueued.length === 0 ? undefined : { heading: "排队消息", detail: `${String(serverQueued.length)} 条待处理 · 停止会清空队列`, messages: serverQueued },
+    clientQueued.length === 0 ? undefined : { source: "client" as const, heading: "等待会话启动", detail: "后端会话准备好后将自动发送", messages: clientQueued },
+    serverQueued.length === 0 ? undefined : { source: "server" as const, heading: "排队消息", detail: `${String(serverQueued.length)} 条待处理 · 停止会清空队列`, messages: serverQueued },
   ].filter((section): section is QueuedMessageSection => section !== undefined);
+}
+
+export function chatMessageMetadataLabel(message: ChatLine): string {
+  const timestamp = message.meta?.timestamp;
+  const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
+  const model = chatMessageModelLabel(message);
+  const parts = [time, model].filter((part): part is string => part !== undefined && part !== "");
+  return parts.length === 0 ? "没有可用的 Pi 消息元数据" : parts.join(" · ");
+}
+
+function formatMessageTimestamp(timestamp: string): string | undefined {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  return messageTimestampFormatter.format(date);
+}
+
+function chatMessageModelLabel(message: ChatLine): string | undefined {
+  const model = message.meta?.model;
+  if (model === undefined) return undefined;
+  const id = model.responseId ?? model.id;
+  if (id === undefined || id === "") return model.provider;
+  return model.provider !== undefined && model.provider !== "" ? `${model.provider}/${id}` : id;
 }
 
 @customElement("chat-view")
@@ -95,6 +117,8 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) clientQueuedMessages: QueuedSessionMessage[] = [];
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) activity?: SessionActivity;
+  @property({ type: Boolean }) canClearServerQueue = false;
+  @property({ attribute: false }) onClearServerQueue?: () => void;
   @property({ attribute: false }) onLoadMore?: () => void;
   @query(".chat") private chat?: HTMLDivElement;
   @state() private pinnedToBottom = true;
@@ -111,7 +135,7 @@ export class ChatView extends LitElement {
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
-  private readonly messageMetaCache = new WeakMap<ChatLine, { short: string; full: string }>();
+  private readonly messageMetaCache = new WeakMap<ChatLine, string>();
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
   private partialStreamNoticeBody: string | undefined;
   private lastScrollTop = 0;
@@ -126,8 +150,14 @@ export class ChatView extends LitElement {
     if (this.pinnedToBottom) this.scrollToBottom();
     else this.lastClientHeight = this.chat?.clientHeight ?? 0;
   };
+  private readonly onImageLoad = (): void => {
+    if (this.pinnedToBottom) this.scrollToBottom();
+  };
   private readonly onPageHide = () => {
     this.saveScrollPosition();
+  };
+  private readonly handleClearServerQueue = (): void => {
+    this.onClearServerQueue?.();
   };
 
   override connectedCallback(): void {
@@ -208,10 +238,12 @@ export class ChatView extends LitElement {
           ${this.renderHistoryBoundary()}
           ${repeat(
             groups,
-            (group) => group.kind === "message" ? this.messageAnchorKey(group.index) : this.groupRenderKey(group.startIndex),
-            (group, index) => group.kind === "message"
-              ? this.renderMessage(group.message, group.index)
-              : this.renderMessageGroup(group.messages, group.startIndex, group.endIndex, this.isLiveTailGroup(groups, index)),
+            (group) => group.kind === "group" ? this.groupRenderKey(group.startIndex) : this.messageAnchorKey(group.index),
+            (group, index) => {
+              if (group.kind === "group") return this.renderMessageGroup(group.messages, group.startIndex, group.endIndex, this.isLiveTailGroup(groups, index));
+              if (group.kind === "tool-image") return this.renderToolImageOutput(group.message, group.index, group.toolName);
+              return this.renderMessage(group.message, group.index);
+            },
           )}
           ${this.renderQueuedMessages()}
           ${this.renderSessionActivity()}
@@ -267,11 +299,17 @@ export class ChatView extends LitElement {
   }
 
   private renderQueuedMessageList(section: QueuedMessageSection) {
+    const canClear = section.source === "server" && this.canClearServerQueue && this.onClearServerQueue !== undefined;
     return html`
       <aside class="queued-messages" aria-live="polite">
         <div class="queued-header">
-          <strong>${section.heading}</strong>
-          <small>${section.detail}</small>
+          <div class="queued-heading">
+            <strong>${section.heading}</strong>
+            <small>${section.detail}</small>
+          </div>
+          ${canClear ? html`
+            <button type="button" class="queued-clear-button" title="清空排队消息，不停止正在进行的工作" @click=${this.handleClearServerQueue}>清空队列</button>
+          ` : null}
         </div>
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
@@ -384,6 +422,17 @@ export class ChatView extends LitElement {
     `;
   }
 
+  private renderToolImageOutput(message: ChatLine, index: number, toolName?: string) {
+    const label = toolName === undefined || toolName === "" ? "工具输出" : `${toolName} 输出`;
+    return html`
+      ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
+      <article class="msg tool-image-output" data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
+        ${this.renderMessageHeader(message, String(index), label)}
+        ${message.parts.map((part) => this.renderPart(part, message))}
+      </article>
+    `;
+  }
+
   private isToolExecutionOnlyMessage(message: ChatLine): boolean {
     return message.role === "tool" && message.parts.length > 0 && message.parts.every((part) => part.type === "toolExecution");
   }
@@ -398,18 +447,24 @@ export class ChatView extends LitElement {
           <b class="label">${defaultOpen ? "实时事件" : "事件"}</b>
           <span>${summarizeChatGroup(messages)}</span>
         </summary>
-        <div class="group-body">
-          ${messages.map((message, offset) => {
-            const toolOnly = this.isToolExecutionOnlyMessage(message);
-            return html`
-              <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${startIndex + offset} data-scroll-anchor-id=${this.eventAnchorKey(startIndex + offset)}>
-                ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
-                ${message.parts.map((part) => this.renderPart(part, message))}
-              </section>
-            `;
-          })}
-        </div>
+        ${open ? this.renderMessageGroupBody(messages, startIndex) : null}
       </details>
+    `;
+  }
+
+  private renderMessageGroupBody(messages: ChatLine[], startIndex: number) {
+    return html`
+      <div class="group-body">
+        ${messages.map((message, offset) => {
+          const toolOnly = this.isToolExecutionOnlyMessage(message);
+          return html`
+            <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${startIndex + offset} data-scroll-anchor-id=${this.eventAnchorKey(startIndex + offset)}>
+              ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
+              ${message.parts.map((part) => this.renderPart(part, message))}
+            </section>
+          `;
+        })}
+      </div>
     `;
   }
 
@@ -417,15 +472,15 @@ export class ChatView extends LitElement {
     return html`<span class="scroll-marker" data-marker-id=${markerId} aria-hidden="true"></span>`;
   }
 
-  private renderMessageHeader(message: ChatLine, key: string) {
+  private renderMessageHeader(message: ChatLine, key: string, label: string = message.role) {
     const meta = this.messageMetaLabel(message);
     const expanded = this.expandedMetaKey === key;
     return html`
       <div class="msg-header">
-        <b class="label">${roleLabel(message.role)}</b>
+        <b class="label">${label === message.role ? roleLabel(message.role) : label}</b>
         <div class="msg-header-trailing">
           ${this.renderMessageActions(message, key)}
-          <span class=${expanded ? "msg-meta expanded" : "msg-meta"} role="button" tabindex="0" title=${meta.full} aria-label=${meta.full} aria-expanded=${String(expanded)} @click=${() => { this.expandedMetaKey = expanded ? undefined : key; }} @keydown=${(event: KeyboardEvent) => { this.onMetaKeydown(event, key, expanded); }}>${meta.short}</span>
+          <span class=${expanded ? "msg-meta expanded" : "msg-meta"} role="button" tabindex="0" title=${meta} aria-label=${meta} aria-expanded=${String(expanded)} @click=${() => { this.expandedMetaKey = expanded ? undefined : key; }} @keydown=${(event: KeyboardEvent) => { this.onMetaKeydown(event, key, expanded); }}>${meta}</span>
         </div>
       </div>
     `;
@@ -476,42 +531,18 @@ export class ChatView extends LitElement {
   }
 
 
-  private messageMetaLabel(message: ChatLine): { short: string; full: string } {
+  private messageMetaLabel(message: ChatLine): string {
     const cached = this.messageMetaCache.get(message);
     if (cached !== undefined) return cached;
-    const timestamp = message.meta?.timestamp;
-    const model = this.modelLabel(message);
-    if (timestamp === undefined && model === undefined) {
-      const empty = { short: "无信息", full: "没有可用的 Pi 消息元数据" };
-      this.messageMetaCache.set(message, empty);
-      return empty;
-    }
-    const time = timestamp === undefined ? undefined : this.formatTimestamp(timestamp);
-    const parts = [time?.short, model].filter((part): part is string => part !== undefined && part !== "");
-    const fullParts = [time?.full, model === undefined ? undefined : `模型：${model}`].filter((part): part is string => part !== undefined && part !== "");
-    const label = { short: parts.join(" · "), full: fullParts.join(" · ") };
+    const label = chatMessageMetadataLabel(message);
     this.messageMetaCache.set(message, label);
     return label;
-  }
-
-  private formatTimestamp(timestamp: string): { short: string; full: string } | undefined {
-    const date = new Date(timestamp);
-    if (!Number.isFinite(date.getTime())) return undefined;
-    return { short: shortTimestampFormatter.format(date), full: fullTimestampFormatter.format(date) };
-  }
-
-  private modelLabel(message: ChatLine): string | undefined {
-    const model = message.meta?.model;
-    if (model === undefined) return undefined;
-    const id = model.responseId ?? model.id;
-    if (id === undefined || id === "") return model.provider;
-    return model.provider !== undefined && model.provider !== "" ? `${model.provider}/${id}` : id;
   }
 
   private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
     if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
-    if (part.type === "image") return html`<figure class="part chat-image"><img src=${`data:${part.mimeType};base64,${part.data}`} alt="用户上传的图片" loading="lazy"></figure>`;
+    if (part.type === "image") return html`<figure class="part chat-image"><img src=${`data:${part.mimeType};base64,${part.data}`} alt="用户上传的图片" loading="lazy" @load=${this.onImageLoad}></figure>`;
     if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">

@@ -26,14 +26,21 @@ RUN chmod 0755 /usr/local/sbin/install-pi-web-opensuse-base \
 FROM base AS package
 
 ARG PI_WEB_VERSION=latest
-ARG PI_VERSION=latest
 ARG CACHE_BUST=local
 
 RUN set -eux; \
   echo "PI WEB Docker build cache bust: ${CACHE_BUST}"; \
-  npm install -g --omit=dev --no-audit --no-fund \
-    "@chainingintention/pi-web-cn@${PI_WEB_VERSION}" \
-    "@earendil-works/pi-coding-agent@${PI_VERSION}"; \
+  npm install -g --omit=dev --include=peer --no-audit --no-fund "@chainingintention/pi-web-cn@${PI_WEB_VERSION}"; \
+  global_root="$(npm root -g)"; \
+  global_prefix="$(npm prefix -g)"; \
+  peer_pi_bin="${global_root}/@chainingintention/pi-web-cn/node_modules/.bin/pi"; \
+  global_pi_bin="${global_prefix}/bin/pi"; \
+  if [ -x "${peer_pi_bin}" ]; then \
+    ln -sf "${peer_pi_bin}" "${global_pi_bin}"; \
+  elif [ ! -x "${global_pi_bin}" ]; then \
+    echo "Could not find pi binary from @earendil-works/pi-coding-agent" >&2; \
+    exit 1; \
+  fi; \
   npm cache clean --force
 
 FROM base AS runtime

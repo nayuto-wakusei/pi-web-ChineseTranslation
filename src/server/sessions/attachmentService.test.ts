@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatDimensionNote, resizeImage, type ResizedImage } from "@earendil-works/pi-coding-agent";
@@ -132,6 +132,27 @@ describe("saveAttachmentsToWorkspace", () => {
 
     expect((await readFile(join(workspace, saved[0]?.path ?? ""))).equals(pdfBytes)).toBe(true);
     expect(await readFile(join(workspace, saved[1]?.path ?? ""))).toHaveLength(0);
+  });
+
+  it("falls back, strips controls, and truncates unsafe attachment names", async () => {
+    const longStem = "a".repeat(140);
+    const saved = await saveAttachmentsToWorkspace(
+      workspace,
+      [
+        { kind: "image", mimeType: "image/jpeg", data: pngBase64 },
+        { kind: "file", mimeType: "application/octet-stream", data: "QUJD", name: "\u0000\u001f\u007f" },
+        { kind: "file", mimeType: "text/plain", data: "REVG", name: "nested/bad\u0000\u007fname\n.txt" },
+        { kind: "file", mimeType: "application/pdf", data: "R0hJ", name: `${longStem}.pdf` },
+      ],
+      { now: () => new Date(2026, 5, 13, 12, 5, 1, 123) },
+    );
+
+    expect(saved.map((attachment) => basename(attachment.path))).toEqual([
+      "attachment-20260613-120501-123-1-image.jpg",
+      "attachment-20260613-120501-123-2-file.bin",
+      "attachment-20260613-120501-123-3-badname.txt",
+      `attachment-20260613-120501-123-4-${"a".repeat(92)}.pdf`,
+    ]);
   });
 
   it("does not overwrite an existing attachment name", async () => {

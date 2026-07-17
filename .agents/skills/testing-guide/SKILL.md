@@ -1,6 +1,6 @@
 ---
 name: testing-guide
-description: Project testing guide and test architecture rules for this repository. Use this skill whenever writing, modifying, reviewing, or planning tests, closing coverage gaps, adding Vitest coverage, creating test helpers or fakes, testing Lit components/controllers/services/routes, triaging test failures, or deciding between unit/controller/component/integration approaches. This includes the repo rule for Lit TemplateResult event-handler extraction and when not to use it.
+description: Repository-specific testing guide. Use for any test work: planning coverage, writing/fixing/reviewing Vitest tests, test helpers/fakes, failure triage, choosing test layers, and Lit UI tests, including TemplateResult handler extraction rules.
 ---
 
 # Testing guide

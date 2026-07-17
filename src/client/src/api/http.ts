@@ -1,4 +1,5 @@
 import { currentApiScope, type ApiScope, withManagementEmbed } from "./managementEmbed";
+import { resolveAppUrl } from "../appUrl";
 
 let apiScope = currentApiScope();
 
@@ -7,7 +8,7 @@ export function setApiScope(scope: ApiScope): void {
 }
 
 export function scopedApiUrl(url: string): string {
-  return withManagementEmbed(url, undefined, apiScope);
+  return resolveAppUrl(withManagementEmbed(url, undefined, apiScope));
 }
 
 export async function request<T>(url: string, parse: (value: unknown) => T, init?: RequestInit): Promise<T> {

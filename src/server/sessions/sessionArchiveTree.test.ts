@@ -11,11 +11,11 @@ function candidate(id: string, options: Partial<SessionArchiveTreeCandidate> = {
 }
 
 describe("session archive tree planning", () => {
-  it("finds candidates by full id or prefix", () => {
-    const candidates = [candidate("abcdef"), candidate("xyz")];
+  it("finds candidates by exact id before falling back to a prefix", () => {
+    const candidates = [candidate("abcdef"), candidate("abc"), candidate("xyz")];
 
-    expect(findArchiveCandidateByIdOrPrefix(candidates, "abcdef")?.id).toBe("abcdef");
-    expect(findArchiveCandidateByIdOrPrefix(candidates, "abc")?.id).toBe("abcdef");
+    expect(findArchiveCandidateByIdOrPrefix(candidates, "abc")?.id).toBe("abc");
+    expect(findArchiveCandidateByIdOrPrefix(candidates, "abcd")?.id).toBe("abcdef");
     expect(findArchiveCandidateByIdOrPrefix(candidates, "missing")).toBeUndefined();
   });
 

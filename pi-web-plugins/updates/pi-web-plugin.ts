@@ -218,6 +218,17 @@ const plugin: PiWebPlugin = {
   name: "更新",
   activate: ({ html, svg }) => ({
     contributions: {
+      actions: [
+        {
+          id: "check",
+          title: "检查 PI WEB 更新",
+          description: "忽略缓存的发布信息，立即检查所选机器",
+          group: "更新",
+          enabled: (context) => context.checkForPiWebUpdates !== undefined,
+          disabledReason: () => "检查更新需要较新版本的 PI WEB 网关",
+          run: (context) => context.checkForPiWebUpdates?.(),
+        },
+      ],
       workspacePanels: [
         {
           id: "workspace.updates",

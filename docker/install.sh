@@ -49,7 +49,7 @@ Progressive host setup:
 Environment variables with the same names used in .env may also be set before
 running the installer, for example:
 
-  PI_WEB_VERSION=1.202606.4 PI_VERSION=0.79.1 docker/install.sh
+  PI_WEB_VERSION=1.202606.4 docker/install.sh
 EOF
 }
 
@@ -78,11 +78,6 @@ while [ "$#" -gt 0 ]; do
     --pi-web-version)
       [ "$#" -ge 2 ] || die "--pi-web-version requires a value"
       PI_WEB_VERSION=$2
-      shift 2
-      ;;
-    --pi-version)
-      [ "$#" -ge 2 ] || die "--pi-version requires a value"
-      PI_VERSION=$2
       shift 2
       ;;
     --opensuse-image)
@@ -372,7 +367,6 @@ data_dir=$(absolute_dir "$(path_from_base "$install_dir" "$raw_data_dir")") || d
 pi_web_bind_addr=$(value_from_env_or_existing_or_default PI_WEB_BIND_ADDR 127.0.0.1)
 pi_web_port=$(value_from_env_or_existing_or_default PI_WEB_PORT 8504)
 pi_web_version=$(value_from_env_or_existing_or_default PI_WEB_VERSION latest)
-pi_version=$(value_from_env_or_existing_or_default PI_VERSION latest)
 pi_web_opensuse_image=$(value_from_env_or_existing_or_default PI_WEB_OPENSUSE_IMAGE opensuse/tumbleweed)
 pi_web_nodejs_major=$(value_from_env_or_existing_or_default PI_WEB_NODEJS_MAJOR 22)
 pi_web_nodejs_repo=$(value_from_env_or_existing_or_default PI_WEB_NODEJS_REPO auto)
@@ -394,7 +388,6 @@ require_non_empty PI_WEB_DOCKER_REF "$asset_ref"
 require_non_empty PI_WEB_BIND_ADDR "$pi_web_bind_addr"
 require_non_empty PI_WEB_PORT "$pi_web_port"
 require_non_empty PI_WEB_VERSION "$pi_web_version"
-require_non_empty PI_VERSION "$pi_version"
 require_non_empty PI_WEB_OPENSUSE_IMAGE "$pi_web_opensuse_image"
 require_non_empty PI_WEB_NODEJS_MAJOR "$pi_web_nodejs_major"
 require_non_empty PI_WEB_NODEJS_REPO "$pi_web_nodejs_repo"
@@ -434,9 +427,8 @@ PI_WEB_DOCKER_REF=$asset_ref
 PI_WEB_BIND_ADDR=$pi_web_bind_addr
 PI_WEB_PORT=$pi_web_port
 
-# npm version pins. Use latest for quick updates, or set concrete versions.
+# npm package selection. Pi resolves from PI WEB's npm peer dependency.
 PI_WEB_VERSION=$pi_web_version
-PI_VERSION=$pi_version
 
 # openSUSE/Node.js image build inputs.
 PI_WEB_OPENSUSE_IMAGE=$pi_web_opensuse_image

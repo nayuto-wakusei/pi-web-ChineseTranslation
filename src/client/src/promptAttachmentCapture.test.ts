@@ -82,7 +82,46 @@ describe("effectivePromptAttachmentDelivery", () => {
   });
 });
 
-describe("PromptEditor attachment chips", () => {
+describe("PromptEditor attachment wiring", () => {
+  // Direct TemplateResult handler extraction keeps these node-environment tests focused on
+  // PromptEditor wiring without introducing a DOM/FileReader harness for the whole component.
+  it("captures pasted files, strips data URL prefixes, and surfaces read failures", async () => {
+    const editor = new PromptEditor();
+    const onSend = vi.fn<NonNullable<PromptEditor["onSend"]>>();
+    editor.onSend = onSend;
+    setPromptEditorPrivate(editor, "draft", "inspect attachments");
+    const restoreFileReader = installFileReaderStub([
+      { kind: "load", result: "data:image/png;base64,UE5H" },
+      { kind: "error", error: new DOMException("File unavailable", "NotReadableError") },
+    ]);
+
+    try {
+      const paste = findTemplateEventHandlerAfterMarker<Event>(editor.render(), "@paste=");
+      const pasteEvent = pasteEventWithFiles([
+        new File(["png"], "shot.png", { type: "image/png" }),
+        new File(["pdf"], "report.pdf", { type: "application/pdf" }),
+      ]);
+      const preventDefault = vi.spyOn(pasteEvent, "preventDefault");
+
+      paste(pasteEvent);
+      await flushMicrotasks();
+
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(templateContainsValue(editor.render(), "移除 shot.png")).toBe(true);
+      expect(templateContainsValue(editor.render(), READ_FAILURE_MESSAGE)).toBe(true);
+
+      const send = findTemplateEventHandlerAfterMarker<Event>(editor.render(), "send-button");
+      send(new Event("click"));
+
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(onSend).toHaveBeenCalledWith("inspect attachments", undefined, [
+        { kind: "image", mimeType: "image/png", data: "UE5H", name: "shot.png" },
+      ], "inline");
+    } finally {
+      restoreFileReader();
+    }
+  });
+
   it("removes a pending attachment chip before sending the remaining attachments", () => {
     const editor = new PromptEditor();
     const onSend = vi.fn<NonNullable<PromptEditor["onSend"]>>();
@@ -111,8 +150,55 @@ describe("PromptEditor attachment chips", () => {
 
 type TemplateEventHandler<E extends Event> = (event: E) => void;
 
+type StubFileReaderOutcome =
+  | { kind: "load"; result: string }
+  | { kind: "error"; error: DOMException };
+
 function setPromptEditorPrivate(editor: PromptEditor, property: string, value: unknown): void {
   if (!Reflect.set(editor, property, value)) throw new Error(`Failed to set PromptEditor ${property}`);
+}
+
+function installFileReaderStub(outcomes: StubFileReaderOutcome[]): () => void {
+  const hadFileReader = Reflect.has(globalThis, "FileReader");
+  const previousFileReader = Reflect.get(globalThis, "FileReader");
+
+  class StubFileReader {
+    onerror: (() => void) | null = null;
+    onload: (() => void) | null = null;
+    error: DOMException | null = null;
+    result: string | ArrayBuffer | null = null;
+
+    readAsDataURL(): void {
+      const outcome = outcomes.shift();
+      if (outcome === undefined) throw new Error("Unexpected FileReader.readAsDataURL call");
+      if (outcome.kind === "error") {
+        this.error = outcome.error;
+        this.onerror?.();
+        return;
+      }
+      this.result = outcome.result;
+      this.onload?.();
+    }
+  }
+
+  Reflect.set(globalThis, "FileReader", StubFileReader);
+  return () => {
+    if (hadFileReader) {
+      Reflect.set(globalThis, "FileReader", previousFileReader);
+      return;
+    }
+    Reflect.deleteProperty(globalThis, "FileReader");
+  };
+}
+
+function pasteEventWithFiles(files: readonly File[]): Event {
+  const event = new Event("paste", { cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { files } });
+  return event;
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let remaining = 0; remaining < 10; remaining += 1) await Promise.resolve();
 }
 
 function findTemplateEventHandlerAfterMarker<E extends Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> {

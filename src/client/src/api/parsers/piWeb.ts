@@ -1,4 +1,5 @@
-import type { PiWebCapability, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity } from "../../../../shared/apiTypes";
+import type { PiWebAgentDirEnvSource, PiWebCapability, PiWebComponentStatus, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebInstallationInfo, PiWebPluginConfigMap, PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebShortcutConfig, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity } from "../../../../shared/apiTypes";
+import { parseActiveAgentProfileDescriptor } from "../../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../../shared/capabilities";
 import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireRecord, requireString } from "./core";
 
@@ -22,11 +23,22 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("normalAuth", optionalNormalAuth(record["normalAuth"])),
+    ...optionalField("managementEmbed", optionalManagementEmbed(record["managementEmbed"])),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
     ...optionalField("uploads", optionalUploads(record["uploads"])),
     ...optionalField("maxUploadBytes", optionalNumber(record, "maxUploadBytes")),
     ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
     ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
+    ...optionalField("agent", optionalAgent(record["agent"])),
+  };
+}
+
+function optionalAgent(value: unknown): PiWebConfigValues["agent"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB agent field");
+  return {
+    ...optionalField("command", optionalString(value, "command")),
+    ...optionalField("dir", optionalString(value, "dir")),
   };
 }
 
@@ -92,7 +104,86 @@ function optionalPlugins(value: unknown): PiWebPluginConfigMap | undefined {
 
 function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
   const record = requireRecord(value);
-  return { host: requireBoolean(record, "host"), port: requireBoolean(record, "port"), allowedHosts: requireBoolean(record, "allowedHosts"), spawnSessions: requireBoolean(record, "spawnSessions"), subsessions: requireBoolean(record, "subsessions") };
+  return {
+    host: requireBoolean(record, "host"),
+    port: requireBoolean(record, "port"),
+    allowedHosts: requireBoolean(record, "allowedHosts"),
+    spawnSessions: requireBoolean(record, "spawnSessions"),
+    subsessions: requireBoolean(record, "subsessions"),
+    agentCommand: optionalBoolean(record, "agentCommand") ?? false,
+    agentDir: optionalBoolean(record, "agentDir") ?? false,
+    ...optionalAgentDirSource(record),
+    agentSessionDir: optionalBoolean(record, "agentSessionDir") ?? false,
+  };
+}
+
+function optionalManagementEmbed(value: unknown): PiWebConfigValues["managementEmbed"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB managementEmbed field");
+  return {
+    ...optionalField("enabled", optionalBoolean(value, "enabled")),
+    ...optionalField("projectRoot", optionalString(value, "projectRoot")),
+    ...optionalField("auth", optionalStringFields(value["auth"], ["sharedSecretEnv", "issuer", "audience"], "managementEmbed.auth")),
+    ...optionalField("sandbox", optionalManagementSandbox(value["sandbox"])),
+    ...optionalField("tools", optionalManagementTools(value["tools"])),
+  };
+}
+
+function optionalStringFields(value: unknown, keys: string[], field: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error(`Invalid PI WEB ${field} field`);
+  return Object.fromEntries(keys.flatMap((key) => {
+    const parsed = optionalString(value, key);
+    return parsed === undefined ? [] : [[key, parsed]];
+  }));
+}
+
+function optionalManagementSandbox(value: unknown): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["sandbox"]> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB managementEmbed.sandbox field");
+  return {
+    ...optionalField("pythonExecutable", optionalString(value, "pythonExecutable")),
+    ...optionalField("env", optionalStringRecord(value["env"], "managementEmbed.sandbox.env")),
+  };
+}
+
+function optionalManagementTools(value: unknown): NonNullable<NonNullable<PiWebConfigValues["managementEmbed"]>["tools"]> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB managementEmbed.tools field");
+  return {
+    ...optionalField("allow", optionalStringArray(value["allow"], "managementEmbed.tools.allow")),
+    ...optionalField("deny", optionalStringArray(value["deny"], "managementEmbed.tools.deny")),
+    ...optionalField("permissions", optionalBooleanRecord(value["permissions"], "managementEmbed.tools.permissions")),
+  };
+}
+
+function optionalStringRecord(value: unknown, field: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "string")) throw new Error(`Invalid PI WEB ${field} field`);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, requireRecordValueString(entry, field)]));
+}
+
+function optionalBooleanRecord(value: unknown, field: string): Record<string, boolean> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "boolean")) throw new Error(`Invalid PI WEB ${field} field`);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, requireRecordValueBoolean(entry, field)]));
+}
+
+function requireRecordValueString(value: unknown, field: string): string {
+  if (typeof value !== "string") throw new Error(`Invalid PI WEB ${field} field`);
+  return value;
+}
+
+function requireRecordValueBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`Invalid PI WEB ${field} field`);
+  return value;
+}
+
+function optionalAgentDirSource(record: Record<string, unknown>): { agentDirSource?: PiWebAgentDirEnvSource } {
+  const value = record["agentDirSource"];
+  if (value === undefined) return {};
+  if (value !== "pi-web" && value !== "pi-compatibility") throw new Error("Invalid PI WEB agentDirSource field");
+  return { agentDirSource: value };
 }
 
 export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {
@@ -151,12 +242,17 @@ export function parsePiWebRuntimeComponents(value: unknown): PiWebRuntimeRespons
 
 function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
   const record = requireRecord(value);
+  const component = parsePiWebServiceComponent(record["component"]);
+  const activeAgentProfileValue = record["activeAgentProfile"];
+  const activeAgentProfile = activeAgentProfileValue === undefined ? undefined : parseActiveAgentProfileDescriptor(activeAgentProfileValue);
+  if (activeAgentProfileValue !== undefined && (component !== "sessiond" || activeAgentProfile === undefined)) throw new Error("Invalid active agent profile descriptor");
   return {
-    component: parsePiWebServiceComponent(record["component"]),
+    component,
     label: requireString(record, "label"),
     ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
     available: requireBoolean(record, "available"),
     capabilities: parsePiWebCapabilities(record["capabilities"]),
+    ...optionalField("activeAgentProfile", activeAgentProfile),
     ...optionalField("error", optionalString(record, "error")),
   };
 }

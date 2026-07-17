@@ -1,9 +1,11 @@
-import { css, html, LitElement, type TemplateResult } from "lit";
-import { customElement, property } from "lit/decorators.js";
-import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
+import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
-import { spawnSessionsConfigPatch, subsessionsConfigPatch } from "./settingsSessiondConfig";
+import { agentProfileConfigPatchFromDraft, agentProfileDraftFromConfig, agentProfileDraftMatchesConfig, emptyAgentProfileConfigDraft, type AgentProfileConfigDraft } from "./settingsConfigDraft";
+import type { AgentProfileSettingsSupport } from "./settingsMachineTarget";
+import { agentDirFieldOverridden, agentProfileActivationState, spawnSessionsConfigPatch, subsessionsConfigPatch } from "./settingsSessiondConfig";
 
 @customElement("settings-sessiond-panel")
 export class SettingsSessiondPanel extends LitElement {
@@ -13,8 +15,28 @@ export class SettingsSessiondPanel extends LitElement {
   @property() error = "";
   @property() savedMessage = "";
   @property() targetLabel = "local (local gateway)";
+  @property({ attribute: false }) activeAgentProfile: ActiveAgentProfileDescriptor | undefined;
+  @property({ attribute: false }) agentProfileSupport: AgentProfileSettingsSupport = { state: "supported" };
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
+  @state() private agentDraft: AgentProfileConfigDraft = emptyAgentProfileConfigDraft();
+  @state() private agentDraftDirty = false;
+  @state() private agentLocalError = "";
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (!changed.has("configResponse")) return;
+    if (this.configResponse === undefined) {
+      this.agentDraft = emptyAgentProfileConfigDraft();
+      this.agentDraftDirty = false;
+      this.agentLocalError = "";
+      return;
+    }
+    if (!this.agentDraftDirty || agentProfileDraftMatchesConfig(this.agentDraft, this.configResponse.config)) {
+      this.agentDraft = agentProfileDraftFromConfig(this.configResponse.config);
+      this.agentDraftDirty = false;
+      this.agentLocalError = "";
+    }
+  }
 
   override render(): TemplateResult {
     const config = this.configResponse;
@@ -25,6 +47,13 @@ export class SettingsSessiondPanel extends LitElement {
     const subsessionsOverridden = config?.envOverrides.subsessions === true;
     // Beta, off by default; also requires spawn to be enabled.
     const effectiveSubsessions = config?.effectiveConfig.subsessions === true && effectiveSpawn;
+    const agentCommandOverridden = config?.envOverrides.agentCommand === true;
+    const profileEditingSupported = this.agentProfileSupport.state === "supported";
+    const draftCommand = agentCommandOverridden ? (config.effectiveConfig.agent?.command ?? this.agentDraft.command) : this.agentDraft.command;
+    const agentDirLocked = agentDirFieldOverridden(config?.envOverrides, draftCommand);
+    const effectiveAgentDirOverridden = config?.envOverrides.agentDir === true;
+    const effectiveAgent = config?.effectiveConfig.agent;
+    const profileActivation = agentProfileActivationState(config, this.activeAgentProfile);
     return html`
       <settings-panel-frame
         heading="会话守护进程"
@@ -39,6 +68,46 @@ export class SettingsSessiondPanel extends LitElement {
             <span>配置文件</span>
             <code>${config.path}</code>
           </div>
+          <form class="profile-form" aria-label="Pi 兼容 Agent Profile" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
+            ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? "此机器不支持编辑 Pi 兼容 Agent Profile。"}</div>`}
+            <label class="field">
+              <span class="field-heading">
+                <span>Companion CLI 命令</span>
+                ${agentCommandOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+              </span>
+              <input
+                class="text-input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                .value=${this.agentDraft.command}
+                placeholder="pi"
+                ?disabled=${this.loading || this.saving || !profileEditingSupported || agentCommandOverridden}
+                @input=${(event: Event) => { this.updateAgentDraft({ command: inputValue(event) }); }}
+              >
+              <small>设置诊断和更新检查所用的 Pi 兼容 Companion CLI。内嵌会话运行时仍使用 PI WEB 捆绑的 Pi SDK。</small>
+            </label>
+            <label class="field">
+              <span class="field-heading">
+                <span>Profile 状态目录</span>
+                ${effectiveAgentDirOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+              </span>
+              <input
+                class="text-input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                .value=${this.agentDraft.dir}
+                placeholder="~/.pi/agent or ~/agent-profiles/work"
+                ?disabled=${this.loading || this.saving || !profileEditingSupported || agentDirLocked}
+                @input=${(event: Event) => { this.updateAgentDraft({ dir: inputValue(event) }); }}
+              >
+              <small>选择 PI WEB 读取的 Pi 兼容认证、模型、设置和会话目录。备用命令会与其所需状态目录一并保存。</small>
+            </label>
+            <footer class="form-actions">
+              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? "正在保存…" : "保存 Agent Profile"}</button>
+            </footer>
+          </form>
           <div class="field">
             <span class="field-heading">
               <span>允许代理启动会话</span>
@@ -75,6 +144,11 @@ export class SettingsSessiondPanel extends LitElement {
           <section class="effective-card" aria-label="最终生效配置摘要">
             <h3>环境变量覆盖后的生效配置</h3>
             <dl>
+              <div><dt>期望命令</dt><dd>${effectiveAgent?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
+              <div><dt>期望状态目录</dt><dd>${effectiveAgent?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
+              <div><dt>当前命令</dt><dd>${this.activeAgentProfile?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
+              <div><dt>当前状态目录</dt><dd>${this.activeAgentProfile?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
+              <div><dt>Profile 状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
               <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
               <div><dt>子会话</dt><dd>${effectiveSubsessions ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
             </dl>
@@ -86,9 +160,11 @@ export class SettingsSessiondPanel extends LitElement {
 
   private panelNotices(config: PiWebConfigResponse | undefined): readonly SettingsNotice[] {
     const notices: SettingsNotice[] = [];
-    if (this.error !== "") notices.push({ type: "error", content: this.error });
+    const error = this.agentLocalError || this.error;
+    if (error !== "") notices.push({ type: "error", content: error });
     if (this.savedMessage !== "") notices.push({ type: "success", content: this.savedMessage });
-    if (config !== undefined) {
+    const activation = agentProfileActivationState(config, this.activeAgentProfile);
+    if (activation === "restart-required") {
       notices.push({
         type: "warning",
         title: `${this.targetLabel} 需要重启`,
@@ -100,6 +176,22 @@ export class SettingsSessiondPanel extends LitElement {
 
   private renderUnavailableConfigState(): TemplateResult {
     return html`<div class="loading-card">${this.loading ? "正在加载配置…" : "配置不可用，请重新加载。"}</div>`;
+  }
+
+  private async saveAgentProfile(event: Event): Promise<void> {
+    event.preventDefault();
+    this.agentLocalError = "";
+    try {
+      await this.onSave?.(agentProfileConfigPatchFromDraft(this.agentDraft));
+    } catch (error) {
+      this.agentLocalError = errorMessage(error);
+    }
+  }
+
+  private updateAgentDraft(patch: Partial<AgentProfileConfigDraft>): void {
+    this.agentDraft = { ...this.agentDraft, ...patch };
+    this.agentDraftDirty = true;
+    this.agentLocalError = "";
   }
 
   private async toggleSpawnSessions(event: Event): Promise<void> {
@@ -118,9 +210,13 @@ export class SettingsSessiondPanel extends LitElement {
     button, input { font: inherit; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
     button:disabled { opacity: .55; cursor: not-allowed; }
-    .loading-card, .config-path-card, .effective-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
+    .loading-card, .config-path-card, .effective-card, .profile-support-message { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
     .loading-card { color: var(--pi-muted); }
     .config-path-card { display: grid; gap: 5px; }
+    .profile-form { display: grid; gap: 14px; }
+    .profile-support-message { color: var(--pi-muted); line-height: 1.45; }
+    .form-actions { display: flex; justify-content: flex-end; }
+    .primary { border-color: var(--pi-accent); background: var(--pi-accent); color: var(--pi-accent-contrast); }
     .config-path-card span, .field-heading, dt { color: var(--pi-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
     code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
     .field { display: grid; gap: 7px; }
@@ -128,6 +224,20 @@ export class SettingsSessiondPanel extends LitElement {
     .field-heading { display: flex; align-items: center; gap: 8px; }
     .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
     .toggle input { width: 16px; height: 16px; }
+    .text-input {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      border: 1px solid var(--pi-border);
+      border-radius: 8px;
+      background: var(--pi-bg);
+      color: var(--pi-text);
+      padding: 8px 9px;
+      outline: none;
+      font: var(--pi-control-font-size, 16px) var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    }
+    .text-input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
+    .text-input:disabled { opacity: .55; cursor: not-allowed; }
     .toggle input:disabled { cursor: not-allowed; }
     .beta-badge { border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); background: var(--pi-bg); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
     .effective-card { display: grid; gap: 10px; }
@@ -140,6 +250,20 @@ export class SettingsSessiondPanel extends LitElement {
       .effective-card dl > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
     }
   `;
+}
+
+function profileActivationLabel(state: ReturnType<typeof agentProfileActivationState>): string | TemplateResult {
+  if (state === "active") return "已生效";
+  if (state === "restart-required") return "需要重启";
+  return html`<span class="muted">不可用</span>`;
+}
+
+function inputValue(event: Event): string {
+  return event.target instanceof HTMLInputElement ? event.target.value : "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function sessiondDescription(targetLabel: string): string {

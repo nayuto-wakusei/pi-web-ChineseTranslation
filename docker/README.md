@@ -59,7 +59,7 @@ Defaults:
 
 Updating recreates the Docker `sessiond` container. Active Pi agent runtimes in this Docker install may stop, so update while sessions are idle. Persisted PI WEB state, Pi config, and session history under the data directory are kept.
 
-Inside the Docker runtime, the Updates panel uses `pi-web-docker` for status, update, and restart commands. Update and restart commands first start a detached helper container with the same Docker/host mounts and generated Compose environment, including the project name, ports/data paths, helper image, and generated UID/GID/Docker group. The helper then runs Docker Compose, so work continues even when `web`, `sessiond`, or the PI WEB terminal that launched the command exits.
+Inside the Docker runtime, the Updates panel uses `pi-web-docker` for status, update, and restart commands. Update and restart commands first start a detached helper container with the same Docker/host mounts and generated Compose environment, including the project name, ports/data paths, helper image, and generated UID/GID/Docker group. After scheduling the helper, the command streams that helper's logs inline and prints the `docker logs -f` command needed to reconnect. The helper still runs independently, so work continues even when `web`, `sessiond`, or the PI WEB terminal that launched the command exits.
 
 ### Command matrix
 
@@ -73,7 +73,7 @@ From a production/runtime install directory, run `./pi-web-docker <command>`. Fr
 | `restart` | `./pi-web-docker restart` | `./docker/pi-web-docker --dev restart` | Restarts `web` and `sessiond`. |
 | `restart-web` | `./pi-web-docker restart-web` | `./docker/pi-web-docker --dev restart-web` | Restarts only the web/API service. |
 | `restart-sessiond` | `./pi-web-docker restart-sessiond` | `./docker/pi-web-docker --dev restart-sessiond` | Restarts the session daemon; active agent runtimes may stop in that Docker stack. |
-| `update` | `./pi-web-docker update` | `./docker/pi-web-docker --dev update` | Rebuilds/recreates the stack. Runtime host updates rerun the installer to refresh Docker assets first. |
+| `update` | `./pi-web-docker update` | `./docker/pi-web-docker --dev update` | Rebuilds/recreates the stack. Runtime host updates rerun the installer to refresh Docker assets first. Development updates require a clean Git checkout with no Git operation in progress. |
 | `status` | `./pi-web-docker status` | `./docker/pi-web-docker --dev status` | Shows Docker Compose service status. |
 | `logs` | `./pi-web-docker logs [web\|sessiond]` | `./docker/pi-web-docker --dev logs [web\|sessiond\|data-init]` | Follows logs; omitting a target follows all services. |
 | `shell` | `./pi-web-docker shell [web\|sessiond]` | `./docker/pi-web-docker --dev shell [web\|sessiond]` | Opens Bash in `web` by default. |
@@ -93,8 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/nayuto-wakusei/pi-web-ChineseTransl
       --data-dir ~/.local/share/pi-web-docker/data \
       --bind-address 127.0.0.1 \
       --port 8504 \
-      --pi-web-version latest \
-      --pi-version latest
+      --pi-web-version latest
 ```
 
 Common environment variables written to `.env`:
@@ -119,7 +118,7 @@ Common environment variables written to `.env`:
 | `COMPOSE_PROJECT_NAME` | Docker Compose project name used by the runtime and its detached update/restart helpers; defaults to `pi-web` |
 | `HOSTEXEC_IMAGE` | helper image used by `hostexec` |
 
-Host-derived IDs and the Docker host profile are refreshed on rerun unless you explicitly override the IDs. User-facing values such as data directory, bind address, port, image names, upload limit, extra host paths, base image, Node.js settings, extra packages, and version pins are preserved from an existing `.env` unless you pass a flag or environment override.
+Host-derived IDs and the Docker host profile are refreshed on rerun unless you explicitly override the IDs. User-facing values such as data directory, bind address, port, image names, upload limit, extra host paths, base image, Node.js settings, extra packages, and npm package selection are preserved from an existing `.env` unless you pass a flag or environment override.
 
 The installer also writes a generated `compose.override.yml` in the install directory. `pi-web-docker` loads the generated `.env` and Compose override explicitly for runtime commands and passes the generated `COMPOSE_PROJECT_NAME` to Docker Compose, so an unrelated ambient Compose project name cannot redirect lifecycle commands. Re-run `pi-web-docker install` or `pi-web-docker update` instead of editing generated files by hand.
 
@@ -173,7 +172,7 @@ Files in that development hook directory are ignored by Git except for the place
 
 ### Version pinning
 
-Pin npm package versions when you want repeatable rebuilds:
+Pi Coding Agent is resolved from PI WEB's npm peer dependency, and Docker links the peer-provided `pi` binary into `PATH`. Pin the PI WEB npm package when you want to stay on a specific PI WEB release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nayuto-wakusei/pi-web-ChineseTranslation/main/docker/install.sh \
@@ -184,10 +183,9 @@ You can also edit `.env` in the install directory:
 
 ```dotenv
 PI_WEB_VERSION=1.202606.4
-PI_VERSION=0.79.1
 ```
 
-Then rerun the one-liner to rebuild/recreate with those pins. Use `latest` again when you want the runtime to track the newest npm releases.
+Then rerun the one-liner to rebuild/recreate with that pin. Use `PI_WEB_VERSION=latest` when you want the runtime to track the newest PI WEB release and the newest Pi package compatible with PI WEB's peer dependency range.
 
 To pin the Docker asset templates themselves, fetch the installer from a specific Git branch, tag, or commit and pass the same ref as the asset source:
 
@@ -284,6 +282,10 @@ PI_WEB_DEV_BIND_ADDR=0.0.0.0 \
   ./docker/pi-web-docker --dev start
 ```
 
+Development `update` is intentionally fail-closed. Before starting a Docker helper or build, it requires this repository to be a clean Git checkout, including no staged, modified, or untracked files, and no merge, rebase, cherry-pick, revert, sequenced operation, or bisect in progress. It never stashes, removes, or rewrites developer work; resolve, commit, stash, or remove that work explicitly and rerun the update. This guard applies only to `update`: `start` and restart commands remain available for normal development against an intentionally dirty checkout.
+
+The Docker command rebuilds the current checkout; it does not merge branches or resolve source updates. Perform any Git integration separately, then run the guarded Docker update after the checkout is clean.
+
 You can run the dev stack in the background with:
 
 ```bash
@@ -304,7 +306,7 @@ Useful development commands:
 ./docker/pi-web-docker --dev stop
 ```
 
-Restart `sessiond` manually after changes that affect `src/server/sessiond.ts`, daemon ownership, or session-daemon-only code paths. Restarting only `web` is enough for ordinary API/client/plugin development reloads. Commands launched from the Updates panel use the same detached `pi-web-docker` helper as runtime mode, so update/restart work continues after the current PI WEB terminal or container exits. In both modes detached helpers load the generated Docker env and run as the generated `PI_WEB_UID:PI_WEB_GID` with the generated Docker group; development helpers still refuse UID 0 unless `--allow-root` is explicit.
+Restart `sessiond` manually after changes that affect `src/server/sessiond.ts`, daemon ownership, or session-daemon-only code paths. Restarting only `web` is enough for ordinary API/client/plugin development reloads. Commands launched from the Updates panel use the same detached `pi-web-docker` helper as runtime mode, stream the helper's logs inline after it starts, and keep update/restart work running after the current PI WEB terminal or container exits. In both modes detached helpers load the generated Docker env and run as the generated `PI_WEB_UID:PI_WEB_GID` with the generated Docker group; development helpers still refuse UID 0 unless `--allow-root` is explicit.
 
 The dev setup intentionally has the same Docker socket and profile-specific host mounts as the runtime setup. The same trust warnings apply. The command refuses to run development mode as UID 0, or to generate a dev env with `PI_WEB_UID=0`, unless you pass `--allow-root`; use that override only when root-owned checkout writes are intentional.
 
@@ -330,13 +332,9 @@ Use this shared directory to switch between runtime and dev mode, not to run bot
 
 For sessions to appear under the same workspace in both modes, use the same project path in PI WEB. On Linux, prefer host-mounted paths such as `/home/core/<repo>`, `/srv/<project>`, or `/opt/<project>`. On Mac, prefer paths under `/Users/<you>/...`. The dev container also exposes this checkout as `/workspace` so the PI WEB dev server can run from it, but sessions started against `/workspace` are organized under that different working-directory path and will not line up with runtime sessions for the host-mounted path.
 
-When `package-lock.json` changes, rebuild the dev image and recreate the `node_modules` volume so the bind-mounted checkout sees the new dependency tree:
+Development startup keeps the persistent `node_modules` volume synchronized with the dependency tree built into the dev image. When `package.json`, `package-lock.json`, the Node image, or another dependency-build input changes, `start` or `update` rebuilds the image and `data-init` refreshes the volume before `sessiond` starts. Manual volume removal is not required.
 
-```bash
-./docker/pi-web-docker --dev stop
-docker volume rm pi-web-dev_node_modules
-./docker/pi-web-docker --dev start
-```
+If Compose is invoked directly without rebuilding after a manifest change, `data-init` stops with a mismatch message instead of starting against stale dependencies. Run `./docker/pi-web-docker --dev start` or `./docker/pi-web-docker --dev update` to rebuild and synchronize it.
 
 ## Local checkout validation
 

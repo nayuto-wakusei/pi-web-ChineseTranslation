@@ -41,6 +41,8 @@ interface TestSession extends PiAgentSession {
 function fakeSessionManager(cwd = "/workspace", patch: Partial<PiSessionManager> = {}): PiSessionManager {
   return {
     getCwd: () => cwd,
+    getSessionId: () => "test-session",
+    getSessionFile: () => undefined,
     getBranch: () => [],
     getLeafId: () => "leaf-1",
     ...patch,
@@ -63,7 +65,7 @@ function testManagementContext(): ManagementEmbedContext {
 }
 
 function testModel(): NonNullable<PiAgentSession["model"]> {
-  const model = ModelRegistry.inMemory(AuthStorage.inMemory()).find("anthropic", "claude-3-5-sonnet-20241022");
+  const model = ModelRegistry.inMemory(AuthStorage.inMemory()).find("anthropic", "claude-haiku-4-5");
   if (model === undefined) throw new Error("test model not found");
   return model;
 }
@@ -1340,7 +1342,7 @@ describe("PiSessionService", () => {
     const hub = new CapturingSessionEventHub();
     const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
     const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = modelRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    const model = modelRegistry.find("anthropic", "claude-haiku-4-5");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
     const fake = fakeRuntime("auth-session", { model, modelRegistry });
 
@@ -1359,7 +1361,7 @@ describe("PiSessionService", () => {
     service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
     service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
 
-    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
+    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-haiku-4-5")).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
@@ -1378,7 +1380,7 @@ describe("PiSessionService", () => {
     const managementStorage = AuthStorage.inMemory();
     const normalRegistry = ModelRegistry.inMemory(normalStorage);
     const managementRegistry = ModelRegistry.inMemory(managementStorage);
-    const model = normalRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    const model = normalRegistry.find("anthropic", "claude-haiku-4-5");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
     const normalRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: normalRegistry });
     const managedRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: managementRegistry });

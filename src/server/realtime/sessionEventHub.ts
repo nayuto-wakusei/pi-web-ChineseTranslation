@@ -1,4 +1,5 @@
 import type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes.js";
+import { projectBrowserSessionEvent } from "../browserMessageProjection.js";
 import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "./sessionEventScope.js";
 export { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "./sessionEventScope.js";
 
@@ -37,7 +38,7 @@ export class SessionEventHub {
   }
 
   publish(sessionId: string, event: SessionUiEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
-    const payload = JSON.stringify(event);
+    const payload = JSON.stringify(projectBrowserSessionEvent(event));
     for (const socket of this.socketsBySession.get(sessionScopeKey(sessionId, scope)) ?? []) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
