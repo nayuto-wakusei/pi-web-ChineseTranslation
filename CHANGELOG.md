@@ -1,5 +1,26 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.6
+
+### Patch Changes
+
+- 73ac24c: Set `PI_WEB_TERMINAL=1` in PI WEB terminal shells.
+- a1f749c: Add a capability-aware Clear queue action that removes queued session messages, including prompts held during compaction, without stopping active work.
+- dde48b3: Validate install and doctor service requirements in the real systemd or launchd manager context before changing native services, with plan-specific PATH guidance and safe probe cleanup. Thanks to @blain3white for the original report, reproduction, and root-cause analysis.
+- d72b14f: Add a **Check for PI WEB Updates** action that bypasses cached release data and refreshes update status for the selected local or federated machine.
+- 75e2377: Add selectable Pi-compatible agent profiles and companion CLIs for isolated auth, models, settings, sessions, Pi packages, plugins, diagnostics, and safe update commands. Settings shows when a session-daemon restart is required, and mixed-version remote saves fail instead of reporting false success. The embedded runtime remains the bundled Pi SDK.
+- ec0ca13: Store session archive metadata and archived session files under `PI_WEB_DATA_DIR` when configured, and automatically migrate a legacy archive on the first eligible session-daemon startup after upgrading.
+
+  Migration runs only when `PI_WEB_DATA_DIR` explicitly selects a different root, the legacy index and every referenced file form a complete valid archive, and the destination archive is pristine. PI WEB copies and verifies files across filesystem boundaries, rewrites their `archivePath` values, atomically commits the destination index, and only then removes legacy archive state. Ambiguous, invalid, partial, or coexisting layouts are left untouched instead of being merged or overwritten; active Pi session files are never moved.
+
+- 14e911d: 迁移项目认证、OAuth、模型刷新和会话创建到 Pi `ModelRuntime`，并修复管理嵌入模式的流式重连。
+- a493949: Support root and nested reverse-proxy deployments with one published client, including scoped PWA assets, WebSockets, and local or federated plugins.
+- 4d08c74: 隔离普通模式下各项目的 `auth.json` 和 `models.json`，并要求普通模式的认证与会话请求绑定到已注册项目。首次使用项目时会从全局 Pi 文件迁移一份初始副本，之后各项目独立保存提供商凭据和自定义模型。
+- 4d973e1: 支持从会话操作菜单重命名未归档会话。
+- 21c58fe: Serve PI WEB plugin SVG assets with a browser-compatible content type and clarify module-relative asset packaging.
+- f181c47: Keep tool-result images visible in clearly labeled standard chat cards outside collapsed event groups while retaining technical execution details and final message metadata.
+- d5154df: Add explicit tracked-subsession yielding with no-poll wake-up guidance, remaining-child status, and clear boundaries around child output.
+
 ## 1.202607.5-dev.0
 
 ### Patch Changes
