@@ -1,13 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import type { SessionBulkMutationRequest, SessionBulkMutationRef, SessionCleanupRequest } from "../../shared/apiTypes.js";
+import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
-import type { PiSessionRef, PiSessionService } from "./piSessionService.js";
+import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { normalizeSessionCleanupRequest } from "./sessionCleanup.js";
 
-type SessionLookup = string | PiSessionRef;
+type SessionLookup = SessionRouteLookup;
 
 interface SessionQuery {
   cwd?: string;
@@ -31,7 +32,7 @@ interface AttachmentsRequestBody {
   folder?: unknown;
 }
 
-export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
+export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRouteService, eventHub: SessionEventHub, prefix = ""): void {
   app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions`, async (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
@@ -89,7 +90,8 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.get<{ Params: { sessionId: string }; Querystring: MessageQuery }>(`${prefix}/sessions/:sessionId/messages`, async (request, reply) => {
     try {
       const page = { ...optionalField("before", optionalNumber(request.query.before)), ...optionalField("limit", optionalNumber(request.query.limit)) };
-      return await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
+      const messages = await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
+      return projectBrowserMessageResponse(messages);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
@@ -170,8 +172,23 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      await sessions.prompt(sessionLookupFromBody(request.params.sessionId, body), body["text"], body["streamingBehavior"], body["attachments"], { managementContext: managementContextFromHeaders(request.headers) });
+      const managementContext = managementContextFromHeaders(request.headers);
+      await sessions.prompt(
+        sessionLookupFromBody(request.params.sessionId, body),
+        body["text"],
+        body["streamingBehavior"],
+        body["attachments"],
+        managementContext === undefined ? undefined : { managementContext },
+      );
       return { accepted: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/queue/clear`, async (request, reply) => {
+    try {
+      return await sessions.clearQueue(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -226,9 +243,9 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
-  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/stop`, (request, reply) => {
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/stop`, async (request, reply) => {
     try {
-      sessions.stop(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
+      await sessions.stop(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { stopped: true };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });

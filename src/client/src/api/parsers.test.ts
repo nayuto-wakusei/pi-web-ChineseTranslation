@@ -9,26 +9,85 @@ describe("API parsers", () => {
       exists: true,
       config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
       effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
-      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
     })).toEqual({
       path: "/tmp/config.json",
       exists: true,
       config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
       effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
-      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
     });
   });
 
-  it("parses PI WEB runtime responses", () => {
+  it("parses PI WEB runtime responses including the daemon-owned active profile", () => {
     expect(parsePiWebRuntimeResponse({
       packageName: "@jmfederico/pi-web",
       generatedAt: "now",
       components: {
         web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage, "future.capability"] },
-        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
+        sessiond: {
+          component: "sessiond",
+          label: "Session daemon",
+          runtimeVersion: "1.0.0",
+          available: true,
+          capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
+          activeAgentProfile: {
+            schemaVersion: 1,
+            revision: `sha256:${"a".repeat(64)}`,
+            command: "agent-lab",
+            dir: "/srv/agent-lab",
+            sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
+          },
+        },
       },
       capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage, "future.capability"],
-    })).toMatchObject({ capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage] });
+    })).toMatchObject({
+      capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage],
+      components: { sessiond: { activeAgentProfile: { command: "agent-lab", dir: "/srv/agent-lab" } } },
+    });
+  });
+
+  it("retains portable active profiles in machine runtime snapshots and rejects invalid ownership", () => {
+    const profile = {
+      schemaVersion: 1,
+      revision: `sha256:${"b".repeat(64)}`,
+      command: "C:\\tools\\pi.exe",
+      dir: "C:\\agent-profiles\\work",
+      sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
+    };
+    const components = {
+      web: { component: "web", label: "Web/UI", available: true, capabilities: [] },
+      sessiond: { component: "sessiond", label: "Session daemon", available: true, capabilities: [], activeAgentProfile: profile },
+    };
+
+    const parsed = parseMachineRuntime({ machineId: "remote-a", ok: true, checkedAt: "now", components, capabilities: [] });
+
+    expect(parsed.components?.sessiond.activeAgentProfile).toMatchObject({ command: profile.command, dir: profile.dir });
+    expect(Object.isFrozen(parsed.components?.sessiond.activeAgentProfile)).toBe(true);
+    expect(() => parseMachineRuntime({
+      machineId: "remote-a",
+      ok: true,
+      checkedAt: "now",
+      components: { ...components, web: { ...components.web, activeAgentProfile: profile } },
+      capabilities: [],
+    })).toThrow("Invalid active agent profile descriptor");
+    expect(() => parseMachineRuntime({
+      machineId: "remote-a",
+      ok: true,
+      checkedAt: "now",
+      components: { ...components, sessiond: { ...components.sessiond, activeAgentProfile: { ...profile, token: "secret" } } },
+      capabilities: [],
+    })).toThrow("Invalid active agent profile descriptor");
+  });
+
+  it("rejects malformed agent directory override metadata", () => {
+    expect(() => parsePiWebConfigResponse({
+      path: "/tmp/config.json",
+      exists: true,
+      config: {},
+      effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentDirSource: "future" },
+    })).toThrow("Invalid PI WEB agentDirSource field");
   });
 
   it("parses Pi package list and mutation responses", () => {

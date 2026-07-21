@@ -1,5 +1,6 @@
 import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FileContentResponse, FileTreeEntry } from "../api";
 import { initialAppState } from "../appState";
 import type { WorkspacePanelContext } from "../plugins/types";
 import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
@@ -36,6 +37,39 @@ describe("workspace-files-panel upload review", () => {
       selectUploadedFile: true,
     });
     expect(findOptionalTemplateEventHandler<SubmitEvent>(panel.render(), "<form @submit=")).toBeUndefined();
+  });
+});
+
+describe("workspace-files-panel file tree boundary", () => {
+  it("renders expanded tree and selected-file state while wiring row clicks", () => {
+    const onExpandDir = vi.fn<WorkspacePanelContext["onExpandDir"]>();
+    const onSelectFile = vi.fn<WorkspacePanelContext["onSelectFile"]>();
+    const panel = new WorkspaceFilesPanel();
+    const context = workspacePanelContext({
+      fileTree: [directoryEntry("src"), fileEntry("README.md", 4096)],
+      expandedDirs: { src: [fileEntry("src/main.ts")] },
+      selectedFilePath: "README.md",
+      selectedFileContent: binaryFileContent("README.md", 4096),
+      onExpandDir,
+      onSelectFile,
+    });
+    panel.context = context;
+
+    const rendered = panel.render();
+    const text = collectTemplateText(rendered);
+
+    expect(text).toContain("▾");
+    expect(text).toContain("src");
+    expect(text).toContain("main.ts");
+    expect(text).toContain("README.md");
+    expect(text).toContain("二进制文件：README.md · 4.0 KB");
+    expect(text).not.toContain("请选择文件。");
+
+    findTemplateClickHandlerForText<Event>(renderTreeEntry(panel, context, directoryEntry("src")), "src")(new Event("click"));
+    findTemplateClickHandlerForText<Event>(renderTreeEntry(panel, context, fileEntry("README.md", 4096)), "README.md")(new Event("click"));
+
+    expect(onExpandDir).toHaveBeenCalledWith("src");
+    expect(onSelectFile).toHaveBeenCalledWith("README.md");
   });
 });
 
@@ -182,6 +216,58 @@ function findOptionalTemplateEventHandler<E extends Event>(template: TemplateRes
   }
 }
 
+// Node-based Lit tests cannot click shadow DOM here; keep direct handler extraction
+// anchored to rendered file labels and assert the observable context callbacks.
+function findTemplateClickHandlerForText<E extends Event>(template: TemplateResult, text: string): TemplateEventHandler<E> {
+  const handler = findOptionalTemplateClickHandlerForText<E>(template, text);
+  if (handler === undefined) throw new Error(`Expected click handler near ${text}`);
+  return handler;
+}
+
+function renderTreeEntry(panel: WorkspaceFilesPanel, context: WorkspacePanelContext, entry: FileTreeEntry): TemplateResult {
+  const method: unknown = Reflect.get(panel, "renderTreeEntry");
+  if (typeof method !== "function") throw new Error("WorkspaceFilesPanel.renderTreeEntry is not callable");
+  const rendered: unknown = Reflect.apply(method, panel, [context, entry, 0]);
+  if (!isTemplateResult(rendered)) throw new Error("WorkspaceFilesPanel.renderTreeEntry did not return a template");
+  return rendered;
+}
+
+function findOptionalTemplateClickHandlerForText<E extends Event>(value: unknown, text: string): TemplateEventHandler<E> | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nestedHandler = findOptionalTemplateClickHandlerForText<E>(item, text);
+      if (nestedHandler !== undefined) return nestedHandler;
+    }
+    return undefined;
+  }
+  if (!isTemplateResult(value)) return undefined;
+
+  for (const item of templateValues(value)) {
+    const nestedHandler = findOptionalTemplateClickHandlerForText<E>(item, text);
+    if (nestedHandler !== undefined) return nestedHandler;
+  }
+  if (!templateValues(value).some((item) => item === text)) return undefined;
+
+  const strings = templateStrings(value);
+  const values = templateValues(value);
+  for (let index = 0; index < values.length; index += 1) {
+    const staticChunk = strings[index];
+    const candidate = values[index];
+    if (staticChunk !== undefined && staticChunk.includes("@click") && isTemplateEventHandler<E>(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function collectTemplateText(value: unknown): string {
+  if (Array.isArray(value)) return value.map((item) => collectTemplateText(item)).join("");
+  if (isTemplateResult(value)) {
+    const strings = templateStrings(value);
+    const values = templateValues(value);
+    return strings.map((part, index) => `${part}${index < values.length ? collectTemplateText(values[index]) : ""}`).join("");
+  }
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
 function templateStrings(template: TemplateResult): readonly string[] {
   const strings = Reflect.get(template, "strings");
   if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
@@ -250,34 +336,54 @@ class FakeSubmitEvent extends Event implements SubmitEvent {
   readonly submitter: HTMLElement | null = null;
 }
 
-function workspacePanelContext(patch: Partial<Pick<WorkspacePanelContext, "onStartWorkspaceUpload" | "workspaceUploadDefaultFolder">> = {}): WorkspacePanelContext {
-  const workspace = { id: "workspace-1", projectId: "project-1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+function fileEntry(path: string, size = 2): FileTreeEntry {
+  return { name: path.split("/").at(-1) ?? path, path, type: "file", size };
+}
+
+function directoryEntry(path: string): FileTreeEntry {
+  return { name: path.split("/").at(-1) ?? path, path, type: "directory" };
+}
+
+function binaryFileContent(path: string, size: number): FileContentResponse {
   return {
-    machine: { id: "local", name: "Local", kind: "local" },
+    path,
+    encoding: "utf8",
+    size,
+    modifiedAt: "2026-06-25T00:00:00.000Z",
+    content: "",
+    truncated: false,
+    binary: true,
+  };
+}
+
+function workspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
+  const workspace = patch.workspace ?? { id: "workspace-1", projectId: "project-1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+  return {
+    machine: patch.machine ?? { id: "local", name: "Local", kind: "local" },
     workspace,
-    state: { ...initialAppState(), workspaceUploadBatches: {} },
-    files: {
+    state: patch.state ?? { ...initialAppState(), workspaceUploadBatches: {} },
+    files: patch.files ?? {
       readFile: vi.fn<WorkspacePanelContext["files"]["readFile"]>(() => Promise.reject(new Error("not implemented"))),
       writeFile: vi.fn<WorkspacePanelContext["files"]["writeFile"]>(() => Promise.reject(new Error("not implemented"))),
       deleteFile: vi.fn<WorkspacePanelContext["files"]["deleteFile"]>(() => Promise.reject(new Error("not implemented"))),
       moveFile: vi.fn<WorkspacePanelContext["files"]["moveFile"]>(() => Promise.reject(new Error("not implemented"))),
     },
-    prompt: { insertText: vi.fn<WorkspacePanelContext["prompt"]["insertText"]>(), getText: vi.fn<WorkspacePanelContext["prompt"]["getText"]>(() => ""), getSelection: vi.fn<WorkspacePanelContext["prompt"]["getSelection"]>(() => null) },
-    terminal: { open: vi.fn<WorkspacePanelContext["terminal"]["open"]>(), runCommand: vi.fn<WorkspacePanelContext["terminal"]["runCommand"]>(() => Promise.reject(new Error("not implemented"))) },
-    host: { requestRender: vi.fn<WorkspacePanelContext["host"]["requestRender"]>() },
-    fileTree: [],
-    expandedDirs: {},
-    selectedFilePath: undefined,
-    selectedFileContent: undefined,
-    fileTreeStale: false,
-    gitStatus: undefined,
-    selectedDiffPath: undefined,
-    selectedDiff: undefined,
-    selectedStagedDiff: undefined,
-    gitStale: false,
-    activeTerminalCount: 0,
-    selectedTerminalId: undefined,
-    terminalAutoStart: false,
+    prompt: patch.prompt ?? { insertText: vi.fn<WorkspacePanelContext["prompt"]["insertText"]>(), getText: vi.fn<WorkspacePanelContext["prompt"]["getText"]>(() => ""), getSelection: vi.fn<WorkspacePanelContext["prompt"]["getSelection"]>(() => null) },
+    terminal: patch.terminal ?? { open: vi.fn<WorkspacePanelContext["terminal"]["open"]>(), runCommand: vi.fn<WorkspacePanelContext["terminal"]["runCommand"]>(() => Promise.reject(new Error("not implemented"))) },
+    host: patch.host ?? { requestRender: vi.fn<WorkspacePanelContext["host"]["requestRender"]>() },
+    fileTree: patch.fileTree ?? [],
+    expandedDirs: patch.expandedDirs ?? {},
+    selectedFilePath: patch.selectedFilePath,
+    selectedFileContent: patch.selectedFileContent,
+    fileTreeStale: patch.fileTreeStale ?? false,
+    gitStatus: patch.gitStatus,
+    selectedDiffPath: patch.selectedDiffPath,
+    selectedDiff: patch.selectedDiff,
+    selectedStagedDiff: patch.selectedStagedDiff,
+    gitStale: patch.gitStale ?? false,
+    activeTerminalCount: patch.activeTerminalCount ?? 0,
+    selectedTerminalId: patch.selectedTerminalId,
+    terminalAutoStart: patch.terminalAutoStart ?? false,
     workspaceUploadDefaultFolder: patch.workspaceUploadDefaultFolder ?? ".pi-web/uploads",
     onRefreshFiles: vi.fn<WorkspacePanelContext["onRefreshFiles"]>(),
     onCreateFile: vi.fn<WorkspacePanelContext["onCreateFile"]>(),
@@ -285,15 +391,15 @@ function workspacePanelContext(patch: Partial<Pick<WorkspacePanelContext, "onSta
     onMoveSelectedPath: vi.fn<WorkspacePanelContext["onMoveSelectedPath"]>(),
     onDeleteSelectedPath: vi.fn<WorkspacePanelContext["onDeleteSelectedPath"]>(),
     onDownloadSelectedFile: vi.fn<WorkspacePanelContext["onDownloadSelectedFile"]>(),
-    onExpandDir: vi.fn<WorkspacePanelContext["onExpandDir"]>(),
+    onExpandDir: patch.onExpandDir ?? vi.fn<WorkspacePanelContext["onExpandDir"]>(),
     onSelectDirectory: vi.fn<WorkspacePanelContext["onSelectDirectory"]>(),
-    onSelectFile: vi.fn<WorkspacePanelContext["onSelectFile"]>(),
+    onSelectFile: patch.onSelectFile ?? vi.fn<WorkspacePanelContext["onSelectFile"]>(),
     onStartWorkspaceUpload: patch.onStartWorkspaceUpload ?? vi.fn<WorkspacePanelContext["onStartWorkspaceUpload"]>(() => undefined),
-    onCancelWorkspaceUpload: vi.fn<WorkspacePanelContext["onCancelWorkspaceUpload"]>(),
-    onClearWorkspaceUpload: vi.fn<WorkspacePanelContext["onClearWorkspaceUpload"]>(),
-    onRefreshGit: vi.fn<WorkspacePanelContext["onRefreshGit"]>(),
-    onSelectDiff: vi.fn<WorkspacePanelContext["onSelectDiff"]>(),
-    onSelectTerminal: vi.fn<WorkspacePanelContext["onSelectTerminal"]>(),
+    onCancelWorkspaceUpload: patch.onCancelWorkspaceUpload ?? vi.fn<WorkspacePanelContext["onCancelWorkspaceUpload"]>(),
+    onClearWorkspaceUpload: patch.onClearWorkspaceUpload ?? vi.fn<WorkspacePanelContext["onClearWorkspaceUpload"]>(),
+    onRefreshGit: patch.onRefreshGit ?? vi.fn<WorkspacePanelContext["onRefreshGit"]>(),
+    onSelectDiff: patch.onSelectDiff ?? vi.fn<WorkspacePanelContext["onSelectDiff"]>(),
+    onSelectTerminal: patch.onSelectTerminal ?? vi.fn<WorkspacePanelContext["onSelectTerminal"]>(),
   };
 }
 

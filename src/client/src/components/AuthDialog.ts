@@ -40,27 +40,29 @@ export class AuthDialog extends LitElement {
   }
 
   private dialogTitle(state: AuthDialogState): string {
+    const scope = state.target.projectName === undefined ? "" : ` · ${state.target.projectName}`;
     switch (state.step) {
-      case "method": return "配置提供商认证";
-      case "providers": return state.authType === undefined ? "选择提供商认证" : state.authType === "oauth" ? "选择订阅提供商" : "选择 API key 提供商";
-      case "apiKey": return `${state.provider.name} 的 API key`;
-      case "oauth": return `登录 ${state.flow.providerName}`;
-      case "logout": return "移除已保存的提供商认证";
+      case "method": return `配置提供商认证${scope}`;
+      case "providers": return `${state.authType === undefined ? "选择提供商认证" : state.authType === "oauth" ? "选择订阅提供商" : "选择 API key 提供商"}${scope}`;
+      case "apiKey": return `${state.provider.name} 的 API key${scope}`;
+      case "oauth": return `登录 ${state.flow.providerName}${scope}`;
+      case "logout": return `移除已保存的提供商认证${scope}`;
     }
   }
 
   private renderBody(state: AuthDialogState) {
+    const credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目";
     switch (state.step) {
       case "method": return html`
         <div class="options">
           <button @click=${() => { this.onChooseMethod?.("oauth"); }}><span>使用订阅</span><small>ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot</small></button>
-          <button @click=${() => { this.onChooseMethod?.("api_key"); }}><span>使用 API key</span><small>将 API key 存入 pi auth.json</small></button>
+          <button @click=${() => { this.onChooseMethod?.("api_key"); }}><span>使用 API key</span><small>将 API key 存入${credentialScope}的 auth.json</small></button>
         </div>
       `;
       case "providers": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有可用提供商。</div>` : state.providers.map((provider) => this.renderProviderButton(provider))}</div>`;
       case "apiKey": return html`
         <div class="form">
-          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会保存到当前模式的凭据文件。</p>
+          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会保存到${credentialScope}的凭据文件。</p>
           <input type="password" autocomplete="off" placeholder="API key" .value=${state.value} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onApiKeyInput?.(event.target.value); }}>
           ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
           <div class="actions"><button @click=${() => { this.cancel(); }}>取消</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? "正在保存…" : "保存 API key"}</button></div>

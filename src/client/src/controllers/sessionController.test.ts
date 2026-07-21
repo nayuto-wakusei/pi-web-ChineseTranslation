@@ -744,6 +744,52 @@ describe("SessionController", () => {
     expect(state.sendingPrompts).toEqual({});
   });
 
+  it("renames the requested persisted session without changing the active conversation", async () => {
+    const targetSession = { ...oldSession, id: "target-session", path: "/tmp/target-session.jsonl", persisted: true };
+    const machine = { id: "remote-1", name: "远程机器", kind: "remote" as const, createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" };
+    let state: AppState = { ...initialAppState(), selectedMachine: machine, selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession, targetSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      runCommand: (session, text, machineId) => {
+        expect(session).toBe(targetSession);
+        expect(text).toBe("/name 新名称");
+        expect(machineId).toBe(machine.id);
+        return Promise.resolve({ type: "done", session: { ...targetSession, name: "新名称" } });
+      },
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.renameSession(targetSession, "  新名称  ");
+
+    expect(state.sessions.find((session) => session.id === targetSession.id)?.name).toBe("新名称");
+    expect(state.selectedSession).toBe(oldSession);
+    expect(state.messages).toEqual([]);
+  });
+
+  it("surfaces rename failures without adding a chat message", async () => {
+    const targetSession = { ...oldSession, persisted: true };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: targetSession, sessions: [targetSession] };
+    const api: typeof defaultApi = { ...defaultApi, runCommand: () => Promise.reject(new Error("rename failed")) };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.renameSession(targetSession, "新名称");
+
+    expect(state.error).toBe("Error: rename failed");
+    expect(state.messages).toEqual([]);
+  });
+
   it("queues prompt sends for a pending session start and flushes them after resolution", async () => {
     const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
     const startRequest = deferred<SessionInfo>();

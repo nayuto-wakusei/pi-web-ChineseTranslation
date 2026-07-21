@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { api as defaultApi, type AuthProviderOption, type OAuthFlowState, type SessionInfo, type SessionStatus } from "../api";
-import { initialAppState, type AppState } from "../appState";
+import { api as defaultApi, type ApiScope, type AuthProviderOption, type OAuthFlowState, type Project, type SessionInfo, type SessionStatus } from "../api";
+import { initialAppState, type AppState, type AuthDialogTarget } from "../appState";
 import { AuthController, parseAuthSlashCommand } from "./authController";
 
 describe("parseAuthSlashCommand", () => {
@@ -22,9 +22,46 @@ describe("parseAuthSlashCommand", () => {
 });
 
 describe("AuthController", () => {
+  it("requires a selected project before opening normal-mode auth", async () => {
+    const { controller, getState } = createController({ selectedProject: undefined });
+
+    await controller.openLogin();
+
+    expect(getState().authDialog).toBeUndefined();
+    expect(getState().error).toBe("请先选择项目，再配置提供商认证。");
+  });
+
+  it("allows management auth without a selected project", async () => {
+    const { controller, getState } = createController({ selectedProject: undefined }, {}, () => undefined, "management");
+
+    await controller.openLogin();
+
+    expect(getState().authDialog).toEqual({ step: "method", target: { machineId: "local" } });
+  });
+
+  it("binds provider auth requests to the selected project", async () => {
+    const authCalls: Parameters<typeof defaultApi.authProviders>[0][] = [];
+    const project = projectInfo("project-1");
+    const { controller, getState } = createController(
+      { selectedProject: project },
+      {
+        authProviders: (options) => {
+          authCalls.push(options);
+          return Promise.resolve({ providers: [] });
+        },
+      },
+    );
+
+    await controller.openLogin();
+    await controller.chooseLoginMethod("api_key");
+
+    expect(authCalls).toEqual([{ mode: "login", authType: "api_key", ...normalTarget() }]);
+    expect(getState().authDialog).toMatchObject({ step: "providers", target: { projectId: project.id, projectName: project.name } });
+  });
+
   it("uses auth type to disambiguate provider options with the same id", async () => {
     const providers = [authProvider("anthropic", "oauth"), authProvider("anthropic", "api_key")];
-    const { controller, getState } = createController({ authDialog: { step: "providers", mode: "login", providers } });
+    const { controller, getState } = createController({ authDialog: { step: "providers", mode: "login", providers, target: normalTarget() } });
 
     await controller.selectLoginProvider("anthropic", "api_key");
 
@@ -34,7 +71,7 @@ describe("AuthController", () => {
   it("keeps OAuth prompt input and submit state across poll refreshes for the same request", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
       { respondOAuthFlow: () => Promise.resolve(oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" }, progress: ["Still waiting"] })) },
     );
 
@@ -46,7 +83,7 @@ describe("AuthController", () => {
   it("resets OAuth prompt input and submit state when the request id changes", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
       {
         respondOAuthFlow: () => Promise.resolve(oauthFlow({
           select: { requestId: "request-2", message: "Choose an account", options: [{ value: "acct-1", label: "Account 1" }] },
@@ -69,14 +106,14 @@ describe("AuthController", () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const session = sessionInfo("session-1");
     const refreshedStatus = sessionStatus(session.id);
-    const respondCalls: { flowId: string; requestId: string; value: string; machineId: string | undefined }[] = [];
+    const respondCalls: { flowId: string; requestId: string; value: string; target: Parameters<typeof defaultApi.respondOAuthFlow>[3] }[] = [];
     const statusCalls: { session: Parameters<typeof defaultApi.status>[0]; machineId: string | undefined }[] = [];
     const appliedStatuses: SessionStatus[] = [];
     const { controller, getState } = createController(
-      { selectedSession: session, authDialog: { step: "oauth", flow, inputValue: "https://callback" } },
+      { selectedSession: session, authDialog: { step: "oauth", flow, inputValue: "https://callback", target: normalTarget() } },
       {
-        respondOAuthFlow: (flowId, requestId, value, machineId) => {
-          respondCalls.push({ flowId, requestId, value, machineId });
+        respondOAuthFlow: (flowId, requestId, value, target) => {
+          respondCalls.push({ flowId, requestId, value, target });
           return Promise.resolve(oauthFlow({ status: "complete" }));
         },
         status: (sessionArg, machineId) => {
@@ -90,7 +127,7 @@ describe("AuthController", () => {
     await controller.respondOAuth();
     await flushMicrotasks();
 
-    expect(respondCalls).toEqual([{ flowId: "flow-1", requestId: "request-1", value: "https://callback", machineId: "local" }]);
+    expect(respondCalls).toEqual([{ flowId: "flow-1", requestId: "request-1", value: "https://callback", target: normalTarget() }]);
     expect(getState().authDialog).toBeUndefined();
     expect(statusCalls).toEqual([{ session, machineId: "local" }]);
     expect(appliedStatuses).toEqual([refreshedStatus]);
@@ -99,7 +136,7 @@ describe("AuthController", () => {
   it("leaves the OAuth dialog ready to retry if responding fails", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
       { respondOAuthFlow: () => Promise.reject(new Error("Invalid callback")) },
     );
 
@@ -116,12 +153,12 @@ describe("AuthController", () => {
 
   it("cancels the active OAuth flow and closes the dialog even when cancellation fails", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
-    const cancelCalls: { flowId: string; machineId: string | undefined }[] = [];
+    const cancelCalls: { flowId: string; target: Parameters<typeof defaultApi.cancelOAuthFlow>[1] }[] = [];
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow } },
+      { authDialog: { step: "oauth", flow, target: normalTarget() } },
       {
-        cancelOAuthFlow: (flowId, machineId) => {
-          cancelCalls.push({ flowId, machineId });
+        cancelOAuthFlow: (flowId, target) => {
+          cancelCalls.push({ flowId, target });
           return Promise.reject(new Error("Cancel unavailable"));
         },
       },
@@ -129,18 +166,18 @@ describe("AuthController", () => {
 
     await controller.cancelOAuth();
 
-    expect(cancelCalls).toEqual([{ flowId: "flow-1", machineId: "local" }]);
+    expect(cancelCalls).toEqual([{ flowId: "flow-1", target: normalTarget() }]);
     expect(getState().authDialog).toBeUndefined();
   });
 
   it("validates API key input before saving and clears the validation error when edited", async () => {
-    const saveCalls: { providerId: string; key: string; machineId: string | undefined }[] = [];
+    const saveCalls: { providerId: string; key: string; target: Parameters<typeof defaultApi.saveApiKey>[2] }[] = [];
     const provider = authProvider("openai", "api_key");
     const { controller, getState } = createController(
-      { authDialog: { step: "apiKey", provider, value: "   " } },
+      { authDialog: { step: "apiKey", provider, value: "   ", target: normalTarget() } },
       {
-        saveApiKey: (providerId, key, machineId) => {
-          saveCalls.push({ providerId, key, machineId });
+        saveApiKey: (providerId, key, target) => {
+          saveCalls.push({ providerId, key, target });
           return Promise.resolve({ accepted: true });
         },
       },
@@ -158,7 +195,7 @@ describe("AuthController", () => {
   });
 
   it("saves a trimmed API key on the selected machine and refreshes selected session status", async () => {
-    const saveCalls: { providerId: string; key: string; machineId: string | undefined }[] = [];
+    const saveCalls: { providerId: string; key: string; target: Parameters<typeof defaultApi.saveApiKey>[2] }[] = [];
     const statusCalls: { session: Parameters<typeof defaultApi.status>[0]; machineId: string | undefined }[] = [];
     const appliedStatuses: SessionStatus[] = [];
     const provider = authProvider("openai", "api_key");
@@ -168,11 +205,11 @@ describe("AuthController", () => {
       {
         selectedMachine: remoteMachine("remote-1"),
         selectedSession: session,
-        authDialog: { step: "apiKey", provider, value: "  sk-live  " },
+        authDialog: { step: "apiKey", provider, value: "  sk-live  ", target: remoteTarget("remote-1") },
       },
       {
-        saveApiKey: (providerId, key, machineId) => {
-          saveCalls.push({ providerId, key, machineId });
+        saveApiKey: (providerId, key, target) => {
+          saveCalls.push({ providerId, key, target });
           return Promise.resolve({ accepted: true });
         },
         status: (sessionArg, machineId) => {
@@ -186,7 +223,7 @@ describe("AuthController", () => {
     await controller.saveApiKey();
     await flushMicrotasks();
 
-    expect(saveCalls).toEqual([{ providerId: "openai", key: "sk-live", machineId: "remote-1" }]);
+    expect(saveCalls).toEqual([{ providerId: "openai", key: "sk-live", target: remoteTarget("remote-1") }]);
     expect(getState().authDialog).toBeUndefined();
     expect(statusCalls).toEqual([{ session, machineId: "remote-1" }]);
     expect(appliedStatuses).toEqual([refreshedStatus]);
@@ -195,7 +232,7 @@ describe("AuthController", () => {
   it("keeps the API key dialog open with an error if saving fails", async () => {
     const provider = authProvider("openai", "api_key");
     const { controller, getState } = createController(
-      { authDialog: { step: "apiKey", provider, value: "sk-live" } },
+      { authDialog: { step: "apiKey", provider, value: "sk-live", target: normalTarget() } },
       { saveApiKey: () => Promise.reject(new Error("Denied")) },
     );
 
@@ -209,14 +246,15 @@ function createController(
   statePatch: Partial<AppState>,
   apiPatch: Partial<typeof defaultApi> = {},
   applyStatus: (status: SessionStatus) => void = () => undefined,
+  scope: ApiScope = "normal",
 ) {
-  let state: AppState = { ...initialAppState(), ...statePatch };
+  let state: AppState = { ...initialAppState(), selectedProject: projectInfo("project-1"), ...statePatch };
   const api = { ...defaultApi, ...apiPatch };
   const controller = new AuthController(
     () => state,
     (patch) => { state = { ...state, ...patch }; },
     applyStatus,
-    { api },
+    { api, scope },
   );
   return { controller, getState: () => state };
 }
@@ -247,6 +285,18 @@ function sessionInfo(id: string): SessionInfo {
     messageCount: 0,
     firstMessage: "",
   };
+}
+
+function projectInfo(id: string): Project {
+  return { id, name: "Project One", path: "/repo", createdAt: "2026-01-01T00:00:00.000Z" };
+}
+
+function normalTarget(): AuthDialogTarget {
+  return { machineId: "local", projectId: "project-1", projectName: "Project One" };
+}
+
+function remoteTarget(machineId: string): AuthDialogTarget {
+  return { ...normalTarget(), machineId, machineKind: "remote" };
 }
 
 function sessionStatus(sessionId: string): SessionStatus {

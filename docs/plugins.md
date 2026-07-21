@@ -202,9 +202,11 @@ Built-in plugins can be managed from **Settings → PI WEB plugins** or with the
 ### Updates
 
 **Plugin id:** `updates`
-**What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance.
+**What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance, plus a **Check for PI WEB Updates** action for the selected machine.
 
-Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab only appears for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → PI WEB plugins** or set:
+While a browser tab is connected, PI WEB refreshes the selected machine's status every 15 minutes. npm release lookups are cached on that machine for six hours, so the automatic refresh normally contacts npm at most once in that window. Run **Check for PI WEB Updates** from the action palette to bypass both caches and check immediately. Operator settings that skip remote version checks, such as `PI_WEB_OFFLINE`, are still respected.
+
+Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab and action only appear for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → PI WEB plugins** or set:
 
 ```json
 {
@@ -323,7 +325,7 @@ Rules:
 
 ### Manifest and assets
 
-The manifest contains each discovered plugin module:
+The manifest contains each discovered plugin module. Current PI WEB releases emit `module` as a leading application-root reference:
 
 ```json
 {
@@ -339,15 +341,25 @@ The manifest contains each discovered plugin module:
 }
 ```
 
+The browser maps leading application-root references into the current application base, so the same manifest works at the origin root or under a reverse-proxy path prefix. Keeping this output format also lets gateways from existing PI WEB releases consume plugins from an upgraded remote machine. For compatibility, federated gateways additionally accept explicit manifest-relative references such as `./my-plugin/pi-web-plugin.js` and legacy plugin-root-relative references such as `nested/pi-web-plugin.js`; all accepted forms are rewritten to deployment-portable, gateway-relative references.
+
 `source` describes where the plugin came from (`bundled`, `local`, or the Pi package source). `scope` is `bundled`, `local`, `user`, or `project`. `machineSpecific` controls whether the gateway copy is valid for remote machines or only each selected machine's own copy can appear.
 
-A plugin can fetch its own static assets with URLs under:
+At an origin-root deployment, a plugin's static assets are available under:
 
 ```text
 /pi-web-plugins/<plugin-id>/<path-inside-plugin-root>
 ```
 
-PI WEB prevents asset path traversal outside the plugin root. JavaScript, JSON, CSS, and HTML get appropriate content types; other files are served as octet-stream.
+Prefer module-relative asset URLs so they also work for remote machine plugins. For example, a built plugin module can reference an SVG shipped beside it:
+
+```js
+const iconUrl = new URL("./assets/icon.svg", import.meta.url);
+```
+
+The final installed plugin package must contain `assets/icon.svg` at that path relative to the final built module. PI WEB serves files that already exist in the package; it does not copy a source `public/` directory or apply Vite-style public-directory semantics. Configure the plugin build and package contents to emit or copy the asset into its final module-relative location.
+
+PI WEB prevents asset path traversal outside the plugin root. JavaScript, JSON, CSS, HTML, and SVG files get appropriate content types; unknown file types are served as octet-stream.
 
 ## Plugin module shape
 
@@ -466,6 +478,7 @@ interface PluginRuntimeContext {
   openTerminal: (options?: { terminalId?: string }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
+  checkForPiWebUpdates?: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
   archiveSession: () => void | Promise<void>;
   stopActiveWork: () => void | Promise<void>;

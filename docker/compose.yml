@@ -11,7 +11,6 @@ x-pi-web-build: &pi-web-build
     PI_WEB_UID: ${PI_WEB_UID:-1000}
     PI_WEB_GID: ${PI_WEB_GID:-1000}
     PI_WEB_VERSION: ${PI_WEB_VERSION:-latest}
-    PI_VERSION: ${PI_VERSION:-latest}
     CACHE_BUST: ${CACHE_BUST:-local}
 
 x-pi-web-environment: &pi-web-environment

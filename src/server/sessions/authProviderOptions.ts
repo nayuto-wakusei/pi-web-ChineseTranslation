@@ -2,51 +2,54 @@ import type { AuthProviderOption, AuthProviderStatus, AuthType } from "../../sha
 
 const OAUTH_ONLY_PROVIDERS = new Set(["github-copilot", "openai-codex"]);
 
-export interface AuthProviderModelRegistry {
-  authStorage: {
-    getOAuthProviders(): { id: string; name: string }[];
-    list(): string[];
-    get(provider: string): { type: AuthType } | undefined;
-  };
-  getAll(): { provider: string }[];
-  getProviderDisplayName(provider: string): string;
+export interface AuthProviderModelRuntime {
+  getProviders(): readonly {
+    id: string;
+    name: string;
+    auth: {
+      apiKey?: { login?: unknown };
+      oauth?: { name: string };
+    };
+  }[];
+  listCredentials(): Promise<readonly { providerId: string; type: AuthType }[]>;
   getProviderAuthStatus(provider: string): AuthProviderStatus;
 }
 
-export function getLoginProviderOptions(modelRegistry: AuthProviderModelRegistry, authType?: AuthType): AuthProviderOption[] {
-  const oauthProviders = modelRegistry.authStorage.getOAuthProviders();
-  const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
-  const options: AuthProviderOption[] = oauthProviders.map((provider) => ({
-    id: provider.id,
-    name: provider.name,
-    authType: "oauth",
-    status: modelRegistry.getProviderAuthStatus(provider.id),
-  }));
-
-  const modelProviders = new Set(modelRegistry.getAll().map((model) => model.provider));
-  for (const providerId of modelProviders) {
-    if (!isApiKeyLoginProvider(providerId, oauthProviderIds)) continue;
+export function getLoginProviderOptions(modelRuntime: AuthProviderModelRuntime, authType?: AuthType): AuthProviderOption[] {
+  const providers = modelRuntime.getProviders();
+  const oauthProviderIds = new Set(providers.filter((provider) => provider.auth.oauth !== undefined).map((provider) => provider.id));
+  const options: AuthProviderOption[] = [];
+  for (const provider of providers) {
+    if (provider.auth.oauth !== undefined) {
+      options.push({
+        id: provider.id,
+        name: provider.auth.oauth.name,
+        authType: "oauth",
+        status: modelRuntime.getProviderAuthStatus(provider.id),
+      });
+    }
+    if (provider.auth.apiKey?.login === undefined || !isApiKeyLoginProvider(provider.id, oauthProviderIds)) continue;
     options.push({
-      id: providerId,
-      name: modelRegistry.getProviderDisplayName(providerId),
+      id: provider.id,
+      name: provider.name,
       authType: "api_key",
-      status: modelRegistry.getProviderAuthStatus(providerId),
+      status: modelRuntime.getProviderAuthStatus(provider.id),
     });
   }
 
   return filterAndSort(options, authType);
 }
 
-export function getLogoutProviderOptions(modelRegistry: AuthProviderModelRegistry): AuthProviderOption[] {
+export async function getLogoutProviderOptions(modelRuntime: AuthProviderModelRuntime): Promise<AuthProviderOption[]> {
   const options: AuthProviderOption[] = [];
-  for (const providerId of modelRegistry.authStorage.list()) {
-    const credential = modelRegistry.authStorage.get(providerId);
-    if (credential === undefined) continue;
+  const providers = new Map(modelRuntime.getProviders().map((provider) => [provider.id, provider]));
+  for (const credential of await modelRuntime.listCredentials()) {
+    const providerId = credential.providerId;
     options.push({
       id: providerId,
-      name: modelRegistry.getProviderDisplayName(providerId),
+      name: providers.get(providerId)?.name ?? providerId,
       authType: credential.type,
-      status: modelRegistry.getProviderAuthStatus(providerId),
+      status: modelRuntime.getProviderAuthStatus(providerId),
     });
   }
   return filterAndSort(options);

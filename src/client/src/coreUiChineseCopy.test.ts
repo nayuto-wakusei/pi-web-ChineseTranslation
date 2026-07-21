@@ -72,8 +72,14 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes model picker and session bulk action copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "完成"],
+    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "重命名", "完成"],
     forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
+  },
+  {
+    name: "labels provider auth as project-scoped",
+    paths: ["components/AuthDialog.ts", "plugins/core/actions.ts"],
+    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证"],
+    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout"],
   },
   {
     name: "localizes session cleanup actions and dialog copy",

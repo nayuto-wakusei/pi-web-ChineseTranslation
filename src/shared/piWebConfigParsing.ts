@@ -45,11 +45,6 @@ export function parseMaxUploadBytes(value: unknown, key: string, path = "environ
   return bytes;
 }
 
-export function parseAllowedHostsEnv(value: string): string[] | true {
-  if (value === "true") return true;
-  return value.split(",").map((host) => host.trim()).filter((host) => host !== "");
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

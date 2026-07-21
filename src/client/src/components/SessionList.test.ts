@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-import { sessionRowActivityKind, sessionRowsForCurrentTree } from "./SessionList";
+import { isRenamableSession, sessionRenameInput, sessionRowActivityKind, sessionRowsForCurrentTree } from "./SessionList";
 
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
@@ -57,6 +57,36 @@ describe("session action eligibility", () => {
     expect(isTransientNewSessionInfo(stalePersisted, sessionStatus("s", { persisted: false }))).toBe(true);
 
     expect(isArchivableSessionInfo(staleTransient, sessionStatus("other", { persisted: true }))).toBe(false);
+  });
+});
+
+describe("sessionRenameInput", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("prefills the session label and trims a new name", () => {
+    const prompt = vi.fn(() => "  新名称  ");
+    vi.stubGlobal("prompt", prompt);
+
+    expect(sessionRenameInput(session("s", { name: "已有名称" }))).toBe("新名称");
+    expect(prompt).toHaveBeenCalledWith("重命名会话", "已有名称");
+  });
+
+  it("ignores cancelled and blank inputs", () => {
+    vi.stubGlobal("prompt", () => null);
+    expect(sessionRenameInput(session("s"))).toBeUndefined();
+
+    vi.stubGlobal("prompt", () => "   ");
+    expect(sessionRenameInput(session("s"))).toBeUndefined();
+  });
+});
+
+describe("isRenamableSession", () => {
+  it("allows persisted sessions but excludes archived and temporary sessions", () => {
+    expect(isRenamableSession(session("persisted", { persisted: true }))).toBe(true);
+    expect(isRenamableSession({ ...session("archived", { persisted: true }), archived: true })).toBe(false);
+    expect(isRenamableSession(session("temporary", { persisted: false }))).toBe(false);
   });
 });
 

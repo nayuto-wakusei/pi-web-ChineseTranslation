@@ -349,13 +349,14 @@ describe("FileExplorerController workspace uploads", () => {
   });
 });
 
-function createHarness(deps: FileExplorerControllerDependencies = {}) {
+function createHarness(deps: FileExplorerControllerDependencies = {}, statePatch: Partial<AppState> = {}) {
   installWindow("http://localhost/app");
   let state: AppState = {
     ...initialAppState(),
     selectedMachine: machine,
     selectedProject: project,
     selectedWorkspace: workspace,
+    ...statePatch,
   };
   const api: NonNullable<FileExplorerControllerDependencies["api"]> = deps.api ?? {
     workspaceTree: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceTree"]>((_projectId, _workspaceId, path = "") => Promise.resolve(treeResponse(path))),
@@ -437,8 +438,8 @@ function sequenceNow(...values: string[]): () => string {
   return () => values[index++] ?? values.at(-1) ?? "now";
 }
 
-function treeResponse(path: string): FileTreeResponse {
-  return { path, entries: [], scannedAt: "2026-06-25T00:00:00.000Z", truncated: false };
+function treeResponse(path: string, entries: FileTreeEntry[] = []): FileTreeResponse {
+  return { path, entries, scannedAt: "2026-06-25T00:00:00.000Z", truncated: false };
 }
 
 function fileResponse(path: string): FileContentResponse {

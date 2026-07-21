@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { filterManagedGlobalContextFiles, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { filterManagedGlobalContextFiles, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionModelRuntime, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent; scope?: string }[] = [];
@@ -41,6 +41,8 @@ interface TestSession extends PiAgentSession {
 function fakeSessionManager(cwd = "/workspace", patch: Partial<PiSessionManager> = {}): PiSessionManager {
   return {
     getCwd: () => cwd,
+    getSessionId: () => "test-session",
+    getSessionFile: () => undefined,
     getBranch: () => [],
     getLeafId: () => "leaf-1",
     ...patch,
@@ -63,9 +65,28 @@ function testManagementContext(): ManagementEmbedContext {
 }
 
 function testModel(): NonNullable<PiAgentSession["model"]> {
-  const model = ModelRegistry.inMemory(AuthStorage.inMemory()).find("anthropic", "claude-3-5-sonnet-20241022");
-  if (model === undefined) throw new Error("test model not found");
-  return model;
+  return {
+    id: "claude-haiku-4-5",
+    name: "Claude Haiku 4.5",
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  };
+}
+
+function fakeModelRuntime(configured = true): PiSessionModelRuntime {
+  const model = testModel();
+  return {
+    reloadConfig: () => Promise.resolve(),
+    getAvailable: () => Promise.resolve(configured ? [model] : []),
+    getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
+    hasConfiguredAuth: (provider: string) => configured && provider === model.provider,
+  };
 }
 
 function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
@@ -86,7 +107,7 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     isBashRunning: false,
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
-    modelRegistry: ModelRegistry.create(AuthStorage.inMemory()),
+    modelRuntime: fakeModelRuntime(),
     scopedModels: [],
     extensionRunner: { getRegisteredCommands: () => [] },
     promptTemplates: [],
@@ -209,6 +230,18 @@ function emptyArchiveStore(): NonNullable<PiSessionServiceDependencies["archiveS
 }
 
 describe("PiSessionService", () => {
+  it("rejects normal session access when the cwd has no project registry", async () => {
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      normalModelRuntimeForCwd: () => Promise.reject(new Error("cwd 必须属于一个已注册项目")),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.list("/unregistered")).rejects.toThrow("已注册项目");
+    await expect(service.start("/unregistered")).rejects.toThrow("已注册项目");
+    await service.dispose();
+  });
+
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
@@ -1326,14 +1359,13 @@ describe("PiSessionService", () => {
 
   it("refreshes auth state and dedupes warnings when logout removes the current model's credentials", async () => {
     const hub = new CapturingSessionEventHub();
-    const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
-    const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = modelRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    const { modelRuntime, credentials } = await createTestModelRuntime({ anthropic: { type: "api_key", key: "sk-test" } });
+    const model = modelRuntime.getModel("anthropic", "claude-haiku-4-5");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
-    const fake = fakeRuntime("auth-session", { model, modelRegistry });
+    const fake = fakeRuntime("auth-session", { model, modelRuntime });
 
     const service = new PiSessionService(hub, {
-      modelRegistry,
+      modelRuntime,
       createAgentRuntime: runtimeCreator(fake.runtime),
       sessionManager: sessionGateway([sessionRecord("auth-session")]),
       heartbeatIntervalMs: 60_000,
@@ -1343,38 +1375,39 @@ describe("PiSessionService", () => {
     hub.sessionEvents.length = 0;
     hub.globalEvents.length = 0;
 
-    authStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic" });
-    service.applyAuthChange({ removedProviderId: "anthropic" });
+    await credentials.delete("anthropic");
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
 
-    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
+    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-haiku-4-5")).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
-    authStorage.set("anthropic", { type: "api_key", key: "sk-new" });
-    service.applyAuthChange();
-    authStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic" });
+    await credentials.modify("anthropic", () => Promise.resolve({ type: "api_key", key: "sk-new" }));
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime });
+    await credentials.delete("anthropic");
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
 
     await service.dispose();
   });
 
-  it("applies auth changes only to runtimes in the changed auth scope", async () => {
+  it("applies auth changes only to runtimes using the changed model registry", async () => {
     const hub = new CapturingSessionEventHub();
-    const normalStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-normal" } });
-    const managementStorage = AuthStorage.inMemory();
-    const normalRegistry = ModelRegistry.inMemory(normalStorage);
-    const managementRegistry = ModelRegistry.inMemory(managementStorage);
-    const model = normalRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    const normal = await createTestModelRuntime({ anthropic: { type: "api_key", key: "sk-normal" } });
+    const management = await createTestModelRuntime();
+    const model = normal.modelRuntime.getModel("anthropic", "claude-haiku-4-5");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
-    const normalRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: normalRegistry });
-    const managedRuntime = fakeRuntime("auth-scope-session", { model, modelRegistry: managementRegistry });
+    const normalRuntime = fakeRuntime("auth-scope-session", { model, modelRuntime: normal.modelRuntime });
+    const managedRuntime = fakeRuntime("auth-scope-session", { model, modelRuntime: management.modelRuntime });
     let createCalls = 0;
 
     const service = new PiSessionService(hub, {
-      modelRegistry: normalRegistry,
-      managementModelRegistry: managementRegistry,
+      modelRuntime: normal.modelRuntime,
+      managementModelRuntime: management.modelRuntime,
       createAgentRuntime: async () => {
         createCalls += 1;
         return await Promise.resolve(createCalls === 1 ? normalRuntime.runtime : managedRuntime.runtime);
@@ -1387,13 +1420,14 @@ describe("PiSessionService", () => {
     await service.status(sessionRef("auth-scope-session"), testManagementContext());
     hub.sessionEvents.length = 0;
 
-    normalStorage.logout("anthropic");
-    service.applyAuthChange({ removedProviderId: "anthropic", scope: "normal" });
+    await normal.credentials.delete("anthropic");
+    await normal.modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime: normal.modelRuntime, removedProviderId: "anthropic" });
 
     expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && scope === "normal")).toHaveLength(1);
     expect(hub.sessionEvents.some(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toBe(false);
 
-    service.applyAuthChange({ removedProviderId: "anthropic", scope: "management" });
+    service.applyAuthChange({ modelRuntime: management.modelRuntime, removedProviderId: "anthropic" });
 
     expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toHaveLength(1);
 

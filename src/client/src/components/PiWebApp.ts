@@ -1,6 +1,6 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, piWebApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
@@ -11,6 +11,7 @@ import { FileExplorerController } from "../controllers/fileExplorerController";
 import { GitController } from "../controllers/gitController";
 import { MachineController } from "../controllers/machineController";
 import { ProjectController } from "../controllers/projectController";
+import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController, canDeleteWorkspace } from "../controllers/workspaceController";
 import { emptyMachineNavigationSnapshot, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
@@ -31,6 +32,7 @@ import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope } from "../plugins/registry";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
+import { BrowserResumeController } from "../appShell/browserResumeController";
 import { NavigationSectionsController, type NavigationSection } from "../appShell/navigationState";
 import { PanelCollapseController, mainViewClass } from "../appShell/panelCollapseController";
 import { PanelResizeController, type PanelResizeConstraints, type ResizablePanelSide } from "../appShell/panelResizeController";
@@ -217,6 +219,7 @@ export class PiWebApp extends LitElement {
     () => this.state,
     (patch) => { this.setState(patch); },
     (status) => { this.sessions.applySessionStatus(status); },
+    { scope: this.apiScope },
   );
   private readonly workspaces = new WorkspaceController(
     () => this.state,
@@ -236,6 +239,11 @@ export class PiWebApp extends LitElement {
     () => { this.updateUrl(); },
     this.projects,
   );
+  private readonly piWebStatusController = new PiWebStatusController(
+    () => this.state,
+    (patch) => { this.setState(patch); },
+    { onRefreshError: (machineId, error) => { console.warn(`Failed to refresh PI WEB status for ${machineId}`, error); } },
+  );
   private readonly files = new FileExplorerController(
     () => this.state,
     (patch) => { this.setState(patch); },
@@ -253,6 +261,11 @@ export class PiWebApp extends LitElement {
   private readonly machineNavigation = new SessionStorageMachineNavigationMemory();
   private readonly terminalSelection = new SessionStorageTerminalSelectionMemory();
   private readonly appShell = new AppShellController(this);
+  private readonly browserResume = new BrowserResumeController({
+    onResumeSignal: () => { this.handleBrowserResumeSignal(); },
+    refreshAfterResume: () => this.refreshAfterBrowserResume(),
+    onRefreshError: (error) => { console.warn("Failed to refresh after browser resume", error); },
+  });
   private readonly panelCollapse = new PanelCollapseController(this);
   private readonly panelResize = new PanelResizeController(this);
   private readonly navigationSections = new NavigationSectionsController(
@@ -301,24 +314,6 @@ export class PiWebApp extends LitElement {
     this.appShell.repairViewportPosition();
     this.retryPendingRemoteRouteRestoreSoon();
   };
-  private readonly onFocus = () => {
-    this.appShell.repairViewportPosition();
-    void this.sessions.refreshSelectedSession();
-    this.schedulePiWebStatusRefresh();
-    void this.refreshMachineActivities();
-    void this.refreshWorkspaceDeletionRuns();
-    this.retryPendingRemoteRouteRestoreSoon();
-  };
-  private readonly onVisibilityChange = () => {
-    if (document.visibilityState === "visible") {
-      this.appShell.repairViewportPosition();
-      void this.sessions.refreshSelectedSession();
-      this.schedulePiWebStatusRefresh();
-      void this.refreshMachineActivities();
-      void this.refreshWorkspaceDeletionRuns();
-      this.retryPendingRemoteRouteRestoreSoon();
-    }
-  };
   private readonly onSystemLightThemeChange = () => {
     if (this.themePreference.auto) this.applyPreferredTheme(false);
   };
@@ -344,8 +339,7 @@ export class PiWebApp extends LitElement {
     super.connectedCallback();
     window.addEventListener("popstate", this.onPopState);
     window.addEventListener("pageshow", this.onPageShow);
-    window.addEventListener("focus", this.onFocus);
-    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.browserResume.connect();
     window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
@@ -386,8 +380,7 @@ export class PiWebApp extends LitElement {
   override disconnectedCallback(): void {
     window.removeEventListener("popstate", this.onPopState);
     window.removeEventListener("pageshow", this.onPageShow);
-    window.removeEventListener("focus", this.onFocus);
-    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.browserResume.disconnect();
     window.removeEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.keyboard.reset();
@@ -432,11 +425,25 @@ export class PiWebApp extends LitElement {
     await this.refreshWorkspaceDeletionRuns();
   }
 
+  private handleBrowserResumeSignal(): void {
+    this.appShell.repairViewportPosition();
+    this.schedulePiWebStatusRefresh();
+    this.retryPendingRemoteRouteRestoreSoon();
+  }
+
+  private async refreshAfterBrowserResume(): Promise<void> {
+    await Promise.all([
+      this.sessions.refreshSelectedSession(),
+      this.refreshMachineActivities(),
+      this.refreshWorkspaceDeletionRuns(),
+    ]);
+  }
+
   private schedulePiWebStatusRefresh(delayMs = PI_WEB_STATUS_DEFER_MS): void {
     this.clearScheduledPiWebStatusRefresh();
     this.piWebStatusDeferredTimer = window.setTimeout(() => {
       this.piWebStatusDeferredTimer = undefined;
-      void this.refreshPiWebStatus();
+      void this.piWebStatusController.refresh();
     }, delayMs);
   }
 
@@ -444,17 +451,6 @@ export class PiWebApp extends LitElement {
     if (this.piWebStatusDeferredTimer === undefined) return;
     window.clearTimeout(this.piWebStatusDeferredTimer);
     this.piWebStatusDeferredTimer = undefined;
-  }
-
-  private async refreshPiWebStatus(): Promise<void> {
-    const machineId = selectedMachineId(this.state);
-    try {
-      const piWebStatus = await piWebApi.piWebStatus(machineId);
-      if (selectedMachineId(this.state) === machineId) this.setState({ piWebStatus });
-    } catch (error) {
-      if (selectedMachineId(this.state) === machineId) this.setState({ piWebStatus: undefined });
-      console.warn(`Failed to refresh PI WEB status for ${machineId}`, error);
-    }
   }
 
   private async refreshWorkspaceActivity(machineId = selectedMachineId(this.state)): Promise<void> {
@@ -1203,6 +1199,11 @@ export class PiWebApp extends LitElement {
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload);
   }
 
+  private canClearServerQueue(): boolean {
+    const runtime = this.selectedMachineRuntime();
+    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsClearQueue);
+  }
+
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
@@ -1335,6 +1336,7 @@ export class PiWebApp extends LitElement {
         .onDeleteCachedNewSession=${(session: SessionInfo) => this.sessions.deleteCachedNewSession(session)}
         .onDeleteArchivedSession=${(session: SessionInfo) => this.sessions.deleteArchivedSessions([session])}
         .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions)}
+        .onRenameSession=${(session: SessionInfo, name: string) => this.sessions.renameSession(session, name)}
         .onDetachParentSession=${(session: SessionInfo) => this.sessions.detachParent(session)}
         .onReloadSession=${(session: SessionInfo) => this.sessions.reloadSession(session)}
         .onCleanupSessions=${() => { this.openSessionCleanupDialog(); }}
@@ -1689,7 +1691,7 @@ export class PiWebApp extends LitElement {
     const existing = this.machinePluginLoadPromises.get(machine.id);
     if (existing !== undefined) return existing;
 
-    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`/api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
+    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
       machineId: machine.id,
       shouldLoadPlugin: (entry) => this.plugins.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
     }))
@@ -1769,6 +1771,7 @@ export class PiWebApp extends LitElement {
       refreshFiles: () => this.files.refreshFiles(),
       refreshGit: () => this.git.refreshGit(),
       refreshAppData: () => this.refreshAppData(),
+      checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates(),
       reloadPage: () => { this.hardReloadApp(); },
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
       startSession: () => this.withChatScrollTransition(() => this.startSessionAndOpenChat()),
@@ -2054,15 +2057,19 @@ export class PiWebApp extends LitElement {
     void this.sessions.send(text, streamingBehavior, attachments, delivery);
   }
 
-  // Stable handler identities for <prompt-editor>. Inlined arrow closures would
-  // be a fresh reference on every render, forcing Lit to re-commit the bindings
-  // each time the app re-renders; bound class fields keep them constant.
+  // Stable handler identities for child components. Inlined arrow closures
+  // would be a fresh reference on every render, forcing Lit to re-commit the
+  // bindings each time the app re-renders; bound class fields keep them constant.
   private readonly handleSendPrompt = (text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery): void => {
     this.sendPrompt(text, streamingBehavior, attachments, delivery);
   };
 
   private readonly handleStopActiveWork = (): void => {
     void this.sessions.stopActiveWork();
+  };
+
+  private readonly handleClearServerQueue = (): void => {
+    void this.sessions.clearServerQueue();
   };
 
   private readonly handleSelectModel = (): void => {
@@ -2072,6 +2079,12 @@ export class PiWebApp extends LitElement {
   private readonly handleSelectThinking = (): void => {
     void this.openThinkingDialog();
   };
+
+  private renderChatView(state: AppState, session: SessionInfo) {
+    return html`
+      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+    `;
+  }
 
   private renderContextBar() {
     if (!this.appShell.isMobileNavigationLayout) return null;
@@ -2135,7 +2148,7 @@ export class PiWebApp extends LitElement {
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession ? html`
-            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[state.selectedSession.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[state.selectedSession.id] ?? []} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+            ${this.renderChatView(state, state.selectedSession)}
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
             <status-bar .status=${state.status}></status-bar>
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}

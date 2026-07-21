@@ -55,6 +55,7 @@ export interface ManagementEmbedRequest {
 export interface ManagementEmbedRequestSource {
   headers: Record<string, string | string[] | undefined>;
   query?: unknown;
+  protocol?: string;
 }
 
 export interface ManagementEmbedReplyTarget {
@@ -82,17 +83,24 @@ export async function managementContextForRequest(request: ManagementEmbedReques
   const embed = readManagementEmbedRequest(request.headers, isRecord(request.query) ? request.query : undefined);
   if (embed.mode !== "management") return undefined;
   const sessionId = readCookie(request.headers["cookie"], runtime?.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE);
-  if (runtime?.enabled === true && sessionId !== undefined && runtime.readSession !== undefined) {
-    const sessionContext = runtime.readSession(sessionId);
-    if (sessionContext !== undefined) return sessionContext;
-    if (embed.token === undefined || embed.token === "") throw new Error("Management embed session is invalid or expired");
-  }
   if (runtime?.enabled !== true) throw new Error("Management embed mode is not configured");
-  if (embed.token === undefined || embed.token === "") throw new Error("Management embed token is required");
-  const context = await runtime.authenticate(embed.token);
+  const sessionContext = sessionId === undefined || runtime.readSession === undefined ? undefined : runtime.readSession(sessionId);
+  if (embed.token === undefined || embed.token === "") {
+    if (sessionContext !== undefined) return sessionContext;
+    if (sessionId !== undefined) throw new Error("Management embed session is invalid or expired");
+    throw new Error("Management embed token is required");
+  }
+
+  let context: ManagementEmbedContext;
+  try {
+    context = await runtime.authenticate(embed.token);
+  } catch (error) {
+    if (sessionContext !== undefined && isExpiredManagementTokenError(error)) return sessionContext;
+    throw error;
+  }
   if (reply !== undefined && runtime.createSession !== undefined) {
     const session = runtime.createSession(context);
-    writeSessionCookie(reply, runtime.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE, session);
+    writeSessionCookie(reply, runtime.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE, session, isSecureRequest(request));
   }
   return context;
 }
@@ -235,8 +243,15 @@ function verifyManagementEntryToken(
   return parseIntrospectionPayload({ active: true, ...parsed });
 }
 
-function writeSessionCookie(reply: ManagementEmbedReplyTarget, name: string, session: ManagementEmbedSession): void {
-  reply.header("set-cookie", `${name}=${session.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${String(session.maxAgeSeconds)}`);
+function writeSessionCookie(reply: ManagementEmbedReplyTarget, name: string, session: ManagementEmbedSession, secure: boolean): void {
+  const crossSiteAttributes = secure ? "Secure; SameSite=None" : "SameSite=Lax";
+  reply.header("set-cookie", `${name}=${session.id}; Path=/; HttpOnly; ${crossSiteAttributes}; Max-Age=${String(session.maxAgeSeconds)}`);
+}
+
+function isSecureRequest(request: ManagementEmbedRequestSource): boolean {
+  if (request.protocol === "https") return true;
+  const forwardedProto = firstHeader(request.headers["x-forwarded-proto"])?.split(",", 1)[0]?.trim();
+  return forwardedProto === "https";
 }
 
 function parseJsonBase64Url(value: string): unknown {
@@ -315,6 +330,10 @@ async function pathForManagedProjectEntry(
   const entryRoot = project.root?.trim();
   if (entryRoot !== undefined && entryRoot !== "") return assertManagedCwd(projectRoot, context, entryRoot);
   return managedProjectPath(projectRoot, context.user.rootUserId, project.id, options);
+}
+
+function isExpiredManagementTokenError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Management embed token is expired";
 }
 
 function authorizedManagedProjects(context: ManagementEmbedContext): ManagementEmbedContext["projects"] {

@@ -1,32 +1,28 @@
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { AuthInteraction } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AuthProvidersResponse, AuthType, OAuthFlowState } from "../../shared/apiTypes.js";
-import type { AuthScope } from "../realtime/sessionEventScope.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
 export interface AuthChange {
-  scope: AuthScope;
+  modelRuntime: ModelRuntime;
   removedProviderId?: string;
 }
 
 type AuthChangeListener = (change: AuthChange) => void;
-type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
 
 export interface AuthServiceDependencies {
-  scope?: AuthScope;
-  modelRegistry?: ModelRegistryInstance;
+  modelRuntime: ModelRuntime;
   authFlows?: OAuthLoginFlowService;
 }
 
 export class AuthService {
-  readonly modelRegistry: ModelRegistryInstance;
+  readonly modelRuntime: ModelRuntime;
   private readonly authFlows: OAuthLoginFlowService;
-  private readonly scope: AuthScope;
   private readonly listeners = new Set<AuthChangeListener>();
 
-  constructor(deps: AuthServiceDependencies = {}) {
-    this.scope = deps.scope ?? "normal";
-    this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
+  constructor(deps: AuthServiceDependencies) {
+    this.modelRuntime = deps.modelRuntime;
     this.authFlows = deps.authFlows ?? new OAuthLoginFlowService();
   }
 
@@ -42,22 +38,24 @@ export class AuthService {
     this.listeners.clear();
   }
 
-  authProviders(mode: "login" | "logout", authType?: AuthType): AuthProvidersResponse {
-    this.modelRegistry.refresh();
-    const providers = mode === "logout" ? getLogoutProviderOptions(this.modelRegistry) : getLoginProviderOptions(this.modelRegistry, authType);
+  async authProviders(mode: "login" | "logout", authType?: AuthType): Promise<AuthProvidersResponse> {
+    await this.modelRuntime.reloadConfig();
+    const providers = mode === "logout"
+      ? await getLogoutProviderOptions(this.modelRuntime)
+      : getLoginProviderOptions(this.modelRuntime, authType);
     return { providers };
   }
 
-  saveApiKey(providerId: string, key: string): { accepted: true } {
+  async saveApiKey(providerId: string, key: string): Promise<{ accepted: true }> {
     if (key.trim() === "") throw new Error("API key is required");
-    this.modelRegistry.authStorage.set(providerId, { type: "api_key", key });
-    this.refreshAuthState();
+    await this.modelRuntime.login(providerId, "api_key", apiKeyInteraction(key));
+    this.emit({ modelRuntime: this.modelRuntime });
     return { accepted: true };
   }
 
-  logoutProvider(providerId: string): { accepted: true } {
-    this.modelRegistry.authStorage.logout(providerId);
-    this.refreshAuthState({ removedProviderId: providerId });
+  async logoutProvider(providerId: string): Promise<{ accepted: true }> {
+    await this.modelRuntime.logout(providerId);
+    this.emit({ modelRuntime: this.modelRuntime, removedProviderId: providerId });
     return { accepted: true };
   }
 
@@ -66,9 +64,9 @@ export class AuthService {
     return this.authFlows.start({
       providerId,
       providerName: provider.name,
-      authStorage: this.modelRegistry.authStorage,
+      modelRuntime: this.modelRuntime,
       onComplete: () => {
-        this.refreshAuthState();
+        this.emit({ modelRuntime: this.modelRuntime });
       },
     });
   }
@@ -85,20 +83,25 @@ export class AuthService {
     return this.authFlows.cancel(flowId);
   }
 
-  private refreshAuthState(change: Partial<Omit<AuthChange, "scope">> = {}): void {
-    this.modelRegistry.authStorage.reload();
-    this.modelRegistry.refresh();
-    this.emit({ scope: this.scope, ...change });
-  }
-
   private emit(change: AuthChange): void {
     for (const listener of this.listeners) listener(change);
   }
 
   private requireOAuthLoginProvider(providerId: string) {
-    this.modelRegistry.refresh();
-    const provider = getLoginProviderOptions(this.modelRegistry, "oauth").find((option) => option.id === providerId);
+    const provider = getLoginProviderOptions(this.modelRuntime, "oauth").find((option) => option.id === providerId);
     if (provider === undefined) throw new Error(`OAuth provider not found: ${providerId}`);
     return provider;
   }
+}
+
+function apiKeyInteraction(key: string): AuthInteraction {
+  return {
+    prompt(prompt) {
+      if (prompt.type === "select") return Promise.reject(new Error("此 API key 登录流程需要交互式选项，当前接口不支持"));
+      return Promise.resolve(key);
+    },
+    notify() {
+      // API-key login events do not need to be forwarded to the browser.
+    },
+  };
 }

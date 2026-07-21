@@ -42,6 +42,56 @@ describe("MachineService", () => {
     await expectOwnerOnlyMachineStore(storePath);
   });
 
+  it("gets, updates, and removes remote machines without exposing stored secrets", async () => {
+    const machine = await service.add({
+      name: "Remote",
+      baseUrl: "https://remote.example.test",
+      token: "initial-secret",
+      headers: { "X-Pi-Web-Test": "initial" },
+    });
+
+    expect(await service.get(machine.id)).toEqual(machine);
+
+    const updated = await service.update(machine.id, {
+      name: " Updated Remote ",
+      baseUrl: "https://updated.example.test/",
+      token: "updated-secret",
+      headers: { "X-Pi-Web-Test": "updated" },
+    });
+    if (updated === undefined) throw new Error("Expected remote machine update to succeed");
+
+    expect(updated).toMatchObject({
+      id: machine.id,
+      name: "Updated Remote",
+      kind: "remote",
+      baseUrl: "https://updated.example.test",
+      createdAt: machine.createdAt,
+    });
+    expect(updated).not.toHaveProperty("token");
+    expect(updated).not.toHaveProperty("headers");
+    expect(await service.get(machine.id)).toEqual(updated);
+    expect(await service.list()).toEqual([expect.objectContaining({ id: "local", kind: "local" }), updated]);
+
+    const persistedAfterUpdate: unknown = JSON.parse(await readFile(storePath, "utf8"));
+    expect(persistedAfterUpdate).toMatchObject({
+      machines: [expect.objectContaining({
+        id: machine.id,
+        name: "Updated Remote",
+        baseUrl: "https://updated.example.test",
+        token: "updated-secret",
+        headers: { "X-Pi-Web-Test": "updated" },
+      })],
+    });
+
+    await expect(service.remove(machine.id)).resolves.toBe(true);
+    await expect(service.get(machine.id)).resolves.toBeUndefined();
+    await expect(service.remove(machine.id)).resolves.toBe(false);
+    expect(await service.list()).toEqual([expect.objectContaining({ id: "local", kind: "local" })]);
+
+    const persistedAfterRemove: unknown = JSON.parse(await readFile(storePath, "utf8"));
+    expect(persistedAfterRemove).toEqual({ machines: [] });
+  });
+
   it.skipIf(process.platform === "win32")("tightens permissions after reading an existing machine store", async () => {
     await writeFile(storePath, `${JSON.stringify({
       machines: [{
@@ -121,6 +171,7 @@ describe("MachineService", () => {
 
     const first = await remoteService.runtime(machine.id);
     const second = await remoteService.runtime(machine.id);
+    const forced = await remoteService.runtime(machine.id, true);
 
     expect(first).toEqual({
       machineId: machine.id,
@@ -132,7 +183,8 @@ describe("MachineService", () => {
       capabilities: body.capabilities,
     });
     expect(second).toEqual(first);
-    expect(requestJson).toHaveBeenCalledTimes(1);
+    expect(forced).toEqual(first);
+    expect(requestJson).toHaveBeenCalledTimes(2);
     expect(requestJson).toHaveBeenCalledWith("GET", "/api/pi-web/runtime", undefined, { timeoutMs: 3000 });
     expect(factoryMachines).toEqual([
       expect.objectContaining({
@@ -142,6 +194,7 @@ describe("MachineService", () => {
         token: "secret",
         headers: { "X-Pi-Web-Test": "yes" },
       }),
+      expect.objectContaining({ id: machine.id }),
     ]);
   });
 
