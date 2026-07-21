@@ -4,7 +4,6 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
-  AuthStorage,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -16,7 +15,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   defineTool,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
@@ -202,7 +201,6 @@ interface BulkDeletePlanItem {
 }
 
 type AgentModel = NonNullable<SpawnSessionInvocation["model"]>;
-type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
 
 export interface PiSessionManager {
   getCwd(): string;
@@ -239,7 +237,7 @@ interface PiExtensionBindings {
 }
 
 export interface PiAgentSession {
-  modelRegistry: ModelRegistryInstance;
+  modelRuntime: PiSessionModelRuntime;
   sessionManager: PiSessionManager;
   scopedModels: readonly { model: AgentModel; thinkingLevel?: ClientThinkingLevel }[];
   sessionId: string;
@@ -284,6 +282,13 @@ export interface PiAgentSession {
    * `Agent`/`AgentSession` surface.
    */
   agent: { streamFn: StreamFn };
+}
+
+export interface PiSessionModelRuntime {
+  reloadConfig(): Promise<void>;
+  getAvailable(): Promise<readonly AgentModel[]>;
+  getModel(provider: string, modelId: string): AgentModel | undefined;
+  hasConfiguredAuth(provider: string): boolean;
 }
 
 export interface PiSessionRuntime {
@@ -369,12 +374,11 @@ function createRuntimeWithContextAndOneShotInitialModel(
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
-function createDefaultRuntimeFactory(normalModelRegistryForCwd: (cwd: string) => Promise<ModelRegistryInstance>, managementModelRegistry: ModelRegistryInstance, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
+function createDefaultRuntimeFactory(normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>, managementModelRuntime: () => Promise<ModelRuntime>, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, delegationToolsEnabled = true }) => {
-    const scopedModelRegistry = managementContext === undefined ? await normalModelRegistryForCwd(cwd) : managementModelRegistry;
-    const authStorage = scopedModelRegistry.authStorage;
+    const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(authStorage, scopedModelRegistry, spawn, subsessions, managementContext)({
+      return createManagementRuntimeFactory(scopedModelRuntime, spawn, subsessions, managementContext)({
         cwd,
         agentDir,
         sessionManager,
@@ -384,7 +388,7 @@ function createDefaultRuntimeFactory(normalModelRegistryForCwd: (cwd: string) =>
       });
     }
 
-    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry: scopedModelRegistry });
+    const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime: scopedModelRuntime });
     const customTools = createPiWebCustomToolDefinitions(cwd, delegationToolsEnabled, spawn, subsessions);
     const result = await createAgentSessionFromServices({
       services,
@@ -398,8 +402,7 @@ function createDefaultRuntimeFactory(normalModelRegistryForCwd: (cwd: string) =>
 }
 
 function createManagementRuntimeFactory(
-  authStorage: AuthStorage,
-  modelRegistry: ModelRegistryInstance,
+  modelRuntime: ModelRuntime,
   spawn: SpawnSessionFn | undefined,
   subsessions: SubsessionToolDeps | undefined,
   managementContext: ManagementEmbedContext,
@@ -410,8 +413,7 @@ function createManagementRuntimeFactory(
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
         },
@@ -487,10 +489,10 @@ export interface PiSessionServiceDependencies {
   sessionManager?: PiSessionManagerGateway;
   createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
-  modelRegistry?: ModelRegistryInstance;
-  /** Resolve the normal-mode registry for a session cwd. */
-  normalModelRegistryForCwd?: (cwd: string) => Promise<ModelRegistryInstance>;
-  managementModelRegistry?: ModelRegistryInstance;
+  modelRuntime?: ModelRuntime;
+  /** Resolve the normal-mode model runtime for a session cwd. */
+  normalModelRuntimeForCwd?: (cwd: string) => Promise<ModelRuntime>;
+  managementModelRuntime?: ModelRuntime;
   heartbeatIntervalMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
   /**
@@ -540,9 +542,8 @@ export class PiSessionService {
   private readonly sessionManager: PiSessionManagerGateway;
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
-  private readonly modelRegistry: ModelRegistryInstance;
-  private readonly normalModelRegistryForCwd: (cwd: string) => Promise<ModelRegistryInstance>;
-  private readonly managementModelRegistry: ModelRegistryInstance;
+  private readonly normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>;
+  private readonly managementModelRuntime: () => Promise<ModelRuntime>;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
   private readonly spawnTargets: SpawnTargetResolver | undefined;
   private readonly logger: PiSessionLogger;
@@ -556,9 +557,16 @@ export class PiSessionService {
       env: process.env,
       sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
     });
-    this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
-    this.normalModelRegistryForCwd = deps.normalModelRegistryForCwd ?? (() => Promise.resolve(this.modelRegistry));
-    this.managementModelRegistry = deps.managementModelRegistry ?? this.modelRegistry;
+    let defaultModelRuntime: Promise<ModelRuntime> | undefined;
+    const resolveDefaultModelRuntime = () => {
+      defaultModelRuntime ??= deps.modelRuntime === undefined ? ModelRuntime.create() : Promise.resolve(deps.modelRuntime);
+      return defaultModelRuntime;
+    };
+    this.normalModelRuntimeForCwd = deps.normalModelRuntimeForCwd ?? resolveDefaultModelRuntime;
+    const managementModelRuntime = deps.managementModelRuntime;
+    this.managementModelRuntime = managementModelRuntime === undefined
+      ? resolveDefaultModelRuntime
+      : () => Promise.resolve(managementModelRuntime);
     this.spawnTargets = deps.spawnTargets;
     this.logger = deps.logger ?? noopLogger;
     this.now = deps.now ?? (() => new Date());
@@ -566,8 +574,8 @@ export class PiSessionService {
     // also require the spawn capability (they share its project-scope resolver).
     const subsessionsActive = this.spawnTargets !== undefined && deps.subsessionsEnabled === true;
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
-      this.normalModelRegistryForCwd,
-      this.managementModelRegistry,
+      this.normalModelRuntimeForCwd,
+      this.managementModelRuntime,
       this.spawnTargets === undefined ? undefined : (input) => this.spawnSession(input),
       !subsessionsActive ? undefined : {
         spawn: (input) => this.spawnSubsession(input),
@@ -673,7 +681,7 @@ export class PiSessionService {
   }
 
   async list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]> {
-    if (managementContext === undefined) await this.normalModelRegistryForCwd(cwd);
+    if (managementContext === undefined) await this.normalModelRuntimeForCwd(cwd);
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     const archivedForCwd = await Promise.all(
@@ -692,7 +700,7 @@ export class PiSessionService {
   }
 
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
-    if (options.managementContext === undefined) await this.normalModelRegistryForCwd(cwd);
+    if (options.managementContext === undefined) await this.normalModelRuntimeForCwd(cwd);
     return this.startSession(cwd, options);
   }
 
@@ -1093,22 +1101,22 @@ export class PiSessionService {
 
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
     const session = await this.getOrOpen(ref, managementContext);
-    session.modelRegistry.refresh();
+    await session.modelRuntime.reloadConfig();
     const models = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
-      : session.modelRegistry.getAvailable();
+      : await session.modelRuntime.getAvailable();
     return models.map(modelToClientModel);
   }
 
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    session.modelRegistry.refresh();
+    await session.modelRuntime.reloadConfig();
     const candidates = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
-      : session.modelRegistry.getAvailable();
+      : await session.modelRuntime.getAvailable();
     const model = candidates.find((candidate) => candidate.provider === provider && candidate.id === modelId)
-      ?? session.modelRegistry.find(provider, modelId);
+      ?? session.modelRuntime.getModel(provider, modelId);
     if (model === undefined) throw new Error(`未找到模型：${provider}/${modelId}`);
     await session.setModel(model);
     this.publishActivity(session, `model: ${model.id}`, "idle", model.provider);
@@ -1985,11 +1993,10 @@ export class PiSessionService {
   }
 
   applyAuthChange(change: AuthChange): void {
-    const changedRegistry = change.modelRegistry;
-    changedRegistry.refresh();
+    const changedRuntime = change.modelRuntime;
     for (const active of this.active.values()) {
       const { session } = active.runtime;
-      if (session.modelRegistry !== changedRegistry) continue;
+      if (session.modelRuntime !== changedRuntime) continue;
       this.syncCurrentModelAuthWarning(session, active.eventScope, change.removedProviderId);
       this.publishStatus(session);
     }
@@ -2000,9 +2007,9 @@ export class PiSessionService {
     if (model === undefined) return;
     if (model.provider === "unknown" && model.id === "unknown") return;
     const warningKey = authLossWarningKey(session.sessionId, eventScope, model.provider, model.id);
-    const registered = session.modelRegistry.find(model.provider, model.id);
+    const registered = session.modelRuntime.getModel(model.provider, model.id);
     if (registered === undefined) return;
-    if (session.modelRegistry.hasConfiguredAuth(registered)) {
+    if (session.modelRuntime.hasConfiguredAuth(registered.provider)) {
       this.authLossWarnings.delete(warningKey);
       return;
     }

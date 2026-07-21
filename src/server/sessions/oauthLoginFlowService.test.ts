@@ -1,9 +1,8 @@
-import type { OAuthLoginCallbacks } from "@earendil-works/pi-ai";
-import type { AuthStorage } from "@earendil-works/pi-coding-agent";
+import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
-type LoginHandler = (providerId: string, callbacks: OAuthLoginCallbacks) => Promise<void>;
+type LoginHandler = (providerId: string, type: "oauth", interaction: AuthInteraction) => Promise<void>;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -17,11 +16,11 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
-        callbacks.onAuth({ url: "https://example.test/auth", instructions: "Open it" });
-        callbacks.onProgress?.("Waiting for code");
-        promptValue = await callbacks.onPrompt({ message: "Paste code", placeholder: "code" });
-        callbacks.onProgress?.(`Got ${promptValue}`);
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
+        interaction.notify({ type: "auth_url", url: "https://example.test/auth", instructions: "Open it" });
+        interaction.notify({ type: "progress", message: "Waiting for code" });
+        promptValue = await interaction.prompt({ type: "text", message: "Paste code", placeholder: "code" });
+        interaction.notify({ type: "progress", message: `Got ${promptValue}` });
       }),
       onComplete,
     });
@@ -47,8 +46,9 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
-        selectedValue = await callbacks.onSelect({
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
+        selectedValue = await interaction.prompt({
+          type: "select",
           message: "Choose account",
           options: [{ id: "work", label: "Work" }, { id: "personal", label: "Personal" }],
         });
@@ -73,10 +73,8 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
-        const manualCodeInput = callbacks.onManualCodeInput;
-        if (manualCodeInput === undefined) throw new Error("Expected manual-code callback");
-        manualValue = await manualCodeInput();
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
+        manualValue = await interaction.prompt({ type: "manual_code", message: "粘贴回调 URL 或授权码" });
       }),
     });
 
@@ -98,9 +96,9 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
         try {
-          await callbacks.onPrompt({ message: "Paste code" });
+          await interaction.prompt({ type: "text", message: "Paste code" });
         } catch (error) {
           promptRejected.resolve(toError(error));
           throw error;
@@ -122,9 +120,9 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
         try {
-          await callbacks.onPrompt({ message: "Paste code" });
+          await interaction.prompt({ type: "text", message: "Paste code" });
         } catch (error) {
           promptRejected.resolve(toError(error));
           throw error;
@@ -145,8 +143,8 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
-        await callbacks.onPrompt({ message: "Paste code" });
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
+        await interaction.prompt({ type: "text", message: "Paste code" });
       }),
     });
 
@@ -165,9 +163,9 @@ describe("OAuthLoginFlowService", () => {
     const state = service.start({
       providerId: "test-provider",
       providerName: "Test Provider",
-      authStorage: fakeAuthStorage(async (_providerId, callbacks) => {
+      modelRuntime: fakeModelRuntime(async (_providerId, _type, interaction) => {
         try {
-          await callbacks.onPrompt({ message: "Paste code" });
+          await interaction.prompt({ type: "text", message: "Paste code" });
         } catch (error) {
           promptRejected.resolve(toError(error));
           throw error;
@@ -187,7 +185,7 @@ describe("OAuthLoginFlowService", () => {
   });
 });
 
-function fakeAuthStorage(login: LoginHandler): Pick<AuthStorage, "login"> {
+function fakeModelRuntime(login: LoginHandler) {
   return { login };
 }
 

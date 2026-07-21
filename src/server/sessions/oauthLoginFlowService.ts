@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
-import type { OAuthLoginCallbacks, OAuthSelectPrompt, OAuthPrompt } from "@earendil-works/pi-ai";
-import type { AuthStorage } from "@earendil-works/pi-coding-agent";
+import type { AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { CommandOption, OAuthFlowState } from "../../shared/apiTypes.js";
 
-type OAuthLoginStorage = Pick<AuthStorage, "login">;
+interface OAuthLoginRuntime {
+  login(providerId: string, type: "oauth", interaction: AuthInteraction): Promise<unknown>;
+}
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 interface PendingOAuthRequest {
@@ -46,7 +47,7 @@ export class OAuthLoginFlowService {
   start(options: {
     providerId: string;
     providerName: string;
-    authStorage: OAuthLoginStorage;
+    modelRuntime: OAuthLoginRuntime;
     onComplete?: () => void;
   }): OAuthFlowState {
     const flowId = crypto.randomUUID();
@@ -66,28 +67,28 @@ export class OAuthLoginFlowService {
     this.flows.set(flowId, record);
     this.scheduleRunningExpiry(record);
 
-    const callbacks: OAuthLoginCallbacks = {
+    const interaction: AuthInteraction = {
       signal: abort.signal,
-      onAuth: (info) => {
-        if (!this.isCurrentRunning(record)) return;
-        this.updateState(record, { ...record.state, auth: info });
+      prompt: (prompt) => {
+        if (prompt.type === "select") return this.waitForSelect(record, prompt);
+        return this.waitForPrompt(record, prompt, prompt.type === "manual_code" ? "manual" : "prompt");
       },
-      // Device-code flows have no redirect URL; reuse the auth field so the web UI
-      // shows the verification link and user code without a dedicated API shape.
-      onDeviceCode: (info) => {
+      notify: (event) => {
         if (!this.isCurrentRunning(record)) return;
-        this.updateState(record, { ...record.state, auth: { url: info.verificationUri, instructions: `输入代码：${info.userCode}` } });
-      },
-      onPrompt: (prompt) => this.waitForPrompt(record, prompt, "prompt"),
-      onManualCodeInput: () => this.waitForPrompt(record, { message: "粘贴回调 URL 或授权码", allowEmpty: false }, "manual"),
-      onSelect: (prompt) => this.waitForSelect(record, prompt),
-      onProgress: (message) => {
-        if (!this.isCurrentRunning(record)) return;
+        if (event.type === "auth_url") {
+          this.updateState(record, { ...record.state, auth: { url: event.url, ...(event.instructions === undefined ? {} : { instructions: event.instructions }) } });
+          return;
+        }
+        if (event.type === "device_code") {
+          this.updateState(record, { ...record.state, auth: { url: event.verificationUri, instructions: `输入代码：${event.userCode}` } });
+          return;
+        }
+        const message = event.message;
         this.updateState(record, { ...record.state, progress: [...record.state.progress, message] });
       },
     };
 
-    void options.authStorage.login(options.providerId, callbacks)
+    void options.modelRuntime.login(options.providerId, "oauth", interaction)
       .then(() => {
         if (!this.isCurrentRunning(record)) return;
         record.pending = undefined;
@@ -147,14 +148,14 @@ export class OAuthLoginFlowService {
     this.flows.clear();
   }
 
-  private waitForPrompt(record: OAuthFlowRecord, prompt: OAuthPrompt, kind: "prompt" | "manual"): Promise<string> {
+  private waitForPrompt(record: OAuthFlowRecord, prompt: Exclude<AuthPrompt, { type: "select" }>, kind: "prompt" | "manual"): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
         reject(new Error("登录已取消"));
         return;
       }
       const requestId = crypto.randomUUID();
-      record.pending = { requestId, allowEmpty: prompt.allowEmpty === true, resolve: (value) => { resolve(value ?? ""); }, reject };
+      record.pending = { requestId, allowEmpty: false, resolve: (value) => { resolve(value ?? ""); }, reject };
       const base = withoutInteraction(record.state);
       this.updateState(record, {
         ...base,
@@ -163,13 +164,12 @@ export class OAuthLoginFlowService {
           message: prompt.message,
           kind,
           ...(prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder }),
-          ...(prompt.allowEmpty === true ? { allowEmpty: true } : {}),
         },
       });
     });
   }
 
-  private waitForSelect(record: OAuthFlowRecord, prompt: OAuthSelectPrompt): Promise<string | undefined> {
+  private waitForSelect(record: OAuthFlowRecord, prompt: Extract<AuthPrompt, { type: "select" }>): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
         reject(new Error("登录已取消"));
@@ -177,7 +177,7 @@ export class OAuthLoginFlowService {
       }
       const requestId = crypto.randomUUID();
       const options: CommandOption[] = prompt.options.map((option) => ({ value: option.id, label: option.label }));
-      record.pending = { requestId, allowEmpty: true, resolve, reject };
+      record.pending = { requestId, allowEmpty: false, resolve: (value) => { resolve(value ?? ""); }, reject };
       const base = withoutInteraction(record.state);
       this.updateState(record, { ...base, select: { requestId, message: prompt.message, options } });
     });

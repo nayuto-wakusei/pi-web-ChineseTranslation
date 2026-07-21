@@ -1,10 +1,12 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Credential } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it } from "vitest";
 import type { OAuthFlowState } from "../../shared/apiTypes.js";
 import { AuthService, type AuthChange } from "./authService.js";
+import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
 const tempDirs: string[] = [];
@@ -14,88 +16,78 @@ afterEach(async () => {
 });
 
 describe("AuthService", () => {
-  it("saves API keys and emits a scoped auth change", () => {
-    const { auth, authStorage, changes } = createAuthService();
+  it("saves API keys and emits a scoped auth change", async () => {
+    const { auth, credentials, changes } = await createAuthService();
 
-    expect(auth.saveApiKey("anthropic", "sk-test")).toEqual({ accepted: true });
+    await expect(auth.saveApiKey("anthropic", "sk-test")).resolves.toEqual({ accepted: true });
 
-    expect(authStorage.get("anthropic")).toEqual({ type: "api_key", key: "sk-test" });
+    await expect(credentials.read("anthropic")).resolves.toEqual({ type: "api_key", key: "sk-test" });
     expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ modelRegistry: auth.modelRegistry });
+    expect(changes[0]).toMatchObject({ modelRuntime: auth.modelRuntime });
     auth.dispose();
   });
 
-  it("logs out providers and emits the removed provider id", () => {
-    const { auth, authStorage, changes } = createAuthService({ anthropic: { type: "api_key", key: "sk-test" } });
+  it("logs out providers and emits the removed provider id", async () => {
+    const { auth, credentials, changes } = await createAuthService({ anthropic: { type: "api_key", key: "sk-test" } });
 
-    expect(auth.logoutProvider("anthropic")).toEqual({ accepted: true });
+    await expect(auth.logoutProvider("anthropic")).resolves.toEqual({ accepted: true });
 
-    expect(authStorage.get("anthropic")).toBeUndefined();
+    await expect(credentials.read("anthropic")).resolves.toBeUndefined();
     expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ modelRegistry: auth.modelRegistry, removedProviderId: "anthropic" });
+    expect(changes[0]).toMatchObject({ modelRuntime: auth.modelRuntime, removedProviderId: "anthropic" });
     auth.dispose();
   });
 
-  it("rejects blank API keys", () => {
-    const { auth, changes } = createAuthService();
+  it("rejects blank API keys", async () => {
+    const { auth, changes } = await createAuthService();
 
-    expect(() => { auth.saveApiKey("anthropic", "   "); }).toThrow("API key is required");
+    await expect(auth.saveApiKey("anthropic", "   ")).rejects.toThrow("API key is required");
     expect(changes).toEqual([]);
     auth.dispose();
   });
 
   it("stores credentials in the configured agent directory", async () => {
     const agentDir = await tempAgentDir();
-    const auth = new AuthService({ agentDir });
+    const auth = new AuthService({ modelRuntime: await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), allowModelNetwork: false }) });
 
-    auth.saveApiKey("anthropic", "sk-test");
+    await auth.saveApiKey("anthropic", "sk-test");
 
     await expect(readFile(join(agentDir, "auth.json"), "utf8")).resolves.toContain("sk-test");
     auth.dispose();
   });
 
-  it("refreshes auth state after OAuth login completes", () => {
-    const authStorage = AuthStorage.inMemory();
-    const modelRegistry = ModelRegistry.create(authStorage);
+  it("emits the owning model runtime after OAuth login completes", async () => {
+    const { modelRuntime } = await createTestModelRuntime();
     const authFlows = new CapturingOAuthLoginFlowService();
-    const auth = new AuthService({ modelRegistry, authFlows });
+    const auth = new AuthService({ modelRuntime, authFlows });
     const changes: AuthChange[] = [];
     auth.subscribe((change) => { changes.push(change); });
-    const reload = vi.spyOn(authStorage, "reload");
-    const refresh = vi.spyOn(modelRegistry, "refresh");
-    const provider = authStorage.getOAuthProviders().find((option) => option.id === "anthropic");
+    const provider = modelRuntime.getProviders().find((candidate) => candidate.id === "anthropic" && candidate.auth.oauth !== undefined);
     if (provider === undefined) throw new Error("Expected built-in OAuth provider");
 
-    expect(auth.startOAuthLogin(provider.id)).toMatchObject({ providerId: provider.id, providerName: provider.name, status: "running" });
+    expect(auth.startOAuthLogin(provider.id)).toMatchObject({ providerId: provider.id, status: "running" });
 
     const startOptions = authFlows.startCalls.at(0);
     if (startOptions === undefined) throw new Error("Expected OAuth flow to start");
     expect(startOptions.providerId).toBe(provider.id);
-    expect(startOptions.providerName).toBe(provider.name);
-    expect(startOptions.authStorage).toBe(authStorage);
+    expect(startOptions.modelRuntime).toBe(modelRuntime);
     expect(changes).toEqual([]);
 
-    reload.mockClear();
-    refresh.mockClear();
     if (startOptions.onComplete === undefined) throw new Error("Expected OAuth completion callback");
     startOptions.onComplete();
 
-    expect(reload).toHaveBeenCalledOnce();
-    expect(refresh).toHaveBeenCalledOnce();
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ modelRegistry });
+    expect(changes).toEqual([{ modelRuntime }]);
     auth.dispose();
     expect(authFlows.disposed).toBe(true);
   });
 });
 
-function createAuthService(data: Parameters<typeof AuthStorage.inMemory>[0] = {}) {
-  const authStorage = AuthStorage.inMemory(data);
-  const modelRegistry = ModelRegistry.create(authStorage);
-  const auth = new AuthService({ modelRegistry });
+async function createAuthService(data: Record<string, Credential> = {}) {
+  const { modelRuntime, credentials } = await createTestModelRuntime(data);
+  const auth = new AuthService({ modelRuntime });
   const changes: AuthChange[] = [];
   auth.subscribe((change) => { changes.push(change); });
-  return { auth, authStorage, changes };
+  return { auth, credentials, changes };
 }
 
 async function tempAgentDir(): Promise<string> {

@@ -15,6 +15,29 @@ class CapturingTerminalEventHub extends SessionEventHub {
   }
 }
 
+describe("TerminalService environment", () => {
+  it("marks newly spawned terminals as PI WEB terminals", () => {
+    const originalPiWebTerminal = process.env["PI_WEB_TERMINAL"];
+    let spawnedEnv: NodeJS.ProcessEnv | undefined;
+    const spawn: PtySpawn = (_file, _args, options) => {
+      spawnedEnv = options.env;
+      return fakePty();
+    };
+    const service = new TerminalService(undefined, undefined, spawn);
+
+    try {
+      process.env["PI_WEB_TERMINAL"] = "conflicting-parent-value";
+      service.create({ cwd: process.cwd() });
+
+      expect(spawnedEnv?.["PI_WEB_TERMINAL"]).toBe("1");
+    } finally {
+      service.dispose();
+      if (originalPiWebTerminal === undefined) delete process.env["PI_WEB_TERMINAL"];
+      else process.env["PI_WEB_TERMINAL"] = originalPiWebTerminal;
+    }
+  });
+});
+
 describe("TerminalService scoped management events", () => {
   it("publishes managed command-run terminal and workspace activity events to the management scope", () => {
     const hub = new CapturingTerminalEventHub();

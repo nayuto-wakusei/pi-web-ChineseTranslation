@@ -14,7 +14,7 @@ export interface ScopedAuthServices {
 export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthServices, prefix = ""): void {
   app.get<{ Querystring: AuthQuery }>(`${prefix}/auth/providers`, async (request, reply) => {
     try {
-      return (await authForRequest(auth, request.headers, request.query.projectId)).authProviders(request.query.mode ?? "login", request.query.authType);
+      return await (await authForRequest(auth, request.headers, request.query.projectId)).authProviders(request.query.mode ?? "login", request.query.authType);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -22,7 +22,7 @@ export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthService
 
   app.post<{ Querystring: AuthQuery; Body: { providerId: string; key: string } }>(`${prefix}/auth/api-key`, async (request, reply) => {
     try {
-      return (await authForRequest(auth, request.headers, request.query.projectId)).saveApiKey(request.body.providerId, request.body.key);
+      return await (await authForRequest(auth, request.headers, request.query.projectId)).saveApiKey(request.body.providerId, request.body.key);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -30,7 +30,7 @@ export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthService
 
   app.post<{ Querystring: AuthQuery; Body: { providerId: string } }>(`${prefix}/auth/logout`, async (request, reply) => {
     try {
-      return (await authForRequest(auth, request.headers, request.query.projectId)).logoutProvider(request.body.providerId);
+      return await (await authForRequest(auth, request.headers, request.query.projectId)).logoutProvider(request.body.providerId);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

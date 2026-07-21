@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Project } from "../types.js";
 import { ProjectAuthService, projectAuthStoragePaths } from "./projectAuthService.js";
@@ -27,27 +28,28 @@ describe("ProjectAuthService", () => {
       workspaces: { list: (candidate) => Promise.resolve([{ path: candidate.path }, { path: join(candidate.path, "worktree") }]) },
       dataDir,
       globalAgentDir,
+      createModelRuntime: offlineModelRuntime,
     });
 
     const [serviceA, concurrentServiceA] = await Promise.all([auth.forProject(projectA.id), auth.forProject(projectA.id)]);
     const serviceB = await auth.forProject(projectB.id);
     expect(concurrentServiceA).toBe(serviceA);
     expect(serviceA).not.toBe(serviceB);
-    expect(serviceA.modelRegistry.authStorage.get("anthropic")).toEqual({ type: "api_key", key: "global-key" });
-    expect(serviceB.modelRegistry.authStorage.get("anthropic")).toEqual({ type: "api_key", key: "global-key" });
-
-    serviceA.saveApiKey("anthropic", "project-a-key");
-    expect(serviceA.modelRegistry.authStorage.get("anthropic")).toEqual({ type: "api_key", key: "project-a-key" });
-    expect(serviceB.modelRegistry.authStorage.get("anthropic")).toEqual({ type: "api_key", key: "global-key" });
-
     const pathsA = projectAuthStoragePaths(dataDir, projectA.path);
     const pathsB = projectAuthStoragePaths(dataDir, projectB.path);
+    expect(readStoredCredential("anthropic", pathsA.authPath)).toEqual({ type: "api_key", key: "global-key" });
+    expect(readStoredCredential("anthropic", pathsB.authPath)).toEqual({ type: "api_key", key: "global-key" });
+
+    await serviceA.saveApiKey("anthropic", "project-a-key");
+    expect(readStoredCredential("anthropic", pathsA.authPath)).toEqual({ type: "api_key", key: "project-a-key" });
+    expect(readStoredCredential("anthropic", pathsB.authPath)).toEqual({ type: "api_key", key: "global-key" });
+
     expect(pathsA.directory).not.toBe(pathsB.directory);
     expect(JSON.parse(await readFile(pathsA.modelsPath, "utf8"))).toEqual({ providers: {} });
     await writeFile(pathsA.modelsPath, JSON.stringify({ providers: { anthropic: { baseUrl: "https://project-a.example" } } }));
-    serviceA.modelRegistry.refresh();
-    expect(serviceA.modelRegistry.find("anthropic", "claude-haiku-4-5")?.baseUrl).toBe("https://project-a.example");
-    expect(serviceB.modelRegistry.find("anthropic", "claude-haiku-4-5")?.baseUrl).not.toBe("https://project-a.example");
+    await serviceA.modelRuntime.reloadConfig();
+    expect(serviceA.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).toBe("https://project-a.example");
+    expect(serviceB.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).not.toBe("https://project-a.example");
     await auth.dispose();
   });
 
@@ -64,6 +66,7 @@ describe("ProjectAuthService", () => {
       },
       dataDir: join(root, "data"),
       globalAgentDir: join(root, "global"),
+      createModelRuntime: offlineModelRuntime,
     });
 
     expect(await auth.forCwd(join(projectA.path, "worktree"))).toBe(await auth.forProject(projectA.id));
@@ -74,6 +77,7 @@ describe("ProjectAuthService", () => {
       workspaces: { list: () => Promise.resolve([{ path: join(root, "shared") }]) },
       dataDir: join(root, "other-data"),
       globalAgentDir: join(root, "other-global"),
+      createModelRuntime: offlineModelRuntime,
     });
     await expect(overlapping.forCwd(join(root, "shared"))).rejects.toThrow("多个已注册项目");
     await auth.dispose();
@@ -89,15 +93,15 @@ describe("ProjectAuthService", () => {
     await writeFile(join(globalAgentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "global-key" } }));
     await writeFile(join(globalAgentDir, "models.json"), JSON.stringify({ providers: {} }));
 
-    const first = new ProjectAuthService({ projects: { list: () => Promise.resolve([projectA]) }, workspaces: { list: () => Promise.resolve([{ path: projectA.path }]) }, dataDir, globalAgentDir });
+    const first = new ProjectAuthService({ projects: { list: () => Promise.resolve([projectA]) }, workspaces: { list: () => Promise.resolve([{ path: projectA.path }]) }, dataDir, globalAgentDir, createModelRuntime: offlineModelRuntime });
     const firstService = await first.forProject(projectA.id);
-    firstService.saveApiKey("anthropic", "project-key");
+    await firstService.saveApiKey("anthropic", "project-key");
     await first.dispose();
     await writeFile(join(globalAgentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "new-global-key" } }));
 
-    const second = new ProjectAuthService({ projects: { list: () => Promise.resolve([projectA]) }, workspaces: { list: () => Promise.resolve([{ path: projectA.path }]) }, dataDir, globalAgentDir });
-    const secondService = await second.forProject(projectA.id);
-    expect(secondService.modelRegistry.authStorage.get("anthropic")).toEqual({ type: "api_key", key: "project-key" });
+    const second = new ProjectAuthService({ projects: { list: () => Promise.resolve([projectA]) }, workspaces: { list: () => Promise.resolve([{ path: projectA.path }]) }, dataDir, globalAgentDir, createModelRuntime: offlineModelRuntime });
+    await second.forProject(projectA.id);
+    expect(readStoredCredential("anthropic", projectAuthStoragePaths(dataDir, projectA.path).authPath)).toEqual({ type: "api_key", key: "project-key" });
     await second.dispose();
   });
 });
@@ -110,4 +114,8 @@ async function tempRoot(): Promise<string> {
 
 function project(id: string, path: string): Project {
   return { id, path, name: id, createdAt: "2026-01-01T00:00:00.000Z" };
+}
+
+function offlineModelRuntime(paths: ReturnType<typeof projectAuthStoragePaths>): Promise<ModelRuntime> {
+  return ModelRuntime.create({ authPath: paths.authPath, modelsPath: paths.modelsPath, allowModelNetwork: false });
 }

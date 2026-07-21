@@ -153,11 +153,13 @@ describe("management embed local token authentication", () => {
     const reply = replyFor();
     const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }])), "secret-1");
 
-    const context = await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, reply);
+    const context = await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token, "x-forwarded-proto": "https" }), runtime, reply);
 
     expect(context?.user.id).toBe("account-1");
     expect(reply.headers["set-cookie"]?.[0]).toContain("pi_web_management_session=session-1");
     expect(reply.headers["set-cookie"]?.[0]).toContain("HttpOnly");
+    expect(reply.headers["set-cookie"]?.[0]).toContain("Secure");
+    expect(reply.headers["set-cookie"]?.[0]).toContain("SameSite=None");
     expect(reply.headers["set-cookie"]?.[0]).toContain("Max-Age=86400");
   });
 
@@ -173,6 +175,27 @@ describe("management embed local token authentication", () => {
     const context = await managementContextForRequest(requestFor({ cookie }, { embed: "management", token: expiredToken }), runtime, replyFor());
 
     expect(context?.projects).toEqual([]);
+  });
+
+  it("lets a fresh entry token replace a valid session from another user", async () => {
+    const runtime = runtimeFor("secret-1");
+    const firstReply = replyFor();
+    await managementContextForRequest(
+      requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": signToken(tokenPayload(contextFor([])), "secret-1") }),
+      runtime,
+      firstReply,
+    );
+    const secondContext = { ...contextFor([{ id: "p1", name: "Project 1" }]), user: { ...contextFor([]).user, id: "account-2" } };
+    const secondToken = signToken(tokenPayload(secondContext, { jti: "token-2" }), "secret-1");
+
+    const context = await managementContextForRequest(
+      requestFor({ cookie: cookiePair(firstReply) }, { embed: "management", token: secondToken }),
+      runtime,
+      replyFor(),
+    );
+
+    expect(context?.user.id).toBe("account-2");
+    expect(context?.projects).toEqual([{ id: "p1", name: "Project 1" }]);
   });
 
   it("ignores management session cookies on ordinary page requests", async () => {

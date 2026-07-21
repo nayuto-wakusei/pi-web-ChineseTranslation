@@ -1,9 +1,9 @@
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, fakeRuntime, runtimeCreator, sessionGateway, sessionRecord, sessionRef, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -338,15 +338,14 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
 
   it("refreshes auth state and dedupes warnings when logout removes the current model's credentials", async () => {
     const hub = new CapturingSessionEventHub();
-    const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
-    const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = modelRegistry.find(TEST_MODEL_PROVIDER, TEST_MODEL_ID);
+    const { modelRuntime, credentials } = await createTestModelRuntime({ anthropic: { type: "api_key", key: "sk-test" } });
+    const model = modelRuntime.getModel(TEST_MODEL_PROVIDER, TEST_MODEL_ID);
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
-    const fake = fakeRuntime("auth-session", { model, modelRegistry });
+    const fake = fakeRuntime("auth-session", { model, modelRuntime });
 
     const service = new PiSessionService(hub, {
       agentDir: TEST_AGENT_DIR,
-      modelRegistry,
+      modelRuntime,
       createAgentRuntime: runtimeCreator(fake.runtime),
       sessionManager: sessionGateway([sessionRecord("auth-session")]),
       heartbeatIntervalMs: 60_000,
@@ -356,18 +355,21 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
     hub.sessionEvents.length = 0;
     hub.globalEvents.length = 0;
 
-    authStorage.logout("anthropic");
-    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
-    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
+    await credentials.delete("anthropic");
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
 
     const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes(`${TEST_MODEL_PROVIDER}/${TEST_MODEL_ID}`)).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
-    authStorage.set("anthropic", { type: "api_key", key: "sk-new" });
-    service.applyAuthChange({ modelRegistry });
-    authStorage.logout("anthropic");
-    service.applyAuthChange({ modelRegistry, removedProviderId: "anthropic" });
+    await credentials.modify("anthropic", () => Promise.resolve({ type: "api_key", key: "sk-new" }));
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime });
+    await credentials.delete("anthropic");
+    await modelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
 
     await service.dispose();

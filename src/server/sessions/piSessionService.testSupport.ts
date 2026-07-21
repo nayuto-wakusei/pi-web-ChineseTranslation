@@ -1,7 +1,6 @@
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import type { PiAgentSession, PiSessionManager, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
+import type { PiAgentSession, PiSessionManager, PiSessionModelRuntime, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
 
 export class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -53,9 +52,28 @@ export const TEST_MODEL_PROVIDER = "anthropic";
 export const TEST_MODEL_ID = "claude-sonnet-4-5-20250929";
 
 export function testModel(): NonNullable<PiAgentSession["model"]> {
-  const model = ModelRegistry.inMemory(AuthStorage.inMemory()).find(TEST_MODEL_PROVIDER, TEST_MODEL_ID);
-  if (model === undefined) throw new Error("test model not found");
-  return model;
+  return {
+    id: TEST_MODEL_ID,
+    name: "Claude Sonnet 4.5",
+    api: "anthropic-messages",
+    provider: TEST_MODEL_PROVIDER,
+    baseUrl: "https://api.anthropic.com",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  };
+}
+
+export function fakeModelRuntime(configured = true): PiSessionModelRuntime {
+  const model = testModel();
+  return {
+    reloadConfig: () => Promise.resolve(),
+    getAvailable: () => Promise.resolve(configured ? [model] : []),
+    getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
+    hasConfiguredAuth: (provider: string) => configured && provider === model.provider,
+  };
 }
 
 export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
@@ -76,7 +94,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     isBashRunning: false,
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
-    modelRegistry: ModelRegistry.create(AuthStorage.inMemory()),
+    modelRuntime: fakeModelRuntime(),
     scopedModels: [],
     extensionRunner: { getRegisteredCommands: () => [] },
     promptTemplates: [],

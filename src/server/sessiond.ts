@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
@@ -39,22 +39,25 @@ await app.register(fastifyWebsocket);
 
 await runSessionDaemonStartup({
   logger: app.log,
-  createRuntime() {
+  async createRuntime() {
     const eventHub = new SessionEventHub();
     const workspaceActivity = new WorkspaceActivityService(eventHub);
     const projects = new ProjectService(new ProjectStore());
     const workspaces = new WorkspaceService();
     const projectAuth = new ProjectAuthService({ projects, workspaces });
     const managementAuth = new AuthService({
-      modelRegistry: ModelRegistry.create(AuthStorage.create(join(piWebDataDir(), "management-embed", "auth.json"))),
+      modelRuntime: await ModelRuntime.create({
+        authPath: join(piWebDataDir(), "management-embed", "auth.json"),
+        modelsPath: join(activeAgentProfile.dir, "models.json"),
+      }),
     });
     const spawnTargets = config.spawnSessions
       ? new ProjectScopedSpawnTargetResolver({ projects, workspaces })
       : undefined;
     const sessions = new PiSessionService(eventHub, {
-      modelRegistry: managementAuth.modelRegistry,
-      managementModelRegistry: managementAuth.modelRegistry,
-      normalModelRegistryForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRegistry,
+      modelRuntime: managementAuth.modelRuntime,
+      managementModelRuntime: managementAuth.modelRuntime,
+      normalModelRuntimeForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRuntime,
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
       logger: app.log,

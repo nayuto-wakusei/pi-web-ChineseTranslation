@@ -71,4 +71,16 @@ describe("machine-scoped socket urls", () => {
       "wss://pi.example.test/api/machines/local/events",
     ]);
   });
+
+  it("keeps management websocket routing when the session cookie replaces the entry token", () => {
+    vi.stubGlobal("location", { protocol: "https:", host: "pi.example.test", href: "https://pi.example.test/?embed=management" });
+
+    sessionEvents({ id: "s1", cwd: "/repo" }, "local", "management");
+    realtimeEvents("local", "management");
+
+    expect(webSocketUrls).toEqual([
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&embed=management",
+      "wss://pi.example.test/api/machines/local/events?embed=management",
+    ]);
+  });
 });

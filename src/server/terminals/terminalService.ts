@@ -223,7 +223,7 @@ export class TerminalService {
       cwd: options.cwd,
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
-      env: { ...(options.env ?? process.env), TERM: "xterm-256color" },
+      env: { ...(options.env ?? process.env), TERM: "xterm-256color", PI_WEB_TERMINAL: "1" },
     });
     const requestedName = options.name?.trim();
     const record: TerminalRecord = {

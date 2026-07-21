@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { chmod, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
-import { AuthStorage, getAgentDir, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { piWebDataDir } from "../../config.js";
 import type { Project } from "../types.js";
 import { AuthService, type AuthChange } from "./authService.js";
@@ -20,6 +20,7 @@ export interface ProjectAuthServiceDependencies {
   workspaces: WorkspaceLister;
   dataDir?: string;
   globalAgentDir?: string;
+  createModelRuntime?: (paths: ProjectAuthStoragePaths) => Promise<ModelRuntime>;
 }
 
 export interface ProjectAuthStoragePaths {
@@ -102,7 +103,8 @@ export class ProjectAuthService {
     const initialization = (async () => {
       await initializeProjectAuthFiles(paths, this.globalAgentDir);
       const service = new AuthService({
-        modelRegistry: ModelRegistry.create(AuthStorage.create(paths.authPath), paths.modelsPath),
+        modelRuntime: await (this.deps.createModelRuntime?.(paths)
+          ?? ModelRuntime.create({ authPath: paths.authPath, modelsPath: paths.modelsPath })),
       });
       this.services.set(paths.directory, service);
       this.subscriptions.set(paths.directory, service.subscribe((change) => {

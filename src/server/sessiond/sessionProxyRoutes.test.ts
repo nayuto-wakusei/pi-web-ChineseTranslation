@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedRuntime } from "../managementEmbed";
@@ -121,6 +121,42 @@ describe("machine-scoped session proxy routes", () => {
       socket.close();
     }
   });
+
+  it("streams daemon events over a cookie-authenticated management websocket", async () => {
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Project 1" }],
+    };
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: "/managed",
+      authenticate: () => Promise.reject(new Error("entry token should not be required")),
+      readSession: (id) => id === "session-1" ? managementContext : undefined,
+      sessionCookieName: "pi_web_management_session",
+    };
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}/api/machines/local/sessions/session-1/events?embed=management`, {
+      headers: { cookie: "pi_web_management_session=session-1" },
+    });
+
+    try {
+      await waitForOpen(socket);
+      await daemon.waitForConnection();
+      const message = waitForMessage(socket);
+      daemon.broadcast(JSON.stringify({ type: "assistant.delta", text: "streamed" }));
+
+      await expect(message).resolves.toBe(JSON.stringify({ type: "assistant.delta", text: "streamed" }));
+      expect(decodeManagementContext(daemon.websocketHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
+    } finally {
+      socket.close();
+    }
+  });
 });
 
 interface FakeSessionDaemonResponse {
@@ -170,6 +206,17 @@ class FakeSessionDaemon {
     return new WebSocket(`${webSocketServerUrl(this.upstream)}${path}`);
   }
 
+  waitForConnection(): Promise<void> {
+    if (this.sockets.size > 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.upstream.once("connection", () => { resolve(); });
+    });
+  }
+
+  broadcast(payload: string): void {
+    for (const socket of this.sockets) socket.send(payload);
+  }
+
   async close(): Promise<void> {
     for (const socket of this.sockets) socket.terminate();
     await closeWebSocketServer(this.upstream);
@@ -210,4 +257,18 @@ function waitForOpen(socket: WebSocket): Promise<void> {
     socket.once("error", reject);
     socket.once("close", () => { reject(new Error("WebSocket closed before opening")); });
   });
+}
+
+function waitForMessage(socket: WebSocket): Promise<string> {
+  return new Promise((resolve, reject) => {
+    socket.once("message", (data) => { resolve(rawDataText(data)); });
+    socket.once("error", reject);
+    socket.once("close", () => { reject(new Error("WebSocket closed before receiving a message")); });
+  });
+}
+
+function rawDataText(data: RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString("utf8");
+  return data.toString("utf8");
 }

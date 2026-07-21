@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isManagementEmbedMode, withManagementEmbed } from "./managementEmbed";
+import { currentApiScope, isManagementEmbedMode, withManagementEmbed } from "./managementEmbed";
 
 describe("management embed API routing", () => {
   it.each([
@@ -18,6 +18,13 @@ describe("management embed API routing", () => {
     );
 
     expect(url).toBe("/api/projects?embed=management&token=launch-token");
+  });
+
+  it("keeps cookie-authenticated management requests scoped after the entry token is removed", () => {
+    const pageUrl = new URL("https://pi.example.test/?embed=management");
+
+    expect(currentApiScope(pageUrl)).toBe("management");
+    expect(withManagementEmbed("/api/projects", pageUrl)).toBe("/api/projects?embed=management");
   });
 
   it("preserves existing query parameters when adding management embed parameters", () => {
