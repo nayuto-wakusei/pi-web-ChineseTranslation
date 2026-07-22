@@ -509,15 +509,15 @@ export interface PiSessionServiceDependencies {
   archiveStore?: SessionArchiveRepository;
   agentDir?: string;
   /**
-   * PI WEB data directory used for mode×project settings scopes
-   * (`defaultThinkingLevel`, default model, etc.). Defaults to `piWebDataDir()`.
+   * PI WEB data directory used for mode×project preference overrides
+   * (`defaultThinkingLevel`, default model). Defaults to `piWebDataDir()`.
    */
   dataDir?: string;
   /**
    * Resolve the registered project path for a session cwd. Used to isolate
-   * SettingsManager global settings between projects (and between normal vs
-   * management modes). Return `undefined` when no unique project applies
-   * (management orphan scopes).
+   * preference overrides between projects (and between normal vs management
+   * modes). Return `undefined` when no unique project applies (management
+   * orphan scopes).
    */
   projectPathForCwd?: (cwd: string) => Promise<string | undefined>;
   sessionManager?: PiSessionManagerGateway;
