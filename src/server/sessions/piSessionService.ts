@@ -44,6 +44,8 @@ import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { piWebDataDir } from "../../config.js";
+import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
 import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView } from "./subsessionTranscript.js";
@@ -374,11 +376,19 @@ function createRuntimeWithContextAndOneShotInitialModel(
 
 type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
 
-function createDefaultRuntimeFactory(normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>, managementModelRuntime: () => Promise<ModelRuntime>, spawn?: SpawnSessionFn, subsessions?: SubsessionToolDeps): PiCreateAgentSessionRuntimeFactory {
+type ResolveSettingsScopeDirectory = (cwd: string, mode: SessionSettingsMode) => Promise<string>;
+
+function createDefaultRuntimeFactory(
+  normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>,
+  managementModelRuntime: () => Promise<ModelRuntime>,
+  resolveSettingsScope: ResolveSettingsScopeDirectory,
+  spawn?: SpawnSessionFn,
+  subsessions?: SubsessionToolDeps,
+): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, spawn, subsessions, managementContext)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, managementContext)({
         cwd,
         agentDir,
         sessionManager,
@@ -388,7 +398,12 @@ function createDefaultRuntimeFactory(normalModelRuntimeForCwd: (cwd: string) => 
       });
     }
 
-    const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime: scopedModelRuntime });
+    const settingsManager = await createScopedSettingsManager({
+      cwd,
+      scopeDirectory: await resolveSettingsScope(cwd, "normal"),
+      globalAgentDir: agentDir,
+    });
+    const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime: scopedModelRuntime, settingsManager });
     const customTools = createPiWebCustomToolDefinitions(cwd, delegationToolsEnabled, spawn, subsessions);
     const result = await createAgentSessionFromServices({
       services,
@@ -403,6 +418,7 @@ function createDefaultRuntimeFactory(normalModelRuntimeForCwd: (cwd: string) => 
 
 function createManagementRuntimeFactory(
   modelRuntime: ModelRuntime,
+  resolveSettingsScope: ResolveSettingsScopeDirectory,
   spawn: SpawnSessionFn | undefined,
   subsessions: SubsessionToolDeps | undefined,
   managementContext: ManagementEmbedContext,
@@ -410,10 +426,16 @@ function createManagementRuntimeFactory(
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, delegationToolsEnabled = true }) => {
     const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+      const settingsManager = await createScopedSettingsManager({
+        cwd,
+        scopeDirectory: await resolveSettingsScope(cwd, "management"),
+        globalAgentDir: agentDir,
+      });
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
         modelRuntime,
+        settingsManager,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
         },
@@ -486,6 +508,18 @@ function createPiWebEditToolDefinition(cwd: string, options?: EditToolOptions) {
 export interface PiSessionServiceDependencies {
   archiveStore?: SessionArchiveRepository;
   agentDir?: string;
+  /**
+   * PI WEB data directory used for mode×project settings scopes
+   * (`defaultThinkingLevel`, default model, etc.). Defaults to `piWebDataDir()`.
+   */
+  dataDir?: string;
+  /**
+   * Resolve the registered project path for a session cwd. Used to isolate
+   * SettingsManager global settings between projects (and between normal vs
+   * management modes). Return `undefined` when no unique project applies
+   * (management orphan scopes).
+   */
+  projectPathForCwd?: (cwd: string) => Promise<string | undefined>;
   sessionManager?: PiSessionManagerGateway;
   createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
@@ -539,6 +573,8 @@ export class PiSessionService {
   private readonly subsessionNotifyArmed = new Map<string, boolean>();
   private readonly archiveStore: SessionArchiveRepository;
   private readonly agentDir: string;
+  private readonly dataDir: string;
+  private readonly projectPathForCwd: ((cwd: string) => Promise<string | undefined>) | undefined;
   private readonly sessionManager: PiSessionManagerGateway;
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
@@ -552,6 +588,8 @@ export class PiSessionService {
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies) {
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.agentDir = deps.agentDir ?? getAgentDir();
+    this.dataDir = deps.dataDir ?? piWebDataDir();
+    this.projectPathForCwd = deps.projectPathForCwd;
     this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({
       agentDir: this.agentDir,
       env: process.env,
@@ -576,6 +614,7 @@ export class PiSessionService {
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
       this.normalModelRuntimeForCwd,
       this.managementModelRuntime,
+      (cwd, mode) => this.resolveSettingsScopeDirectory(cwd, mode),
       this.spawnTargets === undefined ? undefined : (input) => this.spawnSession(input),
       !subsessionsActive ? undefined : {
         spawn: (input) => this.spawnSubsession(input),
@@ -608,6 +647,16 @@ export class PiSessionService {
 
   activeCount(): number {
     return this.active.size;
+  }
+
+  private async resolveSettingsScopeDirectory(cwd: string, mode: SessionSettingsMode): Promise<string> {
+    const projectPath = this.projectPathForCwd === undefined ? undefined : await this.projectPathForCwd(cwd);
+    return resolveSettingsScopeDirectory({
+      dataDir: this.dataDir,
+      cwd,
+      mode,
+      ...(projectPath === undefined ? {} : { projectPath }),
+    });
   }
 
   async cleanupPreview(request: NormalizedSessionCleanupRequest): Promise<ClientSessionCleanupPreviewResponse> {

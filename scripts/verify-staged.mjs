@@ -96,6 +96,12 @@ export function createValidationSteps(plan) {
         "--run",
         "--config",
         "vitest.config.ts",
+        // Session suites may create real ModelRuntime instances; parallel workers
+        // contend on agent-dir files and flake under Windows pre-commit load.
+        "--maxWorkers",
+        "1",
+        "--testTimeout",
+        "15000",
         "--passWithNoTests",
         ...plan.tests.files,
       ],

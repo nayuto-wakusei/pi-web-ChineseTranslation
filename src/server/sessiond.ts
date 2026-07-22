@@ -58,6 +58,16 @@ await runSessionDaemonStartup({
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
       normalModelRuntimeForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRuntime,
+      projectPathForCwd: async (cwd) => {
+        try {
+          return (await projectAuth.projectForCwd(cwd)).path;
+        } catch {
+          // Management embed may run outside a uniquely registered project;
+          // preferences then land in the orphan settings scope.
+          return undefined;
+        }
+      },
+      dataDir: piWebDataDir(),
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
       logger: app.log,
