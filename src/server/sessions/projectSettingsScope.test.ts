@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { projectAuthStoragePaths } from "./projectAuthService.js";
 import {
   createScopedSettingsManager,
-  ensureScopedSettingsBootstrapped,
+  legacyScopedSettingsFilePath,
   managementOrphanSettingsDirectory,
+  preferencesFilePath,
   projectPathKey,
   projectSettingsScopeDirectory,
   resolveSettingsScopeDirectory,
@@ -20,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("projectSettingsScope", () => {
-  it("scopes normal settings next to project auth and management under a parallel tree", async () => {
+  it("scopes normal preferences next to project auth and management under a parallel tree", async () => {
     const root = await tempRoot();
     const dataDir = join(root, "data");
     const projectA = join(root, "project-a");
@@ -50,36 +51,7 @@ describe("projectSettingsScope", () => {
     );
   });
 
-  it("bootstraps scoped settings once from the global agent dir and never overwrites", async () => {
-    const root = await tempRoot();
-    const globalAgentDir = join(root, "global-agent");
-    const scopeDir = join(root, "scope");
-    await mkdir(globalAgentDir, { recursive: true });
-    await writeFile(join(globalAgentDir, "settings.json"), `${JSON.stringify({ defaultThinkingLevel: "high", packages: ["./pkg"] }, null, 2)}\n`);
-
-    const firstPath = await ensureScopedSettingsBootstrapped(scopeDir, globalAgentDir);
-    expect(firstPath).toBe(join(scopeDir, "settings.json"));
-    expect(JSON.parse(await readFile(firstPath, "utf8"))).toEqual({
-      defaultThinkingLevel: "high",
-      packages: ["./pkg"],
-    });
-
-    await writeFile(join(globalAgentDir, "settings.json"), `${JSON.stringify({ defaultThinkingLevel: "low" }, null, 2)}\n`);
-    await ensureScopedSettingsBootstrapped(scopeDir, globalAgentDir);
-    expect(JSON.parse(await readFile(firstPath, "utf8"))).toEqual({
-      defaultThinkingLevel: "high",
-      packages: ["./pkg"],
-    });
-  });
-
-  it("creates empty scoped settings when the global file is missing", async () => {
-    const root = await tempRoot();
-    const scopeDir = join(root, "scope");
-    const path = await ensureScopedSettingsBootstrapped(scopeDir, join(root, "missing-global"));
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({});
-  });
-
-  it("isolates defaultThinkingLevel across modes and projects via scoped SettingsManagers", async () => {
+  it("isolates thinking and default model overrides without freezing shared agent settings", async () => {
     const root = await tempRoot();
     const dataDir = join(root, "data");
     const globalAgentDir = join(root, "global-agent");
@@ -88,7 +60,16 @@ describe("projectSettingsScope", () => {
     await mkdir(globalAgentDir, { recursive: true });
     await mkdir(projectA, { recursive: true });
     await mkdir(projectB, { recursive: true });
-    await writeFile(join(globalAgentDir, "settings.json"), `${JSON.stringify({ defaultThinkingLevel: "off" }, null, 2)}\n`);
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({
+        defaultThinkingLevel: "off",
+        defaultProvider: "anthropic",
+        defaultModel: "claude-old",
+        packages: ["./pkg-a"],
+        enabledModels: ["anthropic/*"],
+      }, null, 2)}\n`,
+    );
 
     const normalA = await createScopedSettingsManager({
       cwd: projectA,
@@ -106,22 +87,139 @@ describe("projectSettingsScope", () => {
       globalAgentDir,
     });
 
+    // Shared configuration remains visible through the scoped manager.
+    expect(normalA.getPackages()).toEqual(["./pkg-a"]);
+    expect(normalA.getEnabledModels()).toEqual(["anthropic/*"]);
+
     normalA.setDefaultThinkingLevel("high");
+    normalA.setDefaultModelAndProvider("openai", "gpt-test");
     managementA.setDefaultThinkingLevel("medium");
+    managementA.setDefaultModelAndProvider("google", "gemini-test");
     normalB.setDefaultThinkingLevel("low");
     await Promise.all([normalA.flush(), managementA.flush(), normalB.flush()]);
 
-    // Reconstruct from disk (same path production reloads).
-    const normalAReload = SettingsManager.create(projectA, projectSettingsScopeDirectory(dataDir, projectA, "normal"));
-    const managementAReload = SettingsManager.create(projectA, projectSettingsScopeDirectory(dataDir, projectA, "management"));
-    const normalBReload = SettingsManager.create(projectB, projectSettingsScopeDirectory(dataDir, projectB, "normal"));
+    // Later global package installs must remain visible to already-bootstrapped scopes.
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({
+        defaultThinkingLevel: "off",
+        defaultProvider: "anthropic",
+        defaultModel: "claude-old",
+        packages: ["./pkg-a", "./pkg-b"],
+        enabledModels: ["anthropic/*", "openai/*"],
+        extensions: ["./ext-new"],
+      }, null, 2)}\n`,
+    );
+
+    const normalAReload = await createScopedSettingsManager({
+      cwd: projectA,
+      scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "normal"),
+      globalAgentDir,
+    });
+    const managementAReload = await createScopedSettingsManager({
+      cwd: projectA,
+      scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "management"),
+      globalAgentDir,
+    });
+    const normalBReload = await createScopedSettingsManager({
+      cwd: projectB,
+      scopeDirectory: projectSettingsScopeDirectory(dataDir, projectB, "normal"),
+      globalAgentDir,
+    });
     const globalReload = SettingsManager.create(projectA, globalAgentDir);
 
     expect(normalAReload.getDefaultThinkingLevel()).toBe("high");
+    expect(normalAReload.getDefaultProvider()).toBe("openai");
+    expect(normalAReload.getDefaultModel()).toBe("gpt-test");
     expect(managementAReload.getDefaultThinkingLevel()).toBe("medium");
+    expect(managementAReload.getDefaultProvider()).toBe("google");
+    expect(managementAReload.getDefaultModel()).toBe("gemini-test");
     expect(normalBReload.getDefaultThinkingLevel()).toBe("low");
-    // Global agent settings must not be written by scoped preference changes.
+
+    expect(normalAReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
+    expect(normalAReload.getEnabledModels()).toEqual(["anthropic/*", "openai/*"]);
+    expect(normalAReload.getExtensionPaths()).toEqual(["./ext-new"]);
+
+    // Preference overrides stay out of the shared agent settings file.
     expect(globalReload.getDefaultThinkingLevel()).toBe("off");
+    expect(globalReload.getDefaultProvider()).toBe("anthropic");
+    expect(globalReload.getDefaultModel()).toBe("claude-old");
+    expect(globalReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
+
+    expect(JSON.parse(await readFile(preferencesFilePath(projectSettingsScopeDirectory(dataDir, projectA, "normal")), "utf8"))).toEqual({
+      defaultThinkingLevel: "high",
+      defaultProvider: "openai",
+      defaultModel: "gpt-test",
+    });
+  });
+
+  it("writes non-preference session settings back to the real agent dir", async () => {
+    const root = await tempRoot();
+    const globalAgentDir = join(root, "global-agent");
+    const projectPath = join(root, "project");
+    const scopeDirectory = join(root, "scope");
+    await mkdir(globalAgentDir, { recursive: true });
+    await mkdir(projectPath, { recursive: true });
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({ defaultThinkingLevel: "off", packages: ["./pkg"] }, null, 2)}\n`,
+    );
+
+    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir });
+    settings.setDefaultThinkingLevel("high");
+    settings.setCompactionEnabled(false);
+    settings.setRetryEnabled(false);
+    await settings.flush();
+
+    expect(JSON.parse(await readFile(preferencesFilePath(scopeDirectory), "utf8"))).toEqual({
+      defaultThinkingLevel: "high",
+    });
+    expect(JSON.parse(await readFile(join(globalAgentDir, "settings.json"), "utf8"))).toMatchObject({
+      defaultThinkingLevel: "off",
+      packages: ["./pkg"],
+      compaction: { enabled: false },
+      retry: { enabled: false },
+    });
+  });
+
+  it("migrates only preference keys from a legacy whole-file scoped settings snapshot", async () => {
+    const root = await tempRoot();
+    const globalAgentDir = join(root, "global-agent");
+    const projectPath = join(root, "project");
+    const scopeDirectory = join(root, "scope");
+    await mkdir(globalAgentDir, { recursive: true });
+    await mkdir(projectPath, { recursive: true });
+    await mkdir(scopeDirectory, { recursive: true });
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({
+        defaultThinkingLevel: "off",
+        packages: ["./fresh-pkg"],
+        enabledModels: ["fresh/*"],
+      }, null, 2)}\n`,
+    );
+    await writeFile(
+      legacyScopedSettingsFilePath(scopeDirectory),
+      `${JSON.stringify({
+        defaultThinkingLevel: "high",
+        defaultProvider: "openai",
+        defaultModel: "gpt-legacy",
+        packages: ["./stale-pkg"],
+        enabledModels: ["stale/*"],
+      }, null, 2)}\n`,
+    );
+
+    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir });
+    expect(settings.getDefaultThinkingLevel()).toBe("high");
+    expect(settings.getDefaultProvider()).toBe("openai");
+    expect(settings.getDefaultModel()).toBe("gpt-legacy");
+    expect(settings.getPackages()).toEqual(["./fresh-pkg"]);
+    expect(settings.getEnabledModels()).toEqual(["fresh/*"]);
+    expect(JSON.parse(await readFile(preferencesFilePath(scopeDirectory), "utf8"))).toEqual({
+      defaultThinkingLevel: "high",
+      defaultProvider: "openai",
+      defaultModel: "gpt-legacy",
+    });
   });
 });
 

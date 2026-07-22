@@ -6,11 +6,11 @@ import {
   createAgentSessionServices,
   ModelRuntime,
   SessionManager,
-  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createScopedSettingsManager,
+  preferencesFilePath,
   projectSettingsScopeDirectory,
 } from "./projectSettingsScope.js";
 
@@ -22,14 +22,12 @@ afterEach(async () => {
 
 /**
  * Behavioral coverage for the runtime wiring contract: agentDir stays shared
- * for resources, but SettingsManager global settings (defaultThinkingLevel)
- * are mode×project scoped and never written back to the global agent dir.
- *
- * Full PiSessionService.createRuntime is covered indirectly via the same
- * createAgentSessionServices({ settingsManager }) path the factories use.
+ * for resources, preference overrides (defaultThinkingLevel / default model)
+ * are mode x project scoped, and shared settings such as packages keep tracking
+ * the real agentDir settings.json.
  */
 describe("PiSessionService settings scope wiring", () => {
-  it("keeps defaultThinkingLevel isolated when services use scoped SettingsManagers", async () => {
+  it("keeps preference overrides isolated while packages follow the real agent dir", async () => {
     const root = await tempRoot();
     const dataDir = join(root, "data");
     const globalAgentDir = join(root, "global-agent");
@@ -38,7 +36,10 @@ describe("PiSessionService settings scope wiring", () => {
     await mkdir(globalAgentDir, { recursive: true });
     await writeFile(join(globalAgentDir, "auth.json"), "{}\n");
     await writeFile(join(globalAgentDir, "models.json"), `${JSON.stringify({ providers: {} })}\n`);
-    await writeFile(join(globalAgentDir, "settings.json"), `${JSON.stringify({ defaultThinkingLevel: "off" }, null, 2)}\n`);
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({ defaultThinkingLevel: "off", packages: ["./pkg-a"] }, null, 2)}\n`,
+    );
 
     const modelRuntime = await ModelRuntime.create({
       authPath: join(globalAgentDir, "auth.json"),
@@ -72,23 +73,40 @@ describe("PiSessionService settings scope wiring", () => {
 
     expect(normalServices.agentDir).toBe(managementServices.agentDir);
     expect(normalServices.settingsManager).not.toBe(managementServices.settingsManager);
+    expect(normalServices.settingsManager.getPackages()).toEqual(["./pkg-a"]);
 
-    // Prefer writing through the session path when a reasoning model is present;
-    // without one, available thinking levels collapse to off — exercise the same
-    // SettingsManager call setThinkingLevel uses when levels can change.
     normalServices.settingsManager.setDefaultThinkingLevel("high");
+    normalServices.settingsManager.setDefaultModelAndProvider("openai", "gpt-normal");
     managementServices.settingsManager.setDefaultThinkingLevel("medium");
+    managementServices.settingsManager.setDefaultModelAndProvider("google", "gemini-management");
     await Promise.all([normalServices.settingsManager.flush(), managementServices.settingsManager.flush()]);
 
-    const normalPath = join(projectSettingsScopeDirectory(dataDir, projectPath, "normal"), "settings.json");
-    const managementPath = join(projectSettingsScopeDirectory(dataDir, projectPath, "management"), "settings.json");
+    await writeFile(
+      join(globalAgentDir, "settings.json"),
+      `${JSON.stringify({
+        defaultThinkingLevel: "off",
+        packages: ["./pkg-a", "./pkg-b"],
+        enabledModels: ["openai/*"],
+      }, null, 2)}\n`,
+    );
+
+    const normalPath = preferencesFilePath(projectSettingsScopeDirectory(dataDir, projectPath, "normal"));
+    const managementPath = preferencesFilePath(projectSettingsScopeDirectory(dataDir, projectPath, "management"));
     const globalPath = join(globalAgentDir, "settings.json");
 
-    expect(settingsField(await readFile(normalPath, "utf8"), "defaultThinkingLevel")).toBe("high");
-    expect(settingsField(await readFile(managementPath, "utf8"), "defaultThinkingLevel")).toBe("medium");
+    expect(JSON.parse(await readFile(normalPath, "utf8"))).toEqual({
+      defaultThinkingLevel: "high",
+      defaultProvider: "openai",
+      defaultModel: "gpt-normal",
+    });
+    expect(JSON.parse(await readFile(managementPath, "utf8"))).toEqual({
+      defaultThinkingLevel: "medium",
+      defaultProvider: "google",
+      defaultModel: "gemini-management",
+    });
     expect(settingsField(await readFile(globalPath, "utf8"), "defaultThinkingLevel")).toBe("off");
+    expect(settingsField(await readFile(globalPath, "utf8"), "packages")).toEqual(["./pkg-a", "./pkg-b"]);
 
-    // Session construction still accepts the scoped manager (smoke: no throw).
     const sessionsRoot = join(root, "sessions");
     await mkdir(sessionsRoot, { recursive: true });
     const { session } = await createAgentSessionFromServices({
@@ -96,8 +114,17 @@ describe("PiSessionService settings scope wiring", () => {
       sessionManager: SessionManager.create(projectPath, sessionsRoot),
     });
     expect(session.settingsManager.getDefaultThinkingLevel()).toBe("high");
-    // Reloading management scope from disk still sees the other mode's value.
-    expect(SettingsManager.create(projectPath, projectSettingsScopeDirectory(dataDir, projectPath, "management")).getDefaultThinkingLevel()).toBe("medium");
+    expect(session.settingsManager.getDefaultModel()).toBe("gpt-normal");
+
+    // Reload after the global package install to prove the freeze regression is gone.
+    const managementReload = await createScopedSettingsManager({
+      cwd: projectPath,
+      scopeDirectory: projectSettingsScopeDirectory(dataDir, projectPath, "management"),
+      globalAgentDir,
+    });
+    expect(managementReload.getDefaultThinkingLevel()).toBe("medium");
+    expect(managementReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
+    expect(managementReload.getEnabledModels()).toEqual(["openai/*"]);
   });
 });
 
