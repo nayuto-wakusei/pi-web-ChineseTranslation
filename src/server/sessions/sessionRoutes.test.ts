@@ -225,12 +225,12 @@ describe("session routes", () => {
     registerSessionRoutes(routeApp, routeService, eventHub);
 
     try {
-      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectCwds: ["/repo-a", "/repo-a"] } });
+      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectId: "p1", projectCwds: ["/repo-a", "/repo-a"] } });
       const executeResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: null, deleteArchivedDays: 7, projectCwds: ["/repo-b"] } });
 
       expect(previewResponse.statusCode).toBe(200);
       expect(executeResponse.statusCode).toBe(200);
-      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectCwds: ["/repo-a"] }]);
+      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectId: "p1", projectCwds: ["/repo-a"] }]);
       expect(routeService.cleanupCalls).toEqual([{ thresholds: { deleteArchivedDays: 7 }, projectCwds: ["/repo-b"] }]);
     } finally {
       await routeService.dispose();

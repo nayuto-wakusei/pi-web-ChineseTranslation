@@ -1209,6 +1209,7 @@ export class PiWebApp extends LitElement {
 
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
+    if (this.apiScope === "management" && this.state.selectedProject === undefined) return false;
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
   }
 
@@ -1246,6 +1247,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async previewSessionCleanup(request: SessionCleanupRequest): Promise<void> {
+    const scopedRequest = this.sessionCleanupRequestForCurrentProject(request);
     if (!this.canCleanupSessions()) {
       this.sessionCleanupDialog = { ...(this.sessionCleanupDialog ?? {}), error: this.sessionCleanupUnavailableMessage(), preview: undefined, previewRequest: undefined, result: undefined, loading: false };
       return;
@@ -1253,17 +1255,18 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     this.sessionCleanupDialog = { ...(this.sessionCleanupDialog ?? {}), loading: true, error: "", preview: undefined, previewRequest: undefined, result: undefined };
     try {
-      const preview = await sessionsApi.cleanupPreview(request, machineId);
+      const preview = await sessionsApi.cleanupPreview(scopedRequest, machineId);
       if (selectedMachineId(this.state) !== machineId) return;
-      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview, previewRequest: request, result: undefined, loading: false, error: "" };
+      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview, previewRequest: scopedRequest, result: undefined, loading: false, error: "" };
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, loading: false, error: `预览清理失败：${errorMessage(error)}` };
     }
   }
 
   private async runSessionCleanup(request: SessionCleanupRequest): Promise<void> {
+    const scopedRequest = this.sessionCleanupRequestForCurrentProject(request);
     const dialog = this.sessionCleanupDialog;
-    if (dialog?.preview === undefined || sessionCleanupRequestKey(dialog.previewRequest) !== sessionCleanupRequestKey(request)) {
+    if (dialog?.preview === undefined || sessionCleanupRequestKey(dialog.previewRequest) !== sessionCleanupRequestKey(scopedRequest)) {
       this.sessionCleanupDialog = { ...(dialog ?? {}), error: "运行清理前请先预览。" };
       return;
     }
@@ -1274,13 +1277,28 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     this.sessionCleanupDialog = { ...dialog, running: true, error: "" };
     try {
-      const result = await sessionsApi.cleanup(request, machineId);
+      const result = await sessionsApi.cleanup(scopedRequest, machineId);
       if (selectedMachineId(this.state) !== machineId) return;
-      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: request, result, running: false, error: "" };
+      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: scopedRequest, result, running: false, error: "" };
       await this.sessions.applySessionCleanupResult(result, machineId);
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: `运行清理失败：${errorMessage(error)}` };
     }
+  }
+
+  private sessionCleanupRequestForCurrentProject(request: SessionCleanupRequest): SessionCleanupRequest {
+    if (this.apiScope !== "management") return request;
+    const project = this.state.selectedProject;
+    const projectCwds = project === undefined
+      ? []
+      : this.state.workspaces.filter((workspace) => workspace.projectId === project.id).map((workspace) => workspace.path);
+    const requestedCwds = request.projectCwds ?? projectCwds;
+    const allowedCwds = new Set(projectCwds);
+    return {
+      ...request,
+      projectId: project?.id ?? "",
+      projectCwds: requestedCwds.filter((cwd) => allowedCwds.has(cwd)),
+    };
   }
 
   private renderNavigationPanel() {

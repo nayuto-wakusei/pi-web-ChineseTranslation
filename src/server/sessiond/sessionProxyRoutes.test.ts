@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { dirname } from "node:path";
 import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,7 +57,7 @@ describe("machine-scoped session proxy routes", () => {
     app = Fastify({ logger: false });
     await app.register(fastifyWebsocket);
     daemon = await FakeSessionDaemon.create();
-    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed);
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed, (projectId) => Promise.resolve(projectId === "p1" ? [cwd] : []));
 
     const queryCwd = encodeURIComponent(cwd);
     const searchResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions/search?cwd=${queryCwd}&q=needle&embed=management&token=launch-token` });
@@ -75,6 +76,43 @@ describe("machine-scoped session proxy routes", () => {
       { method: "DELETE", path: `/sessions/session-1/pin?cwd=${queryCwd}&embed=management&token=launch-token`, body: undefined },
     ]);
     expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
+  });
+
+  it("limits management cleanup to the selected project's workspace paths", async () => {
+    const cwd = process.cwd();
+    const outsideCwd = dirname(cwd);
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Project 1", root: cwd }, { id: "p2", name: "Project 2", root: outsideCwd }],
+    };
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: cwd,
+      authenticate: () => Promise.resolve(managementContext),
+    };
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed, (projectId) => Promise.resolve(projectId === "p1" ? [cwd] : [outsideCwd]));
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/machines/local/sessions/cleanup/preview?embed=management&token=launch-token",
+      payload: { projectId: "p1", archiveIdleDays: 30, projectCwds: [cwd] },
+    });
+    const rejectedResponse = await app.inject({
+      method: "POST",
+      url: "/api/machines/local/sessions/cleanup?embed=management&token=launch-token",
+      payload: { projectId: "p1", archiveIdleDays: 30, projectCwds: [outsideCwd] },
+    });
+
+    expect(previewResponse.statusCode).toBe(200);
+    expect(rejectedResponse.statusCode).toBe(502);
+    expect(daemon.requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "POST", path: "/sessions/cleanup/preview?embed=management&token=launch-token", body: { projectId: "p1", archiveIdleDays: 30, projectCwds: [cwd] } },
+    ]);
   });
 
   it("strips the machine prefix before forwarding auth requests", async () => {

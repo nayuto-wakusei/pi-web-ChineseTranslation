@@ -8,12 +8,15 @@ export interface SessionProxyDaemon {
   connectWebSocket(path: string, headers?: Record<string, string>): WebSocket;
 }
 
-export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
+export type ManagementProjectCwdResolver = (projectId: string, context: ManagementEmbedContext) => Promise<readonly string[]>;
+
+export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      const body = await managementBody(request.url, request.body, managementContext, managementEmbed);
-      const upstream = await daemon.request(request.method, stripPrefix(request.url, prefix), body, managementHeaders(managementContext));
+      const daemonPath = stripPrefix(request.url, prefix);
+      const body = await managementBody(daemonPath, request.body, managementContext, managementEmbed, resolveManagementProjectCwds);
+      const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext));
       reply.code(upstream.statusCode);
       const contentType = upstream.headers["content-type"];
       if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
@@ -81,9 +84,13 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
 }
 
-async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined): Promise<unknown> {
+async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver): Promise<unknown> {
   if (context === undefined) return body;
-  const path = stripPrefix(url, "");
+  const path = url;
+  const routePath = path.split("?", 1)[0] ?? path;
+  if (routePath === "/sessions/cleanup/preview" || routePath === "/sessions/cleanup") {
+    return await managementCleanupBody(body, context, managementEmbed, resolveManagementProjectCwds);
+  }
   if (path.startsWith("/sessions?") || path.startsWith("/sessions/search?") || path.startsWith("/sessions/pins?") || /\/sessions\/[^/]+\/pin\?/u.test(path)) {
     const cwd = new URL(`http://local${path}`).searchParams.get("cwd");
     if (cwd !== null) await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
@@ -96,6 +103,22 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
     return { ...body, cwd: await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"]) };
   }
   return body;
+}
+
+async function managementCleanupBody(body: unknown, context: ManagementEmbedContext, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver): Promise<unknown> {
+  if (!isRecord(body) || typeof body["projectId"] !== "string" || body["projectId"].trim() === "") {
+    throw new Error("projectId field is required in management embed mode");
+  }
+  if (resolveManagementProjectCwds === undefined) throw new Error("Management cleanup project resolver is unavailable");
+
+  const allowedCwds = [...new Set(await resolveManagementProjectCwds(body["projectId"], context))];
+  const requestedCwds = stringArray(body["projectCwds"]) ?? allowedCwds;
+  const allowedCwdSet = new Set(allowedCwds);
+  for (const cwd of requestedCwds) {
+    const validatedCwd = await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
+    if (!allowedCwdSet.has(validatedCwd)) throw new Error("Cleanup path is outside the selected managed project");
+  }
+  return { ...body, projectCwds: [...new Set(requestedCwds)] };
 }
 
 function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
@@ -140,4 +163,10 @@ function closeSocketWithError(socket: WebSocket, error: unknown): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("projectCwds field must be an array of strings");
+  return value;
 }

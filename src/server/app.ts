@@ -15,7 +15,7 @@ import { loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConf
 import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
-import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
@@ -221,6 +221,10 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
   const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
+  const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
+    const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, projectId, { create: false });
+    return (await workspaces.list(project)).map((workspace) => workspace.path);
+  };
   const normalAuth = new NormalModeAuthService(configService);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
@@ -259,8 +263,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerLocalProjectRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
   registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
 
-  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
-  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds);
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
   registerGitRoutes(app, projects, workspaces, "/api", managementEmbed);

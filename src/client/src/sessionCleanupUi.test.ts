@@ -46,6 +46,7 @@ describe("session cleanup UI helpers", () => {
 
   it("normalizes request keys for null, omitted disabled actions, and selected projects", () => {
     expect(sessionCleanupRequestKey({ archiveIdleDays: 30 })).toBe(sessionCleanupRequestKey({ archiveIdleDays: 30, deleteArchivedDays: null, projectCwds: ["/repo"] }));
+    expect(sessionCleanupRequestKey({ archiveIdleDays: 30, projectId: "p1" })).not.toBe(sessionCleanupRequestKey({ archiveIdleDays: 30, projectId: "p2" }));
   });
 
   it("summarizes the preview for selected projects", () => {

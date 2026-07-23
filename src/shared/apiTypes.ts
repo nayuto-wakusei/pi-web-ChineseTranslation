@@ -295,6 +295,8 @@ export interface SessionCleanupRequest {
   archiveIdleDays?: number | null;
   /** Permanently delete archived sessions whose archivedAt time is older than this many days. Omit/null to disable. */
   deleteArchivedDays?: number | null;
+  /** Current management-embed project id. Normal mode leaves this unset. */
+  projectId?: string | null;
   /** Stored cwd paths selected from a preview. Omit/null to include all discovered project/workspace paths. */
   projectCwds?: string[] | null;
 }
