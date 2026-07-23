@@ -667,9 +667,12 @@ export class TerminalPanel extends LitElement {
         </div>
         ${this.error === undefined ? null : html`<p class="error">${this.error}</p>`}
         ${this.renderCommandRunNotice()}
-        ${this.shouldShowSoftKeys() ? this.renderSoftKeys() : null}
+        ${this.renderTerminalAccessoryBar()}
         ${this.loading ? html`<p class="muted">正在加载终端…</p>` : null}
-        <div class="terminal-host"></div>
+        <div class="terminal-stage">
+          <div class=${this.copySnapshot === undefined ? "terminal-host" : "terminal-host copying"} ?inert=${this.copySnapshot !== undefined}></div>
+          ${this.renderCopyMode()}
+        </div>
       </section>
     `;
   }

@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.10
+
+### Patch Changes
+
+- 修复点击终端按钮后终端区域错误占满页面的问题。
+
 ## 1.202607.9
 
 ### Patch Changes
