@@ -84,10 +84,13 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined): Promise<unknown> {
   if (context === undefined) return body;
   const path = stripPrefix(url, "");
-  if (path.startsWith("/sessions?")) {
+  if (path.startsWith("/sessions?") || path.startsWith("/sessions/search?") || path.startsWith("/sessions/pins?") || /\/sessions\/[^/]+\/pin\?/u.test(path)) {
     const cwd = new URL(`http://local${path}`).searchParams.get("cwd");
     if (cwd !== null) await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
     return body;
+  }
+  if (/\/sessions\/[^/]+\/pin$/u.test(path) && isRecord(body) && typeof body["cwd"] === "string") {
+    return { ...body, cwd: await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"], { create: false }) };
   }
   if (path === "/sessions" && isRecord(body) && typeof body["cwd"] === "string") {
     return { ...body, cwd: await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"]) };

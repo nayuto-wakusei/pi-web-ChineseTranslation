@@ -15,6 +15,8 @@ import type {
   ClientSessionModel,
   ClientSessionRef,
   ClientSessionStatus,
+  SessionPinResponse,
+  SessionPinnedIdsResponse,
   ClientThinkingLevel,
 } from "../types.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
@@ -32,6 +34,9 @@ export type SessionRouteLookup = string | SessionRouteRef;
  */
 export interface SessionRouteService {
   list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
+  search(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
+  listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse>;
+  setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
   start(cwd: string, options?: { managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

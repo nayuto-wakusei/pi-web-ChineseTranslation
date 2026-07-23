@@ -17,6 +17,8 @@ export type {
   CommandOption as ClientCommandOption,
   CommandResult as ClientCommandResult,
   SessionActivity as ClientSessionActivity,
+  SessionPinResponse,
+  SessionPinnedIdsResponse,
   SessionUiEvent,
   GlobalSessionEvent,
 } from "../shared/apiTypes.js";

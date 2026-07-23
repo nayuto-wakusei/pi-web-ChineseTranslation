@@ -40,6 +40,43 @@ describe("machine-scoped session proxy routes", () => {
     expect(daemon.requests).toEqual([{ method: "POST", path: "/sessions/session-1/queue/clear", body: { cwd: "/repo" } }]);
   });
 
+  it("validates management cwd context for session search and pin routes", async () => {
+    const cwd = process.cwd();
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Project 1", root: cwd }],
+    };
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: cwd,
+      authenticate: () => Promise.resolve(managementContext),
+    };
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", managementEmbed);
+
+    const queryCwd = encodeURIComponent(cwd);
+    const searchResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions/search?cwd=${queryCwd}&q=needle&embed=management&token=launch-token` });
+    const pinsResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions/pins?cwd=${queryCwd}&embed=management&token=launch-token` });
+    const pinResponse = await app.inject({ method: "PUT", url: "/api/machines/local/sessions/session-1/pin?embed=management&token=launch-token", payload: { cwd } });
+    const unpinResponse = await app.inject({ method: "DELETE", url: `/api/machines/local/sessions/session-1/pin?cwd=${queryCwd}&embed=management&token=launch-token` });
+
+    expect(searchResponse.statusCode).toBe(200);
+    expect(pinsResponse.statusCode).toBe(200);
+    expect(pinResponse.statusCode).toBe(200);
+    expect(unpinResponse.statusCode).toBe(200);
+    expect(daemon.requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "GET", path: `/sessions/search?cwd=${queryCwd}&q=needle&embed=management&token=launch-token`, body: undefined },
+      { method: "GET", path: `/sessions/pins?cwd=${queryCwd}&embed=management&token=launch-token`, body: undefined },
+      { method: "PUT", path: "/sessions/session-1/pin?embed=management&token=launch-token", body: { cwd } },
+      { method: "DELETE", path: `/sessions/session-1/pin?cwd=${queryCwd}&embed=management&token=launch-token`, body: undefined },
+    ]);
+    expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
+  });
+
   it("strips the machine prefix before forwarding auth requests", async () => {
     const response = await app.inject({ method: "POST", url: "/api/machines/local/auth/api-key", payload: { providerId: "p", key: "k" } });
 
@@ -167,6 +204,7 @@ interface FakeSessionDaemonResponse {
 
 class FakeSessionDaemon {
   readonly requests: { method: string; path: string; body: unknown }[] = [];
+  readonly requestHeaders: (Record<string, string> | undefined)[] = [];
   readonly websocketPaths: string[] = [];
   readonly websocketHeaders: (Record<string, string> | undefined)[] = [];
   private readonly queuedResponses: (FakeSessionDaemonResponse | Error)[] = [];
@@ -193,8 +231,9 @@ class FakeSessionDaemon {
     this.queuedResponses.push(error);
   }
 
-  request(method: string, path: string, body?: unknown): Promise<FakeSessionDaemonResponse> {
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<FakeSessionDaemonResponse> {
     this.requests.push({ method, path, body });
+    this.requestHeaders.push(headers);
     const queuedResponse = this.queuedResponses.shift();
     if (queuedResponse instanceof Error) return Promise.reject(queuedResponse);
     return Promise.resolve(queuedResponse ?? { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });

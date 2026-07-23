@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-import { isRenamableSession, sessionRenameInput, sessionRowActivityKind, sessionRowsForCurrentTree } from "./SessionList";
+import { isRenamableSession, sessionRenameInput, sessionRowActivityKind, sessionRowsForCurrentTree, sessionsForSearchResults } from "./SessionList";
 
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
@@ -116,6 +116,28 @@ describe("sessionRowsForCurrentTree", () => {
     expect(rowSummaries(sessionRowsForCurrentTree([child]))).toEqual([
       { id: "child", depth: 0, hasMissingParent: true },
     ]);
+  });
+
+  it("moves a tree with a pinned descendant ahead of newer unpinned trees", () => {
+    const newerRoot = session("newer", { modified: "2026-06-10T00:00:00.000Z" });
+    const olderRoot = session("older", { modified: "2026-06-09T00:00:00.000Z" });
+    const pinnedChild = session("pinned-child", { parentSessionPath: olderRoot.path, modified: "2026-06-08T00:00:00.000Z" });
+
+    expect(rowSummaries(sessionRowsForCurrentTree([newerRoot, olderRoot, pinnedChild], [pinnedChild.id]))).toEqual([
+      { id: "older", depth: 0, hasMissingParent: false },
+      { id: "pinned-child", depth: 1, hasMissingParent: false },
+      { id: "newer", depth: 0, hasMissingParent: false },
+    ]);
+  });
+});
+
+describe("sessionsForSearchResults", () => {
+  it("keeps matching session ancestors and archived results in the navigation tree", () => {
+    const parent = session("parent");
+    const child = session("child", { parentSessionPath: parent.path });
+    const archived = { ...session("archived"), archived: true, archivedAt: "2026-06-10T00:00:00.000Z" };
+
+    expect(sessionsForSearchResults([parent, child, archived], [child, archived]).map((candidate) => candidate.id)).toEqual(["parent", "child", "archived"]);
   });
 });
 

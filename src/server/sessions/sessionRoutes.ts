@@ -14,6 +14,10 @@ interface SessionQuery {
   cwd?: string;
 }
 
+interface SearchQuery extends SessionQuery {
+  q?: string;
+}
+
 interface MessageQuery extends SessionQuery {
   before?: string;
   limit?: string;
@@ -37,6 +41,25 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     try {
       return await sessions.list(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Querystring: SearchQuery }>(`${prefix}/sessions/search`, async (request, reply) => {
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.q === undefined) return reply.code(400).send({ error: "q query parameter is required" });
+    try {
+      return await sessions.search(normalizeRequestCwd(request.query.cwd), request.query.q, managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions/pins`, async (request, reply) => {
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    try {
+      return await sessions.listPinned(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -82,6 +105,23 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.post<{ Body: SessionBulkMutationRequest | undefined }>(`${prefix}/sessions/bulk/delete-archived`, async (request, reply) => {
     try {
       return await sessions.deleteArchivedMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/pin`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, body), true, managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/pin`, async (request, reply) => {
+    try {
+      return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, request.query), false, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -354,6 +394,12 @@ function sessionLookupFromBody(id: string, body: Record<string, unknown>): Sessi
   const cwd = body["cwd"];
   if (cwd === undefined || cwd === "") return id;
   if (typeof cwd !== "string") throw new Error("cwd field must be a string");
+  return { id, cwd: normalizeRequestCwd(cwd) };
+}
+
+function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery): SessionLookup {
+  const cwd = value.cwd;
+  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd query parameter is required");
   return { id, cwd: normalizeRequestCwd(cwd) };
 }
 

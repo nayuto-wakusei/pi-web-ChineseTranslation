@@ -1,4 +1,4 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionPinResponse, SessionPinnedIdsResponse, SessionStatus, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
 import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
 
 export { arrayOf } from "./parsers/core";
@@ -92,6 +92,16 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
   };
+}
+
+export function parseSessionPinnedIdsResponse(value: unknown): SessionPinnedIdsResponse {
+  const record = requireRecord(value);
+  return { sessionIds: arrayOfString(record["sessionIds"], "sessionIds") };
+}
+
+export function parseSessionPinResponse(value: unknown): SessionPinResponse {
+  const record = requireRecord(value);
+  return { pinned: requireBoolean(record, "pinned") };
 }
 
 export function parseSessionStatus(value: unknown): SessionStatus {
