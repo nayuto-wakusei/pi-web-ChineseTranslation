@@ -24,6 +24,11 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) workspaces: Workspace[] = [];
   @property({ attribute: false }) selectedWorkspace?: Workspace;
   @property({ attribute: false }) sessions: SessionInfo[] = [];
+  @property({ attribute: false }) pinnedSessionIds: string[] = [];
+  @property({ type: String }) sessionSearchQuery = "";
+  @property({ attribute: false }) sessionSearchResults?: SessionInfo[];
+  @property({ type: Boolean }) isSearchingSessions = false;
+  @property({ type: String }) sessionSearchError = "";
   @property({ attribute: false }) selectedSession?: SessionInfo;
   @property({ attribute: false }) workspaceActivities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) sessionActivities: Record<string, SessionActivity> = {};
@@ -58,6 +63,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onDeleteWorkspace?: (workspace: Workspace) => void | Promise<void>;
   @property({ attribute: false }) onStartSession?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectSession?: (session: SessionInfo) => void | Promise<void>;
+  @property({ attribute: false }) onSearchSessions?: (query: string) => void;
+  @property({ attribute: false }) onToggleSessionPin?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onArchiveSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onArchiveSessionWithDescendants?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onArchiveSessions?: (sessions: SessionInfo[]) => void | Promise<void>;
@@ -158,6 +165,11 @@ export class AppNavigationPanel extends LitElement {
       ></workspace-list>
       <session-list
         .sessions=${this.sessions}
+        .pinnedSessionIds=${this.pinnedSessionIds}
+        .searchQuery=${this.sessionSearchQuery}
+        .searchResults=${this.sessionSearchResults}
+        .searching=${this.isSearchingSessions}
+        .searchError=${this.sessionSearchError}
         .statuses=${this.sessionStatuses}
         .activities=${this.sessionActivities}
         .sending=${this.sendingPrompts}
@@ -176,6 +188,8 @@ export class AppNavigationPanel extends LitElement {
         .onArchivedCollapsed=${() => this.onArchivedCollapsed?.()}
         .onStart=${() => this.onStartSession?.()}
         .onSelect=${(session: SessionInfo) => this.onSelectSession?.(session)}
+        .onSearch=${(query: string) => this.onSearchSessions?.(query)}
+        .onTogglePin=${(session: SessionInfo) => this.onToggleSessionPin?.(session)}
         .onArchive=${(session: SessionInfo) => this.onArchiveSession?.(session)}
         .onArchiveWithDescendants=${(session: SessionInfo) => this.onArchiveSessionWithDescendants?.(session)}
         .onArchiveMany=${(sessions: SessionInfo[]) => this.onArchiveSessions?.(sessions)}

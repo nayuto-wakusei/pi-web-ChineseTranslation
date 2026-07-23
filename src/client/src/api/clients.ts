@@ -40,6 +40,8 @@ import {
   parseSessionCleanupExecuteResponse,
   parseSessionCleanupPreviewResponse,
   parseSessionInfo,
+  parseSessionPinResponse,
+  parseSessionPinnedIdsResponse,
   parseSessionStatus,
   parseSlashCommand,
   parseStopped,
@@ -236,6 +238,10 @@ export const workspacesApi = {
 
 export const sessionsApi = {
   sessions: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo)),
+  search: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search?${new URLSearchParams({ cwd, q: query }).toString()}`, arrayOf(parseSessionInfo)),
+  pinned: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/pins?cwd=${encodeURIComponent(cwd)}`, parseSessionPinnedIdsResponse),
+  pin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
+  unpin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),
   startSession: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions`, parseSessionInfo, { method: "POST", body: JSON.stringify({ cwd }) }),
   cleanupPreview: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup/preview`, parseSessionCleanupPreviewResponse, { method: "POST", body: JSON.stringify(input) }),
   cleanup: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup`, parseSessionCleanupExecuteResponse, { method: "POST", body: JSON.stringify(input) }),

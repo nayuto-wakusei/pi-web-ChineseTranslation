@@ -950,7 +950,9 @@ export class PiWebApp extends LitElement {
       this.rememberCurrentMachineNavigation();
       this.writeSelectedTerminalToUrl(selectedTerminalId, { replace: true });
     }
+    this.sessions.updatePolling();
     if (next.selectedWorkspace === undefined) return;
+    void this.sessions.refreshPinnedSessions(next.selectedWorkspace.path, selectedMachineId(this.state));
     void this.refreshActiveTerminals(next.selectedWorkspace);
     void this.refreshWorkspaceDeletionRuns();
     this.refreshSelectedWorkspaceTool(next.workspaceTool);
@@ -1061,6 +1063,7 @@ export class PiWebApp extends LitElement {
     this.activeTerminalIds.clear();
     this.sessionCleanupDialog = undefined;
     this.setState({ piWebStatus: undefined });
+    this.sessions.updatePolling();
     this.git.updatePolling();
     void this.loadPluginsForSelectedMachine();
   }
@@ -1299,6 +1302,11 @@ export class PiWebApp extends LitElement {
         .selectedWorkspace=${this.state.selectedWorkspace}
         .deletingWorkspaceIds=${pendingWorkspaceDeletionIds(this.state.workspaceDeletionRuns)}
         .sessions=${this.state.sessions}
+        .pinnedSessionIds=${this.state.pinnedSessionIds}
+        .sessionSearchQuery=${this.state.sessionSearchQuery}
+        .sessionSearchResults=${this.state.sessionSearchResults}
+        .isSearchingSessions=${this.state.isSearchingSessions}
+        .sessionSearchError=${this.state.sessionSearchError}
         .sessionStatuses=${this.state.sessionStatuses}
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
@@ -1329,6 +1337,8 @@ export class PiWebApp extends LitElement {
         .onArchivedCollapsed=${() => { this.sessions.clearSelectionAfterArchivedCollapse(); }}
         .onStartSession=${() => this.startSessionFromNavigation()}
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
+        .onSearchSessions=${(query: string) => { this.sessions.searchSessions(query); }}
+        .onToggleSessionPin=${(session: SessionInfo) => { this.sessions.togglePinned(session); }}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
         .onArchiveSessions=${(sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions)}

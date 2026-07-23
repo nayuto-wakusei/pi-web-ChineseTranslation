@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionPinResponse, parseSessionPinnedIdsResponse, parseSessionStatus, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -340,6 +340,13 @@ describe("API parsers", () => {
       firstMessage: "",
     });
     expect(() => parseSessionInfo({ id: "s1", path: "", cwd: "/repo", persisted: "yes", created: "now", modified: "now", messageCount: 0, firstMessage: "" })).toThrow("Expected optional boolean field: persisted");
+  });
+
+  it("parses session search and pin responses", () => {
+    expect(parseSessionPinnedIdsResponse({ sessionIds: ["s1", "s2"] })).toEqual({ sessionIds: ["s1", "s2"] });
+    expect(parseSessionPinResponse({ pinned: true })).toEqual({ pinned: true });
+    expect(() => parseSessionPinnedIdsResponse({ sessionIds: ["s1", 2] })).toThrow("Expected string array field: sessionIds");
+    expect(() => parseSessionPinResponse({ pinned: "yes" })).toThrow("Expected boolean field: pinned");
   });
 
   it("validates session status including optional model and nullable context usage", () => {

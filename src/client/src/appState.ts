@@ -12,6 +12,11 @@ export interface AppState {
   projects: Project[];
   workspaces: Workspace[];
   sessions: SessionInfo[];
+  pinnedSessionIds: string[];
+  sessionSearchQuery: string;
+  sessionSearchResults: SessionInfo[] | undefined;
+  isSearchingSessions: boolean;
+  sessionSearchError: string;
   messages: ChatLine[];
   messagePageStart: number;
   messagePageEnd: number;
@@ -81,6 +86,11 @@ export type AuthDialogState =
 
 export type WorkspaceScopedStateReset = Pick<AppState,
   | "sessions"
+  | "pinnedSessionIds"
+  | "sessionSearchQuery"
+  | "sessionSearchResults"
+  | "isSearchingSessions"
+  | "sessionSearchError"
   | "clientQueuedSessionMessages"
   | "startingSessionCount"
   | "fileTree"
@@ -100,6 +110,11 @@ export type WorkspaceScopedStateReset = Pick<AppState,
 export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
   return {
     sessions: [],
+    pinnedSessionIds: [],
+    sessionSearchQuery: "",
+    sessionSearchResults: undefined,
+    isSearchingSessions: false,
+    sessionSearchError: "",
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,
     fileTree: [],
@@ -127,6 +142,11 @@ export function initialAppState(): AppState {
     projects: [],
     workspaces: [],
     sessions: [],
+    pinnedSessionIds: [],
+    sessionSearchQuery: "",
+    sessionSearchResults: undefined,
+    isSearchingSessions: false,
+    sessionSearchError: "",
     messages: [],
     messagePageStart: 0,
     messagePageEnd: 0,

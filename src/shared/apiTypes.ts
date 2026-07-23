@@ -247,6 +247,14 @@ export interface SessionInfo extends SessionRef {
   archivedAt?: string;
 }
 
+export interface SessionPinnedIdsResponse {
+  sessionIds: string[];
+}
+
+export interface SessionPinResponse {
+  pinned: boolean;
+}
+
 export interface ArchiveSessionsResponse {
   archived: true;
   sessionIds?: string[];

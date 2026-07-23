@@ -299,6 +299,36 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
+
+  it("routes session search and pin operations with workspace context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const searchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search?cwd=${encodeURIComponent(requestCwd)}&q=full%20text` });
+      const pinsResponse = await routeApp.inject({ method: "GET", url: `/sessions/pins?cwd=${encodeURIComponent(requestCwd)}` });
+      const pinResponse = await routeApp.inject({ method: "PUT", url: "/sessions/session-1/pin", payload: { cwd: requestCwd } });
+      const unpinResponse = await routeApp.inject({ method: "DELETE", url: `/sessions/session-1/pin?cwd=${encodeURIComponent(requestCwd)}` });
+
+      expect(searchResponse.statusCode).toBe(200);
+      expect(pinsResponse.statusCode).toBe(200);
+      expect(pinResponse.statusCode).toBe(200);
+      expect(unpinResponse.statusCode).toBe(200);
+      expect(routeService.searchCalls).toEqual([{ cwd: requestCwd, query: "full text" }]);
+      expect(routeService.pinnedCalls).toEqual([requestCwd]);
+      expect(routeService.pinCalls).toEqual([
+        { lookup: { id: "session-1", cwd: requestCwd }, pinned: true },
+        { lookup: { id: "session-1", cwd: requestCwd }, pinned: false },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
 });
 
 class CapturingRouteSessionService implements SessionRouteService {
@@ -310,6 +340,9 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly cleanupCalls: NormalizedSessionCleanupRequest[] = [];
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
+  readonly searchCalls: { cwd: string; query: string }[] = [];
+  readonly pinnedCalls: string[] = [];
+  readonly pinCalls: { lookup: SessionRouteLookup; pinned: boolean }[] = [];
   reloadError: Error | undefined;
   clearQueueError: Error | undefined;
 
@@ -344,6 +377,21 @@ class CapturingRouteSessionService implements SessionRouteService {
   }
 
   list(): never { throw unusedRouteMethod("list"); }
+  search(cwd: string, query: string): Promise<[]> {
+    this.searchCalls.push({ cwd, query });
+    return Promise.resolve([]);
+  }
+
+  listPinned(cwd: string): Promise<{ sessionIds: string[] }> {
+    this.pinnedCalls.push(cwd);
+    return Promise.resolve({ sessionIds: [] });
+  }
+
+  setPinned(lookup: SessionRouteLookup, pinned: boolean): Promise<{ pinned: boolean }> {
+    this.pinCalls.push({ lookup, pinned });
+    return Promise.resolve({ pinned });
+  }
+
   start(): never { throw unusedRouteMethod("start"); }
 
   clearQueue(lookup: SessionRouteLookup): Promise<SessionStatus> {

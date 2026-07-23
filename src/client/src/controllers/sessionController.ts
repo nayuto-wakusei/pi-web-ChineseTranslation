@@ -18,6 +18,7 @@ import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 
 const MESSAGE_PAGE_SIZE = 100;
 const BULK_FALLBACK_CONCURRENCY = 4;
+const SESSION_LIST_REFRESH_MS = 5000;
 
 export interface SessionEventSocket {
   connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId?: string): void;
@@ -77,6 +78,10 @@ export class SessionController {
   private pendingStatusBySession = new Map<string, SessionStatus>();
   private pendingActivityBySession = new Map<string, SessionActivity>();
   private pendingFrame: number | undefined;
+  private sessionPollTimer: ReturnType<typeof setInterval> | undefined;
+  private sessionRefreshInFlight = false;
+  private searchTimer: ReturnType<typeof setTimeout> | undefined;
+  private searchSeq = 0;
   private pendingSessionStartSeq = 0;
   private pendingQueuedSendSeq = 0;
   private readonly pendingSessionStarts = new Map<string, PendingSessionStart>();
@@ -104,8 +109,24 @@ export class SessionController {
 
   dispose() {
     this.selectionSeq += 1;
+    this.searchSeq += 1;
+    this.stopPolling();
+    if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
+    this.searchTimer = undefined;
     this.socket.close();
     this.clearPendingUpdates();
+  }
+
+  updatePolling(): void {
+    this.stopPolling();
+    if (this.getState().selectedWorkspace === undefined) return;
+    this.sessionPollTimer = setInterval(() => {
+      if (this.sessionRefreshInFlight) return;
+      this.sessionRefreshInFlight = true;
+      void this.refreshCurrentWorkspaceSessions().finally(() => {
+        this.sessionRefreshInFlight = false;
+      });
+    }, SESSION_LIST_REFRESH_MS);
   }
 
   clearActiveSession() {
@@ -146,6 +167,69 @@ export class SessionController {
       await this.resolvePendingSessionStart(pending.tempId, session);
     } catch (error) {
       this.failPendingSessionStart(pending.tempId, error);
+    }
+  }
+
+  async refreshPinnedSessions(cwd: string, machineId = selectedMachineId(this.getState())): Promise<void> {
+    try {
+      const result = await this.api.pinned(cwd, machineId);
+      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedWorkspace?.path !== cwd) return;
+      this.setState({ pinnedSessionIds: result.sessionIds });
+    } catch {
+      if (selectedMachineId(this.getState()) === machineId && this.getState().selectedWorkspace?.path === cwd) this.setState({ pinnedSessionIds: [] });
+    }
+  }
+
+  togglePinned(session: SessionInfo): void {
+    if (session.persisted === false) return;
+    const state = this.getState();
+    const wasPinned = state.pinnedSessionIds.includes(session.id);
+    const nextPinned = wasPinned ? state.pinnedSessionIds.filter((id) => id !== session.id) : [...state.pinnedSessionIds, session.id];
+    const machineId = selectedMachineId(state);
+    this.setState({ pinnedSessionIds: nextPinned });
+    void (async () => {
+      try {
+        const result = wasPinned ? await this.api.unpin(session, machineId) : await this.api.pin(session, machineId);
+        const current = this.getState();
+        if (selectedMachineId(current) !== machineId || current.selectedWorkspace?.path !== session.cwd) return;
+        const pinned = result.pinned;
+        this.setState({ pinnedSessionIds: pinned ? [...new Set([...this.getState().pinnedSessionIds, session.id])] : this.getState().pinnedSessionIds.filter((id) => id !== session.id) });
+      } catch (error) {
+        const current = this.getState();
+        if (selectedMachineId(current) !== machineId || current.selectedWorkspace?.path !== session.cwd) return;
+        this.setState({ pinnedSessionIds: wasPinned ? [...new Set([...current.pinnedSessionIds, session.id])] : current.pinnedSessionIds.filter((id) => id !== session.id), error: String(error) });
+      }
+    })();
+  }
+
+  searchSessions(query: string): void {
+    const state = this.getState();
+    const workspace = state.selectedWorkspace;
+    const machineId = selectedMachineId(state);
+    this.searchSeq += 1;
+    const seq = this.searchSeq;
+    if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
+    this.searchTimer = undefined;
+    this.setState({ sessionSearchQuery: query, sessionSearchResults: undefined, isSearchingSessions: false, sessionSearchError: "" });
+    const normalizedQuery = query.trim();
+    if (workspace === undefined || normalizedQuery === "") return;
+    this.setState({ isSearchingSessions: true });
+    this.searchTimer = setTimeout(() => {
+      this.searchTimer = undefined;
+      void this.performSessionSearch(seq, normalizedQuery, workspace.id, workspace.path, machineId);
+    }, 250);
+  }
+
+  private async performSessionSearch(seq: number, query: string, workspaceId: string, cwd: string, machineId: string): Promise<void> {
+    try {
+      const results = await this.api.search(cwd, query, machineId);
+      const state = this.getState();
+      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId || state.sessionSearchQuery.trim() !== query) return;
+      this.setState({ sessionSearchResults: results, isSearchingSessions: false });
+    } catch (error) {
+      const state = this.getState();
+      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId) return;
+      this.setState({ sessionSearchResults: [], isSearchingSessions: false, sessionSearchError: String(error) });
     }
   }
 
@@ -496,6 +580,7 @@ export class SessionController {
           if (next !== undefined) await this.selectSession(next);
           else this.deselectSession({ forgetRememberedSelection: true });
         }
+        await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
       this.applyBulkSessionFailures("Delete", failures);
     } catch (error) {
@@ -571,6 +656,7 @@ export class SessionController {
       const sessions = this.mergePendingStartSessions(workspace.path, listedSessions, machineId);
       const selectedSession = this.getState().selectedSession;
       this.setState({ sessions });
+      void this.refreshPinnedSessions(workspace.path, machineId);
       if (selectedSession === undefined) return;
       const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
       if (refreshedSelected !== undefined) {
@@ -583,6 +669,12 @@ export class SessionController {
     } catch (error) {
       if (selectedMachineId(this.getState()) === machineId && this.getState().selectedWorkspace?.id === workspace.id) this.setState({ error: String(error) });
     }
+  }
+
+  private stopPolling(): void {
+    if (this.sessionPollTimer !== undefined) clearInterval(this.sessionPollTimer);
+    this.sessionPollTimer = undefined;
+    this.sessionRefreshInFlight = false;
   }
 
   async deleteCachedNewSession(session = this.getState().selectedSession) {

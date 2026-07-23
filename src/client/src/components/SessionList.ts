@@ -27,6 +27,11 @@ type SessionSelectionScope = "current" | "archived";
 @customElement("session-list")
 export class SessionList extends LitElement implements KeyboardNavigableSection {
   @property({ attribute: false }) sessions: SessionInfo[] = [];
+  @property({ attribute: false }) pinnedSessionIds: string[] = [];
+  @property({ type: String }) searchQuery = "";
+  @property({ attribute: false }) searchResults?: SessionInfo[];
+  @property({ type: Boolean }) searching = false;
+  @property({ type: String }) searchError = "";
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
   @property({ attribute: false }) sending: Record<string, true> = {};
@@ -42,6 +47,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
+  @property({ attribute: false }) onSearch?: (query: string) => void;
+  @property({ attribute: false }) onTogglePin?: (session: SessionInfo) => void;
   @property({ attribute: false }) onStart?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onArchivedCollapsed?: () => void;
@@ -66,9 +73,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @state() private selectedSessionIds: ReadonlySet<string> = new Set();
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("sessions")) {
-      this.menu.closeIfOpenIdMissing((sessionId) => this.sessions.some((session) => session.id === sessionId));
-      if (!this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
+    if (changed.has("sessions") || changed.has("searchResults")) {
+      const visibleSessions = this.visibleSessions();
+      this.menu.closeIfOpenIdMissing((sessionId) => visibleSessions.some((session) => session.id === sessionId));
+      if (!visibleSessions.some((session) => session.archived === true)) this.archivedExpanded = false;
+      else if (this.searchQuery.trim() !== "" && this.searchResults?.some((session) => session.archived === true) === true) this.archivedExpanded = true;
       this.pruneSelectedSessionIds();
     }
     if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
@@ -78,7 +87,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       void this.updateComplete.then(() => { this.scrollSelectedIntoView(); });
       return;
     }
-    if ((changed.has("selected") || changed.has("sessions") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
+    if ((changed.has("selected") || changed.has("sessions") || changed.has("searchResults") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
   }
 
   async focusSelectedOrFirst(): Promise<boolean> {
@@ -87,16 +96,18 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   override render() {
-    const currentRows = sessionRowsForCurrentTree(this.sessions);
+    const visibleSessions = this.visibleSessions();
+    const currentRows = sessionRowsForCurrentTree(visibleSessions, this.pinnedSessionIds);
     const currentRowIds = new Set(currentRows.map((row) => row.session.id));
     const currentSelectableSessions = currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
-    const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)));
-    const descendantCounts = unarchivedDescendantCounts(this.sessions);
+    const archivedRows = sessionRows(visibleSessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
+    const descendantCounts = unarchivedDescendantCounts(visibleSessions);
     return html`
       <section>
         ${this.renderHeading(currentRows.length + archivedRows.length, currentSelectableSessions)}
         ${this.collapsed ? null : html`
           <div class="list-body">
+            ${this.renderSearchStatus()}
             ${this.renderCurrentSelectionToolbar(currentSelectableSessions)}
             ${this.startingCount > 0 ? this.renderStartingSession() : null}
             ${currentRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0, "current"))}
@@ -118,6 +129,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       return html`
         <h2>
           会话
+          ${this.renderSearchInput()}
           ${this.renderCurrentSelectionButton(currentSessions)}
           ${this.renderCleanupButton()}
           ${this.renderStartButton()}
@@ -129,12 +141,31 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return html`
       <h2>
         <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} 会话</span>${this.collapsed ? html`<small class="section-selected" dir="auto" title=${selectedTitle}>${selectedSummary}</small>` : null}</span></button>
+        ${this.renderSearchInput()}
         ${this.renderCurrentSelectionButton(currentSessions)}
         <small class="section-count">${sessionCount}</small>
         ${this.renderCleanupButton()}
         ${this.renderStartButton()}
       </h2>
     `;
+  }
+
+  private renderSearchInput() {
+    if (this.collapsed) return null;
+    return html`<input class="session-search" type="search" placeholder="搜索会话" aria-label="搜索会话" .value=${this.searchQuery} @input=${(event: Event) => { if (event.currentTarget instanceof HTMLInputElement) this.onSearch?.(event.currentTarget.value); }}>`;
+  }
+
+  private renderSearchStatus() {
+    if (this.searchError !== "") return html`<div class="search-status error" role="status">搜索失败：${this.searchError}</div>`;
+    if (this.searching) return html`<div class="search-status" role="status">正在搜索…</div>`;
+    if (this.searchQuery.trim() !== "" && this.visibleSessions().length === 0) return html`<div class="search-status" role="status">未找到匹配会话</div>`;
+    return null;
+  }
+
+  private visibleSessions(): SessionInfo[] {
+    if (this.searchQuery.trim() === "") return this.sessions;
+    if (this.searchResults === undefined) return [];
+    return sessionsForSearchResults(this.sessions, this.searchResults);
   }
 
   private renderCurrentSelectionButton(currentSessions: SessionInfo[]) {
@@ -225,9 +256,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const canRename = isRenamableSession(session, status, persistenceOptions);
     const canDeleteTransient = isTransientNewSessionInfo(session, status, persistenceOptions);
     const canReloadSession = canArchive && this.canReload;
+    const pinned = this.pinnedSessionIds.includes(session.id);
+    const canPin = session.persisted !== false;
     return html`
       <div
-        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""}"
+        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${pinned ? "pinned" : ""}"
         style=${`--depth:${String(cappedDepth)}`}
         tabindex="0"
         title=${session.path}
@@ -236,7 +269,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       >
         <div class="action-main ${selectionActive ? "selecting" : ""}">
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${`选择 ${sessionLabel(session)}`} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
-          <span class="action-name" dir="auto">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} 条消息</small>
+          <span class="action-name" dir="auto">${row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null}${pinned ? html`<span class="pin-indicator" title="已置顶" aria-label="已置顶">★</span>` : null}${sessionLabel(session)}${row.depth > 2 ? html` <span class="badge">深度 ${row.depth}</span>` : null}${row.hasMissingParent ? html` <span class="badge">父会话不可用</span>` : null}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} 条消息</small>
           ${this.renderActivity(session)}
         </div>
         <div class="action-menu">
@@ -245,12 +278,14 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
             <div class="action-menu-panel" style=${this.menu.menuStyle}>
               ${session.archived === true
                 ? html`
+                    ${canPin ? html`<button title=${pinned ? "取消置顶会话" : "置顶会话"} @click=${() => { this.menu.close(); this.onTogglePin?.(session); }}>${pinned ? "取消置顶" : "置顶"}</button>` : null}
                     <button title="恢复会话" @click=${() => { this.menu.close(); this.onRestore?.(session); }}>恢复</button>
                     <button class="danger" title=${this.canDeleteArchived ? "永久删除已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.menu.close(); this.confirmDeleteArchived(session); }}>删除已归档会话</button>
                   `
-                : canDeleteTransient
+                  : canDeleteTransient
                   ? html`<button title="删除临时新会话" @click=${() => { this.menu.close(); this.onDelete?.(session); }}>删除</button>`
                   : html`
+                    ${canPin ? html`<button title=${pinned ? "取消置顶会话" : "置顶会话"} @click=${() => { this.menu.close(); this.onTogglePin?.(session); }}>${pinned ? "取消置顶" : "置顶"}</button>` : null}
                     ${canRename ? html`<button title="重命名会话" @click=${() => { this.renameSession(session); }}>重命名</button>` : null}
                     ${canArchive ? html`
                       <button title="归档会话" @click=${() => { this.menu.close(); this.onArchive?.(session); }}>归档</button>
@@ -409,6 +444,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .bulk-row .capability-hint { flex: 1 0 100%; color: var(--pi-warning); }
     .bulk-row.selecting { padding: 6px; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: color-mix(in srgb, var(--pi-surface) 65%, transparent); }
+    .session-search { box-sizing: border-box; flex: 1 1 120px; min-width: 80px; max-width: 180px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; font: inherit; text-transform: none; }
+    .session-search:focus-visible { border-color: var(--pi-accent); outline: 2px solid var(--pi-accent); outline-offset: 1px; }
+    .search-status { margin: 0 0 6px; color: var(--pi-muted); font-size: 12px; }
+    .search-status.error { color: var(--pi-danger); }
+    .pin-indicator { margin-right: 5px; color: var(--pi-accent); font-size: 11px; }
     button.danger, .action-menu-panel button.danger { color: var(--pi-danger); }
     button.danger:hover, .action-menu-panel button.danger:hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
     .action-row.bulk-selected .action-main { border-color: var(--pi-accent); box-shadow: inset 3px 0 0 var(--pi-accent); }
@@ -484,7 +524,27 @@ export function sessionRowActivityKind(
   return isSessionActive(status, activity) ? "session" : undefined;
 }
 
-export function sessionRowsForCurrentTree(sessions: SessionInfo[]): SessionRow[] {
+export function sessionsForSearchResults(sessions: SessionInfo[], results: SessionInfo[]): SessionInfo[] {
+  const byPath = new Map(sessions.map((session) => [session.path, session]));
+  const includedIds = new Set<string>();
+  for (const result of results) {
+    includedIds.add(result.id);
+    let parentPath = result.parentSessionPath;
+    const seenPaths = new Set<string>([result.path]);
+    while (parentPath !== undefined && !seenPaths.has(parentPath)) {
+      seenPaths.add(parentPath);
+      const parent = byPath.get(parentPath);
+      if (parent === undefined) break;
+      includedIds.add(parent.id);
+      parentPath = parent.parentSessionPath;
+    }
+  }
+  const visible = sessions.filter((session) => includedIds.has(session.id));
+  const knownIds = new Set(visible.map((session) => session.id));
+  return [...visible, ...results.filter((session) => !knownIds.has(session.id))];
+}
+
+export function sessionRowsForCurrentTree(sessions: SessionInfo[], pinnedSessionIds: readonly string[] = []): SessionRow[] {
   const byPath = new Map(sessions.map((session) => [session.path, session]));
   const visible = new Set<string>();
   for (const session of sessions) {
@@ -500,10 +560,10 @@ export function sessionRowsForCurrentTree(sessions: SessionInfo[]): SessionRow[]
       parentPath = parent.parentSessionPath;
     }
   }
-  return sessionRows(sessions.filter((session) => visible.has(session.id)));
+  return sessionRows(sessions.filter((session) => visible.has(session.id)), pinnedSessionIds);
 }
 
-function sessionRows(sessions: SessionInfo[]): SessionRow[] {
+function sessionRows(sessions: SessionInfo[], pinnedSessionIds: readonly string[] = []): SessionRow[] {
   const byPath = new Map(sessions.map((session) => [session.path, session]));
   const childrenByPath = new Map<string, SessionInfo[]>();
   const roots: SessionInfo[] = [];
@@ -519,6 +579,27 @@ function sessionRows(sessions: SessionInfo[]): SessionRow[] {
     childrenByPath.set(parent.path, children);
   }
 
+  const pinned = new Set(pinnedSessionIds);
+  const originalOrder = new Map(sessions.map((session, index) => [session.path, index]));
+  const containsPinnedMemo = new Map<string, boolean>();
+  const containsPinned = (session: SessionInfo, stack: Set<string>): boolean => {
+    if (pinned.has(session.id)) return true;
+    const cached = containsPinnedMemo.get(session.path);
+    if (cached !== undefined) return cached;
+    if (stack.has(session.path)) return false;
+    const nextStack = new Set(stack);
+    nextStack.add(session.path);
+    const result = (childrenByPath.get(session.path) ?? []).some((child) => containsPinned(child, nextStack));
+    containsPinnedMemo.set(session.path, result);
+    return result;
+  };
+  const compareSessions = (left: SessionInfo, right: SessionInfo): number => {
+    const pinnedOrder = Number(containsPinned(right, new Set())) - Number(containsPinned(left, new Set()));
+    if (pinnedOrder !== 0) return pinnedOrder;
+    const modifiedOrder = right.modified.localeCompare(left.modified);
+    if (modifiedOrder !== 0) return modifiedOrder;
+    return (originalOrder.get(left.path) ?? 0) - (originalOrder.get(right.path) ?? 0);
+  };
   const rows: SessionRow[] = [];
   const visit = (session: SessionInfo, depth: number, stack: Set<string>) => {
     if (stack.has(session.path)) return;
@@ -526,8 +607,8 @@ function sessionRows(sessions: SessionInfo[]): SessionRow[] {
     rows.push({ session, depth, hasMissingParent: parentPath !== undefined && !byPath.has(parentPath) });
     const nextStack = new Set(stack);
     nextStack.add(session.path);
-    for (const child of childrenByPath.get(session.path) ?? []) visit(child, depth + 1, nextStack);
+    for (const child of [...(childrenByPath.get(session.path) ?? [])].sort(compareSessions)) visit(child, depth + 1, nextStack);
   };
-  for (const root of roots) visit(root, 0, new Set());
+  for (const root of roots.sort(compareSessions)) visit(root, 0, new Set());
   return rows;
 }
