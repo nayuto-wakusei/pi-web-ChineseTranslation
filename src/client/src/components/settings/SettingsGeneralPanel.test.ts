@@ -3,6 +3,7 @@ import type { TemplateResult } from "lit";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { SettingsGeneralPanel } from "./SettingsGeneralPanel";
 import type { GatewayServerConfigDraft, MachineAccessConfigDraft } from "./settingsConfigDraft";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-general-panel copy", () => {
   it("uses factual scope copy for gateway and selected-machine settings", () => {
@@ -174,21 +175,8 @@ function collectTemplateValues(template: TemplateResult): unknown[] {
   }
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNoticeArray(value: unknown): value is readonly { type: string; content: unknown; title?: string }[] {
   return Array.isArray(value)
@@ -196,9 +184,6 @@ function isSettingsNoticeArray(value: unknown): value is readonly { type: string
     && value.every((item: unknown) => typeof item === "object" && item !== null && typeof Reflect.get(item, "type") === "string" && Reflect.has(item, "content"));
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function setPanelProperty(panel: SettingsGeneralPanel, property: string, value: unknown): void {
   if (!Reflect.set(panel, property, value)) throw new Error(`Failed to set SettingsGeneralPanel property ${property}`);

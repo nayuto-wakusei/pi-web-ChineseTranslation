@@ -4,6 +4,7 @@ import type { PiPackageInfo } from "../../api";
 import { SettingsPackagesPanel } from "./SettingsPackagesPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import type { PiPackageManagementSupport, PiPackageTargetContext } from "./piPackageSettings";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 const remoteTarget: PiPackageTargetContext = { id: "lab-mac", name: "Lab Mac", kind: "remote" };
 const unsupportedMessage = "Pi package management is not available on Lab Mac. Update and restart Pi-Web on that machine, then try again.";
@@ -124,29 +125,13 @@ function expectTextOrder(content: string, labels: readonly string[]): void {
   }
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function unsupportedPackageManagement(): PiPackageManagementSupport {
   return { state: "unsupported", message: unsupportedMessage };

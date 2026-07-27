@@ -43,6 +43,7 @@ import {
   parseSessionPinResponse,
   parseSessionPinnedIdsResponse,
   parseSessionStatus,
+  parseSessionStreamSnapshot,
   parseSlashCommand,
   parseStopped,
   parseTerminalCommandRun,
@@ -153,10 +154,10 @@ export const configApi = {
 };
 
 export const normalAuthApi = {
-  status: () => request("/api/normal-auth/status", parseNormalAuthStatusResponse),
-  setup: (password: string) => request("/api/normal-auth/setup", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
-  login: (password: string) => request("/api/normal-auth/login", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
-  changePassword: (currentPassword: string, newPassword: string) => request("/api/normal-auth/change-password", parseAccepted, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
+  status: () => request("api/normal-auth/status", parseNormalAuthStatusResponse),
+  setup: (password: string) => request("api/normal-auth/setup", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
+  login: (password: string) => request("api/normal-auth/login", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
+  changePassword: (currentPassword: string, newPassword: string) => request("api/normal-auth/change-password", parseAccepted, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
 };
 
 export const pluginsApi = {
@@ -249,6 +250,7 @@ export const sessionsApi = {
   deleteArchivedMany: (sessions: readonly SessionLookup[], machineId = "local") => request(`${machinePrefix(machineId)}/sessions/bulk/delete-archived`, parseSessionBulkDeleteArchivedResponse, { method: "POST", body: sessionBulkMutationBody(sessions) }),
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messagePath(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
+  streamSnapshot: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "stream-snapshot", machineId), parseSessionStreamSnapshot),
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
   setModel: (session: SessionLookup, provider: string, modelId: string, machineId = "local") => request(sessionPath(session, "model", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { provider, modelId }) }),
   cycleModel: (session: SessionLookup, direction: "forward" | "backward", machineId = "local") => request(sessionPath(session, "model/cycle", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { direction }) }),

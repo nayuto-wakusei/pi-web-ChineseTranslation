@@ -1,4 +1,4 @@
-import { appendText, appendThinking, normalizeMessage, previewFromDetails, summarizeArgs, textMessage } from "./chatMessages";
+import { appendText, appendThinking, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage } from "./chatMessages";
 import type { ChatLine, ToolExecutionPart } from "./chatTypes";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
 import type { SessionUiEvent } from "./sessionSocket";
@@ -18,6 +18,12 @@ interface ToolResultUpdate {
   content: unknown;
   details: unknown;
   presentation: ToolResultPresentation;
+}
+
+export function seedStreamingPartial(messages: ChatLine[], partial: unknown): ChatLine[] {
+  if (partial === null || partial === undefined) return messages;
+  const lines = normalizeMessages([partial]);
+  return lines.length === 0 ? messages : [...messages, ...lines];
 }
 
 export function applyTranscriptEvent(messages: ChatLine[], event: SessionUiEvent): ChatLine[] | undefined {

@@ -20,7 +20,7 @@ describe("SessionEventHub", () => {
 
     hub.publish("s1", { type: "assistant.delta", text: "hello" });
 
-    expect(sessionSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "hello" }));
+    expect(sessionSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "hello", seq: 1 }));
     expect(otherSocket.send).not.toHaveBeenCalled();
   });
 
@@ -36,6 +36,7 @@ describe("SessionEventHub", () => {
     expect(socket.send).toHaveBeenCalledWith(JSON.stringify({
       type: "message.end",
       message: { role: "assistant", content: [{ type: "thinking", thinking: "private chain", redacted: true }, { type: "text", text: "visible answer" }] },
+      seq: 1,
     }));
     expect(thinkingBlock.thinkingSignature).toBe("opaque-provider-payload");
   });
@@ -90,9 +91,23 @@ describe("SessionEventHub", () => {
     hub.publish("s1", { type: "assistant.delta", text: "managed" }, "management:account-1");
 
     expect(normalSocket.send).toHaveBeenCalledTimes(1);
-    expect(normalSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "normal" }));
+    expect(normalSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "normal", seq: 1 }));
     expect(managementSocket.send).toHaveBeenCalledTimes(1);
-    expect(managementSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "managed" }));
+    expect(managementSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "managed", seq: 1 }));
+  });
+
+  it("tracks event watermarks independently by session and scope", () => {
+    const hub = new SessionEventHub();
+
+    hub.publish("s1", { type: "assistant.delta", text: "normal-1" }, "normal");
+    hub.publish("s1", { type: "assistant.delta", text: "normal-2" }, "normal");
+    hub.publish("s1", { type: "assistant.delta", text: "managed" }, "management:account-1");
+    hub.publish("s2", { type: "assistant.delta", text: "other" }, "normal");
+
+    expect(hub.currentSeq("s1", "normal")).toBe(2);
+    expect(hub.currentSeq("s1", "management:account-1")).toBe(1);
+    expect(hub.currentSeq("s2", "normal")).toBe(1);
+    expect(hub.currentSeq("never", "normal")).toBe(0);
   });
 
   it("keeps global events isolated by scope", () => {

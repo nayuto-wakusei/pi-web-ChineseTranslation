@@ -59,6 +59,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "PUT", path: "/sessions/:sessionId/pin" },
   { method: "DELETE", path: "/sessions/:sessionId/pin" },
   { method: "GET", path: "/sessions/:sessionId/status" },
+  { method: "GET", path: "/sessions/:sessionId/stream-snapshot" },
   { method: "GET", path: "/sessions/:sessionId/models" },
   { method: "POST", path: "/sessions/:sessionId/model" },
   { method: "POST", path: "/sessions/:sessionId/model/cycle" },

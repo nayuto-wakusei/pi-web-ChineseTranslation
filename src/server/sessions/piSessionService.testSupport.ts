@@ -7,6 +7,7 @@ export class CapturingSessionEventHub extends SessionEventHub {
   readonly globalEvents: GlobalSessionEvent[] = [];
 
   override publish(sessionId: string, event: SessionUiEvent): void {
+    super.publish(sessionId, event);
     this.sessionEvents.push({ sessionId, event });
   }
 
@@ -69,7 +70,7 @@ export function testModel(): NonNullable<PiAgentSession["model"]> {
 export function fakeModelRuntime(configured = true): PiSessionModelRuntime {
   const model = testModel();
   return {
-    reloadConfig: () => Promise.resolve(),
+    refresh: () => Promise.resolve(),
     getAvailable: () => Promise.resolve(configured ? [model] : []),
     getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
     hasConfiguredAuth: (provider: string) => configured && provider === model.provider,
@@ -86,6 +87,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     sessionId,
     sessionFile: `/tmp/${sessionId}.jsonl`,
     messages: [],
+    state: {},
     sessionName: undefined,
     model: undefined,
     thinkingLevel: "off",
@@ -143,7 +145,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     setSessionName: (name: string) => { session.sessionName = name; },
     compact: () => Promise.resolve({ summary: "", tokensBefore: 0 }),
     getUserMessagesForForking: () => [],
-    agent: { streamFn: () => { throw new Error("streamFn should not be called in this test"); } },
+    agent: { streamFunction: () => { throw new Error("streamFunction should not be called in this test"); } },
     ...patch,
   };
   const runtime: PiSessionRuntime = {

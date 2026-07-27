@@ -47,6 +47,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setApiScope("normal");
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
@@ -102,6 +103,16 @@ describe("ordinary mode auth API", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/normal-auth/status");
+  });
+
+  it("keeps ordinary mode auth requests inside a nested app deployment", async () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/test/ai/" });
+    const fetchMock = stubJsonFetch({ configured: true, authenticated: false });
+
+    await normalAuthApi.status();
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/test/ai/api/normal-auth/status");
   });
 
   it("includes the selected project in provider auth requests", async () => {
@@ -270,6 +281,15 @@ describe("session API compatibility", () => {
     expect(fetchCall(fetchMock, 1)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/bulk/delete-archived");
     expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ sessions: [{ id: "s 1", cwd: "/repo" }] });
+  });
+
+  it("loads a join-time stream snapshot through the selected machine", async () => {
+    const partial = { role: "assistant", content: [{ type: "text", text: "working" }] };
+    const fetchMock = stubJsonFetch({ seq: 7, partial });
+
+    await expect(sessionsApi.streamSnapshot({ id: "s 1", cwd: "/repo" }, "remote a")).resolves.toEqual({ seq: 7, partial });
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo");
   });
 
   it("keeps legacy session-id calls free of cwd context", async () => {

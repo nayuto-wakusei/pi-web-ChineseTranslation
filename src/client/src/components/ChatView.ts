@@ -16,15 +16,6 @@ import "./ToolExecutionView";
 
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
-const partialStreamNoticeBodies = [
-  "你打开此会话时助手已经在回复。完整答案很快会显示。",
-  "当前标签页接入得稍晚，完整回复准备好后会显示。",
-  "助手已先开始回复，完整答案到达后会显示。",
-  "正在等待完整回复，避免显示不完整内容。",
-  "回复仍在生成中，完整答案即将显示。",
-  "正在同步这次回复，稍后会显示完整版本。",
-] as const;
-
 const activityLabelTranslations: Record<string, string> = {
   active: "活跃",
   "agent running": "助手运行中",
@@ -51,10 +42,6 @@ const activityLabelTranslations: Record<string, string> = {
   "tool failed": "工具失败",
   "turn complete": "回合已完成",
 };
-
-function randomPartialStreamNoticeBody(): string {
-  return partialStreamNoticeBodies[Math.floor(Math.random() * partialStreamNoticeBodies.length)] ?? partialStreamNoticeBodies[0];
-}
 
 function clampPercent(value: number): number {
   return clampNumber(value, 0, 100);
@@ -110,7 +97,6 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageTotal = 0;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
-  @property({ type: Boolean }) isReceivingPartialStream = false;
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
@@ -137,7 +123,6 @@ export class ChatView extends LitElement {
   private groupedMessagesCache: ChatGroup[] = [];
   private readonly messageMetaCache = new WeakMap<ChatLine, string>();
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
-  private partialStreamNoticeBody: string | undefined;
   private lastScrollTop = 0;
   private lastClientHeight = 0;
   private touchStartY: number | undefined;
@@ -209,7 +194,6 @@ export class ChatView extends LitElement {
       this.savePreviousSessionScrollPosition(changed.get("sessionId"));
       this.prepareSessionUiState();
     }
-    if (changed.has("isReceivingPartialStream") || (changed.has("sessionId") && this.isReceivingPartialStream)) this.syncPartialStreamNoticeBody();
     if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
@@ -322,12 +306,6 @@ export class ChatView extends LitElement {
   }
 
   private renderSessionActivity() {
-    if (this.isReceivingPartialStream) return html`
-      <aside class="session-activity receiving" aria-live="polite">
-        <strong>正在同步…</strong>
-        <span>${this.currentPartialStreamNoticeBody()}</span>
-      </aside>
-    `;
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
@@ -336,15 +314,6 @@ export class ChatView extends LitElement {
         ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息已排队</small>` : null}
       </aside>
     `;
-  }
-
-  private syncPartialStreamNoticeBody(): void {
-    this.partialStreamNoticeBody = this.isReceivingPartialStream ? randomPartialStreamNoticeBody() : undefined;
-  }
-
-  private currentPartialStreamNoticeBody(): string {
-    this.partialStreamNoticeBody ??= randomPartialStreamNoticeBody();
-    return this.partialStreamNoticeBody;
   }
 
   private activityState(): string | undefined {
@@ -726,10 +695,7 @@ export class ChatView extends LitElement {
   }
 
   private shouldFallbackToBottomForMissingAnchor(): boolean {
-    // While catching up to a stream, history can temporarily omit the in-flight
-    // assistant message that a previous scroll save anchored to. Keep retrying
-    // until the final refreshed transcript has a chance to render that anchor.
-    return !this.hasMore && !this.isReceivingPartialStream;
+    return !this.hasMore;
   }
 
   private updatePinnedToBottomAfterRestore(status: Exclude<ChatScrollRestoreResult["status"], "missing">): void {

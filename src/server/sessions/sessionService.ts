@@ -15,6 +15,7 @@ import type {
   ClientSessionModel,
   ClientSessionRef,
   ClientSessionStatus,
+  SessionStreamSnapshot,
   SessionPinResponse,
   SessionPinnedIdsResponse,
   ClientThinkingLevel,
@@ -40,6 +41,7 @@ export interface SessionRouteService {
   start(cwd: string, options?: { managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  streamSnapshot(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot>;
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

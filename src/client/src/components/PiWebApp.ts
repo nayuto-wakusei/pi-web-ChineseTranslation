@@ -28,8 +28,8 @@ import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, Qualif
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
-import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope } from "../plugins/registry";
+import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
 import { BrowserResumeController } from "../appShell/browserResumeController";
@@ -291,9 +291,10 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreAttempt = 0;
   private remoteRouteRestoreInProgress = false;
   private readonly plugins = createPluginRegistry();
-  private readonly loadedMachinePluginIds = new Set<string>();
-  private readonly machinePluginLoadPromises = new Map<string, Promise<void>>();
-  private gatewayPluginLoadPromise: Promise<void> | undefined;
+  private readonly pluginLoads = new MachinePluginLoadCoordinator(
+    (label, load) => this.registerExternalPlugins(label, load),
+    (id, machineSpecific) => this.plugins.shouldLoadRemotePlugin(id, machineSpecific),
+  );
   private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private isRefreshingApp = false;
@@ -305,7 +306,8 @@ export class PiWebApp extends LitElement {
   @state() private normalAuthDialogMode: NormalAuthDialogMode | undefined;
   @state() private shortcutConfig: PiWebShortcutConfig = {};
   @state() private workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(undefined);
-  private appStartupStarted = false;
+  private authenticatedAppRunning = false;
+  private normalAuthInitSeq = 0;
   private readonly onPopState = () => void this.withChatScrollTransition(async () => {
     this.restoreSettingsRoute();
     await this.restoreRoute(false);
@@ -337,18 +339,19 @@ export class PiWebApp extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.normalAuthInitSeq += 1;
     window.addEventListener("popstate", this.onPopState);
     window.addEventListener("pageshow", this.onPageShow);
     this.browserResume.connect();
     window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
-    void this.initializeNormalAuth();
+    void this.initializeNormalAuth(this.normalAuthInitSeq);
   }
 
   private startAuthenticatedApp(): void {
-    if (this.appStartupStarted) return;
-    this.appStartupStarted = true;
+    if (!this.isConnected || this.authenticatedAppRunning) return;
+    this.authenticatedAppRunning = true;
     this.connectRealtime();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
     void this.refreshWorkspaceActivity();
@@ -357,8 +360,9 @@ export class PiWebApp extends LitElement {
     void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
   }
 
-  private async initializeNormalAuth(): Promise<void> {
+  private async initializeNormalAuth(initSeq: number): Promise<void> {
     if (this.apiScope === "management") {
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthStatus = { configured: true, authenticated: true };
       this.normalAuthLoading = false;
       this.startAuthenticatedApp();
@@ -368,16 +372,20 @@ export class PiWebApp extends LitElement {
     this.normalAuthError = "";
     try {
       const status = await normalAuthApi.status();
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthStatus = status;
       if (status.authenticated) this.startAuthenticatedApp();
     } catch (error) {
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthError = `检查普通模式密码失败：${errorMessage(error)}`;
     } finally {
-      this.normalAuthLoading = false;
+      if (this.isConnected && initSeq === this.normalAuthInitSeq) this.normalAuthLoading = false;
     }
   }
 
   override disconnectedCallback(): void {
+    this.normalAuthInitSeq += 1;
+    this.authenticatedAppRunning = false;
     window.removeEventListener("popstate", this.onPopState);
     window.removeEventListener("pageshow", this.onPageShow);
     this.browserResume.disconnect();
@@ -1699,12 +1707,7 @@ export class PiWebApp extends LitElement {
   }
 
   private ensureGatewayPluginsLoaded(): Promise<void> {
-    this.gatewayPluginLoadPromise ??= this.loadExternalPlugins();
-    return this.gatewayPluginLoadPromise;
-  }
-
-  private async loadExternalPlugins(): Promise<void> {
-    await this.registerExternalPlugins("PI WEB plugins", () => loadExternalPlugins());
+    return this.pluginLoads.ensureGatewayLoaded().then(() => undefined);
   }
 
   private async loadPluginsForSelectedMachine(): Promise<void> {
@@ -1714,19 +1717,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async loadPluginsForMachine(machine: Machine): Promise<void> {
-    await this.ensureGatewayPluginsLoaded();
-    if (machine.kind !== "remote" || this.loadedMachinePluginIds.has(machine.id)) return;
-    const existing = this.machinePluginLoadPromises.get(machine.id);
-    if (existing !== undefined) return existing;
-
-    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
-      machineId: machine.id,
-      shouldLoadPlugin: (entry) => this.plugins.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
-    }))
-      .then((loaded) => { if (loaded) this.loadedMachinePluginIds.add(machine.id); })
-      .finally(() => { this.machinePluginLoadPromises.delete(machine.id); });
-    this.machinePluginLoadPromises.set(machine.id, load);
-    await load;
+    await this.pluginLoads.loadForMachine(machine);
   }
 
   private async registerExternalPlugins(label: string, load: () => Promise<PiWebPluginRegistration[]>): Promise<boolean> {
@@ -2110,7 +2101,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 

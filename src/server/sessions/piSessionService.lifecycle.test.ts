@@ -566,3 +566,45 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     await service.dispose();
   });
 });
+
+describe("PiSessionService stream snapshots", () => {
+  it("projects the in-flight message and returns the matching event watermark", async () => {
+    const hub = new CapturingSessionEventHub();
+    const streamingMessage = {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "private reasoning", thinkingSignature: "opaque" },
+        { type: "text", text: "partial answer" },
+        { type: "toolCall", id: "read-1", name: "read", arguments: { path: "src/app.ts" } },
+      ],
+    };
+    const fake = fakeRuntime("snapshot-session", { state: { streamingMessage } });
+    const service = new PiSessionService(hub, {
+      agentDir: TEST_AGENT_DIR,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    try {
+      await service.start("/workspace");
+      hub.publish("snapshot-session", { type: "assistant.delta", text: "newer" });
+      const expectedSeq = hub.currentSeq("snapshot-session");
+
+      await expect(service.streamSnapshot(sessionRef("snapshot-session"))).resolves.toEqual({
+        seq: expectedSeq,
+        partial: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "private reasoning" },
+            { type: "text", text: "partial answer" },
+            { type: "toolCall", id: "read-1", name: "read", arguments: { path: "src/app.ts" } },
+          ],
+        },
+      });
+      expect(streamingMessage.content[0]).toHaveProperty("thinkingSignature", "opaque");
+    } finally {
+      await service.dispose();
+    }
+  });
+});

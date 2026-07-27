@@ -39,7 +39,7 @@ export class AuthService {
   }
 
   async authProviders(mode: "login" | "logout", authType?: AuthType): Promise<AuthProvidersResponse> {
-    await this.modelRuntime.reloadConfig();
+    await this.modelRuntime.refresh();
     const providers = mode === "logout"
       ? await getLogoutProviderOptions(this.modelRuntime)
       : getLoginProviderOptions(this.modelRuntime, authType);

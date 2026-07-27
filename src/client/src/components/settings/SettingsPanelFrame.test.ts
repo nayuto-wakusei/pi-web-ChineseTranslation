@@ -1,6 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import { describe, expect, it } from "vitest";
 import { SettingsPanelFrame, settingsNoticeTone, type SettingsNotice } from "./SettingsPanelFrame";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-panel-frame", () => {
   it("renders header, ordered notices, and settings content in the shared order", () => {
@@ -127,25 +128,9 @@ function expectTextOrder(content: string, labels: readonly string[]): void {
   }
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function isActionHandler(value: unknown): value is () => void {
   return typeof value === "function";

@@ -47,7 +47,7 @@ describe("ProjectAuthService", () => {
     expect(pathsA.directory).not.toBe(pathsB.directory);
     expect(JSON.parse(await readFile(pathsA.modelsPath, "utf8"))).toEqual({ providers: {} });
     await writeFile(pathsA.modelsPath, JSON.stringify({ providers: { anthropic: { baseUrl: "https://project-a.example" } } }));
-    await serviceA.modelRuntime.reloadConfig();
+    await serviceA.modelRuntime.refresh();
     expect(serviceA.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).toBe("https://project-a.example");
     expect(serviceB.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).not.toBe("https://project-a.example");
     await auth.dispose();

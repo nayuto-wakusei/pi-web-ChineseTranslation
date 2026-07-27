@@ -1,5 +1,5 @@
 import { normalizeMessages } from "./chatMessages";
-import { applyTranscriptEvent } from "./chatTranscript";
+import { applyTranscriptEvent, seedStreamingPartial } from "./chatTranscript";
 import { mergeChatHistory, readChatHistoryCache, removeChatHistoryCache, writeChatHistoryCache, type RawMessagePage } from "./chatHistoryCache";
 import type { ChatLine } from "./chatTypes";
 import type { SessionUiEvent } from "./sessionSocket";
@@ -43,6 +43,10 @@ export class ChatTranscriptStore {
 
   applyLiveEvent(messages: ChatLine[], event: SessionUiEvent): ChatLine[] | undefined {
     return applyTranscriptEvent(messages, event);
+  }
+
+  seedStreamingPartial(messages: ChatLine[], partial: unknown): ChatLine[] {
+    return seedStreamingPartial(messages, partial);
   }
 
   discard(sessionId: string): void {

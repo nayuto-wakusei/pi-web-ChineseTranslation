@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Credential } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OAuthFlowState } from "../../shared/apiTypes.js";
 import { AuthService, type AuthChange } from "./authService.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
@@ -16,6 +16,18 @@ afterEach(async () => {
 });
 
 describe("AuthService", () => {
+  it("refreshes project model configuration before listing login providers", async () => {
+    const { modelRuntime } = await createTestModelRuntime();
+    const refresh = vi.spyOn(modelRuntime, "refresh");
+    const auth = new AuthService({ modelRuntime });
+
+    const response = await auth.authProviders("login", "api_key");
+
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(response.providers.some((provider) => provider.id === "anthropic")).toBe(true);
+    auth.dispose();
+  });
+
   it("saves API keys and emits a scoped auth change", async () => {
     const { auth, credentials, changes } = await createAuthService();
 

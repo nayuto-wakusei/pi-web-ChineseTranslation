@@ -3,6 +3,7 @@ import type { TemplateResult } from "lit";
 import type { PiWebConfigResponse, PiWebConfigValues, PiWebPluginInfo } from "../../api";
 import { SettingsPluginsPanel } from "./SettingsPluginsPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-plugins-panel layout", () => {
   it("orders load and save notices before the trusted-code warning and plugin content", () => {
@@ -128,29 +129,13 @@ function countOccurrences(content: string, needle: string): number {
   return content.split(needle).length - 1;
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";

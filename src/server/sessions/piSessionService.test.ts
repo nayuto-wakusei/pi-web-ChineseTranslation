@@ -16,6 +16,7 @@ class CapturingSessionEventHub extends SessionEventHub {
   readonly globalEvents: { event: GlobalSessionEvent; scope?: string }[] = [];
 
   override publish(sessionId: string, event: SessionUiEvent, scope?: string): void {
+    super.publish(sessionId, event, scope);
     this.sessionEvents.push({ sessionId, event, ...(scope === undefined ? {} : { scope }) });
   }
 
@@ -82,7 +83,7 @@ function testModel(): NonNullable<PiAgentSession["model"]> {
 function fakeModelRuntime(configured = true): PiSessionModelRuntime {
   const model = testModel();
   return {
-    reloadConfig: () => Promise.resolve(),
+    refresh: () => Promise.resolve(),
     getAvailable: () => Promise.resolve(configured ? [model] : []),
     getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
     hasConfiguredAuth: (provider: string) => configured && provider === model.provider,
@@ -99,6 +100,7 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     sessionId,
     sessionFile: `/tmp/${sessionId}.jsonl`,
     messages: [],
+    state: {},
     sessionName: undefined,
     model: undefined,
     thinkingLevel: "off",
@@ -156,7 +158,7 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     setSessionName: (name: string) => { session.sessionName = name; },
     compact: () => Promise.resolve({ summary: "", tokensBefore: 0 }),
     getUserMessagesForForking: () => [],
-    agent: { streamFn: () => { throw new Error("streamFn should not be called in this test"); } },
+    agent: { streamFunction: () => { throw new Error("streamFunction should not be called in this test"); } },
     ...patch,
   };
   const runtime: PiSessionRuntime = {
@@ -269,6 +271,66 @@ describe("PiSessionService", () => {
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
     expect(fake.calls.dispose).toBe(1);
+  });
+
+  it("refreshes model configuration before listing models", async () => {
+    const model = testModel();
+    let refreshed = false;
+    const modelRuntime: PiSessionModelRuntime = {
+      refresh: () => {
+        refreshed = true;
+        return Promise.resolve();
+      },
+      getAvailable: () => Promise.resolve(refreshed ? [model] : []),
+      getModel: () => undefined,
+      hasConfiguredAuth: () => true,
+    };
+    const fake = fakeRuntime("models-session", { modelRuntime });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: () => Promise.resolve(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("models-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.availableModels(sessionRef("models-session"))).resolves.toEqual([
+      expect.objectContaining({ id: model.id, provider: model.provider }),
+    ]);
+    expect(refreshed).toBe(true);
+
+    await service.dispose();
+  });
+
+  it("refreshes model configuration before selecting a model", async () => {
+    const model = testModel();
+    let refreshed = false;
+    let selectedModel: typeof model | undefined;
+    const modelRuntime: PiSessionModelRuntime = {
+      refresh: () => {
+        refreshed = true;
+        return Promise.resolve();
+      },
+      getAvailable: () => Promise.resolve(refreshed ? [model] : []),
+      getModel: () => undefined,
+      hasConfiguredAuth: () => true,
+    };
+    const fake = fakeRuntime("set-model-session", {
+      modelRuntime,
+      setModel: (selected) => {
+        selectedModel = selected;
+        return Promise.resolve();
+      },
+    });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: () => Promise.resolve(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("set-model-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.setModel(sessionRef("set-model-session"), model.provider, model.id);
+
+    expect(refreshed).toBe(true);
+    expect(selectedModel).toBe(model);
+    await service.dispose();
   });
 
   it("passes management embed context into runtime creation", async () => {
@@ -1178,7 +1240,7 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
-  it("generates a session name for the first prompt via the session's agent.streamFn", async () => {
+  it("generates a session name for the first prompt via the session's agent.streamFunction", async () => {
     const model = testModel();
     const streamCalls: unknown[] = [];
     const streamFn: StreamFn = (streamModel, context, options) => {
@@ -1199,7 +1261,7 @@ describe("PiSessionService", () => {
       return stream;
     };
     const hub = new CapturingSessionEventHub();
-    const fake = fakeRuntime("name-session", { model, agent: { streamFn } });
+    const fake = fakeRuntime("name-session", { model, agent: { streamFunction: streamFn } });
     const service = new PiSessionService(hub, {
       createAgentRuntime: runtimeCreator(fake.runtime),
       sessionManager: sessionGateway([sessionRecord("name-session")]),

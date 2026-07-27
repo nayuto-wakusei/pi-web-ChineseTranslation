@@ -23,7 +23,8 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
+import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
@@ -41,6 +42,7 @@ import type { SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDele
 import type { SessionRouteLookup, SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
+import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
 
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
@@ -253,6 +255,7 @@ export interface PiAgentSession {
   sessionFile: string | undefined;
   sessionName: string | undefined;
   messages: readonly unknown[];
+  readonly state: { readonly streamingMessage?: unknown };
   model: AgentModel | undefined;
   thinkingLevel: ClientThinkingLevel;
   isStreaming: boolean;
@@ -284,17 +287,17 @@ export interface PiAgentSession {
   setSessionName(name: string): void;
   /**
    * Narrow re-expression of `AgentSession.agent` (an `@earendil-works/pi-agent-core`
-   * `Agent`), exposing only `streamFn` — the resolved-auth/headers/retry "call this
-   * model" function pi's own compaction/branch-summarization code uses internally.
-   * Lets callers (e.g. session title generation) issue one-off model calls without
-   * depending on pi-ai's deprecated `/compat` provider registry or leaking the full
-   * `Agent`/`AgentSession` surface.
+   * `Agent`), exposing only `streamFunction` — the resolved-auth/headers/retry "call
+   * this model" function pi's own compaction/branch-summarization code uses
+   * internally. Lets callers (e.g. session title generation) issue one-off model
+   * calls without depending on pi-ai's deprecated `/compat` provider registry or
+   * leaking the full `Agent`/`AgentSession` surface.
    */
-  agent: { streamFn: StreamFn };
+  agent: { streamFunction: StreamFn };
 }
 
 export interface PiSessionModelRuntime {
-  reloadConfig(): Promise<void>;
+  refresh(): Promise<unknown>;
   getAvailable(): Promise<readonly AgentModel[]>;
   getModel(provider: string, modelId: string): AgentModel | undefined;
   hasConfiguredAuth(provider: string): boolean;
@@ -559,7 +562,7 @@ export interface PiSessionServiceDependencies {
 export class PiSessionService {
   private readonly active = new Map<string, ManagedActiveSession>();
   private readonly pendingSessionOpens = new Map<string, PendingSessionOpen>();
-  private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
+  private readonly activities = new SessionActivityCoordinator();
   private readonly heartbeat: NodeJS.Timeout;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
@@ -1197,9 +1200,20 @@ export class PiSessionService {
     return this.statusFromSession(await this.getOrOpen(ref, managementContext));
   }
 
+  async streamSnapshot(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot> {
+    const session = await this.getOrOpen(ref, managementContext);
+    const eventScope = this.eventScopeForSession(session);
+    const seq = this.events.currentSeq(session.sessionId, eventScope);
+    const streamingMessage = session.state.streamingMessage;
+    const partial = streamingMessage === undefined || streamingMessage === null
+      ? null
+      : projectBrowserMessage(streamingMessage);
+    return { seq, partial };
+  }
+
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.reloadConfig();
+    await session.modelRuntime.refresh();
     const models = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
       : await session.modelRuntime.getAvailable();
@@ -1209,7 +1223,7 @@ export class PiSessionService {
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.reloadConfig();
+    await session.modelRuntime.refresh();
     const candidates = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
       : await session.modelRuntime.getAvailable();
@@ -2077,7 +2091,7 @@ export class PiSessionService {
     const model = session.model;
     if (model === undefined) return;
 
-    void generateShortSessionName(session.agent.streamFn, model, firstMessage).then((name) => {
+    void generateShortSessionName(session.agent.streamFunction, model, firstMessage).then((name) => {
       this.applyGeneratedSessionName(session, name ?? fallbackSessionName(firstMessage));
     }).catch(() => {
       this.applyGeneratedSessionName(session, fallbackSessionName(firstMessage));
@@ -2171,7 +2185,10 @@ export class PiSessionService {
     if (eventType === "agent_start") { this.publishActivity(session, "agent running", "active"); return; }
     if (eventType === "agent_end") {
       this.publishActivity(session, "idle", "idle");
-      setTimeout(() => {
+      const eventScope = this.eventScopeForSession(session);
+      const sessionKey = activeSessionKey(session.sessionId, eventScope);
+      this.activities.scheduleSettledRefresh(sessionKey, () => {
+        if (this.active.get(sessionKey)?.runtime.session !== session) return;
         this.publishActivity(session, "idle", "idle");
         this.publishStatus(session);
       }, 250);
