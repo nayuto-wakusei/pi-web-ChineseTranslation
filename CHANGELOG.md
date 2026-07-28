@@ -1,5 +1,15 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.11
+
+### Patch Changes
+
+- 9ed189d: 恢复 Web 应用重新挂载后的实时连接，并阻止会话守护进程在会话关闭后发布迟到状态。
+- 9ed189d: Restore model selection and project-scoped login compatibility with Pi 0.82.
+- d4021df: Restore the description for the highest thinking level in the session picker and clarify the ordinary-mode login prompt.
+- d4021df: Add message-level session content search with multi-match highlights, direct navigation to matching messages, and a search entry that remains available in narrow layouts.
+- 9ed189d: 加入正在运行的旧会话时立即衔接进行中的回复和工具执行结果，无需等待当前回合结束。
+
 ## 1.202607.10
 
 ### Patch Changes
