@@ -247,6 +247,31 @@ export interface SessionInfo extends SessionRef {
   archivedAt?: string;
 }
 
+export interface SessionContentSearchExcerpt {
+  text: string;
+  matchRanges: { start: number; length: number }[];
+}
+
+export interface SessionContentSearchMatch {
+  /** Position in the raw session transcript; stable across paged reads. */
+  messageIndex: number;
+  role: "user" | "assistant";
+  excerpts: SessionContentSearchExcerpt[];
+  occurrenceCount: number;
+}
+
+export interface SessionContentSearchResult {
+  session: SessionInfo;
+  matches: SessionContentSearchMatch[];
+}
+
+export interface SessionContentSearchResponse {
+  results: SessionContentSearchResult[];
+  /** Total matching user/assistant messages before the response limit. */
+  matchCount: number;
+  truncated: boolean;
+}
+
 export interface SessionPinnedIdsResponse {
   sessionIds: string[];
 }

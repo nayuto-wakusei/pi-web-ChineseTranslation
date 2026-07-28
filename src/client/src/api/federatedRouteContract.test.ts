@@ -61,6 +61,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(gitApi.gitStatus("p 1", "w 1", machineId)),
       ignoreParseFailure(gitApi.gitDiff("p 1", "w 1", { path: "README.md", staged: true }, machineId)),
       ignoreParseFailure(sessionsApi.sessions("/repo", machineId)),
+      ignoreParseFailure(sessionsApi.searchContent("/repo", "answer", machineId)),
       ignoreParseFailure(sessionsApi.startSession("/repo", machineId)),
       ignoreParseFailure(sessionsApi.cleanupPreview({ archiveIdleDays: 14 }, machineId)),
       ignoreParseFailure(sessionsApi.cleanup({ archiveIdleDays: 14, deleteArchivedDays: 30, projectCwds: ["/repo"] }, machineId)),

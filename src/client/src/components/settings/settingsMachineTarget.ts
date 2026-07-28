@@ -22,7 +22,7 @@ export function settingsMachineTarget(machine: Pick<Machine, "id" | "name" | "ki
 }
 
 export function settingsMachineTargetLabel(target: SettingsMachineTarget): string {
-  return target.kind === "local" ? `${target.name} (local gateway)` : `${target.name} (remote machine)`;
+  return target.kind === "local" ? `${target.name}（本地网关）` : `${target.name}（远程机器）`;
 }
 
 export function selectedMachineSettingsSupport(target: SettingsMachineTarget, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): SelectedMachineSettingsSupport {
@@ -37,13 +37,13 @@ export function agentProfileSettingsSupport(target: SettingsMachineTarget, runti
   if (runtime?.ok !== true) {
     return {
       state: "unknown",
-      message: `Pi-compatible agent profile support could not be verified on ${target.name}. Reload machine status before changing the profile.`,
+      message: `无法确认 ${target.name} 是否支持 Pi 兼容 Agent Profile。更改 Profile 前请重新加载机器状态。`,
     };
   }
   if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.agentProfileConfig)) return { state: "supported" };
   return {
     state: "unsupported",
-    message: `Pi-compatible agent profile settings are not available on ${target.name}. Update and restart PI WEB on that machine, then try again.`,
+    message: `${target.name} 不支持 Pi 兼容 Agent Profile 设置。请更新并重启该机器上的 PI WEB，然后重试。`,
   };
 }
 
@@ -60,7 +60,7 @@ export function isAgentProfileSettingsSupported(support: AgentProfileSettingsSup
 }
 
 export function selectedMachineSettingsUnavailableMessage(target: SettingsMachineTarget): string {
-  return `Selected-machine settings are not available on ${target.name}. Update and restart PI WEB on that machine, then try again.`;
+  return `${target.name} 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。`;
 }
 
 export function friendlySelectedMachineSettingsErrorMessage(message: string, target: SettingsMachineTarget): string {
@@ -70,10 +70,10 @@ export function friendlySelectedMachineSettingsErrorMessage(message: string, tar
     return selectedMachineSettingsUnavailableMessage(target);
   }
   if (normalized === "Remote machine timeout") {
-    return `Timed out while contacting ${target.name} for selected-machine settings. The operation may still be running remotely; reload before retrying.`;
+    return `联系 ${target.name} 获取所选机器设置时超时。操作可能仍在远端运行；请重新加载后再重试。`;
   }
   if (normalized === "Remote machine unavailable") {
-    return `Could not reach ${target.name} for selected-machine settings. Check the machine connection and try again.`;
+    return `无法连接 ${target.name} 以获取所选机器设置。请检查机器连接后重试。`;
   }
   return normalized;
 }

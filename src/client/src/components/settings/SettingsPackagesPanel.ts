@@ -29,10 +29,10 @@ export class SettingsPackagesPanel extends LitElement {
     const showPackageControls = this.packagesResponse !== undefined && !packageManagementUnavailable;
     return html`
       <settings-panel-frame
-        heading="Pi packages"
+        heading="Pi 包"
         .description=${packagesDescription(targetLabel)}
-        actionLabel="Reload"
-        actionTitle=${packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : `Reload Pi packages from ${targetLabel}`}
+        actionLabel="重新加载"
+        actionTitle=${packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : `从 ${targetLabel} 重新加载 Pi 包`}
         .actionDisabled=${this.loading || this.isOperating || packageManagementUnavailable}
         .notices=${this.panelNotices(targetLabel, showPackageControls)}
         .onAction=${this.onReload}
@@ -53,7 +53,7 @@ export class SettingsPackagesPanel extends LitElement {
     if (showTrustedCodeWarning) {
       notices.push({
         type: "security",
-        content: html`<strong>Trusted code warning:</strong> Pi packages and PI WEB plugins can run with your user permissions. Install packages and enable plugins only from sources you trust.`,
+        content: html`<strong>受信代码警告：</strong>Pi 包和 PI WEB 插件可以使用你的用户权限运行。请仅安装或启用可信来源的内容。`,
       });
     }
     return notices;
@@ -62,7 +62,7 @@ export class SettingsPackagesPanel extends LitElement {
   private renderPanelContent(packages: PiPackageInfo[], target: PiPackageTargetContext, targetLabel: string): TemplateResult | null {
     if (this.packageManagementUnavailable) return null;
     if (this.packagesResponse === undefined) {
-      return html`<div class="loading-card">${this.loading ? `Loading Pi packages from ${targetLabel}…` : `Pi package list unavailable for ${targetLabel}. Use Reload to try again.`}</div>`;
+      return html`<div class="loading-card">${this.loading ? `正在从 ${targetLabel} 加载 Pi 包…` : `${targetLabel} 的 Pi 包列表不可用，请重新加载。`}</div>`;
     }
     return html`
       ${this.renderInstallForm(targetLabel)}
@@ -73,13 +73,13 @@ export class SettingsPackagesPanel extends LitElement {
   private renderInstallForm(targetLabel: string): TemplateResult {
     return html`
       <form class="install-card" @submit=${(event: Event) => { void this.installPackage(event); }}>
-        <label for="package-source">Pi package source</label>
+        <label for="package-source">Pi 包来源</label>
         <div class="install-row">
-          <input id="package-source" .value=${this.installSource} ?disabled=${this.isOperating} placeholder="npm:@scope/package, git URL, or local path" @input=${(event: Event) => { this.updateInstallSource(event); }}>
-          <button type="submit" title="Install this Pi package" ?disabled=${this.isOperating}>${isPiPackageOperationPending(this.operation, "install") ? "Installing…" : "Install"}</button>
+          <input id="package-source" .value=${this.installSource} ?disabled=${this.isOperating} placeholder="npm:@scope/package、Git URL 或本地路径" @input=${(event: Event) => { this.updateInstallSource(event); }}>
+          <button type="submit" title="安装此 Pi 包" ?disabled=${this.isOperating}>${isPiPackageOperationPending(this.operation, "install") ? "正在安装…" : "安装"}</button>
         </div>
         ${this.validationMessage === "" ? null : html`<div class="field-error">${this.validationMessage}</div>`}
-        <small>Installs run on ${targetLabel} and use Pi's default package location, equivalent to <code>pi install &lt;source&gt;</code>. PI WEB does not ask you to choose an install location.</small>
+        <small>安装操作在 ${targetLabel} 上运行并使用 Pi 的默认包位置，等同于 <code>pi install &lt;source&gt;</code>。PI WEB 不会要求你选择安装位置。</small>
       </form>
     `;
   }
@@ -89,28 +89,28 @@ export class SettingsPackagesPanel extends LitElement {
     const packageManagementUnavailable = this.packageManagementUnavailable;
     const updateAllReason = packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : updateAllPiPackagesDisabledReason(packages);
     const showUpdateAllReason = updateAllReason !== undefined && packages.length > 0;
-    const updateAllTitle = updateAllReason ?? "Update all user-scope Pi packages";
+    const updateAllTitle = updateAllReason ?? "更新所有用户范围的 Pi 包";
     return html`
-      <section class="package-section" aria-label="Configured Pi packages">
+      <section class="package-section" aria-label="已配置的 Pi 包">
         <div class="package-toolbar">
           <div>
-            <h3>Configured Pi packages</h3>
-            <p>This list comes from Pi's package manager settings on ${targetLabel}.</p>
+            <h3>已配置的 Pi 包</h3>
+            <p>此列表来自 ${targetLabel} 上的 Pi 包管理器设置。</p>
           </div>
           <button class="secondary" title=${updateAllTitle} ?disabled=${this.isOperating || updateAllReason !== undefined} @click=${() => { void this.updatePackage(); }}>
-            ${isPiPackageOperationPending(this.operation, "update-all") ? "Updating…" : "Update all"}
+            ${isPiPackageOperationPending(this.operation, "update-all") ? "正在更新…" : "全部更新"}
           </button>
         </div>
         ${showUpdateAllReason ? html`<div class="action-note">${updateAllReason}</div>` : null}
-        ${this.loading && packages.length > 0 ? html`<div class="action-note">Refreshing Pi packages from ${targetLabel}…</div>` : null}
+        ${this.loading && packages.length > 0 ? html`<div class="action-note">正在从 ${targetLabel} 刷新 Pi 包…</div>` : null}
         ${this.renderPackageListContent(packages, targetLabel)}
       </section>
     `;
   }
 
   private renderPackageListContent(packages: PiPackageInfo[], targetLabel: string): TemplateResult {
-    if (this.loading && packages.length === 0) return html`<div class="loading-card">Loading Pi packages from ${targetLabel}…</div>`;
-    if (packages.length === 0) return html`<div class="loading-card">No Pi packages configured in Pi settings on ${targetLabel} yet.</div>`;
+    if (this.loading && packages.length === 0) return html`<div class="loading-card">正在从 ${targetLabel} 加载 Pi 包…</div>`;
+    if (packages.length === 0) return html`<div class="loading-card">${targetLabel} 的 Pi 设置中尚未配置 Pi 包。</div>`;
     return html`
       <div class="package-list">
         ${packages.map((packageInfo) => this.renderPackage(packageInfo))}
@@ -122,7 +122,7 @@ export class SettingsPackagesPanel extends LitElement {
     const targetLabel = piPackageTargetLabel(this.packageTarget);
     const packageManagementUnavailable = this.packageManagementUnavailable;
     const updateReason = packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : piPackageUpdateDisabledReason(packageInfo);
-    const removeReason = packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : "Remove this Pi package";
+    const removeReason = packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : "移除此 Pi 包";
     const updating = isPiPackageOperationPending(this.operation, "update", packageInfo.source);
     const removing = isPiPackageOperationPending(this.operation, "remove", packageInfo.source);
     return html`
@@ -130,12 +130,12 @@ export class SettingsPackagesPanel extends LitElement {
         <div class="package-main">
           <strong>${packageInfo.source}</strong>
           <small>${piPackageScopeLabel(packageInfo)} · ${piPackageFilteredLabel(packageInfo)}</small>
-          <small>Installed path: <code>${piPackageInstalledPathLabel(packageInfo)}</code></small>
+          <small>安装路径：<code>${piPackageInstalledPathLabel(packageInfo)}</code></small>
           ${updateReason === undefined ? null : html`<small class="action-note">${updateReason}</small>`}
         </div>
         <div class="package-actions">
-          <button class="secondary" title=${updateReason ?? "Update this Pi package"} ?disabled=${this.isOperating || updateReason !== undefined} @click=${() => { void this.updatePackage(packageInfo.source); }}>${updating ? "Updating…" : "Update"}</button>
-          <button class="danger" title=${removeReason} ?disabled=${this.isOperating || packageManagementUnavailable} @click=${() => { void this.removePackage(packageInfo); }}>${removing ? "Removing…" : "Remove"}</button>
+          <button class="secondary" title=${updateReason ?? "更新此 Pi 包"} ?disabled=${this.isOperating || updateReason !== undefined} @click=${() => { void this.updatePackage(packageInfo.source); }}>${updating ? "正在更新…" : "更新"}</button>
+          <button class="danger" title=${removeReason} ?disabled=${this.isOperating || packageManagementUnavailable} @click=${() => { void this.removePackage(packageInfo); }}>${removing ? "正在移除…" : "移除"}</button>
         </div>
       </article>
     `;
@@ -189,7 +189,7 @@ export class SettingsPackagesPanel extends LitElement {
   }
 
   private packageManagementUnavailableMessage(targetLabel: string): string {
-    return this.managementSupport?.message ?? `Pi package management is not available on ${targetLabel}.`;
+    return this.managementSupport?.message ?? `${targetLabel} 不支持 Pi 包管理。`;
   }
 
   private get isOperating(): boolean {
@@ -235,5 +235,5 @@ export class SettingsPackagesPanel extends LitElement {
 }
 
 function packagesDescription(targetLabel: string): TemplateResult {
-  return html`Managing Pi packages on <strong>${targetLabel}</strong>. Install, remove, and update packages managed by Pi on the selected machine. Pi packages can provide extensions, skills, prompt templates, themes, context/system prompt files, and PI WEB browser plugins.`;
+  return html`管理 <strong>${targetLabel}</strong> 上的 Pi 包。你可以安装、移除和更新所选机器上由 Pi 管理的包。Pi 包可提供扩展、技能、提示词模板、主题、上下文/系统提示文件以及 PI WEB 浏览器插件。`;
 }

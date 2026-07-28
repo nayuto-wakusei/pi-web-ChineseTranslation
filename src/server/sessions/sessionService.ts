@@ -10,6 +10,7 @@ import type {
   ClientCommandResult,
   ClientMessagePage,
   ClientSession,
+  ClientSessionContentSearchResponse,
   ClientSessionCleanupExecuteResponse,
   ClientSessionCleanupPreviewResponse,
   ClientSessionModel,
@@ -36,6 +37,7 @@ export type SessionRouteLookup = string | SessionRouteRef;
 export interface SessionRouteService {
   list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
   search(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
+  searchContent(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionContentSearchResponse>;
   listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse>;
   setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
   start(cwd: string, options?: { managementContext?: ManagementEmbedContext }): Promise<ClientSession>;

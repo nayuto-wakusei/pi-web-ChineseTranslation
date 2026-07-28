@@ -530,10 +530,10 @@ export class TerminalPanel extends LitElement {
   private async copyAllSnapshotText(): Promise<void> {
     const text = this.copySnapshot?.text ?? "";
     if (text === "") {
-      this.copyStatus = "No terminal output to copy.";
+      this.copyStatus = "没有可复制的终端输出。";
       return;
     }
-    this.copyStatus = await writeClipboardText(text) ? "Copied all terminal output." : "Unable to copy terminal output.";
+    this.copyStatus = await writeClipboardText(text) ? "已复制全部终端输出。" : "无法复制终端输出。";
   }
 
   private renderCopyModeToggle() {
@@ -543,12 +543,12 @@ export class TerminalPanel extends LitElement {
       <button
         type="button"
         class=${active ? "copy-mode-toggle selected" : "copy-mode-toggle"}
-        title=${active ? "Return to the interactive terminal" : "Select and copy terminal output"}
-        aria-label=${active ? "Close terminal copy mode" : "Open terminal copy mode"}
+        title=${active ? "返回交互式终端" : "选择并复制终端输出"}
+        aria-label=${active ? "关闭终端复制模式" : "打开终端复制模式"}
         aria-pressed=${String(active)}
         @click=${() => { if (active) this.exitCopyMode(); else this.enterCopyMode(); }}
       >
-        <span>${active ? "Done" : "Select"}</span>
+        <span>${active ? "完成" : "选择"}</span>
       </button>
     `;
   }
@@ -557,11 +557,11 @@ export class TerminalPanel extends LitElement {
     const snapshot = this.copySnapshot;
     if (snapshot === undefined) return null;
     return html`
-      <div class="terminal-copy-toolbar" role="toolbar" aria-label="Terminal copy controls">
-        <span aria-live="polite">${this.copyStatus ?? "Snapshot · long-press and select text"}</span>
-        <small>${snapshot.physicalLineCount} ${snapshot.physicalLineCount === 1 ? "row" : "rows"}</small>
-        <button type="button" @click=${() => { this.refreshCopyMode(); }}>Refresh</button>
-        <button type="button" @click=${() => { void this.copyAllSnapshotText(); }}>Copy all</button>
+      <div class="terminal-copy-toolbar" role="toolbar" aria-label="终端复制控件">
+        <span aria-live="polite">${this.copyStatus ?? "快照 · 长按并选择文本"}</span>
+        <small>${snapshot.physicalLineCount} 行</small>
+        <button type="button" @click=${() => { this.refreshCopyMode(); }}>刷新</button>
+        <button type="button" @click=${() => { void this.copyAllSnapshotText(); }}>全部复制</button>
       </div>
     `;
   }
@@ -570,7 +570,7 @@ export class TerminalPanel extends LitElement {
     const snapshot = this.copySnapshot;
     if (snapshot === undefined) return null;
     return html`
-      <section class="terminal-copy-view" aria-label="Terminal copy mode">
+      <section class="terminal-copy-view" aria-label="终端复制模式">
         ${this.copyToolbarReplacesSoftKeys() ? null : this.renderCopyModeToolbar()}
         <div class="terminal-copy-layers">
           <pre class="terminal-copy-content" aria-hidden="true">${snapshot.lines.map((line, index) => html`${index === 0 ? null : "\n"}${line.runs.map((run) => html`<span style=${styleMap(terminalCopyRunStyle(run.style))}>${run.text}</span>`)}`)}</pre>
@@ -582,7 +582,7 @@ export class TerminalPanel extends LitElement {
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
-            aria-label="Selectable terminal output"
+            aria-label="可选择的终端输出"
             .value=${snapshot.text}
             @scroll=${() => { this.syncCopySnapshotScroll(); }}
           ></textarea>

@@ -2,7 +2,7 @@ import type { TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus } from "../api";
 import type { ChatLine } from "../chatTypes";
-import { ChatView, chatMessageMetadataLabel, chatQueuedMessageSections } from "./ChatView";
+import { ChatView, activityStateLabel, chatMessageMetadataLabel, chatQueuedMessageSections, messageTranscriptIndex } from "./ChatView";
 import { isTemplateResult, templateStrings, templateValues, templateValuesAfterMarker } from "../templateInspection.testSupport";
 
 describe("chatQueuedMessageSections", () => {
@@ -26,6 +26,24 @@ describe("chatQueuedMessageSections", () => {
         messages: [{ kind: "steer", text: "server queued" }],
       },
     ]);
+  });
+});
+
+describe("activityStateLabel", () => {
+  it("localizes known, parameterized, and unknown dynamic activity labels", () => {
+    expect(activityStateLabel("resources reloaded")).toBe("资源已重新加载");
+    expect(activityStateLabel("model: gpt-test")).toBe("模型：gpt-test");
+    expect(activityStateLabel("thinking: medium")).toBe("思考级别：中");
+    expect(activityStateLabel("unmapped_runtime_event", "active")).toBe("运行中");
+    expect(activityStateLabel("unmapped_runtime_event", "error")).toBe("发生错误");
+    expect(activityStateLabel("unmapped_runtime_event", "idle")).toBe("空闲");
+  });
+});
+
+describe("messageTranscriptIndex", () => {
+  it("falls back to the displayed transcript offset when live replay dropped message metadata", () => {
+    expect(messageTranscriptIndex({ role: "user", parts: [{ type: "text", text: "question" }] }, 9)).toBe(9);
+    expect(messageTranscriptIndex({ role: "assistant", parts: [{ type: "text", text: "answer" }], transcriptIndex: 17 }, 9)).toBe(17);
   });
 });
 

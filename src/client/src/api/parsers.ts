@@ -1,4 +1,4 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionInfo, SessionModel, SessionPinResponse, SessionPinnedIdsResponse, SessionStatus, SessionStreamSnapshot, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
+import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionInfo, SessionModel, SessionPinResponse, SessionPinnedIdsResponse, SessionStatus, SessionStreamSnapshot, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
 import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
 
 export { arrayOf } from "./parsers/core";
@@ -120,6 +120,46 @@ export function parseSessionStatus(value: unknown): SessionStatus {
     ...optionalModel(record["model"]),
     ...optionalContextUsage(record["contextUsage"]),
     ...optionalField("thinkingLevel", optionalString(record, "thinkingLevel")),
+  };
+}
+
+export function parseSessionContentSearchResponse(value: unknown): SessionContentSearchResponse {
+  const record = requireRecord(value);
+  return {
+    results: arrayOf(parseSessionContentSearchResult)(record["results"]),
+    matchCount: requireNumber(record, "matchCount"),
+    truncated: requireBoolean(record, "truncated"),
+  };
+}
+
+function parseSessionContentSearchResult(value: unknown): SessionContentSearchResult {
+  const record = requireRecord(value);
+  return {
+    session: parseSessionInfo(record["session"]),
+    matches: arrayOf(parseSessionContentSearchMatch)(record["matches"]),
+  };
+}
+
+function parseSessionContentSearchMatch(value: unknown): SessionContentSearchMatch {
+  const record = requireRecord(value);
+  const role = requireString(record, "role");
+  if (role !== "user" && role !== "assistant") throw new Error("Invalid session content search role");
+  return {
+    messageIndex: requireNumber(record, "messageIndex"),
+    role,
+    excerpts: arrayOf(parseSessionContentSearchExcerpt)(record["excerpts"]),
+    occurrenceCount: requireNumber(record, "occurrenceCount"),
+  };
+}
+
+function parseSessionContentSearchExcerpt(value: unknown): SessionContentSearchExcerpt {
+  const record = requireRecord(value);
+  return {
+    text: requireString(record, "text"),
+    matchRanges: arrayOf((rangeValue) => {
+      const range = requireRecord(rangeValue);
+      return { start: requireNumber(range, "start"), length: requireNumber(range, "length") };
+    })(record["matchRanges"]),
   };
 }
 

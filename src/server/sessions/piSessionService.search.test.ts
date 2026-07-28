@@ -53,6 +53,27 @@ describe("PiSessionService session search and pins", () => {
     await expect(service.search(cwd, "other-id")).resolves.toEqual([]);
   });
 
+  it("returns message-level user and assistant matches with transcript positions", async () => {
+    const cwd = join(tempDir, "workspace");
+    const active = sessionEntry("active-id", cwd, { allMessagesText: "Needle twice needle and answer needle" });
+    const service = createService([active], [], undefined, new Map([
+      [active.path, [
+        { type: "message", message: { role: "user", content: "Needle twice needle" } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "answer needle" }] } },
+        { type: "message", message: { role: "toolResult", content: "needle in tool output" } },
+      ]],
+    ]));
+
+    const response = await service.searchContent(cwd, "needle");
+    expect(response.matchCount).toBe(2);
+    expect(response.truncated).toBe(false);
+    expect(response.results[0]?.session.id).toBe("active-id");
+    expect(response.results[0]?.matches.map(({ messageIndex, role, occurrenceCount }) => ({ messageIndex, role, occurrenceCount }))).toEqual([
+      { messageIndex: 1, role: "assistant", occurrenceCount: 1 },
+      { messageIndex: 0, role: "user", occurrenceCount: 2 },
+    ]);
+  });
+
   it("persists normal pins across service instances while isolating management users and workspaces", async () => {
     const cwd = join(tempDir, "workspace");
     const otherCwd = join(tempDir, "other");
@@ -74,7 +95,7 @@ describe("PiSessionService session search and pins", () => {
   });
 });
 
-function createService(entries: PiSessionListEntry[], archivedRecords: readonly ArchivedSessionRecord[], pinFile = join(tempDir, "session-pins.json")): PiSessionService {
+function createService(entries: PiSessionListEntry[], archivedRecords: readonly ArchivedSessionRecord[], pinFile = join(tempDir, "session-pins.json"), histories = new Map<string, unknown[]>()): PiSessionService {
   const archiveStore = {
     list: () => Promise.resolve([...archivedRecords]),
     get: () => Promise.resolve(undefined),
@@ -84,7 +105,7 @@ function createService(entries: PiSessionListEntry[], archivedRecords: readonly 
   };
   const service = new PiSessionService(new SessionEventHub(), {
     agentDir: tempDir,
-    sessionManager: new ListOnlySessionManager(entries),
+    sessionManager: new ListOnlySessionManager(entries, histories),
     archiveStore,
     pinStore: new SessionPinStore(pinFile),
     modelRuntime,
@@ -95,7 +116,7 @@ function createService(entries: PiSessionListEntry[], archivedRecords: readonly 
 }
 
 class ListOnlySessionManager implements PiSessionManagerGateway {
-  constructor(private readonly entries: PiSessionListEntry[]) {}
+  constructor(private readonly entries: PiSessionListEntry[], private readonly histories = new Map<string, unknown[]>()) {}
 
   list(cwd: string): Promise<PiSessionListEntry[]> {
     return Promise.resolve(this.entries.filter((entry) => entry.cwd === cwd));
@@ -105,8 +126,17 @@ class ListOnlySessionManager implements PiSessionManagerGateway {
     throw new Error("not used");
   }
 
-  open(): PiSessionManager {
-    throw new Error("not used");
+  open(path: string): PiSessionManager {
+    const entry = this.entries.find((candidate) => candidate.path === path);
+    const branch = this.histories.get(path);
+    if (entry === undefined || branch === undefined) throw new Error("not used");
+    return {
+      getCwd: () => entry.cwd,
+      getSessionId: () => entry.id,
+      getSessionFile: () => entry.path,
+      getBranch: () => branch,
+      getLeafId: () => null,
+    };
   }
 }
 

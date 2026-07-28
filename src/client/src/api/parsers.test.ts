@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionPinResponse, parseSessionPinnedIdsResponse, parseSessionStatus, parseSessionStreamSnapshot, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionContentSearchResponse, parseSessionInfo, parseSessionPinResponse, parseSessionPinnedIdsResponse, parseSessionStatus, parseSessionStreamSnapshot, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -379,6 +379,19 @@ describe("API parsers", () => {
       contextUsage: { tokens: null, contextWindow: 100, percent: 0.5 },
       thinkingLevel: "medium",
     });
+  });
+
+  it("parses message-level session content search responses", () => {
+    const response = {
+      results: [{
+        session: { id: "s1", cwd: "/repo", path: "/repo/s1.jsonl", created: "now", modified: "later", messageCount: 2, firstMessage: "question" },
+        matches: [{ messageIndex: 1, role: "assistant", excerpts: [{ text: "an answer", matchRanges: [{ start: 3, length: 6 }] }], occurrenceCount: 1 }],
+      }],
+      matchCount: 1,
+      truncated: false,
+    };
+    expect(parseSessionContentSearchResponse(response)).toEqual(response);
+    expect(() => parseSessionContentSearchResponse({ ...response, results: [{ ...response.results[0], matches: [{ ...response.results[0]?.matches[0], role: "tool" }] }] })).toThrow("Invalid session content search role");
   });
 
   it("validates join-time stream snapshots without casting the partial", () => {

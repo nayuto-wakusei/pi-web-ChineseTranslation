@@ -67,7 +67,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
         >
           ${this.renderActivity(selected)}
           <span class="machine-switcher-text">
-            <span class="machine-switcher-kicker">Machine</span>
+            <span class="machine-switcher-kicker">机器</span>
             <span class="machine-switcher-label">${label}</span>
           </span>
           <span class=${`machine-status ${status}`}>${machineStatusLabel(status)}</span>
@@ -98,21 +98,21 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
           @keydown=${(event: KeyboardEvent) => { this.handleMachineOptionKeydown(event); }}
         >
           <span class="machine-option-name">${this.renderActivity(machine)}<span>${machine.name}</span></span>
-          <small>${machine.kind === "local" ? "Local Pi Web" : machine.baseUrl ?? "Remote Pi Web"} · ${machineStatusLabel(status)}</small>
+          <small>${machine.kind === "local" ? "本地 PI WEB" : machine.baseUrl ?? "远程 PI WEB"} · ${machineStatusLabel(status)}</small>
         </button>
         ${hasActions ? html`
           <div class="machine-option-actions">
             <button
               type="button"
               class="machine-option-actions-toggle"
-              title="Machine actions"
-              aria-label=${`Actions for ${machine.name}`}
+              title="机器操作"
+              aria-label=${`${machine.name} 的操作`}
               aria-expanded=${String(actionsOpen)}
               @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleActionsMenu(machine.id, event.currentTarget); }}
             >⋯</button>
             ${actionsOpen ? html`
               <div class="machine-option-actions-panel" style=${this.actionMenuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-                <button class="danger" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>
+                <button class="danger" title=${`移除 ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>移除</button>
               </div>
             ` : null}
           </div>
@@ -308,7 +308,7 @@ function machineStatus(machine: Machine, statuses: Record<string, MachineHealth>
 }
 
 function machineStatusLabel(status: MachineStatus): string {
-  return status === "online" ? "online" : status === "offline" ? "offline" : status === "error" ? "error" : "unknown";
+  return status === "online" ? "在线" : status === "offline" ? "离线" : status === "error" ? "错误" : "未知";
 }
 
 function machineTitle(machine: Machine): string {

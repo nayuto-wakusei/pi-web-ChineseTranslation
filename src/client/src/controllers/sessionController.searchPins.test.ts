@@ -1,37 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
-import { api as defaultApi, type SessionInfo } from "../api";
+import { api as defaultApi, type SessionContentSearchResponse, type SessionInfo } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "./sessionController";
-import { FakeSocket, deferred, workspace } from "./sessionController.testSupport";
+import { FakeSocket, deferred, status, workspace } from "./sessionController.testSupport";
 
 describe("SessionController session search and pins", () => {
   it("debounces search, ignores stale results, and restores the full list when cleared", async () => {
     vi.useFakeTimers();
     try {
       let state: AppState = { ...initialAppState(), selectedWorkspace: workspace };
-      const first = deferred<SessionInfo[]>();
-      const second = deferred<SessionInfo[]>();
-      const search = vi.fn()
+      const first = deferred<SessionContentSearchResponse>();
+      const second = deferred<SessionContentSearchResponse>();
+      const searchContent = vi.fn()
         .mockReturnValueOnce(first.promise)
         .mockReturnValueOnce(second.promise);
-      const api = { ...defaultApi, search };
+      const api = { ...defaultApi, searchContent };
       const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined, { api, socket: new FakeSocket() });
 
       controller.searchSessions("first");
       await vi.advanceTimersByTimeAsync(249);
-      expect(search).not.toHaveBeenCalled();
+      expect(searchContent).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      expect(search).toHaveBeenCalledWith("/repo", "first", "local");
+      expect(searchContent).toHaveBeenCalledWith("/repo", "first", "local");
 
       controller.searchSessions("second");
       await vi.advanceTimersByTimeAsync(250);
-      second.resolve([{ ...workspaceSession("second-result"), firstMessage: "second" }]);
+      second.resolve({ results: [{ session: { ...workspaceSession("second-result"), firstMessage: "second" }, matches: [] }], matchCount: 1, truncated: false });
       await vi.runAllTimersAsync();
-      expect(state.sessionSearchResults?.map((session) => session.id)).toEqual(["second-result"]);
+      expect(state.sessionSearchResults?.results.map((result) => result.session.id)).toEqual(["second-result"]);
 
-      first.resolve([{ ...workspaceSession("stale-result"), firstMessage: "first" }]);
+      first.resolve({ results: [{ session: { ...workspaceSession("stale-result"), firstMessage: "first" }, matches: [] }], matchCount: 1, truncated: false });
       await vi.runAllTimersAsync();
-      expect(state.sessionSearchResults?.map((session) => session.id)).toEqual(["second-result"]);
+      expect(state.sessionSearchResults?.results.map((result) => result.session.id)).toEqual(["second-result"]);
 
       controller.searchSessions("");
       expect(state.sessionSearchQuery).toBe("");
@@ -41,6 +41,35 @@ describe("SessionController session search and pins", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("loads contiguous history through a selected match and records a stable search target", async () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace };
+    const session = workspaceSession("session-1");
+    const rawMessages = Array.from({ length: 10 }, (_, index) => ({ role: index % 2 === 0 ? "user" : "assistant", content: `message ${String(index)}` }));
+    const messages = vi.fn()
+      .mockResolvedValueOnce({ messages: rawMessages.slice(8), start: 8, total: 10 })
+      .mockResolvedValueOnce({ messages: rawMessages.slice(0, 8), start: 0, total: 10 });
+    const api = {
+      ...defaultApi,
+      messages,
+      status: vi.fn().mockResolvedValue(status("session-1")),
+      streamSnapshot: vi.fn().mockResolvedValue({ seq: 0, partial: null }),
+    };
+    const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined, { api, socket: new FakeSocket() });
+
+    await controller.selectSearchMatch(session, {
+      messageIndex: 1,
+      role: "assistant",
+      occurrenceCount: 1,
+      excerpts: [{ text: "message 1", matchRanges: [{ start: 0, length: 7 }] }],
+    }, "message");
+
+    expect(messages).toHaveBeenNthCalledWith(2, session, { before: 8, limit: 500 }, "local");
+    expect(state.messagePageStart).toBe(0);
+    expect(state.messages.find((message) => message.transcriptIndex === 1)?.parts).toEqual([{ type: "text", text: "message 1" }]);
+    expect(state.sessionSearchTarget).toEqual({ sessionId: "session-1", messageIndex: 1, query: "message", requestId: 1 });
+    controller.dispose();
   });
 
   it("loads pins from the server and rolls back a failed optimistic toggle", async () => {

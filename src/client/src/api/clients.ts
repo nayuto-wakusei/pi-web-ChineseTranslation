@@ -39,6 +39,7 @@ import {
   parseSessionBulkDeleteArchivedResponse,
   parseSessionCleanupExecuteResponse,
   parseSessionCleanupPreviewResponse,
+  parseSessionContentSearchResponse,
   parseSessionInfo,
   parseSessionPinResponse,
   parseSessionPinnedIdsResponse,
@@ -240,6 +241,7 @@ export const workspacesApi = {
 export const sessionsApi = {
   sessions: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo)),
   search: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search?${new URLSearchParams({ cwd, q: query }).toString()}`, arrayOf(parseSessionInfo)),
+  searchContent: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search-content?${new URLSearchParams({ cwd, q: query }).toString()}`, parseSessionContentSearchResponse),
   pinned: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/pins?cwd=${encodeURIComponent(cwd)}`, parseSessionPinnedIdsResponse),
   pin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
   unpin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),

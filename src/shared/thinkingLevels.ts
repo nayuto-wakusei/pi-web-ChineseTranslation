@@ -23,6 +23,33 @@ export function thinkingLevelLabel(level: string | undefined): string {
   return level === undefined || level === "" ? "off" : level;
 }
 
+export function thinkingLevelDisplayLabel(level: string | undefined): string {
+  const normalized = thinkingLevelLabel(level);
+  const labels: Partial<Record<ThinkingLevel, string>> = {
+    off: "关闭",
+    minimal: "最低",
+    low: "低",
+    medium: "中",
+    high: "高",
+    xhigh: "极高",
+    max: "最高",
+  };
+  return isKnownThinkingLevel(normalized) ? labels[normalized] ?? normalized : normalized;
+}
+
+export function thinkingLevelDescription(level: string): string | undefined {
+  switch (level) {
+    case "off": return "不使用推理";
+    case "minimal": return "极简推理（约 1k tokens）";
+    case "low": return "轻量推理（约 2k tokens）";
+    case "medium": return "中等推理（约 8k tokens）";
+    case "high": return "深度推理（约 16k tokens）";
+    case "xhigh": return "最大推理（约 32k tokens）";
+    case "max": return "最高推理（约 64k tokens）";
+    default: return undefined;
+  }
+}
+
 export interface ThinkingGauge {
   /** Number of bars to render (the non-"off" levels). */
   total: number;

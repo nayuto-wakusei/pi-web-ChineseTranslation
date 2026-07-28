@@ -331,15 +331,18 @@ describe("session routes", () => {
     try {
       const requestCwd = resolve("/repo");
       const searchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search?cwd=${encodeURIComponent(requestCwd)}&q=full%20text` });
+      const contentSearchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search-content?cwd=${encodeURIComponent(requestCwd)}&q=answer` });
       const pinsResponse = await routeApp.inject({ method: "GET", url: `/sessions/pins?cwd=${encodeURIComponent(requestCwd)}` });
       const pinResponse = await routeApp.inject({ method: "PUT", url: "/sessions/session-1/pin", payload: { cwd: requestCwd } });
       const unpinResponse = await routeApp.inject({ method: "DELETE", url: `/sessions/session-1/pin?cwd=${encodeURIComponent(requestCwd)}` });
 
       expect(searchResponse.statusCode).toBe(200);
+      expect(contentSearchResponse.statusCode).toBe(200);
       expect(pinsResponse.statusCode).toBe(200);
       expect(pinResponse.statusCode).toBe(200);
       expect(unpinResponse.statusCode).toBe(200);
       expect(routeService.searchCalls).toEqual([{ cwd: requestCwd, query: "full text" }]);
+      expect(routeService.searchContentCalls).toEqual([{ cwd: requestCwd, query: "answer" }]);
       expect(routeService.pinnedCalls).toEqual([requestCwd]);
       expect(routeService.pinCalls).toEqual([
         { lookup: { id: "session-1", cwd: requestCwd }, pinned: true },
@@ -364,6 +367,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
   readonly searchCalls: { cwd: string; query: string }[] = [];
+  readonly searchContentCalls: { cwd: string; query: string }[] = [];
   readonly pinnedCalls: string[] = [];
   readonly pinCalls: { lookup: SessionRouteLookup; pinned: boolean }[] = [];
   reloadError: Error | undefined;
@@ -403,6 +407,10 @@ class CapturingRouteSessionService implements SessionRouteService {
   search(cwd: string, query: string): Promise<[]> {
     this.searchCalls.push({ cwd, query });
     return Promise.resolve([]);
+  }
+  searchContent(cwd: string, query: string): Promise<{ results: []; matchCount: number; truncated: boolean }> {
+    this.searchContentCalls.push({ cwd, query });
+    return Promise.resolve({ results: [], matchCount: 0, truncated: false });
   }
 
   listPinned(cwd: string): Promise<{ sessionIds: string[] }> {

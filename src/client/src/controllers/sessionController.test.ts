@@ -281,7 +281,7 @@ describe("SessionController", () => {
     runPendingAnimationFrames();
 
     expect(state.messages).toEqual([
-      { role: "user", parts: [{ type: "text", text: "Inspect the repository" }] },
+      { role: "user", parts: [{ type: "text", text: "Inspect the repository" }], transcriptIndex: 0 },
       {
         role: "tool",
         parts: [expect.objectContaining({
@@ -410,7 +410,7 @@ describe("SessionController", () => {
     expect(temporarySession?.id).toMatch(/^pending-session-/);
     expect(temporarySession?.persisted).toBe(false);
     expect(state.sessions.map((session) => session.id)).toEqual([temporarySession?.id]);
-    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "Creating session" });
+    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "正在创建会话" });
     expect(messageCalls).toEqual([]);
     expect(statusCalls).toEqual([]);
 
@@ -626,7 +626,7 @@ describe("SessionController", () => {
     expect(temporaryId).toMatch(/^pending-session-/);
     expect(state.sessions.map((session) => session.id)).toEqual([temporaryId]);
     expect(state.sessions[0]?.persisted).toBe(false);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
     expect(state.error).toContain("backend unavailable");
 
     await controller.deleteCachedNewSession(state.sessions[0]);
@@ -887,7 +887,7 @@ describe("SessionController", () => {
       { kind: "followUp", text: "first" },
       { kind: "steer", text: "second" },
     ]);
-    expect(state.activity?.detail).toContain("2 queued messages");
+    expect(state.activity?.detail).toContain("2 条排队消息");
 
     startRequest.resolve(started);
     await start;
@@ -999,8 +999,8 @@ describe("SessionController", () => {
 
     expect(state.selectedSession?.id).toBe(temporaryId);
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([{ kind: "followUp", text: "recover me" }]);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
-    expect(state.activity?.detail).toContain("1 queued message kept below");
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
+    expect(state.activity?.detail).toContain("下方保留了 1 条排队消息");
 
     await controller.deleteCachedNewSession(state.selectedSession);
 
@@ -1620,7 +1620,7 @@ describe("SessionController", () => {
     expect(reloadCalls).toEqual([oldSession.id]);
     expect(messageCalls).toEqual([oldSession.id]);
     expect(cachedPages.get(cacheKey)).toEqual(freshPage);
-    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }] }]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }], transcriptIndex: 1 }]);
     expect(state.messagePageStart).toBe(1);
     expect(state.error).toBe("");
   });

@@ -3,6 +3,7 @@ export type {
   Workspace,
   SessionRef as ClientSessionRef,
   SessionInfo as ClientSession,
+  SessionContentSearchResponse as ClientSessionContentSearchResponse,
   ArchiveSessionsResponse as ClientArchiveSessionsResponse,
   SessionCleanupRequest as ClientSessionCleanupRequest,
   SessionCleanupThresholds as ClientSessionCleanupThresholds,

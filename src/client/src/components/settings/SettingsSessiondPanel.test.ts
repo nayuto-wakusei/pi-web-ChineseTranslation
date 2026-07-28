@@ -41,7 +41,7 @@ describe("settings-sessiond-panel layout", () => {
     expectTextOrder(rendered, [
       "Failed to save session-daemon config.",
       "Session daemon settings saved.",
-      "local (local gateway) 需要重启",
+      "local（本地网关） 需要重启",
       "配置文件",
     ]);
   });
@@ -53,7 +53,7 @@ describe("settings-sessiond-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("Profile 状态");
+    expect(rendered).toContain("配置档案状态");
     expect(rendered).toContain("已生效");
     expect(rendered).not.toContain("需要重启");
   });

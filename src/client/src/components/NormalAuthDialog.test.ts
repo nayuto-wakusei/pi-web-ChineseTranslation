@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { NormalAuthDialog, normalAuthPasswordFormError } from "./NormalAuthDialog";
+import { NormalAuthDialog, normalAuthDialogTitle, normalAuthPasswordFormError } from "./NormalAuthDialog";
+
+describe("normal auth dialog title", () => {
+  it("uses the concise login prompt", () => {
+    expect(normalAuthDialogTitle("setup")).toBe("设置进入密码");
+    expect(normalAuthDialogTitle("change")).toBe("修改进入密码");
+    expect(normalAuthDialogTitle("login")).toBe("输入密码");
+  });
+});
 
 describe("normal auth dialog validation", () => {
   it("requires password confirmation when setting the first password", () => {

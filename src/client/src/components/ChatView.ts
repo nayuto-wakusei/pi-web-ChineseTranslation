@@ -9,6 +9,8 @@ import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
 import type { ChatLine, ChatPart } from "../chatTypes";
 import type { QueuedSessionMessage, SessionActivity, SessionStatus } from "../api";
+import type { SessionSearchTarget } from "../appState";
+import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { chatStyles } from "./styles/chatStyles";
 import "./ConversationMeter";
 import "./FormattedText";
@@ -33,9 +35,15 @@ const activityLabelTranslations: Record<string, string> = {
   "message started": "消息已开始",
   "prompt accepted": "提示已接受",
   queued: "已排队",
+  "reloading resources": "正在重新加载资源",
+  "resources reloaded": "资源已重新加载",
+  "reload failed": "重新加载失败",
   "receiving response": "正在接收回复",
   "running bash": "Shell 运行中",
   "running tool": "工具运行中",
+  "creating session": "正在创建会话",
+  "session creation failed": "会话创建失败",
+  "extension error": "扩展错误",
   "steering queued": "引导已排队",
   stopped: "已停止",
   "tool complete": "工具已完成",
@@ -95,6 +103,7 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageStart = 0;
   @property({ type: Number }) messageEnd = 0;
   @property({ type: Number }) messageTotal = 0;
+  @property({ attribute: false }) searchTarget?: SessionSearchTarget;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
   @property({ type: Boolean }) isSendingPrompt = false;
@@ -118,6 +127,7 @@ export class ChatView extends LitElement {
   private loadMoreCheckFrame: number | undefined;
   private scrollToBottomFrame: number | undefined;
   private conversationRailFrame: number | undefined;
+  private searchTargetFrame: number | undefined;
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
@@ -164,6 +174,7 @@ export class ChatView extends LitElement {
     if (this.loadMoreCheckFrame !== undefined) cancelAnimationFrame(this.loadMoreCheckFrame);
     if (this.scrollToBottomFrame !== undefined) cancelAnimationFrame(this.scrollToBottomFrame);
     if (this.conversationRailFrame !== undefined) cancelAnimationFrame(this.conversationRailFrame);
+    if (this.searchTargetFrame !== undefined) cancelAnimationFrame(this.searchTargetFrame);
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
@@ -211,6 +222,7 @@ export class ChatView extends LitElement {
     if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore")) this.continuePendingScrollRestore();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
+    if (changed.has("searchTarget")) this.scheduleSearchTargetScroll();
   }
 
   override render() {
@@ -330,7 +342,7 @@ export class ChatView extends LitElement {
     const activity = this.activity;
     if (activity === undefined) return activityStateLabel(state);
     if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
-    const label = activityStateLabel(activity.label);
+    const label = activityStateLabel(activity.label, activity.phase);
     return activity.detail !== undefined && activity.detail !== "" ? `${label}: ${activity.detail}` : label;
   }
 
@@ -382,11 +394,13 @@ export class ChatView extends LitElement {
 
   private renderMessage(message: ChatLine, index: number) {
     const toolOnly = this.isToolExecutionOnlyMessage(message);
+    const transcriptIndex = messageTranscriptIndex(message, index);
+    const searchTarget = this.isSearchTargetMessage(message, transcriptIndex);
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
-      <article class=${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
+      <article class=${`${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`}${searchTarget ? " search-target" : ""}`} data-index=${index} data-transcript-index=${transcriptIndex} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
         ${toolOnly ? null : this.renderMessageHeader(message, String(index))}
-        ${message.parts.map((part) => this.renderPart(part, message))}
+        ${message.parts.map((part) => this.renderPart(part, message, searchTarget ? this.searchTarget?.query : undefined))}
       </article>
     `;
   }
@@ -508,16 +522,16 @@ export class ChatView extends LitElement {
     return label;
   }
 
-  private renderPart(part: ChatPart, message?: ChatLine) {
+  private renderPart(part: ChatPart, message?: ChatLine, highlight?: string) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
-    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
+    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text} .highlight=${highlight ?? ""}></formatted-text>`;
     if (part.type === "image") return html`<figure class="part chat-image"><img src=${`data:${part.mimeType};base64,${part.data}`} alt="用户上传的图片" loading="lazy" @load=${this.onImageLoad}></figure>`;
     if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[技能]</b> ${part.name}</summary>
         <small>${part.location}</small>
-        <formatted-text .text=${part.content}></formatted-text>
+        <formatted-text .text=${part.content} .highlight=${highlight ?? ""}></formatted-text>
       </details>
     `;
     if (part.type === "skillRead") return html`
@@ -535,6 +549,26 @@ export class ChatView extends LitElement {
       </details>
     `;
     return null;
+  }
+
+  private isSearchTargetMessage(message: ChatLine, transcriptIndex: number): boolean {
+    const target = this.searchTarget;
+    return target?.sessionId === this.sessionId
+      && transcriptIndex === target.messageIndex
+      && (message.role === "user" || message.role === "assistant");
+  }
+
+  private scheduleSearchTargetScroll(): void {
+    const target = this.searchTarget;
+    if (target?.sessionId !== this.sessionId || this.searchTargetFrame !== undefined) return;
+    this.searchTargetFrame = requestAnimationFrame(() => {
+      this.searchTargetFrame = undefined;
+      const element = this.renderRoot.querySelector<HTMLElement>(`[data-transcript-index="${String(target.messageIndex)}"]`);
+      if (element === null) return;
+      this.pinnedToBottom = false;
+      element.scrollIntoView({ block: "center", behavior: "smooth" });
+      this.syncScrollMetrics();
+    });
   }
 
   private onGroupToggle(key: string, event: Event, defaultOpen: boolean) {
@@ -860,8 +894,19 @@ function roleLabel(role: string): string {
   return role;
 }
 
-function activityStateLabel(state: string): string {
+export function activityStateLabel(state: string, phase: SessionActivity["phase"] = "idle"): string {
   if (state === "bash") return "Shell 运行中";
   if (state === "running") return "运行中";
-  return activityLabelTranslations[state] ?? state;
+  const normalized = state.trim().toLocaleLowerCase();
+  const translated = activityLabelTranslations[normalized];
+  if (translated !== undefined) return translated;
+  if (normalized.startsWith("model:")) return `模型：${state.slice(state.indexOf(":") + 1).trim()}`;
+  if (normalized.startsWith("thinking:")) return `思考级别：${thinkingLevelDisplayLabel(state.slice(state.indexOf(":") + 1).trim())}`;
+  if (phase === "active") return "运行中";
+  if (phase === "error") return "发生错误";
+  return "空闲";
+}
+
+export function messageTranscriptIndex(message: ChatLine, displayIndex: number): number {
+  return message.transcriptIndex ?? displayIndex;
 }

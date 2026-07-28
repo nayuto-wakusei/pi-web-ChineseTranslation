@@ -1,10 +1,11 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
+import { thinkingLevelDescription, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ActivityController } from "../controllers/activityController";
 import { AuthController } from "../controllers/authController";
 import { FileExplorerController } from "../controllers/fileExplorerController";
@@ -46,6 +47,7 @@ import "./ProjectList";
 import "./WorkspaceList";
 import "./SessionList";
 import "./SessionCleanupDialog";
+import "./SessionSearchDialog";
 import "./ChatView";
 import type { ChatView } from "./ChatView";
 import "./PromptEditor";
@@ -299,6 +301,7 @@ export class PiWebApp extends LitElement {
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private isRefreshingApp = false;
   @state() private sessionCleanupDialog: SessionCleanupDialogState | undefined;
+  @state() private sessionSearchDialogOpen = false;
   @state() private settingsSection: SettingsSection | undefined = readSettingsSection();
   @state() private normalAuthStatus: NormalAuthStatusResponse | undefined;
   @state() private normalAuthLoading = true;
@@ -1250,6 +1253,22 @@ export class PiWebApp extends LitElement {
     this.sessionCleanupDialog = { error: "" };
   }
 
+  private openSessionSearchDialog(): void {
+    this.sessions.searchSessions("");
+    this.sessionSearchDialogOpen = true;
+  }
+
+  private closeSessionSearchDialog(): void {
+    this.sessionSearchDialogOpen = false;
+    this.sessions.searchSessions("");
+  }
+
+  private async selectSessionSearchMatch(session: SessionInfo, match: SessionContentSearchMatch): Promise<void> {
+    const query = this.state.sessionSearchQuery.trim();
+    this.sessionSearchDialogOpen = false;
+    await this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSearchMatch(session, match, query));
+  }
+
   private closeSessionCleanupDialog(): void {
     this.sessionCleanupDialog = undefined;
   }
@@ -1329,10 +1348,6 @@ export class PiWebApp extends LitElement {
         .deletingWorkspaceIds=${pendingWorkspaceDeletionIds(this.state.workspaceDeletionRuns)}
         .sessions=${this.state.sessions}
         .pinnedSessionIds=${this.state.pinnedSessionIds}
-        .sessionSearchQuery=${this.state.sessionSearchQuery}
-        .sessionSearchResults=${this.state.sessionSearchResults}
-        .isSearchingSessions=${this.state.isSearchingSessions}
-        .sessionSearchError=${this.state.sessionSearchError}
         .sessionStatuses=${this.state.sessionStatuses}
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
@@ -1363,7 +1378,7 @@ export class PiWebApp extends LitElement {
         .onArchivedCollapsed=${() => { this.sessions.clearSelectionAfterArchivedCollapse(); }}
         .onStartSession=${() => this.startSessionFromNavigation()}
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
-        .onSearchSessions=${(query: string) => { this.sessions.searchSessions(query); }}
+        .onSearchSessions=${() => { this.openSessionSearchDialog(); }}
         .onToggleSessionPin=${(session: SessionInfo) => { this.sessions.togglePinned(session); }}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
@@ -2060,7 +2075,7 @@ export class PiWebApp extends LitElement {
       thinkingDialog: {
         title: "选择思考级别",
         selectedValue: current,
-        options: levels.map((level) => { const description = thinkingDescription(level); return { value: level, label: `${level}${level === current ? " ✓ 当前" : ""}`, ...(description === undefined ? {} : { description }) }; }),
+        options: levels.map((level) => { const description = thinkingLevelDescription(level); return { value: level, label: `${thinkingLevelDisplayLabel(level)}${level === current ? " ✓ 当前" : ""}`, ...(description === undefined ? {} : { description }) }; }),
       },
     });
   }
@@ -2101,7 +2116,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 
@@ -2182,6 +2197,7 @@ export class PiWebApp extends LitElement {
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
+        ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
         ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
@@ -2274,16 +2290,4 @@ function omitWorkspaceDeletionRun(runs: Record<string, TerminalCommandRun>, work
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => { resolve(); }));
-}
-
-function thinkingDescription(level: string): string | undefined {
-  switch (level) {
-    case "off": return "不使用推理";
-    case "minimal": return "极简推理（约 1k tokens）";
-    case "low": return "轻量推理（约 2k tokens）";
-    case "medium": return "中等推理（约 8k tokens）";
-    case "high": return "深度推理（约 16k tokens）";
-    case "xhigh": return "最大推理（约 32k tokens）";
-    default: return undefined; // unknown level from a newer pi: no description
-  }
 }

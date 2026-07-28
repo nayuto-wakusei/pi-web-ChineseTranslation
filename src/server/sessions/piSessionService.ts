@@ -23,7 +23,7 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -43,6 +43,7 @@ import type { SessionRouteLookup, SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
 import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
+import { searchSessionContent } from "./sessionContentSearch.js";
 
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
@@ -749,15 +750,25 @@ export class PiSessionService {
   async search(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]> {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     if (normalizedQuery === "") return this.list(cwd, managementContext);
-    const listing = await this.listWorkspaceSessions(cwd, managementContext);
-    const matches = await Promise.all(listing.sessions.map(async (session) => {
-      const entry = listing.entriesById.get(session.id);
-      const archived = listing.archivedById.get(session.id);
-      const archivedText = archived?.archivePath === undefined ? "" : await readArchivedSessionText(archived.archivePath);
-      const haystack = [session.id, session.name ?? "", session.firstMessage, entry?.allMessagesText ?? "", archivedText].join("\n").toLocaleLowerCase();
-      return haystack.includes(normalizedQuery) ? session : undefined;
-    }));
-    return matches.filter(isDefined);
+    const { sessions } = await this.searchCandidates(cwd, normalizedQuery, managementContext);
+    return sessions;
+  }
+
+  async searchContent(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionContentSearchResponse> {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery === "") return { results: [], matchCount: 0, truncated: false };
+    const maxMatches = 200;
+    const { listing, sessions } = await this.searchCandidates(cwd, normalizedQuery.toLocaleLowerCase(), managementContext);
+    const results: ClientSessionContentSearchResponse["results"] = [];
+    let matchCount = 0;
+    for (const session of sessions) {
+      const remaining = maxMatches - results.reduce((count, result) => count + result.matches.length, 0);
+      const messages = this.searchableSessionHistory(session, listing, managementContext);
+      const view = searchSessionContent(messages, normalizedQuery, Math.max(1, remaining));
+      matchCount += view.matchCount;
+      if (remaining > 0 && view.matches.length > 0) results.push({ session, matches: view.matches.slice(0, remaining) });
+    }
+    return { results, matchCount, truncated: matchCount > maxMatches };
   }
 
   async listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse> {
@@ -1198,6 +1209,26 @@ export class PiSessionService {
 
   async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     return this.statusFromSession(await this.getOrOpen(ref, managementContext));
+  }
+
+  private async searchCandidates(cwd: string, normalizedQuery: string, managementContext?: ManagementEmbedContext): Promise<{ listing: WorkspaceSessionListing; sessions: ClientSession[] }> {
+    const listing = await this.listWorkspaceSessions(cwd, managementContext);
+    const matches = await Promise.all(listing.sessions.map(async (session) => {
+      const entry = listing.entriesById.get(session.id);
+      const archived = listing.archivedById.get(session.id);
+      const archivedText = archived?.archivePath === undefined ? "" : await readArchivedSessionText(archived.archivePath);
+      const haystack = [session.id, session.name ?? "", session.firstMessage, entry?.allMessagesText ?? "", archivedText].join("\n").toLocaleLowerCase();
+      return haystack.includes(normalizedQuery) ? session : undefined;
+    }));
+    return { listing, sessions: matches.filter(isDefined) };
+  }
+
+  private searchableSessionHistory(session: ClientSession, listing: WorkspaceSessionListing, managementContext?: ManagementEmbedContext): unknown[] {
+    const eventScope = eventScopeFromManagementContext(managementContext);
+    const active = this.activeForSessionIdAndScope(session.id, eventScope);
+    if (active !== undefined && cwdPathsEqual(active.runtime.cwd, session.cwd)) return historyMessages(active.runtime.session);
+    const path = listing.archivedById.get(session.id)?.archivePath ?? listing.entriesById.get(session.id)?.path;
+    return path === undefined ? [] : historyMessagesFromManager(this.sessionManager.open(path));
   }
 
   async streamSnapshot(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot> {
@@ -2659,8 +2690,12 @@ function stringValue(value: unknown): string {
 }
 
 function historyMessages(session: PiAgentSession): unknown[] {
+  return historyMessagesFromManager(session.sessionManager);
+}
+
+function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[] {
   const messages: unknown[] = [];
-  for (const entry of session.sessionManager.getBranch()) {
+  for (const entry of sessionManager.getBranch()) {
     if (!isRecord(entry)) continue;
     if (entry["type"] === "message") messages.push(entry["message"]);
     else if (entry["type"] === "custom_message" && entry["display"] === true) messages.push({ role: "custom", content: entry["content"], customType: entry["customType"], details: entry["details"] });

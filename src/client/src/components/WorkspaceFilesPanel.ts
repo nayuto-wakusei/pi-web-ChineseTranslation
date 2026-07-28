@@ -62,7 +62,7 @@ export class WorkspaceFilesPanel extends LitElement {
             <button class="danger" title=${canDelete ? `删除 ${selectedPath}` : "请选择要删除的文件或文件夹"} ?disabled=${!canDelete} @click=${() => { this.confirmDeleteSelectedPath(context); }}>删除</button>
             <button @click=${context.onRefreshFiles}>刷新</button>
           </div>
-          <input id="workspace-upload-input" class="visually-hidden" type="file" multiple @change=${this.handleFileInputChange} />
+          <input id="workspace-upload-input" type="file" multiple hidden @change=${this.handleFileInputChange} />
         </section>
         ${this.renderUploadProgress(context)}
         <section class="split">

@@ -87,7 +87,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "saveSessiondConfig", { agent: { command: "agent-lab", dir: "/srv/agent-lab" } });
 
     expect(saveSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Pi-compatible agent profile settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持 Pi 兼容 Agent Profile 设置。请更新并重启该机器上的 PI WEB，然后重试。");
   });
 
   it("saves a remote agent profile when granular support is advertised", async () => {
@@ -164,9 +164,9 @@ describe("settings-dialog session daemon machine targeting", () => {
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeUndefined();
     expect(getDialogProperty(dialog, "accessConfigResponse")).toBeUndefined();
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
-    expect(getDialogProperty(dialog, "accessError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
-    expect(getDialogProperty(dialog, "pluginError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(getDialogProperty(dialog, "accessError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(getDialogProperty(dialog, "pluginError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
   });
 
   it("does not save remote selected-machine settings when runtime support is missing", async () => {
@@ -181,9 +181,9 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "togglePlugin", "info", false);
 
     expect(saveSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
-    expect(getDialogProperty(dialog, "accessError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
-    expect(getDialogProperty(dialog, "pluginError")).toBe("Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(getDialogProperty(dialog, "accessError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(getDialogProperty(dialog, "pluginError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
   });
 
   it("shows selected-machine settings errors with the selected target name", async () => {
@@ -193,7 +193,7 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     await callDialogPromise(dialog, "loadSessiondConfigForTarget");
 
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Failed to load session-daemon config from Lab Mac (remote machine): Could not reach Lab Mac for selected-machine settings. Check the machine connection and try again.");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("从 Lab Mac（远程机器） 加载会话守护进程配置失败：无法连接 Lab Mac 以获取所选机器设置。请检查机器连接后重试。");
     expect(getDialogProperty(dialog, "sessiondLoading")).toBe(false);
   });
 });

@@ -24,24 +24,24 @@ export async function loadGatewaySettingsData(loaders: GatewaySettingsLoaders): 
   const errors: string[] = [];
 
   if (config.status === "fulfilled") result.config = config.value;
-  else errors.push(`config: ${errorMessage(config.reason)}`);
+  else errors.push(`配置：${errorMessage(config.reason)}`);
 
   if (plugins.status === "fulfilled") result.plugins = plugins.value;
-  else errors.push(`PI WEB plugins: ${errorMessage(plugins.reason)}`);
+  else errors.push(`PI WEB 插件：${errorMessage(plugins.reason)}`);
 
-  if (errors.length > 0) result.error = `Failed to load settings: ${errors.join("; ")}`;
+  if (errors.length > 0) result.error = `加载设置失败：${errors.join("；")}`;
   return result;
 }
 
 export async function loadPiPackagesData(target: PiPackageTargetContext, loadPackages: (targetId: string) => Promise<PiPackagesResponse>, support?: PiPackageManagementSupport): Promise<PiPackagesLoadResult> {
   if (isPiPackageManagementUnsupported(support)) {
-    return { error: support.message ?? `Pi package management is not available on ${piPackageTargetLabel(target)}.`, skipped: true };
+    return { error: support.message ?? `${piPackageTargetLabel(target)} 不支持 Pi 包管理。`, skipped: true };
   }
 
   try {
     return { packagesResponse: await loadPackages(target.id), error: "" };
   } catch (error) {
-    return { error: `Failed to load Pi packages from ${piPackageTargetLabel(target)}: ${friendlyPiPackageErrorMessage(errorMessage(error), target)}` };
+    return { error: `从 ${piPackageTargetLabel(target)} 加载 Pi 包失败：${friendlyPiPackageErrorMessage(errorMessage(error), target)}` };
   }
 }
 

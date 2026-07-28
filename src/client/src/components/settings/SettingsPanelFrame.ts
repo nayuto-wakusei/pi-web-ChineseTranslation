@@ -72,7 +72,7 @@ export class SettingsPanelFrame extends LitElement {
   private renderNoticeStack(): TemplateResult | typeof nothing {
     if (this.notices.length === 0) return nothing;
     return html`
-      <div class="notice-stack" aria-label="Settings notices">
+      <div class="notice-stack" aria-label="设置通知">
         ${this.notices.map((notice) => this.renderNotice(notice))}
       </div>
     `;

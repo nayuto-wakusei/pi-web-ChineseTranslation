@@ -17,7 +17,7 @@ import { createMobilePromptEnterMedia, readPromptEnterPreference, shouldSendProm
 import type { CompletionItem } from "../promptCompletionTypes";
 import { promptEditorStyles } from "./shared";
 import { renderAttachIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
-import { thinkingGauge, thinkingLevelLabel } from "../../../shared/thinkingLevels";
+import { thinkingGauge, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import "./AutocompleteMenu";
 
 type PendingAttachment = CapturedAttachment & { id: string };
@@ -146,7 +146,7 @@ export class PromptEditor extends LitElement {
     return html`
       <div class="compact-status" aria-label="会话状态">
         <button class="select-model" title="选择模型" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking icon-button" title=${`思考级别：${thinkingLevelLabel(status.thinkingLevel)}`} aria-label=${`思考级别：${thinkingLevelLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+        <button class="select-thinking icon-button" title=${`思考级别：${thinkingLevelDisplayLabel(status.thinkingLevel)}`} aria-label=${`思考级别：${thinkingLevelDisplayLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
       </div>
     `;
   }

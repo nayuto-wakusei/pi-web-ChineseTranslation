@@ -64,7 +64,7 @@ export class ChatTranscriptStore {
 export function transcriptViewFromHistory(history: RawMessagePage | undefined): ChatTranscriptView {
   const start = history?.start ?? 0;
   return {
-    messages: normalizeMessages(history?.messages ?? []),
+    messages: normalizeMessages(history?.messages ?? [], start),
     messagePageStart: start,
     messagePageEnd: start + (history?.messages.length ?? 0),
     messagePageTotal: history?.total ?? 0,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatTranscriptStore, type ChatHistoryCacheAdapter } from "./chatTranscriptStore";
+import { ChatTranscriptStore, transcriptViewFromHistory, type ChatHistoryCacheAdapter } from "./chatTranscriptStore";
 import type { RawMessagePage } from "./chatHistoryCache";
 
 class MemoryChatHistoryCache implements ChatHistoryCacheAdapter {
@@ -25,13 +25,26 @@ describe("ChatTranscriptStore", () => {
 
     expect(new ChatTranscriptStore(cache).cachedView("s1")).toEqual({
       messages: [
-        { role: "user", parts: [{ type: "text", text: "hi" }] },
-        { role: "assistant", parts: [{ type: "text", text: "hello" }] },
+        { role: "user", parts: [{ type: "text", text: "hi" }], transcriptIndex: 0 },
+        { role: "assistant", parts: [{ type: "text", text: "hello" }], transcriptIndex: 1 },
       ],
       messagePageStart: 0,
       messagePageEnd: 2,
       messagePageTotal: 2,
     });
+  });
+
+  it("preserves raw transcript positions on normalized history messages", () => {
+    const view = transcriptViewFromHistory({
+      messages: [
+        { role: "user", content: "question" },
+        { role: "assistant", content: [{ type: "text", text: "answer" }] },
+      ],
+      start: 12,
+      total: 20,
+    });
+
+    expect(view.messages.map((message) => message.transcriptIndex)).toEqual([12, 13]);
   });
 
   it("tracks the raw page end separately from normalized display messages", () => {
@@ -58,13 +71,13 @@ describe("ChatTranscriptStore", () => {
     let visible = store.mergeHistory("s1", initial).messages;
     visible = store.applyLiveEvent(visible, { type: "assistant.delta", text: "lo" }) ?? visible;
 
-    expect(visible.at(-1)).toEqual({ role: "assistant", parts: [{ type: "text", text: "hello" }] });
+    expect(visible.at(-1)).toEqual({ role: "assistant", parts: [{ type: "text", text: "hello" }], transcriptIndex: 1 });
     expect(cache.read("s1")?.messages).toEqual(initial.messages);
     expect(store.mergeHistory("s1", updated)).toEqual({
       messages: [
-        { role: "user", parts: [{ type: "text", text: "hi" }] },
-        { role: "assistant", parts: [{ type: "text", text: "hello" }] },
-        { role: "user", parts: [{ type: "text", text: "next" }] },
+        { role: "user", parts: [{ type: "text", text: "hi" }], transcriptIndex: 0 },
+        { role: "assistant", parts: [{ type: "text", text: "hello" }], transcriptIndex: 1 },
+        { role: "user", parts: [{ type: "text", text: "next" }], transcriptIndex: 2 },
       ],
       messagePageStart: 0,
       messagePageEnd: 3,

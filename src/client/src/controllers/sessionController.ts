@@ -1,4 +1,4 @@
-import { api as defaultApi, type CommandResult, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionInfo, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type Workspace } from "../api";
+import { api as defaultApi, type CommandResult, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type Workspace } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -17,6 +17,7 @@ import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from 
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 
 const MESSAGE_PAGE_SIZE = 100;
+const SEARCH_JUMP_PAGE_SIZE = 500;
 const BULK_FALLBACK_CONCURRENCY = 4;
 const SESSION_LIST_REFRESH_MS = 5000;
 
@@ -84,6 +85,7 @@ export class SessionController {
   private sessionRefreshInFlight = false;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private searchSeq = 0;
+  private searchTargetSeq = 0;
   private pendingSessionStartSeq = 0;
   private pendingQueuedSendSeq = 0;
   private readonly pendingSessionStarts = new Map<string, PendingSessionStart>();
@@ -227,14 +229,14 @@ export class SessionController {
 
   private async performSessionSearch(seq: number, query: string, workspaceId: string, cwd: string, machineId: string): Promise<void> {
     try {
-      const results = await this.api.search(cwd, query, machineId);
+      const results = await this.api.searchContent(cwd, query, machineId);
       const state = this.getState();
       if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId || state.sessionSearchQuery.trim() !== query) return;
       this.setState({ sessionSearchResults: results, isSearchingSessions: false });
     } catch (error) {
       const state = this.getState();
       if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId) return;
-      this.setState({ sessionSearchResults: [], isSearchingSessions: false, sessionSearchError: String(error) });
+      this.setState({ sessionSearchResults: { results: [], matchCount: 0, truncated: false }, isSearchingSessions: false, sessionSearchError: String(error) });
     }
   }
 
@@ -256,6 +258,7 @@ export class SessionController {
     const cached = this.transcripts.cachedView(transcriptKey);
     this.setState({
       selectedSession: session,
+      sessionSearchTarget: undefined,
       ...cached,
       isLoadingEarlierMessages: false,
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
@@ -1056,7 +1059,7 @@ export class SessionController {
       sessions: hasPendingRow ? state.sessions : [pending.session, ...state.sessions],
       sessionActivities: { ...state.sessionActivities, [tempId]: activity },
       activity: state.selectedSession?.id === tempId ? activity : state.activity,
-      error: `Failed to start session: ${message}`,
+      error: `启动会话失败：${message}`,
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
   }
@@ -1285,6 +1288,40 @@ export class SessionController {
     if (watermark === undefined || watermark.sessionId !== this.getState().selectedSession?.id) return false;
     return event.seq !== undefined && event.seq <= watermark.seq;
   }
+
+  async selectSearchMatch(session: SessionInfo, match: SessionContentSearchMatch, query: string): Promise<void> {
+    await this.selectSession(session);
+    const machineId = selectedMachineId(this.getState());
+    const selectionSeq = this.selectionSeq;
+    try {
+      while (this.isCurrentSearchJump(session.id, machineId, selectionSeq) && this.getState().messagePageStart > match.messageIndex) {
+        const before = this.getState().messagePageStart;
+        const page = await this.api.messages(session, { before, limit: SEARCH_JUMP_PAGE_SIZE }, machineId);
+        if (!this.isCurrentSearchJump(session.id, machineId, selectionSeq)) return;
+        const history = this.transcripts.mergeHistory(this.sessionCacheKey(session.id), page);
+        this.setState(history);
+        if (history.messagePageStart >= before) break;
+      }
+    } catch (error) {
+      if (this.isCurrentSearchJump(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      return;
+    }
+    if (!this.isCurrentSearchJump(session.id, machineId, selectionSeq)) return;
+    this.setState({
+      sessionSearchTarget: {
+        sessionId: session.id,
+        messageIndex: match.messageIndex,
+        query,
+        requestId: ++this.searchTargetSeq,
+      },
+    });
+  }
+
+  private isCurrentSearchJump(sessionId: string, machineId: string, selectionSeq: number): boolean {
+    return this.selectionSeq === selectionSeq
+      && selectedMachineId(this.getState()) === machineId
+      && this.getState().selectedSession?.id === sessionId;
+  }
 }
 
 function omitSessionActivity(activities: Record<string, SessionActivity>, sessionId: string): Record<string, SessionActivity> {
@@ -1334,18 +1371,18 @@ function creatingPendingSessionActivity(sessionId: string, queuedCount = 0): Ses
   return {
     sessionId,
     phase: "active",
-    label: "Creating session",
-    detail: queuedCount > 0 ? `${String(queuedCount)} queued ${queuedCount === 1 ? "message" : "messages"} will send when the backend session is ready` : "Waiting for the backend session to be ready",
+    label: "正在创建会话",
+    detail: queuedCount > 0 ? `后端会话准备好后将发送 ${String(queuedCount)} 条排队消息` : "正在等待后端会话准备就绪",
     at: new Date().toISOString(),
   };
 }
 
 function failedPendingSessionActivity(sessionId: string, message: string, queuedCount = 0): SessionActivity {
-  const queuedDetail = queuedCount > 0 ? ` · ${String(queuedCount)} queued ${queuedCount === 1 ? "message" : "messages"} kept below` : "";
+  const queuedDetail = queuedCount > 0 ? ` · 下方保留了 ${String(queuedCount)} 条排队消息` : "";
   return {
     sessionId,
     phase: "error",
-    label: "Session creation failed",
+    label: "会话创建失败",
     detail: `${message}${queuedDetail}`,
     at: new Date().toISOString(),
   };

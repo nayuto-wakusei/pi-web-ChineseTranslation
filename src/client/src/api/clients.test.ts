@@ -249,6 +249,15 @@ describe("Pi package API", () => {
 });
 
 describe("session API compatibility", () => {
+  it("searches session content through the selected machine with encoded query fields", async () => {
+    const response = { results: [], matchCount: 0, truncated: false };
+    const fetchMock = stubSequenceFetch([jsonResponse(response)]);
+
+    await expect(sessionsApi.searchContent("/repo with space", "问题 & answer", "remote a")).resolves.toEqual(response);
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/search-content?cwd=%2Frepo+with+space&q=%E9%97%AE%E9%A2%98+%26+answer");
+  });
+
   it("posts session cleanup preview and execute requests through the selected machine", async () => {
     const preview = { generatedAt: "2026-06-25T12:00:00.000Z", thresholds: { archiveIdleDays: 7 }, projects: [{ cwd: "/repo", archiveCount: 2, deleteCount: 0 }], totals: { archiveCount: 2, deleteCount: 0 } };
     const executed = { ...preview, archivedSessionIds: ["s1", "s2"], deletedSessionIds: [] };

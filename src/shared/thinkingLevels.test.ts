@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { KNOWN_THINKING_LEVELS, isKnownThinkingLevel, thinkingGauge, thinkingLevelLabel } from "./thinkingLevels";
+import { KNOWN_THINKING_LEVELS, isKnownThinkingLevel, thinkingGauge, thinkingLevelDescription, thinkingLevelDisplayLabel, thinkingLevelLabel } from "./thinkingLevels";
 
 // Compile-time drift guard: if pi ADDS a thinking level we do not know about,
 // `Extra` becomes that level and this assignment fails to type-check. Combined
@@ -24,6 +24,20 @@ describe("thinkingLevels", () => {
     expect(thinkingLevelLabel("")).toBe("off");
     expect(thinkingLevelLabel("high")).toBe("high");
     expect(thinkingLevelLabel("brand-new-level")).toBe("brand-new-level");
+  });
+
+  it("provides Chinese display labels without changing unknown runtime values", () => {
+    expect(thinkingLevelDisplayLabel(undefined)).toBe("关闭");
+    expect(thinkingLevelDisplayLabel("medium")).toBe("中");
+    expect(thinkingLevelDisplayLabel("xhigh")).toBe("极高");
+    expect(thinkingLevelDisplayLabel("brand-new-level")).toBe("brand-new-level");
+  });
+
+  it("describes each supported thinking level", () => {
+    expect(thinkingLevelDescription("off")).toBe("不使用推理");
+    expect(thinkingLevelDescription("xhigh")).toBe("最大推理（约 32k tokens）");
+    expect(thinkingLevelDescription("max")).toBe("最高推理（约 64k tokens）");
+    expect(thinkingLevelDescription("brand-new-level")).toBeUndefined();
   });
 
   describe("thinkingGauge", () => {

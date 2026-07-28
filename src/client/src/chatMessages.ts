@@ -1,7 +1,10 @@
 import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./chatTypes";
 
-export function normalizeMessages(messages: unknown[]): ChatLine[] {
-  return coalesceToolExecutions(messages.flatMap(normalizeMessage)).filter((message) => message.parts.length > 0);
+export function normalizeMessages(messages: unknown[], transcriptStart?: number): ChatLine[] {
+  const lines = messages.flatMap((message, index) => normalizeMessage(message).map((line) => (
+    transcriptStart === undefined ? line : { ...line, transcriptIndex: transcriptStart + index }
+  )));
+  return coalesceToolExecutions(lines).filter((message) => message.parts.length > 0);
 }
 
 export function textMessage(role: ChatLine["role"], text: string): ChatLine {
@@ -209,7 +212,11 @@ function coalesceToolExecutions(lines: ChatLine[]): ChatLine[] {
 
   for (const line of lines) {
     let passthroughParts: ChatPart[] = [];
-    const metadata = { ...(line.source === undefined ? {} : { source: line.source }), ...(line.meta === undefined ? {} : { meta: line.meta }) };
+    const metadata = {
+      ...(line.transcriptIndex === undefined ? {} : { transcriptIndex: line.transcriptIndex }),
+      ...(line.source === undefined ? {} : { source: line.source }),
+      ...(line.meta === undefined ? {} : { meta: line.meta }),
+    };
     const flushPassthrough = () => {
       if (passthroughParts.length === 0) return;
       result.push({ role: line.role, parts: passthroughParts, ...metadata });

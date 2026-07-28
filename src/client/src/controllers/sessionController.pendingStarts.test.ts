@@ -32,7 +32,7 @@ describe("SessionController pending starts", () => {
     expect(temporarySession?.id).toMatch(/^pending-session-/);
     expect(temporarySession?.persisted).toBe(false);
     expect(state.sessions.map((session) => session.id)).toEqual([temporarySession?.id]);
-    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "Creating session" });
+    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "正在创建会话" });
     expect(messageCalls).toEqual([]);
     expect(statusCalls).toEqual([]);
 
@@ -248,7 +248,7 @@ describe("SessionController pending starts", () => {
     expect(temporaryId).toMatch(/^pending-session-/);
     expect(state.sessions.map((session) => session.id)).toEqual([temporaryId]);
     expect(state.sessions[0]?.persisted).toBe(false);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
     expect(state.error).toContain("backend unavailable");
 
     await controller.deleteCachedNewSession(state.sessions[0]);
