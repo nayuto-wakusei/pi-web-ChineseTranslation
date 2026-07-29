@@ -23,7 +23,8 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
+import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
@@ -41,6 +42,8 @@ import type { SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDele
 import type { SessionRouteLookup, SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
+import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
+import { searchSessionContent } from "./sessionContentSearch.js";
 
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
@@ -253,6 +256,7 @@ export interface PiAgentSession {
   sessionFile: string | undefined;
   sessionName: string | undefined;
   messages: readonly unknown[];
+  readonly state: { readonly streamingMessage?: unknown };
   model: AgentModel | undefined;
   thinkingLevel: ClientThinkingLevel;
   isStreaming: boolean;
@@ -284,17 +288,17 @@ export interface PiAgentSession {
   setSessionName(name: string): void;
   /**
    * Narrow re-expression of `AgentSession.agent` (an `@earendil-works/pi-agent-core`
-   * `Agent`), exposing only `streamFn` — the resolved-auth/headers/retry "call this
-   * model" function pi's own compaction/branch-summarization code uses internally.
-   * Lets callers (e.g. session title generation) issue one-off model calls without
-   * depending on pi-ai's deprecated `/compat` provider registry or leaking the full
-   * `Agent`/`AgentSession` surface.
+   * `Agent`), exposing only `streamFunction` — the resolved-auth/headers/retry "call
+   * this model" function pi's own compaction/branch-summarization code uses
+   * internally. Lets callers (e.g. session title generation) issue one-off model
+   * calls without depending on pi-ai's deprecated `/compat` provider registry or
+   * leaking the full `Agent`/`AgentSession` surface.
    */
-  agent: { streamFn: StreamFn };
+  agent: { streamFunction: StreamFn };
 }
 
 export interface PiSessionModelRuntime {
-  reloadConfig(): Promise<void>;
+  refresh(): Promise<unknown>;
   getAvailable(): Promise<readonly AgentModel[]>;
   getModel(provider: string, modelId: string): AgentModel | undefined;
   hasConfiguredAuth(provider: string): boolean;
@@ -559,7 +563,7 @@ export interface PiSessionServiceDependencies {
 export class PiSessionService {
   private readonly active = new Map<string, ManagedActiveSession>();
   private readonly pendingSessionOpens = new Map<string, PendingSessionOpen>();
-  private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
+  private readonly activities = new SessionActivityCoordinator();
   private readonly heartbeat: NodeJS.Timeout;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
@@ -746,15 +750,25 @@ export class PiSessionService {
   async search(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]> {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     if (normalizedQuery === "") return this.list(cwd, managementContext);
-    const listing = await this.listWorkspaceSessions(cwd, managementContext);
-    const matches = await Promise.all(listing.sessions.map(async (session) => {
-      const entry = listing.entriesById.get(session.id);
-      const archived = listing.archivedById.get(session.id);
-      const archivedText = archived?.archivePath === undefined ? "" : await readArchivedSessionText(archived.archivePath);
-      const haystack = [session.id, session.name ?? "", session.firstMessage, entry?.allMessagesText ?? "", archivedText].join("\n").toLocaleLowerCase();
-      return haystack.includes(normalizedQuery) ? session : undefined;
-    }));
-    return matches.filter(isDefined);
+    const { sessions } = await this.searchCandidates(cwd, normalizedQuery, managementContext);
+    return sessions;
+  }
+
+  async searchContent(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionContentSearchResponse> {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery === "") return { results: [], matchCount: 0, truncated: false };
+    const maxMatches = 200;
+    const { listing, sessions } = await this.searchCandidates(cwd, normalizedQuery.toLocaleLowerCase(), managementContext);
+    const results: ClientSessionContentSearchResponse["results"] = [];
+    let matchCount = 0;
+    for (const session of sessions) {
+      const remaining = maxMatches - results.reduce((count, result) => count + result.matches.length, 0);
+      const messages = this.searchableSessionHistory(session, listing, managementContext);
+      const view = searchSessionContent(messages, normalizedQuery, Math.max(1, remaining));
+      matchCount += view.matchCount;
+      if (remaining > 0 && view.matches.length > 0) results.push({ session, matches: view.matches.slice(0, remaining) });
+    }
+    return { results, matchCount, truncated: matchCount > maxMatches };
   }
 
   async listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse> {
@@ -1197,9 +1211,40 @@ export class PiSessionService {
     return this.statusFromSession(await this.getOrOpen(ref, managementContext));
   }
 
+  private async searchCandidates(cwd: string, normalizedQuery: string, managementContext?: ManagementEmbedContext): Promise<{ listing: WorkspaceSessionListing; sessions: ClientSession[] }> {
+    const listing = await this.listWorkspaceSessions(cwd, managementContext);
+    const matches = await Promise.all(listing.sessions.map(async (session) => {
+      const entry = listing.entriesById.get(session.id);
+      const archived = listing.archivedById.get(session.id);
+      const archivedText = archived?.archivePath === undefined ? "" : await readArchivedSessionText(archived.archivePath);
+      const haystack = [session.id, session.name ?? "", session.firstMessage, entry?.allMessagesText ?? "", archivedText].join("\n").toLocaleLowerCase();
+      return haystack.includes(normalizedQuery) ? session : undefined;
+    }));
+    return { listing, sessions: matches.filter(isDefined) };
+  }
+
+  private searchableSessionHistory(session: ClientSession, listing: WorkspaceSessionListing, managementContext?: ManagementEmbedContext): unknown[] {
+    const eventScope = eventScopeFromManagementContext(managementContext);
+    const active = this.activeForSessionIdAndScope(session.id, eventScope);
+    if (active !== undefined && cwdPathsEqual(active.runtime.cwd, session.cwd)) return historyMessages(active.runtime.session);
+    const path = listing.archivedById.get(session.id)?.archivePath ?? listing.entriesById.get(session.id)?.path;
+    return path === undefined ? [] : historyMessagesFromManager(this.sessionManager.open(path));
+  }
+
+  async streamSnapshot(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot> {
+    const session = await this.getOrOpen(ref, managementContext);
+    const eventScope = this.eventScopeForSession(session);
+    const seq = this.events.currentSeq(session.sessionId, eventScope);
+    const streamingMessage = session.state.streamingMessage;
+    const partial = streamingMessage === undefined || streamingMessage === null
+      ? null
+      : projectBrowserMessage(streamingMessage);
+    return { seq, partial };
+  }
+
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.reloadConfig();
+    await session.modelRuntime.refresh();
     const models = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
       : await session.modelRuntime.getAvailable();
@@ -1209,7 +1254,7 @@ export class PiSessionService {
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.reloadConfig();
+    await session.modelRuntime.refresh();
     const candidates = session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
       : await session.modelRuntime.getAvailable();
@@ -2077,7 +2122,7 @@ export class PiSessionService {
     const model = session.model;
     if (model === undefined) return;
 
-    void generateShortSessionName(session.agent.streamFn, model, firstMessage).then((name) => {
+    void generateShortSessionName(session.agent.streamFunction, model, firstMessage).then((name) => {
       this.applyGeneratedSessionName(session, name ?? fallbackSessionName(firstMessage));
     }).catch(() => {
       this.applyGeneratedSessionName(session, fallbackSessionName(firstMessage));
@@ -2171,7 +2216,10 @@ export class PiSessionService {
     if (eventType === "agent_start") { this.publishActivity(session, "agent running", "active"); return; }
     if (eventType === "agent_end") {
       this.publishActivity(session, "idle", "idle");
-      setTimeout(() => {
+      const eventScope = this.eventScopeForSession(session);
+      const sessionKey = activeSessionKey(session.sessionId, eventScope);
+      this.activities.scheduleSettledRefresh(sessionKey, () => {
+        if (this.active.get(sessionKey)?.runtime.session !== session) return;
         this.publishActivity(session, "idle", "idle");
         this.publishStatus(session);
       }, 250);
@@ -2642,8 +2690,12 @@ function stringValue(value: unknown): string {
 }
 
 function historyMessages(session: PiAgentSession): unknown[] {
+  return historyMessagesFromManager(session.sessionManager);
+}
+
+function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[] {
   const messages: unknown[] = [];
-  for (const entry of session.sessionManager.getBranch()) {
+  for (const entry of sessionManager.getBranch()) {
     if (!isRecord(entry)) continue;
     if (entry["type"] === "message") messages.push(entry["message"]);
     else if (entry["type"] === "custom_message" && entry["display"] === true) messages.push({ role: "custom", content: entry["content"], customType: entry["customType"], details: entry["details"] });

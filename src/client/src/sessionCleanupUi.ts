@@ -47,6 +47,7 @@ export function sessionCleanupRequestKey(request: SessionCleanupRequest | undefi
   return JSON.stringify({
     archiveIdleDays: request?.archiveIdleDays ?? null,
     deleteArchivedDays: request?.deleteArchivedDays ?? null,
+    projectId: request?.projectId ?? null,
   });
 }
 

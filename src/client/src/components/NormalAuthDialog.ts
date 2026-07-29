@@ -24,11 +24,11 @@ export class NormalAuthDialog extends LitElement {
   override render(): TemplateResult {
     return html`
       <div class="backdrop">
-        <section role="dialog" aria-modal="true" aria-label=${this.dialogTitle()} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+          <section role="dialog" aria-modal="true" aria-label=${normalAuthDialogTitle(this.mode)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <div>
               <span class="eyebrow">普通模式</span>
-              <h1>${this.dialogTitle()}</h1>
+              <h1>${normalAuthDialogTitle(this.mode)}</h1>
             </div>
             ${this.mode === "change" ? html`<button class="close-button" title="关闭" aria-label="关闭" @click=${() => this.onCancel?.()}>×</button>` : null}
           </header>
@@ -58,12 +58,6 @@ export class NormalAuthDialog extends LitElement {
         </section>
       </div>
     `;
-  }
-
-  private dialogTitle(): string {
-    if (this.mode === "setup") return "设置进入密码";
-    if (this.mode === "change") return "修改进入密码";
-    return "输入进入密码";
   }
 
   private submitLabel(): string {
@@ -114,6 +108,12 @@ export class NormalAuthDialog extends LitElement {
     .message { margin: 0; border: 1px solid var(--pi-danger-border); border-radius: 8px; background: var(--pi-danger-surface); color: var(--pi-danger); padding: 10px; }
     footer { display: flex; justify-content: flex-end; gap: 8px; }
   `;
+}
+
+export function normalAuthDialogTitle(mode: NormalAuthDialogMode): string {
+  if (mode === "setup") return "设置进入密码";
+  if (mode === "change") return "修改进入密码";
+  return "输入密码";
 }
 
 export function normalAuthPasswordFormError(mode: NormalAuthDialogMode, form: NormalAuthPasswordForm): string | undefined {

@@ -4,9 +4,10 @@ import type { PiPackageInfo } from "../../api";
 import { SettingsPackagesPanel } from "./SettingsPackagesPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import type { PiPackageManagementSupport, PiPackageTargetContext } from "./piPackageSettings";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 const remoteTarget: PiPackageTargetContext = { id: "lab-mac", name: "Lab Mac", kind: "remote" };
-const unsupportedMessage = "Pi package management is not available on Lab Mac. Update and restart Pi-Web on that machine, then try again.";
+const unsupportedMessage = "Lab Mac 不支持 Pi 包管理。请更新并重启该机器上的 PI WEB，然后重试。";
 
 describe("settings-packages-panel layout", () => {
   it("suppresses package controls and trust warnings when package management is unsupported", () => {
@@ -18,10 +19,10 @@ describe("settings-packages-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     expect(rendered).toContain(unsupportedMessage);
-    expect(rendered).not.toContain("Trusted code warning");
-    expect(rendered).not.toContain("Pi package source");
-    expect(rendered).not.toContain("Configured Pi packages");
-    expect(rendered).not.toContain("No Pi packages configured");
+    expect(rendered).not.toContain("受信代码警告");
+    expect(rendered).not.toContain("Pi 包来源");
+    expect(rendered).not.toContain("已配置的 Pi 包");
+    expect(rendered).not.toContain("尚未配置 Pi 包");
   });
 
   it("shows a load-unavailable state instead of an empty package state when no response loaded", () => {
@@ -33,12 +34,12 @@ describe("settings-packages-panel layout", () => {
 
     expectTextOrder(rendered, [
       "Failed to load Pi packages from Lab Mac (remote machine): Could not reach Lab Mac.",
-      "Pi package list unavailable for Lab Mac (remote machine). Use Reload to try again.",
+      "Lab Mac（远程机器） 的 Pi 包列表不可用，请重新加载。",
     ]);
-    expect(rendered).not.toContain("No Pi packages configured");
-    expect(rendered).not.toContain("Trusted code warning");
-    expect(rendered).not.toContain("Pi package source");
-    expect(rendered).not.toContain("Configured Pi packages");
+    expect(rendered).not.toContain("尚未配置 Pi 包");
+    expect(rendered).not.toContain("受信代码警告");
+    expect(rendered).not.toContain("Pi 包来源");
+    expect(rendered).not.toContain("已配置的 Pi 包");
   });
 
   it("shows trust guidance, install controls, and empty state only after a package response loaded", () => {
@@ -48,15 +49,15 @@ describe("settings-packages-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     expectTextOrder(rendered, [
-      "Pi packages",
-      "Managing Pi packages on ",
-      "local (local gateway)",
-      "Trusted code warning:",
-      "Pi package source",
-      "Configured Pi packages",
-      "No Pi packages configured in Pi settings on local (local gateway) yet.",
+      "Pi 包",
+      "管理 ",
+      "local（本地网关）",
+      "受信代码警告：",
+      "Pi 包来源",
+      "已配置的 Pi 包",
+      "local（本地网关） 的 Pi 设置中尚未配置 Pi 包。",
     ]);
-    expect(rendered).not.toContain("Pi package list unavailable");
+    expect(rendered).not.toContain("Pi 包列表不可用");
   });
 
   it("orders package errors before the trusted-code warning while preserving loaded data", () => {
@@ -69,9 +70,9 @@ describe("settings-packages-panel layout", () => {
 
     expectTextOrder(rendered, [
       "Failed to refresh gateway PI WEB plugins after updating packages.",
-      "Trusted code warning:",
-      "Pi package source",
-      "Configured Pi packages",
+      "受信代码警告：",
+      "Pi 包来源",
+      "已配置的 Pi 包",
       "npm:@acme/tools",
     ]);
   });
@@ -124,29 +125,13 @@ function expectTextOrder(content: string, labels: readonly string[]): void {
   }
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function unsupportedPackageManagement(): PiPackageManagementSupport {
   return { state: "unsupported", message: unsupportedMessage };

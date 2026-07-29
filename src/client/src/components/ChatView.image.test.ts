@@ -2,6 +2,7 @@ import type { TemplateResult } from "lit";
 import { describe, expect, it } from "vitest";
 import type { ChatLine } from "../chatTypes";
 import { ChatView, chatMessageMetadataLabel } from "./ChatView";
+import { isTemplateResult, templateStrings, templateValues, templateValuesAfterMarker } from "../templateInspection.testSupport";
 
 describe("ChatView image rendering", () => {
   // Direct handler extraction keeps this node-environment test focused on the
@@ -97,44 +98,4 @@ function templateStaticMarkup(template: TemplateResult): string {
     chunks.push(...templateStrings(value));
     for (const child of templateValues(value)) visit(child);
   }
-}
-
-function templateValuesAfterMarker(template: TemplateResult, marker: string): unknown[] {
-  const matches: unknown[] = [];
-  visit(template);
-  return matches;
-
-  function visit(value: unknown): void {
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (!isTemplateResult(value)) return;
-    const strings = templateStrings(value);
-    const values = templateValues(value);
-    for (let index = 0; index < values.length; index += 1) {
-      if (strings[index]?.includes(marker) === true) matches.push(values[index]);
-      visit(values[index]);
-    }
-  }
-}
-
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
-
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
-
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }

@@ -1,4 +1,4 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./chatTypes";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
@@ -14,15 +14,15 @@ export interface AppState {
   sessions: SessionInfo[];
   pinnedSessionIds: string[];
   sessionSearchQuery: string;
-  sessionSearchResults: SessionInfo[] | undefined;
+  sessionSearchResults: SessionContentSearchResponse | undefined;
   isSearchingSessions: boolean;
   sessionSearchError: string;
+  sessionSearchTarget: SessionSearchTarget | undefined;
   messages: ChatLine[];
   messagePageStart: number;
   messagePageEnd: number;
   messagePageTotal: number;
   isLoadingEarlierMessages: boolean;
-  isReceivingPartialStream: boolean;
   /** Sessions with a prompt upload in flight, keyed by sessionId (client-owned). */
   sendingPrompts: Record<string, true>;
   /** Client-side queued sends waiting for a just-created backend session, keyed by sessionId. */
@@ -77,6 +77,13 @@ export interface AuthDialogTarget extends AuthRequestTarget {
   projectName?: string;
 }
 
+export interface SessionSearchTarget {
+  sessionId: string;
+  messageIndex: number;
+  query: string;
+  requestId: number;
+}
+
 export type AuthDialogState =
   | { step: "method"; target: AuthDialogTarget }
   | { step: "providers"; mode: "login"; authType?: "oauth" | "api_key"; providers: AuthProviderOption[]; target: AuthDialogTarget }
@@ -91,6 +98,7 @@ export type WorkspaceScopedStateReset = Pick<AppState,
   | "sessionSearchResults"
   | "isSearchingSessions"
   | "sessionSearchError"
+  | "sessionSearchTarget"
   | "clientQueuedSessionMessages"
   | "startingSessionCount"
   | "fileTree"
@@ -115,6 +123,7 @@ export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
     sessionSearchResults: undefined,
     isSearchingSessions: false,
     sessionSearchError: "",
+    sessionSearchTarget: undefined,
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,
     fileTree: [],
@@ -147,12 +156,12 @@ export function initialAppState(): AppState {
     sessionSearchResults: undefined,
     isSearchingSessions: false,
     sessionSearchError: "",
+    sessionSearchTarget: undefined,
     messages: [],
     messagePageStart: 0,
     messagePageEnd: 0,
     messagePageTotal: 0,
     isLoadingEarlierMessages: false,
-    isReceivingPartialStream: false,
     sendingPrompts: {},
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,

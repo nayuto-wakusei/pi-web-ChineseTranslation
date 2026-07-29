@@ -4,6 +4,7 @@ import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { SettingsShortcutsPanel } from "./SettingsShortcutsPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -144,21 +145,8 @@ function expectTextOrder(content: string, labels: readonly string[]): void {
   }
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
@@ -168,9 +156,6 @@ function isSettingsNoticeArray(value: unknown): value is readonly SettingsNotice
   return Array.isArray(value) && value.every(isSettingsNotice);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 type SaveHandler = (config: PiWebConfigValues) => void | Promise<void>;
 type TemplateEventHandler<E extends Event> = (event: E) => void;

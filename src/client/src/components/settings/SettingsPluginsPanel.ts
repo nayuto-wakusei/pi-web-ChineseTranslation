@@ -12,7 +12,7 @@ export class SettingsPluginsPanel extends LitElement {
   @property({ type: Boolean }) saving = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "local (local gateway)";
+  @property() targetLabel = "local（本地网关）";
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onTogglePlugin?: (pluginId: string, enabled: boolean) => void | Promise<void>;
 

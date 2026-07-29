@@ -13,6 +13,7 @@ export interface RealtimeSocket {
 export class SessionEventHub {
   private readonly socketsBySession = new Map<string, Set<RealtimeSocket>>();
   private readonly globalSocketsByScope = new Map<SessionEventScope, Set<RealtimeSocket>>();
+  private readonly seqBySessionScope = new Map<string, number>();
 
   add(sessionId: string, socket: RealtimeSocket, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const key = sessionScopeKey(sessionId, scope);
@@ -38,10 +39,17 @@ export class SessionEventHub {
   }
 
   publish(sessionId: string, event: SessionUiEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
-    const payload = JSON.stringify(projectBrowserSessionEvent(event));
-    for (const socket of this.socketsBySession.get(sessionScopeKey(sessionId, scope)) ?? []) {
+    const key = sessionScopeKey(sessionId, scope);
+    const seq = (this.seqBySessionScope.get(key) ?? 0) + 1;
+    this.seqBySessionScope.set(key, seq);
+    const payload = JSON.stringify({ ...projectBrowserSessionEvent(event), seq });
+    for (const socket of this.socketsBySession.get(key) ?? []) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
+  }
+
+  currentSeq(sessionId: string, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): number {
+    return this.seqBySessionScope.get(sessionScopeKey(sessionId, scope)) ?? 0;
   }
 
   publishGlobal(event: GlobalSessionEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {

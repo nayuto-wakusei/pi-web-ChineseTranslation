@@ -8,10 +8,10 @@ export class UnifiedDiffViewer extends LitElement {
 
   override render(): TemplateResult {
     const lines = parseUnifiedDiff(this.diff);
-    if (lines.length === 0) return html`<p class="empty">No diff.</p>`;
+    if (lines.length === 0) return html`<p class="empty">没有差异。</p>`;
     return html`
       <div class="scroller">
-        <div class="diff-grid" role="table" aria-label="Unified diff">
+        <div class="diff-grid" role="table" aria-label="统一差异">
           ${lines.map((line) => this.renderLine(line))}
         </div>
       </div>

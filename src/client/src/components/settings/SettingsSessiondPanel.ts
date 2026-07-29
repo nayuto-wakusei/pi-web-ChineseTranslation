@@ -14,7 +14,7 @@ export class SettingsSessiondPanel extends LitElement {
   @property({ type: Boolean }) saving = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "local (local gateway)";
+  @property() targetLabel = "local（本地网关）";
   @property({ attribute: false }) activeAgentProfile: ActiveAgentProfileDescriptor | undefined;
   @property({ attribute: false }) agentProfileSupport: AgentProfileSettingsSupport = { state: "supported" };
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
@@ -68,11 +68,11 @@ export class SettingsSessiondPanel extends LitElement {
             <span>配置文件</span>
             <code>${config.path}</code>
           </div>
-          <form class="profile-form" aria-label="Pi 兼容 Agent Profile" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
+          <form class="profile-form" aria-label="Pi 兼容代理配置档案" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
             ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? "此机器不支持编辑 Pi 兼容 Agent Profile。"}</div>`}
             <label class="field">
               <span class="field-heading">
-                <span>Companion CLI 命令</span>
+                <span>配套 CLI 命令</span>
                 ${agentCommandOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
               </span>
               <input
@@ -85,11 +85,11 @@ export class SettingsSessiondPanel extends LitElement {
                 ?disabled=${this.loading || this.saving || !profileEditingSupported || agentCommandOverridden}
                 @input=${(event: Event) => { this.updateAgentDraft({ command: inputValue(event) }); }}
               >
-              <small>设置诊断和更新检查所用的 Pi 兼容 Companion CLI。内嵌会话运行时仍使用 PI WEB 捆绑的 Pi SDK。</small>
+              <small>设置诊断和更新检查所用的 Pi 兼容配套 CLI。内嵌会话运行时仍使用 PI WEB 捆绑的 Pi SDK。</small>
             </label>
             <label class="field">
               <span class="field-heading">
-                <span>Profile 状态目录</span>
+                <span>配置档案状态目录</span>
                 ${effectiveAgentDirOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
               </span>
               <input
@@ -127,7 +127,7 @@ export class SettingsSessiondPanel extends LitElement {
           <div class="field">
             <span class="field-heading">
               <span>允许代理启动受跟踪的子会话</span>
-              <span class="beta-badge">beta</span>
+              <span class="beta-badge">测试版</span>
               ${subsessionsOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
             </span>
             <label class="toggle">
@@ -148,7 +148,7 @@ export class SettingsSessiondPanel extends LitElement {
               <div><dt>期望状态目录</dt><dd>${effectiveAgent?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
               <div><dt>当前命令</dt><dd>${this.activeAgentProfile?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
               <div><dt>当前状态目录</dt><dd>${this.activeAgentProfile?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
-              <div><dt>Profile 状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
+              <div><dt>配置档案状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
               <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
               <div><dt>子会话</dt><dd>${effectiveSubsessions ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
             </dl>

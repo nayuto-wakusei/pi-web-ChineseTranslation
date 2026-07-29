@@ -55,7 +55,7 @@ describe("SessionController reload and selection", () => {
     expect(reloadCalls).toEqual([oldSession.id]);
     expect(messageCalls).toEqual([oldSession.id]);
     expect(cachedPages.get(cacheKey)).toEqual(freshPage);
-    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }] }]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }], transcriptIndex: 1 }]);
     expect(state.messagePageStart).toBe(1);
     expect(state.error).toBe("");
   });

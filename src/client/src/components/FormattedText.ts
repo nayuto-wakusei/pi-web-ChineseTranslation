@@ -29,11 +29,13 @@ const formattedTextStyles = css`
   table { border-collapse: collapse; display: block; overflow-x: auto; overflow-y: hidden; }
   th, td { border: 1px solid var(--pi-border); padding: 4px 8px; }
   th { background: var(--pi-surface); }
+  mark[data-search-highlight] { border-radius: 3px; background: color-mix(in srgb, var(--pi-warning) 42%, var(--pi-warning-surface)); color: var(--pi-text-bright, inherit); padding: 0 1px; box-shadow: 0 0 0 1px var(--pi-warning-border); }
 `;
 
 @customElement("formatted-text")
 export class FormattedText extends LitElement {
   @property() text = "";
+  @property() highlight = "";
 
   override render() {
     return html`<div class="formatted" dir="auto" @click=${this.onFormattedClick}>${unsafeHTML(toSafeMarkdownHtml(this.text))}</div>`;
@@ -41,6 +43,24 @@ export class FormattedText extends LitElement {
 
   override updated(): void {
     this.enhanceCodeBlocks();
+    this.applyHighlight();
+  }
+
+  private applyHighlight(): void {
+    const root = this.renderRoot.querySelector(".formatted");
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll("mark[data-search-highlight]").forEach((mark) => {
+      mark.replaceWith(document.createTextNode(mark.textContent));
+    });
+    root.normalize();
+    const query = this.highlight.trim();
+    if (query === "") return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (node instanceof Text && node.parentElement?.closest(".code-copy-button") === null) textNodes.push(node);
+    }
+    for (const node of textNodes) highlightTextNode(node, query);
   }
 
   private enhanceCodeBlocks(): void {
@@ -92,4 +112,27 @@ export class FormattedText extends LitElement {
   }
 
   static override styles = formattedTextStyles;
+}
+
+function highlightTextNode(node: Text, query: string): void {
+  const text = node.data;
+  const matches = [...text.matchAll(new RegExp(escapeRegExp(query), "giu"))];
+  if (matches.length === 0) return;
+  let offset = 0;
+  const fragment = document.createDocumentFragment();
+  for (const match of matches) {
+    const start = match.index;
+    if (start > offset) fragment.append(text.slice(offset, start));
+    const mark = document.createElement("mark");
+    mark.dataset["searchHighlight"] = "";
+    mark.textContent = match[0];
+    fragment.append(mark);
+    offset = start + match[0].length;
+  }
+  if (offset < text.length) fragment.append(text.slice(offset));
+  node.replaceWith(fragment);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -72,7 +72,7 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
     await service.dispose();
   });
 
-  it("generates a session name for the first prompt via the session's agent.streamFn", async () => {
+  it("generates a session name for the first prompt via the session's agent.streamFunction", async () => {
     const model = testModel();
     const streamCalls: unknown[] = [];
     const streamFn: StreamFn = (streamModel, context, options) => {
@@ -93,7 +93,7 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
       return stream;
     };
     const hub = new CapturingSessionEventHub();
-    const fake = fakeRuntime("name-session", { model, agent: { streamFn } });
+    const fake = fakeRuntime("name-session", { model, agent: { streamFunction: streamFn } });
     const service = new PiSessionService(hub, {
       agentDir: TEST_AGENT_DIR,
       createAgentRuntime: runtimeCreator(fake.runtime),

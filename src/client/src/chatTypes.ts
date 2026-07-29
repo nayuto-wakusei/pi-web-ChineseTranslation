@@ -31,6 +31,8 @@ export type ChatPart =
 export interface ChatLine {
   role: "user" | "assistant" | "tool" | "system" | "bash" | "skill";
   parts: ChatPart[];
+  /** Raw transcript position for history-backed messages. */
+  transcriptIndex?: number;
   source?: "compaction" | "branch_summary";
   meta?: {
     timestamp?: string;

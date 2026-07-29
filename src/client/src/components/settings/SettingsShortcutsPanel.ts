@@ -181,7 +181,7 @@ export class SettingsShortcutsPanel extends LitElement {
           <strong>${action.title}</strong>
           ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
           <small class="shortcut-id">${action.id}</small>
-          <small>${action.shortcut !== undefined && action.shortcut !== "" ? html`Default: <kbd>${formatShortcut(action.shortcut)}</kbd>` : "No default shortcut"}</small>
+          <small>${action.shortcut !== undefined && action.shortcut !== "" ? html`默认：<kbd>${formatShortcut(action.shortcut)}</kbd>` : "无默认快捷键"}</small>
         </div>
         <div class="shortcut-editor">
           <div class="shortcut-status">

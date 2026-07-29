@@ -73,7 +73,7 @@ export class SettingsGeneralPanel extends LitElement {
       <section class="settings-card" aria-label="网关服务器设置">
         <div class="card-heading">
           <h3>网关服务器</h3>
-          <p>Host、端口和允许的 host 会保存到网关配置中。地址变更后必须重启 Web 服务，运行中的服务器才会绑定到新地址。</p>
+          <p>主机地址、端口和允许的主机名会保存到网关配置中。地址变更后必须重启 Web 服务，运行中的服务器才会绑定到新地址。</p>
         </div>
         ${config === undefined && this.loading ? html`<div class="loading-card">正在加载网关配置…</div>` : html`
           <div class="config-path-card">
@@ -84,7 +84,7 @@ export class SettingsGeneralPanel extends LitElement {
           <form class="config-form" @submit=${(event: Event) => { void this.saveGatewayConfig(event); }}>
             <label class="field">
               <span class="field-heading">
-                <span>Host</span>
+                <span>主机地址</span>
                 ${this.renderOverrideBadge("host")}
               </span>
               <input .value=${this.gatewayDraft.host} placeholder="127.0.0.1" autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ host: inputValue(event) }); }}>
@@ -93,7 +93,7 @@ export class SettingsGeneralPanel extends LitElement {
 
             <label class="field">
               <span class="field-heading">
-                <span>Port</span>
+                <span>端口</span>
                 ${this.renderOverrideBadge("port")}
               </span>
               <input .value=${this.gatewayDraft.port} inputmode="numeric" pattern="[0-9]*" placeholder="8504" autocomplete="off" @input=${(event: Event) => { this.updateGatewayDraft({ port: inputValue(event) }); }}>
@@ -102,15 +102,15 @@ export class SettingsGeneralPanel extends LitElement {
 
             <div class="field">
               <span class="field-heading">
-                <span>允许的 hosts</span>
+                <span>允许的主机名</span>
                 ${this.renderOverrideBadge("allowedHosts")}
               </span>
               <select .value=${this.gatewayDraft.allowedHostsMode} @change=${(event: Event) => { this.updateGatewayDraft({ allowedHostsMode: selectValue(event) === "all" ? "all" : "list" }); }}>
-                <option value="list">仅允许列出的 hosts</option>
-                <option value="all">允许所有 host</option>
+                <option value="list">仅允许列出的主机名</option>
+                <option value="all">允许所有主机名</option>
               </select>
               <textarea .value=${this.gatewayDraft.allowedHostsText} ?disabled=${this.gatewayDraft.allowedHostsMode === "all"} rows="4" placeholder="example.local&#10;192.168.1.20" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ allowedHostsText: textAreaValue(event) }); }}></textarea>
-              <small>每行输入一个 host，或选择“允许所有 host”写入 <code>true</code>。</small>
+              <small>每行输入一个主机名，或选择“允许所有主机名”写入 <code>true</code>。</small>
             </div>
 
             ${this.renderGatewayEffectiveConfig()}
@@ -192,9 +192,9 @@ export class SettingsGeneralPanel extends LitElement {
       <section class="effective-card" aria-label="最终生效配置摘要">
         <h3>环境变量覆盖后的网关生效配置</h3>
         <dl>
-          <div><dt>Host</dt><dd>${effective.host ?? html`<span class="muted">默认 127.0.0.1</span>`}</dd></div>
+          <div><dt>主机地址</dt><dd>${effective.host ?? html`<span class="muted">默认 127.0.0.1</span>`}</dd></div>
           <div><dt>端口</dt><dd>${effective.port ?? html`<span class="muted">默认 8504</span>`}</dd></div>
-          <div><dt>允许的 hosts</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
+          <div><dt>允许的主机名</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
         </dl>
       </section>
     `;

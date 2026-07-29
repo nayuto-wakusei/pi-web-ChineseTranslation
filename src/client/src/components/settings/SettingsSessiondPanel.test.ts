@@ -3,6 +3,7 @@ import type { TemplateResult } from "lit";
 import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { SettingsSessiondPanel } from "./SettingsSessiondPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
+import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-sessiond-panel layout", () => {
   it("names the selected machine in the scope and restart notice when config is available", () => {
@@ -40,7 +41,7 @@ describe("settings-sessiond-panel layout", () => {
     expectTextOrder(rendered, [
       "Failed to save session-daemon config.",
       "Session daemon settings saved.",
-      "local (local gateway) 需要重启",
+      "local（本地网关） 需要重启",
       "配置文件",
     ]);
   });
@@ -52,7 +53,7 @@ describe("settings-sessiond-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("Profile 状态");
+    expect(rendered).toContain("配置档案状态");
     expect(rendered).toContain("已生效");
     expect(rendered).not.toContain("需要重启");
   });
@@ -189,29 +190,13 @@ function countOccurrences(content: string, needle: string): number {
   return content.split(needle).length - 1;
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
 
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
 
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
-}
 
 function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
   return {

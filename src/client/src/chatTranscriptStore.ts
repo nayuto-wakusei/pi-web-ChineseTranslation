@@ -1,5 +1,5 @@
 import { normalizeMessages } from "./chatMessages";
-import { applyTranscriptEvent } from "./chatTranscript";
+import { applyTranscriptEvent, seedStreamingPartial } from "./chatTranscript";
 import { mergeChatHistory, readChatHistoryCache, removeChatHistoryCache, writeChatHistoryCache, type RawMessagePage } from "./chatHistoryCache";
 import type { ChatLine } from "./chatTypes";
 import type { SessionUiEvent } from "./sessionSocket";
@@ -45,6 +45,10 @@ export class ChatTranscriptStore {
     return applyTranscriptEvent(messages, event);
   }
 
+  seedStreamingPartial(messages: ChatLine[], partial: unknown): ChatLine[] {
+    return seedStreamingPartial(messages, partial);
+  }
+
   discard(sessionId: string): void {
     this.rawHistoryPages.delete(sessionId);
     this.cache.remove?.(sessionId);
@@ -60,7 +64,7 @@ export class ChatTranscriptStore {
 export function transcriptViewFromHistory(history: RawMessagePage | undefined): ChatTranscriptView {
   const start = history?.start ?? 0;
   return {
-    messages: normalizeMessages(history?.messages ?? []),
+    messages: normalizeMessages(history?.messages ?? [], start),
     messagePageStart: start,
     messagePageEnd: start + (history?.messages.length ?? 0),
     messagePageTotal: history?.total ?? 0,

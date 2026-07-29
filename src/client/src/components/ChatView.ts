@@ -9,21 +9,14 @@ import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
 import type { ChatLine, ChatPart } from "../chatTypes";
 import type { QueuedSessionMessage, SessionActivity, SessionStatus } from "../api";
+import type { SessionSearchTarget } from "../appState";
+import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { chatStyles } from "./styles/chatStyles";
 import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
 
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
-
-const partialStreamNoticeBodies = [
-  "你打开此会话时助手已经在回复。完整答案很快会显示。",
-  "当前标签页接入得稍晚，完整回复准备好后会显示。",
-  "助手已先开始回复，完整答案到达后会显示。",
-  "正在等待完整回复，避免显示不完整内容。",
-  "回复仍在生成中，完整答案即将显示。",
-  "正在同步这次回复，稍后会显示完整版本。",
-] as const;
 
 const activityLabelTranslations: Record<string, string> = {
   active: "活跃",
@@ -42,19 +35,21 @@ const activityLabelTranslations: Record<string, string> = {
   "message started": "消息已开始",
   "prompt accepted": "提示已接受",
   queued: "已排队",
+  "reloading resources": "正在重新加载资源",
+  "resources reloaded": "资源已重新加载",
+  "reload failed": "重新加载失败",
   "receiving response": "正在接收回复",
   "running bash": "Shell 运行中",
   "running tool": "工具运行中",
+  "creating session": "正在创建会话",
+  "session creation failed": "会话创建失败",
+  "extension error": "扩展错误",
   "steering queued": "引导已排队",
   stopped: "已停止",
   "tool complete": "工具已完成",
   "tool failed": "工具失败",
   "turn complete": "回合已完成",
 };
-
-function randomPartialStreamNoticeBody(): string {
-  return partialStreamNoticeBodies[Math.floor(Math.random() * partialStreamNoticeBodies.length)] ?? partialStreamNoticeBodies[0];
-}
 
 function clampPercent(value: number): number {
   return clampNumber(value, 0, 100);
@@ -108,9 +103,9 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageStart = 0;
   @property({ type: Number }) messageEnd = 0;
   @property({ type: Number }) messageTotal = 0;
+  @property({ attribute: false }) searchTarget?: SessionSearchTarget;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
-  @property({ type: Boolean }) isReceivingPartialStream = false;
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
@@ -132,12 +127,12 @@ export class ChatView extends LitElement {
   private loadMoreCheckFrame: number | undefined;
   private scrollToBottomFrame: number | undefined;
   private conversationRailFrame: number | undefined;
+  private searchTargetFrame: number | undefined;
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
   private readonly messageMetaCache = new WeakMap<ChatLine, string>();
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
-  private partialStreamNoticeBody: string | undefined;
   private lastScrollTop = 0;
   private lastClientHeight = 0;
   private touchStartY: number | undefined;
@@ -179,6 +174,7 @@ export class ChatView extends LitElement {
     if (this.loadMoreCheckFrame !== undefined) cancelAnimationFrame(this.loadMoreCheckFrame);
     if (this.scrollToBottomFrame !== undefined) cancelAnimationFrame(this.scrollToBottomFrame);
     if (this.conversationRailFrame !== undefined) cancelAnimationFrame(this.conversationRailFrame);
+    if (this.searchTargetFrame !== undefined) cancelAnimationFrame(this.searchTargetFrame);
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
@@ -209,7 +205,6 @@ export class ChatView extends LitElement {
       this.savePreviousSessionScrollPosition(changed.get("sessionId"));
       this.prepareSessionUiState();
     }
-    if (changed.has("isReceivingPartialStream") || (changed.has("sessionId") && this.isReceivingPartialStream)) this.syncPartialStreamNoticeBody();
     if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
@@ -227,6 +222,7 @@ export class ChatView extends LitElement {
     if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore")) this.continuePendingScrollRestore();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
+    if (changed.has("searchTarget")) this.scheduleSearchTargetScroll();
   }
 
   override render() {
@@ -322,12 +318,6 @@ export class ChatView extends LitElement {
   }
 
   private renderSessionActivity() {
-    if (this.isReceivingPartialStream) return html`
-      <aside class="session-activity receiving" aria-live="polite">
-        <strong>正在同步…</strong>
-        <span>${this.currentPartialStreamNoticeBody()}</span>
-      </aside>
-    `;
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
@@ -336,15 +326,6 @@ export class ChatView extends LitElement {
         ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息已排队</small>` : null}
       </aside>
     `;
-  }
-
-  private syncPartialStreamNoticeBody(): void {
-    this.partialStreamNoticeBody = this.isReceivingPartialStream ? randomPartialStreamNoticeBody() : undefined;
-  }
-
-  private currentPartialStreamNoticeBody(): string {
-    this.partialStreamNoticeBody ??= randomPartialStreamNoticeBody();
-    return this.partialStreamNoticeBody;
   }
 
   private activityState(): string | undefined {
@@ -361,7 +342,7 @@ export class ChatView extends LitElement {
     const activity = this.activity;
     if (activity === undefined) return activityStateLabel(state);
     if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
-    const label = activityStateLabel(activity.label);
+    const label = activityStateLabel(activity.label, activity.phase);
     return activity.detail !== undefined && activity.detail !== "" ? `${label}: ${activity.detail}` : label;
   }
 
@@ -413,11 +394,13 @@ export class ChatView extends LitElement {
 
   private renderMessage(message: ChatLine, index: number) {
     const toolOnly = this.isToolExecutionOnlyMessage(message);
+    const transcriptIndex = messageTranscriptIndex(message, index);
+    const searchTarget = this.isSearchTargetMessage(message, transcriptIndex);
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
-      <article class=${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
+      <article class=${`${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`}${searchTarget ? " search-target" : ""}`} data-index=${index} data-transcript-index=${transcriptIndex} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
         ${toolOnly ? null : this.renderMessageHeader(message, String(index))}
-        ${message.parts.map((part) => this.renderPart(part, message))}
+        ${message.parts.map((part) => this.renderPart(part, message, searchTarget ? this.searchTarget?.query : undefined))}
       </article>
     `;
   }
@@ -539,16 +522,16 @@ export class ChatView extends LitElement {
     return label;
   }
 
-  private renderPart(part: ChatPart, message?: ChatLine) {
+  private renderPart(part: ChatPart, message?: ChatLine, highlight?: string) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
-    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
+    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text} .highlight=${highlight ?? ""}></formatted-text>`;
     if (part.type === "image") return html`<figure class="part chat-image"><img src=${`data:${part.mimeType};base64,${part.data}`} alt="用户上传的图片" loading="lazy" @load=${this.onImageLoad}></figure>`;
     if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[技能]</b> ${part.name}</summary>
         <small>${part.location}</small>
-        <formatted-text .text=${part.content}></formatted-text>
+        <formatted-text .text=${part.content} .highlight=${highlight ?? ""}></formatted-text>
       </details>
     `;
     if (part.type === "skillRead") return html`
@@ -566,6 +549,26 @@ export class ChatView extends LitElement {
       </details>
     `;
     return null;
+  }
+
+  private isSearchTargetMessage(message: ChatLine, transcriptIndex: number): boolean {
+    const target = this.searchTarget;
+    return target?.sessionId === this.sessionId
+      && transcriptIndex === target.messageIndex
+      && (message.role === "user" || message.role === "assistant");
+  }
+
+  private scheduleSearchTargetScroll(): void {
+    const target = this.searchTarget;
+    if (target?.sessionId !== this.sessionId || this.searchTargetFrame !== undefined) return;
+    this.searchTargetFrame = requestAnimationFrame(() => {
+      this.searchTargetFrame = undefined;
+      const element = this.renderRoot.querySelector<HTMLElement>(`[data-transcript-index="${String(target.messageIndex)}"]`);
+      if (element === null) return;
+      this.pinnedToBottom = false;
+      element.scrollIntoView({ block: "center", behavior: "smooth" });
+      this.syncScrollMetrics();
+    });
   }
 
   private onGroupToggle(key: string, event: Event, defaultOpen: boolean) {
@@ -726,10 +729,7 @@ export class ChatView extends LitElement {
   }
 
   private shouldFallbackToBottomForMissingAnchor(): boolean {
-    // While catching up to a stream, history can temporarily omit the in-flight
-    // assistant message that a previous scroll save anchored to. Keep retrying
-    // until the final refreshed transcript has a chance to render that anchor.
-    return !this.hasMore && !this.isReceivingPartialStream;
+    return !this.hasMore;
   }
 
   private updatePinnedToBottomAfterRestore(status: Exclude<ChatScrollRestoreResult["status"], "missing">): void {
@@ -894,8 +894,19 @@ function roleLabel(role: string): string {
   return role;
 }
 
-function activityStateLabel(state: string): string {
+export function activityStateLabel(state: string, phase: SessionActivity["phase"] = "idle"): string {
   if (state === "bash") return "Shell 运行中";
   if (state === "running") return "运行中";
-  return activityLabelTranslations[state] ?? state;
+  const normalized = state.trim().toLocaleLowerCase();
+  const translated = activityLabelTranslations[normalized];
+  if (translated !== undefined) return translated;
+  if (normalized.startsWith("model:")) return `模型：${state.slice(state.indexOf(":") + 1).trim()}`;
+  if (normalized.startsWith("thinking:")) return `思考级别：${thinkingLevelDisplayLabel(state.slice(state.indexOf(":") + 1).trim())}`;
+  if (phase === "active") return "运行中";
+  if (phase === "error") return "发生错误";
+  return "空闲";
+}
+
+export function messageTranscriptIndex(message: ChatLine, displayIndex: number): number {
+  return message.transcriptIndex ?? displayIndex;
 }

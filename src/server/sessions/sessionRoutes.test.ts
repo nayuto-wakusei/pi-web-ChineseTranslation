@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { MessagePage, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkMutationRef, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionStatus } from "../../shared/apiTypes.js";
+import type { MessagePage, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkMutationRef, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionStatus, SessionStreamSnapshot } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionManagerGateway } from "./piSessionService.js";
 import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
@@ -168,6 +168,27 @@ describe("session routes", () => {
     }
   });
 
+  it("returns a join-time stream snapshot using workspace context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.streamSnapshotResponse = { seq: 7, partial: { role: "assistant", content: [{ type: "text", text: "partial" }] } };
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/stream-snapshot?cwd=${encodeURIComponent(requestCwd)}` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(routeService.streamSnapshotResponse);
+      expect(routeService.streamSnapshotCalls).toEqual([{ id: "session-1", cwd: requestCwd }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("clears a session queue with workspace context and returns fresh status", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -225,12 +246,12 @@ describe("session routes", () => {
     registerSessionRoutes(routeApp, routeService, eventHub);
 
     try {
-      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectCwds: ["/repo-a", "/repo-a"] } });
+      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectId: "p1", projectCwds: ["/repo-a", "/repo-a"] } });
       const executeResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: null, deleteArchivedDays: 7, projectCwds: ["/repo-b"] } });
 
       expect(previewResponse.statusCode).toBe(200);
       expect(executeResponse.statusCode).toBe(200);
-      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectCwds: ["/repo-a"] }]);
+      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectId: "p1", projectCwds: ["/repo-a"] }]);
       expect(routeService.cleanupCalls).toEqual([{ thresholds: { deleteArchivedDays: 7 }, projectCwds: ["/repo-b"] }]);
     } finally {
       await routeService.dispose();
@@ -310,15 +331,18 @@ describe("session routes", () => {
     try {
       const requestCwd = resolve("/repo");
       const searchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search?cwd=${encodeURIComponent(requestCwd)}&q=full%20text` });
+      const contentSearchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search-content?cwd=${encodeURIComponent(requestCwd)}&q=answer` });
       const pinsResponse = await routeApp.inject({ method: "GET", url: `/sessions/pins?cwd=${encodeURIComponent(requestCwd)}` });
       const pinResponse = await routeApp.inject({ method: "PUT", url: "/sessions/session-1/pin", payload: { cwd: requestCwd } });
       const unpinResponse = await routeApp.inject({ method: "DELETE", url: `/sessions/session-1/pin?cwd=${encodeURIComponent(requestCwd)}` });
 
       expect(searchResponse.statusCode).toBe(200);
+      expect(contentSearchResponse.statusCode).toBe(200);
       expect(pinsResponse.statusCode).toBe(200);
       expect(pinResponse.statusCode).toBe(200);
       expect(unpinResponse.statusCode).toBe(200);
       expect(routeService.searchCalls).toEqual([{ cwd: requestCwd, query: "full text" }]);
+      expect(routeService.searchContentCalls).toEqual([{ cwd: requestCwd, query: "answer" }]);
       expect(routeService.pinnedCalls).toEqual([requestCwd]);
       expect(routeService.pinCalls).toEqual([
         { lookup: { id: "session-1", cwd: requestCwd }, pinned: true },
@@ -336,11 +360,14 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly reloadCalls: SessionRouteLookup[] = [];
   readonly clearQueueCalls: SessionRouteLookup[] = [];
   messagesResponse: unknown[] | MessagePage = [];
+  streamSnapshotResponse: SessionStreamSnapshot = { seq: 0, partial: null };
+  readonly streamSnapshotCalls: SessionRouteLookup[] = [];
   readonly cleanupPreviewCalls: NormalizedSessionCleanupRequest[] = [];
   readonly cleanupCalls: NormalizedSessionCleanupRequest[] = [];
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
   readonly searchCalls: { cwd: string; query: string }[] = [];
+  readonly searchContentCalls: { cwd: string; query: string }[] = [];
   readonly pinnedCalls: string[] = [];
   readonly pinCalls: { lookup: SessionRouteLookup; pinned: boolean }[] = [];
   reloadError: Error | undefined;
@@ -380,6 +407,10 @@ class CapturingRouteSessionService implements SessionRouteService {
   search(cwd: string, query: string): Promise<[]> {
     this.searchCalls.push({ cwd, query });
     return Promise.resolve([]);
+  }
+  searchContent(cwd: string, query: string): Promise<{ results: []; matchCount: number; truncated: boolean }> {
+    this.searchContentCalls.push({ cwd, query });
+    return Promise.resolve({ results: [], matchCount: 0, truncated: false });
   }
 
   listPinned(cwd: string): Promise<{ sessionIds: string[] }> {
@@ -425,6 +456,11 @@ class CapturingRouteSessionService implements SessionRouteService {
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       cost: 0,
     });
+  }
+
+  streamSnapshot(lookup: SessionRouteLookup): Promise<SessionStreamSnapshot> {
+    this.streamSnapshotCalls.push(lookup);
+    return Promise.resolve(this.streamSnapshotResponse);
   }
 
   availableModels(): Promise<[]> { return Promise.resolve([]); }

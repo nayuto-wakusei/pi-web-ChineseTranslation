@@ -17,7 +17,7 @@ const packagesResponse: PiPackagesResponse = { packages: [{ source: "npm:@acme/t
 const remoteTarget = { id: "remote-a", name: "Lab Mac", kind: "remote" } as const;
 const unsupportedPackageManagement: PiPackageManagementSupport = {
   state: "unsupported",
-  message: "Pi package management is not available on Lab Mac. Update and restart Pi-Web on that machine, then try again.",
+  message: "Lab Mac 不支持 Pi 包管理。请更新并重启该机器上的 PI WEB，然后重试。",
 };
 
 describe("settings data loading helpers", () => {
@@ -38,7 +38,7 @@ describe("settings data loading helpers", () => {
 
     expect(result.config).toBe(configResponse);
     expect(result.plugins).toBeUndefined();
-    expect(result.error).toBe("Failed to load settings: PI WEB plugins: plugin scan failed");
+    expect(result.error).toBe("加载设置失败：PI WEB 插件：plugin scan failed");
   });
 
   it("loads Pi packages for the selected target with package-scoped errors", async () => {
@@ -55,7 +55,7 @@ describe("settings data loading helpers", () => {
     expect(requestedTargets).toEqual(["remote-a", "remote-a"]);
     expect(success).toEqual({ packagesResponse, error: "" });
     expect(failure.packagesResponse).toBeUndefined();
-    expect(failure.error).toBe("Failed to load Pi packages from Lab Mac (remote machine): Could not reach Lab Mac for Pi package management. Check the machine connection and try again.");
+    expect(failure.error).toBe("从 Lab Mac（远程机器） 加载 Pi 包失败：无法连接 Lab Mac 进行 Pi 包管理。请检查机器连接后重试。");
   });
 
   it("skips package listing only when runtime data confirms package management is unsupported", async () => {

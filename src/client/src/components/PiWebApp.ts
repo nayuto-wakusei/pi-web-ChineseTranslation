@@ -1,10 +1,11 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
+import { thinkingLevelDescription, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ActivityController } from "../controllers/activityController";
 import { AuthController } from "../controllers/authController";
 import { FileExplorerController } from "../controllers/fileExplorerController";
@@ -28,8 +29,8 @@ import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, Qualif
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
-import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope } from "../plugins/registry";
+import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
 import { BrowserResumeController } from "../appShell/browserResumeController";
@@ -46,6 +47,7 @@ import "./ProjectList";
 import "./WorkspaceList";
 import "./SessionList";
 import "./SessionCleanupDialog";
+import "./SessionSearchDialog";
 import "./ChatView";
 import type { ChatView } from "./ChatView";
 import "./PromptEditor";
@@ -291,13 +293,15 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreAttempt = 0;
   private remoteRouteRestoreInProgress = false;
   private readonly plugins = createPluginRegistry();
-  private readonly loadedMachinePluginIds = new Set<string>();
-  private readonly machinePluginLoadPromises = new Map<string, Promise<void>>();
-  private gatewayPluginLoadPromise: Promise<void> | undefined;
+  private readonly pluginLoads = new MachinePluginLoadCoordinator(
+    (label, load) => this.registerExternalPlugins(label, load),
+    (id, machineSpecific) => this.plugins.shouldLoadRemotePlugin(id, machineSpecific),
+  );
   private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private isRefreshingApp = false;
   @state() private sessionCleanupDialog: SessionCleanupDialogState | undefined;
+  @state() private sessionSearchDialogOpen = false;
   @state() private settingsSection: SettingsSection | undefined = readSettingsSection();
   @state() private normalAuthStatus: NormalAuthStatusResponse | undefined;
   @state() private normalAuthLoading = true;
@@ -305,7 +309,8 @@ export class PiWebApp extends LitElement {
   @state() private normalAuthDialogMode: NormalAuthDialogMode | undefined;
   @state() private shortcutConfig: PiWebShortcutConfig = {};
   @state() private workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(undefined);
-  private appStartupStarted = false;
+  private authenticatedAppRunning = false;
+  private normalAuthInitSeq = 0;
   private readonly onPopState = () => void this.withChatScrollTransition(async () => {
     this.restoreSettingsRoute();
     await this.restoreRoute(false);
@@ -337,18 +342,19 @@ export class PiWebApp extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.normalAuthInitSeq += 1;
     window.addEventListener("popstate", this.onPopState);
     window.addEventListener("pageshow", this.onPageShow);
     this.browserResume.connect();
     window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
-    void this.initializeNormalAuth();
+    void this.initializeNormalAuth(this.normalAuthInitSeq);
   }
 
   private startAuthenticatedApp(): void {
-    if (this.appStartupStarted) return;
-    this.appStartupStarted = true;
+    if (!this.isConnected || this.authenticatedAppRunning) return;
+    this.authenticatedAppRunning = true;
     this.connectRealtime();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
     void this.refreshWorkspaceActivity();
@@ -357,8 +363,9 @@ export class PiWebApp extends LitElement {
     void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
   }
 
-  private async initializeNormalAuth(): Promise<void> {
+  private async initializeNormalAuth(initSeq: number): Promise<void> {
     if (this.apiScope === "management") {
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthStatus = { configured: true, authenticated: true };
       this.normalAuthLoading = false;
       this.startAuthenticatedApp();
@@ -368,16 +375,20 @@ export class PiWebApp extends LitElement {
     this.normalAuthError = "";
     try {
       const status = await normalAuthApi.status();
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthStatus = status;
       if (status.authenticated) this.startAuthenticatedApp();
     } catch (error) {
+      if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthError = `检查普通模式密码失败：${errorMessage(error)}`;
     } finally {
-      this.normalAuthLoading = false;
+      if (this.isConnected && initSeq === this.normalAuthInitSeq) this.normalAuthLoading = false;
     }
   }
 
   override disconnectedCallback(): void {
+    this.normalAuthInitSeq += 1;
+    this.authenticatedAppRunning = false;
     window.removeEventListener("popstate", this.onPopState);
     window.removeEventListener("pageshow", this.onPageShow);
     this.browserResume.disconnect();
@@ -1209,6 +1220,7 @@ export class PiWebApp extends LitElement {
 
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
+    if (this.apiScope === "management" && this.state.selectedProject === undefined) return false;
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
   }
 
@@ -1241,11 +1253,28 @@ export class PiWebApp extends LitElement {
     this.sessionCleanupDialog = { error: "" };
   }
 
+  private openSessionSearchDialog(): void {
+    this.sessions.searchSessions("");
+    this.sessionSearchDialogOpen = true;
+  }
+
+  private closeSessionSearchDialog(): void {
+    this.sessionSearchDialogOpen = false;
+    this.sessions.searchSessions("");
+  }
+
+  private async selectSessionSearchMatch(session: SessionInfo, match: SessionContentSearchMatch): Promise<void> {
+    const query = this.state.sessionSearchQuery.trim();
+    this.sessionSearchDialogOpen = false;
+    await this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSearchMatch(session, match, query));
+  }
+
   private closeSessionCleanupDialog(): void {
     this.sessionCleanupDialog = undefined;
   }
 
   private async previewSessionCleanup(request: SessionCleanupRequest): Promise<void> {
+    const scopedRequest = this.sessionCleanupRequestForCurrentProject(request);
     if (!this.canCleanupSessions()) {
       this.sessionCleanupDialog = { ...(this.sessionCleanupDialog ?? {}), error: this.sessionCleanupUnavailableMessage(), preview: undefined, previewRequest: undefined, result: undefined, loading: false };
       return;
@@ -1253,17 +1282,18 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     this.sessionCleanupDialog = { ...(this.sessionCleanupDialog ?? {}), loading: true, error: "", preview: undefined, previewRequest: undefined, result: undefined };
     try {
-      const preview = await sessionsApi.cleanupPreview(request, machineId);
+      const preview = await sessionsApi.cleanupPreview(scopedRequest, machineId);
       if (selectedMachineId(this.state) !== machineId) return;
-      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview, previewRequest: request, result: undefined, loading: false, error: "" };
+      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview, previewRequest: scopedRequest, result: undefined, loading: false, error: "" };
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, loading: false, error: `预览清理失败：${errorMessage(error)}` };
     }
   }
 
   private async runSessionCleanup(request: SessionCleanupRequest): Promise<void> {
+    const scopedRequest = this.sessionCleanupRequestForCurrentProject(request);
     const dialog = this.sessionCleanupDialog;
-    if (dialog?.preview === undefined || sessionCleanupRequestKey(dialog.previewRequest) !== sessionCleanupRequestKey(request)) {
+    if (dialog?.preview === undefined || sessionCleanupRequestKey(dialog.previewRequest) !== sessionCleanupRequestKey(scopedRequest)) {
       this.sessionCleanupDialog = { ...(dialog ?? {}), error: "运行清理前请先预览。" };
       return;
     }
@@ -1274,13 +1304,28 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     this.sessionCleanupDialog = { ...dialog, running: true, error: "" };
     try {
-      const result = await sessionsApi.cleanup(request, machineId);
+      const result = await sessionsApi.cleanup(scopedRequest, machineId);
       if (selectedMachineId(this.state) !== machineId) return;
-      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: request, result, running: false, error: "" };
+      this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: scopedRequest, result, running: false, error: "" };
       await this.sessions.applySessionCleanupResult(result, machineId);
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: `运行清理失败：${errorMessage(error)}` };
     }
+  }
+
+  private sessionCleanupRequestForCurrentProject(request: SessionCleanupRequest): SessionCleanupRequest {
+    if (this.apiScope !== "management") return request;
+    const project = this.state.selectedProject;
+    const projectCwds = project === undefined
+      ? []
+      : this.state.workspaces.filter((workspace) => workspace.projectId === project.id).map((workspace) => workspace.path);
+    const requestedCwds = request.projectCwds ?? projectCwds;
+    const allowedCwds = new Set(projectCwds);
+    return {
+      ...request,
+      projectId: project?.id ?? "",
+      projectCwds: requestedCwds.filter((cwd) => allowedCwds.has(cwd)),
+    };
   }
 
   private renderNavigationPanel() {
@@ -1303,10 +1348,6 @@ export class PiWebApp extends LitElement {
         .deletingWorkspaceIds=${pendingWorkspaceDeletionIds(this.state.workspaceDeletionRuns)}
         .sessions=${this.state.sessions}
         .pinnedSessionIds=${this.state.pinnedSessionIds}
-        .sessionSearchQuery=${this.state.sessionSearchQuery}
-        .sessionSearchResults=${this.state.sessionSearchResults}
-        .isSearchingSessions=${this.state.isSearchingSessions}
-        .sessionSearchError=${this.state.sessionSearchError}
         .sessionStatuses=${this.state.sessionStatuses}
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
@@ -1337,7 +1378,7 @@ export class PiWebApp extends LitElement {
         .onArchivedCollapsed=${() => { this.sessions.clearSelectionAfterArchivedCollapse(); }}
         .onStartSession=${() => this.startSessionFromNavigation()}
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
-        .onSearchSessions=${(query: string) => { this.sessions.searchSessions(query); }}
+        .onSearchSessions=${() => { this.openSessionSearchDialog(); }}
         .onToggleSessionPin=${(session: SessionInfo) => { this.sessions.togglePinned(session); }}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
@@ -1681,12 +1722,7 @@ export class PiWebApp extends LitElement {
   }
 
   private ensureGatewayPluginsLoaded(): Promise<void> {
-    this.gatewayPluginLoadPromise ??= this.loadExternalPlugins();
-    return this.gatewayPluginLoadPromise;
-  }
-
-  private async loadExternalPlugins(): Promise<void> {
-    await this.registerExternalPlugins("PI WEB plugins", () => loadExternalPlugins());
+    return this.pluginLoads.ensureGatewayLoaded().then(() => undefined);
   }
 
   private async loadPluginsForSelectedMachine(): Promise<void> {
@@ -1696,19 +1732,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async loadPluginsForMachine(machine: Machine): Promise<void> {
-    await this.ensureGatewayPluginsLoaded();
-    if (machine.kind !== "remote" || this.loadedMachinePluginIds.has(machine.id)) return;
-    const existing = this.machinePluginLoadPromises.get(machine.id);
-    if (existing !== undefined) return existing;
-
-    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
-      machineId: machine.id,
-      shouldLoadPlugin: (entry) => this.plugins.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
-    }))
-      .then((loaded) => { if (loaded) this.loadedMachinePluginIds.add(machine.id); })
-      .finally(() => { this.machinePluginLoadPromises.delete(machine.id); });
-    this.machinePluginLoadPromises.set(machine.id, load);
-    await load;
+    await this.pluginLoads.loadForMachine(machine);
   }
 
   private async registerExternalPlugins(label: string, load: () => Promise<PiWebPluginRegistration[]>): Promise<boolean> {
@@ -2051,7 +2075,7 @@ export class PiWebApp extends LitElement {
       thinkingDialog: {
         title: "选择思考级别",
         selectedValue: current,
-        options: levels.map((level) => { const description = thinkingDescription(level); return { value: level, label: `${level}${level === current ? " ✓ 当前" : ""}`, ...(description === undefined ? {} : { description }) }; }),
+        options: levels.map((level) => { const description = thinkingLevelDescription(level); return { value: level, label: `${thinkingLevelDisplayLabel(level)}${level === current ? " ✓ 当前" : ""}`, ...(description === undefined ? {} : { description }) }; }),
       },
     });
   }
@@ -2092,7 +2116,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 
@@ -2173,6 +2197,7 @@ export class PiWebApp extends LitElement {
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
+        ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
         ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
@@ -2265,16 +2290,4 @@ function omitWorkspaceDeletionRun(runs: Record<string, TerminalCommandRun>, work
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => { resolve(); }));
-}
-
-function thinkingDescription(level: string): string | undefined {
-  switch (level) {
-    case "off": return "不使用推理";
-    case "minimal": return "极简推理（约 1k tokens）";
-    case "low": return "轻量推理（约 2k tokens）";
-    case "medium": return "中等推理（约 8k tokens）";
-    case "high": return "深度推理（约 16k tokens）";
-    case "xhigh": return "最大推理（约 32k tokens）";
-    default: return undefined; // unknown level from a newer pi: no description
-  }
 }

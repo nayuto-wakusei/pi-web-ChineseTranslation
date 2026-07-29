@@ -244,6 +244,68 @@ describe("SessionController", () => {
     expect(state.status?.messageCount).toBe(8);
   });
 
+  it("applies live tool results while catching up to an already-running session", async () => {
+    const socket = new EmitSocket();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => Promise.resolve({
+        messages: [{ role: "user", content: "Inspect the repository" }],
+        start: 0,
+        total: 1,
+      }),
+      status: () => Promise.resolve({ ...status(oldSession.id), isStreaming: true }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api,
+        socket,
+        streamSnapshot: () => Promise.resolve({
+          seq: 10,
+          partial: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "src/app.ts" } }],
+          },
+        }),
+      },
+    );
+
+    await controller.selectSession(oldSession, { updateUrl: false });
+
+    socket.emit({ type: "tool.update", toolName: "read", toolCallId: "read-1", text: "stale output", seq: 10 });
+    socket.emit({ type: "tool.update", toolName: "read", toolCallId: "read-1", text: "partial output", seq: 11 });
+    runPendingAnimationFrames();
+
+    expect(state.messages).toEqual([
+      { role: "user", parts: [{ type: "text", text: "Inspect the repository" }], transcriptIndex: 0 },
+      {
+        role: "tool",
+        parts: [expect.objectContaining({
+          type: "toolExecution",
+          toolName: "read",
+          toolCallId: "read-1",
+          status: "running",
+          resultText: "partial output",
+        })],
+      },
+    ]);
+
+    socket.emit({ type: "tool.end", toolName: "read", toolCallId: "read-1", text: "complete output", isError: false, seq: 12 });
+    runPendingAnimationFrames();
+
+    expect(state.messages[1]?.parts[0]).toMatchObject({
+      type: "toolExecution",
+      toolName: "read",
+      toolCallId: "read-1",
+      status: "success",
+      resultText: "complete output",
+    });
+  });
+
   it("clears stale active activity when an idle status arrives", () => {
     const activeActivity: SessionActivity = { sessionId: oldSession.id, phase: "active", label: "running tool", at: "2026-05-15T00:00:00.000Z" };
     let state: AppState = {
@@ -348,7 +410,7 @@ describe("SessionController", () => {
     expect(temporarySession?.id).toMatch(/^pending-session-/);
     expect(temporarySession?.persisted).toBe(false);
     expect(state.sessions.map((session) => session.id)).toEqual([temporarySession?.id]);
-    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "Creating session" });
+    expect(state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "正在创建会话" });
     expect(messageCalls).toEqual([]);
     expect(statusCalls).toEqual([]);
 
@@ -564,7 +626,7 @@ describe("SessionController", () => {
     expect(temporaryId).toMatch(/^pending-session-/);
     expect(state.sessions.map((session) => session.id)).toEqual([temporaryId]);
     expect(state.sessions[0]?.persisted).toBe(false);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
     expect(state.error).toContain("backend unavailable");
 
     await controller.deleteCachedNewSession(state.sessions[0]);
@@ -825,7 +887,7 @@ describe("SessionController", () => {
       { kind: "followUp", text: "first" },
       { kind: "steer", text: "second" },
     ]);
-    expect(state.activity?.detail).toContain("2 queued messages");
+    expect(state.activity?.detail).toContain("2 条排队消息");
 
     startRequest.resolve(started);
     await start;
@@ -937,8 +999,8 @@ describe("SessionController", () => {
 
     expect(state.selectedSession?.id).toBe(temporaryId);
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([{ kind: "followUp", text: "recover me" }]);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
-    expect(state.activity?.detail).toContain("1 queued message kept below");
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
+    expect(state.activity?.detail).toContain("下方保留了 1 条排队消息");
 
     await controller.deleteCachedNewSession(state.selectedSession);
 
@@ -1558,7 +1620,7 @@ describe("SessionController", () => {
     expect(reloadCalls).toEqual([oldSession.id]);
     expect(messageCalls).toEqual([oldSession.id]);
     expect(cachedPages.get(cacheKey)).toEqual(freshPage);
-    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }] }]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh from disk" }], transcriptIndex: 1 }]);
     expect(state.messagePageStart).toBe(1);
     expect(state.error).toBe("");
   });

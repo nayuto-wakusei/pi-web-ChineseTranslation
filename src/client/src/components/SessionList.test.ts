@@ -2,7 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-import { isRenamableSession, sessionRenameInput, sessionRowActivityKind, sessionRowsForCurrentTree, sessionsForSearchResults } from "./SessionList";
+import { SessionList, isRenamableSession, sessionRenameInput, sessionRowActivityKind, sessionRowsForCurrentTree, sessionsForSearchResults } from "./SessionList";
+
+describe("session search entry", () => {
+  it("remains rendered when the session section is collapsed", () => {
+    const list = new SessionList();
+    list.collapsed = true;
+
+    const search = list.renderSearchInput();
+
+    expect(search).not.toBeNull();
+  });
+});
 
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");

@@ -145,6 +145,24 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     }
   });
 
+  app.get<{ Querystring: SearchQuery }>(`${prefix}/sessions/search-content`, async (request, reply) => {
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.q === undefined || request.query.q.trim() === "") return reply.code(400).send({ error: "q query parameter is required" });
+    try {
+      return await sessions.searchContent(normalizeRequestCwd(request.query.cwd), request.query.q, managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/stream-snapshot`, async (request, reply) => {
+    try {
+      return await sessions.streamSnapshot(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/models`, async (request, reply) => {
     try {
       return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };

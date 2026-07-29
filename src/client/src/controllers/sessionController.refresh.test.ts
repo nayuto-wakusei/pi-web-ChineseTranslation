@@ -59,7 +59,7 @@ describe("SessionController selected-session refresh", () => {
 
     expect(messageCalls).toBe(2);
     expect(statusCalls).toBe(2);
-    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh" }] }]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh" }], transcriptIndex: 0 }]);
     expect(state.status?.messageCount).toBe(2);
   });
 
@@ -90,7 +90,7 @@ describe("SessionController selected-session refresh", () => {
     await staleRefresh;
 
     expect(state.selectedSession?.id).toBe(replacementSession.id);
-    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "replacement" }] }]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "replacement" }], transcriptIndex: 0 }]);
     expect(state.status?.sessionId).toBe(replacementSession.id);
   });
 });

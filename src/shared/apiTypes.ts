@@ -247,6 +247,31 @@ export interface SessionInfo extends SessionRef {
   archivedAt?: string;
 }
 
+export interface SessionContentSearchExcerpt {
+  text: string;
+  matchRanges: { start: number; length: number }[];
+}
+
+export interface SessionContentSearchMatch {
+  /** Position in the raw session transcript; stable across paged reads. */
+  messageIndex: number;
+  role: "user" | "assistant";
+  excerpts: SessionContentSearchExcerpt[];
+  occurrenceCount: number;
+}
+
+export interface SessionContentSearchResult {
+  session: SessionInfo;
+  matches: SessionContentSearchMatch[];
+}
+
+export interface SessionContentSearchResponse {
+  results: SessionContentSearchResult[];
+  /** Total matching user/assistant messages before the response limit. */
+  matchCount: number;
+  truncated: boolean;
+}
+
 export interface SessionPinnedIdsResponse {
   sessionIds: string[];
 }
@@ -295,6 +320,8 @@ export interface SessionCleanupRequest {
   archiveIdleDays?: number | null;
   /** Permanently delete archived sessions whose archivedAt time is older than this many days. Omit/null to disable. */
   deleteArchivedDays?: number | null;
+  /** Current management-embed project id. Normal mode leaves this unset. */
+  projectId?: string | null;
   /** Stored cwd paths selected from a preview. Omit/null to include all discovered project/workspace paths. */
   projectCwds?: string[] | null;
 }
@@ -736,12 +763,19 @@ export interface MessagePage {
   total: number;
 }
 
+export interface SessionStreamSnapshot {
+  seq: number;
+  partial: unknown;
+}
+
 export type CommandResult =
   | { type: "done"; message?: string; session?: SessionInfo; promptDraft?: string }
   | { type: "select"; requestId: string; title: string; options: CommandOption[] }
   | { type: "unsupported"; message: string };
 
-export type SessionUiEvent =
+export type SessionUiEvent = SessionUiEventBody & { seq?: number };
+
+type SessionUiEventBody =
   | { type: "message.append"; message: unknown }
   | { type: "assistant.delta"; text: string }
   | { type: "assistant.thinking.delta"; text: string }
@@ -762,5 +796,5 @@ export type SessionUiEvent =
   | { type: "session.created"; session: SessionInfo }
   | { type: "pi.event"; eventType: string };
 
-export type GlobalSessionEvent = Extract<SessionUiEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>;
+export type GlobalSessionEvent = Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>;
 export type RealtimeEvent = GlobalSessionEvent | TerminalUiEvent | WorkspaceActivityUiEvent;

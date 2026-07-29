@@ -27,14 +27,17 @@ export interface SessionCleanupPlan extends SessionCleanupPreviewResponse {
 
 export interface NormalizedSessionCleanupRequest {
   thresholds: SessionCleanupThresholds;
+  projectId?: string;
   /** Stored cwd paths to include. Undefined means all discovered projects/workspaces. */
   projectCwds?: string[];
 }
 
 export function normalizeSessionCleanupRequest(record: Record<string, unknown>): NormalizedSessionCleanupRequest {
+  const projectId = optionalProjectId(record);
   const projectCwds = optionalProjectCwds(record);
   return {
     thresholds: normalizeSessionCleanupThresholds(record),
+    ...(projectId === undefined ? {} : { projectId }),
     ...(projectCwds === undefined ? {} : { projectCwds }),
   };
 }
@@ -149,6 +152,13 @@ function optionalProjectCwds(record: Record<string, unknown>): string[] | undefi
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("projectCwds field must be an array of strings");
   return [...new Set(value)];
+}
+
+function optionalProjectId(record: Record<string, unknown>): string | undefined {
+  const value = record["projectId"];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || value.trim() === "") throw new Error("projectId field must be a non-empty string");
+  return value;
 }
 
 function cutoffTime(now: Date, days: number | undefined): number | undefined {

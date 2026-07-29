@@ -28,10 +28,6 @@ type SessionSelectionScope = "current" | "archived";
 export class SessionList extends LitElement implements KeyboardNavigableSection {
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
-  @property({ type: String }) searchQuery = "";
-  @property({ attribute: false }) searchResults?: SessionInfo[];
-  @property({ type: Boolean }) searching = false;
-  @property({ type: String }) searchError = "";
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
   @property({ attribute: false }) sending: Record<string, true> = {};
@@ -47,7 +43,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
-  @property({ attribute: false }) onSearch?: (query: string) => void;
+  @property({ attribute: false }) onSearch?: () => void;
   @property({ attribute: false }) onTogglePin?: (session: SessionInfo) => void;
   @property({ attribute: false }) onStart?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
@@ -73,11 +69,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @state() private selectedSessionIds: ReadonlySet<string> = new Set();
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("sessions") || changed.has("searchResults")) {
+    if (changed.has("sessions")) {
       const visibleSessions = this.visibleSessions();
       this.menu.closeIfOpenIdMissing((sessionId) => visibleSessions.some((session) => session.id === sessionId));
       if (!visibleSessions.some((session) => session.archived === true)) this.archivedExpanded = false;
-      else if (this.searchQuery.trim() !== "" && this.searchResults?.some((session) => session.archived === true) === true) this.archivedExpanded = true;
       this.pruneSelectedSessionIds();
     }
     if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
@@ -87,7 +82,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       void this.updateComplete.then(() => { this.scrollSelectedIntoView(); });
       return;
     }
-    if ((changed.has("selected") || changed.has("sessions") || changed.has("searchResults") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
+    if ((changed.has("selected") || changed.has("sessions") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
   }
 
   async focusSelectedOrFirst(): Promise<boolean> {
@@ -107,7 +102,6 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         ${this.renderHeading(currentRows.length + archivedRows.length, currentSelectableSessions)}
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${this.renderSearchStatus()}
             ${this.renderCurrentSelectionToolbar(currentSelectableSessions)}
             ${this.startingCount > 0 ? this.renderStartingSession() : null}
             ${currentRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0, "current"))}
@@ -150,22 +144,12 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     `;
   }
 
-  private renderSearchInput() {
-    if (this.collapsed) return null;
-    return html`<input class="session-search" type="search" placeholder="搜索会话" aria-label="搜索会话" .value=${this.searchQuery} @input=${(event: Event) => { if (event.currentTarget instanceof HTMLInputElement) this.onSearch?.(event.currentTarget.value); }}>`;
-  }
-
-  private renderSearchStatus() {
-    if (this.searchError !== "") return html`<div class="search-status error" role="status">搜索失败：${this.searchError}</div>`;
-    if (this.searching) return html`<div class="search-status" role="status">正在搜索…</div>`;
-    if (this.searchQuery.trim() !== "" && this.visibleSessions().length === 0) return html`<div class="search-status" role="status">未找到匹配会话</div>`;
-    return null;
+  renderSearchInput() {
+    return html`<button class="session-search" title="搜索会话内容" aria-label="搜索会话内容" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onSearch?.(); }}>⌕</button>`;
   }
 
   private visibleSessions(): SessionInfo[] {
-    if (this.searchQuery.trim() === "") return this.sessions;
-    if (this.searchResults === undefined) return [];
-    return sessionsForSearchResults(this.sessions, this.searchResults);
+    return this.sessions;
   }
 
   private renderCurrentSelectionButton(currentSessions: SessionInfo[]) {
@@ -188,8 +172,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return html`
       <div class="pending-session-row starting-session" role="status" aria-live="polite">
         <div class="action-main">
-          <span class="action-name"><span class="activity-indicator sending" aria-hidden="true"></span>${plural ? `Starting ${String(this.startingCount)} sessions…` : "Starting session…"}</span>
-          <small>Waiting for ${plural ? "new sessions" : "the new session"} to be created</small>
+          <span class="action-name"><span class="activity-indicator sending" aria-hidden="true"></span>${plural ? `正在启动 ${String(this.startingCount)} 个会话…` : "正在启动会话…"}</span>
+          <small>正在等待${plural ? "这些新会话" : "新会话"}创建完成</small>
         </div>
       </div>
     `;
@@ -433,7 +417,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   static override styles = [listStyles, css`
-    h2 { min-height: 30px; }
+    h2 { min-height: 30px; flex-wrap: wrap; justify-content: flex-start; }
+    h2 > .section-toggle { flex: 1 1 96px; width: auto; }
     h2 > .section-count { flex: 0 0 auto; display: inline; color: var(--pi-muted); font-size: inherit; }
     .bulk-select-entry { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; font-size: 13px; line-height: 1; text-transform: none; }
     .start-session-button { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 9px; }
@@ -444,10 +429,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .bulk-row .capability-hint { flex: 1 0 100%; color: var(--pi-warning); }
     .bulk-row.selecting { padding: 6px; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: color-mix(in srgb, var(--pi-surface) 65%, transparent); }
-    .session-search { box-sizing: border-box; flex: 1 1 120px; min-width: 80px; max-width: 180px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; font: inherit; text-transform: none; }
+    .session-search { box-sizing: border-box; width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 0; font: 19px/1 system-ui, sans-serif; text-transform: none; }
     .session-search:focus-visible { border-color: var(--pi-accent); outline: 2px solid var(--pi-accent); outline-offset: 1px; }
-    .search-status { margin: 0 0 6px; color: var(--pi-muted); font-size: 12px; }
-    .search-status.error { color: var(--pi-danger); }
     .pin-indicator { margin-right: 5px; color: var(--pi-accent); font-size: 11px; }
     button.danger, .action-menu-panel button.danger { color: var(--pi-danger); }
     button.danger:hover, .action-menu-panel button.danger:hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }

@@ -52,8 +52,8 @@ describe("settings-dialog Pi package orchestration", () => {
 
     expect(pluginsSpy).not.toHaveBeenCalled();
     expect(getDialogProperty(dialog, "packagesResponse")).toEqual({ packages: installedPackages });
-    expect(getDialogProperty(dialog, "packageMessage")).toContain("Pi package installed on Lab Mac");
-    expect(getDialogProperty(dialog, "packageMessage")).toContain("each idle PI WEB session on Lab Mac");
+    expect(getDialogProperty(dialog, "packageMessage")).toContain("Pi 包已安装（Lab Mac）");
+    expect(getDialogProperty(dialog, "packageMessage")).toContain("Lab Mac 上每个空闲的 PI WEB 会话");
     expect(getDialogProperty(dialog, "packageError")).toBe("");
     expect(getDialogProperty(dialog, "packageOperation")).toBeUndefined();
     expect(getDialogProperty(dialog, "saving")).toBe(false);
@@ -72,7 +72,7 @@ describe("settings-dialog Pi package orchestration", () => {
     expect(pluginsSpy.mock.calls).toEqual([[]]);
     expect(getDialogProperty(dialog, "packagesResponse")).toEqual({ packages: updatedPackages });
     expect(getDialogProperty(dialog, "pluginsResponse")).toBe(refreshedPlugins);
-    expect(getDialogProperty(dialog, "packageMessage")).toContain("Reload the browser page separately for PI WEB browser plugin changes");
+    expect(getDialogProperty(dialog, "packageMessage")).toContain("对于 PI WEB 浏览器插件变更，请另外重新加载浏览器页面");
     expect(getDialogProperty(dialog, "packageError")).toBe("");
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });

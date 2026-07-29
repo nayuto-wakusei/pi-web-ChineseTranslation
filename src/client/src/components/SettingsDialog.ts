@@ -249,7 +249,7 @@ export class SettingsDialog extends LitElement {
     if (isSelectedMachineSettingsUnsupported(support)) {
       this.accessConfigResponse = undefined;
       this.accessLoading = false;
-      this.accessError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.accessError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     this.accessLoading = true;
@@ -260,7 +260,7 @@ export class SettingsDialog extends LitElement {
       this.accessConfigResponse = response;
     } catch (error) {
       if (this.isCurrentAccessLoad(requestSeq, target)) {
-        this.accessError = `Failed to load file access/upload config from ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.accessError = `从 ${settingsMachineTargetLabel(target)} 加载文件访问/上传配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       if (this.isCurrentAccessLoad(requestSeq, target)) this.accessLoading = false;
@@ -280,7 +280,7 @@ export class SettingsDialog extends LitElement {
     if (isSelectedMachineSettingsUnsupported(support)) {
       this.sessiondConfigResponse = undefined;
       this.sessiondLoading = false;
-      this.sessiondError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.sessiondError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     this.sessiondLoading = true;
@@ -291,7 +291,7 @@ export class SettingsDialog extends LitElement {
       this.sessiondConfigResponse = response;
     } catch (error) {
       if (this.isCurrentSessiondLoad(requestSeq, target)) {
-        this.sessiondError = `Failed to load session-daemon config from ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.sessiondError = `从 ${settingsMachineTargetLabel(target)} 加载会话守护进程配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       if (this.isCurrentSessiondLoad(requestSeq, target)) this.sessiondLoading = false;
@@ -305,7 +305,7 @@ export class SettingsDialog extends LitElement {
       this.selectedPluginConfigResponse = undefined;
       this.selectedPluginsResponse = undefined;
       this.pluginLoading = false;
-      this.pluginError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.pluginError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     this.pluginLoading = true;
@@ -316,12 +316,12 @@ export class SettingsDialog extends LitElement {
 
       const errors: string[] = [];
       if (config.status === "fulfilled") this.selectedPluginConfigResponse = config.value;
-      else errors.push(`config: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(config.reason), target)}`);
+      else errors.push(`配置：${friendlySelectedMachineSettingsErrorMessage(errorMessage(config.reason), target)}`);
 
       if (plugins.status === "fulfilled") this.selectedPluginsResponse = plugins.value;
-      else errors.push(`PI WEB plugins: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(plugins.reason), target)}`);
+      else errors.push(`PI WEB 插件：${friendlySelectedMachineSettingsErrorMessage(errorMessage(plugins.reason), target)}`);
 
-      this.pluginError = errors.length === 0 ? "" : `Failed to load PI WEB plugin settings from ${settingsMachineTargetLabel(target)}: ${errors.join("; ")}`;
+      this.pluginError = errors.length === 0 ? "" : `从 ${settingsMachineTargetLabel(target)} 加载 PI WEB 插件设置失败：${errors.join("；")}`;
     } finally {
       if (this.isCurrentPluginLoad(requestSeq, target)) this.pluginLoading = false;
     }
@@ -348,11 +348,11 @@ export class SettingsDialog extends LitElement {
     const target = this.settingsTarget();
     const support = this.selectedMachineSettingsSupport(target);
     if (isSelectedMachineSettingsUnsupported(support)) {
-      this.pluginError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.pluginError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     if (this.selectedPluginConfigResponse === undefined) {
-      this.pluginError = `Plugin config is not loaded for ${settingsMachineTargetLabel(target)}. Reload before changing plugin enablement.`;
+      this.pluginError = `尚未加载 ${settingsMachineTargetLabel(target)} 的插件配置。更改插件启用状态前请重新加载。`;
       return;
     }
     const patch = pluginEnabledConfigPatch(this.selectedPluginConfigResponse.config, pluginId, enabled);
@@ -373,7 +373,7 @@ export class SettingsDialog extends LitElement {
       this.showSavedMessage();
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
-        this.pluginError = `Failed to save PI WEB plugin config on ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.pluginError = `在 ${settingsMachineTargetLabel(target)} 上保存 PI WEB 插件配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       this.saving = false;
@@ -402,7 +402,7 @@ export class SettingsDialog extends LitElement {
     const target = this.settingsTarget();
     const support = this.selectedMachineSettingsSupport(target);
     if (isSelectedMachineSettingsUnsupported(support)) {
-      this.accessError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.accessError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     this.saving = true;
@@ -419,7 +419,7 @@ export class SettingsDialog extends LitElement {
       this.showSavedMessage();
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
-        this.accessError = `Failed to save file access/upload config on ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.accessError = `在 ${settingsMachineTargetLabel(target)} 上保存文件访问/上传配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       this.saving = false;
@@ -431,13 +431,13 @@ export class SettingsDialog extends LitElement {
     const target = this.settingsTarget();
     const support = this.selectedMachineSettingsSupport(target);
     if (isSelectedMachineSettingsUnsupported(support)) {
-      this.sessiondError = support.message ?? `Selected-machine settings are not available on ${settingsMachineTargetLabel(target)}.`;
+      this.sessiondError = support.message ?? `${settingsMachineTargetLabel(target)} 不支持所选机器设置。`;
       return;
     }
     if (config.agent !== undefined) {
       const profileSupport = this.agentProfileSettingsSupport(target);
       if (!isAgentProfileSettingsSupported(profileSupport)) {
-        this.sessiondError = profileSupport.message ?? `Pi-compatible agent profile settings are not available on ${settingsMachineTargetLabel(target)}.`;
+        this.sessiondError = profileSupport.message ?? `${settingsMachineTargetLabel(target)} 不支持 Pi 兼容 Agent Profile 设置。`;
         return;
       }
     }
@@ -452,7 +452,7 @@ export class SettingsDialog extends LitElement {
       this.showSavedMessage();
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
-        this.sessiondError = `Failed to save session-daemon config on ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.sessiondError = `在 ${settingsMachineTargetLabel(target)} 上保存会话守护进程配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       this.saving = false;
@@ -461,26 +461,26 @@ export class SettingsDialog extends LitElement {
 
   private async installPiPackage(source: string): Promise<void> {
     const target = this.packageTarget();
-    await this.runPiPackageMutation({ kind: "install", source }, "install Pi package", target, () => piPackagesApi.install(source, target.id));
+    await this.runPiPackageMutation({ kind: "install", source }, "安装 Pi 包", target, () => piPackagesApi.install(source, target.id));
   }
 
   private async removePiPackage(source: string, scope: PiPackageScope): Promise<void> {
     const target = this.packageTarget();
-    await this.runPiPackageMutation({ kind: "remove", source }, "remove Pi package", target, () => piPackagesApi.remove(source, scope, target.id));
+    await this.runPiPackageMutation({ kind: "remove", source }, "移除 Pi 包", target, () => piPackagesApi.remove(source, scope, target.id));
   }
 
   private async updatePiPackage(source?: string): Promise<void> {
     const target = this.packageTarget();
-    await this.runPiPackageMutation(source === undefined ? { kind: "update-all" } : { kind: "update", source }, "update Pi packages", target, () => piPackagesApi.update(source, target.id));
+    await this.runPiPackageMutation(source === undefined ? { kind: "update-all" } : { kind: "update", source }, "更新 Pi 包", target, () => piPackagesApi.update(source, target.id));
   }
 
   private async runPiPackageMutation(operation: PiPackageOperationState, label: string, target: PiPackageTargetContext, mutate: () => Promise<PiPackageMutationResponse>): Promise<void> {
     const support = this.packageManagementSupport(target);
     if (isPiPackageManagementUnsupported(support)) {
-      this.packageError = support.message ?? `Pi package management is not available on ${piPackageTargetLabel(target)}.`;
+      this.packageError = support.message ?? `${piPackageTargetLabel(target)} 不支持 Pi 包管理。`;
       throw new Error(this.packageError);
     }
-    if (this.saving) throw new Error("A settings operation is already running.");
+    if (this.saving) throw new Error("已有设置操作正在运行。");
     const requestSeq = ++this.packageMutationSeq;
     this.packageLoadRequestSeq += 1;
     this.packageLoading = false;
@@ -497,7 +497,7 @@ export class SettingsDialog extends LitElement {
       if (pluginRefreshError !== undefined) this.packageError = pluginRefreshError;
       this.packageMessage = piPackageMutationFollowUpMessage(response.action, target);
     } catch (error) {
-      if (this.isCurrentPackageMutation(requestSeq, target)) this.packageError = `Failed to ${label} on ${piPackageTargetLabel(target)}: ${friendlyPiPackageErrorMessage(errorMessage(error), target)}`;
+      if (this.isCurrentPackageMutation(requestSeq, target)) this.packageError = `在 ${piPackageTargetLabel(target)} 上${label}失败：${friendlyPiPackageErrorMessage(errorMessage(error), target)}`;
       throw error;
     } finally {
       if (this.packageMutationSeq === requestSeq) {
@@ -522,7 +522,7 @@ export class SettingsDialog extends LitElement {
       if (this.isCurrentSettingsTarget(target)) this.selectedPluginsResponse = response;
       return undefined;
     } catch (error) {
-      return `Config saved, but failed to refresh PI WEB plugins from ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+      return `配置已保存，但从 ${settingsMachineTargetLabel(target)} 刷新 PI WEB 插件失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
     }
   }
 

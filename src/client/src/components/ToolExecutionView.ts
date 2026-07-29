@@ -6,7 +6,7 @@ import { writeClipboardText } from "../clipboard";
 const MAX_COLLAPSED_DIFF_LINES = 180;
 
 interface ToolTarget {
-  label: "Command" | "File" | "Input";
+  label: "命令" | "文件" | "输入";
   text: string;
 }
 
@@ -55,7 +55,7 @@ export class ToolExecutionView extends LitElement {
 
   private renderHeaderTarget(target: ToolTarget | undefined) {
     if (target === undefined) return null;
-    const className = target.label === "File" ? "path" : "summary";
+    const className = target.label === "文件" ? "path" : "summary";
     return html`<span class=${className} title=${target.text} aria-label=${`${target.label}: ${target.text}`}>${target.text}</span>`;
   }
 
@@ -173,10 +173,10 @@ export class ToolExecutionView extends LitElement {
 }
 
 function toolTarget(execution: ToolExecutionPart, path: string | undefined): ToolTarget | undefined {
-  if (path !== undefined && path !== "") return { label: "File", text: path };
+  if (path !== undefined && path !== "") return { label: "文件", text: path };
   const command = getString(execution.args, "command");
-  if (command !== undefined && command !== "") return { label: "Command", text: command };
-  if (execution.summary !== "") return { label: "Input", text: execution.summary };
+  if (command !== undefined && command !== "") return { label: "命令", text: command };
+  if (execution.summary !== "") return { label: "输入", text: execution.summary };
   return undefined;
 }
 

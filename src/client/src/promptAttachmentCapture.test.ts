@@ -2,6 +2,7 @@ import type { TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { PromptEditor } from "./components/PromptEditor";
 import { capturePromptAttachments, DEFAULT_FILE_MIME_TYPE, effectivePromptAttachmentDelivery, READ_FAILURE_MESSAGE, type CapturableFile } from "./promptAttachmentCapture";
+import { isTemplateResult, templateStrings, templateValues } from "./templateInspection.testSupport";
 
 function file(name: string, type: string, size = 10): CapturableFile {
   return { name, type, size };
@@ -289,26 +290,6 @@ function templateValueContains(value: unknown, expectedValue: unknown): boolean 
   return false;
 }
 
-function templateStrings(template: TemplateResult): readonly string[] {
-  const strings = Reflect.get(template, "strings");
-  if (!isStringArray(strings)) throw new Error("TemplateResult strings were unavailable");
-  return strings;
-}
-
-function templateValues(template: TemplateResult): readonly unknown[] {
-  const values = Reflect.get(template, "values");
-  if (!Array.isArray(values)) throw new Error("TemplateResult values were unavailable");
-  return values.map((value: unknown) => value);
-}
-
-function isTemplateResult(value: unknown): value is TemplateResult {
-  return typeof value === "object" && value !== null && isStringArray(Reflect.get(value, "strings")) && Array.isArray(Reflect.get(value, "values"));
-}
-
 function isTemplateEventHandler<E extends Event>(value: unknown): value is TemplateEventHandler<E> {
   return typeof value === "function";
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }

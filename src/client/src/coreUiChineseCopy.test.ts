@@ -16,8 +16,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes the navigation/sidebar labels shown in the main shell",
     paths: ["components/appShell/AppNavigationPanel.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "components/SessionList.ts"],
-    expected: ["操作", "项目", "工作区", "会话", "启动新会话", "再启动一个会话"],
-    forbidden: [">Actions<", "▾ Projects", "▾ Workspaces", "▾ Sessions", "No project selected", "No workspace selected", "No session selected", "Start a new session", "Start another session", " messages"],
+    expected: ["操作", "项目", "工作区", "会话", "启动新会话", "再启动一个会话", "正在启动会话", "正在等待", "新会话", "创建完成"],
+    forbidden: [">Actions<", "▾ Projects", "▾ Workspaces", "▾ Sessions", "No project selected", "No workspace selected", "No session selected", "Start a new session", "Start another session", "Starting session", "Waiting for", " messages"],
   },
   {
     name: "localizes the prompt editor controls and placeholder",
@@ -34,8 +34,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes the terminal panel controls visible above the shell",
     paths: ["components/TerminalPanel.ts"],
-    expected: ["按键", "+ 终端"],
-    forbidden: [">Keys<", "+ Shell"],
+    expected: ["按键", "+ 终端", "终端复制控件", "全部复制"],
+    forbidden: [">Keys<", "+ Shell", "Terminal copy controls", "Copy all", "No terminal output to copy"],
   },
   {
     name: "localizes the empty states shown before project and workspace selection",
@@ -62,18 +62,44 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes the live activity dock state labels",
-    paths: ["components/ChatView.ts"],
-    expected: ["activityStateLabel(activity.label)", "return activityStateLabel(state);", "空闲"],
+    paths: ["components/ChatView.ts", "controllers/sessionController.ts"],
+    expected: ["activityStateLabel(activity.label, activity.phase)", "return activityStateLabel(state);", "空闲", "正在重新加载资源", "正在创建会话", "会话创建失败", "启动会话失败"],
     forbidden: [
       "if (activity === undefined) return state;",
       "return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;",
+      "label: \"Creating session\"",
+      "label: \"Session creation failed\"",
+      "Failed to start session",
+      "return activityLabelTranslations[state] ?? state;",
+    ],
+  },
+  {
+    name: "localizes settings, machine actions, tool targets, and diff empty states",
+    paths: [
+      "components/settings/SettingsPackagesPanel.ts", "components/settings/piPackageSettings.ts", "components/settings/settingsMachineTarget.ts",
+      "components/settings/SettingsPanelFrame.ts", "components/settings/SettingsShortcutsPanel.ts",
+      "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "components/UnifiedDiffViewer.ts",
+      "components/settings/SettingsGeneralPanel.ts", "components/settings/SettingsSessiondPanel.ts",
+    ],
+    expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "配置档案状态", "测试版"],
+    forbidden: [
+      "Trusted code warning", "Pi package source", "Configured Pi packages", "No Pi packages configured",
+      "(local gateway)", "(remote machine)", "Settings notices", "No default shortcut",
+      "Machine actions", ">Remove<", "No diff.", "Unified diff", "\"Command\" | \"File\" | \"Input\"",
+      ">Host<", ">Port<", "允许的 hosts", "Companion CLI", "Profile 状态", ">beta<",
     ],
   },
   {
     name: "localizes model picker and session bulk action copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "重命名", "完成", "搜索会话", "置顶", "取消置顶"],
+    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "重命名", "完成", "搜索会话内容", "置顶", "取消置顶"],
     forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
+  },
+  {
+    name: "localizes session content search dialog copy",
+    paths: ["components/SessionSearchDialog.ts"],
+    expected: ["搜索会话内容", "用户提问", "AI 回答", "未找到匹配内容"],
+    forbidden: ["Search session content", "User question", "AI answer", "No matches", "输入用户提问或 AI 回答中的文字", "输入文字后将显示匹配的用户提问和 AI 回答。", "occurrenceCount} 处", "另有 ${match.occurrenceCount"],
   },
   {
     name: "labels provider auth as project-scoped",
@@ -90,7 +116,7 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "keeps the file upload control as one visible Chinese button",
     paths: ["components/WorkspaceFilesPanel.ts"],
-    expected: ["aria-label=\"上传文件\"", "type=\"file\" multiple"],
+    expected: ["aria-label=\"上传文件\"", "type=\"file\" multiple hidden"],
     forbidden: [">选择文件<", "Choose file", "未选择文件"],
   },
   {

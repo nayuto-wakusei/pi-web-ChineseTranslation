@@ -15,23 +15,23 @@ describe("Pi package settings helpers", () => {
   it("normalizes and validates install sources without adding location choices", () => {
     expect(normalizePiPackageSource("  npm:@acme/tools  ")).toBe("npm:@acme/tools");
     expect(piPackageSourceValidationMessage("  npm:@acme/tools  ")).toBeUndefined();
-    expect(piPackageSourceValidationMessage("   ")).toContain("Pi package source accepted by Pi");
+    expect(piPackageSourceValidationMessage("   ")).toContain("请输入 Pi 支持的包来源");
   });
 
   it("formats package metadata with Pi package terminology", () => {
-    expect(piPackageScopeLabel(userPackage)).toBe("User scope");
-    expect(piPackageScopeLabel(projectPackage)).toBe("Project scope");
-    expect(piPackageFilteredLabel(userPackage)).toBe("Available in this PI WEB process");
-    expect(piPackageFilteredLabel(projectPackage)).toBe("Filtered by current Pi package settings");
+    expect(piPackageScopeLabel(userPackage)).toBe("用户范围");
+    expect(piPackageScopeLabel(projectPackage)).toBe("项目范围");
+    expect(piPackageFilteredLabel(userPackage)).toBe("可用于此 PI WEB 进程");
+    expect(piPackageFilteredLabel(projectPackage)).toBe("已被当前 Pi 包设置过滤");
   });
 
   it("allows updates for user-scope packages and explains project-scope limits", () => {
     expect(piPackageUpdateDisabledReason(userPackage)).toBeUndefined();
-    expect(piPackageUpdateDisabledReason(projectPackage)).toContain("user-scope Pi packages");
+    expect(piPackageUpdateDisabledReason(projectPackage)).toContain("用户范围的 Pi 包");
     expect(canUpdateAllPiPackages([userPackage])).toBe(true);
     expect(canUpdateAllPiPackages([userPackage, projectPackage])).toBe(false);
-    expect(updateAllPiPackagesDisabledReason([])).toBe("No Pi packages are configured yet.");
-    expect(updateAllPiPackagesDisabledReason([userPackage, projectPackage])).toContain("project-scope Pi packages");
+    expect(updateAllPiPackagesDisabledReason([])).toBe("尚未配置 Pi 包。");
+    expect(updateAllPiPackagesDisabledReason([userPackage, projectPackage])).toContain("项目范围的 Pi 包");
   });
 
   it("matches pending operations by action and source", () => {
@@ -42,8 +42,8 @@ describe("Pi package settings helpers", () => {
 
   it("labels package targets and gateway plugin refresh scope", () => {
     expect(piPackageTargetContext(undefined)).toEqual(localTarget);
-    expect(piPackageTargetLabel(localTarget)).toBe("local (local gateway)");
-    expect(piPackageTargetLabel(remoteTarget)).toBe("Lab Mac (remote machine)");
+    expect(piPackageTargetLabel(localTarget)).toBe("local（本地网关）");
+    expect(piPackageTargetLabel(remoteTarget)).toBe("Lab Mac（远程机器）");
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(localTarget)).toBe(true);
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(remoteTarget)).toBe(false);
   });
@@ -54,7 +54,7 @@ describe("Pi package settings helpers", () => {
 
     const unsupported = piPackageManagementSupport(remoteTarget, runtimeWithoutPackageManagement);
     expect(isPiPackageManagementUnsupported(unsupported)).toBe(true);
-    expect(unsupported.message).toContain("Update and restart Pi-Web on that machine");
+    expect(unsupported.message).toContain("请更新并重启该机器上的 PI WEB");
 
     expect(piPackageManagementSupport(remoteTarget, undefined)).toEqual({ state: "unknown" });
     expect(piPackageManagementSupport(remoteTarget, unavailableRuntime)).toEqual({ state: "unknown" });
@@ -63,25 +63,25 @@ describe("Pi package settings helpers", () => {
   it("describes the browser and session reload follow-up without requiring sessiond restarts", () => {
     const message = piPackageMutationFollowUpMessage("install");
 
-    expect(message).toContain("Type /reload in each idle PI WEB session");
-    expect(message).toContain("extensions, skills, prompt templates, themes, and context/system prompt files");
-    expect(message).toContain("Reload the browser page separately for PI WEB browser plugin changes");
-    expect(message).not.toContain("session daemon");
+    expect(message).toContain("每个空闲的 PI WEB 会话 中输入 /reload");
+    expect(message).toContain("扩展、技能、提示词模板、主题以及上下文/系统提示文件");
+    expect(message).toContain("PI WEB 浏览器插件变更");
+    expect(message).not.toContain("会话守护进程");
     expect(message).not.toContain("sessiond");
   });
 
   it("scopes remote package mutation follow-up copy to the selected machine", () => {
     const message = piPackageMutationFollowUpMessage("update", remoteTarget);
 
-    expect(message).toContain("Pi package updated on Lab Mac");
-    expect(message).toContain("each idle PI WEB session on Lab Mac");
-    expect(message).toContain("PI WEB browser plugin changes served by Lab Mac");
+    expect(message).toContain("Pi 包已更新（Lab Mac）");
+    expect(message).toContain("Lab Mac 上每个空闲的 PI WEB 会话");
+    expect(message).toContain("Lab Mac 提供的 PI WEB 浏览器插件变更");
   });
 
   it("turns older remote route failures into package-management compatibility guidance", () => {
-    expect(friendlyPiPackageErrorMessage("Not Found", remoteTarget)).toBe("Pi package management is not available on Lab Mac. Update and restart Pi-Web on that machine, then try again.");
-    expect(friendlyPiPackageErrorMessage("Remote machine unavailable", remoteTarget)).toBe("Could not reach Lab Mac for Pi package management. Check the machine connection and try again.");
-    expect(friendlyPiPackageErrorMessage("Remote machine timeout", remoteTarget)).toContain("may still be running remotely");
+    expect(friendlyPiPackageErrorMessage("Not Found", remoteTarget)).toBe("Lab Mac 不支持 Pi 包管理。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(friendlyPiPackageErrorMessage("Remote machine unavailable", remoteTarget)).toBe("无法连接 Lab Mac 进行 Pi 包管理。请检查机器连接后重试。");
+    expect(friendlyPiPackageErrorMessage("Remote machine timeout", remoteTarget)).toContain("可能仍在远端运行");
     expect(friendlyPiPackageErrorMessage("Not Found", localTarget)).toBe("Not Found");
   });
 });

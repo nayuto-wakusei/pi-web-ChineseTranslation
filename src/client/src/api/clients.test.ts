@@ -47,6 +47,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setApiScope("normal");
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
@@ -102,6 +103,16 @@ describe("ordinary mode auth API", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/normal-auth/status");
+  });
+
+  it("keeps ordinary mode auth requests inside a nested app deployment", async () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/test/ai/" });
+    const fetchMock = stubJsonFetch({ configured: true, authenticated: false });
+
+    await normalAuthApi.status();
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/test/ai/api/normal-auth/status");
   });
 
   it("includes the selected project in provider auth requests", async () => {
@@ -238,6 +249,15 @@ describe("Pi package API", () => {
 });
 
 describe("session API compatibility", () => {
+  it("searches session content through the selected machine with encoded query fields", async () => {
+    const response = { results: [], matchCount: 0, truncated: false };
+    const fetchMock = stubSequenceFetch([jsonResponse(response)]);
+
+    await expect(sessionsApi.searchContent("/repo with space", "问题 & answer", "remote a")).resolves.toEqual(response);
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/search-content?cwd=%2Frepo+with+space&q=%E9%97%AE%E9%A2%98+%26+answer");
+  });
+
   it("posts session cleanup preview and execute requests through the selected machine", async () => {
     const preview = { generatedAt: "2026-06-25T12:00:00.000Z", thresholds: { archiveIdleDays: 7 }, projects: [{ cwd: "/repo", archiveCount: 2, deleteCount: 0 }], totals: { archiveCount: 2, deleteCount: 0 } };
     const executed = { ...preview, archivedSessionIds: ["s1", "s2"], deletedSessionIds: [] };
@@ -270,6 +290,15 @@ describe("session API compatibility", () => {
     expect(fetchCall(fetchMock, 1)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/bulk/delete-archived");
     expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
     expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ sessions: [{ id: "s 1", cwd: "/repo" }] });
+  });
+
+  it("loads a join-time stream snapshot through the selected machine", async () => {
+    const partial = { role: "assistant", content: [{ type: "text", text: "working" }] };
+    const fetchMock = stubJsonFetch({ seq: 7, partial });
+
+    await expect(sessionsApi.streamSnapshot({ id: "s 1", cwd: "/repo" }, "remote a")).resolves.toEqual({ seq: 7, partial });
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo");
   });
 
   it("keeps legacy session-id calls free of cwd context", async () => {

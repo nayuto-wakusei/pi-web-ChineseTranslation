@@ -38,7 +38,7 @@ describe("settings-dialog plugin settings machine targeting", () => {
 
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBe(config);
     expect(getDialogProperty(dialog, "selectedPluginsResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "pluginError")).toBe("Failed to load PI WEB plugin settings from Lab Mac (remote machine): PI WEB plugins: Selected-machine settings are not available on Lab Mac. Update and restart PI WEB on that machine, then try again.");
+    expect(getDialogProperty(dialog, "pluginError")).toBe("从 Lab Mac（远程机器） 加载 PI WEB 插件设置失败：PI WEB 插件：Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
     expect(getDialogProperty(dialog, "pluginLoading")).toBe(false);
   });
 

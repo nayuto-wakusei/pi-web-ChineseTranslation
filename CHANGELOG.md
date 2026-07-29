@@ -1,5 +1,69 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202607.11
+
+### Patch Changes
+
+- 9ed189d: 恢复 Web 应用重新挂载后的实时连接，并阻止会话守护进程在会话关闭后发布迟到状态。
+- 9ed189d: Restore model selection and project-scoped login compatibility with Pi 0.82.
+- d4021df: Restore the description for the highest thinking level in the session picker and clarify the ordinary-mode login prompt.
+- d4021df: Add message-level session content search with multi-match highlights, direct navigation to matching messages, and a search entry that remains available in narrow layouts.
+- 9ed189d: 加入正在运行的旧会话时立即衔接进行中的回复和工具执行结果，无需等待当前回合结束。
+
+## 1.202607.10
+
+### Patch Changes
+
+- 修复点击终端按钮后终端区域错误占满页面的问题。
+
+## 1.202607.9
+
+### Patch Changes
+
+- 在管理嵌入模式中将会话清理限制为当前项目的工作区，普通模式保持原有清理范围。
+
+## 1.202607.8
+
+### Patch Changes
+
+- b20033b: 为会话导航栏增加全文搜索和手动置顶，并将置顶状态持久化到服务端，支持普通模式和管理嵌入模式的工作区隔离；会话列表会定期刷新并按最近更新时间实时重新排序。
+
+## 1.202607.7
+
+### Patch Changes
+
+- 7cbbc04: 按模式与项目隔离会话偏好默认值（思考级别与默认模型）。会话继续读取真实 agent 的 packages/extensions 等共享配置，避免首次打开会话后冻结全局 package 列表。
+
+## 1.202607.6
+
+### 认证与运行时
+
+- 按项目隔离普通模式的 `auth.json` 和 `models.json`；项目首次使用时从全局 Pi 配置迁移初始副本，之后独立管理提供商凭据与自定义模型。（4d08c74）
+- 将项目认证、OAuth、模型刷新和会话创建整体迁移到 Pi `ModelRuntime`，并修复管理嵌入模式的跨站会话与流式重连。（14e911d）
+- 增加可选择的 Pi 兼容 Agent Profile 及配套 CLI，隔离认证、模型、设置、会话、Pi 包、插件和诊断环境。（75e2377）
+
+### 会话与交互
+
+- 支持从会话菜单重命名已持久化且未归档的对话。（4d973e1）
+- 增加“清空队列”操作，可移除普通排队消息以及压缩期间暂存的提示，不会中断正在执行的任务。（a1f749c）
+- 在标准聊天卡片中保持工具结果图片可见，同时保留执行细节与最终消息元数据。（f181c47）
+- 增加可跟踪子会话的显式 yield 机制、无轮询唤醒指引和剩余子任务状态。（d5154df）
+
+### 部署与运维
+
+- 同一份前端构建同时支持根路径和嵌套反向代理部署，覆盖 PWA 资源、WebSocket 以及本地/远程插件路径。（a493949）
+- 在本地或联邦机器上增加强制刷新的“检查 PI WEB 更新”操作。（d72b14f）
+- 改进 systemd/launchd 安装与诊断，在真实服务管理器环境中验证依赖、PATH 和清理行为。（dde48b3）
+- 当显式配置 `PI_WEB_DATA_DIR` 时，将归档索引与归档会话文件存放到该目录，并在条件完整且目标干净时安全迁移旧归档。（ec0ca13）
+- PI WEB 创建的终端 Shell 会设置 `PI_WEB_TERMINAL=1`，便于子进程识别运行环境。（73ac24c）
+- 以浏览器兼容的 Content-Type 提供 PI WEB 插件 SVG 资源，并明确模块相对资源的打包方式。（21c58fe）
+
+## 1.202607.5-dev.0
+
+### Patch Changes
+
+- cfcd4f8: Fix long conversations so the chat scrollbar can reach the complete bottom of the transcript.
+
 ## 1.202607.5
 
 ### Patch Changes
