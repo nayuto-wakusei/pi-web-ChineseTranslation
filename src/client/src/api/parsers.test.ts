@@ -1,21 +1,73 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseAborted, parseAccepted, parseArchived, parseClosed, parseCommandResult, parseDeleted, parseDetached, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineHealth, parseMachineRuntime, parseMessagePage, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseReloaded, parseRestored, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionContentSearchResponse, parseSessionInfo, parseSessionPinResponse, parseSessionPinnedIdsResponse, parseSessionStatus, parseSessionStreamSnapshot, parseSlashCommand, parseStopped, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { ASK_USER_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
+import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
+    const base = { id: "openai", name: "OpenAI", authType: "api_key", status: { configured: false } };
+
+    expect(parseAuthProvidersResponse({ providers: [{ ...base, loginFlow: "interactive" }, base] }).providers).toEqual([
+      { ...base, loginFlow: "interactive" },
+      base,
+    ]);
+  });
+
+  it("preserves additive OAuth interaction semantics", () => {
+    expect(parseOAuthFlowState({
+      flowId: "flow-1",
+      providerId: "provider",
+      providerName: "Provider",
+      status: "running",
+      auth: {
+        url: "https://example.test/device",
+        instructions: "Enter code",
+        deviceCode: { userCode: "ABCD", intervalSeconds: 5, expiresInSeconds: 900 },
+      },
+      prompt: { requestId: "prompt-1", message: "Secret", kind: "prompt", promptType: "secret", allowEmpty: false, placeholder: "token" },
+      select: { requestId: "select-1", message: "Choose", options: [{ value: "work", label: "Work", description: "Company account" }] },
+      progress: ["Read the guide"],
+      info: [{ message: "Read the guide", links: [{ url: "https://example.test/docs", label: "Guide" }] }],
+    })).toMatchObject({
+      auth: { deviceCode: { userCode: "ABCD", intervalSeconds: 5, expiresInSeconds: 900 } },
+      prompt: { kind: "prompt", promptType: "secret", allowEmpty: false },
+      select: { options: [{ value: "work", description: "Company account" }] },
+      info: [{ links: [{ url: "https://example.test/docs", label: "Guide" }] }],
+    });
+  });
+
+  it("defaults semantic prompt types from legacy OAuth wire kinds", () => {
+    const flow = {
+      flowId: "flow-1",
+      providerId: "provider",
+      providerName: "Provider",
+      status: "running",
+      progress: [],
+    };
+
+    expect(parseOAuthFlowState({ ...flow, prompt: { requestId: "text", message: "Value", kind: "prompt" } }).prompt).toMatchObject({
+      kind: "prompt",
+      promptType: "text",
+    });
+    expect(parseOAuthFlowState({ ...flow, prompt: { requestId: "manual", message: "Code", kind: "manual" } }).prompt).toMatchObject({
+      kind: "manual",
+      promptType: "manual_code",
+    });
+  });
+
   it("parses PI WEB config responses", () => {
     expect(parsePiWebConfigResponse({
       path: "/tmp/config.json",
       exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
-      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234, agent: { command: "agent-lab", dir: "~/agent-profiles/lab" } },
+      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" }, agent: { command: "agent-lab", dir: "/Users/dev/agent-profiles/lab" } },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: true, agentDirSource: "pi-compatibility", agentSessionDir: false },
     })).toEqual({
       path: "/tmp/config.json",
       exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234 },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, normalAuth: { passwordHash: "pbkdf2-sha256$120000$c2FsdA$ZmFrZS1oYXNo" }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" } },
-      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234, agent: { command: "agent-lab", dir: "~/agent-profiles/lab" } },
+      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" }, agent: { command: "agent-lab", dir: "/Users/dev/agent-profiles/lab" } },
+      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: true, agentDirSource: "pi-compatibility", agentSessionDir: false },
     });
   });
 
@@ -139,63 +191,6 @@ describe("API parsers", () => {
     })).toThrow("Invalid PI WEB Docker mode");
   });
 
-  it("parses PI WEB status responses including installation, release, commands, and messages", () => {
-    const response = {
-      packageName: "@jmfederico/pi-web",
-      generatedAt: "now",
-      components: {
-        web: {
-          component: "web",
-          label: "Web/UI",
-          runtimeVersion: "1.2.3",
-          installedVersion: "1.2.2",
-          stale: true,
-          available: true,
-          installation: {
-            kind: "npm-global",
-            path: "/usr/local/lib/node_modules/@jmfederico/pi-web",
-            source: "@jmfederico/pi-web",
-            scope: "user",
-            npmRoot: "/usr/local/lib/node_modules",
-          },
-        },
-        sessiond: {
-          component: "sessiond",
-          label: "Session daemon",
-          runtimeVersion: "1.2.3",
-          installedVersion: "1.2.3",
-          stale: false,
-          available: false,
-          error: "not running",
-        },
-      },
-      release: {
-        packageName: "@jmfederico/pi-web",
-        latestVersion: "1.3.0",
-        updateAvailable: true,
-        checkedAt: "later",
-      },
-      commands: {
-        update: "npm install -g @jmfederico/pi-web@latest",
-        restart: "systemctl --user restart pi-web.target",
-        restartWeb: "systemctl --user restart pi-web-ui-dev.service",
-        restartSessiond: "systemctl --user restart pi-web-sessiond.service",
-        status: "systemctl --user status pi-web.target",
-      },
-      messages: [
-        {
-          id: "update-available",
-          severity: "warning",
-          title: "Update available",
-          body: "Install the latest release.",
-          command: "npm install -g @jmfederico/pi-web@latest",
-        },
-      ],
-    };
-
-    expect(parsePiWebStatusResponse(response)).toEqual(response);
-  });
-
   it("parses PI WEB plugin status responses", () => {
     expect(parsePiWebPluginsResponse({
       plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", machineSpecific: true, enabled: false }],
@@ -204,71 +199,135 @@ describe("API parsers", () => {
     });
   });
 
-  it("parses machine health responses with nested PI WEB component status", () => {
-    const response = {
-      machineId: "machine-1",
-      ok: false,
-      checkedAt: "now",
-      status: "error",
-      web: {
-        component: "web",
-        label: "Web/UI",
-        runtimeVersion: "1.2.3",
-        installedVersion: "1.2.2",
-        stale: true,
-        available: true,
-        installation: {
-          kind: "local",
-          path: "/srv/pi-web",
-        },
-      },
-      sessiond: {
-        component: "sessiond",
-        label: "Session daemon",
-        runtimeVersion: "1.2.3",
-        installedVersion: "1.2.3",
-        stale: false,
-        available: false,
-        error: "not running",
-      },
-      error: "session daemon unavailable",
-    };
-
-    expect(parseMachineHealth(response)).toEqual(response);
-  });
-
-  it("parses machine runtime responses with nested runtime components and capabilities", () => {
-    const response = {
-      machineId: "machine-1",
-      ok: true,
-      checkedAt: "now",
-      packageName: "@jmfederico/pi-web",
-      generatedAt: "later",
-      components: {
-        web: {
-          component: "web",
-          label: "Web/UI",
-          runtimeVersion: "1.2.3",
-          available: true,
-          capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.promptAttachments],
-        },
-        sessiond: {
-          component: "sessiond",
-          label: "Session daemon",
-          available: false,
-          capabilities: [PI_WEB_CAPABILITIES.sessionsReload],
-          error: "socket missing",
-        },
-      },
-      capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.promptAttachments],
-    };
-
-    expect(parseMachineRuntime(response)).toEqual(response);
-  });
-
   it("accepts legacy array message pages and paged message responses", () => {
     expect(parseMessagePage(["a", "b"])).toEqual({ messages: ["a", "b"], start: 0, total: 2 });
     expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
+  });
+
+  it("parses a session stream snapshot, defaulting a missing partial to null", () => {
+    expect(parseSessionStreamSnapshot({ seq: 7, partial: { role: "assistant", content: [{ type: "text", text: "hi" }] } })).toEqual({
+      seq: 7,
+      partial: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    });
+    expect(parseSessionStreamSnapshot({ seq: 0, partial: null })).toEqual({ seq: 0, partial: null });
+    expect(parseSessionStreamSnapshot({ seq: 3 })).toEqual({ seq: 3, partial: null });
+  });
+
+  it("rejects a session stream snapshot without a numeric seq", () => {
+    expect(() => parseSessionStreamSnapshot({ partial: null })).toThrow("Expected number field: seq");
+  });
+
+  it("strictly parses unread snapshots and identity-matched deltas", () => {
+    const newest = { sessionId: "session-2", cwd: "/repo", completionOrder: 2, completedAt: "2026-07-20T00:00:02.000Z" };
+    const oldest = { sessionId: "session-1", cwd: "/repo", completionOrder: 1, completedAt: "2026-07-20T00:00:01.000Z" };
+    expect(parseSessionUnreadCatalogSnapshot({ catalogId: "catalog-a", catalogRevision: 2, sessions: [newest, oldest] })).toEqual({
+      catalogId: "catalog-a",
+      catalogRevision: 2,
+      sessions: [newest, oldest],
+    });
+    expect(parseSessionUnreadEvent({
+      type: "sessions.unread",
+      catalogId: "catalog-a",
+      catalogRevision: 3,
+      sessionId: newest.sessionId,
+      cwd: newest.cwd,
+      unread: newest,
+    })).toMatchObject({ type: "sessions.unread", unread: newest });
+    expect(parseSessionUnreadEvent({
+      type: "sessions.unread",
+      catalogId: "catalog-a",
+      catalogRevision: 4,
+      sessionId: newest.sessionId,
+      cwd: newest.cwd,
+      unread: null,
+    })).toMatchObject({ type: "sessions.unread", unread: null });
+  });
+
+  it("rejects malformed, duplicate, unsorted, and mismatched unread payloads", () => {
+    const summary = { sessionId: "session-1", cwd: "/repo", completionOrder: 1, completedAt: "2026-07-20T00:00:01.000Z" };
+    expect(() => parseSessionUnreadCatalogSnapshot({ catalogId: "catalog-a", catalogRevision: 2, sessions: [summary, summary] })).toThrow("Duplicate session unread identity");
+    expect(() => parseSessionUnreadCatalogSnapshot({
+      catalogId: "catalog-a",
+      catalogRevision: 2,
+      sessions: [summary, { ...summary, sessionId: "session-2", completionOrder: 2 }],
+    })).toThrow("not newest-first");
+    expect(() => parseSessionUnreadCatalogSnapshot({ catalogId: "catalog-a", catalogRevision: 1, sessions: [{ ...summary, completedAt: "never" }] })).toThrow("Invalid canonical session unread completion time");
+    expect(() => parseSessionUnreadCatalogSnapshot({ catalogId: "catalog-a", catalogRevision: 1, sessions: [{ ...summary, completedAt: "2026-07-20" }] })).toThrow("Invalid canonical session unread completion time");
+    expect(() => parseSessionUnreadCatalogSnapshot({
+      catalogId: "x".repeat(SESSION_UNREAD_CATALOG_ID_MAX_LENGTH + 1),
+      catalogRevision: 0,
+      sessions: [],
+    })).toThrow("String field exceeds limit: catalogId");
+    expect(() => parseSessionUnreadCatalogSnapshot({
+      catalogId: "catalog-a",
+      catalogRevision: 0,
+      sessions: [summary],
+    })).toThrow("completion order exceeds catalog revision");
+    expect(() => parseSessionUnreadEvent({
+      type: "sessions.unread",
+      catalogId: "catalog-a",
+      catalogRevision: 1,
+      sessionId: "session-1",
+      cwd: "/repo",
+      unread: { ...summary, completionOrder: 2 },
+    })).toThrow("completion order exceeds catalog revision");
+    expect(() => parseSessionUnreadEvent({
+      type: "sessions.unread",
+      catalogId: "catalog-a",
+      catalogRevision: 1,
+      sessionId: "other-session",
+      cwd: "/repo",
+      unread: summary,
+    })).toThrow("identity mismatch");
+    expect(() => parseSessionUnreadEvent({
+      type: "sessions.unread",
+      catalogId: "catalog-a",
+      catalogRevision: 0,
+      sessionId: "session-1",
+      cwd: "/repo",
+      unread: null,
+    })).toThrow("positive safe integer");
+  });
+
+  it("parses session startup progress with and without a correlation token", () => {
+    const activity = { sessionId: "session-1", phase: "active", label: "Creating session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z" };
+
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", startupToken: "pending-session-1-abc", activity })).toEqual({
+      type: "session.startup",
+      startupToken: "pending-session-1-abc",
+      activity,
+    });
+    // An open carries no token: the activity's own session id is the only route.
+    const idle = { sessionId: "session-1", phase: "idle", label: "idle", at: "2026-07-20T00:00:02.000Z" };
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: idle })).toEqual({
+      type: "session.startup",
+      activity: idle,
+    });
+  });
+
+  it("carries the startup marker so an opening session is not mistaken for a working one", () => {
+    const activity = { sessionId: "session-1", phase: "active", label: "Opening session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z", startup: true };
+
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity })).toEqual({ type: "session.startup", activity });
+    // A malformed marker is dropped like any other malformed field rather than
+    // being coerced into "this is startup" or "this is work".
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, startup: "yes" } })).toThrow("Expected optional boolean field: startup");
+  });
+
+  it("rejects session startup progress that cannot be routed or rendered honestly", () => {
+    const activity = { sessionId: "session-1", phase: "active", label: "Creating session", at: "2026-07-20T00:00:01.000Z" };
+
+    expect(() => parseSessionStartupProgressEvent({ type: "activity.update", activity })).toThrow("Invalid session startup event type");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup" })).toThrow("Expected object response");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", startupToken: 7, activity })).toThrow("Expected optional string field: startupToken");
+    // An empty token would match nothing but must still be rejected rather than
+    // silently carried, so a malformed frame never reaches the routing at all.
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", startupToken: "", activity })).toThrow("Expected non-empty string field: startupToken");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, phase: "waiting" } })).toThrow("Expected session activity phase field: phase");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, label: 7 } })).toThrow("Expected string field: label");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, label: "" } })).toThrow("Expected non-empty string field: label");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, detail: 7 } })).toThrow("Expected optional string field: detail");
+    expect(() => parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...activity, sessionId: "" } })).toThrow("Expected non-empty string field: sessionId");
   });
 
   it("parses session cleanup preview and execute responses", () => {
@@ -342,13 +401,6 @@ describe("API parsers", () => {
     expect(() => parseSessionInfo({ id: "s1", path: "", cwd: "/repo", persisted: "yes", created: "now", modified: "now", messageCount: 0, firstMessage: "" })).toThrow("Expected optional boolean field: persisted");
   });
 
-  it("parses session search and pin responses", () => {
-    expect(parseSessionPinnedIdsResponse({ sessionIds: ["s1", "s2"] })).toEqual({ sessionIds: ["s1", "s2"] });
-    expect(parseSessionPinResponse({ pinned: true })).toEqual({ pinned: true });
-    expect(() => parseSessionPinnedIdsResponse({ sessionIds: ["s1", 2] })).toThrow("Expected string array field: sessionIds");
-    expect(() => parseSessionPinResponse({ pinned: "yes" })).toThrow("Expected boolean field: pinned");
-  });
-
   it("validates session status including optional model and nullable context usage", () => {
     expect(parseSessionStatus({
       sessionId: "s1",
@@ -381,24 +433,57 @@ describe("API parsers", () => {
     });
   });
 
-  it("parses message-level session content search responses", () => {
-    const response = {
-      results: [{
-        session: { id: "s1", cwd: "/repo", path: "/repo/s1.jsonl", created: "now", modified: "later", messageCount: 2, firstMessage: "question" },
-        matches: [{ messageIndex: 1, role: "assistant", excerpts: [{ text: "an answer", matchRanges: [{ start: 3, length: 6 }] }], occurrenceCount: 1 }],
-      }],
-      matchCount: 1,
-      truncated: false,
-    };
-    expect(parseSessionContentSearchResponse(response)).toEqual(response);
-    expect(() => parseSessionContentSearchResponse({ ...response, results: [{ ...response.results[0], matches: [{ ...response.results[0]?.matches[0], role: "tool" }] }] })).toThrow("Invalid session content search role");
+  it("parses live session warnings including optional source and path", () => {
+    const parsed = parseSessionStatus({
+      sessionId: "s1",
+      isStreaming: false,
+      isCompacting: false,
+      isBashRunning: false,
+      pendingMessageCount: 0,
+      queuedMessages: [],
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      warnings: [
+        { severity: "error", message: "bad skill", source: "skill", path: "/skills/a.md" },
+        { severity: "warning", message: "subscription active", source: "anthropic", dismiss: { id: "anthropicExtraUsage" } },
+        { severity: "info", message: "heads up", source: "runtime" },
+      ],
+    });
+
+    expect(parsed.warnings).toEqual([
+      { severity: "error", message: "bad skill", source: "skill", path: "/skills/a.md" },
+      { severity: "warning", message: "subscription active", source: "anthropic", dismiss: { id: "anthropicExtraUsage" } },
+      { severity: "info", message: "heads up", source: "runtime" },
+    ]);
   });
 
-  it("validates join-time stream snapshots without casting the partial", () => {
-    const partial = { role: "assistant", content: [{ type: "text", text: "working" }] };
-    expect(parseSessionStreamSnapshot({ seq: 7, partial })).toEqual({ seq: 7, partial });
-    expect(parseSessionStreamSnapshot({ seq: 0 })).toEqual({ seq: 0, partial: null });
-    expect(() => parseSessionStreamSnapshot({ seq: "7", partial: null })).toThrow("Expected number field: seq");
+  it("omits warnings entirely when the field is absent", () => {
+    const parsed = parseSessionStatus({
+      sessionId: "s1",
+      isStreaming: false,
+      isCompacting: false,
+      isBashRunning: false,
+      pendingMessageCount: 0,
+      queuedMessages: [],
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+    });
+
+    expect(parsed.warnings).toBeUndefined();
+  });
+
+  it("rejects a warning with an invalid severity", () => {
+    expect(() => parseSessionStatus({
+      sessionId: "s1",
+      isStreaming: false,
+      isCompacting: false,
+      isBashRunning: false,
+      pendingMessageCount: 0,
+      queuedMessages: [],
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      warnings: [{ severity: "fatal", message: "nope" }],
+    })).toThrow("Invalid session warning severity");
   });
 
   it("parses workspace effective upload config when present", () => {
@@ -459,6 +544,28 @@ describe("API parsers", () => {
     expect(() => parseSlashCommand({ name: "bad", source: "remote" })).toThrow("Invalid command source");
     expect(() => parseFileSuggestion({ path: "a", kind: "deleted" })).toThrow("Invalid file kind");
     expect(() => parseGitStatusResponse({ isGitRepo: true, hash: "h", files: [{ path: "a", index: "weird", workingTree: "modified" }] })).toThrow("Invalid git file state");
+  });
+
+  it("parses submodule paths and pointer commit fields", () => {
+    const parsed = parseGitStatusResponse({
+      isGitRepo: true,
+      hash: "h",
+      branch: "main",
+      files: [
+        { path: "HARL", index: "unmodified", workingTree: "modified", submoduleFromCommit: "1111111", submoduleToCommit: "2222222" },
+        { path: "HARL/inner.txt", index: "modified", workingTree: "modified" },
+      ],
+      submodules: ["HARL"],
+    });
+    expect(parsed.submodules).toEqual(["HARL"]);
+    expect(parsed.files[0]?.submoduleFromCommit).toBe("1111111");
+    expect(parsed.files[0]?.submoduleToCommit).toBe("2222222");
+    expect(parsed.files[1]?.submoduleFromCommit).toBeUndefined();
+  });
+
+  it("defaults submodules to an empty list when absent", () => {
+    const parsed = parseGitStatusResponse({ isGitRepo: true, hash: "h", files: [] });
+    expect(parsed.submodules).toEqual([]);
   });
 
   it("validates file content responses", () => {
@@ -536,23 +643,262 @@ describe("API parsers", () => {
   });
 
   it("parses command result variants", () => {
+    const tree = sessionTreeWire();
     expect(parseCommandResult({ type: "unsupported", message: "nope" })).toEqual({ type: "unsupported", message: "nope" });
     expect(parseCommandResult({ type: "select", requestId: "r1", title: "Pick", options: [{ value: "v", label: "Label", description: "desc" }] })).toEqual({ type: "select", requestId: "r1", title: "Pick", options: [{ value: "v", label: "Label", description: "desc" }] });
+    expect(parseCommandResult({ type: "tree", tree })).toEqual({ type: "tree", tree });
     expect(parseCommandResult({ type: "done", message: "ok", promptDraft: "resend me" })).toEqual({ type: "done", message: "ok", promptDraft: "resend me" });
     expect(() => parseCommandResult({ type: "later" })).toThrow("Invalid command result type");
   });
 
-  it("parses simple command acknowledgement responses", () => {
-    expect(parseAccepted({ accepted: true })).toEqual({ accepted: true });
-    expect(parseClosed({ closed: true })).toEqual({ closed: true });
-    expect(parseAborted({ aborted: true })).toEqual({ aborted: true });
-    expect(parseStopped({ stopped: true })).toEqual({ stopped: true });
-    expect(parseRestored({ restored: true })).toEqual({ restored: true });
-    expect(parseDeleted({ deleted: true })).toEqual({ deleted: true });
-    expect(parseDetached({ detached: true })).toEqual({ detached: true });
-    expect(parseReloaded({ reloaded: true })).toEqual({ reloaded: true });
-    expect(parseArchived({ archived: true, sessionIds: ["s1"], archivedCount: 1, skippedAlreadyArchivedCount: 2 })).toEqual({ archived: true, sessionIds: ["s1"], archivedCount: 1, skippedAlreadyArchivedCount: 2 });
-    expect(() => parseAccepted({ accepted: false })).toThrow("Expected accepted response");
-    expect(() => parseArchived({ archived: true, sessionIds: [1] })).toThrow("Expected string array field: sessionIds");
+  it("strictly parses session tree snapshots and navigation results", () => {
+    const tree = sessionTreeWire();
+    expect(parseSessionTreeSnapshot(tree)).toEqual(tree);
+    expect(parseSessionTreeNavigateResult({ cancelled: false, editorText: "edit this" })).toEqual({ cancelled: false, editorText: "edit this" });
+    expect(parseSessionTreeNavigateResult({ cancelled: false })).toEqual({ cancelled: false });
+    expect(parseSessionTreeNavigateResult({ cancelled: true, aborted: true })).toEqual({ cancelled: true, aborted: true });
+    expect(parseSessionTreeNavigateResult({ cancelled: true })).toEqual({ cancelled: true });
+    expect(parseSessionTreeNavigateResult({ cancelled: false, editorText: "edit this", operationId: "future-metadata" })).toEqual({ cancelled: false, editorText: "edit this" });
+    expect(parseSessionTreeNavigateResult({ cancelled: true, aborted: true, operationId: "future-metadata" })).toEqual({ cancelled: true, aborted: true });
+
+    expect(() => parseSessionTreeSnapshot({ ...tree, activeLeafId: undefined })).toThrow("activeLeafId");
+    expect(() => parseSessionTreeSnapshot({ ...tree, activeLeafId: "missing" })).toThrow("activeLeafId");
+    expect(() => parseSessionTreeSnapshot({ ...tree, activeLeafId: "   " })).toThrow("activeLeafId");
+    expect(() => parseSessionTreeSnapshot({ ...tree, activePathIds: ["root", 2] })).toThrow("activePathIds");
+    expect(() => parseSessionTreeSnapshot({ ...tree, activePathIds: ["   "] })).toThrow("activePathIds");
+    expect(() => parseSessionTreeSnapshot({ ...tree, nodes: [{ ...tree.nodes[0], id: "   " }] })).toThrow("id");
+    expect(() => parseSessionTreeSnapshot({ ...tree, nodes: [{ ...tree.nodes[0], parentId: undefined }] })).toThrow("parentId");
+    expect(() => parseSessionTreeSnapshot({ ...tree, nodes: [{ ...tree.nodes[0], parentId: "   " }] })).toThrow("parentId");
+    expect(() => parseSessionTreeSnapshot({ ...tree, nodes: [tree.nodes[0], tree.nodes[0]] })).toThrow("Duplicate session tree node id");
+    expect(() => parseSessionTreeSnapshot({ ...tree, nodes: [{ ...tree.nodes[0], kind: "future-kind" }] })).toThrow("Invalid session tree node kind");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: true, editorText: "wrong branch" })).toThrow("editorText");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: false, aborted: true })).toThrow("aborted");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: false, editorText: 42 })).toThrow("editorText");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: true, aborted: "yes" })).toThrow("aborted");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: false, summaryEntry: { raw: true } })).toThrow("summaryEntry");
+    expect(() => parseSessionTreeNavigateResult({ cancelled: true, summaryEntry: { raw: true } })).toThrow("summaryEntry");
+    expect(() => parseSessionTreeNavigateResult({ editorText: "missing discriminator" })).toThrow("cancelled");
+  });
+
+  it("strictly parses selected notification snapshots and realtime events", () => {
+    const inbox = notificationInboxWire();
+
+    expect(parseSessionNotificationInboxSnapshot(inbox)).toEqual(inbox);
+    expect(parseSessionNotificationInboxEvent({
+      type: "notifications.inbox",
+      daemonInstanceId: "daemon-a",
+      catalogRevision: 2,
+      summary: { ...inbox.summary, inboxRevision: 2, retainedCount: 2, highestSeverity: "warning" },
+      dismissThrough: { order: 2, overflowWatermark: 0 },
+      delta: { kind: "added", notification: notificationWire(2, "warning") },
+    })).toMatchObject({ type: "notifications.inbox", delta: { kind: "added", notification: { severity: "warning" } } });
+  });
+
+  it("rejects malformed, unsafe, over-cap, and oversized notification payloads", () => {
+    const inbox = notificationInboxWire();
+    expect(() => parseSessionNotificationInboxSnapshot({
+      ...inbox,
+      notifications: [{ ...notificationWire(1), severity: "fatal" }],
+    })).toThrow("Invalid notification severity");
+    expect(() => parseSessionNotificationInboxSnapshot({
+      ...inbox,
+      catalogRevision: Number.MAX_SAFE_INTEGER + 1,
+    })).toThrow("safe integer");
+    expect(() => parseSessionNotificationInboxSnapshot({
+      ...inbox,
+      summary: { ...inbox.summary, retainedCount: SESSION_NOTIFICATION_LIMIT },
+      notifications: Array.from({ length: SESSION_NOTIFICATION_LIMIT + 1 }, (_, index) => notificationWire(SESSION_NOTIFICATION_LIMIT + 1 - index)),
+    })).toThrow("exceeds limit");
+    expect(() => parseSessionNotificationInboxSnapshot({
+      ...inbox,
+      notifications: [{ ...notificationWire(1), message: "x".repeat(SESSION_NOTIFICATION_MESSAGE_BYTES + 1) }],
+    })).toThrow("message exceeds byte limit");
+    expect(() => parseSessionNotificationInboxEvent({
+      type: "notifications.inbox",
+      daemonInstanceId: "daemon-a",
+      catalogRevision: 2,
+      summary: { ...inbox.summary, inboxRevision: 2 },
+      dismissThrough: { order: 1, overflowWatermark: 0 },
+      delta: { kind: "cleared", reason: "future-reason" },
+    })).toThrow("Invalid notification clear reason");
+  });
+
+  it("parses an open ask and normalizes every question to allow custom answers", () => {
+    const parsed = parseSessionStatus({ ...statusWire(), pendingAsk: pendingAskWire() });
+
+    expect(parsed.pendingAsk).toEqual({
+      askId: "ask-1",
+      askedAt: "2026-07-20T00:00:00.000Z",
+      questions: [
+        { id: "q1", question: "Which database?", detail: "Pick the primary store", options: [{ value: "pg", label: "Postgres", detail: "Relational" }, { value: "sqlite", label: "SQLite" }], allowOther: true },
+        { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], allowOther: true, multiple: true },
+      ],
+    });
+  });
+
+  it("omits the pending ask entirely when the field is absent", () => {
+    expect(parseSessionStatus(statusWire()).pendingAsk).toBeUndefined();
+  });
+
+  it("validates an ask before rendering it", () => {
+    const ask = pendingAskWire();
+    const first = ask.questions[0];
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [] } })).toThrow("Pending ask has no questions");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [first, first] } })).toThrow("Duplicate ask question id");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, askId: "" } })).toThrow("Expected non-empty string field: askId");
+    expect(parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Anything?", options: [] }] } }).pendingAsk?.questions[0])
+      .toEqual({ id: "q1", question: "Anything?", options: [], allowOther: true });
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Anything?", options: [], allowOther: "yes" }] } })).toThrow("Expected optional boolean field: allowOther");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Which?", options: [{ value: "a", label: "A" }, { value: "a", label: "Also A" }] }] } })).toThrow("Duplicate ask option value");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "x".repeat(ASK_USER_TEXT_MAX_LENGTH + 1), options: [{ value: "a", label: "A" }] }] } })).toThrow("String field exceeds limit: question");
+  });
+
+  it("parses a closed ask response carrying the outcome and recomputed status", () => {
+    const response = parseAskUserCloseResponse({
+      result: "closed",
+      outcome: askOutcomeWire(),
+      sessionStatus: statusWire(),
+    });
+
+    expect(response.result).toBe("closed");
+    expect(response.outcome).toMatchObject({
+      askId: "ask-1",
+      reason: "submitted",
+      answeredCount: 1,
+      unansweredIds: ["q2"],
+      summary: "Answered 1 of 2; unanswered: q2",
+    });
+    expect(response.outcome?.questions[0]).toMatchObject({ answered: true, values: ["pg"] });
+    expect(response.sessionStatus.sessionId).toBe("s1");
+  });
+
+  it("parses a stale close as an ordinary race with no outcome", () => {
+    const response = parseAskUserCloseResponse({ result: "stale", sessionStatus: statusWire() });
+
+    expect(response).toEqual({ result: "stale", sessionStatus: parseSessionStatus(statusWire()) });
+  });
+
+  it("rejects close responses whose outcome contradicts itself", () => {
+    const outcome = askOutcomeWire();
+    expect(() => parseAskUserCloseResponse({ result: "closed", sessionStatus: statusWire() })).toThrow("Ask close response outcome mismatch");
+    expect(() => parseAskUserCloseResponse({ result: "stale", outcome, sessionStatus: statusWire() })).toThrow("Ask close response outcome mismatch");
+    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, answeredCount: 2 }, sessionStatus: statusWire() })).toThrow("Ask outcome answered count mismatch");
+    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, unansweredIds: [] }, sessionStatus: statusWire() })).toThrow("Ask outcome unanswered ids mismatch");
+    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, reason: "ignored" }, sessionStatus: statusWire() })).toThrow("Invalid ask close reason");
+    expect(() => parseAskUserCloseResponse({
+      result: "closed",
+      outcome: { ...outcome, questions: [{ ...askAnsweredRecordWire(), answered: false }, askUnansweredRecordWire()] },
+      sessionStatus: statusWire(),
+    })).toThrow("Ask answer contradicts its answered flag");
+    expect(() => parseAskUserCloseResponse({
+      result: "closed",
+      outcome: { ...outcome, questions: [{ ...askAnsweredRecordWire(), values: ["mysql"] }, askUnansweredRecordWire()] },
+      sessionStatus: statusWire(),
+    })).toThrow("Ask answer selected an option the question never offered");
   });
 });
+
+function statusWire() {
+  return {
+    sessionId: "s1",
+    isStreaming: false,
+    isCompacting: false,
+    isBashRunning: false,
+    pendingMessageCount: 0,
+    queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+  };
+}
+
+function pendingAskWire() {
+  return {
+    askId: "ask-1",
+    askedAt: "2026-07-20T00:00:00.000Z",
+    questions: [
+      { id: "q1", question: "Which database?", detail: "Pick the primary store", options: [{ value: "pg", label: "Postgres", detail: "Relational" }, { value: "sqlite", label: "SQLite" }], allowOther: false },
+      { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], allowOther: true, multiple: true },
+    ],
+  };
+}
+
+function askAnsweredRecordWire() {
+  const ask = pendingAskWire();
+  return { question: ask.questions[0], answered: true, values: ["pg"] };
+}
+
+function askUnansweredRecordWire() {
+  const ask = pendingAskWire();
+  return { question: ask.questions[1], answered: false, values: [] };
+}
+
+function askOutcomeWire() {
+  return {
+    askId: "ask-1",
+    reason: "submitted",
+    askedAt: "2026-07-20T00:00:00.000Z",
+    closedAt: "2026-07-20T00:01:00.000Z",
+    questions: [askAnsweredRecordWire(), askUnansweredRecordWire()],
+    answeredCount: 1,
+    unansweredIds: ["q2"],
+    summary: "Answered 1 of 2; unanswered: q2",
+  };
+}
+
+function sessionTreeWire() {
+  const kinds = [
+    "user",
+    "assistant",
+    "tool-result",
+    "bash",
+    "custom-message",
+    "compaction",
+    "branch-summary",
+    "model-change",
+    "thinking-level-change",
+    "session-info",
+    "label",
+    "custom",
+    "other",
+  ] as const;
+  const nodes = kinds.map((kind, index) => ({
+    id: `entry-${String(index)}`,
+    parentId: index === 0 ? null : `entry-${String(index - 1)}`,
+    kind,
+    summary: `${kind} summary`,
+    ...(index === 0 ? { timestamp: "2026-07-20T00:00:00.000Z", label: "root label" } : {}),
+  }));
+  return {
+    nodes,
+    activeLeafId: nodes.at(-1)?.id ?? null,
+    activePathIds: nodes.map((node) => node.id),
+  };
+}
+
+function notificationWire(order: number, severity: "info" | "warning" | "error" = "info") {
+  return {
+    id: `daemon-a:${String(order)}`,
+    message: `notice ${String(order)}`,
+    truncated: false,
+    severity,
+    receivedAt: "2026-07-18T00:00:00.000Z",
+    order,
+  };
+}
+
+function notificationInboxWire() {
+  return {
+    daemonInstanceId: "daemon-a",
+    catalogRevision: 1,
+    summary: {
+      sessionId: "session-1",
+      cwd: "/repo",
+      inboxRevision: 1,
+      retainedCount: 1,
+      discardedCount: 0,
+      highestSeverity: "info" as const,
+    },
+    notifications: [notificationWire(1)],
+    dismissThrough: { order: 1, overflowWatermark: 0 },
+  };
+}

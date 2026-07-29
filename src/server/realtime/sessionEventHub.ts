@@ -7,6 +7,7 @@ export interface RealtimeSocket {
   readonly OPEN: number;
   readyState: number;
   send(payload: string): void;
+  terminate(): void;
   on(event: "close", listener: () => void): unknown;
 }
 
@@ -44,7 +45,13 @@ export class SessionEventHub {
     this.seqBySessionScope.set(key, seq);
     const payload = JSON.stringify({ ...projectBrowserSessionEvent(event), seq });
     for (const socket of this.socketsBySession.get(key) ?? []) {
-      if (socket.readyState === socket.OPEN) socket.send(payload);
+      if (socket.readyState !== socket.OPEN) continue;
+      try {
+        socket.send(payload);
+      } catch {
+        this.socketsBySession.get(key)?.delete(socket);
+        socket.terminate();
+      }
     }
   }
 
@@ -59,7 +66,13 @@ export class SessionEventHub {
   publishRealtime(event: RealtimeEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const payload = JSON.stringify(event);
     for (const socket of this.globalSocketsByScope.get(scope) ?? []) {
-      if (socket.readyState === socket.OPEN) socket.send(payload);
+      if (socket.readyState !== socket.OPEN) continue;
+      try {
+        socket.send(payload);
+      } catch {
+        this.globalSocketsByScope.get(scope)?.delete(socket);
+        socket.terminate();
+      }
     }
   }
 }

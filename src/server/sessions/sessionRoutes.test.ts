@@ -2,10 +2,33 @@ import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { MessagePage, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkMutationRef, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionStatus, SessionStreamSnapshot } from "../../shared/apiTypes.js";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
+import type {
+  AskUserCloseResponse,
+  AskUserSubmission,
+  MessagePage,
+  SessionBulkArchiveResponse,
+  SessionBulkDeleteArchivedResponse,
+  SessionBulkMutationRef,
+  SessionCleanupExecuteResponse,
+  SessionCleanupPreviewResponse,
+  SessionNotificationDismissAllRequest,
+  SessionNotificationDismissRequest,
+  SessionNotificationInboxSnapshot,
+  SessionRef,
+  SessionStatus,
+  SessionStreamSnapshot,
+  SessionTreeNavigateRequest,
+  SessionUnreadAcknowledgeRequest,
+  SessionUnreadCatalogSnapshot,
+  SessionTreeNavigateResult,
+} from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionManagerGateway } from "./piSessionService.js";
+import { testModelRuntime } from "./piSessionService.testSupport.js";
+import { SessionNotificationStore } from "./sessionNotificationStore.js";
 import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
+import type { ClientSession } from "../types.js";
 import { registerSessionRoutes } from "./sessionRoutes.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
 
@@ -20,7 +43,7 @@ beforeEach(async () => {
   await app.register(fastifyWebsocket);
   sessionManager = new RejectingSessionManager();
   const eventHub = new SessionEventHub();
-  service = new PiSessionService(eventHub, { agentDir: TEST_AGENT_DIR, sessionManager, heartbeatIntervalMs: 60_000 });
+  service = new PiSessionService(eventHub, { agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime, sessionManager, heartbeatIntervalMs: 60_000 });
   registerSessionRoutes(app, service, eventHub);
 });
 
@@ -30,6 +53,387 @@ afterEach(async () => {
 });
 
 describe("session routes", () => {
+  it("returns notification catalog and selected-inbox snapshots with required cwd context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const catalog = await routeApp.inject({ method: "GET", url: "/sessions/notifications" });
+      const inbox = await routeApp.inject({ method: "GET", url: `/sessions/session-1/notifications?cwd=${encodeURIComponent(requestCwd)}` });
+
+      expect(catalog.statusCode).toBe(200);
+      expect(catalog.json()).toEqual({ daemonInstanceId: "daemon-test", catalogRevision: 0, sessions: [] });
+      expect(inbox.statusCode).toBe(200);
+      expect(inbox.json()).toMatchObject({ daemonInstanceId: "daemon-test", summary: { sessionId: "session-1", cwd: requestCwd } });
+      expect(routeService.notificationInboxCalls).toEqual([{ id: "session-1", cwd: requestCwd }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("returns unread snapshots and validates race-safe acknowledgement cutoffs", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const catalog = await routeApp.inject({ method: "GET", url: "/sessions/unread" });
+      const acknowledged = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/unread/acknowledge",
+        payload: { cwd: requestCwd, catalogId: "catalog-test", throughCompletionOrder: 7 },
+      });
+      const invalid = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/unread/acknowledge",
+        payload: { cwd: requestCwd, catalogId: "catalog-test", throughCompletionOrder: 0 },
+      });
+      const oversized = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/unread/acknowledge",
+        payload: {
+          cwd: requestCwd,
+          catalogId: "x".repeat(SESSION_UNREAD_CATALOG_ID_MAX_LENGTH + 1),
+          throughCompletionOrder: 7,
+        },
+      });
+
+      expect(catalog.statusCode).toBe(200);
+      expect(catalog.json()).toEqual(routeService.unreadCatalogResponse);
+      expect(acknowledged.statusCode).toBe(200);
+      expect(acknowledged.json()).toEqual(routeService.unreadCatalogResponse);
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: "throughCompletionOrder field must be positive" });
+      expect(oversized.statusCode).toBe(400);
+      expect(oversized.json()).toEqual({ error: "catalogId field is too long" });
+      expect(routeService.acknowledgeUnreadCalls).toEqual([{
+        sessionId: "session-1",
+        request: { cwd: requestCwd, catalogId: "catalog-test", throughCompletionOrder: 7 },
+      }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("reports unread backend failures as unavailable while keeping validation errors at 400", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.unreadError = new Error("unread persistence unavailable");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const catalog = await routeApp.inject({ method: "GET", url: "/sessions/unread" });
+      const acknowledgement = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/unread/acknowledge",
+        payload: { cwd: resolve("/repo"), catalogId: "catalog-test", throughCompletionOrder: 7 },
+      });
+      const invalid = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/unread/acknowledge",
+        payload: { cwd: "relative", catalogId: "catalog-test", throughCompletionOrder: 7 },
+      });
+
+      expect(catalog.statusCode).toBe(503);
+      expect(acknowledgement.statusCode).toBe(503);
+      expect(catalog.json()).toEqual({ error: "unread persistence unavailable" });
+      expect(acknowledgement.json()).toEqual({ error: "unread persistence unavailable" });
+      expect(invalid.statusCode).toBe(400);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("validates and forwards idempotent notification dismissal cutoffs", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const dismiss = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/notifications/dismiss",
+        payload: { cwd: requestCwd, daemonInstanceId: "daemon-test", notificationId: "notice-1" },
+      });
+      const dismissAll = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/notifications/dismiss-all",
+        payload: { cwd: requestCwd, daemonInstanceId: "daemon-test", throughOrder: 12, throughOverflowWatermark: 3 },
+      });
+
+      expect(dismiss.statusCode).toBe(200);
+      expect(dismissAll.statusCode).toBe(200);
+      expect(routeService.dismissNotificationCalls).toEqual([{
+        ref: { id: "session-1", cwd: requestCwd },
+        request: { daemonInstanceId: "daemon-test", notificationId: "notice-1" },
+      }]);
+      expect(routeService.dismissAllNotificationCalls).toEqual([{
+        ref: { id: "session-1", cwd: requestCwd },
+        request: { daemonInstanceId: "daemon-test", throughOrder: 12, throughOverflowWatermark: 3 },
+      }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("keeps stale notification mutations harmless and rejects mismatched ownership", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const requestCwd = resolve("/repo");
+    const notificationStore = new SessionNotificationStore({ daemonInstanceId: "daemon-current" });
+    const registration = notificationStore.registerSession("session-1", requestCwd);
+    notificationStore.addNotification(registration.generation, "keep", "warning");
+    const routeService = new PiSessionService(eventHub, {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      notificationStore,
+      sessionManager: new RejectingSessionManager(),
+      heartbeatIntervalMs: 60_000,
+    });
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const stale = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/notifications/dismiss-all",
+        payload: { cwd: requestCwd, daemonInstanceId: "daemon-old", throughOrder: Number.MAX_SAFE_INTEGER, throughOverflowWatermark: Number.MAX_SAFE_INTEGER },
+      });
+      const mismatch = await routeApp.inject({ method: "GET", url: `/sessions/session-1/notifications?cwd=${encodeURIComponent(resolve("/other"))}` });
+      const missing = await routeApp.inject({ method: "GET", url: `/sessions/missing/notifications?cwd=${encodeURIComponent(requestCwd)}` });
+
+      expect(stale.statusCode).toBe(200);
+      expect(stale.json()).toMatchObject({ summary: { retainedCount: 1, inboxRevision: 1 } });
+      expect(mismatch.statusCode).toBe(400);
+      expect(mismatch.json()).toEqual({ error: "Session cwd mismatch" });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed notification requests before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const missingCwd = await routeApp.inject({ method: "GET", url: "/sessions/session-1/notifications" });
+      const unsafeCutoff = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/notifications/dismiss-all",
+        payload: { cwd: "/repo", daemonInstanceId: "daemon-test", throughOrder: Number.MAX_SAFE_INTEGER + 1, throughOverflowWatermark: 0 },
+      });
+
+      expect(missingCwd.statusCode).toBe(400);
+      expect(missingCwd.json()).toEqual({ error: "cwd field must be a string" });
+      expect(unsafeCutoff.statusCode).toBe(400);
+      expect(unsafeCutoff.json()).toEqual({ error: "throughOrder field must be a non-negative safe integer" });
+      expect(routeService.notificationInboxCalls).toEqual([]);
+      expect(routeService.dismissAllNotificationCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("strictly parses cwd-scoped session tree navigation requests", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/navigate",
+        payload: {
+          cwd: "/repo/./",
+          targetId: "entry-2",
+          expectedLeafId: null,
+          summary: { mode: "custom", instructions: "  focus on tests  " },
+        },
+      });
+
+      const withoutSummary = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/navigate",
+        payload: { cwd: "/repo", targetId: "entry-1", expectedLeafId: "leaf-1", summary: { mode: "none" } },
+      });
+      const withDefaultSummary = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/navigate",
+        payload: { cwd: "/repo", targetId: "entry-3", expectedLeafId: "leaf-2", summary: { mode: "default" } },
+      });
+
+      expect([response.statusCode, withoutSummary.statusCode, withDefaultSummary.statusCode]).toEqual([200, 200, 200]);
+      expect(response.json()).toEqual({ cancelled: false, editorText: "edit this" });
+      expect(routeService.navigateTreeCalls).toEqual([
+        {
+          lookup: { id: "session-1", cwd: resolve("/repo") },
+          request: { targetId: "entry-2", expectedLeafId: null, summary: { mode: "custom", instructions: "focus on tests" } },
+        },
+        {
+          lookup: { id: "session-1", cwd: resolve("/repo") },
+          request: { targetId: "entry-1", expectedLeafId: "leaf-1", summary: { mode: "none" } },
+        },
+        {
+          lookup: { id: "session-1", cwd: resolve("/repo") },
+          request: { targetId: "entry-3", expectedLeafId: "leaf-2", summary: { mode: "default" } },
+        },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed session tree navigation unions before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const base = { targetId: "entry-2", expectedLeafId: "leaf-1", summary: { mode: "none" } };
+    const malformed: Record<string, unknown>[] = [
+      { targetId: "entry-2", summary: { mode: "none" } },
+      { ...base, expectedLeafId: 1 },
+      { ...base, summary: { mode: "future" } },
+      { ...base, summary: { mode: "none", instructions: "not allowed" } },
+      { ...base, summary: { mode: "default", instructions: "not allowed" } },
+      { ...base, summary: { mode: "custom" } },
+      { ...base, summary: { mode: "custom", instructions: "   " } },
+      { ...base, summary: { mode: "custom", instructions: "x".repeat(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH + 1) } },
+      { ...base, summary: { mode: "custom", instructions: "focus", extra: true } },
+    ];
+
+    try {
+      for (const payload of malformed) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/navigate", payload });
+        expect(response.statusCode).toBe(400);
+      }
+      expect(routeService.navigateTreeCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("parses ask submissions and reports both closed and stale outcomes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const submitted = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/ask/submit",
+        payload: {
+          cwd: "/repo/./",
+          askId: "ask-1",
+          answers: [{ id: "db", values: ["pg"] }, { id: "cache", values: [], otherText: "redis" }],
+        },
+      });
+      const cancelled = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/ask/cancel",
+        payload: { askId: "ask-2" },
+      });
+
+      expect(submitted.statusCode).toBe(200);
+      expect(submitted.json()).toMatchObject({ result: "closed", sessionStatus: { sessionId: "session-1" } });
+      expect(routeService.submitAskCalls).toEqual([{
+        lookup: { id: "session-1", cwd: resolve("/repo") },
+        askId: "ask-1",
+        submission: { answers: [{ id: "db", values: ["pg"] }, { id: "cache", values: [], otherText: "redis" }] },
+      }]);
+      expect(cancelled.statusCode).toBe(200);
+      expect(cancelled.json()).toMatchObject({ result: "stale" });
+      expect(routeService.cancelAskCalls).toEqual([{ lookup: "session-1", askId: "ask-2" }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed ask payloads before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const malformed: Record<string, unknown>[] = [
+      { answers: [] },
+      { askId: "", answers: [] },
+      { askId: "x".repeat(ASK_USER_ID_MAX_LENGTH + 1), answers: [] },
+      { askId: "ask-1" },
+      { askId: "ask-1", answers: {} },
+      { askId: "ask-1", answers: [{ values: ["pg"] }] },
+      { askId: "ask-1", answers: [{ id: "db" }] },
+      { askId: "ask-1", answers: [{ id: "db", values: [1] }] },
+      { askId: "ask-1", answers: [{ id: "db", values: [], otherText: 7 }] },
+      { askId: "ask-1", answers: [{ id: "db", values: [], otherText: "x".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 1) }] },
+      { askId: "ask-1", answers: new Array<unknown>(ASK_USER_QUESTION_LIMIT + 1).fill({ id: "db", values: [] }) },
+    ];
+
+    try {
+      for (const payload of malformed) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload });
+        expect(response.statusCode).toBe(400);
+      }
+      const cancelWithoutAskId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/cancel", payload: {} });
+
+      expect(cancelWithoutAskId.statusCode).toBe(400);
+      expect(routeService.submitAskCalls).toEqual([]);
+      expect(routeService.cancelAskCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps a missing session on an ask submission to 404", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.askError = new Error("Session not found");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload: { askId: "ask-1", answers: [] } });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("rejects prompt payloads that omit text without opening a session", async () => {
     const response = await app.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { body: "Build the thing" } });
 
@@ -168,7 +572,7 @@ describe("session routes", () => {
     }
   });
 
-  it("returns a join-time stream snapshot using workspace context", async () => {
+  it("returns the join-time stream snapshot, forwarding workspace context", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
     const eventHub = new SessionEventHub();
@@ -181,8 +585,27 @@ describe("session routes", () => {
       const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/stream-snapshot?cwd=${encodeURIComponent(requestCwd)}` });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual(routeService.streamSnapshotResponse);
+      expect(response.json()).toEqual({ seq: 7, partial: { role: "assistant", content: [{ type: "text", text: "partial" }] } });
       expect(routeService.streamSnapshotCalls).toEqual([{ id: "session-1", cwd: requestCwd }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps stream-snapshot lookup failures to 404", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.streamSnapshot = () => Promise.reject(new Error("Session not found"));
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "GET", url: "/sessions/missing/stream-snapshot" });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "Session not found" });
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -218,6 +641,44 @@ describe("session routes", () => {
     }
   });
 
+  it("dismisses a session warning with workspace context and returns fresh status", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/warnings/dismiss", payload: { cwd: requestCwd, dismissId: "anthropicExtraUsage" } });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ sessionId: "session-1" });
+      expect(routeService.dismissWarningCalls).toEqual([{ lookup: { id: "session-1", cwd: requestCwd }, dismissId: "anthropicExtraUsage" }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects a warning dismiss without a dismissId", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/warnings/dismiss", payload: {} });
+
+      expect(response.statusCode).toBe(400);
+      expect(routeService.dismissWarningCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("maps archived queue-clear failures to a mutation error without requiring a body", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -246,12 +707,12 @@ describe("session routes", () => {
     registerSessionRoutes(routeApp, routeService, eventHub);
 
     try {
-      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectId: "p1", projectCwds: ["/repo-a", "/repo-a"] } });
+      const previewResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup/preview", payload: { archiveIdleDays: 30, deleteArchivedDays: null, projectCwds: ["/repo-a", "/repo-a"] } });
       const executeResponse = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: null, deleteArchivedDays: 7, projectCwds: ["/repo-b"] } });
 
       expect(previewResponse.statusCode).toBe(200);
       expect(executeResponse.statusCode).toBe(200);
-      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectId: "p1", projectCwds: ["/repo-a"] }]);
+      expect(routeService.cleanupPreviewCalls).toEqual([{ thresholds: { archiveIdleDays: 30 }, projectCwds: ["/repo-a"] }]);
       expect(routeService.cleanupCalls).toEqual([{ thresholds: { deleteArchivedDays: 7 }, projectCwds: ["/repo-b"] }]);
     } finally {
       await routeService.dispose();
@@ -302,6 +763,35 @@ describe("session routes", () => {
     }
   });
 
+  it("forwards a create's optional correlation token alongside the normalized cwd", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const withToken = await routeApp.inject({ method: "POST", url: "/sessions", payload: { cwd: requestCwd, startupToken: "pending-session-3-k2x9" } });
+      const withoutToken = await routeApp.inject({ method: "POST", url: "/sessions", payload: { cwd: requestCwd } });
+      // An older browser, or any non-browser caller, sends no token; and a
+      // malformed one must not reach the service as a label it would echo.
+      const malformedToken = await routeApp.inject({ method: "POST", url: "/sessions", payload: { cwd: requestCwd, startupToken: 7 } });
+
+      expect(withToken.statusCode).toBe(200);
+      expect(withoutToken.statusCode).toBe(200);
+      expect(malformedToken.statusCode).toBe(400);
+      expect(malformedToken.json()).toEqual({ error: "startupToken field must be a string" });
+      expect(routeService.startCalls).toEqual([
+        { cwd: requestCwd, startupToken: "pending-session-3-k2x9" },
+        { cwd: requestCwd, startupToken: undefined },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("rejects malformed bulk mutation bodies before calling the service", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -320,45 +810,20 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
-
-  it("routes session search and pin operations with workspace context", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const requestCwd = resolve("/repo");
-      const searchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search?cwd=${encodeURIComponent(requestCwd)}&q=full%20text` });
-      const contentSearchResponse = await routeApp.inject({ method: "GET", url: `/sessions/search-content?cwd=${encodeURIComponent(requestCwd)}&q=answer` });
-      const pinsResponse = await routeApp.inject({ method: "GET", url: `/sessions/pins?cwd=${encodeURIComponent(requestCwd)}` });
-      const pinResponse = await routeApp.inject({ method: "PUT", url: "/sessions/session-1/pin", payload: { cwd: requestCwd } });
-      const unpinResponse = await routeApp.inject({ method: "DELETE", url: `/sessions/session-1/pin?cwd=${encodeURIComponent(requestCwd)}` });
-
-      expect(searchResponse.statusCode).toBe(200);
-      expect(contentSearchResponse.statusCode).toBe(200);
-      expect(pinsResponse.statusCode).toBe(200);
-      expect(pinResponse.statusCode).toBe(200);
-      expect(unpinResponse.statusCode).toBe(200);
-      expect(routeService.searchCalls).toEqual([{ cwd: requestCwd, query: "full text" }]);
-      expect(routeService.searchContentCalls).toEqual([{ cwd: requestCwd, query: "answer" }]);
-      expect(routeService.pinnedCalls).toEqual([requestCwd]);
-      expect(routeService.pinCalls).toEqual([
-        { lookup: { id: "session-1", cwd: requestCwd }, pinned: true },
-        { lookup: { id: "session-1", cwd: requestCwd }, pinned: false },
-      ]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
 });
 
 class CapturingRouteSessionService implements SessionRouteService {
   readonly calls: unknown[] = [];
   readonly reloadCalls: SessionRouteLookup[] = [];
   readonly clearQueueCalls: SessionRouteLookup[] = [];
+  readonly dismissWarningCalls: { lookup: SessionRouteLookup; dismissId: string }[] = [];
+  readonly notificationInboxCalls: SessionRef[] = [];
+  readonly acknowledgeUnreadCalls: { sessionId: string; request: SessionUnreadAcknowledgeRequest }[] = [];
+  readonly unreadCatalogResponse: SessionUnreadCatalogSnapshot = { catalogId: "catalog-test", catalogRevision: 1, sessions: [] };
+  readonly dismissNotificationCalls: { ref: SessionRef; request: Omit<SessionNotificationDismissRequest, "cwd"> }[] = [];
+  readonly dismissAllNotificationCalls: { ref: SessionRef; request: Omit<SessionNotificationDismissAllRequest, "cwd"> }[] = [];
+  dismissWarningError: Error | undefined;
+  unreadError: Error | undefined;
   messagesResponse: unknown[] | MessagePage = [];
   streamSnapshotResponse: SessionStreamSnapshot = { seq: 0, partial: null };
   readonly streamSnapshotCalls: SessionRouteLookup[] = [];
@@ -366,12 +831,41 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly cleanupCalls: NormalizedSessionCleanupRequest[] = [];
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
-  readonly searchCalls: { cwd: string; query: string }[] = [];
-  readonly searchContentCalls: { cwd: string; query: string }[] = [];
-  readonly pinnedCalls: string[] = [];
-  readonly pinCalls: { lookup: SessionRouteLookup; pinned: boolean }[] = [];
+  readonly navigateTreeCalls: { lookup: SessionRouteLookup; request: SessionTreeNavigateRequest }[] = [];
+  readonly submitAskCalls: { lookup: SessionRouteLookup; askId: string; submission: AskUserSubmission }[] = [];
+  readonly cancelAskCalls: { lookup: SessionRouteLookup; askId: string }[] = [];
+  readonly startCalls: { cwd: string; startupToken: string | undefined }[] = [];
+  askError: Error | undefined;
   reloadError: Error | undefined;
   clearQueueError: Error | undefined;
+
+  search(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
+
+  searchContent() {
+    return Promise.resolve({ results: [], matchCount: 0, truncated: false });
+  }
+
+  listPinned() {
+    return Promise.resolve({ sessionIds: [] });
+  }
+
+  setPinned(lookup: SessionRouteLookup, pinned: boolean) {
+    return Promise.resolve({ sessionId: typeof lookup === "string" ? lookup : lookup.id, pinned });
+  }
+
+  submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission): Promise<AskUserCloseResponse> {
+    if (this.askError !== undefined) return Promise.reject(this.askError);
+    this.submitAskCalls.push({ lookup, askId, submission });
+    return Promise.resolve({ result: "closed", sessionStatus: idleStatus(lookup) });
+  }
+
+  cancelAsk(lookup: SessionRouteLookup, askId: string): Promise<AskUserCloseResponse> {
+    if (this.askError !== undefined) return Promise.reject(this.askError);
+    this.cancelAskCalls.push({ lookup, askId });
+    return Promise.resolve({ result: "stale", sessionStatus: idleStatus(lookup) });
+  }
 
   cleanupPreview(request: NormalizedSessionCleanupRequest): Promise<SessionCleanupPreviewResponse> {
     this.cleanupPreviewCalls.push(request);
@@ -403,27 +897,59 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve();
   }
 
+  notificationCatalog() {
+    return { daemonInstanceId: "daemon-test", catalogRevision: 0, sessions: [] };
+  }
+
+  unreadCatalog(): Promise<SessionUnreadCatalogSnapshot> {
+    return this.unreadError === undefined
+      ? Promise.resolve(this.unreadCatalogResponse)
+      : Promise.reject(this.unreadError);
+  }
+
+  acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest): Promise<SessionUnreadCatalogSnapshot> {
+    this.acknowledgeUnreadCalls.push({ sessionId, request });
+    return this.unreadError === undefined
+      ? Promise.resolve(this.unreadCatalogResponse)
+      : Promise.reject(this.unreadError);
+  }
+
+  notificationInbox(ref: SessionRef): SessionNotificationInboxSnapshot {
+    this.notificationInboxCalls.push(ref);
+    return notificationSnapshot(ref);
+  }
+
+  dismissNotification(ref: SessionRef, request: Omit<SessionNotificationDismissRequest, "cwd">): SessionNotificationInboxSnapshot {
+    this.dismissNotificationCalls.push({ ref, request });
+    return notificationSnapshot(ref);
+  }
+
+  dismissAllNotifications(ref: SessionRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">): SessionNotificationInboxSnapshot {
+    this.dismissAllNotificationCalls.push({ ref, request });
+    return notificationSnapshot(ref);
+  }
+
   list(): never { throw unusedRouteMethod("list"); }
-  search(cwd: string, query: string): Promise<[]> {
-    this.searchCalls.push({ cwd, query });
-    return Promise.resolve([]);
-  }
-  searchContent(cwd: string, query: string): Promise<{ results: []; matchCount: number; truncated: boolean }> {
-    this.searchContentCalls.push({ cwd, query });
-    return Promise.resolve({ results: [], matchCount: 0, truncated: false });
+
+  start(cwd: string, options?: { startupToken?: string }): Promise<ClientSession> {
+    this.startCalls.push({ cwd, startupToken: options?.startupToken });
+    return Promise.resolve({ id: "session-1", path: "/tmp/session-1.jsonl", cwd, created: "2026-06-25T00:00:00.000Z", modified: "2026-06-25T00:00:00.000Z", messageCount: 0, firstMessage: "" });
   }
 
-  listPinned(cwd: string): Promise<{ sessionIds: string[] }> {
-    this.pinnedCalls.push(cwd);
-    return Promise.resolve({ sessionIds: [] });
+  dismissWarning(lookup: SessionRouteLookup, dismissId: string): Promise<SessionStatus> {
+    this.dismissWarningCalls.push({ lookup, dismissId });
+    if (this.dismissWarningError !== undefined) return Promise.reject(this.dismissWarningError);
+    return Promise.resolve({
+      sessionId: sessionIdFromLookup(lookup),
+      isStreaming: false,
+      isCompacting: false,
+      isBashRunning: false,
+      pendingMessageCount: 0,
+      queuedMessages: [],
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+    });
   }
-
-  setPinned(lookup: SessionRouteLookup, pinned: boolean): Promise<{ pinned: boolean }> {
-    this.pinCalls.push({ lookup, pinned });
-    return Promise.resolve({ pinned });
-  }
-
-  start(): never { throw unusedRouteMethod("start"); }
 
   clearQueue(lookup: SessionRouteLookup): Promise<SessionStatus> {
     this.clearQueueCalls.push(lookup);
@@ -488,6 +1014,10 @@ class CapturingRouteSessionService implements SessionRouteService {
   shell(): never { throw unusedRouteMethod("shell"); }
   runCommand(): never { throw unusedRouteMethod("runCommand"); }
   respondToCommand(): never { throw unusedRouteMethod("respondToCommand"); }
+  navigateTree(lookup: SessionRouteLookup, request: SessionTreeNavigateRequest): Promise<SessionTreeNavigateResult> {
+    this.navigateTreeCalls.push({ lookup, request });
+    return Promise.resolve({ cancelled: false, editorText: "edit this" });
+  }
   abort(): never { throw unusedRouteMethod("abort"); }
   stop(): never { throw unusedRouteMethod("stop"); }
   archive(): never { throw unusedRouteMethod("archive"); }
@@ -521,6 +1051,29 @@ class RejectingSessionManager implements PiSessionManagerGateway {
     this.calls.open += 1;
     throw new Error("Session manager should not open sessions for invalid prompt payloads");
   }
+}
+
+function notificationSnapshot(ref: SessionRef): SessionNotificationInboxSnapshot {
+  return {
+    daemonInstanceId: "daemon-test",
+    catalogRevision: 0,
+    summary: { sessionId: ref.id, cwd: ref.cwd, inboxRevision: 0, retainedCount: 0, discardedCount: 0 },
+    notifications: [],
+    dismissThrough: { order: 0, overflowWatermark: 0 },
+  };
+}
+
+function idleStatus(lookup: SessionRouteLookup): SessionStatus {
+  return {
+    sessionId: sessionIdFromLookup(lookup),
+    isStreaming: false,
+    isCompacting: false,
+    isBashRunning: false,
+    pendingMessageCount: 0,
+    queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+  };
 }
 
 function sessionIdFromLookup(lookup: SessionRouteLookup): string {

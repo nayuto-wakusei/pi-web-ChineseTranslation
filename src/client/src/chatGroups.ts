@@ -1,4 +1,4 @@
-import type { ChatLine, ChatPart } from "./chatTypes";
+import type { ChatLine, ChatPart } from "./components/shared";
 
 export type ChatGroup =
   | { kind: "message"; message: ChatLine; index: number }
@@ -50,19 +50,9 @@ export function summarizeChatGroup(messages: ChatLine[]): string {
     acc[message.role] = (acc[message.role] ?? 0) + 1;
     return acc;
   }, {});
-  const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${roleLabel(role)}`).join(" · ");
+  const roleLabels: Record<string, string> = { user: "用户", assistant: "助手", tool: "工具", system: "系统", bash: "命令", skill: "技能" };
+  const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${roleLabels[role] ?? role}`).join(" · ");
   return `${String(messages.length)} 个事件${details !== "" ? ` · ${details}` : ""}`;
-}
-
-function roleLabel(role: string): string {
-  if (role === "user") return "用户";
-  if (role === "assistant") return "助手";
-  if (role === "system") return "系统";
-  if (role === "tool") return "工具";
-  if (role === "toolResult") return "工具结果";
-  if (role === "bash") return "Shell";
-  if (role === "skill") return "技能";
-  return role;
 }
 
 function isToolImageMessage(message: ChatLine): boolean {
@@ -78,6 +68,6 @@ function toolNameFromParts(parts: ChatPart[]): string | undefined {
 
 function isReadablePart(message: ChatLine, part: ChatPart): boolean {
   if (message.source === "compaction" || message.source === "branch_summary") return false;
-  if (part.type === "skillInvocation" || part.type === "skillRead" || part.type === "image") return true;
+  if (part.type === "skillInvocation" || part.type === "skillRead" || part.type === "image" || part.type === "askUserRecord") return true;
   return part.type === "text" && (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "bash");
 }

@@ -1,13 +1,48 @@
-import type { ArchiveSessionsResponse, AuthProviderOption, AuthProviderStatus, AuthProvidersResponse, AuthStatusSource, AuthType, CommandOption, CommandResult, DeleteWorkspaceFileResponse, FileContentResponse, FileSuggestion, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse, MessagePage, ModelSelectionResponse, MoveWorkspaceFileResponse, NormalAuthStatusResponse, OAuthFlowState, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, Project, QueuedSessionMessage, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds, SessionCleanupTotals, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionInfo, SessionModel, SessionPinResponse, SessionPinnedIdsResponse, SessionStatus, SessionStreamSnapshot, SlashCommand, TerminalCommandRun, TerminalCommandRunStatus, TerminalInfo, ThinkingLevelsResponse, WriteWorkspaceFileResponse, Workspace, WorkspaceActivity, WorkspaceActivityResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
-import { arrayOf, isRecord, optionalField, optionalNumber, optionalString, requireBoolean, requireNumber, requireRecord, requireString, requireTrueField } from "./parsers/core";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitDiffResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
+import type { PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
+import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionPinResponse, SessionPinnedIdsResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
+import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
+import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 
-export { arrayOf } from "./parsers/core";
-export { parseMachine, parseMachineHealth, parseMachineRuntime, parseMachinesResponse } from "./parsers/machines";
-export { parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse } from "./parsers/piWeb";
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-export function parseNormalAuthStatusResponse(value: unknown): NormalAuthStatusResponse {
-  const record = requireRecord(value);
-  return { configured: requireBoolean(record, "configured"), authenticated: requireBoolean(record, "authenticated") };
+function requireRecord(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error("Expected object response");
+  return value;
+}
+
+function requireString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string") throw new Error(`Expected string field: ${key}`);
+  return value;
+}
+
+function optionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`Expected optional string field: ${key}`);
+  return value;
+}
+
+function requireNumber(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  if (typeof value !== "number") throw new Error(`Expected number field: ${key}`);
+  return value;
+}
+
+function requireBoolean(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  if (typeof value !== "boolean") throw new Error(`Expected boolean field: ${key}`);
+  return value;
+}
+
+export function arrayOf<T>(parse: (value: unknown) => T): (value: unknown) => T[] {
+  return (value) => {
+    if (!Array.isArray(value)) throw new Error("Expected array response");
+    return value.map(parse);
+  };
 }
 
 function parseUnknownArray(value: unknown): unknown[] {
@@ -20,16 +55,76 @@ function arrayOfString(value: unknown, key: string): string[] {
   return value;
 }
 
-function parseOptionalBoolean(value: unknown, key: string): boolean | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
-  return value;
-}
-
 export function parseMessagePage(value: unknown): MessagePage {
   if (Array.isArray(value)) return { messages: value, start: 0, total: value.length };
   const record = requireRecord(value);
   return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
+}
+
+export function parseMachinesResponse(value: unknown): Machine[] {
+  const record = requireRecord(value);
+  return arrayOf(parseMachine)(record["machines"]);
+}
+
+export function parseMachine(value: unknown): Machine {
+  const record = requireRecord(value);
+  const kind = requireMachineKind(record, "kind");
+  const baseUrl = optionalString(record, "baseUrl");
+  const status = optionalMachineStatus(record, "status");
+  const statusMessage = optionalString(record, "statusMessage");
+  return {
+    id: requireString(record, "id"),
+    name: requireString(record, "name"),
+    kind,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    createdAt: requireString(record, "createdAt"),
+    updatedAt: requireString(record, "updatedAt"),
+    ...(status === undefined ? {} : { status }),
+    ...(statusMessage === undefined ? {} : { statusMessage }),
+  };
+}
+
+export function parseMachineHealth(value: unknown): MachineHealth {
+  const record = requireRecord(value);
+  const status = optionalMachineStatus(record, "status");
+  const error = optionalString(record, "error");
+  return {
+    machineId: requireString(record, "machineId"),
+    ok: requireBoolean(record, "ok"),
+    checkedAt: requireString(record, "checkedAt"),
+    ...(status === undefined ? {} : { status }),
+    ...(record["web"] === undefined ? {} : { web: parsePiWebComponentStatus(record["web"]) }),
+    ...(record["sessiond"] === undefined ? {} : { sessiond: parsePiWebComponentStatus(record["sessiond"]) }),
+    ...(error === undefined ? {} : { error }),
+  };
+}
+
+export function parseMachineRuntime(value: unknown): MachineRuntime {
+  const record = requireRecord(value);
+  const error = optionalString(record, "error");
+  return {
+    machineId: requireString(record, "machineId"),
+    ok: requireBoolean(record, "ok"),
+    checkedAt: requireString(record, "checkedAt"),
+    ...optionalField("packageName", optionalString(record, "packageName")),
+    ...optionalField("generatedAt", optionalString(record, "generatedAt")),
+    ...(record["components"] === undefined ? {} : { components: parsePiWebRuntimeComponents(record["components"]) }),
+    ...(record["capabilities"] === undefined ? {} : { capabilities: parsePiWebCapabilities(record["capabilities"]) }),
+    ...(error === undefined ? {} : { error }),
+  };
+}
+
+function requireMachineKind(record: Record<string, unknown>, key: string): MachineKind {
+  const value = requireString(record, key);
+  if (value !== "local" && value !== "remote") throw new Error(`Expected machine kind field: ${key}`);
+  return value;
+}
+
+function optionalMachineStatus(record: Record<string, unknown>, key: string): MachineStatus | undefined {
+  const value = optionalString(record, key);
+  if (value === undefined) return undefined;
+  if (value !== "unknown" && value !== "online" && value !== "offline" && value !== "error") throw new Error(`Expected machine status field: ${key}`);
+  return value;
 }
 
 export function parseProject(value: unknown): Project {
@@ -61,22 +156,14 @@ function optionalWorkspaceEffectiveConfig(value: unknown): Workspace["effectiveC
   };
 }
 
-export function parseWorkspacePathOperationResponse(value: unknown): WorkspacePathOperationResponse {
-  const record = requireRecord(value);
-  return { path: requireString(record, "path") };
-}
-
-export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteResponse {
-  const record = requireRecord(value);
-  if (record["deleted"] !== true) throw new Error("Expected deleted response");
-  return { deleted: true, path: requireString(record, "path") };
-}
-
 export function parseSessionInfo(value: unknown): SessionInfo {
   const record = requireRecord(value);
   const name = optionalString(record, "name");
   const persisted = parseOptionalBoolean(record["persisted"], "persisted");
   const parentSessionPath = optionalString(record, "parentSessionPath");
+  const parentSessionCwd = optionalString(record, "parentSessionCwd");
+  const parentSessionId = optionalString(record, "parentSessionId");
+  const childSessionsElsewhere = parseOptionalCount(record["childSessionsElsewhere"], "childSessionsElsewhere");
   const archivedAt = optionalString(record, "archivedAt");
   return {
     id: requireString(record, "id"),
@@ -89,9 +176,31 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     messageCount: requireNumber(record, "messageCount"),
     firstMessage: requireString(record, "firstMessage"),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
+    ...(parentSessionCwd === undefined ? {} : { parentSessionCwd }),
+    ...(parentSessionId === undefined ? {} : { parentSessionId }),
+    ...(childSessionsElsewhere === undefined ? {} : { childSessionsElsewhere }),
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
   };
+}
+
+export function parseNormalAuthStatusResponse(value: unknown): NormalAuthStatusResponse {
+  const record = requireRecord(value);
+  return {
+    configured: requireBoolean(record, "configured"),
+    authenticated: requireBoolean(record, "authenticated"),
+  };
+}
+
+export function parseWorkspacePathOperationResponse(value: unknown): WorkspacePathOperationResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path") };
+}
+
+export function parseWorkspaceDeleteResponse(value: unknown): WorkspaceDeleteResponse {
+  const record = requireRecord(value);
+  if (record["deleted"] !== true) throw new Error("Expected deleted response");
+  return { deleted: true, path: requireString(record, "path") };
 }
 
 export function parseSessionPinnedIdsResponse(value: unknown): SessionPinnedIdsResponse {
@@ -102,25 +211,6 @@ export function parseSessionPinnedIdsResponse(value: unknown): SessionPinnedIdsR
 export function parseSessionPinResponse(value: unknown): SessionPinResponse {
   const record = requireRecord(value);
   return { pinned: requireBoolean(record, "pinned") };
-}
-
-export function parseSessionStatus(value: unknown): SessionStatus {
-  const record = requireRecord(value);
-  return {
-    sessionId: requireString(record, "sessionId"),
-    ...optionalField("persisted", parseOptionalBoolean(record["persisted"], "persisted")),
-    isStreaming: requireBoolean(record, "isStreaming"),
-    isCompacting: requireBoolean(record, "isCompacting"),
-    isBashRunning: requireBoolean(record, "isBashRunning"),
-    pendingMessageCount: requireNumber(record, "pendingMessageCount"),
-    queuedMessages: record["queuedMessages"] === undefined ? [] : arrayOf(parseQueuedSessionMessage)(record["queuedMessages"]),
-    ...optionalField("messageCount", optionalNumber(record, "messageCount")),
-    tokens: parseTokens(record["tokens"]),
-    cost: requireNumber(record, "cost"),
-    ...optionalModel(record["model"]),
-    ...optionalContextUsage(record["contextUsage"]),
-    ...optionalField("thinkingLevel", optionalString(record, "thinkingLevel")),
-  };
 }
 
 export function parseSessionContentSearchResponse(value: unknown): SessionContentSearchResponse {
@@ -163,12 +253,514 @@ function parseSessionContentSearchExcerpt(value: unknown): SessionContentSearchE
   };
 }
 
+function parseSessionWarningSeverity(value: unknown): SessionWarningSeverity {
+  if (value !== "info" && value !== "warning" && value !== "error") throw new Error("Invalid session warning severity");
+  return value;
+}
+
+function parseSessionWarningDismiss(value: unknown): { id: string } | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return { id: requireString(record, "id") };
+}
+
+function parseSessionWarning(value: unknown): SessionWarning {
+  const record = requireRecord(value);
+  const dismiss = parseSessionWarningDismiss(record["dismiss"]);
+  return {
+    severity: parseSessionWarningSeverity(record["severity"]),
+    message: requireString(record, "message"),
+    ...optionalField("source", optionalString(record, "source")),
+    ...optionalField("path", optionalString(record, "path")),
+    ...(dismiss === undefined ? {} : { dismiss }),
+  };
+}
+
+function optionalWarnings(value: unknown): Pick<SessionStatus, "warnings"> | object {
+  if (value === undefined) return {};
+  return { warnings: arrayOf(parseSessionWarning)(value) };
+}
+
+function parseAskUserQuestionOption(value: unknown): AskUserQuestionOption {
+  const record = requireRecord(value);
+  return {
+    value: requireBoundedNonEmptyString(record, "value", ASK_USER_ID_MAX_LENGTH),
+    label: requireBoundedNonEmptyString(record, "label", ASK_USER_TEXT_MAX_LENGTH),
+    ...optionalField("detail", optionalBoundedNonEmptyString(record, "detail", ASK_USER_TEXT_MAX_LENGTH)),
+  };
+}
+
+function parseAskUserQuestion(value: unknown): AskUserQuestion {
+  const record = requireRecord(value);
+  const options = boundedArrayOf(record["options"], parseAskUserQuestionOption, ASK_USER_OPTION_LIMIT, "options");
+  assertUniqueStrings(options.map((option) => option.value), "ask option value");
+  // Validate the legacy wire field when present, but normalize every question to
+  // the current invariant: the browser always offers a custom answer.
+  parseOptionalBoolean(record["allowOther"], "allowOther");
+  const multiple = parseOptionalBoolean(record["multiple"], "multiple");
+  return {
+    id: requireBoundedNonEmptyString(record, "id", ASK_USER_ID_MAX_LENGTH),
+    question: requireBoundedNonEmptyString(record, "question", ASK_USER_TEXT_MAX_LENGTH),
+    ...optionalField("detail", optionalBoundedNonEmptyString(record, "detail", ASK_USER_TEXT_MAX_LENGTH)),
+    options,
+    allowOther: true,
+    ...(multiple === undefined ? {} : { multiple }),
+  };
+}
+
+/**
+ * Validate the session's open question set. A malformed ask must be dropped
+ * rather than rendered: the card asks the user to answer on the model's behalf,
+ * so questions or options the daemon did not really send must never appear.
+ */
+function parsePendingAskUser(value: unknown): PendingAskUser {
+  const record = requireRecord(value);
+  const questions = boundedArrayOf(record["questions"], parseAskUserQuestion, ASK_USER_QUESTION_LIMIT, "questions");
+  if (questions.length === 0) throw new Error("Pending ask has no questions");
+  assertUniqueStrings(questions.map((question) => question.id), "ask question id");
+  return {
+    askId: requireBoundedNonEmptyString(record, "askId", ASK_USER_ID_MAX_LENGTH),
+    askedAt: requireNonEmptyString(record, "askedAt"),
+    questions,
+  };
+}
+
+function optionalPendingAsk(value: unknown): Pick<SessionStatus, "pendingAsk"> | object {
+  if (value === undefined) return {};
+  return { pendingAsk: parsePendingAskUser(value) };
+}
+
+export function parseSessionAskOpenedEvent(value: unknown): { type: "ask.opened"; ask: PendingAskUser } {
+  const record = requireRecord(value);
+  if (record["type"] !== "ask.opened") throw new Error("Invalid ask opened event type");
+  return { type: "ask.opened", ask: parsePendingAskUser(record["ask"]) };
+}
+
+export function parseSessionAskClosedEvent(value: unknown): { type: "ask.closed"; askId: string; reason: AskUserCloseReason } {
+  const record = requireRecord(value);
+  if (record["type"] !== "ask.closed") throw new Error("Invalid ask closed event type");
+  return {
+    type: "ask.closed",
+    askId: requireBoundedNonEmptyString(record, "askId", ASK_USER_ID_MAX_LENGTH),
+    reason: parseAskUserCloseReason(record["reason"]),
+  };
+}
+
+function parseAskUserCloseReason(value: unknown): AskUserCloseReason {
+  if (value !== "submitted" && value !== "superseded" && value !== "cancelled") throw new Error("Invalid ask close reason");
+  return value;
+}
+
+function parseAskUserQuestionRecord(value: unknown): AskUserQuestionRecord {
+  const record = requireRecord(value);
+  const question = parseAskUserQuestion(record["question"]);
+  const values = boundedArrayOf(record["values"], parseNonEmptyString, ASK_USER_OPTION_LIMIT, "values");
+  const offered = new Set(question.options.map((option) => option.value));
+  if (values.some((selected) => !offered.has(selected))) throw new Error("Ask answer selected an option the question never offered");
+  const otherText = optionalBoundedNonEmptyString(record, "otherText", ASK_USER_OTHER_TEXT_MAX_LENGTH);
+  const answered = requireBoolean(record, "answered");
+  // The record is the one thing both the model and the user read, so a flag that
+  // disagrees with the answer it describes is rejected rather than displayed.
+  if (answered !== (values.length > 0 || otherText !== undefined)) throw new Error("Ask answer contradicts its answered flag");
+  return { question, answered, values, ...(otherText === undefined ? {} : { otherText }) };
+}
+
+export function parseAskUserOutcome(value: unknown): AskUserOutcome {
+  const record = requireRecord(value);
+  const questions = boundedArrayOf(record["questions"], parseAskUserQuestionRecord, ASK_USER_QUESTION_LIMIT, "questions");
+  const answeredCount = requireNonNegativeSafeInteger(record, "answeredCount");
+  const unansweredIds = arrayOfString(record["unansweredIds"], "unansweredIds");
+  const unanswered = questions.filter((entry) => !entry.answered).map((entry) => entry.question.id);
+  if (answeredCount !== questions.length - unanswered.length) throw new Error("Ask outcome answered count mismatch");
+  if (unansweredIds.length !== unanswered.length || unansweredIds.some((id, index) => id !== unanswered[index])) {
+    throw new Error("Ask outcome unanswered ids mismatch");
+  }
+  return {
+    askId: requireBoundedNonEmptyString(record, "askId", ASK_USER_ID_MAX_LENGTH),
+    reason: parseAskUserCloseReason(record["reason"]),
+    askedAt: requireNonEmptyString(record, "askedAt"),
+    closedAt: requireNonEmptyString(record, "closedAt"),
+    questions,
+    answeredCount,
+    unansweredIds,
+    summary: requireNonEmptyString(record, "summary"),
+  };
+}
+
+export function parseAskUserCloseResponse(value: unknown): AskUserCloseResponse {
+  const record = requireRecord(value);
+  const result = record["result"];
+  if (result !== "closed" && result !== "stale") throw new Error("Invalid ask close result");
+  const outcome = record["outcome"] === undefined ? undefined : parseAskUserOutcome(record["outcome"]);
+  // Only the call that actually closed the ask carries an outcome; a stale close
+  // reports none and is trusted for the session status alone.
+  if ((result === "closed") !== (outcome !== undefined)) throw new Error("Ask close response outcome mismatch");
+  return {
+    result,
+    ...(outcome === undefined ? {} : { outcome }),
+    sessionStatus: parseSessionStatus(record["sessionStatus"]),
+  };
+}
+
+function assertUniqueStrings(values: readonly string[], label: string): void {
+  if (new Set(values).size !== values.length) throw new Error(`Duplicate ${label}`);
+}
+
+export function parseSessionStatus(value: unknown): SessionStatus {
+  const record = requireRecord(value);
+  return {
+    sessionId: requireString(record, "sessionId"),
+    ...optionalField("persisted", parseOptionalBoolean(record["persisted"], "persisted")),
+    isStreaming: requireBoolean(record, "isStreaming"),
+    isCompacting: requireBoolean(record, "isCompacting"),
+    isBashRunning: requireBoolean(record, "isBashRunning"),
+    pendingMessageCount: requireNumber(record, "pendingMessageCount"),
+    queuedMessages: record["queuedMessages"] === undefined ? [] : arrayOf(parseQueuedSessionMessage)(record["queuedMessages"]),
+    ...optionalField("messageCount", optionalNumber(record, "messageCount")),
+    tokens: parseTokens(record["tokens"]),
+    cost: requireNumber(record, "cost"),
+    ...optionalModel(record["model"]),
+    ...optionalContextUsage(record["contextUsage"]),
+    ...optionalField("thinkingLevel", optionalString(record, "thinkingLevel")),
+    ...optionalWarnings(record["warnings"]),
+    ...optionalPendingAsk(record["pendingAsk"]),
+  };
+}
+
 export function parseSessionStreamSnapshot(value: unknown): SessionStreamSnapshot {
   const record = requireRecord(value);
   return {
     seq: requireNumber(record, "seq"),
     partial: record["partial"] ?? null,
   };
+}
+
+export function parseSessionUnreadCatalogSnapshot(value: unknown): SessionUnreadCatalogSnapshot {
+  const record = requireRecord(value);
+  const catalogRevision = requireNonNegativeSafeInteger(record, "catalogRevision");
+  const sessions = boundedArrayOf(record["sessions"], parseSessionUnreadSummary, SESSION_UNREAD_LIMIT, "sessions");
+  assertUniqueUnreadSummaries(sessions);
+  assertUnreadNewestFirst(sessions);
+  if (sessions.some((summary) => summary.completionOrder > catalogRevision)) {
+    throw new Error("Session unread completion order exceeds catalog revision");
+  }
+  return {
+    catalogId: requireBoundedNonEmptyString(record, "catalogId", SESSION_UNREAD_CATALOG_ID_MAX_LENGTH),
+    catalogRevision,
+    sessions,
+  };
+}
+
+export function parseSessionUnreadEvent(value: unknown): SessionUnreadEvent {
+  const record = requireRecord(value);
+  if (record["type"] !== "sessions.unread") throw new Error("Invalid session unread event type");
+  const sessionId = requireBoundedNonEmptyString(record, "sessionId", SESSION_UNREAD_SESSION_ID_MAX_LENGTH);
+  const cwd = requireBoundedNonEmptyString(record, "cwd", SESSION_UNREAD_CWD_MAX_LENGTH);
+  const catalogRevision = requirePositiveSafeInteger(record, "catalogRevision");
+  const unread = record["unread"] === null ? null : parseSessionUnreadSummary(record["unread"]);
+  if (unread !== null && (unread.sessionId !== sessionId || unread.cwd !== cwd)) {
+    throw new Error("Session unread event identity mismatch");
+  }
+  if (unread !== null && unread.completionOrder > catalogRevision) {
+    throw new Error("Session unread completion order exceeds catalog revision");
+  }
+  return {
+    type: "sessions.unread",
+    catalogId: requireBoundedNonEmptyString(record, "catalogId", SESSION_UNREAD_CATALOG_ID_MAX_LENGTH),
+    catalogRevision,
+    sessionId,
+    cwd,
+    unread,
+  };
+}
+
+/**
+ * Validate a startup progress frame. The browser substitutes its own wording
+ * from this event, so a malformed frame must be dropped rather than rendered:
+ * `startupToken` is the routing key when present, and an activity missing its
+ * phase or label could otherwise blank out or freeze the text a user is reading
+ * while they wait. An absent token is valid — an open routes by session id — but
+ * a present empty one is not, since it could match no row honestly.
+ */
+export function parseSessionStartupProgressEvent(value: unknown): SessionStartupProgressEvent {
+  const record = requireRecord(value);
+  if (record["type"] !== "session.startup") throw new Error("Invalid session startup event type");
+  const startupToken = optionalString(record, "startupToken");
+  if (startupToken === "") throw new Error("Expected non-empty string field: startupToken");
+  return {
+    type: "session.startup",
+    ...optionalField("startupToken", startupToken),
+    activity: parseSessionActivity(record["activity"]),
+  };
+}
+
+function parseSessionActivity(value: unknown): SessionActivity {
+  const record = requireRecord(value);
+  return {
+    sessionId: requireNonEmptyString(record, "sessionId"),
+    phase: requireSessionActivityPhase(record, "phase"),
+    label: requireNonEmptyString(record, "label"),
+    ...optionalField("detail", optionalString(record, "detail")),
+    at: requireNonEmptyString(record, "at"),
+    ...optionalField("startup", optionalActivityStartupMarker(record)),
+  };
+}
+
+/**
+ * The startup marker says the activity is a session opening rather than work in
+ * progress, which decides whether "Stop Active Work" is offered and whether a
+ * reload is blocked. A malformed marker is rejected rather than guessed at.
+ */
+function optionalActivityStartupMarker(record: Record<string, unknown>): boolean | undefined {
+  const value = record["startup"];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error("Expected optional boolean field: startup");
+  return value;
+}
+
+function requireSessionActivityPhase(record: Record<string, unknown>, key: string): SessionActivity["phase"] {
+  const value = requireString(record, key);
+  if (value !== "active" && value !== "idle" && value !== "error") throw new Error(`Expected session activity phase field: ${key}`);
+  return value;
+}
+
+function parseSessionUnreadSummary(value: unknown): SessionUnreadSummary {
+  const record = requireRecord(value);
+  const completedAt = requireBoundedNonEmptyString(
+    record,
+    "completedAt",
+    SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH,
+  );
+  const completedDate = new Date(completedAt);
+  if (!Number.isFinite(completedDate.getTime()) || completedDate.toISOString() !== completedAt) {
+    throw new Error("Invalid canonical session unread completion time");
+  }
+  return {
+    sessionId: requireBoundedNonEmptyString(record, "sessionId", SESSION_UNREAD_SESSION_ID_MAX_LENGTH),
+    cwd: requireBoundedNonEmptyString(record, "cwd", SESSION_UNREAD_CWD_MAX_LENGTH),
+    completionOrder: requirePositiveSafeInteger(record, "completionOrder"),
+    completedAt,
+  };
+}
+
+function assertUniqueUnreadSummaries(summaries: readonly SessionUnreadSummary[]): void {
+  const identities = summaries.map((summary) => JSON.stringify([summary.sessionId, summary.cwd]));
+  if (new Set(identities).size !== identities.length) throw new Error("Duplicate session unread identity");
+  const completionOrders = summaries.map((summary) => summary.completionOrder);
+  if (new Set(completionOrders).size !== completionOrders.length) throw new Error("Duplicate session unread completion order");
+}
+
+function assertUnreadNewestFirst(summaries: readonly SessionUnreadSummary[]): void {
+  for (let index = 1; index < summaries.length; index += 1) {
+    const previous = summaries[index - 1];
+    const current = summaries[index];
+    if (previous === undefined || current === undefined || previous.completionOrder <= current.completionOrder) {
+      throw new Error("Session unread summaries are not newest-first");
+    }
+  }
+}
+
+function requireBoundedNonEmptyString(record: Record<string, unknown>, key: string, maxLength: number): string {
+  const value = requireNonEmptyString(record, key);
+  if (value.length > maxLength) throw new Error(`String field exceeds limit: ${key}`);
+  return value;
+}
+
+function optionalBoundedNonEmptyString(record: Record<string, unknown>, key: string, maxLength: number): string | undefined {
+  const value = optionalString(record, key);
+  if (value === undefined) return undefined;
+  if (value === "") throw new Error(`Expected non-empty string field: ${key}`);
+  if (value.length > maxLength) throw new Error(`String field exceeds limit: ${key}`);
+  return value;
+}
+
+function requirePositiveSafeInteger(record: Record<string, unknown>, key: string): number {
+  const value = requireNonNegativeSafeInteger(record, key);
+  if (value === 0) throw new Error(`Expected positive safe integer field: ${key}`);
+  return value;
+}
+
+export function parseSessionNotificationInboxSnapshot(value: unknown): SessionNotificationInboxSnapshot {
+  const record = requireRecord(value);
+  const summary = parseSessionNotificationSummary(record["summary"]);
+  const notifications = boundedArrayOf(record["notifications"], parseSessionNotification, SESSION_NOTIFICATION_LIMIT, "notifications");
+  assertUniqueNotifications(notifications);
+  assertNewestFirst(notifications);
+  if (summary.retainedCount !== notifications.length) throw new Error("Notification snapshot retained count mismatch");
+  if (summary.highestSeverity !== highestNotificationSeverity(notifications)) throw new Error("Notification snapshot severity mismatch");
+  const dismissThrough = parseSessionNotificationDismissThrough(record["dismissThrough"]);
+  const newestOrder = notifications[0]?.order ?? 0;
+  if (dismissThrough.order !== newestOrder) throw new Error("Notification snapshot dismiss cutoff mismatch");
+  if (dismissThrough.overflowWatermark < summary.discardedCount) throw new Error("Notification snapshot overflow cutoff mismatch");
+  return {
+    daemonInstanceId: requireNonEmptyString(record, "daemonInstanceId"),
+    catalogRevision: requireNonNegativeSafeInteger(record, "catalogRevision"),
+    summary,
+    notifications,
+    dismissThrough,
+  };
+}
+
+export function parseSessionNotificationInboxEvent(value: unknown): SessionNotificationInboxEvent {
+  const record = requireRecord(value);
+  if (record["type"] !== "notifications.inbox") throw new Error("Invalid notification inbox event type");
+  const summary = parseSessionNotificationSummary(record["summary"]);
+  const dismissThrough = parseSessionNotificationDismissThrough(record["dismissThrough"]);
+  if (dismissThrough.overflowWatermark < summary.discardedCount) throw new Error("Notification event overflow cutoff mismatch");
+  const delta = parseSessionNotificationInboxDelta(record["delta"]);
+  if (delta.kind === "cleared" && !notificationSummaryIsEmpty(summary)) throw new Error("Notification clear event summary mismatch");
+  if (delta.kind === "added" && summary.retainedCount === 0) throw new Error("Notification add event summary mismatch");
+  return {
+    type: "notifications.inbox",
+    daemonInstanceId: requireNonEmptyString(record, "daemonInstanceId"),
+    catalogRevision: requireNonNegativeSafeInteger(record, "catalogRevision"),
+    summary,
+    dismissThrough,
+    delta,
+  };
+}
+
+function parseSessionNotificationSummary(value: unknown): SessionNotificationSummary {
+  const record = requireRecord(value);
+  const retainedCount = requireNonNegativeSafeInteger(record, "retainedCount");
+  if (retainedCount > SESSION_NOTIFICATION_LIMIT) throw new Error("Notification retained count exceeds limit");
+  const discardedCount = requireNonNegativeSafeInteger(record, "discardedCount");
+  const highestSeverity = optionalSessionNotificationSeverity(record["highestSeverity"]);
+  if ((retainedCount === 0) !== (highestSeverity === undefined)) throw new Error("Notification summary severity mismatch");
+  return {
+    sessionId: requireNonEmptyString(record, "sessionId"),
+    cwd: requireNonEmptyString(record, "cwd"),
+    inboxRevision: requireNonNegativeSafeInteger(record, "inboxRevision"),
+    retainedCount,
+    discardedCount,
+    ...(highestSeverity === undefined ? {} : { highestSeverity }),
+  };
+}
+
+function parseSessionNotification(value: unknown): SessionNotification {
+  const record = requireRecord(value);
+  const message = requireString(record, "message");
+  if (new TextEncoder().encode(message).byteLength > SESSION_NOTIFICATION_MESSAGE_BYTES) throw new Error("Notification message exceeds byte limit");
+  const receivedAt = requireString(record, "receivedAt");
+  if (!Number.isFinite(Date.parse(receivedAt))) throw new Error("Invalid notification receive time");
+  const order = requireNonNegativeSafeInteger(record, "order");
+  if (order === 0) throw new Error("Invalid notification order");
+  return {
+    id: requireNonEmptyString(record, "id"),
+    message,
+    truncated: requireBoolean(record, "truncated"),
+    severity: parseSessionNotificationSeverity(record["severity"]),
+    receivedAt,
+    order,
+  };
+}
+
+function parseSessionNotificationDismissThrough(value: unknown): SessionNotificationDismissThrough {
+  const record = requireRecord(value);
+  return {
+    order: requireNonNegativeSafeInteger(record, "order"),
+    overflowWatermark: requireNonNegativeSafeInteger(record, "overflowWatermark"),
+  };
+}
+
+function parseSessionNotificationInboxDelta(value: unknown): SessionNotificationInboxDelta {
+  const record = requireRecord(value);
+  switch (record["kind"]) {
+    case "added": {
+      const evictedNotificationId = optionalString(record, "evictedNotificationId");
+      return {
+        kind: "added",
+        notification: parseSessionNotification(record["notification"]),
+        ...(evictedNotificationId === undefined ? {} : { evictedNotificationId }),
+      };
+    }
+    case "dismissed": {
+      const notificationIds = boundedArrayOf(record["notificationIds"], parseNonEmptyString, SESSION_NOTIFICATION_LIMIT, "notificationIds");
+      if (new Set(notificationIds).size !== notificationIds.length) throw new Error("Duplicate dismissed notification id");
+      return { kind: "dismissed", notificationIds };
+    }
+    case "cleared":
+      return { kind: "cleared", reason: parseSessionNotificationClearReason(record["reason"]) };
+    case "resync":
+      return { kind: "resync" };
+    default:
+      throw new Error("Invalid notification inbox delta");
+  }
+}
+
+function parseSessionNotificationSeverity(value: unknown): SessionNotificationSeverity {
+  if (value !== "info" && value !== "warning" && value !== "error") throw new Error("Invalid notification severity");
+  return value;
+}
+
+function optionalSessionNotificationSeverity(value: unknown): SessionNotificationSeverity | undefined {
+  return value === undefined ? undefined : parseSessionNotificationSeverity(value);
+}
+
+function parseSessionNotificationClearReason(value: unknown): SessionNotificationClearReason {
+  switch (value) {
+    case "runtime-close":
+    case "archive":
+    case "delete":
+    case "restore":
+    case "archive-reconcile":
+    case "replacement":
+    case "initialization-failed":
+    case "service-dispose":
+      return value;
+    default:
+      throw new Error("Invalid notification clear reason");
+  }
+}
+
+function boundedArrayOf<T>(value: unknown, parse: (item: unknown) => T, limit: number, field: string): T[] {
+  if (!Array.isArray(value)) throw new Error(`Expected array field: ${field}`);
+  if (value.length > limit) throw new Error(`Array field exceeds limit: ${field}`);
+  return value.map(parse);
+}
+
+function parseNonEmptyString(value: unknown): string {
+  if (typeof value !== "string" || value === "") throw new Error("Expected non-empty string");
+  return value;
+}
+
+function requireNonEmptyString(record: Record<string, unknown>, key: string): string {
+  const value = requireString(record, key);
+  if (value === "") throw new Error(`Expected non-empty string field: ${key}`);
+  return value;
+}
+
+function requireNonNegativeSafeInteger(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error(`Expected non-negative safe integer field: ${key}`);
+  return value;
+}
+
+function assertUniqueNotifications(notifications: readonly SessionNotification[]): void {
+  if (new Set(notifications.map((notification) => notification.id)).size !== notifications.length) throw new Error("Duplicate notification id");
+  if (new Set(notifications.map((notification) => notification.order)).size !== notifications.length) throw new Error("Duplicate notification order");
+}
+
+function assertNewestFirst(notifications: readonly SessionNotification[]): void {
+  for (let index = 1; index < notifications.length; index += 1) {
+    const previous = notifications[index - 1];
+    const current = notifications[index];
+    if (previous === undefined || current === undefined || previous.order <= current.order) throw new Error("Notifications are not newest-first");
+  }
+}
+
+function notificationSummaryIsEmpty(summary: SessionNotificationSummary): boolean {
+  return summary.retainedCount === 0 && summary.discardedCount === 0;
+}
+
+function highestNotificationSeverity(notifications: readonly SessionNotification[]): SessionNotificationSeverity | undefined {
+  let highest: SessionNotificationSeverity | undefined;
+  for (const notification of notifications) {
+    if (notification.severity === "error") return "error";
+    if (notification.severity === "warning") highest = "warning";
+    else highest ??= "info";
+  }
+  return highest;
 }
 
 export function parseSessionCleanupPreviewResponse(value: unknown): SessionCleanupPreviewResponse {
@@ -307,7 +899,15 @@ function parseAuthProviderStatus(value: unknown): AuthProviderStatus {
 
 function parseAuthProviderOption(value: unknown): AuthProviderOption {
   const record = requireRecord(value);
-  return { id: requireString(record, "id"), name: requireString(record, "name"), authType: parseAuthType(record["authType"]), status: parseAuthProviderStatus(record["status"]) };
+  const loginFlow = record["loginFlow"];
+  if (loginFlow !== undefined && loginFlow !== "interactive") throw new Error("Invalid auth provider login flow");
+  return {
+    id: requireString(record, "id"),
+    name: requireString(record, "name"),
+    authType: parseAuthType(record["authType"]),
+    status: parseAuthProviderStatus(record["status"]),
+    ...(loginFlow === undefined ? {} : { loginFlow }),
+  };
 }
 
 export function parseAuthProvidersResponse(value: unknown): AuthProvidersResponse {
@@ -330,6 +930,7 @@ export function parseOAuthFlowState(value: unknown): OAuthFlowState {
     ...optionalField("auth", optionalOAuthAuth(record["auth"])),
     ...optionalField("prompt", optionalOAuthPrompt(record["prompt"])),
     ...optionalField("select", optionalOAuthSelect(record["select"])),
+    ...optionalField("info", optionalOAuthInfo(record["info"])),
   };
   return flow;
 }
@@ -342,7 +943,21 @@ function parseOAuthFlowStatus(value: unknown): OAuthFlowState["status"] {
 function optionalOAuthAuth(value: unknown): OAuthFlowState["auth"] | undefined {
   if (value === undefined) return undefined;
   const record = requireRecord(value);
-  return { url: requireString(record, "url"), ...optionalField("instructions", optionalString(record, "instructions")) };
+  return {
+    url: requireString(record, "url"),
+    ...optionalField("instructions", optionalString(record, "instructions")),
+    ...optionalField("deviceCode", optionalOAuthDeviceCode(record["deviceCode"])),
+  };
+}
+
+function optionalOAuthDeviceCode(value: unknown): NonNullable<OAuthFlowState["auth"]>["deviceCode"] | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return {
+    userCode: requireString(record, "userCode"),
+    ...optionalField("intervalSeconds", optionalNumber(record, "intervalSeconds")),
+    ...optionalField("expiresInSeconds", optionalNumber(record, "expiresInSeconds")),
+  };
 }
 
 function optionalOAuthPrompt(value: unknown): OAuthFlowState["prompt"] | undefined {
@@ -350,13 +965,42 @@ function optionalOAuthPrompt(value: unknown): OAuthFlowState["prompt"] | undefin
   const record = requireRecord(value);
   const kind = requireString(record, "kind");
   if (kind !== "prompt" && kind !== "manual") throw new Error("Invalid OAuth prompt kind");
-  return { requestId: requireString(record, "requestId"), message: requireString(record, "message"), kind, ...optionalField("placeholder", optionalString(record, "placeholder")), ...(record["allowEmpty"] === true ? { allowEmpty: true } : {}) };
+  const promptType = record["promptType"] === undefined ? (kind === "manual" ? "manual_code" : "text") : parseOAuthPromptType(record["promptType"]);
+  return {
+    requestId: requireString(record, "requestId"),
+    message: requireString(record, "message"),
+    kind,
+    promptType,
+    ...optionalField("placeholder", optionalString(record, "placeholder")),
+    ...optionalField("allowEmpty", optionalBoolean(record, "allowEmpty")),
+  };
+}
+
+function parseOAuthPromptType(value: unknown): "text" | "secret" | "manual_code" {
+  if (value !== "text" && value !== "secret" && value !== "manual_code") throw new Error("Invalid OAuth prompt type");
+  return value;
 }
 
 function optionalOAuthSelect(value: unknown): OAuthFlowState["select"] | undefined {
   if (value === undefined) return undefined;
   const record = requireRecord(value);
   return { requestId: requireString(record, "requestId"), message: requireString(record, "message"), options: arrayOf(parseCommandOption)(record["options"]) };
+}
+
+function optionalOAuthInfo(value: unknown): OAuthFlowState["info"] | undefined {
+  if (value === undefined) return undefined;
+  return arrayOf((item) => {
+    const record = requireRecord(item);
+    return {
+      message: requireString(record, "message"),
+      ...optionalField("links", record["links"] === undefined ? undefined : arrayOf(parseOAuthInfoLink)(record["links"])),
+    };
+  })(value);
+}
+
+function parseOAuthInfoLink(value: unknown): NonNullable<NonNullable<OAuthFlowState["info"]>[number]["links"]>[number] {
+  const record = requireRecord(value);
+  return { url: requireString(record, "url"), ...optionalField("label", optionalString(record, "label")) };
 }
 
 function optionalContextUsage(value: unknown): Pick<SessionStatus, "contextUsage"> | object {
@@ -434,12 +1078,12 @@ function optionalFileMediaType(value: unknown): FileContentResponse["mediaType"]
 
 export function parseGitStatusResponse(value: unknown): GitStatusResponse {
   const record = requireRecord(value);
-  return { isGitRepo: requireBoolean(record, "isGitRepo"), hash: requireString(record, "hash"), ...optionalField("branch", optionalString(record, "branch")), ...optionalField("upstream", optionalString(record, "upstream")), ...optionalField("ahead", optionalNumber(record, "ahead")), ...optionalField("behind", optionalNumber(record, "behind")), files: arrayOf(parseGitStatusFile)(record["files"]) };
+  return { isGitRepo: requireBoolean(record, "isGitRepo"), hash: requireString(record, "hash"), ...optionalField("branch", optionalString(record, "branch")), ...optionalField("upstream", optionalString(record, "upstream")), ...optionalField("ahead", optionalNumber(record, "ahead")), ...optionalField("behind", optionalNumber(record, "behind")), files: arrayOf(parseGitStatusFile)(record["files"]), submodules: record["submodules"] === undefined ? [] : arrayOfString(record["submodules"], "submodules") };
 }
 
 function parseGitStatusFile(value: unknown): GitStatusFile {
   const record = requireRecord(value);
-  return { path: requireString(record, "path"), ...optionalField("oldPath", optionalString(record, "oldPath")), index: parseGitFileState(record["index"]), workingTree: parseGitFileState(record["workingTree"]) };
+  return { path: requireString(record, "path"), ...optionalField("oldPath", optionalString(record, "oldPath")), index: parseGitFileState(record["index"]), workingTree: parseGitFileState(record["workingTree"]), ...optionalField("submoduleFromCommit", optionalString(record, "submoduleFromCommit")), ...optionalField("submoduleToCommit", optionalString(record, "submoduleToCommit")) };
 }
 
 function parseGitFileState(value: unknown): GitFileState {
@@ -516,12 +1160,126 @@ export function parseWorkspaceActivityResponse(value: unknown): WorkspaceActivit
   return { workspaces: arrayOf(parseWorkspaceActivity)(record["workspaces"]), generatedAt: requireString(record, "generatedAt") };
 }
 
-function optionalUploads(value: unknown): NonNullable<Workspace["effectiveConfig"]>["uploads"] | undefined {
+export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
+  const record = requireRecord(value);
+  return {
+    path: requireString(record, "path"),
+    exists: requireBoolean(record, "exists"),
+    config: parsePiWebConfigValues(record["config"]),
+    effectiveConfig: parsePiWebConfigValues(record["effectiveConfig"]),
+    envOverrides: parsePiWebConfigEnvOverrides(record["envOverrides"]),
+  };
+}
+
+function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
+  const record = requireRecord(value);
+  return {
+    ...optionalField("host", optionalString(record, "host")),
+    ...optionalField("port", optionalNumber(record, "port")),
+    ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
+    ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
+    ...optionalField("plugins", optionalPlugins(record["plugins"])),
+    ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
+    ...optionalField("uploads", optionalUploads(record["uploads"])),
+    ...optionalField("maxUploadBytes", optionalNumber(record, "maxUploadBytes")),
+    ...optionalField("agent", optionalAgent(record["agent"])),
+    ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
+    ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
+    ...optionalField("askUser", optionalBoolean(record, "askUser")),
+  };
+}
+
+function optionalAgent(value: unknown): PiWebConfigValues["agent"] | undefined {
   if (value === undefined) return undefined;
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid uploads field");
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB agent field");
+  return {
+    ...optionalField("command", optionalString(value, "command")),
+    ...optionalField("dir", optionalString(value, "dir")),
+  };
+}
+
+function optionalAllowedHosts(value: unknown): PiWebConfigValues["allowedHosts"] | undefined {
+  if (value === undefined) return undefined;
+  if (value === true) return true;
+  if (isStringArray(value)) return value;
+  throw new Error("Invalid PI WEB allowedHosts field");
+}
+
+function optionalPathAccess(value: unknown): PiWebConfigValues["pathAccess"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("Invalid PI WEB pathAccess field");
+  const allowedPaths = value["allowedPaths"];
+  return {
+    ...optionalField("allowedPaths", optionalStringArray(allowedPaths, "pathAccess.allowedPaths")),
+  };
+}
+
+function optionalStringArray(value: unknown, field: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (isNonEmptyStringArray(value)) return value;
+  throw new Error(`Invalid PI WEB ${field} field`);
+}
+
+function optionalUploads(value: unknown): PiWebConfigValues["uploads"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB uploads field");
   return {
     ...optionalField("defaultFolder", optionalString(value, "defaultFolder")),
   };
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item !== "");
+}
+
+function optionalShortcuts(value: unknown): PiWebShortcutConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB shortcuts field");
+  return Object.fromEntries(Object.entries(value).map(([actionId, shortcut]) => {
+    if (shortcut !== null && (typeof shortcut !== "string" || shortcut === "")) throw new Error("Invalid PI WEB shortcut field");
+    return [actionId, shortcut];
+  }));
+}
+
+function optionalPlugins(value: unknown): PiWebPluginConfigMap | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB plugins field");
+  return Object.fromEntries(Object.entries(value).map(([pluginId, config]) => {
+    if (!isRecord(config) || Array.isArray(config)) throw new Error("Invalid PI WEB plugin config field");
+    const enabled = config["enabled"];
+    if (enabled !== undefined && typeof enabled !== "boolean") throw new Error("Invalid PI WEB plugin enabled field");
+    const settings = config["settings"];
+    if (settings !== undefined && (!isRecord(settings) || Array.isArray(settings))) throw new Error("Invalid PI WEB plugin settings field");
+    return [pluginId, config];
+  }));
+}
+
+function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
+  const record = requireRecord(value);
+  return {
+    host: requireBoolean(record, "host"),
+    port: requireBoolean(record, "port"),
+    allowedHosts: requireBoolean(record, "allowedHosts"),
+    spawnSessions: requireBoolean(record, "spawnSessions"),
+    subsessions: requireBoolean(record, "subsessions"),
+    // Older servers predate the ask_user tool; a missing flag means "not overridden".
+    askUser: optionalBoolean(record, "askUser") ?? false,
+    agentCommand: optionalBoolean(record, "agentCommand") ?? false,
+    agentDir: optionalBoolean(record, "agentDir") ?? false,
+    ...optionalAgentDirSource(record),
+    agentSessionDir: optionalBoolean(record, "agentSessionDir") ?? false,
+  };
+}
+
+function optionalAgentDirSource(record: Record<string, unknown>): { agentDirSource?: PiWebAgentDirEnvSource } {
+  const value = record["agentDirSource"];
+  if (value === undefined) return {};
+  if (value !== "pi-web" && value !== "pi-compatibility") throw new Error("Invalid PI WEB agentDirSource field");
+  return { agentDirSource: value };
 }
 
 export function parsePiPackagesResponse(value: unknown): PiPackagesResponse {
@@ -563,13 +1321,265 @@ function parsePiPackageMutationAction(value: unknown): PiPackageMutationAction {
   return value;
 }
 
+export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {
+  const record = requireRecord(value);
+  return { plugins: arrayOf(parsePiWebPluginInfo)(record["plugins"]) };
+}
+
+function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
+  const record = requireRecord(value);
+  return {
+    id: requireString(record, "id"),
+    module: requireString(record, "module"),
+    source: requireString(record, "source"),
+    scope: parsePiWebPluginScope(record["scope"]),
+    machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,
+    enabled: requireBoolean(record, "enabled"),
+  };
+}
+
+function parsePiWebPluginScope(value: unknown): PiWebPluginScope {
+  if (value !== "bundled" && value !== "local" && value !== "user" && value !== "project") throw new Error("Invalid PI WEB plugin scope");
+  return value;
+}
+
+function parseOptionalBoolean(value: unknown, key: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
+  return value;
+}
+
+/** Optional non-negative integer count; zero is normalized away so absent and none read alike. */
+function parseOptionalCount(value: unknown, key: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new Error(`Expected optional count field: ${key}`);
+  return value === 0 ? undefined : value;
+}
+
+export function parsePiWebStatusResponse(value: unknown): PiWebStatusResponse {
+  const record = requireRecord(value);
+  return {
+    packageName: requireString(record, "packageName"),
+    generatedAt: requireString(record, "generatedAt"),
+    components: parsePiWebComponents(record["components"]),
+    release: parsePiWebReleaseStatus(record["release"]),
+    commands: parsePiWebCommands(record["commands"]),
+    messages: arrayOf(parsePiWebStatusMessage)(record["messages"]),
+  };
+}
+
+export function parsePiWebRuntimeResponse(value: unknown): PiWebRuntimeResponse {
+  const record = requireRecord(value);
+  return {
+    packageName: requireString(record, "packageName"),
+    generatedAt: requireString(record, "generatedAt"),
+    components: parsePiWebRuntimeComponents(record["components"]),
+    capabilities: parsePiWebCapabilities(record["capabilities"]),
+  };
+}
+
+function parsePiWebComponents(value: unknown): PiWebStatusResponse["components"] {
+  const record = requireRecord(value);
+  return { web: parsePiWebComponentStatus(record["web"]), sessiond: parsePiWebComponentStatus(record["sessiond"]) };
+}
+
+function parsePiWebRuntimeComponents(value: unknown): PiWebRuntimeResponse["components"] {
+  const record = requireRecord(value);
+  return { web: parsePiWebRuntimeComponent(record["web"]), sessiond: parsePiWebRuntimeComponent(record["sessiond"]) };
+}
+
+function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
+  const record = requireRecord(value);
+  const component = parsePiWebServiceComponent(record["component"]);
+  const activeAgentProfileValue = record["activeAgentProfile"];
+  const activeAgentProfile = activeAgentProfileValue === undefined ? undefined : parseActiveAgentProfileDescriptor(activeAgentProfileValue);
+  if (activeAgentProfileValue !== undefined && (component !== "sessiond" || activeAgentProfile === undefined)) throw new Error("Invalid active agent profile descriptor");
+  return {
+    component,
+    label: requireString(record, "label"),
+    ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
+    available: requireBoolean(record, "available"),
+    capabilities: parsePiWebCapabilities(record["capabilities"]),
+    ...optionalField("activeAgentProfile", activeAgentProfile),
+    ...optionalField("error", optionalString(record, "error")),
+  };
+}
+
+function parsePiWebComponentStatus(value: unknown): PiWebComponentStatus {
+  const record = requireRecord(value);
+  return {
+    component: parsePiWebServiceComponent(record["component"]),
+    label: requireString(record, "label"),
+    ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
+    ...optionalField("installedVersion", optionalString(record, "installedVersion")),
+    stale: requireBoolean(record, "stale"),
+    available: requireBoolean(record, "available"),
+    ...optionalField("installation", optionalPiWebInstallationInfo(record["installation"])),
+    ...optionalField("error", optionalString(record, "error")),
+  };
+}
+
+function optionalPiWebInstallationInfo(value: unknown): PiWebInstallationInfo | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  const kind = requireString(record, "kind");
+  if (kind !== "pi-package" && kind !== "npm-global" && kind !== "local" && kind !== "docker" && kind !== "unknown") throw new Error("Invalid PI WEB installation kind");
+  const scope = record["scope"];
+  if (scope !== undefined && scope !== "user" && scope !== "project") throw new Error("Invalid PI WEB installation scope");
+  const dockerMode = record["dockerMode"];
+  if (dockerMode !== undefined && dockerMode !== "runtime" && dockerMode !== "dev") throw new Error("Invalid PI WEB Docker mode");
+  return {
+    kind,
+    ...optionalField("path", optionalString(record, "path")),
+    ...optionalField("source", optionalString(record, "source")),
+    ...(scope === undefined ? {} : { scope }),
+    ...optionalField("npmRoot", optionalString(record, "npmRoot")),
+    ...(dockerMode === undefined ? {} : { dockerMode }),
+  };
+}
+
+function parsePiWebReleaseStatus(value: unknown): PiWebReleaseStatus {
+  const record = requireRecord(value);
+  return {
+    packageName: requireString(record, "packageName"),
+    ...optionalField("latestVersion", optionalString(record, "latestVersion")),
+    updateAvailable: requireBoolean(record, "updateAvailable"),
+    ...optionalField("checkedAt", optionalString(record, "checkedAt")),
+    ...(record["skipped"] === true ? { skipped: true } : {}),
+    ...optionalField("error", optionalString(record, "error")),
+  };
+}
+
+function parsePiWebCommands(value: unknown): PiWebStatusResponse["commands"] {
+  const record = requireRecord(value);
+  return {
+    ...optionalField("update", optionalString(record, "update")),
+    ...optionalField("restart", optionalString(record, "restart")),
+    ...optionalField("restartWeb", optionalString(record, "restartWeb")),
+    ...optionalField("restartSessiond", optionalString(record, "restartSessiond")),
+    ...optionalField("status", optionalString(record, "status")),
+  };
+}
+
+function parsePiWebStatusMessage(value: unknown): PiWebStatusMessage {
+  const record = requireRecord(value);
+  return {
+    id: requireString(record, "id"),
+    severity: parsePiWebStatusSeverity(record["severity"]),
+    title: requireString(record, "title"),
+    body: requireString(record, "body"),
+    ...optionalField("command", optionalString(record, "command")),
+  };
+}
+
+function parsePiWebServiceComponent(value: unknown): PiWebServiceComponent {
+  if (value !== "web" && value !== "sessiond") throw new Error("Invalid PI WEB service component");
+  return value;
+}
+
+function parsePiWebCapabilities(value: unknown): PiWebCapability[] {
+  const capabilities = parseKnownPiWebCapabilities(value);
+  if (capabilities === undefined) throw new Error("Invalid PI WEB capabilities");
+  return capabilities;
+}
+
+function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
+  if (value !== "info" && value !== "warning" && value !== "error") throw new Error("Invalid PI WEB status severity");
+  return value;
+}
+
 export function parseCommandResult(value: unknown): CommandResult {
   const record = requireRecord(value);
   const type = requireString(record, "type");
   if (type === "unsupported") return { type, message: requireString(record, "message") };
   if (type === "select") return { type, requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
+  if (type === "tree") return { type, tree: parseSessionTreeSnapshot(record["tree"]) };
   if (type === "done") return { type, ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
   throw new Error("Invalid command result type");
+}
+
+export function parseSessionTreeSnapshot(value: unknown): SessionTreeSnapshot {
+  const record = requireRecord(value);
+  const nodes = arrayOf(parseSessionTreeNode)(record["nodes"]);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  if (nodeIds.size !== nodes.length) throw new Error("Duplicate session tree node id");
+  const activeLeafId = requireNullableString(record, "activeLeafId");
+  if (activeLeafId !== null && !nodeIds.has(activeLeafId)) throw new Error("Invalid session tree activeLeafId");
+  return {
+    nodes,
+    activeLeafId,
+    activePathIds: arrayOfNonBlankString(record["activePathIds"], "activePathIds"),
+  };
+}
+
+function parseSessionTreeNode(value: unknown): SessionTreeNode {
+  const record = requireRecord(value);
+  return {
+    id: requireNonBlankString(record, "id"),
+    parentId: requireNullableString(record, "parentId"),
+    kind: parseSessionTreeNodeKind(record["kind"]),
+    summary: requireString(record, "summary"),
+    ...optionalField("timestamp", optionalString(record, "timestamp")),
+    ...optionalField("label", optionalString(record, "label")),
+  };
+}
+
+function parseSessionTreeNodeKind(value: unknown): SessionTreeNodeKind {
+  switch (value) {
+    case "user":
+    case "assistant":
+    case "tool-result":
+    case "bash":
+    case "custom-message":
+    case "compaction":
+    case "branch-summary":
+    case "model-change":
+    case "thinking-level-change":
+    case "session-info":
+    case "label":
+    case "custom":
+    case "other":
+      return value;
+    default:
+      throw new Error("Invalid session tree node kind");
+  }
+}
+
+export function parseSessionTreeNavigateResult(value: unknown): SessionTreeNavigateResult {
+  const record = requireRecord(value);
+  const cancelled = requireBoolean(record, "cancelled");
+  if (Object.hasOwn(record, "summaryEntry")) throw new Error("Invalid session tree navigation result field: summaryEntry");
+  if (cancelled) {
+    rejectResponseField(record, "editorText", "session tree cancellation result");
+    const aborted = record["aborted"];
+    if (aborted !== undefined && typeof aborted !== "boolean") throw new Error("Expected optional boolean field: aborted");
+    return { cancelled, ...(aborted === undefined ? {} : { aborted }) };
+  }
+  rejectResponseField(record, "aborted", "session tree navigation result");
+  return { cancelled, ...optionalField("editorText", optionalString(record, "editorText")) };
+}
+
+function rejectResponseField(record: Record<string, unknown>, field: string, label: string): void {
+  if (Object.hasOwn(record, field)) throw new Error(`Invalid ${label} field: ${field}`);
+}
+
+function requireNullableString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (value !== null && typeof value !== "string") throw new Error(`Expected string or null field: ${key}`);
+  if (typeof value === "string" && value.trim() === "") throw new Error(`Expected non-blank string or null field: ${key}`);
+  return value;
+}
+
+function requireNonBlankString(record: Record<string, unknown>, key: string): string {
+  const value = requireString(record, key);
+  if (value.trim() === "") throw new Error(`Expected non-blank string field: ${key}`);
+  return value;
+}
+
+function arrayOfNonBlankString(value: unknown, key: string): string[] {
+  const strings = arrayOfString(value, key);
+  if (strings.some((item) => item.trim() === "")) throw new Error(`Expected non-blank string array field: ${key}`);
+  return strings;
 }
 
 function parseCommandOption(value: unknown): CommandOption {
@@ -582,7 +1592,9 @@ function optionalSession(value: unknown): Pick<Extract<CommandResult, { type: "d
 }
 
 export function parseAccepted(value: unknown): { accepted: true } {
-  return { accepted: requireTrueField(value, "accepted") };
+  const record = requireRecord(value);
+  if (record["accepted"] !== true) throw new Error("Expected accepted response");
+  return { accepted: true };
 }
 
 export function parseSavedAttachments(value: unknown): SavedPromptAttachment[] {
@@ -596,15 +1608,21 @@ function parseSavedAttachment(value: unknown): SavedPromptAttachment {
 }
 
 export function parseClosed(value: unknown): { closed: true } {
-  return { closed: requireTrueField(value, "closed") };
+  const record = requireRecord(value);
+  if (record["closed"] !== true) throw new Error("Expected closed response");
+  return { closed: true };
 }
 
 export function parseAborted(value: unknown): { aborted: true } {
-  return { aborted: requireTrueField(value, "aborted") };
+  const record = requireRecord(value);
+  if (record["aborted"] !== true) throw new Error("Expected aborted response");
+  return { aborted: true };
 }
 
 export function parseStopped(value: unknown): { stopped: true } {
-  return { stopped: requireTrueField(value, "stopped") };
+  const record = requireRecord(value);
+  if (record["stopped"] !== true) throw new Error("Expected stopped response");
+  return { stopped: true };
 }
 
 export function parseArchived(value: unknown): ArchiveSessionsResponse {
@@ -622,19 +1640,41 @@ export function parseArchived(value: unknown): ArchiveSessionsResponse {
 }
 
 export function parseRestored(value: unknown): { restored: true } {
-  return { restored: requireTrueField(value, "restored") };
+  const record = requireRecord(value);
+  if (record["restored"] !== true) throw new Error("Expected restored response");
+  return { restored: true };
 }
 
 export function parseDeleted(value: unknown): { deleted: true } {
-  return { deleted: requireTrueField(value, "deleted") };
+  const record = requireRecord(value);
+  if (record["deleted"] !== true) throw new Error("Expected deleted response");
+  return { deleted: true };
 }
 
 export function parseDetached(value: unknown): { detached: true } {
-  return { detached: requireTrueField(value, "detached") };
+  const record = requireRecord(value);
+  if (record["detached"] !== true) throw new Error("Expected detached response");
+  return { detached: true };
 }
 
 export function parseReloaded(value: unknown): { reloaded: true } {
-  return { reloaded: requireTrueField(value, "reloaded") };
+  const record = requireRecord(value);
+  if (record["reloaded"] !== true) throw new Error("Expected reloaded response");
+  return { reloaded: true };
+}
+
+function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`Invalid PI WEB ${key} field`);
+  return value;
+}
+
+function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number") throw new Error(`Expected optional number field: ${key}`);
+  return value;
 }
 
 function numberOrNull(record: Record<string, unknown>, key: string): number | null {
@@ -642,4 +1682,8 @@ function numberOrNull(record: Record<string, unknown>, key: string): number | nu
   if (value === null) return null;
   if (typeof value !== "number") throw new Error(`Expected number|null field: ${key}`);
   return value;
+}
+
+function optionalField(key: string, value: unknown): object {
+  return value === undefined ? {} : { [key]: value };
 }

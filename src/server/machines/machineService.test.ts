@@ -124,7 +124,7 @@ describe("MachineService", () => {
 
   it("uses the lightweight runtime check for local machine health", async () => {
     const localRuntime = vi.fn(() => Promise.resolve({
-      packageName: "@jmfederico/pi-web",
+      packageName: "@chainingintention/pi-web-cn",
       generatedAt: "2026-05-25T00:00:00.000Z",
       components: {
         web: { component: "web" as const, label: "Web/UI", runtimeVersion: "1.0.0", available: true, capabilities: [] },
@@ -255,7 +255,7 @@ async function expectOwnerOnlyMachineStore(path: string): Promise<void> {
 
 function remoteRuntimeBody(): PiWebRuntimeResponse {
   return {
-    packageName: "@jmfederico/pi-web",
+    packageName: "@chainingintention/pi-web-cn",
     generatedAt: "2026-05-25T00:00:00.000Z",
     components: {
       web: {

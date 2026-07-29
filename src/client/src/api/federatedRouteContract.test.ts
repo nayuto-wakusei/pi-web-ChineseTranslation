@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../../shared/apiTypes";
-import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
+import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
 import { activityApi, configApi, filesApi, gitApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./sockets";
 import { workspaceFileDownloadUrl, workspaceImagePreviewUrl } from "./urls";
@@ -26,6 +26,42 @@ afterEach(() => {
 });
 
 describe("federated route contract", () => {
+  it("allowlists notification HTTP routes without adding a notification WebSocket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("notifications"))).toEqual([
+      { method: "GET", path: "/sessions/notifications" },
+      { method: "GET", path: "/sessions/:sessionId/notifications" },
+      { method: "POST", path: "/sessions/:sessionId/notifications/dismiss" },
+      { method: "POST", path: "/sessions/:sessionId/notifications/dismiss-all" },
+    ]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("notifications"))).toBe(false);
+  });
+
+  it("allowlists both ask routes without adding an ask WebSocket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("/ask/"))).toEqual([
+      { method: "POST", path: "/sessions/:sessionId/ask/submit" },
+      { method: "POST", path: "/sessions/:sessionId/ask/cancel" },
+    ]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("ask"))).toBe(false);
+  });
+
+  it("allowlists daemon-authoritative unread HTTP routes on the existing global socket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("unread"))).toEqual([
+      { method: "GET", path: "/sessions/unread" },
+      { method: "POST", path: "/sessions/:sessionId/unread/acknowledge" },
+    ]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("unread"))).toBe(false);
+  });
+
+  it("allowlists session tree navigation with a long model-operation timeout and no new WebSocket", () => {
+    expect(FEDERATED_HTTP_ROUTES.find((route) => route.path === "/sessions/:sessionId/tree/navigate")).toEqual({
+      method: "POST",
+      path: "/sessions/:sessionId/tree/navigate",
+      timeoutMs: SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS,
+    });
+    expect(SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS).toBe(5 * 60_000);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("tree"))).toBe(false);
+  });
+
   it("covers machine-scoped client HTTP calls with remote proxy routes", async () => {
     const fetchMock = vi.fn<FetchLike>(() => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
@@ -71,6 +107,9 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.status(session, machineId)),
       ignoreParseFailure(sessionsApi.streamSnapshot(session, machineId)),
       ignoreParseFailure(sessionsApi.clearQueue(session, machineId)),
+      ignoreParseFailure(sessionsApi.dismissWarning(session, "anthropicExtraUsage", machineId)),
+      ignoreParseFailure(sessionsApi.submitAsk(session, "ask 1", { answers: [{ id: "q1", values: ["pg"] }] }, machineId)),
+      ignoreParseFailure(sessionsApi.cancelAsk(session, "ask 1", machineId)),
       ignoreParseFailure(sessionsApi.models(session, machineId)),
       ignoreParseFailure(sessionsApi.setModel(session, "openai", "gpt", machineId)),
       ignoreParseFailure(sessionsApi.cycleModel(session, "forward", machineId)),
@@ -83,6 +122,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.shell(session, "ls", machineId)),
       ignoreParseFailure(sessionsApi.runCommand(session, "/help", machineId)),
       ignoreParseFailure(sessionsApi.respondToCommand(session, "req 1", "yes", machineId)),
+      ignoreParseFailure(sessionsApi.navigateTree(session, { targetId: "entry-1", expectedLeafId: "leaf-1", summary: { mode: "none" } }, machineId)),
       ignoreParseFailure(sessionsApi.abort(session, machineId)),
       ignoreParseFailure(sessionsApi.stop(session, machineId)),
       ignoreParseFailure(sessionsApi.archive(session, machineId)),

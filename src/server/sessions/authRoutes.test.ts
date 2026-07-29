@@ -1,9 +1,17 @@
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import { AuthService } from "./authService.js";
 import { registerAuthRoutes } from "./authRoutes.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
+
+beforeEach(() => {
+  vi.stubEnv("PI_OFFLINE", "1");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("auth routes", () => {
   it("routes normal and management auth requests to separate credential stores", async () => {

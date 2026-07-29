@@ -207,7 +207,7 @@ describe("PI WEB status", () => {
     const hasCommand = vi.fn(() => Promise.resolve(true));
 
     const updateCommand = await updateCommandFor(
-      { kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user", path: "/tmp/pi-web" },
+      { kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user", path: "/tmp/pi-web" },
       "pi-web restart",
       { activeAgentProfile: undefined, hasCommand },
     );
@@ -220,7 +220,7 @@ describe("PI WEB status", () => {
     const command = "/tmp/agent's/pi";
     const dir = "/tmp/profile's/state";
     const updateCommand = await updateCommandFor(
-      { kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user", path: "/tmp/pi-web" },
+      { kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user", path: "/tmp/pi-web" },
       "pi-web restart",
       {
         activeAgentProfile: activeProfile("a", command, dir),
@@ -228,7 +228,27 @@ describe("PI WEB status", () => {
       },
     );
 
-    expect(updateCommand).toBe("PI_CODING_AGENT_DIR='/tmp/profile'\\''s/state' '/tmp/agent'\\''s/pi' update 'npm:@jmfederico/pi-web' && pi-web restart");
+    expect(updateCommand).toBe("PI_CODING_AGENT_DIR='/tmp/profile'\\''s/state' '/tmp/agent'\\''s/pi' update 'npm:@chainingintention/pi-web-cn' && pi-web restart");
+  });
+
+  it("scopes node-pty script approval in npm-global update commands", async () => {
+    const updateCommand = await updateCommandFor(
+      { kind: "npm-global", path: "/opt/npm/@chainingintention/pi-web-cn" },
+      "pi-web restart",
+      { activeAgentProfile: undefined, hasCommand: () => Promise.resolve(true) },
+    );
+
+    expect(updateCommand).toBe("npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty && pi-web restart");
+  });
+
+  it("suppresses npm-global update commands when npm is unavailable", async () => {
+    const updateCommand = await updateCommandFor(
+      { kind: "npm-global", path: "/opt/npm/@chainingintention/pi-web-cn" },
+      "pi-web restart",
+      { activeAgentProfile: undefined, hasCommand: () => Promise.resolve(false) },
+    );
+
+    expect(updateCommand).toBeUndefined();
   });
 
   it.each([
@@ -238,7 +258,7 @@ describe("PI WEB status", () => {
     const hasCommand = vi.fn(() => Promise.resolve(true));
 
     const updateCommand = await updateCommandFor(
-      { kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user", path: "/tmp/pi-web" },
+      { kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user", path: "/tmp/pi-web" },
       "pi-web restart",
       { activeAgentProfile: profile, hasCommand },
     );

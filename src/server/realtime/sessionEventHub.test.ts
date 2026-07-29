@@ -8,6 +8,7 @@ class FakeSocket extends EventEmitter implements RealtimeSocket {
   readonly OPEN = 1;
   readyState = this.OPEN;
   send = vi.fn();
+  terminate = vi.fn();
 }
 
 describe("SessionEventHub", () => {
@@ -54,6 +55,30 @@ describe("SessionEventHub", () => {
 
     expect(closed.send).not.toHaveBeenCalled();
     expect(removed.send).not.toHaveBeenCalled();
+  });
+
+  it("terminates a failed session socket without disrupting healthy delivery or sequence watermarks", () => {
+    const hub = new SessionEventHub();
+    const failed = new FakeSocket();
+    const healthy = new FakeSocket();
+    failed.send.mockImplementation(() => { throw new Error("socket closed"); });
+    hub.add("s1", failed);
+    hub.add("s1", healthy);
+
+    hub.publish("s1", { type: "assistant.delta", text: "hello" });
+
+    expect(failed.send).toHaveBeenCalledOnce();
+    expect(failed.terminate).toHaveBeenCalledOnce();
+    expect(healthy.send).toHaveBeenCalledWith(JSON.stringify({ type: "assistant.delta", text: "hello", seq: 1 }));
+    expect(hub.currentSeq("s1")).toBe(1);
+
+    failed.send.mockClear();
+    hub.publish("s1", { type: "assistant.delta", text: "again" });
+
+    expect(failed.send).not.toHaveBeenCalled();
+    expect(failed.terminate).toHaveBeenCalledOnce();
+    expect(healthy.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "assistant.delta", text: "again", seq: 2 }));
+    expect(hub.currentSeq("s1")).toBe(2);
   });
 
   it("publishes global events only to global sockets", () => {

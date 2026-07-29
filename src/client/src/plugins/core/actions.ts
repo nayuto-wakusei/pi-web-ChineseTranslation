@@ -169,6 +169,22 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.startSession(),
     },
     {
+      id: "model.select",
+      title: "Select Model",
+      description: "Choose the model for the selected session",
+      group: "Session",
+      enabled: hasSelectableSession,
+      run: (context) => context.openModelPicker(),
+    },
+    {
+      id: "thinking.select",
+      title: "Select Thinking Level",
+      description: "Choose the thinking level for the selected session",
+      group: "Session",
+      enabled: hasSelectableSession,
+      run: (context) => context.openThinkingLevelPicker(),
+    },
+    {
       id: "session.archive",
       title: "归档会话",
       description: "归档所选会话",
@@ -215,6 +231,11 @@ function hasGitWorkspace(context: { state: AppState }): boolean {
 function hasDeletableWorkspace(context: { state: AppState }): boolean {
   const workspace = context.state.selectedWorkspace;
   return workspace !== undefined && workspace.isGitWorktree && !workspace.isMain && !isWorkspaceDeletionPending(context.state, workspace);
+}
+
+function hasSelectableSession(context: { state: AppState }): boolean {
+  const session = context.state.selectedSession;
+  return session !== undefined && session.archived !== true;
 }
 
 function hasArchivableSession(context: { state: AppState }): boolean {

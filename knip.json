@@ -13,5 +13,8 @@
     "extensions/**/*.ts",
     "pi-web-plugins/**/*.ts"
   ],
+  "ignore": [
+    "src/client/src/components/shared.ts"
+  ],
   "ignoreExportsUsedInFile": true
 }

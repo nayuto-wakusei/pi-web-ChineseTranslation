@@ -141,7 +141,10 @@ export async function getPiWebStatus(daemon: PiWebStatusDaemon = new SessionDaem
   const { web, sessiond } = versionStatus.components;
   const release = await getLatestReleaseStatus(web.installedVersion ?? web.runtimeVersion ?? DEFAULT_VERSION, options.forceReleaseCheck === true);
   const components = { web, sessiond };
-  const commands = await commandsFor(components, { activeAgentProfile: options.activeAgentProfile, hasCommand: options.hasCommand ?? hasCommand });
+  const commands = await commandsFor(components, {
+    activeAgentProfile: options.activeAgentProfile,
+    hasCommand: options.hasCommand ?? hasCommand,
+  });
   const messages = buildMessages(components, release, commands);
   return {
     ...versionStatus,
@@ -417,7 +420,10 @@ async function fetchLatestNpmVersion(currentVersion: string): Promise<string> {
   return version;
 }
 
-async function commandsFor(components: PiWebStatusResponse["components"], options: { activeAgentProfile: ActiveAgentProfileDescriptor | undefined; hasCommand: (command: string) => Promise<boolean> }): Promise<PiWebStatusResponse["commands"]> {
+async function commandsFor(components: PiWebStatusResponse["components"], options: {
+  activeAgentProfile: ActiveAgentProfileDescriptor | undefined;
+  hasCommand: (command: string) => Promise<boolean>;
+}): Promise<PiWebStatusResponse["commands"]> {
   const installation = preferredInstallation(components);
   if (installation?.kind === "docker") return dockerCommands(installation);
 
@@ -483,9 +489,9 @@ export async function updateCommandFor(installation: PiWebInstallationInfo | und
     if (!(await hasCommand("npm")) || !(await isGitCheckoutWithUpstream(installation.path))) return undefined;
     return `cd ${shellQuote(installation.path)} && git pull --ff-only && npm install && npm run build && ${restartCommand}`;
   }
-  if (installation?.kind !== "npm-global" || !(await hasCommand("npm"))) return undefined;
+  if (installation?.kind !== "npm-global" || !(await options.hasCommand("npm"))) return undefined;
   if (options.npmGlobalUpdateCommand !== undefined) return options.npmGlobalUpdateCommand;
-  return `npm install -g ${PI_WEB_PACKAGE_NAME} && ${restartCommand}`;
+  return `npm install -g ${PI_WEB_PACKAGE_NAME} --allow-scripts=node-pty && ${restartCommand}`;
 }
 
 async function nativeServiceCommands(): Promise<NativeServiceCommands> {
@@ -512,7 +518,7 @@ async function nativeServiceCommands(): Promise<NativeServiceCommands> {
 export function systemdNpmGlobalUpdateCommand(stopServices: readonly string[], startServices: readonly string[]): string {
   const stopCommand = `systemctl --user stop ${stopServices.join(" ")}`;
   const startCommand = `systemctl --user start ${startServices.join(" ")}`;
-  const script = `set -eu; trap ${shellQuote(startCommand)} EXIT; ${stopCommand}; npm install -g ${PI_WEB_PACKAGE_NAME}`;
+  const script = `set -eu; trap ${shellQuote(startCommand)} EXIT; ${stopCommand}; npm install -g ${PI_WEB_PACKAGE_NAME} --allow-scripts=node-pty`;
   return `systemd-run --user --collect --unit=pi-web-update -- /bin/sh -lc ${shellQuote(script)}`;
 }
 

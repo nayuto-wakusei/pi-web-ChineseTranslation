@@ -29,13 +29,13 @@ describe("buildApp machine routes", () => {
       statusCode: 200,
       headers: { "content-type": "application/json" },
       body: {
-        packageName: "@jmfederico/pi-web",
+        packageName: "@chainingintention/pi-web-cn",
         generatedAt: "2026-05-25T00:00:00.000Z",
         components: {
           web: { component: "web", label: "Remote Web", stale: false, available: true },
           sessiond: { component: "sessiond", label: "Remote Sessiond", stale: false, available: true },
         },
-        release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
+        release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
         commands: { update: "", restart: "", restartSystemd: "", restartDev: "" },
         messages: [],
       },
@@ -58,7 +58,7 @@ describe("buildApp machine routes", () => {
       statusCode: 200,
       headers: { "content-type": "application/json" },
       body: {
-        packageName: "@jmfederico/pi-web",
+        packageName: "@chainingintention/pi-web-cn",
         generatedAt: "2026-05-25T00:00:00.000Z",
         components: {
           web: { component: "web", label: "Remote Web", runtimeVersion: "1.0.0", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage, PI_WEB_CAPABILITIES.agentProfileConfig, "future.capability"] },

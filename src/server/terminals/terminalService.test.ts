@@ -1,70 +1,24 @@
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { IPty } from "node-pty";
-import { TerminalService } from "./terminalService";
-import type { ManagementEmbedContext } from "../managementEmbed";
-import { SessionEventHub } from "../realtime/sessionEventHub";
-import type { RealtimeEvent, TerminalInfo } from "../../shared/apiTypes";
+import type { RealtimeEvent, TerminalInfo } from "../../shared/apiTypes.js";
+import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
+import { SessionEventHub } from "../realtime/sessionEventHub.js";
+import { interactiveShellArgs, TerminalService } from "./terminalService";
 
-type PtySpawn = NonNullable<ConstructorParameters<typeof TerminalService>[2]>;
-
-class CapturingTerminalEventHub extends SessionEventHub {
-  readonly realtimeEvents: { event: RealtimeEvent; scope?: string }[] = [];
-
-  override publishRealtime(event: RealtimeEvent, scope?: string): void {
-    this.realtimeEvents.push({ event, ...(scope === undefined ? {} : { scope }) });
-  }
-}
-
-describe("TerminalService environment", () => {
-  it("marks newly spawned terminals as PI WEB terminals", () => {
-    const originalPiWebTerminal = process.env["PI_WEB_TERMINAL"];
-    let spawnedEnv: NodeJS.ProcessEnv | undefined;
-    const spawn: PtySpawn = (_file, _args, options) => {
-      spawnedEnv = options.env;
-      return fakePty();
-    };
-    const service = new TerminalService(undefined, undefined, spawn);
-
-    try {
-      process.env["PI_WEB_TERMINAL"] = "conflicting-parent-value";
-      service.create({ cwd: process.cwd() });
-
-      expect(spawnedEnv?.["PI_WEB_TERMINAL"]).toBe("1");
-    } finally {
-      service.dispose();
-      if (originalPiWebTerminal === undefined) delete process.env["PI_WEB_TERMINAL"];
-      else process.env["PI_WEB_TERMINAL"] = originalPiWebTerminal;
-    }
-  });
-});
-
-describe("TerminalService scoped management events", () => {
-  it("publishes managed command-run terminal and workspace activity events to the management scope", () => {
-    const hub = new CapturingTerminalEventHub();
-    const activityUpdates: { terminal: Pick<TerminalInfo, "id" | "cwd" | "exited">; scope?: string }[] = [];
-    const spawn: PtySpawn = () => fakePty();
-    const service = new TerminalService(hub, {
-      updateTerminal: (terminal, scope) => { activityUpdates.push({ terminal, ...(scope === undefined ? {} : { scope }) }); },
-      removeTerminal: () => undefined,
-    }, spawn);
-
-    try {
-      service.runCommand({
-        origin: "management",
-        projectId: "project-1",
-        workspaceId: "workspace-1",
-        cwd: process.cwd(),
-        title: "Managed command",
-        command: "echo scoped",
-        managementContext: managementContext(),
-      });
-
-      expect(hub.realtimeEvents[0]?.event.type).toBe("terminal.created");
-      expect(hub.realtimeEvents[0]?.scope).toContain("sandbox-check");
-      expect(activityUpdates[0]?.scope).toContain("sandbox-check");
-    } finally {
-      service.dispose();
-    }
+describe("interactive shell arguments", () => {
+  it.each([
+    { shell: "bash", expected: ["-l"] },
+    { shell: "/usr/local/bin/zsh", expected: ["-l"] },
+    { shell: "/opt/homebrew/bin/fish", expected: ["-l"] },
+    { shell: String.raw`C:\Program Files\Git\bin\bash.exe`, expected: ["-l"] },
+    { shell: "/bin/dash", expected: [] },
+    { shell: "pwsh", expected: [] },
+    { shell: "powershell.exe", expected: [] },
+    { shell: "cmd.exe", expected: [] },
+  ])("uses login mode only for a supported shell: $shell", ({ shell, expected }) => {
+    expect(interactiveShellArgs(shell)).toEqual(expected);
   });
 });
 
@@ -84,6 +38,47 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
     } finally {
       service.dispose();
     }
+  });
+
+  it("loads login-profile PATH entries in new interactive terminals", async () => {
+    await withBashLoginProfile(async () => {
+      const service = new TerminalService();
+      try {
+        const terminal = service.create({ cwd: process.cwd() });
+        const exit = terminalExit(service, terminal.id);
+
+        service.write(terminal.id, `${LOGIN_PROFILE_COMMAND}\nexit\n`);
+
+        expect(await exit).toContain(LOGIN_PROFILE_OUTPUT);
+      } finally {
+        service.dispose();
+      }
+    });
+  });
+
+  it("loads login-profile PATH entries in continued interactive terminals", async () => {
+    await withBashLoginProfile(async () => {
+      const service = new TerminalService();
+      try {
+        const run = service.runCommand({
+          origin: "core",
+          projectId: "p1",
+          workspaceId: "w1",
+          cwd: process.cwd(),
+          title: "Done command",
+          command: "true",
+        });
+        await terminalExit(service, run.terminalId);
+
+        service.continue(run.terminalId);
+        const exit = terminalExit(service, run.terminalId);
+        service.write(run.terminalId, `${LOGIN_PROFILE_COMMAND}\nexit\n`);
+
+        expect(await exit).toContain(LOGIN_PROFILE_OUTPUT);
+      } finally {
+        service.dispose();
+      }
+    });
   });
 
   describe("PI_WEB_TERMINAL propagation", () => {
@@ -201,86 +196,121 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
     }
   });
 
-  it("runs managed command runs through bubblewrap", () => {
-    const calls: { command: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
-    const spawn: PtySpawn = (command, args, options) => {
-      calls.push({ command, args: Array.isArray(args) ? args : [args], env: options.env ?? {} });
-      return fakePty();
-    };
-    const service = new TerminalService(undefined, undefined, spawn);
+  it("publishes terminal lifecycle events and workspace activity updates", async () => {
+    const events = new RecordingEventHub();
+    const workspaceActivity = createWorkspaceActivityRecorder();
+    const service = new TerminalService(events, workspaceActivity);
+    const cwd = process.cwd();
     try {
-      service.runCommand({
-        origin: "management",
-        projectId: "default-project",
-        workspaceId: "workspace-1",
-        cwd: process.cwd(),
-        title: "Managed command",
-        command: "cat /etc/ssh/ssh_host_rsa_key",
-        managementContext: managementContext(),
+      const run = service.runCommand({
+        origin: "core",
+        projectId: "p1",
+        workspaceId: "w1",
+        cwd,
+        title: "Lifecycle command",
+        command: "true",
       });
+      const runningTerminal = requireTerminal(service, run.terminalId);
 
-      expect(calls).toHaveLength(1);
-      const call = calls[0];
-      if (call === undefined) throw new Error("spawn was not called");
-      expect(call.command).toBe("bwrap");
-      expect(call.args).toEqual(expect.arrayContaining([
-        "--unshare-net",
-        "--clearenv",
-        "--bind",
-        process.cwd(),
-        "/workspace",
-        "--chdir",
-        "/workspace",
-        commandRunTestShell(),
-        "-lc",
-      ]));
-      expect(call.args.join("\n")).toContain("cat /etc/ssh/ssh_host_rsa_key");
-      expect(call.env["PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN"]).toBeUndefined();
-      expect(call.env["HOME"]).toBe("/tmp/pi-web-home");
-      expect(call.env["PI_WEB_SANDBOX_PYTHON"]).toBe("/usr/bin/python3");
+      expect(workspaceActivity.updated).toEqual([{ id: run.terminalId, cwd, exited: false }]);
+      expect(events.events).toEqual([{ type: "terminal.created", terminal: runningTerminal }]);
+
+      await terminalExit(service, run.terminalId);
+      const exitedTerminal = requireTerminal(service, run.terminalId);
+
+      expect(workspaceActivity.updated).toEqual([
+        { id: run.terminalId, cwd, exited: false },
+        { id: run.terminalId, cwd, exited: true },
+      ]);
+      expect(events.events).toEqual([
+        { type: "terminal.created", terminal: runningTerminal },
+        { type: "terminal.exited", terminal: exitedTerminal },
+      ]);
+
+      service.close(run.terminalId);
+
+      expect(workspaceActivity.removed).toEqual([{ terminalId: run.terminalId, cwd }]);
+      expect(events.events).toEqual([
+        { type: "terminal.created", terminal: runningTerminal },
+        { type: "terminal.exited", terminal: exitedTerminal },
+        { type: "terminal.closed", terminalId: run.terminalId, cwd },
+      ]);
     } finally {
       service.dispose();
     }
   });
 });
 
-function fakePty(): IPty {
-  return {
-    onData: () => ({ dispose: () => undefined }),
-    onExit: () => ({ dispose: () => undefined }),
-    write: () => undefined,
-    resize: () => undefined,
-    kill: () => undefined,
-    process: "fake",
-    pid: 1,
-    cols: 100,
-    rows: 30,
-    handleFlowControl: false,
-    clear: () => undefined,
-    pause: () => undefined,
-    resume: () => undefined,
-  };
+class RecordingEventHub extends SessionEventHub {
+  readonly events: RealtimeEvent[] = [];
+
+  override publishRealtime(event: RealtimeEvent): void {
+    this.events.push(event);
+  }
 }
 
-function managementContext(): ManagementEmbedContext {
+interface WorkspaceActivityRecorder extends Pick<WorkspaceActivityService, "updateTerminal" | "removeTerminal"> {
+  readonly updated: TerminalActivityUpdate[];
+  readonly removed: TerminalActivityRemoval[];
+}
+
+type TerminalActivityUpdate = Pick<TerminalInfo, "id" | "cwd" | "exited">;
+
+interface TerminalActivityRemoval {
+  terminalId: string;
+  cwd: string | undefined;
+}
+
+function createWorkspaceActivityRecorder(): WorkspaceActivityRecorder {
+  const updated: TerminalActivityUpdate[] = [];
+  const removed: TerminalActivityRemoval[] = [];
   return {
-    user: { id: "sandbox-check", rootUserId: "sandbox-check", roles: [], permissions: [] },
-    projects: [],
-    tools: { allow: ["terminal-command-runs"], deny: ["terminal"] },
-    sandbox: {
-      pythonExecutable: "/usr/bin/python3",
-      env: {
-        PATH: "/usr/bin:/bin:/usr/local/bin",
-      },
+    updated,
+    removed,
+    updateTerminal: (terminal) => {
+      updated.push({ id: terminal.id, cwd: terminal.cwd, exited: terminal.exited });
+    },
+    removeTerminal: (terminalId, cwd) => {
+      removed.push({ terminalId, cwd });
     },
   };
 }
 
-function commandRunTestShell(): string {
-  const shell = process.env["SHELL"]?.trim();
-  return shell !== undefined && shell !== "" && shell.toLowerCase().includes("bash") ? shell : "/bin/bash";
+function requireTerminal(service: TerminalService, terminalId: string): TerminalInfo {
+  const terminal = service.get(terminalId);
+  if (terminal === undefined) throw new Error(`Expected terminal ${terminalId} to exist`);
+  return terminal;
 }
 
+const LOGIN_PROFILE_COMMAND = "pi-web-test-login-profile-command";
+const LOGIN_PROFILE_OUTPUT = "__PI_WEB_LOGIN_PROFILE_PATH_COMMAND__";
+
+async function withBashLoginProfile(run: () => Promise<void>): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "pi-web-terminal-home-"));
+  const profileBin = join(home, "profile-bin");
+  await mkdir(profileBin);
+  const commandPath = join(profileBin, LOGIN_PROFILE_COMMAND);
+  await writeFile(commandPath, `#!/bin/sh\nprintf '%s\\n' '${LOGIN_PROFILE_OUTPUT}'\n`);
+  await chmod(commandPath, 0o755);
+  await writeFile(join(home, ".bash_profile"), `export PATH="$HOME/profile-bin:$PATH"\n`);
+
+  const originalHome = process.env["HOME"];
+  const originalShell = process.env["SHELL"];
+  process.env["HOME"] = home;
+  process.env["SHELL"] = "/bin/bash";
+  try {
+    await run();
+  } finally {
+    restoreEnv("HOME", originalHome);
+    restoreEnv("SHELL", originalShell);
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+function restoreEnv(key: "HOME" | "SHELL", value: string | undefined): void {
+  if (value === undefined) Reflect.deleteProperty(process.env, key);
+  else process.env[key] = value;
+}
 
 function terminalExit(service: TerminalService, terminalId: string): Promise<string> {
   const output: string[] = [];

@@ -1,9 +1,10 @@
-import { api as defaultApi, type CommandResult, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type Workspace } from "../api";
+import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type PendingAskUser, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
 import { machineSessionKey } from "../machineKeys";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
+import { clearAskDraft } from "../askDrafts";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { isShellInput } from "../inputModes";
 import { fileCompletionInsertText } from "../promptCompletions";
@@ -11,9 +12,10 @@ import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../
 import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceOptionsForRuntime } from "../sessionPersistence";
 import { isSessionActive } from "../../../shared/activity";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
-import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
+import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionStartupProgressEvent } from "../../../shared/apiTypes";
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
+import { sessionPathsEqual } from "../sessionPaths";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 
 const MESSAGE_PAGE_SIZE = 100;
@@ -22,9 +24,34 @@ const BULK_FALLBACK_CONCURRENCY = 4;
 const SESSION_LIST_REFRESH_MS = 5000;
 
 export interface SessionEventSocket {
-  connect(session: SessionRef, onEvent: (event: SessionUiEvent) => void, onReconnect?: () => void, machineId?: string): void;
+  connect(
+    session: SessionRef,
+    onEvent: (event: SessionUiEvent) => void,
+    onReconnect?: () => void,
+    machineId?: string,
+    onInitialOpen?: () => void,
+  ): void;
   setHandler(onEvent: (event: SessionUiEvent) => void): void;
   close(): void;
+}
+
+export interface SessionNotificationSessionBridge {
+  prepareSelectedSession(session: SessionInfo, machineId: string): void;
+  clearSelectedSession(): void;
+  refreshSelectedSession(session: SessionRef, machineId: string): Promise<void>;
+  applyInboxEvent(machineId: string, event: SessionNotificationInboxEvent): void;
+  shouldFilterLegacyNotification(machineId: string, notificationId: string | undefined): boolean;
+}
+
+export interface PromptEditorTextReplacement {
+  machineId: string;
+  sessionId: string;
+  text: string;
+}
+
+export interface SelectedSessionReady {
+  machineId: string;
+  session: SessionInfo;
 }
 
 export interface SessionControllerDependencies {
@@ -32,6 +59,9 @@ export interface SessionControllerDependencies {
   socket?: SessionEventSocket;
   transcripts?: ChatTranscriptStore;
   streamSnapshot?: typeof defaultApi.streamSnapshot;
+  notifications?: SessionNotificationSessionBridge;
+  replacePromptEditorText?: (replacement: PromptEditorTextReplacement) => void | Promise<void>;
+  onSelectedSessionReady?: (selection: SelectedSessionReady) => void;
 }
 
 interface BulkSessionMutationResult {
@@ -75,7 +105,11 @@ export class SessionController {
   private readonly api: typeof defaultApi;
   private readonly transcripts: ChatTranscriptStore;
   private readonly streamSnapshot: typeof defaultApi.streamSnapshot;
+  private readonly notifications: SessionNotificationSessionBridge | undefined;
+  private readonly replacePromptEditorText: SessionControllerDependencies["replacePromptEditorText"];
+  private readonly onSelectedSessionReady: SessionControllerDependencies["onSelectedSessionReady"];
   private selectionSeq = 0;
+  private disposed = false;
   private streamWatermark: { sessionId: string; seq: number } | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
   private pendingStatusBySession = new Map<string, SessionStatus>();
@@ -102,19 +136,22 @@ export class SessionController {
     this.socket = deps.socket ?? new SessionSocket();
     this.api = deps.api ?? defaultApi;
     this.transcripts = deps.transcripts ?? new ChatTranscriptStore();
-    this.streamSnapshot = deps.streamSnapshot ?? (deps.api === undefined
-      ? defaultApi.streamSnapshot
-      : () => Promise.resolve({ seq: 0, partial: null }));
+    this.streamSnapshot = deps.streamSnapshot ?? deps.api?.streamSnapshot ?? defaultApi.streamSnapshot;
+    this.notifications = deps.notifications;
+    this.replacePromptEditorText = deps.replacePromptEditorText;
+    this.onSelectedSessionReady = deps.onSelectedSessionReady;
   }
 
   applyGlobalEvent(event: GlobalSessionEvent): void {
     if (event.type === "status.update") this.queueStatusUpdate(event.status);
     else if (event.type === "activity.update") this.queueActivityUpdate(event.activity);
     else if (event.type === "session.created") this.applyCreatedSession(event.session);
-    else this.applySessionName(event.sessionId, event.name);
+    else if (event.type === "session.name") this.applySessionName(event.sessionId, event.name);
+    else if (event.type === "session.startup") this.queueStartupProgress(event);
   }
 
   dispose() {
+    this.disposed = true;
     this.selectionSeq += 1;
     this.searchSeq += 1;
     this.stopPolling();
@@ -139,13 +176,14 @@ export class SessionController {
   clearActiveSession() {
     this.selectionSeq += 1;
     this.socket.close();
+    this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
     // Note: sendingPrompts is intentionally NOT cleared here. Deselecting a
     // session must not cancel the in-flight upload indicator of the session
     // that is still sending; the per-session entry is cleared by send()'s
     // finally block when the request settles.
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, availableThinkingLevels: [] });
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingAsk: undefined, availableThinkingLevels: [], treeDialog: undefined });
   }
 
   deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
@@ -170,7 +208,7 @@ export class SessionController {
     this.pendingSessionStarts.set(pending.tempId, pending);
     this.insertAndSelectPendingSession(pending.session);
     try {
-      const session = await this.api.startSession(workspace.path, machineId);
+      const session = await this.api.startSession(workspace.path, machineId, pending.tempId);
       await this.resolvePendingSessionStart(pending.tempId, session);
     } catch (error) {
       this.failPendingSessionStart(pending.tempId, error);
@@ -244,7 +282,8 @@ export class SessionController {
     return selectPreferredSession(sessions, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
   }
 
-  async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }) {
+  async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined; preserveTreeDialog?: boolean | undefined; propagateRefreshError?: boolean | undefined }) {
+    if (this.disposed) return;
     if (isClientPendingStartSessionInfo(session)) {
       this.selectClientPendingStartSession(session, options);
       return;
@@ -254,6 +293,8 @@ export class SessionController {
     this.socket.close();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
+    const machineId = selectedMachineId(this.getState());
+    this.notifications?.prepareSelectedSession(session, machineId);
     const transcriptKey = this.sessionCacheKey(session.id);
     const cached = this.transcripts.cachedView(transcriptKey);
     this.setState({
@@ -263,8 +304,10 @@ export class SessionController {
       isLoadingEarlierMessages: false,
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
       activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
+      pendingAsk: session.archived === true ? undefined : this.selectedPendingAsk(this.getState().sessionStatuses[session.id], machineId),
       availableThinkingLevels: [],
     });
+    let buffered: SessionUiEvent[] | undefined;
     try {
       if (session.archived === true) {
         const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
@@ -274,27 +317,42 @@ export class SessionController {
         if (options?.updateUrl !== false) this.updateUrl();
         return;
       }
-      const buffered: SessionUiEvent[] = [];
+      const socketBuffer: SessionUiEvent[] = [];
+      buffered = socketBuffer;
       this.socket.connect(
         session,
-        (event) => buffered.push(event),
+        (event) => socketBuffer.push(event),
         () => { void this.refreshSelectedSession(session.id); },
-        selectedMachineId(this.getState()),
+        machineId,
+        () => { void this.notifications?.refreshSelectedSession(session, machineId); },
       );
-      const machineId = selectedMachineId(this.getState());
       await this.requestSelectedSessionRefresh({ session, machineId, selectionSeq: seq });
       if (!this.isCurrentRefreshTarget({ session, machineId, selectionSeq: seq })) return;
       void this.refreshAvailableThinkingLevels();
-      for (const event of buffered) this.applyEvent(event);
+      for (const event of socketBuffer) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
+      this.onSelectedSessionReady?.({ machineId, session });
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
+      if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) {
+        // Tree navigation still needs to know when a same-session reselection's
+        // shared trailing refresh failed, even though this selection is stale.
+        if (options?.propagateRefreshError === true && this.isSelectedSessionIdentity(session.id, machineId)) throw error;
+        return;
+      }
       if (isCachedNewSessionInfo(session) && isSessionNotFoundError(error)) {
         await this.recreateCachedNewSession(session, options);
         return;
       }
+      // A failed join refresh must not strand the socket on its temporary
+      // buffering callback. Apply what arrived and keep live events flowing so
+      // reconnect/trailing refresh can recover authoritatively.
+      if (buffered !== undefined) {
+        for (const event of buffered) this.applyEvent(event);
+        this.socket.setHandler((event) => { this.applyEvent(event); });
+      }
       this.setState({ error: String(error) });
+      if (options?.propagateRefreshError === true) throw error;
     }
   }
 
@@ -460,8 +518,8 @@ export class SessionController {
     this.markSendingPrompt(session.id, true);
     try {
       const result = await this.api.runCommand(session, text, machineId);
-      if (options.applyResult && this.getState().selectedSession?.id === session.id) this.applyCommandResult(result);
-      else if (result.type === "select") this.setState({ error: `Queued command “${text}” needs input; open the session and run it again.` });
+      if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
+      else if (result.type === "select" || result.type === "tree") this.setState({ error: `Queued command “${text}” needs input; open the session and run it again.` });
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
@@ -494,6 +552,76 @@ export class SessionController {
 
   cancelCommand() {
     this.setState({ commandDialog: undefined });
+  }
+
+  async navigateTree(targetId: string, summary: SessionTreeSummaryChoice): Promise<SessionTreeNavigateResult> {
+    const state = this.getState();
+    const session = state.selectedSession;
+    const tree = state.treeDialog;
+    if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
+      throw new Error("The session tree navigator is no longer available");
+    }
+
+    const machineId = selectedMachineId(state);
+    const selectionSeq = this.selectionSeq;
+    const cacheKey = machineSessionKey(machineId, session.id);
+    let result: SessionTreeNavigateResult;
+    try {
+      result = await this.api.navigateTree(session, { targetId, expectedLeafId: tree.activeLeafId, summary }, machineId);
+    } catch (error) {
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      throw error;
+    }
+
+    if (result.cancelled) return result;
+
+    const editorText = result.editorText ?? "";
+    saveDraft(cacheKey, editorText);
+    this.transcripts.discard(cacheKey);
+
+    // A user can reselect the same session while the request is in flight. Its
+    // sequence changes, but the server mutation still belongs to the selected
+    // identity and requires a fresh authoritative branch read.
+    if (!this.isSelectedSessionIdentity(session.id, machineId)) return result;
+    this.clearPendingUpdates();
+    let authoritativeRefreshFailure: { error: unknown } | undefined;
+    try {
+      await this.selectSession(session, { updateUrl: false, preserveTreeDialog: true, propagateRefreshError: true });
+    } catch (error) {
+      authoritativeRefreshFailure = { error };
+    }
+    if (!this.isSelectedSessionIdentity(session.id, machineId)) return result;
+
+    try {
+      await this.replacePromptEditorText?.({ machineId, sessionId: session.id, text: editorText });
+    } catch (error) {
+      if (this.isSelectedSessionIdentity(session.id, machineId)) this.setState({ error: String(error) });
+      throw error;
+    }
+    if (authoritativeRefreshFailure !== undefined) {
+      if (this.isSelectedSessionIdentity(session.id, machineId)) this.setState({ error: String(authoritativeRefreshFailure.error) });
+      throw authoritativeRefreshFailure.error;
+    }
+    if (this.isSelectedSessionIdentity(session.id, machineId) && this.getState().treeDialog === tree) this.setState({ treeDialog: undefined });
+    return result;
+  }
+
+  async abortTreeNavigation(): Promise<void> {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (session === undefined || state.treeDialog === undefined || isClientPendingStartSessionInfo(session)) return;
+    const machineId = selectedMachineId(state);
+    const selectionSeq = this.selectionSeq;
+    try {
+      await this.api.abort(session, machineId);
+    } catch (error) {
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      throw error;
+    }
+  }
+
+  closeTreeDialog(): void {
+    this.setState({ treeDialog: undefined });
   }
 
   applySessionStatus(status: SessionStatus): void {
@@ -637,7 +765,7 @@ export class SessionController {
         sessions: nextSessions,
         sessionStatuses: omitKeys(state.sessionStatuses, affectedIds),
         sessionActivities: omitKeys(state.sessionActivities, affectedIds),
-        ...(selectedAffected ? { status: undefined, activity: undefined } : {}),
+        ...(selectedAffected ? { status: undefined, activity: undefined, pendingAsk: undefined } : {}),
       });
 
       if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
@@ -851,6 +979,50 @@ export class SessionController {
     }
   }
 
+  async dismissWarning(dismissId: string) {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (session === undefined || isClientPendingStartSessionInfo(session)) return;
+    const machineId = selectedMachineId(state);
+    const selectionSeq = this.selectionSeq;
+    try {
+      const status = await this.api.dismissWarning(session, dismissId, machineId);
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(status);
+    } catch (error) {
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+    }
+  }
+
+  /** Send the answers the user entered for the session's open ask. */
+  submitAsk(askId: string, submission: AskUserSubmission): Promise<void> {
+    return this.closeOpenAsk(askId, (session, machineId) => this.api.submitAsk(session, askId, submission, machineId));
+  }
+
+  /** Close the session's open ask without answering it. */
+  cancelAsk(askId: string): Promise<void> {
+    return this.closeOpenAsk(askId, (session, machineId) => this.api.cancelAsk(session, askId, machineId));
+  }
+
+  private async closeOpenAsk(askId: string, close: (session: SessionInfo, machineId: string) => Promise<AskUserCloseResponse>): Promise<void> {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
+    const machineId = selectedMachineId(state);
+    const selectionSeq = this.selectionSeq;
+    try {
+      const response = await close(session, machineId);
+      // The ask is gone either way: this call closed it, or it was already
+      // closed elsewhere. Its draft has nothing left to protect, and the answers
+      // now live in the daemon-owned outcome.
+      clearAskDraft(machineSessionKey(machineId, session.id), askId);
+      // Both outcomes carry the recomputed status, so no follow-up status
+      // request is needed to learn what the session's open ask is now.
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(response.sessionStatus);
+    } catch (error) {
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+    }
+  }
+
   async stopActiveWork() {
     const session = this.getState().selectedSession;
     if (!session) return;
@@ -883,8 +1055,15 @@ export class SessionController {
         this.api.messages(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId),
         this.api.status(target.session, target.machineId),
         this.streamSnapshot(target.session, target.machineId).catch((): SessionStreamSnapshot => ({ seq: 0, partial: null })),
+        this.notifications?.refreshSelectedSession(target.session, target.machineId) ?? Promise.resolve(),
       ]);
       if (!this.isCurrentRefreshTarget(target)) return;
+      // Seed the in-flight partial assistant message on top of committed history
+      // and record the snapshot's sequence as the watermark. Buffered/live events
+      // with `seq <= watermark` are already reflected here and are dropped by
+      // `applyEvent`; later events (`seq > watermark`) stream in on top. The
+      // partial is seeded into the in-memory transcript only, never the raw
+      // history cache, so it never persists.
       const history = this.transcripts.mergeHistory(key, page);
       const messages = this.transcripts.seedStreamingPartial(history.messages, streamSnapshot.partial);
       this.streamWatermark = { sessionId: target.session.id, seq: streamSnapshot.seq };
@@ -903,10 +1082,14 @@ export class SessionController {
   }
 
   private isCurrentSessionSelection(sessionId: string, machineId: string, selectionSeq: number): boolean {
+    return selectionSeq === this.selectionSeq && this.isSelectedSessionIdentity(sessionId, machineId);
+  }
+
+  private isSelectedSessionIdentity(sessionId: string, machineId: string): boolean {
+    if (this.disposed) return false;
     const state = this.getState();
     const selected = state.selectedSession;
-    return selectionSeq === this.selectionSeq
-      && selectedMachineId(state) === machineId
+    return selectedMachineId(state) === machineId
       && selected?.id === sessionId
       && selected.archived !== true
       && !isClientPendingStartSessionInfo(selected);
@@ -991,7 +1174,9 @@ export class SessionController {
       isLoadingEarlierMessages: false,
       status: undefined,
       activity,
+      pendingAsk: undefined,
       availableThinkingLevels: [],
+      treeDialog: undefined,
       ...(activity === undefined ? {} : { sessionActivities: { ...state.sessionActivities, [session.id]: activity } }),
       error: "",
     });
@@ -1030,7 +1215,7 @@ export class SessionController {
       sessionActivities: omitSessionActivity(state.sessionActivities, tempId),
       sendingPrompts: moveRecordKey(state.sendingPrompts, tempId, cachedSession.id),
       clientQueuedSessionMessages: moveRecordKey(state.clientQueuedSessionMessages, tempId, cachedSession.id),
-      ...(wasSelected ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id] } : {}),
+      ...(wasSelected ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id], pending.machineId) } : {}),
       error: "",
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
@@ -1134,6 +1319,10 @@ export class SessionController {
       this.setState({ commandDialog: result });
       return;
     }
+    if (result.type === "tree") {
+      this.setState({ treeDialog: result.tree });
+      return;
+    }
     const message = result.type === "unsupported" ? result.message : result.message;
     if (message !== undefined && message !== "") this.setState({ messages: [...this.getState().messages, textMessage(result.type === "unsupported" ? "system" : "tool", message)] });
     if (result.type === "done" && result.session) {
@@ -1147,10 +1336,14 @@ export class SessionController {
 
   private applyCreatedSession(session: SessionInfo) {
     const state = this.getState();
-    // Only surface sessions for the workspace currently in view; others are
-    // picked up when their workspace is opened. Skip if already present (e.g.
-    // the optimistic insert from startSession in this same tab).
-    if (state.selectedWorkspace?.path !== session.cwd) return;
+    // A session created in another workspace is not listed here, but it may be a
+    // child of one that is: keep that parent's cross-workspace child count live
+    // instead of leaving it stale until the next listing.
+    if (state.selectedWorkspace?.path !== session.cwd) {
+      const patch = childElsewhereCountPatch(state, session);
+      if (patch !== undefined) this.setState(patch);
+      return;
+    }
     if (state.sessions.some((candidate) => candidate.id === session.id)) return;
     const machineId = selectedMachineId(state);
     if (this.hasPendingStartFor(session.cwd, machineId)) {
@@ -1169,14 +1362,36 @@ export class SessionController {
 
   private applyStatus(status: SessionStatus) {
     const state = this.getState();
+    const isSelected = state.selectedSession?.id === status.sessionId;
     const clearsStaleActivity = state.sessionActivities[status.sessionId]?.phase === "active" && !isSessionActive(status);
     this.setState({
       sessionStatuses: { ...state.sessionStatuses, [status.sessionId]: status },
       ...sessionMessageCountPatch(state, status.sessionId, status.messageCount),
       ...(clearsStaleActivity ? { sessionActivities: omitSessionActivity(state.sessionActivities, status.sessionId) } : {}),
-      status: state.selectedSession?.id === status.sessionId ? status : state.status,
-      activity: state.selectedSession?.id === status.sessionId && clearsStaleActivity ? undefined : state.activity,
+      status: isSelected ? status : state.status,
+      activity: isSelected && clearsStaleActivity ? undefined : state.activity,
+      // The daemon owns whether an ask is open, so every status it publishes is
+      // authoritative for the selected session's card, including its removal.
+      ...(isSelected ? { pendingAsk: this.selectedPendingAsk(status, selectedMachineId(state)) } : {}),
     });
+  }
+
+  private applyOpenedAsk(ask: PendingAskUser): void {
+    const state = this.getState();
+    if (state.selectedSession === undefined) return;
+    this.setState({ pendingAsk: this.selectedPendingAsk({ pendingAsk: ask }, selectedMachineId(state)) });
+  }
+
+  private applyClosedAsk(askId: string): void {
+    if (this.getState().pendingAsk?.askId !== askId) return;
+    this.setState({ pendingAsk: undefined });
+  }
+
+  private selectedPendingAsk(status: Pick<SessionStatus, "pendingAsk"> | undefined, machineId: string): PendingAskUser | undefined {
+    if (status?.pendingAsk === undefined) return undefined;
+    const runtime = this.getState().machineRuntimes[machineId];
+    if (runtime?.ok === true && !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsAskUser)) return undefined;
+    return status.pendingAsk;
   }
 
   private applySessionName(sessionId: string, name: string | undefined) {
@@ -1195,6 +1410,12 @@ export class SessionController {
   }
 
   private applyEvent(event: SessionUiEvent) {
+    if (event.type === "notifications.inbox") {
+      this.notifications?.applyInboxEvent(selectedMachineId(this.getState()), event);
+      return;
+    }
+    if (event.type === "command.output" && this.notifications?.shouldFilterLegacyNotification(selectedMachineId(this.getState()), event.notificationId) === true) return;
+
     if (this.isStreamEventBelowWatermark(event)) return;
 
     // Status and activity arrive once per token (the server republishes them on
@@ -1217,6 +1438,16 @@ export class SessionController {
     }
 
     this.flushPendingUpdates();
+    // Ask frames are applied after the buffered status they were published with,
+    // so the card follows the daemon's own open/close order.
+    if (event.type === "ask.opened") {
+      this.applyOpenedAsk(event.ask);
+      return;
+    }
+    if (event.type === "ask.closed") {
+      this.applyClosedAsk(event.askId);
+      return;
+    }
     const transcript = this.transcripts.applyLiveEvent(this.getState().messages, event);
     if (transcript) {
       this.setState({ messages: transcript });
@@ -1238,6 +1469,29 @@ export class SessionController {
   private queueActivityUpdate(activity: SessionActivity): void {
     this.pendingActivityBySession.set(activity.sessionId, activity);
     this.schedulePendingFlush();
+  }
+
+  // Session startup progress arrives while the daemon is still constructing the
+  // session, so the target row is resolved by exact identity only: a session id
+  // the browser already knows (an open), else the correlation token this browser
+  // minted for its own create and the daemon echoed back. Matching neither means
+  // the row is not one this browser shows — an agent's or another tab's session is
+  // *deliberately* absent while a create is pending — so it is ignored rather than
+  // guessed at. A resolved row goes through the normal activity buffer, rendering
+  // like any other activity and staying batched per frame.
+  private queueStartupProgress(event: SessionStartupProgressEvent): void {
+    if (this.getState().sessions.some((session) => session.id === event.activity.sessionId)) {
+      this.queueActivityUpdate(event.activity);
+      return;
+    }
+    const pending = event.startupToken === undefined ? undefined : this.pendingSessionStarts.get(event.startupToken);
+    if (pending === undefined || pending.discarded) return;
+    // An idle startup phase means the daemon has nothing left to attribute, so
+    // restore this row's own generic wording rather than clearing the text of a
+    // creation request that has not returned yet.
+    this.queueActivityUpdate(event.activity.phase === "idle"
+      ? creatingPendingSessionActivity(pending.tempId, pending.queuedSends.length)
+      : pendingStartActivity(event.activity, pending.tempId));
   }
 
   private schedulePendingFlush(): void {
@@ -1308,6 +1562,7 @@ export class SessionController {
     }
     if (!this.isCurrentSearchJump(session.id, machineId, selectionSeq)) return;
     this.setState({
+      ...this.transcripts.indexedView(this.sessionCacheKey(session.id)),
       sessionSearchTarget: {
         sessionId: session.id,
         messageIndex: match.messageIndex,
@@ -1365,6 +1620,24 @@ function replacePendingSessionInList(sessions: readonly SessionInfo[], pendingSe
 
 function isClientPendingStartSessionInfo(session: SessionInfo | undefined): session is ClientPendingStartSessionInfo {
   return session !== undefined && "clientPendingStart" in session && session.clientPendingStart === true;
+}
+
+/**
+ * Re-label a startup report onto the browser's own pending create row.
+ *
+ * The daemon's startup marker is dropped: this row stands for a create the user
+ * asked for and is waiting on, which the browser has always reported as active
+ * work in progress, rather than for a session the daemon is opening. Only the
+ * phase text is borrowed, so the row keeps its own `creating · ` appearance.
+ */
+function pendingStartActivity(activity: SessionActivity, sessionId: string): SessionActivity {
+  return {
+    sessionId,
+    phase: activity.phase,
+    label: activity.label,
+    ...(activity.detail === undefined ? {} : { detail: activity.detail }),
+    at: activity.at,
+  };
 }
 
 function creatingPendingSessionActivity(sessionId: string, queuedCount = 0): SessionActivity {
@@ -1473,6 +1746,27 @@ function isRejected<T>(result: PromiseSettledResult<T>): result is PromiseReject
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * State patch incrementing the cross-workspace child count of the listed parent
+ * of `createdSession`, or undefined when that parent is not in view.
+ *
+ * Exported for testing: it encodes when a session created in another workspace
+ * is relevant to the current listing at all.
+ */
+export function childElsewhereCountPatch(state: AppState, createdSession: SessionInfo): Pick<Partial<AppState>, "sessions"> | undefined {
+  const parentPath = createdSession.parentSessionPath;
+  if (parentPath === undefined || parentPath === "") return undefined;
+  // The created session's parent path and the listed session's own path reach the
+  // browser from different server producers, so they are compared tolerantly.
+  const isParent = (candidate: SessionInfo) => sessionPathsEqual(candidate.path, parentPath);
+  if (!state.sessions.some(isParent)) return undefined;
+  return {
+    sessions: state.sessions.map((candidate) => isParent(candidate)
+      ? { ...candidate, childSessionsElsewhere: (candidate.childSessionsElsewhere ?? 0) + 1 }
+      : candidate),
+  };
 }
 
 function sessionMessageCountPatch(state: AppState, sessionId: string, messageCount: number | undefined): Pick<Partial<AppState>, "sessions" | "selectedSession"> {

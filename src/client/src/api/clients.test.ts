@@ -16,13 +16,13 @@ const workspace: Workspace = {
 
 function piWebStatusResponse() {
   return {
-    packageName: "@jmfederico/pi-web",
+    packageName: "@chainingintention/pi-web-cn",
     generatedAt: "now",
     components: {
       web: { component: "web", label: "PI WEB", available: true, stale: false },
       sessiond: { component: "sessiond", label: "PI WEB Session Daemon", available: true, stale: false },
     },
-    release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
+    release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
     commands: {},
     messages: [],
   };
@@ -49,6 +49,7 @@ afterEach(() => {
   setApiScope("normal");
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("machine-scoped runtime API", () => {
@@ -352,6 +353,81 @@ describe("session API compatibility", () => {
     expect(init?.method).toBe("POST");
     expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo with spaces" });
   });
+
+  it("posts session tree navigation through an encoded cwd-scoped machine route", async () => {
+    const fetchMock = stubJsonFetch({ cancelled: false, editorText: "edit this" });
+    const navigation = { targetId: "entry /?", expectedLeafId: "leaf-1", summary: { mode: "custom" as const, instructions: "focus on tests" } };
+
+    await expect(sessionsApi.navigateTree({ id: "s /?", cwd: "/repo with spaces" }, navigation, "remote /?")).resolves.toEqual({ cancelled: false, editorText: "edit this" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/tree/navigate");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo with spaces", ...navigation });
+  });
+
+  it("keeps session tree navigation under a canonical nested deployment base", async () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });
+    const fetchMock = stubJsonFetch({ cancelled: false });
+
+    await sessionsApi.navigateTree(
+      { id: "session /?", cwd: "/nested/repo" },
+      { targetId: "entry-1", expectedLeafId: "leaf-1", summary: { mode: "none" } },
+      "remote /?",
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/nested/pi-web/api/machines/remote%20%2F%3F/sessions/session%20%2F%3F/tree/navigate");
+  });
+
+  it("reads a session stream snapshot through an encoded machine route with cwd context", async () => {
+    const fetchMock = stubJsonFetch({ seq: 12, partial: { role: "assistant", content: [{ type: "text", text: "streaming" }] } });
+
+    await expect(sessionsApi.streamSnapshot({ id: "s /?", cwd: "/repo with spaces" }, "remote /?")).resolves.toEqual({
+      seq: 12,
+      partial: { role: "assistant", content: [{ type: "text", text: "streaming" }] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/stream-snapshot?cwd=%2Frepo+with+spaces");
+    expect(init?.method ?? "GET").toBe("GET");
+  });
+
+  it("reads a session stream snapshot for a legacy session-id ref without cwd context", async () => {
+    const fetchMock = stubJsonFetch({ seq: 0, partial: null });
+
+    await expect(sessionsApi.streamSnapshot("s 1", "remote a")).resolves.toEqual({ seq: 0, partial: null });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot");
+  });
+
+  it("uses encoded selected-session notification routes, cwd queries, and authoritative mutation cutoffs", async () => {
+    const notification = { id: "daemon-a:1", message: "notice", truncated: false, severity: "warning", receivedAt: "2026-07-18T00:00:00.000Z", order: 1 };
+    const summary = { sessionId: "s /?", cwd: "/repo with spaces", inboxRevision: 1, retainedCount: 1, discardedCount: 0, highestSeverity: "warning" };
+    const inbox = { daemonInstanceId: "daemon-a", catalogRevision: 1, summary, notifications: [notification], dismissThrough: { order: 1, overflowWatermark: 0 } };
+    const fetchMock = stubSequenceFetch([
+      jsonResponse(inbox),
+      jsonResponse(inbox),
+      jsonResponse(inbox),
+    ]);
+    const ref = { id: "s /?", cwd: "/repo with spaces" };
+
+    await sessionsApi.notificationInbox(ref, "remote /?");
+    await sessionsApi.dismissNotification(ref, "daemon-a", "opaque/id?", "remote /?");
+    await sessionsApi.dismissAllNotifications(ref, "daemon-a", { order: 1, overflowWatermark: 7 }, "remote /?");
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/notifications?cwd=%2Frepo+with+spaces",
+      "https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/notifications/dismiss",
+      "https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/notifications/dismiss-all",
+    ]);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ cwd: ref.cwd, daemonInstanceId: "daemon-a", notificationId: "opaque/id?" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ cwd: ref.cwd, daemonInstanceId: "daemon-a", throughOrder: 1, throughOverflowWatermark: 7 });
+  });
 });
 
 describe("machine-scoped file suggestion API", () => {
@@ -582,7 +658,7 @@ function piWebConfigResponse(config: PiWebConfigValues) {
     exists: true,
     config,
     effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
   };
 }
 

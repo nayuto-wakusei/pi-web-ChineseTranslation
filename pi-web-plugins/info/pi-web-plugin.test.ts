@@ -1,29 +1,71 @@
-import { describe, expect, it } from "vitest";
 import { html, svg } from "lit";
-import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
-import plugin from "./pi-web-plugin";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
+import plugin from "./pi-web-plugin.js";
 
-describe("info plugin Chinese display text", () => {
-  it("exposes Chinese action and panel labels", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "info", html, svg });
-
-    expect(plugin.name).toBe("信息插件");
-    expect(activation.contributions.actions?.[0]).toMatchObject({
-      title: "显示当前工作区路径",
-      group: "信息",
-    });
-    const context = createWorkspacePanelContext();
-    context.workspace.isGitRepo = false;
-    expect(activation.contributions.workspaceLabels?.[0]?.items(context)[0]).toMatchObject({ text: "文件夹" });
-    expect(activation.contributions.workspacePanels?.[0]?.title).toBe("信息");
+describe("Info plugin copy-diagnostics action", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("renders Chinese workspace copy", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "info", html, svg });
-    const panel = activation.contributions.workspacePanels?.[0];
+  it("copies a diagnostics summary to the clipboard", async () => {
+    const writeText = vi.fn((text: string) => { void text; return Promise.resolve(); });
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const action = findCopyDiagnosticsAction();
+    const context = runtimeContext({
+      state: {
+        selectedMachine: { id: "local", name: "devbox", kind: "local" },
+        selectedWorkspace: {
+          id: "ws-1",
+          projectId: "proj-1",
+          path: "/srv/dev/pi-web",
+          label: "pi-web",
+          branch: "main",
+          isMain: true,
+          isGitRepo: true,
+          isGitWorktree: false,
+        },
+      },
+    });
 
-    const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext()));
-    expect(rendered).toContain("<strong>信息</strong>");
-    expect(rendered).toContain("<p><strong>工作区</strong></p>");
+    await action.run(context);
+
+    expect(writeText).toHaveBeenCalledOnce();
+    const summary = writeText.mock.calls[0]?.[0];
+    expect(summary).toContain("PI WEB diagnostics");
+    expect(summary).toContain("Status: unavailable");
+    expect(summary).toContain("Machine: devbox (local machine)");
+    expect(summary).toContain("Workspace: pi-web — /srv/dev/pi-web (branch main, git repo, main workspace)");
   });
 });
+
+function findCopyDiagnosticsAction() {
+  const action = plugin.activate({ apiVersion: 1, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
+  if (action === undefined) throw new Error("Expected copy-diagnostics action");
+  return action;
+}
+
+function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
+  const noop = () => undefined;
+  return {
+    state: {},
+    prompt: { insertText: noop, getText: () => "", getSelection: () => null },
+    openActionPalette: noop,
+    focusPrompt: noop,
+    addProject: noop,
+    configureAuth: noop,
+    logoutAuth: noop,
+    openThemePicker: noop,
+    selectMainView: noop,
+    selectWorkspaceTool: noop,
+    openTerminal: noop,
+    refreshFiles: noop,
+    refreshGit: noop,
+    refreshAppData: noop,
+    reloadPage: noop,
+    startSession: noop,
+    archiveSession: noop,
+    stopActiveWork: noop,
+    ...patch,
+  };
+}

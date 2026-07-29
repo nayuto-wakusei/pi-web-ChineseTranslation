@@ -1,5 +1,5 @@
 import type { TemplateResult } from "lit";
-import type { FileContentResponse, MachineKind, PiWebStatusResponse, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse } from "./shared/apiTypes.js";
+import type { FileContentResponse, FileTreeResponse, MachineKind, PiWebStatusResponse, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse } from "./shared/apiTypes.js";
 
 export type {
   FileContentMediaType,
@@ -66,6 +66,8 @@ export interface PluginMachine {
 }
 
 export interface PluginRuntimeState {
+  /** Identity of the currently selected machine. Undefined only on older hosts or before machines load. */
+  selectedMachine?: PluginMachine;
   selectedWorkspace?: Workspace;
   selectedSession?: unknown;
   workspaceTool?: string;
@@ -133,6 +135,8 @@ export interface Workspace {
 export interface WorkspaceFiles {
   /** Read a file from the workspace. Works for local and federated machines. */
   readFile(path: string): Promise<FileContentResponse>;
+  /** List entries in a workspace directory. Pass an empty path for the root. */
+  listFiles(path: string): Promise<FileTreeResponse>;
   /** Read an optional file without treating a missing path as an error. */
   readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
   /** Write content to a workspace file. Creates intermediate directories by default.

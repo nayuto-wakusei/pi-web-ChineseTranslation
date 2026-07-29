@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defaultPiWebConfigPath, defaultPiWebDataDir, effectivePiWebConfig, examplePiWebConfig } from "./config.js";
 import { packageVersion, printPiWebVersionReport } from "./piWebVersionReport.js";
 import { checkNodePtyDarwinSpawnHelper, formatNodePtyDarwinSpawnHelperCheck } from "./server/diagnostics/nodePtySpawnHelper.js";
+import { checkNodePtyNativeModule, formatNodePtyNativeModuleCheck } from "./server/diagnostics/nodePtyNativeModule.js";
 import {
   installNativeServiceCandidate,
   nativeServiceInstallFailureNeedsPathAdvice,
@@ -15,6 +16,7 @@ import {
   type NativeServiceInstallFailure,
 } from "./nativeServices/serviceInstall.js";
 import {
+  minimumSupportedNodeVersion,
   nativeServiceManagerRefs,
   productionNativeServiceIds,
   type NativeServiceBackend,
@@ -663,6 +665,9 @@ async function install(args: string[]): Promise<void> {
   console.log(`Running PI WEB ${options.mode} install preflight checks...`);
   console.log(`Service backend: ${backend.label}`);
   console.log(`Service shell: ${describeServiceShell()}`);
+  if (!printNodePtyNativeModuleCheck()) {
+    throw new Error("Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail.");
+  }
   const result = await installNativeServiceCandidate(candidate, {
     probe: createNativeServiceAuthoritativeProbe(),
     fileExists: regularFileExists,
@@ -772,11 +777,14 @@ export function commandWithVersionCheck(command: string): string {
   return `${found} && (${commandWord} --version 2>&1 || true)`;
 }
 
-function nodeVersionCheck(): string {
-  return [
-    commandCheck("node"),
-    "node -e \"const major = Number(process.versions.node.split('.')[0]); console.log(process.version); process.exit(major >= 22 ? 0 : 1);\"",
-  ].join(" && ");
+export function nodeVersionCheck(): string {
+  return nativeServicePrerequisiteShellCheck(detectServiceShell().name, {
+    id: "caller.node",
+    kind: "node-version",
+    command: "node",
+    minimumVersion: minimumSupportedNodeVersion,
+    description: `node >= ${minimumSupportedNodeVersion}`,
+  });
 }
 
 export function agentCommandForChecks(env: NodeJS.ProcessEnv = process.env): string {
@@ -787,7 +795,7 @@ function generalDoctorChecks(): Check[] {
   const shell = serviceShellLabel();
   const agentCommand = agentCommandForChecks();
   return [
-    [`Caller login ${shell} can find node >= 22`, serviceShellCommand(nodeVersionCheck())],
+    [`Caller login ${shell} can find node >= ${minimumSupportedNodeVersion}`, serviceShellCommand(nodeVersionCheck())],
     [`Caller login ${shell} can find npm`, serviceShellCommand(commandWithVersionCheck("npm"))],
     [`Caller login ${shell} can find ${agentCommand}`, serviceShellCommand(commandWithVersionCheck(agentCommand))],
   ];
@@ -963,9 +971,9 @@ function printPathSetupAdvice(shell: NativeServiceShell = detectServiceShell()):
 export function doctorExitCode(
   generalReadinessOk: boolean,
   nativeServicePlanOk: boolean,
-  nodePtySpawnHelperOk: boolean,
+  nodePtyRuntimeOk: boolean,
 ): 0 | 1 {
-  return generalReadinessOk && nativeServicePlanOk && nodePtySpawnHelperOk ? 0 : 1;
+  return generalReadinessOk && nativeServicePlanOk && nodePtyRuntimeOk ? 0 : 1;
 }
 
 async function doctor(): Promise<void> {
@@ -982,7 +990,10 @@ async function doctor(): Promise<void> {
   console.log("\nGeneral login-shell readiness (separate from native-service requirements):");
   const generalReadinessOk = runChecks(generalDoctorChecks());
   printOptionalDoctorChecks();
-  const nodePtySpawnHelperOk = printNodePtyDarwinSpawnHelperCheck();
+
+  console.log("\nNative terminal runtime readiness:");
+  const nodePtyNativeModuleOk = printNodePtyNativeModuleCheck();
+  const nodePtySpawnHelperOk = nodePtyNativeModuleOk ? printNodePtyDarwinSpawnHelperCheck() : true;
 
   let nativeServiceReport: NativeServiceDoctorReport | null = null;
   if (backend !== undefined) {
@@ -1021,7 +1032,13 @@ async function doctor(): Promise<void> {
     console.log(`\n${manualRunAdvice()}`);
   }
 
-  if (doctorExitCode(generalReadinessOk, nativeServicePlanOk, nodePtySpawnHelperOk) !== 0) process.exitCode = 1;
+  if (doctorExitCode(generalReadinessOk, nativeServicePlanOk, nodePtyNativeModuleOk && nodePtySpawnHelperOk) !== 0) process.exitCode = 1;
+}
+
+function printNodePtyNativeModuleCheck(): boolean {
+  const result = formatNodePtyNativeModuleCheck(checkNodePtyNativeModule());
+  for (const line of result.lines) console.log(line);
+  return result.ok;
 }
 
 function printNodePtyDarwinSpawnHelperCheck(): boolean {
@@ -1045,7 +1062,7 @@ Usage:
   pi-web version
 
 Recommended install:
-  npm install -g @chainingintention/pi-web-cn
+  npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty
   pi-web install
 
 Development service install from a checkout:

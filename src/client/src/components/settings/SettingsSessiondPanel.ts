@@ -5,7 +5,7 @@ import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import { agentProfileConfigPatchFromDraft, agentProfileDraftFromConfig, agentProfileDraftMatchesConfig, emptyAgentProfileConfigDraft, type AgentProfileConfigDraft } from "./settingsConfigDraft";
 import type { AgentProfileSettingsSupport } from "./settingsMachineTarget";
-import { agentDirFieldOverridden, agentProfileActivationState, spawnSessionsConfigPatch, subsessionsConfigPatch } from "./settingsSessiondConfig";
+import { agentDirFieldOverridden, agentProfileActivationState, askUserConfigPatch, spawnSessionsConfigPatch, subsessionsConfigPatch } from "./settingsSessiondConfig";
 
 @customElement("settings-sessiond-panel")
 export class SettingsSessiondPanel extends LitElement {
@@ -47,6 +47,11 @@ export class SettingsSessiondPanel extends LitElement {
     const subsessionsOverridden = config?.envOverrides.subsessions === true;
     // Beta, off by default; also requires spawn to be enabled.
     const effectiveSubsessions = config?.effectiveConfig.subsessions === true && effectiveSpawn;
+    // Current servers always resolve this on-by-default setting. Absence means
+    // an older selected machine cannot persist it yet.
+    const askUserSupported = config?.effectiveConfig.askUser !== undefined;
+    const askUserOverridden = config?.envOverrides.askUser === true;
+    const effectiveAskUser = config?.effectiveConfig.askUser === true;
     const agentCommandOverridden = config?.envOverrides.agentCommand === true;
     const profileEditingSupported = this.agentProfileSupport.state === "supported";
     const draftCommand = agentCommandOverridden ? (config.effectiveConfig.agent?.command ?? this.agentDraft.command) : this.agentDraft.command;
@@ -141,6 +146,25 @@ export class SettingsSessiondPanel extends LitElement {
             </label>
             <small>Beta：代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认关闭。</small>
           </div>
+          <div class="field">
+            <span class="field-heading">
+              <span>允许代理提问</span>
+              ${askUserOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+            </span>
+            <label class="toggle">
+              <input
+                type="checkbox"
+                aria-label="启用代理提问"
+                .checked=${effectiveAskUser}
+                ?disabled=${this.loading || this.saving || askUserOverridden || !askUserSupported}
+                @change=${(event: Event) => { void this.toggleAskUser(event); }}
+              >
+              <span>启用 <code>ask_user</code> 工具</span>
+            </label>
+            <small>${askUserSupported
+              ? html`代理可以发出结构化问题表单，并暂停等待用户回答。默认启用。`
+              : html`当前机器未提供代理提问设置。请更新并重启该机器上的 PI WEB。`}</small>
+          </div>
           <section class="effective-card" aria-label="最终生效配置摘要">
             <h3>环境变量覆盖后的生效配置</h3>
             <dl>
@@ -151,6 +175,7 @@ export class SettingsSessiondPanel extends LitElement {
               <div><dt>配置档案状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
               <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
               <div><dt>子会话</dt><dd>${effectiveSubsessions ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
+              <div><dt>代理提问</dt><dd>${!askUserSupported ? html`<span class="muted">不可用</span>` : effectiveAskUser ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
             </dl>
           </section>
         `}
@@ -202,6 +227,11 @@ export class SettingsSessiondPanel extends LitElement {
   private async toggleSubsessions(event: Event): Promise<void> {
     const enabled = event.target instanceof HTMLInputElement && event.target.checked;
     await this.onSave?.(subsessionsConfigPatch(enabled));
+  }
+
+  private async toggleAskUser(event: Event): Promise<void> {
+    const enabled = event.target instanceof HTMLInputElement && event.target.checked;
+    await this.onSave?.(askUserConfigPatch(enabled));
   }
 
   static override styles = css`
@@ -266,6 +296,44 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function sessiondDescription(targetLabel: string): string {
+export function sessiondDescription(targetLabel: string): string {
   return `这些设置会影响 ${targetLabel} 上长生命周期的会话运行时。更改会立即保存，但只有在该机器的会话守护进程重启后才会生效。`;
+}
+
+export interface SessiondPanelNoticeContext {
+  readonly error: string;
+  readonly savedMessage: string;
+  readonly activeProfile: ActiveAgentProfileDescriptor | undefined;
+  readonly targetLabel: string;
+  readonly profileEditingSupported: boolean;
+}
+
+/**
+ * Compute the session-daemon panel's notice stack (error, saved, and
+ * profile-activation guidance) as a pure, publicly testable seam so tests assert
+ * the dynamic notice logic and ordering here instead of scraping rendered
+ * `TemplateResult` internals.
+ */
+export function sessiondPanelNotices(
+  config: PiWebConfigResponse | undefined,
+  context: SessiondPanelNoticeContext,
+): readonly SettingsNotice[] {
+  const notices: SettingsNotice[] = [];
+  if (context.error !== "") notices.push({ type: "error", content: context.error });
+  if (context.savedMessage !== "") notices.push({ type: "success", content: context.savedMessage });
+  const activation = agentProfileActivationState(config, context.activeProfile);
+  if (activation === "restart-required") {
+    notices.push({
+      type: "warning",
+      title: `Pi-compatible agent profile restart required on ${context.targetLabel}`,
+      content: html`The desired profile differs from the active session-daemon profile. Run <code>pi-web restart</code> on that machine (or restart its session daemon service) to apply the command and state directory together.`,
+    });
+  } else if (config !== undefined && activation === "unavailable" && context.profileEditingSupported) {
+    notices.push({
+      type: "info",
+      title: `Active Pi-compatible agent profile unavailable on ${context.targetLabel}`,
+      content: "PI WEB cannot compare the desired profile with the running session daemon. Reload after the daemon is available.",
+    });
+  }
+  return notices;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatTranscriptStore, transcriptViewFromHistory, type ChatHistoryCacheAdapter } from "./chatTranscriptStore";
+import { ChatTranscriptStore, type ChatHistoryCacheAdapter } from "./chatTranscriptStore";
 import type { RawMessagePage } from "./chatHistoryCache";
 
 class MemoryChatHistoryCache implements ChatHistoryCacheAdapter {
@@ -32,19 +32,6 @@ describe("ChatTranscriptStore", () => {
       messagePageEnd: 2,
       messagePageTotal: 2,
     });
-  });
-
-  it("preserves raw transcript positions on normalized history messages", () => {
-    const view = transcriptViewFromHistory({
-      messages: [
-        { role: "user", content: "question" },
-        { role: "assistant", content: [{ type: "text", text: "answer" }] },
-      ],
-      start: 12,
-      total: 20,
-    });
-
-    expect(view.messages.map((message) => message.transcriptIndex)).toEqual([12, 13]);
   });
 
   it("tracks the raw page end separately from normalized display messages", () => {

@@ -1,8 +1,16 @@
 import type {
+  AskUserCloseResponse,
+  AskUserSubmission,
   SavedPromptAttachment,
   SessionBulkArchiveResponse,
   SessionBulkDeleteArchivedResponse,
   SessionBulkMutationRef,
+  SessionNotificationCatalogSnapshot,
+  SessionNotificationDismissAllRequest,
+  SessionNotificationDismissRequest,
+  SessionNotificationInboxSnapshot,
+  SessionUnreadAcknowledgeRequest,
+  SessionUnreadCatalogSnapshot,
 } from "../../shared/apiTypes.js";
 import type {
   ClientArchiveSessionsResponse,
@@ -16,10 +24,12 @@ import type {
   ClientSessionModel,
   ClientSessionRef,
   ClientSessionStatus,
-  SessionStreamSnapshot,
+  ClientSessionTreeNavigateRequest,
+  ClientSessionTreeNavigateResult,
   SessionPinResponse,
   SessionPinnedIdsResponse,
   ClientThinkingLevel,
+  SessionStreamSnapshot,
 } from "../types.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
@@ -40,11 +50,20 @@ export interface SessionRouteService {
   searchContent(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionContentSearchResponse>;
   listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse>;
   setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
-  start(cwd: string, options?: { managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
+  start(cwd: string, options?: { startupToken?: string; managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   streamSnapshot(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot>;
+  notificationCatalog(): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;
+  unreadCatalog(): Promise<SessionUnreadCatalogSnapshot>;
+  acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest): Promise<SessionUnreadCatalogSnapshot>;
+  notificationInbox(ref: SessionRouteRef): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
+  dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
+  dismissAllNotifications(ref: SessionRouteRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
+  cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
+  dismissWarning(ref: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   cycleModel(ref: SessionRouteLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
@@ -61,6 +80,7 @@ export interface SessionRouteService {
   shell(ref: SessionRouteLookup, text: string, managementContext?: ManagementEmbedContext): Promise<void>;
   runCommand(ref: SessionRouteLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult>;
   respondToCommand(ref: SessionRouteLookup, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult>;
+  navigateTree(ref: SessionRouteLookup, request: ClientSessionTreeNavigateRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeNavigateResult>;
   abort(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<void>;
   stop(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): void | Promise<void>;
   archive(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<void>;

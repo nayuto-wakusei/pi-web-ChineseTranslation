@@ -1,33 +1,38 @@
+// Skeleton of a PI WEB plugin: metadata plus contribution definitions.
+//
+// Everything the bundled Info panel and action actually render lives in
+// infoInternals.ts. That file is replaceable implementation detail — when
+// copying this plugin as a starting point, keep this file's shape and swap
+// the internals for your own.
+
 import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
+import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "信息插件",
+  name: "Info Plugin",
   activate: ({ html, svg }) => ({
     contributions: {
       actions: [
         {
-          id: "workspace.show-path",
-          title: "显示当前工作区路径",
-          group: "信息",
-          enabled: (context) => context.state.selectedWorkspace !== undefined,
-          run: (context) => {
-            const path = context.state.selectedWorkspace?.path ?? "未选择工作区";
-            window.alert(path);
-          },
+          id: "copy-diagnostics",
+          title: "Copy PI WEB Diagnostics",
+          description: "Copy version, installation, and status details for this machine, ready to paste into a bug report",
+          group: "Info",
+          run: (context) => copyDiagnostics(context),
         },
       ],
       workspaceLabels: [
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "git" : "文件夹", title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "git" : "folder", title: context.workspace.path }],
         },
       ],
       workspacePanels: [
         {
           id: "workspace.info",
-          title: "信息",
+          title: "Info",
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"></circle>
@@ -36,14 +41,7 @@ const plugin: PiWebPlugin = {
             </svg>
           `,
           order: 1000,
-          render: (context) => html`
-            <section class="toolbar"><strong>信息</strong></section>
-            <section class="viewer">
-              <p><strong>工作区</strong></p>
-              <p class="muted">${context.workspace.label}</p>
-              <p class="muted">${context.workspace.path}</p>
-            </section>
-          `,
+          render: (context) => renderInfoPanel(html, context),
         },
       ],
     },

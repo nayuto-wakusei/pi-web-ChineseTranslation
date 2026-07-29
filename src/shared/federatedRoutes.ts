@@ -1,6 +1,7 @@
 export type FederatedHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export const PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS = 5 * 60_000;
+export const SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 
 export interface FederatedHttpRouteSpec {
   method: FederatedHttpMethod;
@@ -52,6 +53,8 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/sessions/search-content" },
   { method: "GET", path: "/sessions/pins" },
   { method: "POST", path: "/sessions" },
+  { method: "GET", path: "/sessions/unread" },
+  { method: "GET", path: "/sessions/notifications" },
   { method: "POST", path: "/sessions/cleanup/preview" },
   { method: "POST", path: "/sessions/cleanup" },
   { method: "POST", path: "/sessions/bulk/archive" },
@@ -60,6 +63,10 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "PUT", path: "/sessions/:sessionId/pin" },
   { method: "DELETE", path: "/sessions/:sessionId/pin" },
   { method: "GET", path: "/sessions/:sessionId/status" },
+  { method: "GET", path: "/sessions/:sessionId/notifications" },
+  { method: "POST", path: "/sessions/:sessionId/notifications/dismiss" },
+  { method: "POST", path: "/sessions/:sessionId/notifications/dismiss-all" },
+  { method: "POST", path: "/sessions/:sessionId/unread/acknowledge" },
   { method: "GET", path: "/sessions/:sessionId/stream-snapshot" },
   { method: "GET", path: "/sessions/:sessionId/models" },
   { method: "POST", path: "/sessions/:sessionId/model" },
@@ -70,10 +77,14 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/sessions/:sessionId/commands" },
   { method: "POST", path: "/sessions/:sessionId/prompt" },
   { method: "POST", path: "/sessions/:sessionId/queue/clear" },
+  { method: "POST", path: "/sessions/:sessionId/ask/submit" },
+  { method: "POST", path: "/sessions/:sessionId/ask/cancel" },
+  { method: "POST", path: "/sessions/:sessionId/warnings/dismiss" },
   { method: "POST", path: "/sessions/:sessionId/attachments" },
   { method: "POST", path: "/sessions/:sessionId/shell" },
   { method: "POST", path: "/sessions/:sessionId/commands/run" },
   { method: "POST", path: "/sessions/:sessionId/commands/respond" },
+  { method: "POST", path: "/sessions/:sessionId/tree/navigate", timeoutMs: SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS },
   { method: "POST", path: "/sessions/:sessionId/abort" },
   { method: "POST", path: "/sessions/:sessionId/stop" },
   { method: "POST", path: "/sessions/:sessionId/archive" },
@@ -84,6 +95,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/sessions/:sessionId/detach-parent" },
   { method: "GET", path: "/auth/providers" },
   { method: "POST", path: "/auth/api-key" },
+  { method: "POST", path: "/auth/api-key/interactive" },
   { method: "POST", path: "/auth/logout" },
   { method: "POST", path: "/auth/oauth" },
   { method: "GET", path: "/auth/oauth/:flowId" },

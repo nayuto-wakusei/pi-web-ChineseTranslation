@@ -303,6 +303,12 @@ function trimReplayBuffer(buffer: string): string {
   return buffer.slice(buffer.length - MAX_REPLAY_BUFFER);
 }
 
+export function interactiveShellArgs(shell: string): string[] {
+  const executable = shell.split(/[\\/]/).at(-1)?.toLowerCase().replace(/^-/, "").replace(/\.exe$/, "");
+  // Preserve the existing invocation for arbitrary SHELL values rather than guessing at an unsupported login flag.
+  return executable === "bash" || executable === "zsh" || executable === "fish" ? ["-l"] : [];
+}
+
 function commandRunShellScript(command: string): string {
   return `printf '%s\\n' ${shellQuote(`$ ${command}`)}\n${command}`;
 }

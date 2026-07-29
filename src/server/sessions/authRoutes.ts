@@ -28,6 +28,14 @@ export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthService
     }
   });
 
+  app.post<{ Querystring: AuthQuery; Body: { providerId: string } }>(`${prefix}/auth/api-key/interactive`, async (request, reply) => {
+    try {
+      return await (await authForRequest(auth, request.headers, request.query.projectId)).startApiKeyLogin(request.body.providerId);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post<{ Querystring: AuthQuery; Body: { providerId: string } }>(`${prefix}/auth/logout`, async (request, reply) => {
     try {
       return await (await authForRequest(auth, request.headers, request.query.projectId)).logoutProvider(request.body.providerId);
@@ -38,7 +46,7 @@ export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthService
 
   app.post<{ Querystring: AuthQuery; Body: { providerId: string } }>(`${prefix}/auth/oauth`, async (request, reply) => {
     try {
-      return (await authForRequest(auth, request.headers, request.query.projectId)).startOAuthLogin(request.body.providerId);
+      return await (await authForRequest(auth, request.headers, request.query.projectId)).startOAuthLogin(request.body.providerId);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

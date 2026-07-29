@@ -10,6 +10,7 @@ import { filterManagedGlobalContextFiles, PiSessionService, type PiAgentSession,
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
+import { testExtensionUiContext } from "./piSessionService.testSupport.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent; scope?: string }[] = [];
@@ -110,8 +111,9 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
     modelRuntime: fakeModelRuntime(),
+    settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined },
     scopedModels: [],
-    extensionRunner: { getRegisteredCommands: () => [] },
+    extensionRunner: { getRegisteredCommands: () => [], getUIContext: () => testExtensionUiContext, setUIContext: () => undefined },
     promptTemplates: [],
     resourceLoader: { getSkills: () => ({ skills: [] }) },
     subscribe: (listener: (event: unknown) => void) => {
@@ -1505,7 +1507,7 @@ describe("PiSessionService", () => {
     });
 
     await service.status(sessionRef("stop-session"));
-    service.stop(sessionRef("stop-session"));
+    await service.stop(sessionRef("stop-session"));
 
     expect(fake.calls.clearQueue).toBe(1);
     await service.dispose();

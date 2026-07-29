@@ -1,11 +1,15 @@
-import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileContentResponse, FileTreeEntry } from "../api";
 import { initialAppState } from "../appState";
 import type { WorkspacePanelContext } from "../plugins/types";
 import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
-import { WorkspaceFilesPanel, canDownloadWorkspacePath, selectedWorkspacePathKind, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
-import { isTemplateResult, templateStrings, templateValues } from "../templateInspection.testSupport";
+// Genuine Lit event-wiring extraction (upload input/form submit and file-tree
+// row clicks) routes through the shared, type-guarded template-inspection escape
+// hatch; see ../templateInspection.testSupport for the proportionality
+// rationale. Viewer content messaging is asserted via the public
+// workspaceFileViewerStatusLabel seam instead of scraping Lit markup.
+import { findOptionalTemplateEventHandlerAfterMarker, templateClickHandlerForText, templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
+import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceFileViewerStatusLabel, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -19,14 +23,14 @@ describe("workspace-files-panel upload review", () => {
     const panel = new WorkspaceFilesPanel();
     panel.context = workspacePanelContext({ workspaceUploadDefaultFolder: "project/uploads", onStartWorkspaceUpload });
 
-    const inputChange = findTemplateEventHandler<Event>(panel.render(), `id="workspace-upload-input"`);
+    const inputChange = templateEventHandlerAfterMarker(panel.render(), `id="workspace-upload-input"`);
     const input = new FakeHTMLInputElement(files);
     inputChange(new EventWithCurrentTarget("change", input));
 
     expect(input.value).toBe("");
     expect(onStartWorkspaceUpload).not.toHaveBeenCalled();
 
-    const submit = findTemplateEventHandler<SubmitEvent>(panel.render(), "<form @submit=");
+    const submit = templateEventHandlerAfterMarker<SubmitEvent>(panel.render(), "<form @submit=");
     const submitEvent = new FakeSubmitEvent("submit", { cancelable: true });
     submit(submitEvent);
 
@@ -37,7 +41,7 @@ describe("workspace-files-panel upload review", () => {
       overwrite: false,
       selectUploadedFile: true,
     });
-    expect(findOptionalTemplateEventHandler<SubmitEvent>(panel.render(), "<form @submit=")).toBeUndefined();
+    expect(findOptionalTemplateEventHandlerAfterMarker<SubmitEvent>(panel.render(), "<form @submit=")).toBeUndefined();
   });
 });
 
@@ -46,7 +50,7 @@ describe("workspace-files-panel file tree boundary", () => {
     const onExpandDir = vi.fn<WorkspacePanelContext["onExpandDir"]>();
     const onSelectFile = vi.fn<WorkspacePanelContext["onSelectFile"]>();
     const panel = new WorkspaceFilesPanel();
-    const context = workspacePanelContext({
+    panel.context = workspacePanelContext({
       fileTree: [directoryEntry("src"), fileEntry("README.md", 4096)],
       expandedDirs: { src: [fileEntry("src/main.ts")] },
       selectedFilePath: "README.md",
@@ -54,23 +58,38 @@ describe("workspace-files-panel file tree boundary", () => {
       onExpandDir,
       onSelectFile,
     });
-    panel.context = context;
 
     const rendered = panel.render();
-    const text = collectTemplateText(rendered);
 
-    expect(text).toContain("▾");
-    expect(text).toContain("src");
-    expect(text).toContain("main.ts");
-    expect(text).toContain("README.md");
-    expect(text).toContain("二进制文件：README.md · 4.0 KB");
-    expect(text).not.toContain("请选择文件。");
-
-    findTemplateClickHandlerForText<Event>(renderTreeEntry(panel, context, directoryEntry("src")), "src")(new Event("click"));
-    findTemplateClickHandlerForText<Event>(renderTreeEntry(panel, context, fileEntry("README.md", 4096)), "README.md")(new Event("click"));
+    // The nested child (main.ts) is only reachable when the expanded directory
+    // actually renders its children, so a working click handler on it proves the
+    // expanded-tree structure without scraping markup for the row text.
+    templateClickHandlerForText(rendered, "main.ts")(new Event("click"));
+    templateClickHandlerForText(rendered, "src")(new Event("click"));
+    templateClickHandlerForText(rendered, "README.md")(new Event("click"));
 
     expect(onExpandDir).toHaveBeenCalledWith("src");
+    expect(onSelectFile).toHaveBeenCalledWith("src/main.ts");
     expect(onSelectFile).toHaveBeenCalledWith("README.md");
+
+    // Viewer messaging (selected binary file) is a content concern; assert it
+    // through the public seam rather than the rendered template.
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({
+      selectedFilePath: "README.md",
+      selectedFileContent: binaryFileContent("README.md", 4096),
+    }))).toBe("Binary file: README.md · 4.0 KB");
+  });
+});
+
+describe("workspaceFileViewerStatusLabel", () => {
+  it("messages empty, loading, and binary viewer states while deferring to real viewers", () => {
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: undefined }))).toBe("Select a file.");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "" }))).toBe("Select a file.");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "notes.md", selectedFileContent: undefined }))).toBe("Loading notes.md…");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({
+      selectedFilePath: "logo.png",
+      selectedFileContent: { ...binaryFileContent("logo.png", 10), mediaType: "image" },
+    }))).toBeUndefined();
   });
 });
 
@@ -94,7 +113,7 @@ describe("workspace upload terminal display", () => {
   it("uses terminal labels and full progress for failed batches instead of stale partial percentages", () => {
     const failed = uploadBatch({ status: "error", percent: 0.31 });
 
-    expect(uploadBatchStatusLabel(failed)).toBe("失败");
+    expect(uploadBatchStatusLabel(failed)).toBe("Failed");
     expect(uploadBatchProgressValue(failed)).toBe(1);
   });
 
@@ -138,34 +157,6 @@ describe("workspace upload defaults", () => {
   });
 });
 
-describe("workspace file actions", () => {
-  it("only enables downloads for selected files", () => {
-    expect(canDownloadWorkspacePath("README.md", "file")).toBe(true);
-    expect(canDownloadWorkspacePath("src", "directory")).toBe(false);
-    expect(canDownloadWorkspacePath(undefined, undefined)).toBe(false);
-    expect(canDownloadWorkspacePath("", undefined)).toBe(false);
-  });
-
-  it("uses the selected directory for new path defaults", () => {
-    expect(workspaceNewPathDefault("src", "directory", "new-file.txt")).toBe("src/new-file.txt");
-  });
-
-  it("uses the selected file parent directory for new path defaults", () => {
-    expect(workspaceNewPathDefault("src/index.ts", "file", "new-file.txt")).toBe("src/new-file.txt");
-  });
-
-  it("finds selected path kinds in root and expanded directory entries", () => {
-    expect(selectedWorkspacePathKind([
-      { name: "src", path: "src", type: "directory", modifiedAt: "2026-06-29T00:00:00.000Z" },
-    ], {
-      src: [{ name: "index.ts", path: "src/index.ts", type: "file", size: 1, modifiedAt: "2026-06-29T00:00:00.000Z" }],
-    }, "src")).toBe("directory");
-    expect(selectedWorkspacePathKind([], {
-      src: [{ name: "index.ts", path: "src/index.ts", type: "file", size: 1, modifiedAt: "2026-06-29T00:00:00.000Z" }],
-    }, "src/index.ts")).toBe("file");
-  });
-});
-
 describe("workspaceUploadReviewError", () => {
   it("accepts one or more files with a workspace-relative destination", () => {
     expect(workspaceUploadReviewError([
@@ -175,107 +166,10 @@ describe("workspaceUploadReviewError", () => {
   });
 
   it("rejects empty selections and unsafe destinations before starting an upload", () => {
-    expect(workspaceUploadReviewError([], ".pi-web/uploads")).toBe("请至少选择一个要上传的文件。");
+    expect(workspaceUploadReviewError([], ".pi-web/uploads")).toBe("Choose at least one file to upload.");
     expect(workspaceUploadReviewError([new File(["a"], "a.txt")], "../outside")).toContain("path traversal");
   });
 });
-
-type TemplateEventHandler<E extends Event> = (event: E) => void;
-
-function findTemplateEventHandler<E extends Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> {
-  const handler = findOptionalTemplateEventHandler<E>(template, marker);
-  if (handler === undefined) throw new Error(`Expected template event handler after ${marker}`);
-  return handler;
-}
-
-function findOptionalTemplateEventHandler<E extends Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> | undefined {
-  return findInTemplate(template);
-
-  function findInTemplate(current: TemplateResult): TemplateEventHandler<E> | undefined {
-    const strings = templateStrings(current);
-    const values = templateValues(current);
-    for (let index = 0; index < values.length; index += 1) {
-      const staticChunk = strings[index];
-      const value = values[index];
-      if (staticChunk !== undefined && staticChunk.includes(marker) && isTemplateEventHandler<E>(value)) return value;
-      const nestedHandler = findInValue(value);
-      if (nestedHandler !== undefined) return nestedHandler;
-    }
-    return undefined;
-  }
-
-  function findInValue(value: unknown): TemplateEventHandler<E> | undefined {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const nestedHandler = findInValue(item);
-        if (nestedHandler !== undefined) return nestedHandler;
-      }
-      return undefined;
-    }
-    if (isTemplateResult(value)) return findInTemplate(value);
-    return undefined;
-  }
-}
-
-// Node-based Lit tests cannot click shadow DOM here; keep direct handler extraction
-// anchored to rendered file labels and assert the observable context callbacks.
-function findTemplateClickHandlerForText<E extends Event>(template: TemplateResult, text: string): TemplateEventHandler<E> {
-  const handler = findOptionalTemplateClickHandlerForText<E>(template, text);
-  if (handler === undefined) throw new Error(`Expected click handler near ${text}`);
-  return handler;
-}
-
-function renderTreeEntry(panel: WorkspaceFilesPanel, context: WorkspacePanelContext, entry: FileTreeEntry): TemplateResult {
-  const method: unknown = Reflect.get(panel, "renderTreeEntry");
-  if (typeof method !== "function") throw new Error("WorkspaceFilesPanel.renderTreeEntry is not callable");
-  const rendered: unknown = Reflect.apply(method, panel, [context, entry, 0]);
-  if (!isTemplateResult(rendered)) throw new Error("WorkspaceFilesPanel.renderTreeEntry did not return a template");
-  return rendered;
-}
-
-function findOptionalTemplateClickHandlerForText<E extends Event>(value: unknown, text: string): TemplateEventHandler<E> | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const nestedHandler = findOptionalTemplateClickHandlerForText<E>(item, text);
-      if (nestedHandler !== undefined) return nestedHandler;
-    }
-    return undefined;
-  }
-  if (!isTemplateResult(value)) return undefined;
-
-  for (const item of templateValues(value)) {
-    const nestedHandler = findOptionalTemplateClickHandlerForText<E>(item, text);
-    if (nestedHandler !== undefined) return nestedHandler;
-  }
-  if (!templateValues(value).some((item) => item === text)) return undefined;
-
-  const strings = templateStrings(value);
-  const values = templateValues(value);
-  for (let index = 0; index < values.length; index += 1) {
-    const staticChunk = strings[index];
-    const candidate = values[index];
-    if (staticChunk !== undefined && staticChunk.includes("@click") && isTemplateEventHandler<E>(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-function collectTemplateText(value: unknown): string {
-  if (Array.isArray(value)) return value.map((item) => collectTemplateText(item)).join("");
-  if (isTemplateResult(value)) {
-    const strings = templateStrings(value);
-    const values = templateValues(value);
-    return strings.map((part, index) => `${part}${index < values.length ? collectTemplateText(values[index]) : ""}`).join("");
-  }
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-
-
-
-function isTemplateEventHandler<E extends Event>(value: unknown): value is TemplateEventHandler<E> {
-  return typeof value === "function";
-}
-
 
 class FakeFileList implements FileList {
   readonly length: number;
@@ -349,6 +243,7 @@ function workspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): Work
     state: patch.state ?? { ...initialAppState(), workspaceUploadBatches: {} },
     files: patch.files ?? {
       readFile: vi.fn<WorkspacePanelContext["files"]["readFile"]>(() => Promise.reject(new Error("not implemented"))),
+      listFiles: vi.fn<WorkspacePanelContext["files"]["listFiles"]>(() => Promise.reject(new Error("not implemented"))),
       writeFile: vi.fn<WorkspacePanelContext["files"]["writeFile"]>(() => Promise.reject(new Error("not implemented"))),
       deleteFile: vi.fn<WorkspacePanelContext["files"]["deleteFile"]>(() => Promise.reject(new Error("not implemented"))),
       moveFile: vi.fn<WorkspacePanelContext["files"]["moveFile"]>(() => Promise.reject(new Error("not implemented"))),
@@ -370,14 +265,14 @@ function workspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): Work
     selectedTerminalId: patch.selectedTerminalId,
     terminalAutoStart: patch.terminalAutoStart ?? false,
     workspaceUploadDefaultFolder: patch.workspaceUploadDefaultFolder ?? ".pi-web/uploads",
-    onRefreshFiles: vi.fn<WorkspacePanelContext["onRefreshFiles"]>(),
-    onCreateFile: vi.fn<WorkspacePanelContext["onCreateFile"]>(),
-    onCreateDirectory: vi.fn<WorkspacePanelContext["onCreateDirectory"]>(),
-    onMoveSelectedPath: vi.fn<WorkspacePanelContext["onMoveSelectedPath"]>(),
-    onDeleteSelectedPath: vi.fn<WorkspacePanelContext["onDeleteSelectedPath"]>(),
-    onDownloadSelectedFile: vi.fn<WorkspacePanelContext["onDownloadSelectedFile"]>(),
+    onRefreshFiles: patch.onRefreshFiles ?? vi.fn<WorkspacePanelContext["onRefreshFiles"]>(),
+    onCreateFile: patch.onCreateFile ?? vi.fn<WorkspacePanelContext["onCreateFile"]>(),
+    onCreateDirectory: patch.onCreateDirectory ?? vi.fn<WorkspacePanelContext["onCreateDirectory"]>(),
+    onMoveSelectedPath: patch.onMoveSelectedPath ?? vi.fn<WorkspacePanelContext["onMoveSelectedPath"]>(),
+    onDeleteSelectedPath: patch.onDeleteSelectedPath ?? vi.fn<WorkspacePanelContext["onDeleteSelectedPath"]>(),
+    onDownloadSelectedFile: patch.onDownloadSelectedFile ?? vi.fn<WorkspacePanelContext["onDownloadSelectedFile"]>(),
     onExpandDir: patch.onExpandDir ?? vi.fn<WorkspacePanelContext["onExpandDir"]>(),
-    onSelectDirectory: vi.fn<WorkspacePanelContext["onSelectDirectory"]>(),
+    onSelectDirectory: patch.onSelectDirectory ?? vi.fn<WorkspacePanelContext["onSelectDirectory"]>(),
     onSelectFile: patch.onSelectFile ?? vi.fn<WorkspacePanelContext["onSelectFile"]>(),
     onStartWorkspaceUpload: patch.onStartWorkspaceUpload ?? vi.fn<WorkspacePanelContext["onStartWorkspaceUpload"]>(() => undefined),
     onCancelWorkspaceUpload: patch.onCancelWorkspaceUpload ?? vi.fn<WorkspacePanelContext["onCancelWorkspaceUpload"]>(),

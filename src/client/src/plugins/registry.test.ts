@@ -1,6 +1,6 @@
 import { html } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, MoveWorkspaceFileResponse, SessionInfo, SessionStatus, WriteWorkspaceFileResponse, Workspace } from "../api";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MoveWorkspaceFileResponse, SessionInfo, SessionStatus, WriteWorkspaceFileResponse, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
@@ -38,6 +38,8 @@ function createContext(statePatch: Partial<AppState> = {}) {
     configureAuth: vi.fn(() => { calls.push("configureAuth"); }),
     logoutAuth: vi.fn(() => { calls.push("logoutAuth"); }),
     openThemePicker: vi.fn(() => { calls.push("openThemePicker"); }),
+    openModelPicker: vi.fn(() => { calls.push("openModelPicker"); }),
+    openThinkingLevelPicker: vi.fn(() => { calls.push("openThinkingLevelPicker"); }),
     selectMainView: vi.fn((view: AppState["mainView"]) => { calls.push(`selectMainView:${view}`); }),
     selectWorkspaceTool: vi.fn((tool: AppState["workspaceTool"]) => { calls.push(`selectWorkspaceTool:${tool}`); }),
     openTerminal: vi.fn((options?: { terminalId?: string | undefined }) => { calls.push(`openTerminal:${options?.terminalId ?? ""}`); }),
@@ -249,6 +251,25 @@ describe("PluginRegistry", () => {
     expect(busy.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
   });
 
+  it("treats a session that is only starting up as having no work to stop or block", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+    const reloadRuntime = { local: { machineId: "local", ok: true as const, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsReload, PI_WEB_CAPABILITIES.sessionsPersistedState] } };
+    const startupActivity = { sessionId: "s1", phase: "active" as const, label: "Opening session", detail: "Starting the Pi session", at: "now", startup: true };
+
+    const opening = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }), status: testStatus({ persisted: true }), activity: startupActivity, machineRuntimes: reloadRuntime }).context);
+
+    // Nothing is being worked on, so there is nothing to stop and no reason to
+    // block a reload with "Stop current session activity before reloading".
+    expect(opening.find((action) => action.id === "core:session.stop")?.enabled).toBe(false);
+    expect(opening.find((action) => action.id === "core:session.reload")?.enabled).toBe(true);
+
+    // Real work is still real work, whatever else the session is doing.
+    const working = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }), status: testStatus({ persisted: true, isStreaming: true }), activity: startupActivity, machineRuntimes: reloadRuntime }).context);
+    expect(working.find((action) => action.id === "core:session.stop")?.enabled).toBe(true);
+    expect(working.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
+  });
+
   it("routes session reload through the runtime context", () => {
     const registry = new PluginRegistry();
     registry.register({ id: "core", plugin: corePlugin });
@@ -269,6 +290,34 @@ describe("PluginRegistry", () => {
     if (action !== undefined) void action.run();
 
     expect(calls).toEqual(["deleteCachedNewSession"]);
+  });
+
+  it("exposes model and thinking selectors as configurable actions for writable sessions", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+
+    const unavailable = registry.getActions(createContext().context);
+    expect(unavailable.find((action) => action.id === "core:model.select")?.enabled).toBe(false);
+    expect(unavailable.find((action) => action.id === "core:thinking.select")?.enabled).toBe(false);
+
+    const archivedSession = { ...testSession(), archived: true, archivedAt: "2026-05-20T00:00:00.000Z" };
+    const archived = registry.getActions(createContext({ selectedSession: archivedSession }).context);
+    expect(archived.find((action) => action.id === "core:model.select")?.enabled).toBe(false);
+    expect(archived.find((action) => action.id === "core:thinking.select")?.enabled).toBe(false);
+
+    const { context, calls } = createContext({ selectedSession: testSession() });
+    const actions = registry.getActions(context);
+    const modelAction = actions.find((action) => action.id === "core:model.select");
+    const thinkingAction = actions.find((action) => action.id === "core:thinking.select");
+    expect(modelAction).toMatchObject({ title: "Select Model", enabled: true });
+    expect(modelAction?.shortcut).toBeUndefined();
+    expect(thinkingAction).toMatchObject({ title: "Select Thinking Level", enabled: true });
+    expect(thinkingAction?.shortcut).toBeUndefined();
+
+    if (modelAction !== undefined) void modelAction.run();
+    if (thinkingAction !== undefined) void thinkingAction.run();
+
+    expect(calls).toEqual(["openModelPicker", "openThinkingLevelPicker"]);
   });
 
   it("routes refresh current to the active core workspace panel", () => {
@@ -415,7 +464,7 @@ describe("PluginRegistry", () => {
       context.host.requestRender();
       return [{ type: "text", text: context.machine.id }];
     });
-    const context = createWorkspaceLabelContext("remote-1", workspace, { files: { readFile, writeFile: vi.fn<WorkspaceFiles["writeFile"]>(() => Promise.resolve(testWriteFileResponse())), deleteFile: vi.fn<WorkspaceFiles["deleteFile"]>(() => Promise.resolve(testDeleteFileResponse())), moveFile: vi.fn<WorkspaceFiles["moveFile"]>(() => Promise.resolve(testMoveFileResponse())) }, host: { requestRender } });
+    const context = createWorkspaceLabelContext("remote-1", workspace, { files: { readFile, listFiles: vi.fn<WorkspaceFiles["listFiles"]>(() => Promise.resolve(testFileTreeResponse())), writeFile: vi.fn<WorkspaceFiles["writeFile"]>(() => Promise.resolve(testWriteFileResponse())), deleteFile: vi.fn<WorkspaceFiles["deleteFile"]>(() => Promise.resolve(testDeleteFileResponse())), moveFile: vi.fn<WorkspaceFiles["moveFile"]>(() => Promise.resolve(testMoveFileResponse())) }, host: { requestRender } });
 
     registry.register({
       id: "example",
@@ -625,7 +674,7 @@ function testWorkspace(patch: Partial<Workspace> = {}): Workspace {
 }
 
 function createWorkspaceLabelContext(machineId: string, workspace = testWorkspace(), helpers: Partial<Pick<WorkspaceLabelContext, "files" | "host">> = {}): WorkspaceLabelContext {
-  const files: WorkspaceFiles = helpers.files ?? { readFile: vi.fn<WorkspaceFiles["readFile"]>(() => Promise.resolve(testFileContent())), writeFile: vi.fn<WorkspaceFiles["writeFile"]>(() => Promise.resolve(testWriteFileResponse())), deleteFile: vi.fn<WorkspaceFiles["deleteFile"]>(() => Promise.resolve(testDeleteFileResponse())), moveFile: vi.fn<WorkspaceFiles["moveFile"]>(() => Promise.resolve(testMoveFileResponse())) };
+  const files: WorkspaceFiles = helpers.files ?? { readFile: vi.fn<WorkspaceFiles["readFile"]>(() => Promise.resolve(testFileContent())), listFiles: vi.fn<WorkspaceFiles["listFiles"]>(() => Promise.resolve(testFileTreeResponse())), writeFile: vi.fn<WorkspaceFiles["writeFile"]>(() => Promise.resolve(testWriteFileResponse())), deleteFile: vi.fn<WorkspaceFiles["deleteFile"]>(() => Promise.resolve(testDeleteFileResponse())), moveFile: vi.fn<WorkspaceFiles["moveFile"]>(() => Promise.resolve(testMoveFileResponse())) };
   const host: WorkspaceHost = helpers.host ?? { requestRender: vi.fn<WorkspaceHost["requestRender"]>() };
   return {
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
@@ -642,7 +691,7 @@ function createWorkspacePanelContext(machineId: string, prompt: WorkspacePanelCo
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
     workspace,
     state: { ...initialAppState(), selectedMachine: testMachine(machineId) },
-    files: { readFile: vi.fn(), writeFile: vi.fn(), deleteFile: vi.fn(), moveFile: vi.fn() },
+    files: { readFile: vi.fn(), listFiles: vi.fn(), writeFile: vi.fn(), deleteFile: vi.fn(), moveFile: vi.fn() },
     prompt,
     terminal: { open: vi.fn(), runCommand: vi.fn() },
     host: { requestRender: vi.fn() },
@@ -701,6 +750,15 @@ function testStatus(patch: Partial<SessionStatus> = {}): SessionStatus {
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     cost: 0,
     ...patch,
+  };
+}
+
+function testFileTreeResponse(path = ".pi-web/relays"): FileTreeResponse {
+  return {
+    path,
+    entries: [],
+    scannedAt: "2026-05-20T00:00:00.000Z",
+    truncated: false,
   };
 }
 

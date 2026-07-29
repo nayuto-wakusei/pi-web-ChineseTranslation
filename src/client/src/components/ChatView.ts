@@ -7,49 +7,57 @@ import { writeClipboardText } from "../clipboard";
 import { capturePrependScrollAnchor, PREPEND_RESTORE_SETTLE_FRAMES, restorePrependScrollAnchor, type PrependScrollAnchor } from "../chatScrollAnchoring";
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
-import type { ChatLine, ChatPart } from "../chatTypes";
-import type { QueuedSessionMessage, SessionActivity, SessionStatus } from "../api";
-import type { SessionSearchTarget } from "../appState";
-import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
-import { chatStyles } from "./styles/chatStyles";
+import type { AskUserSubmission, PendingAskUser, QueuedSessionMessage, SessionActivity, SessionStatus, SessionWarningSeverity } from "../api";
+import {
+  notificationAnnouncementLabel,
+  notificationDismissLabel,
+  notificationFocusTargetAfterDismiss,
+  notificationInboxOverflowLabel,
+  notificationInboxTotalCount,
+  notificationMessageTruncationLabel,
+  notificationSeverityLabel,
+  notificationTargetKey,
+  notificationTrayHeading,
+  notificationTrayIsCollapsed,
+  setNotificationTrayCollapsed,
+  type NotificationFocusTarget,
+  type SelectedSessionNotificationView,
+  type SessionNotificationTarget,
+} from "../sessionNotifications";
+import type { ChatLine, ChatPart } from "./shared";
+import { chatStyles, renderSessionWarningIcon } from "./shared";
+import "./AskUserCard";
 import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
 
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+const notificationTimestampFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 
-const activityLabelTranslations: Record<string, string> = {
-  active: "活跃",
-  "agent running": "助手运行中",
-  "bash complete": "Shell 已完成",
-  "bash failed": "Shell 失败",
-  "compaction complete": "压缩已完成",
-  "compaction failed": "压缩失败",
-  compacting: "正在压缩",
-  "duplicate queued message ignored": "已忽略重复排队消息",
-  error: "错误",
-  idle: "空闲",
-  "message complete": "消息已完成",
-  "message queued": "消息已排队",
-  "message queued during compaction": "压缩期间消息已排队",
-  "message started": "消息已开始",
-  "prompt accepted": "提示已接受",
-  queued: "已排队",
-  "reloading resources": "正在重新加载资源",
-  "resources reloaded": "资源已重新加载",
-  "reload failed": "重新加载失败",
-  "receiving response": "正在接收回复",
-  "running bash": "Shell 运行中",
-  "running tool": "工具运行中",
-  "creating session": "正在创建会话",
-  "session creation failed": "会话创建失败",
-  "extension error": "扩展错误",
-  "steering queued": "引导已排队",
-  stopped: "已停止",
-  "tool complete": "工具已完成",
-  "tool failed": "工具失败",
-  "turn complete": "回合已完成",
-};
+function renderNotificationDisclosureIcon(collapsed: boolean) {
+  return html`
+    <svg class=${`notification-icon notification-disclosure-icon${collapsed ? "" : " expanded"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="m9 18 6-6-6-6"></path>
+    </svg>
+  `;
+}
+
+function renderNotificationCloseIcon() {
+  return html`
+    <svg class="notification-icon notification-close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6 6l12 12"></path>
+      <path d="M18 6 6 18"></path>
+    </svg>
+  `;
+}
+
+function isSessionNotificationTarget(value: unknown): value is SessionNotificationTarget {
+  return typeof value === "object"
+    && value !== null
+    && typeof Reflect.get(value, "machineId") === "string"
+    && typeof Reflect.get(value, "cwd") === "string"
+    && typeof Reflect.get(value, "sessionId") === "string";
+}
 
 function clampPercent(value: number): number {
   return clampNumber(value, 0, 100);
@@ -58,6 +66,11 @@ function clampPercent(value: number): number {
 function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+interface PendingNotificationFocus {
+  chatKey: string;
+  focusTarget: NotificationFocusTarget;
 }
 
 export interface QueuedMessageSection {
@@ -69,9 +82,78 @@ export interface QueuedMessageSection {
 
 export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
   return [
-    clientQueued.length === 0 ? undefined : { source: "client" as const, heading: "等待会话启动", detail: "后端会话准备好后将自动发送", messages: clientQueued },
-    serverQueued.length === 0 ? undefined : { source: "server" as const, heading: "排队消息", detail: `${String(serverQueued.length)} 条待处理 · 停止会清空队列`, messages: serverQueued },
+    clientQueued.length === 0 ? undefined : { source: "client", heading: "Queued until session starts", detail: "Will send once the backend session is ready", messages: clientQueued },
+    serverQueued.length === 0 ? undefined : { source: "server", heading: "Queued messages", detail: `${String(serverQueued.length)} pending`, messages: serverQueued },
   ].filter((section): section is QueuedMessageSection => section !== undefined);
+}
+
+export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
+
+/** Derive the `<img>` source URL and alt text for a rendered image part. */
+export function chatImagePartSource(part: ChatImagePart): { src: string; alt: string } {
+  return { src: `data:${part.mimeType};base64,${part.data}`, alt: "attached image" };
+}
+
+/** The message-header label used when a tool message renders as an image output. */
+export function chatToolOutputLabel(toolName?: string): string {
+  return toolName === undefined || toolName === "" ? "tool output" : `${toolName} output`;
+}
+
+/** The stable scroll-anchor/render key for a top-level message at `index`. */
+export function chatMessageAnchorKey(index: number): string {
+  return `m:${String(index)}`;
+}
+
+/** The stable scroll-anchor/render key for a collapsed event group starting at `startIndex`. */
+export function chatGroupAnchorKey(startIndex: number): string {
+  return `g:${String(startIndex)}`;
+}
+
+/** The stable scroll-anchor key for an event inside a group at `index`. */
+export function chatEventAnchorKey(index: number): string {
+  return `e:${String(index)}`;
+}
+
+/** The stable scroll-marker id emitted before an event group ending at `endIndex`. */
+export function chatGroupScrollMarkerId(endIndex: number): string {
+  return `g:${String(endIndex)}`;
+}
+
+/** The CSS class list for an event-group `<details>`, distinguishing the live tail. */
+export function chatMessageGroupClassName(defaultOpen: boolean): string {
+  return defaultOpen ? "msg event-group live" : "msg event-group";
+}
+
+/** The disclosure summary label for an event group, distinguishing the live tail. */
+export function chatMessageGroupLabel(defaultOpen: boolean): string {
+  return defaultOpen ? "实时事件" : "事件";
+}
+
+/** Whether a queued-message section shows the server clear-queue action. */
+export function chatQueuedSectionShowsClearAction(section: QueuedMessageSection, canClearServerQueue: boolean, hasClearHandler: boolean): boolean {
+  return section.source === "server" && canClearServerQueue && hasClearHandler;
+}
+
+/** A rendered session-warning row derived from live status warnings. */
+export interface ChatSessionWarningRow {
+  severity: SessionWarningSeverity;
+  severityClass: string;
+  message: string;
+  source?: string;
+  path?: string;
+  dismissId?: string;
+}
+
+/** Derive one severity-tagged warning row per live status warning, in order. */
+export function chatSessionWarningRows(status: SessionStatus | undefined): ChatSessionWarningRow[] {
+  return (status?.warnings ?? []).map((warning) => ({
+    severity: warning.severity,
+    severityClass: `session-warning ${warning.severity}`,
+    message: warning.message,
+    ...(warning.source === undefined ? {} : { source: warning.source }),
+    ...(warning.path === undefined ? {} : { path: warning.path }),
+    ...(warning.dismiss === undefined ? {} : { dismissId: warning.dismiss.id }),
+  }));
 }
 
 export function chatMessageMetadataLabel(message: ChatLine): string {
@@ -79,7 +161,7 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
   const parts = [time, model].filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? "没有可用的 Pi 消息元数据" : parts.join(" · ");
+  return parts.length === 0 ? "No Pi message metadata available" : parts.join(" · ");
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
@@ -103,7 +185,6 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageStart = 0;
   @property({ type: Number }) messageEnd = 0;
   @property({ type: Number }) messageTotal = 0;
-  @property({ attribute: false }) searchTarget?: SessionSearchTarget;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
   @property({ type: Boolean }) isSendingPrompt = false;
@@ -112,22 +193,36 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) clientQueuedMessages: QueuedSessionMessage[] = [];
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) activity?: SessionActivity;
+  @property({ attribute: false }) pendingAsk?: PendingAskUser;
+  @property({ attribute: false }) askDraftSessionId = "";
+  @property({ attribute: false }) onSubmitAsk?: (askId: string, submission: AskUserSubmission) => void | Promise<void>;
+  @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
   @property({ type: Boolean }) canClearServerQueue = false;
   @property({ attribute: false }) onClearServerQueue?: () => void;
+  @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
+  @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
+  @property({ attribute: false }) onDismissAllNotifications?: () => void;
+  @property({ type: Boolean }) warningsVisible = true;
+  @property({ attribute: false }) onToggleWarnings?: () => void;
   @property({ attribute: false }) onLoadMore?: () => void;
   @query(".chat") private chat?: HTMLDivElement;
+  @query("dialog.image-zoom") private imageZoomDialog?: HTMLDialogElement;
   @state() private pinnedToBottom = true;
+  @state() private zoomedImage: { src: string; alt: string } | undefined = undefined;
   @state() private expandedMetaKey: string | undefined;
   @state() private copiedMessageKey: string | undefined;
   @state() private currentConversationIndex: number | undefined;
+  @state() private collapsedNotificationTargetKeys: ReadonlySet<string> = new Set();
+  @state() private retainedEmptyNotificationTrayTargetKey: string | undefined;
+  private pendingNotificationFocus: PendingNotificationFocus | undefined;
   private readonly disclosures = new ChatDisclosureController();
   private readonly scrollController = new ChatScrollController();
   private suppressScrollSave = false;
   private suppressLoadMoreRequests = false;
   private loadMoreCheckFrame: number | undefined;
   private scrollToBottomFrame: number | undefined;
+  private scrollToOpenAskFrame: number | undefined;
   private conversationRailFrame: number | undefined;
-  private searchTargetFrame: number | undefined;
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
@@ -148,11 +243,23 @@ export class ChatView extends LitElement {
   private readonly onImageLoad = (): void => {
     if (this.pinnedToBottom) this.scrollToBottom();
   };
+  private readonly openImageZoom = (src: string, alt: string): void => {
+    this.zoomedImage = { src, alt };
+  };
+  private readonly closeImageZoom = (): void => {
+    if (this.zoomedImage !== undefined) this.zoomedImage = undefined;
+  };
+  private readonly onImageZoomDialogClick = (event: MouseEvent): void => {
+    if (event.target === this.imageZoomDialog) this.closeImageZoom();
+  };
   private readonly onPageHide = () => {
     this.saveScrollPosition();
   };
   private readonly handleClearServerQueue = (): void => {
     this.onClearServerQueue?.();
+  };
+  private readonly handleToggleWarnings = (): void => {
+    this.onToggleWarnings?.();
   };
 
   override connectedCallback(): void {
@@ -173,8 +280,11 @@ export class ChatView extends LitElement {
     if (this.restoreScrollFrame !== undefined) cancelAnimationFrame(this.restoreScrollFrame);
     if (this.loadMoreCheckFrame !== undefined) cancelAnimationFrame(this.loadMoreCheckFrame);
     if (this.scrollToBottomFrame !== undefined) cancelAnimationFrame(this.scrollToBottomFrame);
+    if (this.scrollToOpenAskFrame !== undefined) {
+      cancelAnimationFrame(this.scrollToOpenAskFrame);
+      this.scrollToOpenAskFrame = undefined;
+    }
     if (this.conversationRailFrame !== undefined) cancelAnimationFrame(this.conversationRailFrame);
-    if (this.searchTargetFrame !== undefined) cancelAnimationFrame(this.searchTargetFrame);
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
@@ -188,6 +298,8 @@ export class ChatView extends LitElement {
 
   private prepareSessionUiState(): void {
     this.disclosures.syncSession(this.sessionId);
+    this.pendingNotificationFocus = undefined;
+    this.retainedEmptyNotificationTrayTargetKey = undefined;
     this.scrollController.clearScheduledSave();
     this.suppressScrollSave = false;
     this.suppressLoadMoreRequests = false;
@@ -198,14 +310,21 @@ export class ChatView extends LitElement {
       cancelAnimationFrame(this.restoreScrollFrame);
       this.restoreScrollFrame = undefined;
     }
+    if (this.scrollToOpenAskFrame !== undefined) {
+      cancelAnimationFrame(this.scrollToOpenAskFrame);
+      this.scrollToOpenAskFrame = undefined;
+    }
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
     if (changed.has("sessionId")) {
       this.savePreviousSessionScrollPosition(changed.get("sessionId"));
       this.prepareSessionUiState();
+    } else if (changed.has("notificationInbox") && this.notificationTargetChanged(changed.get("notificationInbox"))) {
+      this.pendingNotificationFocus = undefined;
+      this.retainedEmptyNotificationTrayTargetKey = undefined;
     }
-    if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
+    if (changed.has("messages") || changed.has("pendingAsk")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
   protected override update(changed: Map<string, unknown>): void {
@@ -218,16 +337,36 @@ export class ChatView extends LitElement {
     if (changed.has("loadingMore") && !this.loadingMore) this.loadMoreRequested = false;
     if (changed.has("hasMore") && !this.hasMore) this.loadMoreRequested = false;
     if (changed.has("sessionId")) this.restoreScrollPosition();
-    if (!changed.has("sessionId") && changed.has("messages") && this.pinnedToBottom) this.scrollToBottom();
+    const openedAsk = changed.has("pendingAsk") && this.isNewPendingAsk(changed.get("pendingAsk"));
+    // The form uses the transcript scroller. Start a new long form at question
+    // one rather than applying the usual live-tail scroll and landing at its end.
+    if (!changed.has("sessionId") && openedAsk && this.pinnedToBottom) this.scrollToOpenAsk();
+    else if (!changed.has("sessionId") && (changed.has("messages") || changed.has("pendingAsk")) && this.pinnedToBottom) this.scrollToBottom();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
-    if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore")) this.continuePendingScrollRestore();
+    if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore") || changed.has("pendingAsk")) this.continuePendingScrollRestore();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
-    if (changed.has("searchTarget")) this.scheduleSearchTargetScroll();
+    if (changed.has("notificationInbox") && this.pendingNotificationFocus !== undefined) this.focusPendingNotificationTarget();
+    if (changed.has("zoomedImage")) this.syncImageZoomDialog();
+  }
+
+  private syncImageZoomDialog(): void {
+    const dialog = this.imageZoomDialog;
+    if (dialog === undefined) return;
+    if (this.zoomedImage !== undefined && !dialog.open) dialog.showModal();
+    else if (this.zoomedImage === undefined && dialog.open) dialog.close();
+  }
+
+  private notificationTargetChanged(previous: unknown): boolean {
+    const currentInbox = this.notificationInbox;
+    if (!isSessionNotificationTarget(previous) || currentInbox === undefined) return previous !== currentInbox;
+    return notificationTargetKey(previous) !== notificationTargetKey(currentInbox);
   }
 
   override render() {
     const groups = this.groupedMessages();
     return html`
+      ${this.renderTopNotices()}
+      ${this.renderNotificationLiveRegions()}
       <div class="chat-wrap">
         ${this.renderConversationRail()}
         <div class="chat" @scroll=${() => { this.onScroll(); }} @wheel=${(event: WheelEvent) => { this.onWheel(event); }} @touchstart=${(event: TouchEvent) => { this.onTouchStart(event); }} @touchmove=${(event: TouchEvent) => { this.onTouchMove(event); }}>
@@ -243,9 +382,209 @@ export class ChatView extends LitElement {
           )}
           ${this.renderQueuedMessages()}
           ${this.renderSessionActivity()}
+          ${this.renderOpenAsk()}
         </div>
         ${this.renderActivityDock()}
       </div>
+      ${this.renderImageZoom()}
+    `;
+  }
+
+  private renderTopNotices() {
+    const warnings = this.renderWarnings();
+    const notifications = this.renderNotificationTray();
+    if (warnings === null && notifications === null) return null;
+    return html`<div class="top-notices">${warnings}${notifications}</div>`;
+  }
+
+  private renderNotificationTray() {
+    const inbox = this.notificationInbox;
+    if (inbox?.sessionId !== this.sessionId) return null;
+    const chatKey = notificationTargetKey(inbox);
+    const hasPendingOverlay = inbox.pendingDismissedIds.size > 0 || inbox.dismissAllPending;
+    const retainsFocusTarget = this.retainedEmptyNotificationTrayTargetKey === chatKey;
+    const totalCount = notificationInboxTotalCount(inbox);
+    if (totalCount === 0 && !hasPendingOverlay && !retainsFocusTarget) return null;
+    const collapsed = notificationTrayIsCollapsed(this.collapsedNotificationTargetKeys, inbox);
+    const toggleLabel = collapsed ? "Expand notifications" : "Collapse notifications";
+    return html`
+      <section class=${`notification-tray${collapsed ? " collapsed" : ""}`} role="region" aria-labelledby="session-notifications-heading" @focusout=${(event: FocusEvent) => { this.releaseEmptyNotificationTray(event); }}>
+        <header class="notification-header" data-notification-focus="header" tabindex="-1">
+          <strong class="notification-heading" id="session-notifications-heading">${notificationTrayHeading(inbox)}</strong>
+          <div class="notification-header-actions">
+            <button
+              type="button"
+              class="notification-control notification-clear"
+              aria-label="Clear all notifications"
+              title="Clear all notifications"
+              ?disabled=${inbox.dismissAllPending || totalCount === 0 || this.onDismissAllNotifications === undefined}
+              @click=${() => { this.dismissAllNotifications(); }}
+            >Clear</button>
+            <button
+              type="button"
+              class="notification-control notification-toggle"
+              aria-label=${toggleLabel}
+              title=${toggleLabel}
+              aria-expanded=${String(!collapsed)}
+              aria-controls="session-notification-list"
+              @click=${() => { this.toggleNotificationTray(inbox, collapsed); }}
+            >${renderNotificationDisclosureIcon(collapsed)}</button>
+          </div>
+        </header>
+        <div class="notification-list" id="session-notification-list" ?hidden=${collapsed}>
+          ${inbox.discardedCount === 0 ? null : html`
+            <p class="notification-overflow">${notificationInboxOverflowLabel(inbox.discardedCount)}</p>
+          `}
+          ${inbox.notifications.map((notification) => {
+            const label = notificationSeverityLabel(notification.severity);
+            const truncationLabel = notificationMessageTruncationLabel(notification);
+            return html`
+              <article class=${`notification-row ${notification.severity}`} data-notification-id=${notification.id} tabindex="-1">
+                <div class="notification-metadata">
+                  <strong class="notification-severity">${label}</strong>
+                  <span aria-hidden="true">·</span>
+                  <time datetime=${notification.receivedAt}>${notificationTimestampFormatter.format(new Date(notification.receivedAt))}</time>
+                </div>
+                <p class="notification-message" dir="auto">${notification.message}</p>
+                ${truncationLabel === undefined ? null : html`<p class="notification-truncated">${truncationLabel}</p>`}
+                <button
+                  type="button"
+                  class="notification-row-dismiss"
+                  aria-label=${notificationDismissLabel(notification)}
+                  title="Dismiss notification"
+                  ?disabled=${inbox.pendingDismissedIds.has(notification.id) || inbox.dismissAllPending || this.onDismissNotification === undefined}
+                  @click=${() => { this.dismissNotification(notification.id); }}
+                >${renderNotificationCloseIcon()}</button>
+              </article>
+            `;
+          })}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderNotificationLiveRegions() {
+    const announcements = this.notificationInbox?.sessionId === this.sessionId ? this.notificationInbox.announcements : [];
+    const polite = announcements.filter((announcement) => announcement.severity !== "error");
+    const assertive = announcements.filter((announcement) => announcement.severity === "error");
+    return html`
+      <div class="visually-hidden notification-live" aria-live="polite" aria-atomic="false">${repeat(polite, (announcement) => announcement.id, (announcement) => html`<span data-announcement-id=${announcement.id}>${notificationAnnouncementLabel(announcement)}</span>`)}</div>
+      <div class="visually-hidden notification-live" aria-live="assertive" aria-atomic="false">${repeat(assertive, (announcement) => announcement.id, (announcement) => html`<span data-announcement-id=${announcement.id}>${notificationAnnouncementLabel(announcement)}</span>`)}</div>
+    `;
+  }
+
+  private toggleNotificationTray(inbox: SelectedSessionNotificationView, collapsed: boolean): void {
+    this.collapsedNotificationTargetKeys = setNotificationTrayCollapsed(this.collapsedNotificationTargetKeys, inbox, !collapsed);
+  }
+
+  private dismissNotification(notificationId: string): void {
+    const inbox = this.notificationInbox;
+    if (inbox === undefined || this.onDismissNotification === undefined) return;
+    const focusTarget = notificationFocusTargetAfterDismiss(inbox.notifications, notificationId);
+    const chatKey = notificationTargetKey(inbox);
+    this.pendingNotificationFocus = { chatKey, focusTarget };
+    if (focusTarget.kind === "header") this.retainedEmptyNotificationTrayTargetKey = chatKey;
+    this.onDismissNotification(notificationId);
+  }
+
+  private dismissAllNotifications(): void {
+    const inbox = this.notificationInbox;
+    if (inbox === undefined || this.onDismissAllNotifications === undefined) return;
+    const chatKey = notificationTargetKey(inbox);
+    this.pendingNotificationFocus = { chatKey, focusTarget: { kind: "header" } };
+    this.retainedEmptyNotificationTrayTargetKey = chatKey;
+    this.onDismissAllNotifications();
+  }
+
+  private releaseEmptyNotificationTray(event: FocusEvent): void {
+    const tray = event.currentTarget;
+    const next = event.relatedTarget;
+    if (tray instanceof HTMLElement && next instanceof Node && tray.contains(next)) return;
+    // Removing the activated row can emit focusout before updated() moves focus.
+    if (this.pendingNotificationFocus !== undefined) return;
+    const inbox = this.notificationInbox;
+    if (inbox !== undefined
+      && this.retainedEmptyNotificationTrayTargetKey === notificationTargetKey(inbox)
+      && notificationInboxTotalCount(inbox) === 0) this.retainedEmptyNotificationTrayTargetKey = undefined;
+  }
+
+  private focusPendingNotificationTarget(): void {
+    const pending = this.pendingNotificationFocus;
+    this.pendingNotificationFocus = undefined;
+    const inbox = this.notificationInbox;
+    if (pending === undefined || inbox === undefined || notificationTargetKey(inbox) !== pending.chatKey) return;
+    const target = pending.focusTarget;
+    if (target.kind === "header") {
+      this.renderRoot.querySelector<HTMLElement>("[data-notification-focus='header']")?.focus();
+      return;
+    }
+    const row = Array.from(this.renderRoot.querySelectorAll<HTMLElement>("[data-notification-id]"))
+      .find((candidate) => candidate.dataset["notificationId"] === target.notificationId);
+    if (row !== undefined) {
+      row.focus();
+      return;
+    }
+    if (notificationInboxTotalCount(inbox) === 0) this.retainedEmptyNotificationTrayTargetKey = pending.chatKey;
+    this.renderRoot.querySelector<HTMLElement>("[data-notification-focus='header']")?.focus();
+  }
+
+  private renderWarnings() {
+    const rows = chatSessionWarningRows(this.status);
+    if (!this.warningsVisible || rows.length === 0) return null;
+    return html`
+      <aside class="session-warnings" role="alert" aria-live="polite">
+        ${this.onToggleWarnings === undefined ? null : html`
+          <div class="session-warnings-controls">
+            <button
+              type="button"
+              class="session-warnings-collapse"
+              title="Minimise warnings"
+              aria-label="Minimise warnings"
+              @click=${this.handleToggleWarnings}
+            >
+              <svg class="session-warnings-collapse-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m18 15-6-6-6 6"></path>
+              </svg>
+              <span>Minimise</span>
+            </button>
+          </div>
+        `}
+        ${rows.map((row) => {
+          const dismissId = row.dismissId;
+          return html`
+          <div class=${row.severityClass}>
+            <div class="session-warning-head">
+              ${renderSessionWarningIcon(row.severity, "session-warning-icon")}
+              ${row.source === undefined ? null : html`<span class="session-warning-source">${row.source}</span>`}
+            </div>
+            <div class="session-warning-body">
+              <p class="session-warning-message">${row.message}</p>
+              ${row.path === undefined ? null : html`<p class="session-warning-path">${row.path}</p>`}
+            </div>
+            ${dismissId === undefined ? null : html`
+              <button
+                type="button"
+                class="session-warning-dismiss"
+                title="Don't show this warning again"
+                aria-label="Dismiss warning"
+                @click=${() => { this.onDismissWarning?.(dismissId); }}
+              >×</button>
+            `}
+          </div>
+        `;
+        })}
+      </aside>
+    `;
+  }
+
+  private renderImageZoom() {
+    return html`
+      <dialog class="image-zoom" @click=${this.onImageZoomDialogClick} @close=${this.closeImageZoom} @cancel=${this.closeImageZoom}>
+        ${this.zoomedImage === undefined ? null : html`
+          <button type="button" class="image-zoom-close" aria-label="Close image" @click=${this.closeImageZoom}>×</button>
+          <img class="image-zoom-full" src=${this.zoomedImage.src} alt=${this.zoomedImage.alt} />
+        `}
+      </dialog>
     `;
   }
 
@@ -274,7 +613,7 @@ export class ChatView extends LitElement {
       return html`
         <div class="activity-dock active" aria-live="polite">
           <span class="dot"></span>
-          <span class="activity-text">正在发送你的消息…</span>
+          <span class="activity-text">Sending your message…</span>
         </div>
       `;
     }
@@ -295,7 +634,7 @@ export class ChatView extends LitElement {
   }
 
   private renderQueuedMessageList(section: QueuedMessageSection) {
-    const canClear = section.source === "server" && this.canClearServerQueue && this.onClearServerQueue !== undefined;
+    const canClear = chatQueuedSectionShowsClearAction(section, this.canClearServerQueue, this.onClearServerQueue !== undefined);
     return html`
       <aside class="queued-messages" aria-live="polite">
         <div class="queued-header">
@@ -304,12 +643,12 @@ export class ChatView extends LitElement {
             <small>${section.detail}</small>
           </div>
           ${canClear ? html`
-            <button type="button" class="queued-clear-button" title="清空排队消息，不停止正在进行的工作" @click=${this.handleClearServerQueue}>清空队列</button>
+            <button type="button" class="queued-clear-button" title="Clear queued messages without stopping active work" @click=${this.handleClearServerQueue}>Clear queue</button>
           ` : null}
         </div>
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
-            <span class="queued-kind">${message.kind === "steer" ? "引导" : "跟进"} ${String(index + 1)}</span>
+            <span class="queued-kind">${message.kind === "steer" ? "Steer" : "Follow-up"} ${String(index + 1)}</span>
             <formatted-text .text=${message.text}></formatted-text>
           </div>
         `)}
@@ -317,13 +656,25 @@ export class ChatView extends LitElement {
     `;
   }
 
+  private renderOpenAsk() {
+    if (this.pendingAsk === undefined) return null;
+    return html`
+      <ask-user-card
+        data-scroll-anchor-id=${`ask:${this.pendingAsk.askId}`}
+        .ask=${this.pendingAsk}
+        .draftSessionId=${this.askDraftSessionId}
+        .onSubmit=${this.onSubmitAsk}
+      ></ask-user-card>
+    `;
+  }
+
   private renderSessionActivity() {
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
-        <strong>正在压缩历史…</strong>
-        <span>助手正在总结早前上下文。压缩完成前，新提示会排队等待。</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息已排队</small>` : null}
+        <strong>Compacting history…</strong>
+        <span>The agent is summarizing earlier context. New prompts will be queued until compaction finishes.</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
       </aside>
     `;
   }
@@ -341,9 +692,9 @@ export class ChatView extends LitElement {
   private activityText(state: string): string {
     const activity = this.activity;
     if (activity === undefined) return activityStateLabel(state);
-    if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
+    if (state !== "idle" && activity.phase === "idle") return state;
     const label = activityStateLabel(activity.label, activity.phase);
-    return activity.detail !== undefined && activity.detail !== "" ? `${label}: ${activity.detail}` : label;
+    return activity.detail !== undefined && activity.detail !== "" ? `${label}：${activity.detail}` : label;
   }
 
   private renderConversationRail() {
@@ -368,11 +719,11 @@ export class ChatView extends LitElement {
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>正在加载更早的消息…</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>Loading earlier messages…</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>加载更早的消息</button>
-        <span>向上滚动加载更早的消息</span>
+        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>Load earlier messages</button>
+        <span>Scroll up to load earlier messages</span>
         ${range}
       </div>
     `;
@@ -385,7 +736,7 @@ export class ChatView extends LitElement {
     const from = this.messageStart + 1;
     const to = this.loadedRawMessageEnd();
     const total = Math.max(this.messageTotal, to);
-    return html`<small>显示消息 ${from}–${to} / ${total}</small>`;
+    return html`<small>显示消息 ${from}–${to}，共 ${total} 条</small>`;
   }
 
   private loadedRawMessageEnd(): number {
@@ -394,19 +745,19 @@ export class ChatView extends LitElement {
 
   private renderMessage(message: ChatLine, index: number) {
     const toolOnly = this.isToolExecutionOnlyMessage(message);
-    const transcriptIndex = messageTranscriptIndex(message, index);
-    const searchTarget = this.isSearchTargetMessage(message, transcriptIndex);
+    const askUserRecordOnly = this.isAskUserRecordOnlyMessage(message);
+    const shellClass = toolOnly ? "msg tool-execution-shell" : "msg ask-user-record-shell";
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
-      <article class=${`${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`}${searchTarget ? " search-target" : ""}`} data-index=${index} data-transcript-index=${transcriptIndex} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
-        ${toolOnly ? null : this.renderMessageHeader(message, String(index))}
-        ${message.parts.map((part) => this.renderPart(part, message, searchTarget ? this.searchTarget?.query : undefined))}
+      <article class=${toolOnly || askUserRecordOnly ? shellClass : `msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
+        ${toolOnly || askUserRecordOnly ? null : this.renderMessageHeader(message, String(index))}
+        ${message.parts.map((part) => this.renderPart(part, message))}
       </article>
     `;
   }
 
   private renderToolImageOutput(message: ChatLine, index: number, toolName?: string) {
-    const label = toolName === undefined || toolName === "" ? "工具输出" : `${toolName} 输出`;
+    const label = chatToolOutputLabel(toolName);
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
       <article class="msg tool-image-output" data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
@@ -420,14 +771,18 @@ export class ChatView extends LitElement {
     return message.role === "tool" && message.parts.length > 0 && message.parts.every((part) => part.type === "toolExecution");
   }
 
+  private isAskUserRecordOnlyMessage(message: ChatLine): boolean {
+    return message.parts.length > 0 && message.parts.every((part) => part.type === "askUserRecord");
+  }
+
   private renderMessageGroup(messages: ChatLine[], startIndex: number, endIndex: number, defaultOpen: boolean) {
     const disclosureKey = this.groupDisclosureKey(startIndex, endIndex, defaultOpen);
     const open = this.disclosures.isOpen(disclosureKey, defaultOpen);
     return html`
       ${this.renderScrollMarker(this.groupScrollMarkerId(endIndex))}
-      <details class=${defaultOpen ? "msg event-group live" : "msg event-group"} data-index=${startIndex} data-scroll-anchor-id=${this.groupAnchorKey(startIndex)} ?open=${open} @toggle=${(event: Event) => { this.onGroupToggle(disclosureKey, event, defaultOpen); }}>
+      <details class=${chatMessageGroupClassName(defaultOpen)} data-index=${startIndex} data-scroll-anchor-id=${this.groupAnchorKey(startIndex)} ?open=${open} @toggle=${(event: Event) => { this.onGroupToggle(disclosureKey, event, defaultOpen); }}>
         <summary>
-          <b class="label">${defaultOpen ? "实时事件" : "事件"}</b>
+          <b class="label">${chatMessageGroupLabel(defaultOpen)}</b>
           <span>${summarizeChatGroup(messages)}</span>
         </summary>
         ${open ? this.renderMessageGroupBody(messages, startIndex) : null}
@@ -460,7 +815,7 @@ export class ChatView extends LitElement {
     const expanded = this.expandedMetaKey === key;
     return html`
       <div class="msg-header">
-        <b class="label">${label === message.role ? roleLabel(message.role) : label}</b>
+        <b class="label">${label}</b>
         <div class="msg-header-trailing">
           ${this.renderMessageActions(message, key)}
           <span class=${expanded ? "msg-meta expanded" : "msg-meta"} role="button" tabindex="0" title=${meta} aria-label=${meta} aria-expanded=${String(expanded)} @click=${() => { this.expandedMetaKey = expanded ? undefined : key; }} @keydown=${(event: KeyboardEvent) => { this.onMetaKeydown(event, key, expanded); }}>${meta}</span>
@@ -473,8 +828,8 @@ export class ChatView extends LitElement {
     if (!this.isCopyableMessage(message)) return null;
     const copied = this.copiedMessageKey === key;
     return html`
-      <div class="msg-actions" aria-label="消息操作">
-        <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${roleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
+      <div class="msg-actions" aria-label="Message actions">
+        <button type="button" class="msg-action" title=${copied ? "Copied" : "Copy message"} aria-label=${`${copied ? "Copied" : "Copy"} ${message.role} message`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
           <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
         </button>
       </div>
@@ -522,53 +877,43 @@ export class ChatView extends LitElement {
     return label;
   }
 
-  private renderPart(part: ChatPart, message?: ChatLine, highlight?: string) {
+  private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
-    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text} .highlight=${highlight ?? ""}></formatted-text>`;
-    if (part.type === "image") return html`<figure class="part chat-image"><img src=${`data:${part.mimeType};base64,${part.data}`} alt="用户上传的图片" loading="lazy" @load=${this.onImageLoad}></figure>`;
-    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
+    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
+    if (part.type === "thinking") return html`<details class="part"><summary>thinking</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
-        <summary><b>[技能]</b> ${part.name}</summary>
+        <summary><b>[skill]</b> ${part.name}</summary>
         <small>${part.location}</small>
-        <formatted-text .text=${part.content} .highlight=${highlight ?? ""}></formatted-text>
+        <formatted-text .text=${part.content}></formatted-text>
       </details>
     `;
     if (part.type === "skillRead") return html`
       <div class="part skill-read">
-        <strong>已加载 ${part.name}</strong>
-        <small>读取 ${part.path}</small>
+        <strong>Loaded ${part.name}</strong>
+        <small>read ${part.path}</small>
       </div>
     `;
+    if (part.type === "askUserRecord") return html`
+      <ask-user-card
+        class="part"
+        .outcome=${part.outcome}
+        .draftSessionId=${this.askDraftSessionId}
+      ></ask-user-card>
+    `;
+    if (part.type === "image") {
+      const { src, alt } = chatImagePartSource(part);
+      return html`<img class="part chat-image" src=${src} alt=${alt} loading="lazy" role="button" tabindex="0" title="Click to enlarge" @load=${this.onImageLoad} @click=${() => { this.openImageZoom(src, alt); }} @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.openImageZoom(src, alt); } }} />`;
+    }
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>
-        <summary>${part.isError ? "✖" : "✓"} ${part.toolName} 结果</summary>
+        <summary>${part.isError ? "✖" : "✓"} ${part.toolName} result</summary>
         <formatted-text .text=${part.text}></formatted-text>
       </details>
     `;
     return null;
-  }
-
-  private isSearchTargetMessage(message: ChatLine, transcriptIndex: number): boolean {
-    const target = this.searchTarget;
-    return target?.sessionId === this.sessionId
-      && transcriptIndex === target.messageIndex
-      && (message.role === "user" || message.role === "assistant");
-  }
-
-  private scheduleSearchTargetScroll(): void {
-    const target = this.searchTarget;
-    if (target?.sessionId !== this.sessionId || this.searchTargetFrame !== undefined) return;
-    this.searchTargetFrame = requestAnimationFrame(() => {
-      this.searchTargetFrame = undefined;
-      const element = this.renderRoot.querySelector<HTMLElement>(`[data-transcript-index="${String(target.messageIndex)}"]`);
-      if (element === null) return;
-      this.pinnedToBottom = false;
-      element.scrollIntoView({ block: "center", behavior: "smooth" });
-      this.syncScrollMetrics();
-    });
   }
 
   private onGroupToggle(key: string, event: Event, defaultOpen: boolean) {
@@ -681,6 +1026,33 @@ export class ChatView extends LitElement {
     });
   }
 
+  private isNewPendingAsk(previous: unknown): boolean {
+    return this.pendingAsk !== undefined
+      && (typeof previous !== "object" || previous === null || Reflect.get(previous, "askId") !== this.pendingAsk.askId);
+  }
+
+  private scrollToOpenAsk(): void {
+    if (this.scrollToOpenAskFrame !== undefined) return;
+    if (this.scrollToBottomFrame !== undefined) {
+      cancelAnimationFrame(this.scrollToBottomFrame);
+      this.scrollToBottomFrame = undefined;
+    }
+    this.scrollToOpenAskFrame = requestAnimationFrame(() => {
+      this.scrollToOpenAskFrame = undefined;
+      this.withSuppressedScrollSave(() => { this.alignOpenAskToTop(); });
+    });
+  }
+
+  private alignOpenAskToTop(): boolean {
+    const chat = this.chat;
+    const card = this.renderRoot.querySelector<HTMLElement>(".chat > ask-user-card");
+    if (chat === undefined || card === null) return false;
+    chat.scrollTop += card.getBoundingClientRect().top - chat.getBoundingClientRect().top;
+    this.syncScrollMetrics();
+    this.pinnedToBottom = this.isNearBottom();
+    return true;
+  }
+
   restoreScrollPosition() {
     const sessionId = this.sessionId;
     if (this.restoreScrollFrame !== undefined) cancelAnimationFrame(this.restoreScrollFrame);
@@ -688,6 +1060,7 @@ export class ChatView extends LitElement {
       this.restoreScrollFrame = undefined;
       if (this.sessionId !== sessionId) return;
       this.withSuppressedScrollSave(() => {
+        if (this.pendingAsk !== undefined && this.scrollController.readPosition(sessionId) === undefined && this.alignOpenAskToTop()) return;
         const result = this.scrollController.restorePosition(sessionId, this.chat, this.scrollAnchorElements(), { fallbackToBottom: this.shouldFallbackToBottomForMissingAnchor() });
         this.handleScrollRestoreResult(sessionId, result);
       });
@@ -729,6 +1102,9 @@ export class ChatView extends LitElement {
   }
 
   private shouldFallbackToBottomForMissingAnchor(): boolean {
+    // Only fall back to the bottom once the full history is loaded; while earlier
+    // pages can still load, a missing scroll anchor should keep retrying rather
+    // than jump the user to the bottom.
     return !this.hasMore;
   }
 
@@ -857,56 +1233,42 @@ export class ChatView extends LitElement {
   }
 
   private messageAnchorKey(index: number): string {
-    return `m:${String(index)}`;
+    return chatMessageAnchorKey(index);
   }
 
   private groupRenderKey(startIndex: number): string {
-    return `g:${String(startIndex)}`;
+    return chatGroupAnchorKey(startIndex);
   }
 
   private groupAnchorKey(startIndex: number): string {
-    return `g:${String(startIndex)}`;
+    return chatGroupAnchorKey(startIndex);
   }
 
   private eventAnchorKey(index: number): string {
-    return `e:${String(index)}`;
+    return chatEventAnchorKey(index);
   }
 
   private messageScrollMarkerId(index: number): string {
-    return `m:${String(index)}`;
+    return chatMessageAnchorKey(index);
   }
 
   private groupScrollMarkerId(endIndex: number): string {
-    return `g:${String(endIndex)}`;
+    return chatGroupScrollMarkerId(endIndex);
   }
 
   static override styles = chatStyles;
 }
 
-function roleLabel(role: string): string {
-  if (role === "user") return "用户";
-  if (role === "assistant") return "助手";
-  if (role === "system") return "系统";
-  if (role === "tool") return "工具";
-  if (role === "toolResult") return "工具结果";
-  if (role === "bash") return "Shell";
-  if (role === "skill") return "技能";
-  return role;
-}
-
-export function activityStateLabel(state: string, phase: SessionActivity["phase"] = "idle"): string {
-  if (state === "bash") return "Shell 运行中";
-  if (state === "running") return "运行中";
-  const normalized = state.trim().toLocaleLowerCase();
-  const translated = activityLabelTranslations[normalized];
-  if (translated !== undefined) return translated;
-  if (normalized.startsWith("model:")) return `模型：${state.slice(state.indexOf(":") + 1).trim()}`;
-  if (normalized.startsWith("thinking:")) return `思考级别：${thinkingLevelDisplayLabel(state.slice(state.indexOf(":") + 1).trim())}`;
-  if (phase === "active") return "运行中";
-  if (phase === "error") return "发生错误";
-  return "空闲";
-}
-
-export function messageTranscriptIndex(message: ChatLine, displayIndex: number): number {
-  return message.transcriptIndex ?? displayIndex;
+function activityStateLabel(state: string, phase?: SessionActivity["phase"]): string {
+  if (phase === "idle") return "空闲";
+  if (phase !== undefined) return activityStateLabel(state);
+  const labels: Record<string, string> = {
+    "reloading resources": "正在重新加载资源",
+    "resources reloaded": "资源已重新加载",
+    "running bash": "正在运行命令",
+    "agent running": "代理正在运行",
+    compacting: "正在压缩",
+    queued: "正在等待",
+  };
+  return labels[state] ?? state;
 }

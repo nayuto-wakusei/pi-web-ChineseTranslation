@@ -1,5 +1,5 @@
-import { appendText, appendThinking, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage } from "./chatMessages";
-import type { ChatLine, ToolExecutionPart } from "./chatTypes";
+import { appendText, appendThinking, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage } from "./chatMessages";
+import type { ChatLine, ToolExecutionPart } from "./components/shared";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
 import type { SessionUiEvent } from "./sessionSocket";
 
@@ -20,8 +20,22 @@ interface ToolResultUpdate {
   presentation: ToolResultPresentation;
 }
 
+/**
+ * Seed the in-flight partial assistant message on top of committed history at
+ * join time. `partial` is the browser-projected `AssistantMessage` from the
+ * stream snapshot (or `null`/`undefined` when the session is not mid
+ * assistant-message stream). The partial is normalized the same way a streamed
+ * message is (text/thinking parts plus any in-progress tool call parts kept on
+ * the assistant line), so live `assistant.delta`/`assistant.thinking.delta`
+ * events append onto it and `message.end` reconciles it into the finalized shape.
+ * This returns a new in-memory message list only; it never writes to the raw
+ * history cache.
+ */
 export function seedStreamingPartial(messages: ChatLine[], partial: unknown): ChatLine[] {
   if (partial === null || partial === undefined) return messages;
+  // Normalize the same way committed history is (coalescing an in-progress tool
+  // call into a `toolExecution` line) so the seeded partial renders identically
+  // to its finalized form and live `tool.*` events can target it by call id.
   const lines = normalizeMessages([partial]);
   return lines.length === 0 ? messages : [...messages, ...lines];
 }
@@ -68,9 +82,24 @@ function applyFinalMessage(messages: ChatLine[], rawMessage: unknown): ChatLine[
 function applyFinalLine(messages: ChatLine[], displayEnded: ChatLine): ChatLine[] {
   const skillReadIndexes = findMatchingSkillReadIndexes(messages, displayEnded);
   if (skillReadIndexes.length > 0) return replaceSkillReadLines(messages, skillReadIndexes, displayEnded);
+  const askUserRecord = displayEnded.parts.find((part) => part.type === "askUserRecord");
+  if (askUserRecord !== undefined) return reconcileFinalAskUserRecord(messages, displayEnded, askUserRecord);
   const last = messages.at(-1);
   if (last?.role !== displayEnded.role) return [...messages, displayEnded];
   if (displayEnded.role === "assistant" || sameMessageText(last, displayEnded)) return [...messages.slice(0, -1), displayEnded];
+  return [...messages, displayEnded];
+}
+
+function reconcileFinalAskUserRecord(
+  messages: ChatLine[],
+  displayEnded: ChatLine,
+  record: Extract<ChatLine["parts"][number], { type: "askUserRecord" }>,
+): ChatLine[] {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (lineHasAskUserRecord(messages[index], record)) {
+      return [...messages.slice(0, index), displayEnded, ...messages.slice(index + 1)];
+    }
+  }
   return [...messages, displayEnded];
 }
 
@@ -129,21 +158,45 @@ function finalizeToolExecution(messages: ChatLine[], result: ToolResultUpdate): 
       ...(preview === undefined ? {} : { preview }),
     };
   }, (line) => reconcileToolResultPresentation(line, presentation));
-  if (updated !== messages) return updated;
 
-  const preview = previewFromDetails(details);
-  const part: ToolExecutionPart = {
-    type: "toolExecution",
-    ...(toolCallId === undefined || toolCallId === "" ? {} : { toolCallId }),
-    toolName,
-    summary: summarizeArgs(content),
-    status: isError ? "error" : "success",
-    resultText: text,
-    ...(content === undefined ? {} : { content }),
-    ...(details === undefined ? {} : { details }),
-    ...(preview === undefined ? {} : { preview }),
-  };
-  return [...messages, reconcileToolResultPresentation({ role: "tool", parts: [part] }, presentation)];
+  let finalized = updated;
+  if (updated === messages) {
+    const preview = previewFromDetails(details);
+    const part: ToolExecutionPart = {
+      type: "toolExecution",
+      ...(toolCallId === undefined || toolCallId === "" ? {} : { toolCallId }),
+      toolName,
+      summary: summarizeArgs(content),
+      status: isError ? "error" : "success",
+      resultText: text,
+      ...(content === undefined ? {} : { content }),
+      ...(details === undefined ? {} : { details }),
+      ...(preview === undefined ? {} : { preview }),
+    };
+    finalized = [...messages, reconcileToolResultPresentation({ role: "tool", parts: [part] }, presentation)];
+  }
+  return reconcileAskUserToolRecord(finalized, toolName, details, presentation.meta);
+}
+
+function reconcileAskUserToolRecord(messages: ChatLine[], toolName: string, details: unknown, meta: ChatLine["meta"] | undefined): ChatLine[] {
+  const record = askUserRecordFromToolDetails(toolName, details);
+  if (record === undefined) return messages;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const line = messages[index];
+    if (!lineHasAskUserRecord(line, record)) continue;
+    if (meta === undefined || line === undefined) return messages;
+    return [...messages.slice(0, index), { ...line, meta }, ...messages.slice(index + 1)];
+  }
+  return [...messages, { role: "tool", parts: [record], ...(meta === undefined ? {} : { meta }) }];
+}
+
+function lineHasAskUserRecord(
+  line: ChatLine | undefined,
+  record: Extract<ChatLine["parts"][number], { type: "askUserRecord" }>,
+): boolean {
+  return line?.parts.some((part) => part.type === "askUserRecord"
+    && part.outcome.askId === record.outcome.askId
+    && part.outcome.reason === record.outcome.reason) === true;
 }
 
 function updateToolExecution(

@@ -1,6 +1,7 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
-import type { ChatLine } from "./chatTypes";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { ChatLine } from "./components/shared";
 import type { QualifiedContributionId } from "./plugins/ids";
+import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
 import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
 
 export interface AppState {
@@ -36,15 +37,24 @@ export interface AppState {
   selectedSession: SessionInfo | undefined;
   status: SessionStatus | undefined;
   activity: SessionActivity | undefined;
+  /**
+   * The selected session's open `ask_user` question set, derived from the
+   * daemon-owned {@link SessionStatus.pendingAsk} plus live ask events, and
+   * dropped when the machine reports no `sessions.askUser` support.
+   */
+  pendingAsk: PendingAskUser | undefined;
   /** Thinking levels available for the selected session's current model. */
   availableThinkingLevels: readonly string[];
   sessionStatuses: Record<string, SessionStatus>;
   sessionActivities: Record<string, SessionActivity>;
   workspaceActivities: Record<string, WorkspaceActivity>;
   machineActivities: Record<string, Record<string, WorkspaceActivity>>;
+  /** Authoritative projection plus browser-local optimistic overlays for the selected inbox. */
+  selectedNotificationInbox: SelectedSessionNotificationInbox | undefined;
   workspacesByProjectId: Record<string, Workspace[]>;
   workspaceDeletionRuns: Record<string, TerminalCommandRun>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
+  treeDialog: SessionTreeSnapshot | undefined;
   modelDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   thinkingDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
@@ -101,6 +111,8 @@ export type WorkspaceScopedStateReset = Pick<AppState,
   | "sessionSearchTarget"
   | "clientQueuedSessionMessages"
   | "startingSessionCount"
+  | "selectedNotificationInbox"
+  | "treeDialog"
   | "fileTree"
   | "expandedDirs"
   | "selectedFilePath"
@@ -126,6 +138,8 @@ export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
     sessionSearchTarget: undefined,
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,
+    selectedNotificationInbox: undefined,
+    treeDialog: undefined,
     fileTree: [],
     expandedDirs: {},
     selectedFilePath: undefined,
@@ -172,14 +186,17 @@ export function initialAppState(): AppState {
     selectedSession: undefined,
     status: undefined,
     activity: undefined,
+    pendingAsk: undefined,
     availableThinkingLevels: [],
     sessionStatuses: {},
     sessionActivities: {},
     workspaceActivities: {},
     machineActivities: {},
+    selectedNotificationInbox: undefined,
     workspacesByProjectId: {},
     workspaceDeletionRuns: {},
     commandDialog: undefined,
+    treeDialog: undefined,
     modelDialog: undefined,
     thinkingDialog: undefined,
     themeDialog: undefined,

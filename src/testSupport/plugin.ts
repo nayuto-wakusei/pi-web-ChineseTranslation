@@ -6,6 +6,7 @@ export function createWorkspacePanelContext(patch: Partial<WorkspacePanelContext
     workspace: { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false },
     files: {
       readFile: () => Promise.reject(new Error("unused")),
+      listFiles: () => Promise.reject(new Error("unused")),
       writeFile: () => Promise.reject(new Error("unused")),
       deleteFile: () => Promise.reject(new Error("unused")),
       moveFile: () => Promise.reject(new Error("unused")),

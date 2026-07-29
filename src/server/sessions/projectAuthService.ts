@@ -2,10 +2,10 @@ import { constants } from "node:fs";
 import { chmod, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
-import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { piWebDataDir } from "../../config.js";
 import type { Project } from "../types.js";
-import { AuthService, type AuthChange } from "./authService.js";
+import { AuthService, createModelRuntimeForAgentDir, type AuthChange } from "./authService.js";
 
 interface ProjectLister {
   list(): Promise<Project[]>;
@@ -104,7 +104,7 @@ export class ProjectAuthService {
       await initializeProjectAuthFiles(paths, this.globalAgentDir);
       const service = new AuthService({
         modelRuntime: await (this.deps.createModelRuntime?.(paths)
-          ?? ModelRuntime.create({ authPath: paths.authPath, modelsPath: paths.modelsPath })),
+          ?? createModelRuntimeForAgentDir(paths.directory)),
       });
       this.services.set(paths.directory, service);
       this.subscriptions.set(paths.directory, service.subscribe((change) => {
