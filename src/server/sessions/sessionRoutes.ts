@@ -77,7 +77,11 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       // startup reports. Optional: only a browser row waiting for a session id
       // has anything to correlate.
       const startupToken = body["startupToken"] === undefined ? undefined : requireNonEmptyString(body, "startupToken");
-      return await sessions.start(normalizeRequestCwd(requireString(body, "cwd")), optionalField("startupToken", startupToken));
+      const managementContext = managementContextFromHeaders(request.headers);
+      return await sessions.start(normalizeRequestCwd(requireString(body, "cwd")), {
+        ...optionalField("startupToken", startupToken),
+        ...optionalField("managementContext", managementContext),
+      });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

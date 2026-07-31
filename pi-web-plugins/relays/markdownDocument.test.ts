@@ -81,7 +81,7 @@ describe("renderRelayDocumentHtml", () => {
 
     const wrapper = fragment.querySelector(".table-scroll");
     expect(wrapper?.getAttribute("role")).toBe("region");
-    expect(wrapper?.getAttribute("aria-label")).toBe("Table");
+    expect(wrapper?.getAttribute("aria-label")).toBe("表格");
     expect(wrapper?.querySelector("table")).not.toBeNull();
     expect(wrapper?.querySelectorAll("td")).toHaveLength(2);
   });

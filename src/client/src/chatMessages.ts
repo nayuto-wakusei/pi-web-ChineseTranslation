@@ -71,8 +71,8 @@ export function normalizeMessage(message: unknown): ChatLine[] {
 function assistantErrorLine(message: unknown): ChatLine | undefined {
   if (getString(message, "role") !== "assistant" || getString(message, "stopReason") !== "error") return undefined;
   const errorMessage = getString(message, "errorMessage")?.trim();
-  const detail = errorMessage === undefined || errorMessage === "" ? "The model returned an error." : errorMessage;
-  return textMessage("system", `Model response failed: ${detail}`);
+  const detail = errorMessage === undefined || errorMessage === "" ? "模型返回了错误。" : errorMessage;
+  return textMessage("system", `模型响应失败：${detail}`);
 }
 
 function isChatLine(message: unknown): message is ChatLine {
@@ -138,15 +138,15 @@ function normalizeModel(message: unknown): NonNullable<ChatLine["meta"]>["model"
 
 function normalizeBashExecution(message: unknown): ChatLine {
   const command = getString(message, "command") ?? "";
-  const lines = getBoolean(message, "excludeFromContext") === true ? ["excluded from context", "", `$ ${command}`] : [`$ ${command}`];
+  const lines = getBoolean(message, "excludeFromContext") === true ? ["已从上下文中排除", "", `$ ${command}`] : [`$ ${command}`];
   const output = getProperty(message, "output");
   if (output != null) lines.push("", stringifyPrimitive(output));
   const exitCode = getProperty(message, "exitCode");
-  if (exitCode != null) lines.push("", `exit ${stringifyPrimitive(exitCode)}`);
-  if (getBoolean(message, "cancelled") === true) lines.push("", "cancelled");
-  if (getBoolean(message, "truncated") === true) lines.push("", "output truncated");
+  if (exitCode != null) lines.push("", `退出码 ${stringifyPrimitive(exitCode)}`);
+  if (getBoolean(message, "cancelled") === true) lines.push("", "已取消");
+  if (getBoolean(message, "truncated") === true) lines.push("", "输出已截断");
   const fullOutputPath = getString(message, "fullOutputPath");
-  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `full output: ${fullOutputPath}`);
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `完整输出：${fullOutputPath}`);
   return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
 }
 

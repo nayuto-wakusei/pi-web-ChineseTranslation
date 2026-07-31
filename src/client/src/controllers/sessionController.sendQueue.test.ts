@@ -239,8 +239,8 @@ describe("SessionController send queue", () => {
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([
       { kind: "followUp", text: "/help" },
       { kind: "followUp", text: "!pwd" },
-      { kind: "followUp", text: "look\n\n[1 attachment queued: shot.png]" },
-      { kind: "followUp", text: "save\n\n[1 attachment queued: shot.png]" },
+      { kind: "followUp", text: "look\n\n[已排队 1 个附件：shot.png]" },
+      { kind: "followUp", text: "save\n\n[已排队 1 个附件：shot.png]" },
     ]);
 
     startRequest.resolve(started);

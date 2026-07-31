@@ -24,7 +24,7 @@ describe("session-tree-navigator interactions", () => {
 
     expect(onNavigate).toHaveBeenNthCalledWith(1, "side", { mode: "none" });
     expect(componentProperty(navigator, "step")).toBe("tree");
-    expect(componentProperty(navigator, "statusMessage")).toContain("selected history entry is unchanged");
+    expect(componentProperty(navigator, "statusMessage")).toContain("所选历史条目未更改");
 
     clickTreeNavigate(navigator);
     await callPromiseMethod(navigator, "submitNavigation");
@@ -86,13 +86,13 @@ describe("session-tree-navigator interactions", () => {
     callSummaryModeMethod(navigator, "default");
     const submission = callPromiseMethod(navigator, "submitNavigation");
     await callPromiseMethod(navigator, "abortNavigation");
-    expect(componentProperty(navigator, "statusMessage")).toBe("Cancelling summarization…");
+    expect(componentProperty(navigator, "statusMessage")).toBe("正在取消摘要…");
 
     navigation.reject(new Error("remote operation failed"));
     await submission;
 
     expect(componentProperty(navigator, "statusMessage")).toBe("");
-    expect(componentProperty(navigator, "error")).toBe("Could not navigate session history: remote operation failed");
+    expect(componentProperty(navigator, "error")).toBe("无法导航会话历史：remote operation failed");
   });
 
   it("keeps navigation failures actionable and local to the confirmation step", async () => {
@@ -104,7 +104,7 @@ describe("session-tree-navigator interactions", () => {
 
     expect(componentProperty(navigator, "step")).toBe("confirm");
     expect(componentProperty(navigator, "busy")).toBe(false);
-    expect(componentProperty(navigator, "error")).toBe("Could not navigate session history: The session changed since /tree was opened. Reopen /tree and try again.");
+    expect(componentProperty(navigator, "error")).toBe("无法导航会话历史：The session changed since /tree was opened. Reopen /tree and try again.");
   });
 
   it("focuses the active leaf selected when the dialog opens", () => {
@@ -184,7 +184,7 @@ function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
 }
 
 function clickTreeNavigate(navigator: SessionTreeNavigator): void {
-  templateEventHandlerNearMarker(renderNavigator(navigator), ">Navigate</button>")(new Event("click"));
+  templateEventHandlerNearMarker(renderNavigator(navigator), ">导航</button>")(new Event("click"));
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {

@@ -5,7 +5,7 @@ import { canUpdateAllPiPackages, friendlyPiPackageErrorMessage, isPiPackageManag
 
 const userPackage: PiPackageInfo = { source: "npm:@acme/tools", scope: "user", filtered: false, installedPath: "/home/test/.pi/packages/tools" };
 const projectPackage: PiPackageInfo = { source: "../project-tools", scope: "project", filtered: true };
-const localTarget: PiPackageTargetContext = { id: "local", name: "local", kind: "local" };
+const localTarget: PiPackageTargetContext = { id: "local", name: "本机", kind: "local" };
 const remoteTarget: PiPackageTargetContext = { id: "remote-a", name: "Lab Mac", kind: "remote" };
 const runtimeWithPackageManagement: MachineRuntime = { machineId: "remote-a", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.piPackagesManage] };
 const runtimeWithoutPackageManagement: MachineRuntime = { machineId: "remote-a", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsReload] };
@@ -42,7 +42,7 @@ describe("Pi package settings helpers", () => {
 
   it("labels package targets and gateway plugin refresh scope", () => {
     expect(piPackageTargetContext(undefined)).toEqual(localTarget);
-    expect(piPackageTargetLabel(localTarget)).toBe("local（本地网关）");
+    expect(piPackageTargetLabel(localTarget)).toBe("本机（本地网关）");
     expect(piPackageTargetLabel(remoteTarget)).toBe("Lab Mac（远程机器）");
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(localTarget)).toBe(true);
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(remoteTarget)).toBe(false);

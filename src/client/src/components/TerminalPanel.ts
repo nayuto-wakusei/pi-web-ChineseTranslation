@@ -464,10 +464,10 @@ export class TerminalPanel extends LitElement {
         <section class=${`command-run-notice ${run.status}`}>
           <div>
             <strong>${commandRunCompletionLabel(run)}</strong>
-            <p>输出已保留。可继续进入 shell 查看或运行后续命令。</p>
+            <p>输出已保留。可继续进入命令行查看或运行后续命令。</p>
             <code>${run.command}</code>
           </div>
-          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? "正在启动 shell…" : "在 shell 中继续"}</button>
+          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? "正在启动命令行…" : "在命令行中继续"}</button>
         </section>
       `;
     }

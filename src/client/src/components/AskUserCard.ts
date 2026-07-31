@@ -70,9 +70,9 @@ export class AskUserCard extends LitElement {
     return html`
       <article class="card open-card" aria-labelledby="ask-user-heading">
         <header class="card-header">
-          <h2 id="ask-user-heading">Questions</h2>
+          <h2 id="ask-user-heading">问题</h2>
           <span class="header-status" role="status" aria-live="polite" aria-atomic="true">
-            ${count} of ${ask.questions.length} answered
+            已回答 ${count}/${ask.questions.length}
           </span>
         </header>
         <form class="ask-form" @submit=${(event: SubmitEvent) => { this.handleSubmit(event, ask); }}>
@@ -84,7 +84,7 @@ export class AskUserCard extends LitElement {
               ? this.renderPartialSubmitConfirmation(ask, unanswered)
               : html`
                   <button class="primary-action" type="submit" ?disabled=${this.submitting}>
-                    ${this.submitting ? "Sending…" : "Send answers"}
+                    ${this.submitting ? "正在发送…" : "发送回答"}
                   </button>
                 `}
           </footer>
@@ -137,12 +137,12 @@ export class AskUserCard extends LitElement {
                 .checked=${customSelected}
                 @change=${(event: Event) => { this.changeOther(question, index, event); }}
               />
-              <span class="option-copy"><span class="option-label">Custom</span></span>
+              <span class="option-copy"><span class="option-label">自定义</span></span>
             </label>
           `}
           ${customSelected ? html`
             <label class="other-answer" for=${this.otherInputId(index)}>
-              <span>Custom answer</span>
+              <span>自定义回答</span>
               <textarea
                 id=${this.otherInputId(index)}
                 rows="3"
@@ -159,9 +159,9 @@ export class AskUserCard extends LitElement {
 
   private renderPartialSubmitConfirmation(ask: PendingAskUser, unanswered: AskUserQuestion[]): TemplateResult {
     return html`
-      <div class="partial-confirmation" role="group" aria-label="Confirm partial answers">
+      <div class="partial-confirmation" role="group" aria-label="确认部分回答">
         <p>
-          <strong>Send without answering:</strong>
+          <strong>以下问题尚未回答：</strong>
           ${unanswered.map((question, index) => html`${index === 0 ? " " : ", "}<button
             class="question-jump"
             type="button"
@@ -169,9 +169,9 @@ export class AskUserCard extends LitElement {
           >${question.question}</button>`)}?
         </p>
         <div class="confirmation-actions">
-          <button class="secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>Keep editing</button>
+          <button class="secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>继续编辑</button>
           <button class="primary-action send-anyway" type="button" ?disabled=${this.submitting} @click=${() => { this.submitAnswers(ask); }}>
-            ${this.submitting ? "Sending…" : "Send anyway"}
+            ${this.submitting ? "正在发送…" : "仍然发送"}
           </button>
         </div>
       </div>
@@ -180,19 +180,19 @@ export class AskUserCard extends LitElement {
 
   private renderRecord(outcome: AskUserOutcome): TemplateResult {
     const recordLabel = outcome.reason === "submitted"
-      ? "Answers sent"
+      ? "回答已发送"
       : outcome.reason === "superseded"
-        ? "Superseded"
-        : "Cancelled";
+        ? "已被替代"
+        : "已取消";
     return html`
       <article class="card record-card" aria-labelledby="ask-user-record-heading">
         <header class="card-header">
-          <h2 id="ask-user-record-heading">Questions</h2>
+          <h2 id="ask-user-record-heading">问题</h2>
           <span class=${`header-status ${outcome.reason}`}>${recordLabel}</span>
         </header>
         <p class="record-summary">
           ${outcome.reason === "superseded"
-            ? "A newer question set replaced this one. Draft answers shown below were not sent to the model."
+            ? "较新的问题组已替代此问题组。下方显示的草稿回答未发送给模型。"
             : outcome.summary}
         </p>
         <div class="record-questions">
@@ -212,13 +212,13 @@ export class AskUserCard extends LitElement {
         </h3>
         ${record.question.detail === undefined ? null : html`<p class="question-detail">${record.question.detail}</p>`}
         ${answer === undefined
-          ? html`<p class="unanswered-record">Unanswered</p>`
+          ? html`<p class="unanswered-record">未回答</p>`
           : html`
               <ul class="record-answers">
                 ${answer.values.map((value) => html`<li>${this.optionLabel(record.question, value)}</li>`)}
-                ${answer.otherText === undefined ? null : html`<li><strong>Custom:</strong> <span class="other-record-text">${answer.otherText}</span></li>`}
+                ${answer.otherText === undefined ? null : html`<li><strong>自定义：</strong> <span class="other-record-text">${answer.otherText}</span></li>`}
               </ul>
-              ${answer.fromDraft ? html`<p class="draft-note">Draft answer · not sent</p>` : null}
+              ${answer.fromDraft ? html`<p class="draft-note">草稿回答 · 未发送</p>` : null}
             `}
       </section>
     `;

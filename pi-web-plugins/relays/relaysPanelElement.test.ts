@@ -23,14 +23,14 @@ describe("workspace states", () => {
   it("asks for a workspace when no context is set", async () => {
     const panel = await mountPanel();
 
-    expect(shadow(panel).textContent).toContain("Select a workspace.");
+    expect(shadow(panel).textContent).toContain("请选择工作区。");
   });
 
   it("explains the relays convention when the workspace has no relays root", async () => {
     // The fake rejects unknown paths with "Path does not exist".
     const panel = await mountPanel(panelContext(workspaceFilesFake()));
 
-    expect(viewerText(panel)).toContain("No relays in this workspace.");
+    expect(viewerText(panel)).toContain("此工作区中没有中继。");
     expect(viewerText(panel)).toContain(`${RELAYS_ROOT}/<name>/`);
   });
 
@@ -40,7 +40,7 @@ describe("workspace states", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("No relays in this workspace.");
+    expect(viewerText(panel)).toContain("此工作区中没有中继。");
   });
 
   it("surfaces a scan failure with its detail", async () => {
@@ -50,7 +50,7 @@ describe("workspace states", () => {
     const panel = await mountPanel(panelContext(fake));
 
     const error = shadow(panel).querySelector(".status.error");
-    expect(error?.textContent).toContain("Could not scan workspace relays.");
+    expect(error?.textContent).toContain("无法扫描工作区中继。");
     expect(error?.textContent).toContain("connection lost");
   });
 });
@@ -161,7 +161,7 @@ describe("document tabs", () => {
     const strips = shadow(panel).querySelectorAll("nav.document-tabs");
     expect(strips.length).toBe(1);
     const strip = strips[0];
-    expect(strip?.getAttribute("aria-label")).toBe("Relay documents");
+    expect(strip?.getAttribute("aria-label")).toBe("中继文档");
     const children = [...(strip?.children ?? [])];
     expect(children.every((child) => child instanceof HTMLButtonElement)).toBe(true);
     expect(children.map((child) => child.textContent)).toEqual(["status.md", "log.md", "notes.md"]);
@@ -175,7 +175,7 @@ describe("document tabs", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(shadow(panel).querySelector(".status.info")?.textContent).toContain("truncated");
+    expect(shadow(panel).querySelector(".status.info")?.textContent).toContain("已截断");
     expect(documentText(panel)).toBe("partial log");
   });
 
@@ -187,7 +187,7 @@ describe("document tabs", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("Binary file: status.md");
+    expect(viewerText(panel)).toContain("二进制文件：status.md");
     expect(shadow(panel).querySelector("pre.document")).toBeNull();
   });
 
@@ -199,7 +199,7 @@ describe("document tabs", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("This document no longer exists.");
+    expect(viewerText(panel)).toContain("此文档已不存在。");
   });
 
   it("explains when a relay has no documents", async () => {
@@ -209,7 +209,7 @@ describe("document tabs", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("This relay has no documents yet.");
+    expect(viewerText(panel)).toContain("此中继还没有文档。");
   });
 });
 
@@ -266,7 +266,7 @@ describe("markdown rendering", () => {
     const panel = await mountPanel(panelContext(fake));
 
     const viewer = shadow(panel).querySelector(".viewer");
-    expect(viewer?.querySelector(".status.info")?.textContent).toContain("truncated");
+    expect(viewer?.querySelector(".status.info")?.textContent).toContain("已截断");
     expect(viewer?.querySelector(".document.markdown h1")?.textContent).toBe("Partial");
   });
 });
@@ -279,8 +279,8 @@ describe("refresh and context changes", () => {
     const panel = await mountPanel(panelContext(fake));
 
     const button = refreshButton(panel);
-    expect(button.getAttribute("aria-label")).toBe("Refresh");
-    expect(button.getAttribute("title")).toBe("Refresh");
+    expect(button.getAttribute("aria-label")).toBe("刷新");
+    expect(button.getAttribute("title")).toBe("刷新");
     expect(button.textContent.trim()).toBe("");
     const icon = button.querySelector("svg");
     expect(icon).not.toBeNull();

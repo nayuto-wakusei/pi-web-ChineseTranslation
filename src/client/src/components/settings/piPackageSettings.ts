@@ -23,7 +23,7 @@ export interface PiPackageManagementSupport {
 
 export function piPackageTargetContext(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): PiPackageTargetContext {
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
-  return { id: "local", name: "local", kind: "local" };
+  return { id: "local", name: "本机", kind: "local" };
 }
 
 export function piPackageTargetLabel(target: PiPackageTargetContext): string {

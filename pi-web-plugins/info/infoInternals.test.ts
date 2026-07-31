@@ -18,32 +18,32 @@ describe("componentHealth", () => {
 
 describe("releaseSummary", () => {
   it("names the latest version when an update is available", () => {
-    expect(releaseSummary(release({ updateAvailable: true, latestVersion: "1.2.3" }))).toBe("Update available: 1.2.3");
+    expect(releaseSummary(release({ updateAvailable: true, latestVersion: "1.2.3" }))).toBe("有可用更新：1.2.3");
   });
 
   it("still reports an update when the latest version is unknown", () => {
-    expect(releaseSummary(release({ updateAvailable: true }))).toBe("Update available");
+    expect(releaseSummary(release({ updateAvailable: true }))).toBe("有可用更新");
   });
 
   it("surfaces a failed release check", () => {
-    expect(releaseSummary(release({ error: "registry unreachable" }))).toBe("Update check failed: registry unreachable");
+    expect(releaseSummary(release({ error: "registry unreachable" }))).toBe("更新检查失败：registry unreachable");
   });
 
   it("reports skipped checks distinctly from an up-to-date install", () => {
-    expect(releaseSummary(release({ skipped: true }))).toBe("Update check skipped");
-    expect(releaseSummary(release())).toBe("Up to date");
+    expect(releaseSummary(release({ skipped: true }))).toBe("已跳过更新检查");
+    expect(releaseSummary(release())).toBe("已是最新版本");
   });
 });
 
 describe("componentDetails", () => {
   it("combines versions, health, and installation into one line", () => {
-    expect(componentDetails(componentStatus())).toBe("running 1.0.0 · installed 1.0.0 · current · global npm package · /usr/lib/node_modules");
+    expect(componentDetails(componentStatus())).toBe("运行版本 1.0.0 · 安装版本 1.0.0 · 当前版本 · 全局 npm 包 · /usr/lib/node_modules");
   });
 
   it("includes the component error when present", () => {
     const details = componentDetails(componentStatus({ available: false, error: "connection refused" }));
-    expect(details).toContain("unavailable");
-    expect(details).toContain("error: connection refused");
+    expect(details).toContain("不可用");
+    expect(details).toContain("错误：connection refused");
   });
 });
 
@@ -52,14 +52,14 @@ describe("diagnosticsSummary", () => {
     const summary = diagnosticsSummary({ status: statusResponse(), machine: machineFixture(), workspace: workspaceFixture() });
 
     expect(summary).toBe([
-      "PI WEB diagnostics",
-      "Package: @chainingintention/pi-web-cn",
-      "Web/UI: running 1.0.0 · installed 1.0.1 · restart needed · global npm package · /usr/lib/node_modules",
-      "Session daemon: running 1.0.0 · installed 1.0.0 · current · local checkout · /srv/dev/pi-web",
-      "Release: Update available: 1.1.0 (checked 2025-01-02T03:04:05Z)",
-      "Status generated: 2025-01-02T03:04:06Z",
-      "Machine: devbox (local machine)",
-      "Workspace: pi-web — /srv/dev/pi-web (branch main, git worktree, main workspace)",
+      "PI WEB 诊断信息",
+      "包：@chainingintention/pi-web-cn",
+      "Web/界面：运行版本 1.0.0 · 安装版本 1.0.1 · 需要重启 · 全局 npm 包 · /usr/lib/node_modules",
+      "会话守护进程：运行版本 1.0.0 · 安装版本 1.0.0 · 当前版本 · 本地检出 · /srv/dev/pi-web",
+      "发布状态：有可用更新：1.1.0（检查于 2025-01-02T03:04:05Z）",
+      "状态生成时间：2025-01-02T03:04:06Z",
+      "机器：devbox（本地机器）",
+      "工作区：pi-web - /srv/dev/pi-web（分支 main、Git 工作树、主工作区）",
     ].join("\n"));
   });
 
@@ -67,31 +67,32 @@ describe("diagnosticsSummary", () => {
     const summary = diagnosticsSummary({ status: undefined });
 
     expect(summary).toBe([
-      "PI WEB diagnostics",
-      "Status: unavailable",
-      "Workspace: none selected",
+      "PI WEB 诊断信息",
+      "状态：不可用",
+      "工作区：未选择",
     ].join("\n"));
   });
 });
 
 describe("small formatters", () => {
   it("formats missing versions as unknown", () => {
-    expect(formatVersion(undefined)).toBe("unknown");
-    expect(formatVersion("")).toBe("unknown");
+    expect(formatVersion(undefined)).toBe("未知");
+    expect(formatVersion("")).toBe("未知");
     expect(formatVersion("1.0.0")).toBe("1.0.0");
   });
 
   it("labels installations", () => {
-    expect(installationLabel(undefined)).toBe("installation unknown");
-    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "user" })).toBe("Pi package · user");
-    expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker development runtime");
-    expect(installationLabel({ kind: "docker" })).toBe("Docker runtime");
-    expect(installationLabel({ kind: "unknown" })).toBe("installation unknown");
+    expect(installationLabel(undefined)).toBe("安装方式未知");
+    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "user" })).toBe("Pi package · 用户范围");
+    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "project" })).toBe("Pi package · 项目范围");
+    expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker 开发运行时");
+    expect(installationLabel({ kind: "docker" })).toBe("Docker 运行时");
+    expect(installationLabel({ kind: "unknown" })).toBe("安装方式未知");
   });
 
   it("labels machine kinds", () => {
-    expect(machineKindLabel("local")).toBe("local machine");
-    expect(machineKindLabel("remote")).toBe("remote machine");
+    expect(machineKindLabel("local")).toBe("本地机器");
+    expect(machineKindLabel("remote")).toBe("远程机器");
   });
 
   it("describes workspaces without git metadata", () => {
@@ -103,7 +104,7 @@ describe("small formatters", () => {
       isMain: false,
       isGitRepo: false,
       isGitWorktree: false,
-    })).toEqual(["not a git repo"]);
+    })).toEqual(["非 Git 仓库"]);
   });
 });
 

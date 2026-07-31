@@ -183,7 +183,7 @@ export class SessionNotificationController {
           ...current,
           optimisticDismissedIds: current.optimisticDismissedIds.filter((id) => id !== notificationId),
         }));
-        this.setState({ error: `Failed to dismiss notification: ${errorMessage(error)}` });
+        this.setState({ error: `关闭通知失败：${errorMessage(error)}` });
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {
@@ -214,7 +214,7 @@ export class SessionNotificationController {
           delete next.optimisticDismissAllThrough;
           return next;
         });
-        this.setState({ error: `Failed to dismiss session notifications: ${errorMessage(error)}` });
+        this.setState({ error: `关闭会话通知失败：${errorMessage(error)}` });
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {

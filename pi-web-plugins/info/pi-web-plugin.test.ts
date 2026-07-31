@@ -32,10 +32,10 @@ describe("Info plugin copy-diagnostics action", () => {
 
     expect(writeText).toHaveBeenCalledOnce();
     const summary = writeText.mock.calls[0]?.[0];
-    expect(summary).toContain("PI WEB diagnostics");
-    expect(summary).toContain("Status: unavailable");
-    expect(summary).toContain("Machine: devbox (local machine)");
-    expect(summary).toContain("Workspace: pi-web — /srv/dev/pi-web (branch main, git repo, main workspace)");
+    expect(summary).toContain("PI WEB 诊断信息");
+    expect(summary).toContain("状态：不可用");
+    expect(summary).toContain("机器：devbox（本地机器）");
+    expect(summary).toContain("工作区：pi-web - /srv/dev/pi-web（分支 main、Git 仓库、主工作区）");
   });
 });
 

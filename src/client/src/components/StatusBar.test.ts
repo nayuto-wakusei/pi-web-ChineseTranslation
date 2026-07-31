@@ -8,11 +8,11 @@ describe("statusBarWarningControlContent", () => {
   it("provides an action label for both states while keeping only the count visible", () => {
     expect(statusBarWarningControlContent(1, true)).toEqual({
       countText: "1",
-      accessibleLabel: "Minimise 1 warning",
+      accessibleLabel: "最小化 1 条警告",
     });
     expect(statusBarWarningControlContent(3, false)).toEqual({
       countText: "3",
-      accessibleLabel: "Show 3 warnings in the warning area",
+      accessibleLabel: "在警告区域显示 3 条警告",
     });
   });
 

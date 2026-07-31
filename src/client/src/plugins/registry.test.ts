@@ -233,7 +233,7 @@ describe("PluginRegistry", () => {
     const noCapability = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }) }).context);
     const noCapabilityReload = noCapability.find((action) => action.id === "core:session.reload");
     expect(noCapabilityReload?.enabled).toBe(false);
-    expect(noCapabilityReload?.disabledReason).toBe("Update and restart Pi-Web on this machine to reload sessions from disk.");
+    expect(noCapabilityReload?.disabledReason).toBe("请更新并重启此机器上的 Pi-Web，以便从磁盘重新加载会话。");
 
     const unknown = registry.getActions(createContext({ selectedSession: testSession(), machineRuntimes: reloadRuntime }).context);
     expect(unknown.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
@@ -309,9 +309,9 @@ describe("PluginRegistry", () => {
     const actions = registry.getActions(context);
     const modelAction = actions.find((action) => action.id === "core:model.select");
     const thinkingAction = actions.find((action) => action.id === "core:thinking.select");
-    expect(modelAction).toMatchObject({ title: "Select Model", enabled: true });
+    expect(modelAction).toMatchObject({ title: "选择模型", enabled: true });
     expect(modelAction?.shortcut).toBeUndefined();
-    expect(thinkingAction).toMatchObject({ title: "Select Thinking Level", enabled: true });
+    expect(thinkingAction).toMatchObject({ title: "选择思考级别", enabled: true });
     expect(thinkingAction?.shortcut).toBeUndefined();
 
     if (modelAction !== undefined) void modelAction.run();

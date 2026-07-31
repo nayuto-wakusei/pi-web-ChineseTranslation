@@ -43,7 +43,7 @@ export class SettingsPanelFrame extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <section class="panel" aria-label=${this.heading || "Settings panel"}>
+      <section class="panel" aria-label=${this.heading || "设置面板"}>
         <header class="section-heading">
           <div class="heading-copy">
             ${this.heading === "" ? nothing : html`<h2>${this.heading}</h2>`}

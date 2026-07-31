@@ -170,17 +170,17 @@ export function createCoreActions(): PluginAction[] {
     },
     {
       id: "model.select",
-      title: "Select Model",
-      description: "Choose the model for the selected session",
-      group: "Session",
+      title: "选择模型",
+      description: "为所选会话选择模型",
+      group: "会话",
       enabled: hasSelectableSession,
       run: (context) => context.openModelPicker(),
     },
     {
       id: "thinking.select",
-      title: "Select Thinking Level",
-      description: "Choose the thinking level for the selected session",
-      group: "Session",
+      title: "选择思考级别",
+      description: "为所选会话选择思考级别",
+      group: "会话",
       enabled: hasSelectableSession,
       run: (context) => context.openThinkingLevelPicker(),
     },
@@ -255,7 +255,7 @@ function hasReloadableSession(context: { state: AppState }): boolean {
 function reloadSessionDisabledReason(context: { state: AppState }): string | undefined {
   if (!isArchivableSessionInfo(context.state.selectedSession, context.state.status, sessionPersistenceOptions(context.state))) return undefined;
   if (isSessionActive(context.state.status, context.state.activity)) return undefined;
-  return missingCapabilityReason(context.state, PI_WEB_CAPABILITIES.sessionsReload, "reload sessions from disk");
+  return missingCapabilityReason(context.state, PI_WEB_CAPABILITIES.sessionsReload, "从磁盘重新加载会话");
 }
 
 function sessionPersistenceOptions(state: AppState) {
@@ -265,5 +265,8 @@ function sessionPersistenceOptions(state: AppState) {
 function missingCapabilityReason(state: AppState, capability: PiWebCapability, action: string): string | undefined {
   const runtime = state.machineRuntimes[selectedMachineId(state)];
   if (runtime?.ok === true && supportsPiWebCapability(runtime, capability)) return undefined;
-  return `Update and restart Pi-Web on ${state.selectedMachine?.name ?? "this machine"} to ${action}.`;
+  const machineName = state.selectedMachine?.name;
+  return machineName !== undefined && machineName !== ""
+    ? `请更新并重启 ${machineName} 上的 Pi-Web，以便${action}。`
+    : `请更新并重启此机器上的 Pi-Web，以便${action}。`;
 }

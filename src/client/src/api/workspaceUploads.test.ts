@@ -32,9 +32,9 @@ describe("workspace upload helpers", () => {
     expect(workspaceUploadPath(" uploads\\manual// ", "./report.txt")).toBe("uploads/manual/report.txt");
     expect(workspaceUploadPath("", "report.txt")).toBe("report.txt");
 
-    expect(() => workspaceUploadPath("/tmp", "report.txt")).toThrow("workspace-relative");
-    expect(() => workspaceUploadPath("uploads", "../secret.txt")).toThrow("path traversal");
-    expect(() => workspaceUploadPath("uploads", " ")).toThrow("must not be empty");
+    expect(() => workspaceUploadPath("/tmp", "report.txt")).toThrow("工作区相对路径");
+    expect(() => workspaceUploadPath("uploads", "../secret.txt")).toThrow("路径穿越");
+    expect(() => workspaceUploadPath("uploads", " ")).toThrow("不能为空");
   });
 
   it("uploads one workspace file through XHR with progress and parses the final response", async () => {

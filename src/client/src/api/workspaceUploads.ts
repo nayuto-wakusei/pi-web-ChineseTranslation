@@ -78,7 +78,7 @@ export interface UploadWorkspaceFilesOptions extends WriteWorkspaceFileOptions {
 }
 
 export class WorkspaceUploadCancelledError extends Error {
-  constructor(message = "Workspace upload cancelled") {
+  constructor(message = "工作区上传已取消") {
     super(message);
     this.name = "WorkspaceUploadCancelledError";
   }
@@ -111,8 +111,8 @@ export function workspaceEffectiveUploadFolder(config: WorkspaceUploadFolderConf
 }
 
 export function workspaceUploadPath(destinationFolder: string, fileName: string): string {
-  const folder = normalizeWorkspaceUploadPath(destinationFolder, "upload destination", { allowEmpty: true });
-  const name = normalizeWorkspaceUploadPath(fileName, "upload file name", { allowEmpty: false });
+  const folder = normalizeWorkspaceUploadPath(destinationFolder, "上传目标", { allowEmpty: true });
+  const name = normalizeWorkspaceUploadPath(fileName, "上传文件名", { allowEmpty: false });
   return folder === "" ? name : `${folder}/${name}`;
 }
 
@@ -156,8 +156,8 @@ export function uploadWorkspaceFile(
       }
       fail(new Error(readXhrErrorMessage(xhr)));
     };
-    xhr.onerror = () => { fail(new Error("Workspace upload failed")); };
-    xhr.onabort = () => { fail(new WorkspaceUploadCancelledError(cancelled ? undefined : "Workspace upload aborted")); };
+    xhr.onerror = () => { fail(new Error("工作区上传失败")); };
+    xhr.onabort = () => { fail(new WorkspaceUploadCancelledError(cancelled ? undefined : "工作区上传已中止")); };
     xhr.send(input.file);
   });
 
@@ -296,8 +296,8 @@ function percentFor(loaded: number, total: number): number {
 }
 
 function uploadBatchErrorMessage(failures: readonly WorkspaceUploadFileFailure[]): string {
-  if (failures.length === 1) return failures[0]?.error ?? "Workspace upload failed";
-  return `${String(failures.length)} files failed to upload`;
+  if (failures.length === 1) return failures[0]?.error ?? "工作区上传失败";
+  return `${String(failures.length)} 个文件上传失败`;
 }
 
 function errorMessage(error: unknown): string {
@@ -312,15 +312,15 @@ function normalizeWorkspaceUploadPath(value: string, label: string, options: { a
   const trimmed = value.trim();
   if (trimmed === "") {
     if (options.allowEmpty) return "";
-    throw new Error(`${label} must not be empty`);
+    throw new Error(`${label}不能为空`);
   }
-  if (isAbsoluteLike(trimmed)) throw new Error(`${label} must be workspace-relative`);
+  if (isAbsoluteLike(trimmed)) throw new Error(`${label}必须是工作区相对路径`);
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) {
     if (options.allowEmpty) return "";
-    throw new Error(`${label} must not be empty`);
+    throw new Error(`${label}不能为空`);
   }
-  if (parts.some((part) => part === "..")) throw new Error(`${label} must not contain path traversal`);
+  if (parts.some((part) => part === "..")) throw new Error(`${label}不能包含路径穿越`);
   return parts.join("/");
 }
 

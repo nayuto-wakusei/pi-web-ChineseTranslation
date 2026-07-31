@@ -77,7 +77,7 @@ export class WorkspaceController {
 
   async refreshProjectWorkspaces(projectId: string): Promise<Workspace[]> {
     const project = this.getState().projects.find((candidate) => candidate.id === projectId);
-    if (project === undefined) throw new Error("Project not found");
+    if (project === undefined) throw new Error("找不到项目");
     const workspaces = await this.api.workspaces(project.id, selectedMachineId(this.getState()));
     this.applyProjectWorkspaces(project.id, workspaces);
     return workspaces;

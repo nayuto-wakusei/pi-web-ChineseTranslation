@@ -28,7 +28,7 @@ const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: stri
 ];
 
 function renderShortcutsDescription(): TemplateResult {
-  return html`按操作编辑应用快捷键。输入 <code>mod+k</code> 或 <code>mod+g p</code> 这类快捷键，也可以从键盘录制、设为无或恢复默认。快捷键冲突时，自定义快捷键优先于默认值；同级按 action id 排序，较短快捷键会遮蔽相同前缀的较长序列。`;
+  return html`按操作编辑应用快捷键。输入 <code>mod+k</code> 或 <code>mod+g p</code> 这类快捷键，也可以从键盘录制、设为无或恢复默认。快捷键冲突时，自定义快捷键优先于默认值；同级按操作 ID 排序，较短快捷键会遮蔽相同前缀的较长序列。`;
 }
 
 @customElement("settings-shortcuts-panel")
@@ -61,11 +61,11 @@ export class SettingsShortcutsPanel extends LitElement {
 
     const token = shortcutTokenFromEvent(event);
     if (token === undefined) {
-      this.localError = "Press a letter, number, punctuation, function, or navigation key. Press Esc to cancel recording.";
+      this.localError = "请按字母、数字、标点、功能键或导航键。按 Esc 取消录制。";
       return;
     }
     if (recording.tokens.length === 0 && !isShortcutSequenceStarter(token)) {
-      this.localError = "Start shortcuts with Ctrl/⌘ or Alt so normal typing is not captured.";
+      this.localError = "快捷键请以 Ctrl/⌘ 或 Alt 开始，以免捕获正常输入。";
       return;
     }
 
@@ -226,8 +226,8 @@ export class SettingsShortcutsPanel extends LitElement {
   private recordingHint(actionId: string): string {
     const recording = this.recording;
     if (recording?.actionId !== actionId) return "";
-    if (recording.tokens.length === 0) return "Recording: press Ctrl/⌘ or Alt with a key. Press Esc to cancel.";
-    return `Recording: ${formatShortcut(recording.tokens.join(" "))}. Press another key to add a sequence, or wait to finish.`;
+    if (recording.tokens.length === 0) return "正在录制：请按 Ctrl/⌘ 或 Alt 加一个按键。按 Esc 取消。";
+    return `正在录制：${formatShortcut(recording.tokens.join(" "))}。继续按键可添加序列，或等待录制完成。`;
   }
 
   private updateDraft(actionId: string, value: string): void {
@@ -419,12 +419,12 @@ function shortcutConflictClass(resolution: ShortcutBindingResolution | undefined
 
 function shortcutConflictLabel(resolution: ShortcutBindingResolution | undefined): string | undefined {
   if (resolution === undefined) return undefined;
-  if (!resolution.active) return `Shadowed by ${resolution.shadowedBy?.action.title ?? "another action"}`;
+  if (!resolution.active) return `被“${resolution.shadowedBy?.action.title ?? "另一项操作"}”覆盖`;
   const shadowedCount = resolution.shadows.length;
   if (shadowedCount === 0) return undefined;
   const shadowedNames = resolution.shadows.slice(0, 2).map((binding) => binding.action.title).join(", ");
-  const suffix = shadowedCount > 2 ? `, +${String(shadowedCount - 2)} more` : "";
-  return `Shadows ${String(shadowedCount)} ${shadowedCount === 1 ? "action" : "actions"}: ${shadowedNames}${suffix}`;
+  const suffix = shadowedCount > 2 ? `，另有 ${String(shadowedCount - 2)} 项` : "";
+  return `覆盖 ${String(shadowedCount)} 项操作：${shadowedNames}${suffix}`;
 }
 
 function shortcutGroups(actions: AppAction[]): { name: string; actions: AppAction[] }[] {

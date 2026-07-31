@@ -68,6 +68,19 @@ describe("AuthController", () => {
     expect(getState().authDialog).toMatchObject({ step: "apiKey", provider: { id: "anthropic", authType: "api_key" } });
   });
 
+  it("shows remote OAuth guidance entirely in Chinese", async () => {
+    const provider = authProvider("openai", "oauth");
+    const target = remoteTarget("remote-1");
+    const { controller, getState } = createController({
+      selectedMachine: remoteMachine("remote-1"),
+      authDialog: { step: "providers", mode: "login", providers: [provider], target },
+    });
+
+    await controller.selectLoginProvider(provider.id, provider.authType);
+
+    expect(getState().error).toBe("远程机器的 OAuth 登录必须直接在 https://remote.example 上配置。");
+  });
+
   it("keeps OAuth prompt input and submit state across poll refreshes for the same request", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
@@ -186,7 +199,7 @@ describe("AuthController", () => {
     await controller.saveApiKey();
 
     expect(saveCalls).toEqual([]);
-    expect(getState().authDialog).toMatchObject({ step: "apiKey", error: "API key is required" });
+    expect(getState().authDialog).toMatchObject({ step: "apiKey", error: "必须填写 API key" });
 
     controller.updateApiKey("sk-live");
 

@@ -953,8 +953,8 @@ describe("SessionController", () => {
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([
       { kind: "followUp", text: "/help" },
       { kind: "followUp", text: "!pwd" },
-      { kind: "followUp", text: "look\n\n[1 attachment queued: shot.png]" },
-      { kind: "followUp", text: "save\n\n[1 attachment queued: shot.png]" },
+      { kind: "followUp", text: "look\n\n[已排队 1 个附件：shot.png]" },
+      { kind: "followUp", text: "save\n\n[已排队 1 个附件：shot.png]" },
     ]);
 
     startRequest.resolve(started);
@@ -1351,7 +1351,7 @@ describe("SessionController", () => {
     expect(state.sessions.find((session) => session.id === oldSession.id)).toMatchObject({ archived: true });
     expect(state.sessions.find((session) => session.id === failedSession.id)?.archived).toBeUndefined();
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(state.error).toBe("Archive failed for 1 session: failed-session: busy");
+    expect(state.error).toBe("归档失败，1 个会话处理失败：failed-session: busy");
   });
 
   it("throttles per-session archive fallback when bulk mutations are unsupported", async () => {
@@ -1469,7 +1469,7 @@ describe("SessionController", () => {
     expect(deleteCalls).toEqual([{ ids: [deletedSession.id, failedSession.id], machineId: "local" }]);
     expect(state.sessions.map((session) => session.id)).toEqual([failedSession.id]);
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(state.error).toBe("Delete failed for 1 session: failed-archived: busy");
+    expect(state.error).toBe("删除失败，1 个会话处理失败：failed-archived: busy");
   });
 
   it("applies cleanup execution results and refreshes the current workspace sessions", async () => {
@@ -1544,7 +1544,7 @@ describe("SessionController", () => {
 
     expect(deletedIds).toEqual([]);
     expect(state.sessions).toEqual([archivedSession]);
-    expect(state.error).toContain("requires an updated Pi-Web runtime");
+    expect(state.error).toContain("需要更新此机器上的 Pi-Web 运行时");
   });
 
   it("allows legacy archived-session deletion when runtime support is unknown", async () => {
@@ -1652,7 +1652,7 @@ describe("SessionController", () => {
     await controller.reloadSession(persistedSession);
 
     expect(reloadCalls).toEqual([]);
-    expect(state.error).toContain("Reloading sessions from disk requires an updated Pi-Web runtime");
+    expect(state.error).toContain("从磁盘重新加载会话需要更新此机器上的 Pi-Web 运行时");
   });
 
   it("does not reload sessions from disk without a persisted server signal when persistence is authoritative", async () => {

@@ -28,7 +28,7 @@ export function additionalCommands(status: PiWebStatusResponse, recommended: Com
   return [
     ["更新", status.commands.update],
     ["全部重启", status.commands.restart],
-    ["重启 Web/UI", status.commands.restartWeb],
+    ["重启 Web/界面", status.commands.restartWeb],
     ["重启会话守护进程", status.commands.restartSessiond],
     ["状态", status.commands.status],
   ]
@@ -70,8 +70,8 @@ export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = "�
     packageName: "@chainingintention/pi-web-cn",
     generatedAt,
     components: {
-      web: { component: "web", label: "Web/UI", stale: false, available: true, installation },
-      sessiond: { component: "sessiond", label: "Session daemon", stale: false, available: true, installation },
+      web: { component: "web", label: "Web/界面", stale: false, available: true, installation },
+      sessiond: { component: "sessiond", label: "会话守护进程", stale: false, available: true, installation },
     },
     release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false, skipped: true },
     commands: {
@@ -97,12 +97,16 @@ export function formatVersion(version: string | undefined): string {
 export function installationLabel(installation: PiWebInstallationInfo | undefined): string {
   if (installation === undefined) return "安装来源未知";
   if (installation.kind === "pi-package") {
-    const scope = installation.scope === undefined ? "" : ` · ${installation.scope}`;
+    const scope = installation.scope === undefined ? "" : ` · ${installationScopeLabel(installation.scope)}`;
     const source = installation.source ?? "Pi 包";
     return `${source}${scope}`;
   }
   if (installation.kind === "npm-global") return "全局 npm 包";
-  if (installation.kind === "local") return "本地 checkout";
+  if (installation.kind === "local") return "本地检出";
   if (installation.kind === "docker") return installation.dockerMode === "dev" ? "Docker 开发运行时" : "Docker 运行时";
   return "安装来源未知";
+}
+
+function installationScopeLabel(scope: "user" | "project"): string {
+  return scope === "user" ? "用户范围" : "项目范围";
 }

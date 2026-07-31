@@ -19,7 +19,7 @@ describe("workspace unread indicator", () => {
     expect(unreadDot(rowFor(list, "ws-a"))).toBeNull();
     const dot = unreadDot(rowFor(list, "ws-b"));
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("Unread sessions in this workspace");
+    expect(dot?.getAttribute("title")).toBe("此工作区中有未读会话");
   });
 
   it("clears the dot once the workspace is no longer tracked as unread", async () => {
@@ -40,7 +40,7 @@ describe("workspace unread indicator", () => {
     const row = rowFor(list, "ws-a");
     const ring = row.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("Unread sessions in this workspace · Workspace terminal active");
+    expect(ring?.getAttribute("title")).toBe("此工作区中有未读会话 · 工作区终端活动中");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 });
@@ -52,9 +52,9 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "Copy path").click();
+    detailCopyButton(list, "复制路径").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("/repo/ws-a"); });
-    await vi.waitFor(() => { expect(detailCopyButton(list, "Copied").textContent).toContain("✓"); });
+    await vi.waitFor(() => { expect(detailCopyButton(list, "已复制").textContent).toContain("✓"); });
 
     expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
   });
@@ -65,7 +65,7 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "feature-x");
     await list.updateComplete;
 
-    detailCopyButton(list, "Copy branch").click();
+    detailCopyButton(list, "复制分支").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("feature-x"); });
   });
 
@@ -75,7 +75,7 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "Copy workspace label").click();
+    detailCopyButton(list, "复制工作区标签").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("ws-a"); });
   });
 
@@ -85,13 +85,13 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "Copy path").click();
+    detailCopyButton(list, "复制路径").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalled(); });
     await new Promise((resolve) => { setTimeout(resolve, 0); });
     await list.updateComplete;
 
-    expect(detailCopyButton(list, "Copy path")).toBeDefined();
-    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='Copied']")).toBeNull();
+    expect(detailCopyButton(list, "复制路径")).toBeDefined();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='已复制']")).toBeNull();
   });
 });
 

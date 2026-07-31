@@ -88,7 +88,7 @@ describe("SessionController reload and selection", () => {
     await controller.reloadSession(persistedSession);
 
     expect(reloadCalls).toEqual([]);
-    expect(state.error).toContain("Reloading sessions from disk requires an updated Pi-Web runtime");
+    expect(state.error).toContain("从磁盘重新加载会话需要更新此机器上的 Pi-Web 运行时");
   });
 
   it("does not reload sessions from disk without a persisted server signal when persistence is authoritative", async () => {

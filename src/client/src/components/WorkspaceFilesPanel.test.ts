@@ -77,15 +77,15 @@ describe("workspace-files-panel file tree boundary", () => {
     expect(workspaceFileViewerStatusLabel(workspacePanelContext({
       selectedFilePath: "README.md",
       selectedFileContent: binaryFileContent("README.md", 4096),
-    }))).toBe("Binary file: README.md · 4.0 KB");
+    }))).toBe("二进制文件：README.md · 4.0 KB");
   });
 });
 
 describe("workspaceFileViewerStatusLabel", () => {
   it("messages empty, loading, and binary viewer states while deferring to real viewers", () => {
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: undefined }))).toBe("Select a file.");
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "" }))).toBe("Select a file.");
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "notes.md", selectedFileContent: undefined }))).toBe("Loading notes.md…");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: undefined }))).toBe("请选择文件。");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "" }))).toBe("请选择文件。");
+    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "notes.md", selectedFileContent: undefined }))).toBe("正在加载 notes.md…");
     expect(workspaceFileViewerStatusLabel(workspacePanelContext({
       selectedFilePath: "logo.png",
       selectedFileContent: { ...binaryFileContent("logo.png", 10), mediaType: "image" },
@@ -113,7 +113,7 @@ describe("workspace upload terminal display", () => {
   it("uses terminal labels and full progress for failed batches instead of stale partial percentages", () => {
     const failed = uploadBatch({ status: "error", percent: 0.31 });
 
-    expect(uploadBatchStatusLabel(failed)).toBe("Failed");
+    expect(uploadBatchStatusLabel(failed)).toBe("失败");
     expect(uploadBatchProgressValue(failed)).toBe(1);
   });
 
@@ -166,8 +166,8 @@ describe("workspaceUploadReviewError", () => {
   });
 
   it("rejects empty selections and unsafe destinations before starting an upload", () => {
-    expect(workspaceUploadReviewError([], ".pi-web/uploads")).toBe("Choose at least one file to upload.");
-    expect(workspaceUploadReviewError([new File(["a"], "a.txt")], "../outside")).toContain("path traversal");
+    expect(workspaceUploadReviewError([], ".pi-web/uploads")).toBe("请至少选择一个要上传的文件。");
+    expect(workspaceUploadReviewError([new File(["a"], "a.txt")], "../outside")).toContain("路径穿越");
   });
 });
 

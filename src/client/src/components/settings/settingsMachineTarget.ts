@@ -18,7 +18,7 @@ export type AgentProfileSettingsSupport = SelectedMachineSettingsSupport;
 
 export function settingsMachineTarget(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): SettingsMachineTarget {
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
-  return { id: "local", name: "local", kind: "local" };
+  return { id: "local", name: "本机", kind: "local" };
 }
 
 export function settingsMachineTargetLabel(target: SettingsMachineTarget): string {
@@ -37,13 +37,13 @@ export function agentProfileSettingsSupport(target: SettingsMachineTarget, runti
   if (runtime?.ok !== true) {
     return {
       state: "unknown",
-      message: `无法确认 ${target.name} 是否支持 Pi 兼容 Agent Profile。更改 Profile 前请重新加载机器状态。`,
+      message: `无法确认 ${target.name} 是否支持 Pi 兼容代理配置档案。更改配置档案前请重新加载机器状态。`,
     };
   }
   if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.agentProfileConfig)) return { state: "supported" };
   return {
     state: "unsupported",
-    message: `${target.name} 不支持 Pi 兼容 Agent Profile 设置。请更新并重启该机器上的 PI WEB，然后重试。`,
+    message: `${target.name} 不支持 Pi 兼容代理配置档案设置。请更新并重启该机器上的 PI WEB，然后重试。`,
   };
 }
 

@@ -63,6 +63,6 @@ export class PiWebStatusController {
 }
 
 function throwForUnsuccessfulReleaseCheck(status: PiWebStatusResponse): void {
-  if (status.release.error !== undefined) throw new Error(`PI WEB update check failed: ${status.release.error}`);
-  if (status.release.skipped === true) throw new Error("PI WEB update check was skipped because remote version checks are disabled by offline/version-check settings");
+  if (status.release.error !== undefined) throw new Error(`PI WEB 更新检查失败：${status.release.error}`);
+  if (status.release.skipped === true) throw new Error("由于离线或版本检查设置禁用了远程版本检查，已跳过 PI WEB 更新检查");
 }

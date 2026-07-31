@@ -68,7 +68,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
         >
           ${this.renderActivity(selected)}
           <span class="machine-switcher-text">
-            <span class="machine-switcher-kicker">Machine</span>
+            <span class="machine-switcher-kicker">机器</span>
             <span class="machine-switcher-label">${label}</span>
           </span>
           <span class=${`machine-status ${status}`}>${machineStatusLabel(status)}</span>
@@ -99,7 +99,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
           @keydown=${(event: KeyboardEvent) => { this.handleMachineOptionKeydown(event); }}
         >
           <span class="machine-option-name">${this.renderActivity(machine)}<span>${machine.name}</span></span>
-          <small>${machine.kind === "local" ? "Local Pi Web" : machine.baseUrl ?? "Remote Pi Web"} · ${machineStatusLabel(status)}</small>
+          <small>${machine.kind === "local" ? "本地 PI WEB" : machine.baseUrl ?? "远程 PI WEB"} · ${machineStatusLabel(status)}</small>
         </button>
         ${hasActions ? html`
           <div class="machine-option-actions">
@@ -127,8 +127,8 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
     // Unread survives offline: an offline machine keeps its last-known unread
     // state (stale-but-present still counts), so only the work dot is gated.
     const kind = status === "offline" || status === "error" ? undefined : machineActivityIndicator(this.activities[machine.id]);
-    const unreadLabel = this.unreadMachineIds.has(machine.id) ? "Unread sessions on this machine" : undefined;
-    return renderActivityIndicator(kind, kind === "terminal" ? "Machine terminal active" : "Machine active", unreadLabel);
+    const unreadLabel = this.unreadMachineIds.has(machine.id) ? "此机器上有未读会话" : undefined;
+    return renderActivityIndicator(kind, kind === "terminal" ? "机器终端活动中" : "机器活动中", unreadLabel);
   }
 
   private selectedMachine(): Machine | undefined {
@@ -136,7 +136,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
   }
 
   private machineSwitcherAriaLabel(machine: Machine): string {
-    return `Machine: ${machine.name}. Switch machine.`;
+    return `机器：${machine.name}。切换机器。`;
   }
 
   private switcherButton(): HTMLElement | null {
@@ -318,7 +318,7 @@ function machineStatus(machine: Machine, statuses: Record<string, MachineHealth>
 }
 
 function machineStatusLabel(status: MachineStatus): string {
-  return status === "online" ? "online" : status === "offline" ? "offline" : status === "error" ? "error" : "unknown";
+  return status === "online" ? "在线" : status === "offline" ? "离线" : status === "error" ? "错误" : "未知";
 }
 
 function machineTitle(machine: Machine): string {

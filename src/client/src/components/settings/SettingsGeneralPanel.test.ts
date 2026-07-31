@@ -136,7 +136,7 @@ describe("settings-general-panel save payloads", () => {
     await callPanelPromise(panel, "saveMachineAccessConfig", new Event("submit", { cancelable: true }));
 
     expect(onSaveMachineConfig).not.toHaveBeenCalled();
-    expect(getPanelProperty(panel, "machineLocalError")).toBe("Upload default folder must be workspace-relative.");
+    expect(getPanelProperty(panel, "machineLocalError")).toBe("上传默认文件夹必须是工作区相对路径。");
   });
 });
 

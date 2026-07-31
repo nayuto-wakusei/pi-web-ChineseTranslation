@@ -275,8 +275,8 @@ describe("FileExplorerController workspace uploads", () => {
     expect(harness.state.workspaceUploadBatches["batch-1"]).toMatchObject({
       status: "cancelled",
       completedAt: "cancel",
-      error: "Upload cancelled",
-      files: [{ status: "cancelled", error: "Upload cancelled" }],
+      error: "上传已取消",
+      files: [{ status: "cancelled", error: "上传已取消" }],
     });
   });
 
@@ -345,7 +345,7 @@ describe("FileExplorerController workspace uploads", () => {
     expect(run).toBeUndefined();
     expect(upload.fn).not.toHaveBeenCalled();
     expect(harness.state.workspaceUploadBatches).toEqual({});
-    expect(harness.state.error).toContain("upload destination must not contain path traversal");
+    expect(harness.state.error).toContain("上传目标不能包含路径穿越");
   });
 });
 

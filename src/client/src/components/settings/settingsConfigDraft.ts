@@ -114,17 +114,17 @@ function parseAllowedHostsText(value: string): string[] {
 function parseAllowedPathsText(value: string): string[] {
   const paths = value.split("\n").map((path) => path.trim()).filter((path) => path !== "");
   const invalid = paths.find((path) => !isAbsoluteishAllowedPath(path));
-  if (invalid !== undefined) throw new Error(`Allowed external paths must be absolute paths or start with ~: ${invalid}`);
+  if (invalid !== undefined) throw new Error(`允许的外部路径必须是绝对路径或以 ~ 开头：${invalid}`);
   return paths;
 }
 
 function normalizeWorkspaceRelativeFolder(value: string): string {
   const trimmed = value.trim();
   if (trimmed === "") return "";
-  if (isAbsoluteLike(trimmed)) throw new Error("Upload default folder must be workspace-relative.");
+  if (isAbsoluteLike(trimmed)) throw new Error("上传默认文件夹必须是工作区相对路径。");
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) return "";
-  if (parts.some((part) => part === "..")) throw new Error("Upload default folder must not contain path traversal.");
+  if (parts.some((part) => part === "..")) throw new Error("上传默认文件夹不能包含路径穿越。");
   return parts.join("/");
 }
 

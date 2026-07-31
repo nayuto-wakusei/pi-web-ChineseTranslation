@@ -51,11 +51,11 @@ describe("settings-packages-panel layout", () => {
     expectTextOrder(rendered, [
       "Pi 包",
       "管理 ",
-      "local（本地网关）",
+      "本机（本地网关）",
       "受信代码警告：",
       "Pi 包来源",
       "已配置的 Pi 包",
-      "local（本地网关） 的 Pi 设置中尚未配置 Pi 包。",
+      "本机（本地网关） 的 Pi 设置中尚未配置 Pi 包。",
     ]);
     expect(rendered).not.toContain("Pi 包列表不可用");
   });

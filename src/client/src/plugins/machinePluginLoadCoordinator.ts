@@ -15,7 +15,7 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB plugins", () => loadExternalPlugins());
+    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", () => loadExternalPlugins());
     return this.gatewayLoad;
   }
 
@@ -26,7 +26,7 @@ export class MachinePluginLoadCoordinator {
     if (existing !== undefined) return existing;
 
     const load = this.registerPlugins(
-      `PI WEB plugins from ${machine.name}`,
+      `来自 ${machine.name} 的 PI WEB 插件`,
       () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),

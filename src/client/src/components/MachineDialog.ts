@@ -113,9 +113,9 @@ export class MachineDialog extends LitElement {
                 <small class="hint">根据 URL 自动建议。可以改成更友好的侧栏名称。</small>
                 <label>
                   Bearer token <span class="optional">可选</span>
-                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="如果远程机器不需要 token，可留空" autocomplete="off" />
+                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="如果远程机器不需要令牌，可留空" autocomplete="off" />
                 </label>
-                <small class="hint">只粘贴 token 值；PI WEB 会通过 Authorization: Bearer 请求头发送。</small>
+                <small class="hint">只粘贴令牌值；PI WEB 会通过 Authorization: Bearer 请求头发送。</small>
               ` : html`<p class="hint intro">输入 URL 后，PI WEB 会建议机器名称，并允许添加可选的 bearer token。</p>`}
             </div>
             <footer>

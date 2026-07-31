@@ -98,7 +98,7 @@ export class ProjectDialog extends LitElement {
           <div class="body">
             <label>
               项目文件夹
-              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }} placeholder="/path/to/project or ~/code/project" autofocus />
+              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }} placeholder="/path/to/project 或 ~/code/project" autofocus />
             </label>
             <div class="suggestions">
               ${this.loading ? html`<div class="hint">正在加载文件夹…</div>` : null}

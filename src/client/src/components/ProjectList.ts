@@ -92,8 +92,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
 
   private renderActivity(project: Project) {
     const kind = projectActivityIndicator(project, this.workspacesByProjectId[project.id] ?? [], this.activities);
-    const unreadLabel = this.unreadProjectIds.has(project.id) ? "Unread sessions in this project" : undefined;
-    return renderActionActivityIndicator(kind, kind === "terminal" ? "Project terminal active" : "Project active", unreadLabel);
+    const unreadLabel = this.unreadProjectIds.has(project.id) ? "此项目中有未读会话" : undefined;
+    return renderActionActivityIndicator(kind, kind === "terminal" ? "项目终端活动中" : "项目活动中", unreadLabel);
   }
 
   private close(project: Project) {

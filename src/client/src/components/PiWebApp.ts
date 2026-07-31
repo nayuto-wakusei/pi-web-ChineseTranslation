@@ -866,12 +866,12 @@ export class PiWebApp extends LitElement {
 
   private setRemoteRouteRestoreMessage(route: AppRoute, options: { exhausted?: boolean } = {}): void {
     const machineId = route.machineId ?? "local";
-    const machineName = this.state.machines.find((machine) => machine.id === machineId)?.name ?? this.state.selectedMachine?.name ?? "Remote machine";
+    const machineName = this.state.machines.find((machine) => machine.id === machineId)?.name ?? this.state.selectedMachine?.name ?? "远程机器";
     const health = this.state.machineStatuses[machineId];
     const detail = health?.error ?? (this.state.error === "" ? undefined : this.state.error);
     const prefix = options.exhausted === true
-      ? `${machineName} is still unavailable.`
-      : `${machineName} is unavailable; reconnecting…`;
+      ? `${machineName} 仍不可用。`
+      : `${machineName} 暂不可用，正在重新连接…`;
     this.setState({ error: `${prefix}${detail === undefined ? "" : ` ${detail}`}` });
   }
 
@@ -1049,7 +1049,7 @@ export class PiWebApp extends LitElement {
         view: "core:workspace.terminal",
       }, false, { selectedTerminalId: options?.terminalId }, "core:workspace.terminal");
       if (selectedMachineId(this.state) !== machineId) {
-        this.setState({ error: "Machine not found for terminal command run" });
+        this.setState({ error: "找不到用于运行终端命令的机器" });
         return;
       }
     }
@@ -1927,7 +1927,7 @@ export class PiWebApp extends LitElement {
         id: "app.sessions.cleanup",
         title: "清理会话",
         description: "预览并手动清理所选机器上的空闲或已归档会话",
-        group: "Sessions",
+        group: "会话",
         ...(canCleanup ? {} : { enabled: false, disabledReason: this.sessionCleanupUnavailableMessage() }),
         run: () => { this.openSessionCleanupDialog(); },
       },
@@ -2098,12 +2098,12 @@ export class PiWebApp extends LitElement {
   private async deleteWorkspace(workspace = this.state.selectedWorkspace): Promise<void> {
     if (workspace === undefined) return;
     if (!canDeleteWorkspace(workspace)) {
-      this.setState({ error: "Only secondary Git worktrees can be deleted" });
+      this.setState({ error: "只能删除辅助 Git 工作树" });
       return;
     }
     if (isWorkspaceDeletionPending(this.state, workspace)) return;
     const label = workspace.branch ?? workspace.label;
-    const confirmed = confirm(`Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${workspace.path}\n\nThe Git branch will not be deleted.`);
+    const confirmed = confirm(`删除工作区 ${label}？\n\n此操作将运行 git worktree remove 并删除：\n${workspace.path}\n\n不会删除 Git 分支。`);
     if (!confirmed) return;
 
     const machineId = selectedMachineId(this.state);
@@ -2550,7 +2550,7 @@ function initializeApiScope(): ApiScope {
 function pluginMachineFromState(state: Pick<AppState, "selectedMachine">): PluginMachine {
   const machine = state.selectedMachine;
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
-  return { id: "local", name: "local", kind: "local" };
+  return { id: "local", name: "本机", kind: "local" };
 }
 
 function unreadChatIdentity(machineId: string, session: Pick<SessionInfo, "id" | "cwd">): string {

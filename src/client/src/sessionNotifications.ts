@@ -192,14 +192,14 @@ export function selectedNotificationView(inbox: SelectedSessionNotificationInbox
   };
 }
 
-export function notificationSeverityLabel(severity: SessionNotificationSeverity): "Info" | "Warning" | "Error" {
-  if (severity === "error") return "Error";
-  if (severity === "warning") return "Warning";
-  return "Info";
+export function notificationSeverityLabel(severity: SessionNotificationSeverity): "信息" | "警告" | "错误" {
+  if (severity === "error") return "错误";
+  if (severity === "warning") return "警告";
+  return "信息";
 }
 
 export function notificationAnnouncementLabel(announcement: Pick<SessionNotificationAnnouncement, "severity">): string {
-  return `${notificationSeverityLabel(announcement.severity)} notification received.`;
+  return `收到${notificationSeverityLabel(announcement.severity)}通知。`;
 }
 
 export function notificationInboxTotalCount(inbox: Pick<SelectedSessionNotificationView, "retainedCount" | "discardedCount">): number {
@@ -207,16 +207,16 @@ export function notificationInboxTotalCount(inbox: Pick<SelectedSessionNotificat
 }
 
 export function notificationTrayHeading(inbox: Pick<SelectedSessionNotificationView, "retainedCount" | "discardedCount">): string {
-  return `Notifications (${String(notificationInboxTotalCount(inbox))})`;
+  return `通知（${String(notificationInboxTotalCount(inbox))}）`;
 }
 
 export function notificationDismissLabel(notification: Pick<SessionNotification, "message" | "severity">): string {
   const message = notification.message.replace(/\s+/gu, " ").trim();
-  if (message === "") return `Dismiss ${notificationSeverityLabel(notification.severity).toLowerCase()} notification`;
+  if (message === "") return `关闭${notificationSeverityLabel(notification.severity)}通知`;
   const maxCharacters = 80;
   const characters = Array.from(message);
   const summary = characters.length <= maxCharacters ? message : `${characters.slice(0, maxCharacters - 1).join("").trimEnd()}…`;
-  return `Dismiss notification: ${summary}`;
+  return `关闭通知：${summary}`;
 }
 
 export type NotificationFocusTarget = { kind: "notification"; notificationId: string } | { kind: "header" };
@@ -247,13 +247,13 @@ export function setNotificationTrayCollapsed(collapsedTargetKeys: ReadonlySet<st
 }
 
 export function notificationInboxOverflowLabel(discardedCount: number): string {
-  return `${String(discardedCount)} older ${discardedCount === 1 ? "notification" : "notifications"} not shown.`;
+  return `还有 ${String(discardedCount)} 条较早通知未显示。`;
 }
 
 export function notificationMessageTruncationLabel(notification: Pick<SessionNotification, "truncated">): string | undefined {
   if (!notification.truncated) return undefined;
   const kibibytes = SESSION_NOTIFICATION_MESSAGE_BYTES / 1024;
-  return `Message truncated at ${String(kibibytes)} KiB.`;
+  return `消息已在 ${String(kibibytes)} KiB 处截断。`;
 }
 
 export function notificationTargetsEqual(left: SessionNotificationTarget, right: SessionNotificationTarget): boolean {

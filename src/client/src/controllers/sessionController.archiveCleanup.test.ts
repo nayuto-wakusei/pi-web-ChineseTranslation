@@ -154,7 +154,7 @@ describe("SessionController archive and cleanup", () => {
     expect(state.sessions.find((session) => session.id === oldSession.id)).toMatchObject({ archived: true });
     expect(state.sessions.find((session) => session.id === failedSession.id)?.archived).toBeUndefined();
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(state.error).toBe("Archive failed for 1 session: failed-session: busy");
+    expect(state.error).toBe("归档失败，1 个会话处理失败：failed-session: busy");
   });
 
   it("throttles per-session archive fallback when bulk mutations are unsupported", async () => {
@@ -272,7 +272,7 @@ describe("SessionController archive and cleanup", () => {
     expect(deleteCalls).toEqual([{ ids: [deletedSession.id, failedSession.id], machineId: "local" }]);
     expect(state.sessions.map((session) => session.id)).toEqual([failedSession.id]);
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(state.error).toBe("Delete failed for 1 session: failed-archived: busy");
+    expect(state.error).toBe("删除失败，1 个会话处理失败：failed-archived: busy");
   });
 
   it("applies cleanup execution results and refreshes the current workspace sessions", async () => {
@@ -347,7 +347,7 @@ describe("SessionController archive and cleanup", () => {
 
     expect(deletedIds).toEqual([]);
     expect(state.sessions).toEqual([archivedSession]);
-    expect(state.error).toContain("requires an updated Pi-Web runtime");
+    expect(state.error).toContain("需要更新此机器上的 Pi-Web 运行时");
   });
 
   it("allows legacy archived-session deletion when runtime support is unknown", async () => {

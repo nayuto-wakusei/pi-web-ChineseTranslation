@@ -71,10 +71,10 @@ describe("ChatView ask_user transcript records", () => {
     await card.updateComplete;
 
     const cardRoot = requiredElement(card.shadowRoot, "ask_user record shadow root");
-    expect(cardRoot.textContent).toContain("Answers sent");
+    expect(cardRoot.textContent).toContain("回答已发送");
     expect(cardRoot.textContent).toContain("Vim");
     expect(cardRoot.textContent).toContain("Which region?");
-    expect(cardRoot.textContent).toContain("Unanswered");
+    expect(cardRoot.textContent).toContain("未回答");
     expect(cardRoot.querySelector("input, textarea, button, select")).toBeNull();
     expect(view.shadowRoot?.querySelector("article.ask-user-record-shell .msg-header")).toBeNull();
   });

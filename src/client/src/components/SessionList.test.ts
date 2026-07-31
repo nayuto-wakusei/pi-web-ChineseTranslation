@@ -112,7 +112,7 @@ describe("mark-as-read actions", () => {
     list.onMarkRead = onMarkRead;
 
     openSessionMenu(list, unread.id);
-    templateClickHandlerForText(renderList(list), "Mark as read")(new Event("click"));
+    templateClickHandlerForText(renderList(list), "标记为已读")(new Event("click"));
 
     expect(onMarkRead).toHaveBeenCalledWith(unread);
     expect(componentState(list, "openMenuSessionId")).toBeUndefined();
@@ -125,14 +125,14 @@ describe("mark-as-read actions", () => {
     const list = sessionList([read, cached, archived], new Set([cached.id, archived.id]));
 
     openSessionMenu(list, read.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "Mark as read")).toBeUndefined();
+    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
 
     openSessionMenu(list, cached.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "Mark as read")).toBeUndefined();
+    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
 
     setComponentState(list, "archivedExpanded", true);
     openSessionMenu(list, archived.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "Mark as read")).toBeUndefined();
+    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
   });
 
   it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", () => {

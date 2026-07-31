@@ -60,7 +60,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
         @keydown=${(event: KeyboardEvent) => { this.handleMachineKeydown(event, machine); }}
       >
         <div class="action-main">
-          <span class="action-name machine-primary">${this.renderActivity(machine)}<span class="machine-primary-label">${machine.name}</span></span><small>${machine.kind === "local" ? "本机 Pi Web" : machine.baseUrl ?? "远程 Pi Web"} · ${statusLabel}</small>
+          <span class="action-name machine-primary">${this.renderActivity(machine)}<span class="machine-primary-label">${machine.name}</span></span><small>${machine.kind === "local" ? "本机 PI WEB" : machine.baseUrl ?? "远程 PI WEB"} · ${statusLabel}</small>
         </div>
         ${hasRemoveAction ? this.renderMachineMenu(machine) : null}
       </div>
@@ -70,8 +70,8 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   private renderActivity(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status;
     const kind = status === "offline" || status === "error" ? undefined : machineActivityIndicator(this.activities[machine.id]);
-    const unreadLabel = this.unreadMachineIds.has(machine.id) ? "Unread sessions on this machine" : undefined;
-    return renderActionActivityIndicator(kind, kind === "terminal" ? "Machine terminal active" : "Machine active", unreadLabel);
+    const unreadLabel = this.unreadMachineIds.has(machine.id) ? "此机器上有未读会话" : undefined;
+    return renderActionActivityIndicator(kind, kind === "terminal" ? "机器终端活动中" : "机器活动中", unreadLabel);
   }
 
   private renderMachineMenu(machine: Machine) {

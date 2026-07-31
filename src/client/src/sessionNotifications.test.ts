@@ -174,10 +174,10 @@ describe("notification presentation helpers", () => {
     const counts = { retainedCount: 2, discardedCount: 23 };
 
     expect(notificationInboxTotalCount(counts)).toBe(25);
-    expect(notificationTrayHeading(counts)).toBe("Notifications (25)");
-    expect(notificationInboxOverflowLabel(1)).toBe("1 older notification not shown.");
-    expect(notificationInboxOverflowLabel(23)).toBe("23 older notifications not shown.");
-    expect(notificationMessageTruncationLabel({ truncated: true })).toBe("Message truncated at 8 KiB.");
+    expect(notificationTrayHeading(counts)).toBe("通知（25）");
+    expect(notificationInboxOverflowLabel(1)).toBe("还有 1 条较早通知未显示。");
+    expect(notificationInboxOverflowLabel(23)).toBe("还有 23 条较早通知未显示。");
+    expect(notificationMessageTruncationLabel({ truncated: true })).toBe("消息已在 8 KiB 处截断。");
     expect(notificationMessageTruncationLabel({ truncated: false })).toBeUndefined();
   });
 
@@ -189,9 +189,9 @@ describe("notification presentation helpers", () => {
     };
     const longNotification = notification(2, "warning", `  Build failed\n${"x".repeat(100)}`);
 
-    expect(notificationAnnouncementLabel(announcement)).toBe("Error notification received.");
-    expect(notificationDismissLabel(longNotification)).toMatch(/^Dismiss notification: Build failed x+…$/u);
-    expect(notificationDismissLabel({ message: "   ", severity: "warning" })).toBe("Dismiss warning notification");
+    expect(notificationAnnouncementLabel(announcement)).toBe("收到错误通知。");
+    expect(notificationDismissLabel(longNotification)).toMatch(/^关闭通知：Build failed x+…$/u);
+    expect(notificationDismissLabel({ message: "   ", severity: "warning" })).toBe("关闭警告通知");
   });
 });
 

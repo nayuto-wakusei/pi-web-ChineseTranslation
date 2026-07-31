@@ -33,7 +33,7 @@ describe("ask-user-card live form", () => {
     expect(code.name).toBe(vim.name);
     expect(web.type).toBe("checkbox");
     expect(web.name).not.toBe(vim.name);
-    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("0 of 2 answered");
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("已回答 0/2");
 
     // Focus and interaction run through the rendered native control rather than
     // extracting Lit handlers, so this exercises the form's browser boundary.
@@ -44,7 +44,7 @@ describe("ask-user-card live form", () => {
 
     expect(vim.checked).toBe(true);
     expect(code.checked).toBe(false);
-    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("1 of 2 answered");
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("已回答 1/2");
   });
 
   it("accumulates several checkbox values for a multi-select question", async () => {
@@ -58,8 +58,8 @@ describe("ask-user-card live form", () => {
     inputWithValue(root, "desktop").click();
     await card.updateComplete;
 
-    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("1 of 1 answered");
-    buttonWithText(root, "Send answers").click();
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("已回答 1/1");
+    buttonWithText(root, "发送回答").click();
     await Promise.resolve();
 
     expect(onSubmit).toHaveBeenCalledWith("ask-1", {
@@ -81,14 +81,14 @@ describe("ask-user-card live form", () => {
 
     const textarea = requiredElement(root.querySelector("textarea"), "custom textarea");
     const label = requiredElement(textarea.closest("label"), "custom label");
-    expect(label.textContent).toContain("Custom answer");
+    expect(label.textContent).toContain("自定义回答");
     expect(getComputedStyle(textarea).fontSize).toBe("16px");
     expect(root.activeElement).toBe(textarea);
 
     textarea.value = "Svelte";
     textarea.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await card.updateComplete;
-    buttonWithText(root, "Send answers").click();
+    buttonWithText(root, "发送回答").click();
     await Promise.resolve();
 
     expect(onSubmit).toHaveBeenCalledWith("ask-1", {
@@ -105,11 +105,11 @@ describe("ask-user-card live form", () => {
     const textarea = requiredElement(root.querySelector("textarea"), "custom textarea");
 
     expect(root.querySelector("input")).toBeNull();
-    expect(requiredElement(textarea.closest("label"), "custom label").textContent).toContain("Custom answer");
+    expect(requiredElement(textarea.closest("label"), "custom label").textContent).toContain("自定义回答");
     textarea.value = "Keep the first version small.";
     textarea.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await card.updateComplete;
-    buttonWithText(root, "Send answers").click();
+    buttonWithText(root, "发送回答").click();
     await Promise.resolve();
 
     expect(onSubmit).toHaveBeenCalledWith("ask-1", {
@@ -128,18 +128,18 @@ describe("ask-user-card live form", () => {
 
     inputWithValue(root, "vim").click();
     await card.updateComplete;
-    buttonWithText(root, "Send answers").click();
+    buttonWithText(root, "发送回答").click();
     await card.updateComplete;
     await Promise.resolve();
 
-    const confirmation = requiredElement(root.querySelector("[aria-label='Confirm partial answers']"), "partial confirmation");
-    expect(confirmation.textContent).toContain("Send without answering:");
+    const confirmation = requiredElement(root.querySelector("[aria-label='确认部分回答']"), "partial confirmation");
+    expect(confirmation.textContent).toContain("以下问题尚未回答：");
     expect(confirmation.textContent).toContain("Choose a deployment target");
     expect(confirmation.textContent).toContain("Add implementation notes");
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(root.activeElement).toBe(buttonWithText(root, "Send anyway"));
+    expect(root.activeElement).toBe(buttonWithText(root, "仍然发送"));
 
-    buttonWithText(root, "Send anyway").click();
+    buttonWithText(root, "仍然发送").click();
     await Promise.resolve();
     expect(onSubmit).toHaveBeenCalledWith("ask-1", {
       answers: [{ id: "editor", values: ["vim"] }],
@@ -176,12 +176,12 @@ describe("ask-user-card record mode", () => {
     const root = renderRoot(card);
 
     expect(root.querySelector("input, textarea, button, select")).toBeNull();
-    expect(root.textContent).toContain("Superseded");
+    expect(root.textContent).toContain("已被替代");
     expect(root.textContent).toContain("Fast");
     expect(root.textContent).toContain("It keeps the feedback loop short.");
-    expect(root.textContent).toContain("Draft answer · not sent");
+    expect(root.textContent).toContain("草稿回答 · 未发送");
     expect(root.textContent).toContain("Deployment region");
-    expect(root.textContent).toContain("Unanswered");
+    expect(root.textContent).toContain("未回答");
   });
 });
 

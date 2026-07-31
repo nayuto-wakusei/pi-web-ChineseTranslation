@@ -227,7 +227,7 @@ export class FileExplorerController {
     const project = this.getState().selectedProject;
     const workspace = this.getState().selectedWorkspace;
     if (project === undefined || workspace === undefined) {
-      this.setState({ error: "Select a workspace before uploading files." });
+      this.setState({ error: "上传文件前请选择工作区。" });
       return undefined;
     }
     if (files.length === 0) return undefined;

@@ -12,7 +12,7 @@ export class SettingsPluginsPanel extends LitElement {
   @property({ type: Boolean }) saving = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "local（本地网关）";
+  @property() targetLabel = "本机（本地网关）";
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onTogglePlugin?: (pluginId: string, enabled: boolean) => void | Promise<void>;
 
@@ -76,7 +76,7 @@ export class SettingsPluginsPanel extends LitElement {
       <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
           <strong>${plugin.id}</strong>
-          <small>${plugin.source} · ${plugin.scope}${plugin.machineSpecific ? " · machine-specific" : ""}</small>
+          <small>${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? " · 机器专属" : ""}</small>
           <small>${configuredState}</small>
         </div>
         <label class="toggle">
@@ -117,4 +117,20 @@ export class SettingsPluginsPanel extends LitElement {
 
 function pluginsDescription(targetLabel: string): TemplateResult {
   return html`启用或禁用 <strong>${targetLabel}</strong> 上发现的 PI WEB 浏览器插件。这与安装 Pi 包相互独立；请重新加载浏览器标签页以应用插件运行时更改。`;
+}
+
+function pluginSourceLabel(source: string): string {
+  if (source === "bundled") return "内置";
+  if (source === "local") return "本地";
+  if (source === "dev") return "开发";
+  return source;
+}
+
+function pluginScopeLabel(scope: PiWebPluginInfo["scope"]): string {
+  switch (scope) {
+    case "bundled": return "内置范围";
+    case "local": return "本地范围";
+    case "user": return "用户范围";
+    case "project": return "项目范围";
+  }
 }

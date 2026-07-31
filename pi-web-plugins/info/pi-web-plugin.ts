@@ -10,15 +10,15 @@ import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "Info Plugin",
+  name: "信息插件",
   activate: ({ html, svg }) => ({
     contributions: {
       actions: [
         {
           id: "copy-diagnostics",
-          title: "Copy PI WEB Diagnostics",
-          description: "Copy version, installation, and status details for this machine, ready to paste into a bug report",
-          group: "Info",
+          title: "复制 PI WEB 诊断信息",
+          description: "复制此机器的版本、安装和状态详情，以便粘贴到错误报告中",
+          group: "信息",
           run: (context) => copyDiagnostics(context),
         },
       ],
@@ -26,13 +26,13 @@ const plugin: PiWebPlugin = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "git" : "folder", title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "Git" : "文件夹", title: context.workspace.path }],
         },
       ],
       workspacePanels: [
         {
           id: "workspace.info",
-          title: "Info",
+          title: "信息",
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"></circle>

@@ -38,7 +38,7 @@ export class WorkspaceFilesPanel extends LitElement {
 
   override render(): TemplateResult {
     const context = this.context;
-    if (context === undefined) return html`<p class="muted">Files unavailable.</p>`;
+    if (context === undefined) return html`<p class="muted">文件不可用。</p>`;
     return html`
       <section
         class=${this.dragActive ? "files-panel dragging" : "files-panel"}
@@ -49,7 +49,7 @@ export class WorkspaceFilesPanel extends LitElement {
       >
         <section class="toolbar">
           <strong>文件</strong>
-          ${context.fileTreeStale ? html`<span class="stale">stale</span>` : null}
+          ${context.fileTreeStale ? html`<span class="stale">已过期</span>` : null}
           <div class="toolbar-actions">
             <button aria-label="上传文件" @click=${this.openFilePicker}>上传</button>
             <button @click=${context.onRefreshFiles}>刷新</button>
@@ -59,7 +59,7 @@ export class WorkspaceFilesPanel extends LitElement {
         ${this.renderUploadProgress(context)}
         <section class="split">
           <div class="list tree">
-            ${context.fileTree.length === 0 ? html`<p class="muted">No files loaded.</p>` : context.fileTree.map((entry) => this.renderTreeEntry(context, entry, 0))}
+            ${context.fileTree.length === 0 ? html`<p class="muted">未加载文件。</p>` : context.fileTree.map((entry) => this.renderTreeEntry(context, entry, 0))}
           </div>
           <div class="viewer">
             ${this.renderFileViewer(context)}
@@ -67,8 +67,8 @@ export class WorkspaceFilesPanel extends LitElement {
         </section>
         <div class="drop-overlay" aria-hidden=${this.dragActive ? "false" : "true"}>
           <div>
-            <strong>Drop files to upload</strong>
-            <span>Uploads immediately to the default folder.</span>
+            <strong>拖放文件以上传</strong>
+            <span>文件将立即上传到默认文件夹。</span>
           </div>
         </div>
         ${this.pendingUpload === undefined ? null : this.renderUploadDialog(context, this.pendingUpload)}
@@ -100,11 +100,11 @@ export class WorkspaceFilesPanel extends LitElement {
     const file = context.selectedFileContent;
     // workspaceFileViewerStatusLabel already returned for the undefined/binary
     // cases above; this guard only narrows the type for the code viewer path.
-    if (file === undefined) return html`<p class="muted">Select a file.</p>`;
+    if (file === undefined) return html`<p class="muted">请选择文件。</p>`;
     if (file.mediaType === "image") return this.renderImageViewer(context, file);
     loadCodeViewer();
     return html`
-      <div class="viewer-header"><strong>${file.path}</strong><small>${file.language ?? "text"}${file.truncated ? " · truncated" : ""}</small></div>
+      <div class="viewer-header"><strong>${file.path}</strong><small>${file.language ?? "文本"}${file.truncated ? " · 已截断" : ""}</small></div>
       <code-viewer .content=${file.content} .language=${file.language}></code-viewer>
     `;
   }
@@ -114,7 +114,7 @@ export class WorkspaceFilesPanel extends LitElement {
     if (file.size > MAX_IMAGE_PREVIEW_BYTES) {
       return html`
         <div class="viewer-header"><strong>${file.path}</strong><small>${metadata}</small></div>
-        <p class="muted">Image too large to preview: ${formatFileSize(file.size)} · limit ${MAX_IMAGE_PREVIEW_LABEL}</p>
+        <p class="muted">图片过大，无法预览：${formatFileSize(file.size)} · 上限 ${MAX_IMAGE_PREVIEW_LABEL}</p>
       `;
     }
     const src = workspaceImagePreviewUrl(context.workspace.projectId, context.workspace.id, file.path, { modifiedAt: file.modifiedAt, machineId: context.machine.id });
@@ -134,9 +134,9 @@ export class WorkspaceFilesPanel extends LitElement {
     });
     if (batches.length === 0) return null;
     return html`
-      <section class="upload-progress" aria-label="Workspace uploads">
+      <section class="upload-progress" aria-label="工作区上传">
         <div class="upload-progress-header">
-          <strong>Uploads</strong>
+          <strong>上传</strong>
           <small>${uploadSummaryLabel(batches)}</small>
         </div>
         ${batches.map((batch) => this.renderUploadBatch(context, batch))}
@@ -150,7 +150,7 @@ export class WorkspaceFilesPanel extends LitElement {
         <div class="upload-batch-heading">
           <div>
             <strong>${uploadBatchTitle(batch)}</strong>
-            <small>${batch.destinationFolder === "" ? "workspace root" : batch.destinationFolder}</small>
+            <small>${batch.destinationFolder === "" ? "工作区根目录" : batch.destinationFolder}</small>
           </div>
           <span>${uploadBatchStatusLabel(batch)}</span>
         </div>
@@ -159,7 +159,7 @@ export class WorkspaceFilesPanel extends LitElement {
           ${batch.files.map((file) => this.renderUploadFile(file))}
         </div>
         <div class="upload-actions">
-          ${batch.status === "uploading" ? html`<button @click=${() => { context.onCancelWorkspaceUpload(batch.id); }}>Cancel</button>` : html`<button @click=${() => { context.onClearWorkspaceUpload(batch.id); }}>Dismiss</button>`}
+          ${batch.status === "uploading" ? html`<button @click=${() => { context.onCancelWorkspaceUpload(batch.id); }}>取消</button>` : html`<button @click=${() => { context.onClearWorkspaceUpload(batch.id); }}>关闭</button>`}
         </div>
       </article>
     `;
@@ -182,32 +182,32 @@ export class WorkspaceFilesPanel extends LitElement {
     const fileCount = review.files.length;
     return html`
       <div class="dialog-backdrop" @mousedown=${() => { this.closeUploadDialog(); }}>
-        <section class="upload-dialog" role="dialog" aria-modal="true" aria-label="Review file upload" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${this.handleDialogKeyDown}>
+        <section class="upload-dialog" role="dialog" aria-modal="true" aria-label="检查文件上传" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${this.handleDialogKeyDown}>
           <header>
             <div>
-              <span class="eyebrow">Upload</span>
-              <h2>Review ${fileCount === 1 ? "file" : `${String(fileCount)} files`}</h2>
+              <span class="eyebrow">上传</span>
+              <h2>检查${fileCount === 1 ? "文件" : ` ${String(fileCount)} 个文件`}</h2>
             </div>
-            <button class="close-button" title="Cancel upload" aria-label="Cancel upload" @click=${() => { this.closeUploadDialog(); }}>×</button>
+            <button class="close-button" title="取消上传" aria-label="取消上传" @click=${() => { this.closeUploadDialog(); }}>×</button>
           </header>
           <form @submit=${(event: SubmitEvent) => { this.submitUploadReview(event, context, review); }}>
             <label>
-              <span>Destination folder</span>
+              <span>目标文件夹</span>
               <input .value=${this.destinationFolder} placeholder=${context.workspaceUploadDefaultFolder} @input=${this.handleDestinationInput} />
-              <small>Workspace-relative. Leave empty to upload at the workspace root.</small>
+              <small>相对于工作区。留空将上传到工作区根目录。</small>
             </label>
             <div class="dialog-options">
               <label>
                 <input type="checkbox" .checked=${this.createDirs} @change=${this.handleCreateDirsChange} />
-                <span>Create parent folders</span>
+                <span>创建父文件夹</span>
               </label>
               <label>
                 <input type="checkbox" .checked=${this.overwrite} @change=${this.handleOverwriteChange} />
-                <span>Overwrite existing files</span>
+                <span>覆盖现有文件</span>
               </label>
             </div>
-            <section class="review-files" aria-label="Files to upload">
-              <strong>${fileCount === 1 ? "File" : "Files"}</strong>
+            <section class="review-files" aria-label="待上传文件">
+              <strong>文件</strong>
               ${review.files.map((file) => html`
                 <div class="review-file">
                   <span>${file.name}</span>
@@ -217,8 +217,8 @@ export class WorkspaceFilesPanel extends LitElement {
             </section>
             ${this.formError === "" ? null : html`<div class="dialog-error" role="alert">${this.formError}</div>`}
             <footer>
-              <button type="button" @click=${() => { this.closeUploadDialog(); }}>Cancel</button>
-              <button type="submit">Upload</button>
+              <button type="button" @click=${() => { this.closeUploadDialog(); }}>取消</button>
+              <button type="submit">上传</button>
             </footer>
           </form>
         </section>
@@ -386,7 +386,7 @@ export function workspaceUploadBatchesForScope(batches: Record<string, Workspace
 }
 
 export function workspaceUploadReviewError(files: readonly File[], destinationFolder: string): string | undefined {
-  if (files.length === 0) return "Choose at least one file to upload.";
+  if (files.length === 0) return "请至少选择一个要上传的文件。";
   for (const file of files) {
     try {
       workspaceUploadPath(destinationFolder, file.name);
@@ -410,10 +410,10 @@ export function workspaceFileViewerStatusLabel(
   context: Pick<WorkspacePanelContext, "selectedFilePath" | "selectedFileContent">,
 ): string | undefined {
   const file = context.selectedFileContent;
-  if (context.selectedFilePath === undefined || context.selectedFilePath === "") return "Select a file.";
-  if (file === undefined) return `Loading ${context.selectedFilePath}…`;
+  if (context.selectedFilePath === undefined || context.selectedFilePath === "") return "请选择文件。";
+  if (file === undefined) return `正在加载 ${context.selectedFilePath}…`;
   if (file.mediaType === "image") return undefined;
-  if (file.binary) return `Binary file: ${file.path} · ${formatFileSize(file.size)}`;
+  if (file.binary) return `二进制文件：${file.path} · ${formatFileSize(file.size)}`;
   return undefined;
 }
 
@@ -444,25 +444,24 @@ function isFileDrag(event: DragEvent): boolean {
 
 function uploadSummaryLabel(batches: readonly WorkspaceUploadBatchState[]): string {
   const uploading = batches.filter((batch) => batch.status === "uploading").length;
-  return uploading === 0 ? `${String(batches.length)} recent` : `${String(uploading)} uploading`;
+  return uploading === 0 ? `最近 ${String(batches.length)} 项` : `${String(uploading)} 项正在上传`;
 }
 
 function uploadBatchTitle(batch: WorkspaceUploadBatchState): string {
   const count = batch.files.length;
-  const files = count === 1 ? "file" : "files";
   switch (batch.status) {
-    case "completed": return `Uploaded ${String(count)} ${files}`;
-    case "error": return `Upload failed for ${String(count)} ${files}`;
-    case "cancelled": return `Upload cancelled for ${String(count)} ${files}`;
-    case "uploading": return `Uploading ${String(count)} ${files}`;
+    case "completed": return `已上传 ${String(count)} 个文件`;
+    case "error": return `${String(count)} 个文件上传失败`;
+    case "cancelled": return `已取消上传 ${String(count)} 个文件`;
+    case "uploading": return `正在上传 ${String(count)} 个文件`;
   }
 }
 
 export function uploadBatchStatusLabel(batch: WorkspaceUploadBatchState): string {
   switch (batch.status) {
-    case "completed": return "Done";
-    case "error": return "Failed";
-    case "cancelled": return "Cancelled";
+    case "completed": return "完成";
+    case "error": return "失败";
+    case "cancelled": return "已取消";
     case "uploading": return formatPercent(batch.percent);
   }
 }
@@ -473,17 +472,17 @@ export function uploadBatchProgressValue(batch: WorkspaceUploadBatchState): numb
 
 function uploadFileStatusLabel(file: WorkspaceUploadFileState): string {
   switch (file.status) {
-    case "pending": return "Pending";
+    case "pending": return "等待中";
     case "uploading": return formatPercent(file.percent);
-    case "completed": return "Done";
-    case "error": return "Error";
-    case "cancelled": return "Cancelled";
+    case "completed": return "完成";
+    case "error": return "错误";
+    case "cancelled": return "已取消";
   }
 }
 
 function uploadFileDetail(file: WorkspaceUploadFileState): string {
   if (file.error !== undefined) return file.error;
-  if (file.response !== undefined) return `Wrote ${file.response.path}`;
+  if (file.response !== undefined) return `已写入 ${file.response.path}`;
   return `${file.path} · ${formatFileSize(file.loaded)} / ${formatFileSize(file.total)}`;
 }
 

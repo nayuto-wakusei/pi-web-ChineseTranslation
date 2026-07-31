@@ -11,10 +11,10 @@ export interface StatusBarWarningControlContent {
 
 export function statusBarWarningControlContent(count: number, expanded: boolean): StatusBarWarningControlContent | undefined {
   if (!Number.isInteger(count) || count <= 0) return undefined;
-  const warningText = `${String(count)} ${count === 1 ? "warning" : "warnings"}`;
+  const warningText = `${String(count)} 条警告`;
   return {
     countText: String(count),
-    accessibleLabel: expanded ? `Minimise ${warningText}` : `Show ${warningText} in the warning area`,
+    accessibleLabel: expanded ? `最小化 ${warningText}` : `在警告区域显示 ${warningText}`,
   };
 }
 
@@ -31,13 +31,13 @@ export class StatusBar extends LitElement {
 
   override render() {
     const status = this.status;
-    if (status === undefined) return html`<div class="bar muted">No session status yet</div>`;
+    if (status === undefined) return html`<div class="bar muted">尚无会话状态</div>`;
     const context = status.contextUsage;
     const contextText = context
       ? context.percent == null
-        ? `context ${formatTokenCount(context.contextWindow)}`
+        ? `上下文 ${formatTokenCount(context.contextWindow)}`
         : `${context.percent.toFixed(1)}%/${formatTokenCount(context.contextWindow)}`
-      : "context unknown";
+      : "上下文未知";
     const tokens = status.tokens;
     const warningControl = statusBarWarningControlContent(this.warningCount, this.warningsExpanded);
     return html`
@@ -59,7 +59,7 @@ export class StatusBar extends LitElement {
         <span>↓${formatTokenCount(tokens.output)}</span>
         <span class="context">${contextText}</span>
         <span>${formatCost(status.cost)}</span>
-        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} queued</span>` : null}
+        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} 条排队中</span>` : null}
       </div>
     `;
   }

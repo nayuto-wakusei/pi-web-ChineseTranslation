@@ -156,7 +156,7 @@ describe("additionalCommands", () => {
     }), undefined)).toEqual([
       { label: "更新", command: "pi-web-docker update" },
       { label: "全部重启", command: "pi-web-docker restart" },
-      { label: "重启 Web/UI", command: "pi-web-docker restart-web" },
+      { label: "重启 Web/界面", command: "pi-web-docker restart-web" },
       { label: "重启会话守护进程", command: "pi-web-docker restart-sessiond" },
       { label: "状态", command: "pi-web-docker status" },
     ]);
@@ -171,7 +171,7 @@ describe("additionalCommands", () => {
       },
     }), { label: "更新并重启全部服务", command: "pi-web-docker --dev update" })).toEqual([
       { label: "全部重启", command: "pi-web-docker --dev restart" },
-      { label: "重启 Web/UI", command: "pi-web-docker --dev restart-web" },
+      { label: "重启 Web/界面", command: "pi-web-docker --dev restart-web" },
       { label: "重启会话守护进程", command: "pi-web-docker --dev restart-sessiond" },
       { label: "状态", command: "pi-web-docker --dev status" },
     ]);
@@ -292,14 +292,16 @@ describe("installationLabel", () => {
     expect(installationLabel(undefined)).toBe("安装来源未知");
     expect(installationLabel({ kind: "unknown" })).toBe("安装来源未知");
     expect(installationLabel({ kind: "npm-global" })).toBe("全局 npm 包");
-    expect(installationLabel({ kind: "local" })).toBe("本地 checkout");
+    expect(installationLabel({ kind: "local" })).toBe("本地检出");
     expect(installationLabel({ kind: "docker", dockerMode: "runtime" })).toBe("Docker 运行时");
     expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker 开发运行时");
   });
 
   it("includes source and scope for pi-package installs", () => {
     expect(installationLabel({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user" }))
-      .toBe("npm:@chainingintention/pi-web-cn · user");
+      .toBe("npm:@chainingintention/pi-web-cn · 用户范围");
+    expect(installationLabel({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "project" }))
+      .toBe("npm:@chainingintention/pi-web-cn · 项目范围");
   });
 
   it("defaults the source and omits scope when absent", () => {

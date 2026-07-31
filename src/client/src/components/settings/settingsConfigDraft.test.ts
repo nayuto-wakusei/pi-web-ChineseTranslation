@@ -108,14 +108,14 @@ describe("settings config drafts", () => {
   });
 
   it("rejects invalid selected-machine upload default folders before saving", () => {
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads" })).toThrow("Upload default folder must be workspace-relative.");
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "../secret" })).toThrow("Upload default folder must not contain path traversal.");
+    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads" })).toThrow("上传默认文件夹必须是工作区相对路径。");
+    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "../secret" })).toThrow("上传默认文件夹不能包含路径穿越。");
   });
 
   it("rejects relative external paths before saving selected-machine access", () => {
     expect(() => machineAccessConfigPatchFromDraft({
       allowedPathsText: "relative/path",
       uploadDefaultFolder: "",
-    })).toThrow("Allowed external paths must be absolute paths or start with ~");
+    })).toThrow("允许的外部路径必须是绝对路径或以 ~ 开头");
   });
 });

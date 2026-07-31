@@ -441,7 +441,7 @@ export class SessionController {
   private enqueuePendingSessionSend(session: ClientPendingStartSessionInfo, input: QueuedPendingSessionSendInput): void {
     const pending = this.pendingSessionStarts.get(session.id);
     if (pending === undefined || pending.discarded) {
-      this.setState({ error: "The backend session is not ready for queued sends. Copy your message before discarding this failed start." });
+      this.setState({ error: "后端会话尚未准备好发送排队消息。丢弃此次启动失败前，请先复制你的消息。" });
       return;
     }
     const queued: QueuedPendingSessionSend = { ...input, id: `pending-send-${String(++this.pendingQueuedSendSeq)}` };
@@ -519,7 +519,7 @@ export class SessionController {
     try {
       const result = await this.api.runCommand(session, text, machineId);
       if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
-      else if (result.type === "select" || result.type === "tree") this.setState({ error: `Queued command “${text}” needs input; open the session and run it again.` });
+      else if (result.type === "select" || result.type === "tree") this.setState({ error: `排队命令“${text}”需要输入；请打开会话并重新运行。` });
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
@@ -559,7 +559,7 @@ export class SessionController {
     const session = state.selectedSession;
     const tree = state.treeDialog;
     if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
-      throw new Error("The session tree navigator is no longer available");
+      throw new Error("会话树导航器已不可用");
     }
 
     const machineId = selectedMachineId(state);
@@ -685,9 +685,9 @@ export class SessionController {
         if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
         else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
       }
-      this.applyBulkSessionFailures("Archive", failures);
+      this.applyBulkSessionFailures("归档", failures);
     } catch (error) {
-      this.setState({ error: `Archive failed: ${errorMessage(error)}` });
+      this.setState({ error: `归档失败：${errorMessage(error)}` });
     }
   }
 
@@ -700,7 +700,7 @@ export class SessionController {
     // Preserve legacy federated deletes when capability discovery is unavailable;
     // only a positive runtime response without support should block the action.
     if (runtime?.ok === true && !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived)) {
-      this.setState({ error: "Deleting archived sessions requires an updated Pi-Web runtime on this machine." });
+      this.setState({ error: "删除已归档会话需要更新此机器上的 Pi-Web 运行时。" });
       return;
     }
     try {
@@ -717,9 +717,9 @@ export class SessionController {
         }
         await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
-      this.applyBulkSessionFailures("Delete", failures);
+      this.applyBulkSessionFailures("删除", failures);
     } catch (error) {
-      this.setState({ error: `Delete failed: ${errorMessage(error)}` });
+      this.setState({ error: `删除失败：${errorMessage(error)}` });
     }
   }
 
@@ -863,7 +863,7 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     const runtime = this.getState().machineRuntimes[machineId];
     if (runtime?.ok !== true || !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload)) {
-      this.setState({ error: "Reloading sessions from disk requires an updated Pi-Web runtime on this machine." });
+      this.setState({ error: "从磁盘重新加载会话需要更新此机器上的 Pi-Web 运行时。" });
       return;
     }
     try {
@@ -1097,7 +1097,7 @@ export class SessionController {
 
   private applyBulkSessionFailures(action: string, failures: readonly string[]): void {
     if (failures.length === 0) return;
-    this.setState({ error: `${action} failed for ${String(failures.length)} session${failures.length === 1 ? "" : "s"}: ${failures.join("; ")}` });
+    this.setState({ error: `${action}失败，${String(failures.length)} 个会话处理失败：${failures.join("；")}` });
   }
 
   private sessionCacheKey(sessionId: string): string {
@@ -1136,7 +1136,7 @@ export class SessionController {
       path: `pi-web://pending-session/${tempId}`,
       cwd: workspace.path,
       persisted: false,
-      name: "New session",
+      name: "新会话",
       created: now,
       modified: now,
       messageCount: 0,
@@ -1679,11 +1679,11 @@ function queuedAttachmentSummary(attachments: PromptAttachment[] | undefined): s
   if (attachments === undefined || attachments.length === 0) return undefined;
   const names = attachments.map((attachment) => attachment.name?.trim()).filter((name): name is string => name !== undefined && name !== "");
   const count = attachments.length;
-  const label = `${String(count)} ${count === 1 ? "attachment" : "attachments"}`;
-  if (names.length === 0) return `[${label} queued]`;
-  const shownNames = names.slice(0, 3).join(", ");
-  const suffix = names.length > 3 ? `, +${String(names.length - 3)} more` : "";
-  return `[${label} queued: ${shownNames}${suffix}]`;
+  const label = `${String(count)} 个附件`;
+  if (names.length === 0) return `[已排队 ${label}]`;
+  const shownNames = names.slice(0, 3).join("、");
+  const suffix = names.length > 3 ? `，另有 ${String(names.length - 3)} 个` : "";
+  return `[已排队 ${label}：${shownNames}${suffix}]`;
 }
 
 function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {

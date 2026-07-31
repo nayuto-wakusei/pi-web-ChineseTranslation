@@ -151,16 +151,16 @@ class PiWebRelaysPanel extends HTMLElement {
   private render(): void {
     const context = this.contextValue;
     if (context === undefined) {
-      this.root.innerHTML = `${relaysStyles()}<section class="empty">Select a workspace.</section>`;
+      this.root.innerHTML = `${relaysStyles()}<section class="empty">请选择工作区。</section>`;
       return;
     }
     this.root.innerHTML = `
       ${relaysStyles()}
       <section class="toolbar">
-        <strong>Relays</strong>
+        <strong>中继</strong>
         <span class="toolbar-actions">
           ${this.renderRelayPicker()}
-          <button class="icon-button" data-refresh aria-label="Refresh" title="Refresh">${refreshIconSvg()}</button>
+          <button class="icon-button" data-refresh aria-label="刷新" title="刷新">${refreshIconSvg()}</button>
         </span>
       </section>
       ${this.renderDocumentTabs()}
@@ -194,7 +194,7 @@ class PiWebRelaysPanel extends HTMLElement {
       const selected = relay.path === this.selectedRelayPath ? " selected" : "";
       return `<option value="${escapeAttr(relay.path)}"${selected}>${escapeHtml(relay.name)}</option>`;
     }).join("");
-    return `<select data-relay-picker aria-label="Relay">${options}</select>`;
+    return `<select data-relay-picker aria-label="中继">${options}</select>`;
   }
 
   private renderDocumentTabs(): string {
@@ -204,29 +204,29 @@ class PiWebRelaysPanel extends HTMLElement {
       const active = document.path === this.selectedDocumentPath;
       return `<button class="document-tab${active ? " active" : ""}" data-document-path="${escapeAttr(document.path)}"${active ? ' aria-current="true"' : ""}>${escapeHtml(document.name)}</button>`;
     }).join("");
-    return `<nav class="document-tabs" aria-label="Relay documents">${tabs}</nav>`;
+    return `<nav class="document-tabs" aria-label="中继文档">${tabs}</nav>`;
   }
 
   private renderViewer(): string {
     const listing = this.listing;
-    if (listing === undefined) return `<p class="muted">Scanning ${escapeHtml(RELAYS_ROOT)}…</p>`;
-    if (listing.kind === "unavailable") return renderErrorState("Could not scan workspace relays.", listing.detail);
+    if (listing === undefined) return `<p class="muted">正在扫描 ${escapeHtml(RELAYS_ROOT)}…</p>`;
+    if (listing.kind === "unavailable") return renderErrorState("无法扫描工作区中继。", listing.detail);
     if (listing.kind === "missing" || listing.relays.length === 0) return renderEmptyState();
     return this.renderSelectedRelay();
   }
 
   private renderSelectedRelay(): string {
     const documents = this.documents;
-    if (documents === undefined) return `<p class="muted">Loading relay documents…</p>`;
-    if (documents.kind === "unavailable") return renderErrorState("Could not list this relay's documents.", documents.detail);
+    if (documents === undefined) return `<p class="muted">正在加载中继文档…</p>`;
+    if (documents.kind === "unavailable") return renderErrorState("无法列出此中继的文档。", documents.detail);
     if (documents.kind === "missing") {
-      return `<div class="empty-state"><strong>This relay no longer exists.</strong><p>Click Refresh to rescan ${escapeHtml(RELAYS_ROOT)}.</p></div>`;
+      return `<div class="empty-state"><strong>此中继已不存在。</strong><p>点击“刷新”重新扫描 ${escapeHtml(RELAYS_ROOT)}。</p></div>`;
     }
     if (documents.documents.length === 0) {
       return `
         <div class="empty-state">
-          <strong>This relay has no documents yet.</strong>
-          <p>Relay packets usually contain <code>status.md</code>, <code>charter.md</code>, and <code>log.md</code>.</p>
+          <strong>此中继还没有文档。</strong>
+          <p>中继包通常包含 <code>status.md</code>、<code>charter.md</code> 和 <code>log.md</code>。</p>
         </div>
       `;
     }
@@ -236,17 +236,17 @@ class PiWebRelaysPanel extends HTMLElement {
   private renderSelectedDocument(): string {
     const documentPath = this.selectedDocumentPath;
     const content = this.documentContent;
-    if (documentPath === undefined) return `<p class="muted">Select a document.</p>`;
-    if (content === undefined) return `<p class="muted">Loading ${escapeHtml(documentName(documentPath))}…</p>`;
-    if (content.kind === "unavailable") return renderErrorState("Could not read this document.", content.detail);
+    if (documentPath === undefined) return `<p class="muted">请选择文档。</p>`;
+    if (content === undefined) return `<p class="muted">正在加载 ${escapeHtml(documentName(documentPath))}…</p>`;
+    if (content.kind === "unavailable") return renderErrorState("无法读取此文档。", content.detail);
     if (content.kind === "missing") {
-      return `<div class="empty-state"><strong>This document no longer exists.</strong><p>Click Refresh to rescan the relay.</p></div>`;
+      return `<div class="empty-state"><strong>此文档已不存在。</strong><p>点击“刷新”重新扫描中继。</p></div>`;
     }
     if (content.binary) {
-      return `<div class="empty-state"><strong>Binary file: ${escapeHtml(documentName(documentPath))}</strong><p>Binary documents have no text preview.</p></div>`;
+      return `<div class="empty-state"><strong>二进制文件：${escapeHtml(documentName(documentPath))}</strong><p>二进制文档无法提供文本预览。</p></div>`;
     }
     const truncation = content.truncated
-      ? `<div class="status info">This document is truncated — only the beginning is shown.</div>`
+      ? `<div class="status info">此文档已截断，仅显示开头内容。</div>`
       : "";
     if (isMarkdownDocumentPath(documentPath)) {
       return `${truncation}<div class="document markdown">${renderRelayDocumentHtml(content.content)}</div>`;
@@ -278,8 +278,8 @@ function documentName(path: string): string {
 function renderEmptyState(): string {
   return `
     <div class="empty-state">
-      <strong>No relays in this workspace.</strong>
-      <p>Relay packets live in <code>${escapeHtml(RELAYS_ROOT)}/&lt;name&gt;/</code>. This workspace has none yet.</p>
+      <strong>此工作区中没有中继。</strong>
+      <p>中继包存放在 <code>${escapeHtml(RELAYS_ROOT)}/&lt;name&gt;/</code>，此工作区目前还没有中继包。</p>
     </div>
   `;
 }

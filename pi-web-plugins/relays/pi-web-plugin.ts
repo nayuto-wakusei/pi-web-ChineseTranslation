@@ -4,7 +4,7 @@ import { defineRelaysPanelElement } from "./relaysPanelElement.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "Relays",
+  name: "中继",
   activate: ({ pluginId, html, svg }) => {
     defineRelaysPanelElement();
 
@@ -13,9 +13,9 @@ const plugin: PiWebPlugin = {
         actions: [
           {
             id: "workspace.open-relays",
-            title: "Open Workspace Relays",
-            description: `Open the workspace Relays tab. Relays live in ${RELAYS_ROOT}.`,
-            group: "Workspace",
+            title: "打开工作区中继",
+            description: `打开工作区的中继标签页。中继存放在 ${RELAYS_ROOT}。`,
+            group: "工作区",
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
@@ -26,7 +26,7 @@ const plugin: PiWebPlugin = {
         workspacePanels: [
           {
             id: "workspace.relays",
-            title: "Relays",
+            title: "中继",
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 17H7A5 5 0 0 1 7 7h2"></path>

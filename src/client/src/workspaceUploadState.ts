@@ -143,7 +143,7 @@ export function failWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, error
   const files = batch.files.map((file): WorkspaceUploadFileState => {
     if (file.status === "completed" || file.status === "error") return file;
     if (file.status === "uploading" || file.index === batch.currentFileIndex) return { ...file, status: "error", error };
-    return { ...file, status: "cancelled", error: "Not uploaded because an earlier file failed." };
+    return { ...file, status: "cancelled", error: "因前面的文件上传失败而未上传。" };
   });
   return {
     ...batch,
@@ -156,7 +156,7 @@ export function failWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, error
 }
 
 export function cancelWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, completedAt: string): WorkspaceUploadBatchState {
-  const error = "Upload cancelled";
+  const error = "上传已取消";
   const files = batch.files.map((file): WorkspaceUploadFileState => file.status === "completed" || file.status === "error" ? file : { ...file, status: "cancelled", error });
   return {
     ...batch,

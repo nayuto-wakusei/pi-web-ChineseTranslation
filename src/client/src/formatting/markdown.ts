@@ -55,7 +55,7 @@ function wrapTablesInScrollRegions(root: DocumentFragment): void {
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", "Table");
+    wrapper.setAttribute("aria-label", "表格");
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

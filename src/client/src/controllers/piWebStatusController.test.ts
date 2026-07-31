@@ -64,8 +64,8 @@ describe("PiWebStatusController", () => {
   });
 
   it.each([
-    [{ error: "registry unavailable" }, "PI WEB update check failed: registry unavailable"],
-    [{ skipped: true }, "PI WEB update check was skipped"],
+    [{ error: "registry unavailable" }, "PI WEB 更新检查失败：registry unavailable"],
+    [{ skipped: true }, "已跳过 PI WEB 更新检查"],
   ] as const)("applies status and rejects an unsuccessful manual check", async (release, message) => {
     const harness = createHarness();
     harness.checkForUpdates.mockResolvedValue(status("checked", release));

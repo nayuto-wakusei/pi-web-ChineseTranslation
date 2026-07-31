@@ -17,14 +17,14 @@ describe("ChatView image content derivation", () => {
   it("derives the image data URL and alt text from an image part", () => {
     expect(chatImagePartSource({ type: "image", mimeType: "image/png", data: "QUJD" })).toEqual({
       src: "data:image/png;base64,QUJD",
-      alt: "attached image",
+      alt: "附加图片",
     });
   });
 
   it("labels tool image output by tool name and falls back to a generic label", () => {
-    expect(chatToolOutputLabel("read")).toBe("read output");
-    expect(chatToolOutputLabel(undefined)).toBe("tool output");
-    expect(chatToolOutputLabel("")).toBe("tool output");
+    expect(chatToolOutputLabel("read")).toBe("read 输出");
+    expect(chatToolOutputLabel(undefined)).toBe("工具输出");
+    expect(chatToolOutputLabel("")).toBe("工具输出");
   });
 
   it("keys a tool image message to its stable scroll anchor", () => {

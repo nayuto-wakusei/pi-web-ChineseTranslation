@@ -24,6 +24,7 @@ import type {
   SessionTreeNavigateResult,
 } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
+import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import { PiSessionService, type PiSessionManagerGateway } from "./piSessionService.js";
 import { testModelRuntime } from "./piSessionService.testSupport.js";
 import { SessionNotificationStore } from "./sessionNotificationStore.js";
@@ -783,8 +784,38 @@ describe("session routes", () => {
       expect(malformedToken.statusCode).toBe(400);
       expect(malformedToken.json()).toEqual({ error: "startupToken field must be a string" });
       expect(routeService.startCalls).toEqual([
-        { cwd: requestCwd, startupToken: "pending-session-3-k2x9" },
-        { cwd: requestCwd, startupToken: undefined },
+        { cwd: requestCwd, startupToken: "pending-session-3-k2x9", managementContext: undefined },
+        { cwd: requestCwd, startupToken: undefined, managementContext: undefined },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("forwards management context when creating a session", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const managementContext: ManagementEmbedContext = {
+      user: { id: "account-1", rootUserId: "root-1", roles: ["staff"], permissions: ["runtime:write"] },
+      projects: [{ id: "project-1", name: "Project 1" }],
+    };
+
+    try {
+      const requestCwd = resolve("/managed/project-1");
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions",
+        headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) },
+        payload: { cwd: requestCwd },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(routeService.startCalls).toEqual([
+        { cwd: requestCwd, startupToken: undefined, managementContext },
       ]);
     } finally {
       await routeService.dispose();
@@ -834,7 +865,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly navigateTreeCalls: { lookup: SessionRouteLookup; request: SessionTreeNavigateRequest }[] = [];
   readonly submitAskCalls: { lookup: SessionRouteLookup; askId: string; submission: AskUserSubmission }[] = [];
   readonly cancelAskCalls: { lookup: SessionRouteLookup; askId: string }[] = [];
-  readonly startCalls: { cwd: string; startupToken: string | undefined }[] = [];
+  readonly startCalls: { cwd: string; startupToken: string | undefined; managementContext: ManagementEmbedContext | undefined }[] = [];
   askError: Error | undefined;
   reloadError: Error | undefined;
   clearQueueError: Error | undefined;
@@ -931,8 +962,8 @@ class CapturingRouteSessionService implements SessionRouteService {
 
   list(): never { throw unusedRouteMethod("list"); }
 
-  start(cwd: string, options?: { startupToken?: string }): Promise<ClientSession> {
-    this.startCalls.push({ cwd, startupToken: options?.startupToken });
+  start(cwd: string, options?: { startupToken?: string; managementContext?: ManagementEmbedContext }): Promise<ClientSession> {
+    this.startCalls.push({ cwd, startupToken: options?.startupToken, managementContext: options?.managementContext });
     return Promise.resolve({ id: "session-1", path: "/tmp/session-1.jsonl", cwd, created: "2026-06-25T00:00:00.000Z", modified: "2026-06-25T00:00:00.000Z", messageCount: 0, firstMessage: "" });
   }
 

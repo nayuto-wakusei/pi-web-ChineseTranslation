@@ -70,7 +70,7 @@ export class MachineController {
   async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine, options: { selectFallback?: boolean } = {}): Promise<Machine | undefined> {
     if (machine === undefined) return undefined;
     if (machine.kind === "local") {
-      this.setState({ error: "The local machine cannot be removed." });
+      this.setState({ error: "无法移除本地机器。" });
       return undefined;
     }
     try {
@@ -124,7 +124,7 @@ export class MachineController {
     const health = await this.safeRemoteHealth(requestedMachine);
     this.setState({
       machineStatuses: { ...this.getState().machineStatuses, [health.machineId]: health },
-      ...(health.ok ? {} : { error: `${requestedMachine.name} is unavailable; reconnecting…` }),
+      ...(health.ok ? {} : { error: `${requestedMachine.name} 暂不可用，正在重新连接…` }),
     });
     return requestedMachine;
   }

@@ -14,7 +14,7 @@ describe("machine-switcher unread indicator", () => {
     const button = switcherButton(switcher);
     const dot = button.querySelector(".activity-indicator.unread");
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("Unread sessions on this machine");
+    expect(dot?.getAttribute("title")).toBe("此机器上有未读会话");
 
     switcher.unreadMachineIds = new Set();
     await switcher.updateComplete;
@@ -44,7 +44,7 @@ describe("machine-switcher unread indicator", () => {
     const button = switcherButton(switcher);
     const ring = button.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.session")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("Unread sessions on this machine · Machine active");
+    expect(ring?.getAttribute("title")).toBe("此机器上有未读会话 · 机器活动中");
     // One mark only: the ring replaces the standalone unread dot.
     expect(button.querySelector(".activity-indicator.unread")).toBeNull();
   });

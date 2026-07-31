@@ -140,7 +140,7 @@ describe("MachineController", () => {
 
     expect(state.selectedMachine).toEqual(remoteMachine);
     expect(state.machineStatuses[remoteMachine.id]).toEqual(offlineHealth);
-    expect(state.error).toContain("Remote is unavailable");
+    expect(state.error).toContain("Remote 暂不可用");
   });
 
   it("records offline health without falling back when the routed remote health request rejects", async () => {
@@ -158,7 +158,7 @@ describe("MachineController", () => {
 
     expect(state.selectedMachine).toEqual(remoteMachine);
     expect(state.machineStatuses[remoteMachine.id]).toMatchObject({ machineId: remoteMachine.id, ok: false, status: "offline", error: "Internal Server Error" });
-    expect(state.error).toContain("Remote is unavailable");
+    expect(state.error).toContain("Remote 暂不可用");
   });
 
   it("falls back to local when the routed machine is no longer configured", async () => {

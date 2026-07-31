@@ -440,7 +440,7 @@ export class SettingsDialog extends LitElement {
     if (config.agent !== undefined) {
       const profileSupport = this.agentProfileSettingsSupport(target);
       if (!isAgentProfileSettingsSupported(profileSupport)) {
-        this.sessiondError = profileSupport.message ?? `${settingsMachineTargetLabel(target)} 不支持 Pi 兼容 Agent Profile 设置。`;
+        this.sessiondError = profileSupport.message ?? `${settingsMachineTargetLabel(target)} 不支持 Pi 兼容代理配置档案设置。`;
         return;
       }
     }

@@ -114,7 +114,7 @@ export class PromptEditor extends LitElement {
           <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
           <input class="attachment-input" type="file" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
           <button class="editor-attach icon-button" ?disabled=${busy} title="附加文件" aria-label="附加文件" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
-          ${shellMode ? html`<div class="mode-hint">Shell 命令${shellInputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
+          ${shellMode ? html`<div class="mode-hint">终端命令${shellInputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
           ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
@@ -539,7 +539,7 @@ function fileExtensionLabel(name: string): string {
   const trimmed = name.trim();
   const dotIndex = trimmed.lastIndexOf(".");
   if (dotIndex >= 0 && dotIndex < trimmed.length - 1) return trimmed.slice(dotIndex + 1, dotIndex + 5).toUpperCase();
-  return "FILE";
+  return "文件";
 }
 
 function readFileAsBase64(file: File): Promise<string> {

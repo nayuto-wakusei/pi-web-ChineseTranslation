@@ -67,17 +67,17 @@ export class WorkspaceGitPanel extends LitElement {
 
   override render(): TemplateResult {
     const context = this.context;
-    if (context === undefined) return html`<p class="muted">Git unavailable.</p>`;
+    if (context === undefined) return html`<p class="muted">Git 不可用。</p>`;
     const status = context.gitStatus;
     const viewState = this.computeViewState(status);
     return html`
       <section class="toolbar">
         <strong>Git</strong>
-        ${context.gitStale ? html`<span class="stale">stale</span>` : null}
+        ${context.gitStale ? html`<span class="stale">已过期</span>` : null}
         <div class="toolbar-actions">
           ${viewState.expandablePaths.length > 0 ? this.renderExpandCollapseAll(viewState.expandablePaths) : null}
           ${this.renderViewToggle()}
-          <button type="button" @click=${context.onRefreshGit}>Refresh</button>
+          <button type="button" @click=${context.onRefreshGit}>刷新</button>
         </div>
       </section>
       <section class="split">
@@ -91,9 +91,9 @@ export class WorkspaceGitPanel extends LitElement {
 
   private renderViewToggle(): TemplateResult {
     return html`
-      <div class="view-toggle" role="group" aria-label="Changed files view">
-        ${this.renderViewToggleButton("list", "List")}
-        ${this.renderViewToggleButton("tree", "Tree")}
+      <div class="view-toggle" role="group" aria-label="变更文件视图">
+        ${this.renderViewToggleButton("list", "列表")}
+        ${this.renderViewToggleButton("tree", "树")}
       </div>
     `;
   }
@@ -108,15 +108,15 @@ export class WorkspaceGitPanel extends LitElement {
   private renderExpandCollapseAll(expandablePaths: readonly string[]): TemplateResult {
     const allExpanded = expandablePaths.every((path) => this.expandedDirectories.has(path));
     return html`
-      <button type="button" @click=${() => { this.toggleExpandAll(expandablePaths, allExpanded); }}>${allExpanded ? "Collapse all" : "Expand all"}</button>
+      <button type="button" @click=${() => { this.toggleExpandAll(expandablePaths, allExpanded); }}>${allExpanded ? "全部折叠" : "全部展开"}</button>
     `;
   }
 
   private renderFileList(context: WorkspacePanelContext, status: GitStatusResponse | undefined, viewState: GitViewState): TemplateResult {
-    if (status === undefined) return html`<p class="muted">No status loaded.</p>`;
-    if (!status.isGitRepo) return html`<p class="muted">Not a git repository.</p>`;
+    if (status === undefined) return html`<p class="muted">未加载状态。</p>`;
+    if (!status.isGitRepo) return html`<p class="muted">不是 Git 仓库。</p>`;
     const summary = html`<p class="summary">${gitSummary(status)}</p>`;
-    if (status.files.length === 0) return html`${summary}<p class="muted">No changes.</p>`;
+    if (status.files.length === 0) return html`${summary}<p class="muted">没有更改。</p>`;
     const body = this.view === "tree"
       ? viewState.nodes.map((node) => this.renderTreeNode(context, node, 0))
       : this.renderListBody(context, viewState.listModel);
@@ -215,16 +215,16 @@ export class WorkspaceGitPanel extends LitElement {
 }
 
 function submoduleBadge(): TemplateResult {
-  return html`<span class="submodule-badge">submodule</span>`;
+  return html`<span class="submodule-badge">子模块</span>`;
 }
 
 function renderDiffViewer(context: WorkspacePanelContext): TemplateResult {
-  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">Select a changed file.</p>`;
+  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">请选择已更改的文件。</p>`;
   const unstaged = context.selectedDiff;
   const staged = context.selectedStagedDiff;
-  if (unstaged === undefined || staged === undefined) return html`<p class="muted">Loading diff…</p>`;
+  if (unstaged === undefined || staged === undefined) return html`<p class="muted">正在加载差异…</p>`;
   const diffs = [staged, unstaged].filter((diff) => diff.diff !== "");
-  if (diffs.length === 0) return html`<p class="muted">No staged or unstaged diff.</p>`;
+  if (diffs.length === 0) return html`<p class="muted">没有已暂存或未暂存的差异。</p>`;
   return html`
     <div class=${diffs.length === 1 ? "diffs single" : "diffs"}>
       ${diffs.map((diff) => renderDiffSection(diff))}
@@ -236,7 +236,7 @@ function renderDiffSection(diff: GitDiffResponse): TemplateResult {
   loadUnifiedDiffViewer();
   return html`
     <section class="diff-section">
-      <div class="viewer-header"><strong>${diff.path ?? "diff"}</strong><small>${diff.staged ? "staged" : "unstaged"}${diff.truncated ? " · truncated" : ""}</small></div>
+      <div class="viewer-header"><strong>${diff.path ?? "差异"}</strong><small>${diff.staged ? "已暂存" : "未暂存"}${diff.truncated ? " · 已截断" : ""}</small></div>
       <unified-diff-viewer .diff=${diff.diff}></unified-diff-viewer>
     </section>
   `;
@@ -247,7 +247,7 @@ function loadUnifiedDiffViewer(): void {
 }
 
 function gitSummary(status: GitStatusResponse): string {
-  const branch = status.branch ?? "detached";
+  const branch = status.branch ?? "游离 HEAD";
   const ahead = status.ahead ?? 0;
   const behind = status.behind ?? 0;
   return ahead === 0 && behind === 0 ? branch : `${branch} · ↑${String(ahead)} ↓${String(behind)}`;

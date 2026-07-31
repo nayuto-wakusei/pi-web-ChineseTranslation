@@ -87,7 +87,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "saveSessiondConfig", { agent: { command: "agent-lab", dir: "/srv/agent-lab" } });
 
     expect(saveSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持 Pi 兼容 Agent Profile 设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持 Pi 兼容代理配置档案设置。请更新并重启该机器上的 PI WEB，然后重试。");
   });
 
   it("saves a remote agent profile when granular support is advertised", async () => {

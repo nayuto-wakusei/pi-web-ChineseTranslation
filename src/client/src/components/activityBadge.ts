@@ -15,7 +15,7 @@ export type ActivityIndicatorKind = "session" | "terminal" | "sending";
  * and pulse), or as a filled static accent dot when the row is idle. The label
  * is the flag — pass undefined when the row has nothing unread.
  */
-export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string): TemplateResult | undefined {
+export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "活动中", unreadLabel?: string): TemplateResult | undefined {
   if (kind === undefined) {
     if (unreadLabel === undefined) return undefined;
     return html`<span class="activity-indicator unread" role="img" aria-label=${unreadLabel} title=${unreadLabel}></span>`;
@@ -27,7 +27,7 @@ export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined,
   return html`<span class="unread-ring" role="img" aria-label=${combinedLabel} title=${combinedLabel}><span class=${`activity-indicator ${kind}`} aria-hidden="true"></span></span>`;
 }
 
-export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string): TemplateResult | undefined {
+export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "活动中", unreadLabel?: string): TemplateResult | undefined {
   const indicator = renderActivityIndicator(kind, label, unreadLabel);
   if (indicator === undefined) return undefined;
   return html`<span class="action-activity">${indicator}</span>`;

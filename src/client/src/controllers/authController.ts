@@ -85,7 +85,7 @@ export class AuthController {
     if (dialog?.step !== "apiKey") return;
     const key = dialog.value.trim();
     if (key === "") {
-      this.setState({ authDialog: { ...dialog, error: "API key is required" } });
+      this.setState({ authDialog: { ...dialog, error: "必须填写 API key" } });
       return;
     }
     const clean = { ...dialog };
@@ -109,7 +109,7 @@ export class AuthController {
       if (providerId !== undefined && providerId !== "") {
         const provider = providers.find((candidate) => candidate.id === providerId);
         if (provider !== undefined && !this.rejectRemoteOAuth("logout", provider, target)) await this.logoutProviderForTarget(provider.id, target);
-        else if (provider === undefined) this.setState({ error: `No stored credentials for ${providerId}` });
+        else if (provider === undefined) this.setState({ error: `没有 ${providerId} 的已保存凭据` });
         return;
       }
       this.setState({ authDialog: { step: "logout", providers, target } });
@@ -193,7 +193,7 @@ export class AuthController {
       const { providers } = await this.api.authProviders({ mode: "login", ...authRequestTarget(target) });
       const exact = providers.filter((provider) => provider.id === providerId);
       if (exact.length === 0) {
-        this.setState({ error: `Auth provider not found: ${providerId}` });
+        this.setState({ error: `找不到认证提供商：${providerId}` });
         return;
       }
       if (exact.length > 1) {
@@ -237,8 +237,9 @@ export class AuthController {
   private rejectRemoteOAuth(action: "login" | "logout", provider: AuthProviderOption, target: AuthDialogTarget): boolean {
     const machine = this.getState().selectedMachine;
     if (provider.authType !== "oauth" || target.machineKind !== "remote") return false;
-    const where = machine?.baseUrl ?? "that remote PI WEB instance";
-    this.setState({ error: `OAuth ${action} for remote machines must be configured directly on ${where}.` });
+    const where = machine?.baseUrl ?? "对应的远程 PI WEB 实例";
+    const actionLabel = action === "login" ? "登录" : "退出";
+    this.setState({ error: `远程机器的 OAuth ${actionLabel}必须直接在 ${where} 上配置。` });
     return true;
   }
 

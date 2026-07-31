@@ -57,10 +57,10 @@ export class SessionTreeNavigator extends LitElement {
         >
           <header>
             <div>
-              <span class="eyebrow">Conversation history</span>
-              <h1 id="session-tree-heading">Navigate session tree</h1>
+              <span class="eyebrow">对话历史</span>
+              <h1 id="session-tree-heading">浏览会话树</h1>
             </div>
-            <button class="close-button" ?disabled=${this.busy} title="Close session tree" aria-label="Close session tree" @click=${() => { this.onCancel?.(); }}>×</button>
+            <button class="close-button" ?disabled=${this.busy} title="关闭会话树" aria-label="关闭会话树" @click=${() => { this.onCancel?.(); }}>×</button>
           </header>
           ${this.step === "tree" ? this.renderTreeStep() : this.renderConfirmationStep()}
           ${this.renderFooter()}
@@ -74,18 +74,18 @@ export class SessionTreeNavigator extends LitElement {
     return html`
       <div class="body tree-step">
         <div class="tree-intro">
-          <p>Select where conversation context should continue. All retained branches stay in this session file.</p>
-          <div class="legend" aria-label="Session tree markers">
-            <span><span class="marker active-path-marker" aria-hidden="true"></span>Active path</span>
-            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>Active leaf</span>
+          <p>选择对话上下文继续的位置。所有保留的分支都会留在此会话文件中。</p>
+          <div class="legend" aria-label="会话树标记">
+            <span><span class="marker active-path-marker" aria-hidden="true"></span>活动路径</span>
+            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>活动叶节点</span>
           </div>
         </div>
         ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
         ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
         ${rows.length === 0 ? html`
-          <div class="empty" role="status">This session does not contain any selectable history entries.</div>
+          <div class="empty" role="status">此会话不包含可选择的历史条目。</div>
         ` : html`
-          <div class="tree" role="tree" aria-label="Complete session history">
+          <div class="tree" role="tree" aria-label="完整会话历史">
             ${rows.map((row) => this.renderTreeRow(row))}
           </div>
         `}
@@ -120,15 +120,15 @@ export class SessionTreeNavigator extends LitElement {
       >
         <span
           class=${`disclosure${row.childIds.length === 0 ? " leaf" : ""}`}
-          title=${row.childIds.length === 0 ? "No child entries" : expanded ? "Collapse branch" : "Expand branch"}
+          title=${row.childIds.length === 0 ? "没有子条目" : expanded ? "折叠分支" : "展开分支"}
           aria-hidden="true"
           @click=${(event: MouseEvent) => { this.toggleNode(row.node.id, event); }}
         >${row.childIds.length === 0 ? "·" : expanded ? "▾" : "▸"}</span>
         <span class="metadata">
           <span class="kind">${sessionTreeKindLabel(row.node.kind)}</span>
           <span class="badges">
-            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">Active path</span>` : null}
-            ${row.activeLeaf ? html`<span class="badge leaf">Active leaf</span>` : null}
+            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">活动路径</span>` : null}
+            ${row.activeLeaf ? html`<span class="badge leaf">活动叶节点</span>` : null}
           </span>
         </span>
         <span class="entry">
@@ -147,26 +147,26 @@ export class SessionTreeNavigator extends LitElement {
       <div class="body confirmation-step">
         <div class="confirmation-card">
           <div>
-            <span class="eyebrow">Selected entry</span>
-            <h2>Confirm navigation</h2>
+            <span class="eyebrow">所选条目</span>
+            <h2>确认导航</h2>
           </div>
-          ${selectedNode === undefined ? html`<div class="empty">The selected history entry is no longer available.</div>` : html`
+          ${selectedNode === undefined ? html`<div class="empty">所选历史条目已不可用。</div>` : html`
             <div class="selected-entry">
               <span class="kind">${sessionTreeKindLabel(selectedNode.kind)}</span>
               <strong dir="auto">${selectedNode.summary}</strong>
               ${sessionTreeEntryReturnsToEditor(selectedNode.kind)
-                ? html`<p>This message’s text will return to the prompt editor for optional editing and resubmission.</p>`
-                : html`<p>The prompt editor will be empty after navigating to this entry.</p>`}
+                ? html`<p>此消息的文本会返回提示词编辑器，供你选择编辑并重新提交。</p>`
+                : html`<p>导航到此条目后，提示词编辑器将为空。</p>`}
             </div>
           `}
           <fieldset ?disabled=${this.busy}>
-            <legend>Abandoned branch summary</legend>
-            ${this.renderSummaryOption("none", "No summary", "Switch branches without adding a summary entry.")}
-            ${this.renderSummaryOption("default", "Summarize", "Ask Pi to summarize the context being left behind.")}
-            ${this.renderSummaryOption("custom", "Summarize with custom focus", "Guide Pi toward the details that matter for the new branch.")}
+            <legend>已放弃分支摘要</legend>
+            ${this.renderSummaryOption("none", "不生成摘要", "切换分支且不添加摘要条目。")}
+            ${this.renderSummaryOption("default", "生成摘要", "让 Pi 总结即将离开的上下文。")}
+            ${this.renderSummaryOption("custom", "按自定义重点生成摘要", "引导 Pi 关注与新分支相关的重要细节。")}
             ${this.summaryMode === "custom" ? html`
               <label class="custom-focus" for="session-tree-custom-focus">
-                <span>Custom summary focus</span>
+                <span>自定义摘要重点</span>
                 <textarea
                   id="session-tree-custom-focus"
                   rows="5"
@@ -180,7 +180,7 @@ export class SessionTreeNavigator extends LitElement {
             ` : null}
           </fieldset>
           <div class="side-effects-note" role="note">
-            <strong>Conversation context only.</strong> Navigation changes the active conversation branch. It does not undo filesystem changes, shell commands, tool calls, or other side effects.
+            <strong>仅影响对话上下文。</strong>导航会更改活动对话分支，但不会撤销文件系统更改、终端命令、工具调用或其他副作用。
           </div>
           ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
           ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
@@ -208,8 +208,8 @@ export class SessionTreeNavigator extends LitElement {
     if (this.step === "tree") {
       return html`
         <footer>
-          <button @click=${() => { this.onCancel?.(); }}>Cancel</button>
-          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToConfirmation(); }}>Navigate</button>
+          <button @click=${() => { this.onCancel?.(); }}>取消</button>
+          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToConfirmation(); }}>导航</button>
         </footer>
       `;
     }
@@ -217,13 +217,13 @@ export class SessionTreeNavigator extends LitElement {
     const summarizing = this.summaryMode !== "none";
     return html`
       <footer>
-        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>Back</button>
+        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>返回</button>
         <span class="footer-spacer"></span>
         ${this.busy && summarizing ? html`
-          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? "Cancelling…" : "Cancel summarization"}</button>
+          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? "正在取消…" : "取消摘要"}</button>
         ` : null}
         <button class="primary" ?disabled=${this.busy || this.selectedId === undefined} @click=${() => { void this.submitNavigation(); }}>
-          ${this.busy ? summarizing ? "Summarizing…" : "Navigating…" : summarizing ? "Summarize and navigate" : "Navigate"}
+          ${this.busy ? summarizing ? "正在生成摘要…" : "正在导航…" : summarizing ? "生成摘要并导航" : "导航"}
         </button>
       </footer>
     `;
@@ -328,7 +328,7 @@ export class SessionTreeNavigator extends LitElement {
     }
     const navigate = this.onNavigate;
     if (navigate === undefined) {
-      this.error = "Session tree navigation is unavailable. Close and reopen /tree, then try again.";
+      this.error = "会话树导航不可用。请关闭并重新打开 /tree，然后重试。";
       return;
     }
 
@@ -346,15 +346,15 @@ export class SessionTreeNavigator extends LitElement {
       if (!result.cancelled) return;
       this.step = "tree";
       this.statusMessage = result.aborted === true
-        ? "Summarization cancelled. Your selected history entry is unchanged."
-        : "Navigation cancelled. Your selected history entry is unchanged.";
+        ? "摘要已取消，所选历史条目未更改。"
+        : "导航已取消，所选历史条目未更改。";
       this.pendingFocus = "tree";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = `Could not navigate session history: ${errorMessage(error)}`;
+      this.error = `无法导航会话历史：${errorMessage(error)}`;
     }
   }
 
@@ -362,20 +362,20 @@ export class SessionTreeNavigator extends LitElement {
     if (!this.busy || this.summaryMode === "none" || this.aborting) return;
     const abort = this.onAbort;
     if (abort === undefined) {
-      this.error = "Summarization cannot be cancelled from this client.";
+      this.error = "无法从此客户端取消摘要。";
       return;
     }
     const generation = this.operationGeneration;
     this.aborting = true;
     this.error = "";
-    this.statusMessage = "Cancelling summarization…";
+    this.statusMessage = "正在取消摘要…";
     try {
       await abort();
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = `Could not cancel summarization: ${errorMessage(error)}`;
+      this.error = `无法取消摘要：${errorMessage(error)}`;
     }
   }
 
@@ -536,19 +536,19 @@ export function sessionTreeEntryReturnsToEditor(kind: SessionTreeNodeKind): bool
 
 export function sessionTreeKindLabel(kind: SessionTreeNodeKind): string {
   switch (kind) {
-    case "user": return "User";
-    case "assistant": return "Assistant";
-    case "tool-result": return "Tool result";
-    case "bash": return "Shell";
-    case "custom-message": return "Custom message";
-    case "compaction": return "Compaction";
-    case "branch-summary": return "Branch summary";
-    case "model-change": return "Model";
-    case "thinking-level-change": return "Thinking";
-    case "session-info": return "Session info";
-    case "label": return "Label";
-    case "custom": return "Custom";
-    case "other": return "Other";
+    case "user": return "用户";
+    case "assistant": return "助手";
+    case "tool-result": return "工具结果";
+    case "bash": return "命令";
+    case "custom-message": return "自定义消息";
+    case "compaction": return "上下文压缩";
+    case "branch-summary": return "分支摘要";
+    case "model-change": return "模型";
+    case "thinking-level-change": return "思考级别";
+    case "session-info": return "会话信息";
+    case "label": return "标签";
+    case "custom": return "自定义";
+    case "other": return "其他";
   }
 }
 

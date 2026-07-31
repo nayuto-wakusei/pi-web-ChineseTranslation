@@ -36,7 +36,7 @@ describe("workspace-git-panel view toggle", () => {
     templateClickHandlerForText(panel.render(), "src/main.ts")(new Event("click"));
     expect(onSelectDiff).toHaveBeenCalledWith("src/main.ts");
 
-    templateClickHandlerForText(panel.render(), "Tree")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "树")(new Event("click"));
     expect(storage.value(GIT_FILE_VIEW_STORAGE_KEY)).toBe("tree");
 
     // Tree view nests the file under its (collapsed) directory instead.
@@ -44,7 +44,7 @@ describe("workspace-git-panel view toggle", () => {
     expect(findOptionalTemplateClickHandlerForText(rendered, "src/main.ts")).toBeUndefined();
     templateClickHandlerForText(rendered, "src");
 
-    templateClickHandlerForText(panel.render(), "List")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "列表")(new Event("click"));
     expect(storage.value(GIT_FILE_VIEW_STORAGE_KEY)).toBe("list");
     rendered = panel.render();
     expect(findOptionalTemplateClickHandlerForText(rendered, "src/main.ts")).toBeDefined();
@@ -76,7 +76,7 @@ describe("workspace-git-panel toolbar order", () => {
     const withExpandAll = toolbarSlots(treePanel.render());
     const expandCollapse = withExpandAll.expandCollapseSlot;
     if (!isTemplateResult(expandCollapse)) throw new Error("expand/collapse-all control missing in tree view");
-    expect(templateText(expandCollapse)).toContain("Expand all");
+    expect(templateText(expandCollapse)).toContain("全部展开");
 
     // The toggle occupies the same template slot whether or not the
     // expand/collapse-all control renders in the slot before it.
@@ -91,16 +91,16 @@ describe("workspace-git-panel expand/collapse all", () => {
 
     expect(findOptionalTemplateClickHandlerForText(panel.render(), "b.ts")).toBeUndefined();
 
-    templateClickHandlerForText(panel.render(), "Expand all")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "全部展开")(new Event("click"));
     let rendered = panel.render();
-    expect(findOptionalTemplateClickHandlerForText(rendered, "Expand all")).toBeUndefined();
-    templateClickHandlerForText(rendered, "Collapse all");
+    expect(findOptionalTemplateClickHandlerForText(rendered, "全部展开")).toBeUndefined();
+    templateClickHandlerForText(rendered, "全部折叠");
     templateClickHandlerForText(rendered, "a.ts");
     templateClickHandlerForText(rendered, "b.ts");
 
-    templateClickHandlerForText(panel.render(), "Collapse all")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "全部折叠")(new Event("click"));
     rendered = panel.render();
-    templateClickHandlerForText(rendered, "Expand all");
+    templateClickHandlerForText(rendered, "全部展开");
     expect(findOptionalTemplateClickHandlerForText(rendered, "b.ts")).toBeUndefined();
   });
 
@@ -111,7 +111,7 @@ describe("workspace-git-panel expand/collapse all", () => {
     templateClickHandlerForText(panel.render(), "src")(new Event("click"));
 
     const rendered = panel.render();
-    templateClickHandlerForText(rendered, "Expand all");
+    templateClickHandlerForText(rendered, "全部展开");
     templateClickHandlerForText(rendered, "a.ts");
     expect(findOptionalTemplateClickHandlerForText(rendered, "b.ts")).toBeUndefined();
   });
@@ -122,13 +122,13 @@ describe("workspace-git-panel expand/collapse all", () => {
 
     expect(findOptionalTemplateClickHandlerForText(panel.render(), "abc1234 → def5678")).toBeUndefined();
 
-    templateClickHandlerForText(panel.render(), "Expand all")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "全部展开")(new Event("click"));
     let rendered = panel.render();
     templateClickHandlerForText(rendered, "abc1234 → def5678");
     templateClickHandlerForText(rendered, "lib.ts");
-    templateClickHandlerForText(rendered, "Collapse all");
+    templateClickHandlerForText(rendered, "全部折叠");
 
-    templateClickHandlerForText(panel.render(), "Collapse all")(new Event("click"));
+    templateClickHandlerForText(panel.render(), "全部折叠")(new Event("click"));
     rendered = panel.render();
     expect(findOptionalTemplateClickHandlerForText(rendered, "abc1234 → def5678")).toBeUndefined();
     expect(findOptionalTemplateClickHandlerForText(rendered, "lib.ts")).toBeUndefined();
@@ -156,7 +156,7 @@ describe("workspace-git-panel rows", () => {
     const collapsed = panel.render();
     const headerText = rowTextFor(collapsed, "harl");
     expect(headerText).toContain("harl");
-    expect(headerText).toContain("submodule");
+    expect(headerText).toContain("子模块");
     expect(findOptionalTemplateClickHandlerForText(collapsed, "abc1234 → def5678")).toBeUndefined();
 
     templateClickHandlerForText(collapsed, "harl")(new Event("click"));
@@ -206,7 +206,7 @@ describe("workspace-git-panel context reset", () => {
     callPanelWillUpdate(panel, context);
 
     const rendered = panel.render();
-    templateClickHandlerForText(rendered, "Expand all");
+    templateClickHandlerForText(rendered, "全部展开");
     expect(findOptionalTemplateClickHandlerForText(rendered, "a.ts")).toBeUndefined();
   });
 
@@ -218,7 +218,7 @@ describe("workspace-git-panel context reset", () => {
 
     panel.context = undefined;
     callPanelWillUpdate(panel, context);
-    expect(templateText(panel.render())).toContain("Git unavailable.");
+    expect(templateText(panel.render())).toContain("Git 不可用。");
 
     const reconnected = workspacePanelContext({ gitStatus: treeStatus() });
     panel.context = reconnected;
@@ -257,7 +257,7 @@ function toolbarSlots(rendered: TemplateResult): { expandCollapseSlot: unknown; 
   }
   const refreshOpenChunk = strings[toggleIndex + 1] ?? "";
   const refreshLabelChunk = strings[toggleIndex + 2] ?? "";
-  if (!refreshOpenChunk.includes("<button") || !refreshLabelChunk.includes(">Refresh</button>")) {
+  if (!refreshOpenChunk.includes("<button") || !refreshLabelChunk.includes(">刷新</button>")) {
     throw new Error("Refresh button does not immediately follow the view toggle");
   }
   return { expandCollapseSlot: values[actionsIndex], toggleIndex };

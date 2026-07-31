@@ -8,7 +8,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
   return [
     {
       id: "workspace.files",
-      title: "Files",
+      title: "文件",
       icon: renderBuiltinTabIcon("files"),
       order: 10,
       render: renderFiles,
@@ -23,7 +23,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
     },
     {
       id: "workspace.terminal",
-      title: "Terminal",
+      title: "终端",
       icon: renderBuiltinTabIcon("terminal"),
       order: 30,
       badge: (context) => context.activeTerminalCount > 0 ? context.activeTerminalCount : undefined,

@@ -176,10 +176,10 @@ describe("session tree summary validation", () => {
   });
 
   it("rejects blank and oversized custom focus", () => {
-    expect(validateSessionTreeSummaryChoice("custom", "   ")).toEqual({ ok: false, error: "Enter custom summary focus instructions." });
+    expect(validateSessionTreeSummaryChoice("custom", "   ")).toEqual({ ok: false, error: "请输入自定义摘要重点说明。" });
     expect(validateSessionTreeSummaryChoice("custom", "x".repeat(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH + 1))).toEqual({
       ok: false,
-      error: `Custom summary focus must be ${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)} characters or fewer.`,
+      error: `自定义摘要重点不能超过 ${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)} 个字符。`,
     });
   });
 });

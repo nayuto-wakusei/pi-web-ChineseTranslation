@@ -70,7 +70,7 @@ function copyWithSelectionFallback(text: string): boolean {
 }
 
 function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus): TemplateResult {
-  const label = component.component === "sessiond" ? "会话守护进程" : component.label;
+  const label = component.component === "sessiond" ? "会话守护进程" : "Web/界面";
   const status = !component.available
     ? "不可用"
     : component.stale

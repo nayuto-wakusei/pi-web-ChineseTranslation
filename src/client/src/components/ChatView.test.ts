@@ -15,11 +15,25 @@ import {
   chatMessageGroupClassName,
   chatMessageGroupLabel,
   chatMessageMetadataLabel,
+  chatMessageRoleLabel,
   chatQueuedMessageSections,
   chatQueuedSectionShowsClearAction,
   chatSessionWarningRows,
 } from "./ChatView";
 import { templateEventHandlerAfterMarker, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
+
+describe("chatMessageRoleLabel", () => {
+  it("localizes every protocol-level chat role for display", () => {
+    expect([
+      chatMessageRoleLabel("user"),
+      chatMessageRoleLabel("assistant"),
+      chatMessageRoleLabel("tool"),
+      chatMessageRoleLabel("system"),
+      chatMessageRoleLabel("bash"),
+      chatMessageRoleLabel("skill"),
+    ]).toEqual(["用户", "助手", "工具", "系统", "命令", "技能"]);
+  });
+});
 
 describe("chatQueuedMessageSections", () => {
   it("labels client-side pending-start sends separately from server queued messages", () => {
@@ -31,14 +45,14 @@ describe("chatQueuedMessageSections", () => {
     expect(sections).toEqual([
       {
         source: "client",
-        heading: "Queued until session starts",
-        detail: "Will send once the backend session is ready",
+        heading: "等待会话启动后发送",
+        detail: "后端会话就绪后将自动发送",
         messages: [{ kind: "followUp", text: "queued before start" }],
       },
       {
         source: "server",
-        heading: "Queued messages",
-        detail: "1 pending",
+        heading: "排队中的消息",
+        detail: "1 条待处理",
         messages: [{ kind: "steer", text: "server queued" }],
       },
     ]);
@@ -81,7 +95,7 @@ describe("ChatView queued-message clear wiring", () => {
     view.canClearServerQueue = true;
     view.onClearServerQueue = onClearServerQueue;
 
-    templateEventHandlerNearMarker(renderQueuedMessages(view), "Clear queue")(new Event("click"));
+    templateEventHandlerNearMarker(renderQueuedMessages(view), "清除队列")(new Event("click"));
 
     expect(onClearServerQueue).toHaveBeenCalledOnce();
   });

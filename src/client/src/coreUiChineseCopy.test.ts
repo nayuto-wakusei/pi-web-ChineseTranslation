@@ -21,9 +21,9 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes the prompt editor controls and placeholder",
-    paths: ["components/PromptEditor.ts"],
-    expected: ["给 pi 发送消息", "使用 / 输入命令", "发送", "停止"],
-    forbidden: ["Message pi...", "Use / for commands", ">Send<", ">Stop<"],
+    paths: ["components/PromptEditor.ts", "components/ProjectDialog.ts"],
+    expected: ["给 pi 发送消息", "使用 / 输入命令", "发送", "停止", "return \"文件\"", "/path/to/project 或 ~/code/project"],
+    forbidden: ["Message pi...", "Use / for commands", ">Send<", ">Stop<", "return \"FILE\"", "/path/to/project or ~/code/project"],
   },
   {
     name: "localizes the chat event labels and history boundary copy",
@@ -77,16 +77,16 @@ const copyCases: readonly CopyCase[] = [
     name: "localizes settings, machine actions, tool targets, and diff empty states",
     paths: [
       "components/settings/SettingsPackagesPanel.ts", "components/settings/piPackageSettings.ts", "components/settings/settingsMachineTarget.ts",
-      "components/settings/SettingsPanelFrame.ts", "components/settings/SettingsShortcutsPanel.ts",
-      "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "components/UnifiedDiffViewer.ts",
+      "components/settings/SettingsPanelFrame.ts", "components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsPluginsPanel.ts",
+      "components/SettingsDialog.ts", "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "components/UnifiedDiffViewer.ts",
       "components/settings/SettingsGeneralPanel.ts", "components/settings/SettingsSessiondPanel.ts",
     ],
-    expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "配置档案状态", "测试版"],
+    expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "用户范围", "机器专属", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "代理配置档案", "配置档案状态", "测试版"],
     forbidden: [
       "Trusted code warning", "Pi package source", "Configured Pi packages", "No Pi packages configured",
       "(local gateway)", "(remote machine)", "Settings notices", "No default shortcut",
       "Machine actions", ">Remove<", "No diff.", "Unified diff", "\"Command\" | \"File\" | \"Input\"",
-      ">Host<", ">Port<", "允许的 hosts", "Companion CLI", "Profile 状态", ">beta<",
+      ">Host<", ">Port<", "允许的 hosts", "Companion CLI", "Agent Profile", "Profile 状态", ">beta<", " · machine-specific",
     ],
   },
   {
@@ -110,8 +110,38 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes session cleanup actions and dialog copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts", "components/SessionCleanupDialog.ts", "sessionCleanupUi.ts"],
-    expected: ["清理会话", "预览并手动清理所选机器上的空闲或已归档会话", "归档空闲超过", "删除是永久操作", "运行清理"],
-    forbidden: ["Clean up sessions", "Clean Up Sessions", "Preview manual cleanup", "Archive non-archived sessions", "Deletion is permanent", "Run cleanup"],
+    expected: ["清理", "清理会话", "预览会话清理", "预览并手动清理所选机器上的空闲或已归档会话", "归档空闲超过", "删除是永久操作", "运行清理"],
+    forbidden: ["Clean up", "Clean up sessions", "Clean Up Sessions", "Preview session cleanup", "Preview manual cleanup", "Archive non-archived sessions", "Deletion is permanent", "Run cleanup"],
+  },
+  {
+    name: "localizes the bundled info and relays plugin surfaces",
+    paths: [
+      "../../../pi-web-plugins/info/pi-web-plugin.ts",
+      "../../../pi-web-plugins/info/infoInternals.ts",
+      "../../../pi-web-plugins/relays/pi-web-plugin.ts",
+      "../../../pi-web-plugins/relays/relaysPanelElement.ts",
+      "../../../pi-web-plugins/relays/markdownDocument.ts",
+    ],
+    expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
+    forbidden: ["title: \"Info\"", "<strong>Info</strong>", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
+  },
+  {
+    name: "localizes questions, session-tree navigation, chat queues, and notifications",
+    paths: ["components/AskUserCard.ts", "components/SessionTreeNavigator.ts", "components/ChatView.ts", "controllers/sessionController.ts", "sessionNotifications.ts", "sessionTreeModel.ts"],
+    expected: ["发送回答", "自定义回答", "浏览会话树", "生成摘要并导航", "case \"bash\": return \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
+    forbidden: ["Send answers", "Custom answer", "Navigate session tree", "Summarize and navigate", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
+  },
+  {
+    name: "localizes workspace files, git, machine, project, and workspace controls",
+    paths: ["components/WorkspaceFilesPanel.ts", "components/WorkspaceGitPanel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "plugins/core/panels.ts"],
+    expected: ["拖放文件以上传", "工作区上传", "没有更改。", "全部展开", "机器活动中", "项目活动中", "工作区活动中", "复制路径", "title: \"文件\"", "title: \"终端\""],
+    forbidden: ["Drop files to upload", "Workspace uploads", "No changes.", "Expand all", "Machine active", "Project active", "Workspace active", "Copy path", "title: \"Files\"", "title: \"Terminal\""],
+  },
+  {
+    name: "localizes shortcut guidance, status copy, and core session actions",
+    paths: ["components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsSessiondPanel.ts", "components/StatusBar.ts", "plugins/core/actions.ts", "terminalKeys.ts", "formatting/markdown.ts"],
+    expected: ["正在录制", "需要重启", "测试版：", "~/.pi/agent 或 ~/agent-profiles/work", "尚无会话状态", "选择模型", "选择思考级别", "ariaLabel: \"删除键\"", "setAttribute(\"aria-label\", \"表格\")"],
+    forbidden: ["Recording:", "Beta：", "~/.pi/agent or ~/agent-profiles/work", "Pi-compatible agent profile restart required", "No session status yet", "Select Model", "Select Thinking Level", "ariaLabel: \"Delete\"", "setAttribute(\"aria-label\", \"Table\")"],
   },
   {
     name: "keeps the file upload control as one visible Chinese button",

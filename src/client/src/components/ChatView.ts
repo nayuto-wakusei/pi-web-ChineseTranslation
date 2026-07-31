@@ -82,8 +82,8 @@ export interface QueuedMessageSection {
 
 export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
   return [
-    clientQueued.length === 0 ? undefined : { source: "client", heading: "Queued until session starts", detail: "Will send once the backend session is ready", messages: clientQueued },
-    serverQueued.length === 0 ? undefined : { source: "server", heading: "Queued messages", detail: `${String(serverQueued.length)} pending`, messages: serverQueued },
+    clientQueued.length === 0 ? undefined : { source: "client", heading: "等待会话启动后发送", detail: "后端会话就绪后将自动发送", messages: clientQueued },
+    serverQueued.length === 0 ? undefined : { source: "server", heading: "排队中的消息", detail: `${String(serverQueued.length)} 条待处理`, messages: serverQueued },
   ].filter((section): section is QueuedMessageSection => section !== undefined);
 }
 
@@ -91,12 +91,26 @@ export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
 /** Derive the `<img>` source URL and alt text for a rendered image part. */
 export function chatImagePartSource(part: ChatImagePart): { src: string; alt: string } {
-  return { src: `data:${part.mimeType};base64,${part.data}`, alt: "attached image" };
+  return { src: `data:${part.mimeType};base64,${part.data}`, alt: "附加图片" };
 }
 
 /** The message-header label used when a tool message renders as an image output. */
 export function chatToolOutputLabel(toolName?: string): string {
-  return toolName === undefined || toolName === "" ? "tool output" : `${toolName} output`;
+  return toolName === undefined || toolName === "" ? "工具输出" : `${toolName} 输出`;
+}
+
+const chatMessageRoleLabels: Record<ChatLine["role"], string> = {
+  user: "用户",
+  assistant: "助手",
+  tool: "工具",
+  system: "系统",
+  bash: "命令",
+  skill: "技能",
+};
+
+/** User-facing label for a protocol-level chat role. */
+export function chatMessageRoleLabel(role: ChatLine["role"]): string {
+  return chatMessageRoleLabels[role];
 }
 
 /** The stable scroll-anchor/render key for a top-level message at `index`. */
@@ -161,7 +175,7 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
   const parts = [time, model].filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? "No Pi message metadata available" : parts.join(" · ");
+  return parts.length === 0 ? "没有可用的 Pi 消息元数据" : parts.join(" · ");
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
@@ -406,7 +420,7 @@ export class ChatView extends LitElement {
     const totalCount = notificationInboxTotalCount(inbox);
     if (totalCount === 0 && !hasPendingOverlay && !retainsFocusTarget) return null;
     const collapsed = notificationTrayIsCollapsed(this.collapsedNotificationTargetKeys, inbox);
-    const toggleLabel = collapsed ? "Expand notifications" : "Collapse notifications";
+    const toggleLabel = collapsed ? "展开通知" : "折叠通知";
     return html`
       <section class=${`notification-tray${collapsed ? " collapsed" : ""}`} role="region" aria-labelledby="session-notifications-heading" @focusout=${(event: FocusEvent) => { this.releaseEmptyNotificationTray(event); }}>
         <header class="notification-header" data-notification-focus="header" tabindex="-1">
@@ -415,11 +429,11 @@ export class ChatView extends LitElement {
             <button
               type="button"
               class="notification-control notification-clear"
-              aria-label="Clear all notifications"
-              title="Clear all notifications"
+              aria-label="清除所有通知"
+              title="清除所有通知"
               ?disabled=${inbox.dismissAllPending || totalCount === 0 || this.onDismissAllNotifications === undefined}
               @click=${() => { this.dismissAllNotifications(); }}
-            >Clear</button>
+            >清除</button>
             <button
               type="button"
               class="notification-control notification-toggle"
@@ -451,7 +465,7 @@ export class ChatView extends LitElement {
                   type="button"
                   class="notification-row-dismiss"
                   aria-label=${notificationDismissLabel(notification)}
-                  title="Dismiss notification"
+                  title="关闭通知"
                   ?disabled=${inbox.pendingDismissedIds.has(notification.id) || inbox.dismissAllPending || this.onDismissNotification === undefined}
                   @click=${() => { this.dismissNotification(notification.id); }}
                 >${renderNotificationCloseIcon()}</button>
@@ -538,14 +552,14 @@ export class ChatView extends LitElement {
             <button
               type="button"
               class="session-warnings-collapse"
-              title="Minimise warnings"
-              aria-label="Minimise warnings"
+              title="最小化警告"
+              aria-label="最小化警告"
               @click=${this.handleToggleWarnings}
             >
               <svg class="session-warnings-collapse-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="m18 15-6-6-6 6"></path>
               </svg>
-              <span>Minimise</span>
+              <span>最小化</span>
             </button>
           </div>
         `}
@@ -565,8 +579,8 @@ export class ChatView extends LitElement {
               <button
                 type="button"
                 class="session-warning-dismiss"
-                title="Don't show this warning again"
-                aria-label="Dismiss warning"
+                title="不再显示此警告"
+                aria-label="关闭警告"
                 @click=${() => { this.onDismissWarning?.(dismissId); }}
               >×</button>
             `}
@@ -581,7 +595,7 @@ export class ChatView extends LitElement {
     return html`
       <dialog class="image-zoom" @click=${this.onImageZoomDialogClick} @close=${this.closeImageZoom} @cancel=${this.closeImageZoom}>
         ${this.zoomedImage === undefined ? null : html`
-          <button type="button" class="image-zoom-close" aria-label="Close image" @click=${this.closeImageZoom}>×</button>
+          <button type="button" class="image-zoom-close" aria-label="关闭图片" @click=${this.closeImageZoom}>×</button>
           <img class="image-zoom-full" src=${this.zoomedImage.src} alt=${this.zoomedImage.alt} />
         `}
       </dialog>
@@ -613,7 +627,7 @@ export class ChatView extends LitElement {
       return html`
         <div class="activity-dock active" aria-live="polite">
           <span class="dot"></span>
-          <span class="activity-text">Sending your message…</span>
+          <span class="activity-text">正在发送你的消息…</span>
         </div>
       `;
     }
@@ -643,12 +657,12 @@ export class ChatView extends LitElement {
             <small>${section.detail}</small>
           </div>
           ${canClear ? html`
-            <button type="button" class="queued-clear-button" title="Clear queued messages without stopping active work" @click=${this.handleClearServerQueue}>Clear queue</button>
+            <button type="button" class="queued-clear-button" title="清除排队消息且不停止当前任务" @click=${this.handleClearServerQueue}>清除队列</button>
           ` : null}
         </div>
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
-            <span class="queued-kind">${message.kind === "steer" ? "Steer" : "Follow-up"} ${String(index + 1)}</span>
+            <span class="queued-kind">${message.kind === "steer" ? "引导" : "后续"} ${String(index + 1)}</span>
             <formatted-text .text=${message.text}></formatted-text>
           </div>
         `)}
@@ -672,9 +686,9 @@ export class ChatView extends LitElement {
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
-        <strong>Compacting history…</strong>
-        <span>The agent is summarizing earlier context. New prompts will be queued until compaction finishes.</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
+        <strong>正在压缩历史记录…</strong>
+        <span>代理正在总结较早的上下文。压缩完成前，新提示词将进入队列。</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息正在排队</small>` : null}
       </aside>
     `;
   }
@@ -719,11 +733,11 @@ export class ChatView extends LitElement {
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>Loading earlier messages…</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>正在加载较早消息…</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>Load earlier messages</button>
-        <span>Scroll up to load earlier messages</span>
+        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>加载较早消息</button>
+        <span>向上滚动以加载较早消息</span>
         ${range}
       </div>
     `;
@@ -810,7 +824,7 @@ export class ChatView extends LitElement {
     return html`<span class="scroll-marker" data-marker-id=${markerId} aria-hidden="true"></span>`;
   }
 
-  private renderMessageHeader(message: ChatLine, key: string, label: string = message.role) {
+  private renderMessageHeader(message: ChatLine, key: string, label: string = chatMessageRoleLabel(message.role)) {
     const meta = this.messageMetaLabel(message);
     const expanded = this.expandedMetaKey === key;
     return html`
@@ -828,8 +842,8 @@ export class ChatView extends LitElement {
     if (!this.isCopyableMessage(message)) return null;
     const copied = this.copiedMessageKey === key;
     return html`
-      <div class="msg-actions" aria-label="Message actions">
-        <button type="button" class="msg-action" title=${copied ? "Copied" : "Copy message"} aria-label=${`${copied ? "Copied" : "Copy"} ${message.role} message`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
+      <div class="msg-actions" aria-label="消息操作">
+        <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${chatMessageRoleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
           <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
         </button>
       </div>
@@ -880,7 +894,7 @@ export class ChatView extends LitElement {
   private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
     if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
-    if (part.type === "thinking") return html`<details class="part"><summary>thinking</summary><formatted-text .text=${part.text}></formatted-text></details>`;
+    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[skill]</b> ${part.name}</summary>
@@ -903,7 +917,7 @@ export class ChatView extends LitElement {
     `;
     if (part.type === "image") {
       const { src, alt } = chatImagePartSource(part);
-      return html`<img class="part chat-image" src=${src} alt=${alt} loading="lazy" role="button" tabindex="0" title="Click to enlarge" @load=${this.onImageLoad} @click=${() => { this.openImageZoom(src, alt); }} @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.openImageZoom(src, alt); } }} />`;
+      return html`<img class="part chat-image" src=${src} alt=${alt} loading="lazy" role="button" tabindex="0" title="点击放大" @load=${this.onImageLoad} @click=${() => { this.openImageZoom(src, alt); }} @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.openImageZoom(src, alt); } }} />`;
     }
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;

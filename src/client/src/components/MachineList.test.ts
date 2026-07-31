@@ -26,7 +26,7 @@ describe("machine unread indicator", () => {
     expect(unreadDot(rowFor(list, "local"))).toBeNull();
     const remoteDot = unreadDot(rowFor(list, "remote-a"));
     expect(remoteDot).not.toBeNull();
-    expect(remoteDot?.getAttribute("title")).toBe("Unread sessions on this machine");
+    expect(remoteDot?.getAttribute("title")).toBe("此机器上有未读会话");
     // Stale-but-present counts: an offline machine keeps its last-known unread state.
     expect(unreadDot(rowFor(list, "remote-b"))).not.toBeNull();
   });
@@ -54,11 +54,11 @@ describe("machine unread indicator", () => {
 
     const localRing = rowFor(list, "local").querySelector(".unread-ring");
     expect(localRing?.querySelector(".activity-indicator.session")).not.toBeNull();
-    expect(localRing?.getAttribute("title")).toBe("Unread sessions on this machine · Machine active");
+    expect(localRing?.getAttribute("title")).toBe("此机器上有未读会话 · 机器活动中");
 
     const remoteRing = rowFor(list, "remote-a").querySelector(".unread-ring");
     expect(remoteRing?.querySelector(".activity-indicator.terminal")).not.toBeNull();
-    expect(remoteRing?.getAttribute("title")).toBe("Unread sessions on this machine · Machine terminal active");
+    expect(remoteRing?.getAttribute("title")).toBe("此机器上有未读会话 · 机器终端活动中");
 
     // One mark per row: the ring replaces the standalone unread dot.
     expect(rowFor(list, "local").querySelector(".activity-indicator.unread")).toBeNull();

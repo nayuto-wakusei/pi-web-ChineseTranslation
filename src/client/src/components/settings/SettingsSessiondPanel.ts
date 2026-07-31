@@ -14,7 +14,7 @@ export class SettingsSessiondPanel extends LitElement {
   @property({ type: Boolean }) saving = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "local（本地网关）";
+  @property() targetLabel = "本机（本地网关）";
   @property({ attribute: false }) activeAgentProfile: ActiveAgentProfileDescriptor | undefined;
   @property({ attribute: false }) agentProfileSupport: AgentProfileSettingsSupport = { state: "supported" };
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
@@ -74,7 +74,7 @@ export class SettingsSessiondPanel extends LitElement {
             <code>${config.path}</code>
           </div>
           <form class="profile-form" aria-label="Pi 兼容代理配置档案" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
-            ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? "此机器不支持编辑 Pi 兼容 Agent Profile。"}</div>`}
+            ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? "此机器不支持编辑 Pi 兼容代理配置档案。"}</div>`}
             <label class="field">
               <span class="field-heading">
                 <span>配套 CLI 命令</span>
@@ -103,14 +103,14 @@ export class SettingsSessiondPanel extends LitElement {
                 autocomplete="off"
                 spellcheck="false"
                 .value=${this.agentDraft.dir}
-                placeholder="~/.pi/agent or ~/agent-profiles/work"
+                placeholder="~/.pi/agent 或 ~/agent-profiles/work"
                 ?disabled=${this.loading || this.saving || !profileEditingSupported || agentDirLocked}
                 @input=${(event: Event) => { this.updateAgentDraft({ dir: inputValue(event) }); }}
               >
               <small>选择 PI WEB 读取的 Pi 兼容认证、模型、设置和会话目录。备用命令会与其所需状态目录一并保存。</small>
             </label>
             <footer class="form-actions">
-              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? "正在保存…" : "保存 Agent Profile"}</button>
+              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? "正在保存…" : "保存代理配置档案"}</button>
             </footer>
           </form>
           <div class="field">
@@ -144,7 +144,7 @@ export class SettingsSessiondPanel extends LitElement {
               >
               <span>启用 <code>spawn_subsession</code> 工具</span>
             </label>
-            <small>Beta：代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认关闭。</small>
+            <small>测试版：代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认关闭。</small>
           </div>
           <div class="field">
             <span class="field-heading">
@@ -325,14 +325,14 @@ export function sessiondPanelNotices(
   if (activation === "restart-required") {
     notices.push({
       type: "warning",
-      title: `Pi-compatible agent profile restart required on ${context.targetLabel}`,
-      content: html`The desired profile differs from the active session-daemon profile. Run <code>pi-web restart</code> on that machine (or restart its session daemon service) to apply the command and state directory together.`,
+      title: `${context.targetLabel} 上的 Pi 兼容代理配置档案需要重启`,
+      content: html`期望配置档案与当前会话守护进程配置档案不同。请在该机器上运行 <code>pi-web restart</code>（或重启其会话守护进程服务），以同时应用命令和状态目录。`,
     });
   } else if (config !== undefined && activation === "unavailable" && context.profileEditingSupported) {
     notices.push({
       type: "info",
-      title: `Active Pi-compatible agent profile unavailable on ${context.targetLabel}`,
-      content: "PI WEB cannot compare the desired profile with the running session daemon. Reload after the daemon is available.",
+      title: `无法获取 ${context.targetLabel} 上当前生效的 Pi 兼容代理配置档案`,
+      content: "PI WEB 无法比较期望配置档案与正在运行的会话守护进程配置档案。请在守护进程可用后重新加载。",
     });
   }
   return notices;

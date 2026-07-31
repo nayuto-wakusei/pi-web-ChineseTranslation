@@ -66,6 +66,20 @@ describe("settings-plugins-panel layout", () => {
     expect(countOccurrences(rendered, "配置不可用。更改插件启用状态前请重新加载。")).toBe(1);
     expect(templateValues(renderPluginTemplate(panel, pluginInfo("remote-disabled", false))).filter(isBoolean)).toEqual([false, true]);
   });
+
+  it("maps plugin source, scope, and machine-specific metadata for display", () => {
+    const panel = new SettingsPluginsPanel();
+    const rendered = flattenTemplateContent(renderPluginTemplate(panel, {
+      ...pluginInfo("bundled-user-plugin", true),
+      source: "bundled",
+      scope: "user",
+      machineSpecific: true,
+    }));
+
+    expect(rendered).toContain("内置 · 用户范围 · 机器专属");
+    expect(rendered).not.toContain("bundled · user");
+    expect(rendered).not.toContain("machine-specific");
+  });
 });
 
 function renderPluginTemplate(panel: SettingsPluginsPanel, plugin: PiWebPluginInfo): TemplateResult {
