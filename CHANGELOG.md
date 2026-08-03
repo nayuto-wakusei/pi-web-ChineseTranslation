@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.2
+
+### Patch Changes
+
+- a8b3ca6: Fix the release smoke test to validate the localized package name.
+
 ## 1.202608.1
 
 ### Patch Changes
