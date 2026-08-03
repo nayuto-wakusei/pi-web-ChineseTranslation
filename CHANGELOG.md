@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.1
+
+### Patch Changes
+
+- 9cc09c0: Fix interactive terminals so Bash, Zsh, and Fish load their login profiles.
+
 ## 1.202608.0
 
 ### Patch Changes
