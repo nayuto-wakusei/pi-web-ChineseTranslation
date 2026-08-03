@@ -159,6 +159,18 @@ describe("mark-as-read actions", () => {
 });
 
 describe("sessionRowsForCurrentTree", () => {
+  it("keeps a pinned descendant and its parent tree before newer unpinned roots", () => {
+    const unpinned = session("unpinned", { modified: "2026-06-10T00:00:00.000Z" });
+    const parent = session("parent", { modified: "2026-06-09T00:00:00.000Z" });
+    const pinnedChild = session("pinned-child", { parentSessionPath: parent.path, modified: "2026-06-08T00:00:00.000Z" });
+
+    expect(rowSummaries(sessionRowsForCurrentTree([unpinned, parent, pinnedChild], [pinnedChild.id]))).toEqual([
+      { id: "parent", depth: 0, hasMissingParent: false },
+      { id: "pinned-child", depth: 1, hasMissingParent: false },
+      { id: "unpinned", depth: 0, hasMissingParent: false },
+    ]);
+  });
+
   it("keeps archived ancestors visible while they have unarchived descendants", () => {
     const parent = { ...session("parent"), archived: true, archivedAt: "2026-06-09T00:00:00.000Z" };
     const child = session("child", { parentSessionPath: parent.path });

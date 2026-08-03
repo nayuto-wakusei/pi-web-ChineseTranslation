@@ -131,10 +131,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   override render() {
-    const currentRows = sessionRowsForCurrentTree(this.sessions);
+    const currentRows = sessionRowsForCurrentTree(this.sessions, this.pinnedSessionIds);
     const currentRowIds = new Set(currentRows.map((row) => row.session.id));
     const currentSelectableSessions = currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
-    const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)));
+    const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
     const descendantCounts = unarchivedDescendantCounts(this.sessions);
     const unreadCount = unreadSessionCount(currentSelectableSessions, this.unreadSessionIds);
     return html`
@@ -670,7 +670,7 @@ function sessionsByNormalizedPath(sessions: readonly SessionInfo[]): Map<string,
   return new Map(sessions.map((session) => [normalizeSessionPath(session.path), session]));
 }
 
-export function sessionRowsForCurrentTree(sessions: SessionInfo[]): SessionRow[] {
+export function sessionRowsForCurrentTree(sessions: SessionInfo[], pinnedSessionIds: readonly string[] = []): SessionRow[] {
   const byPath = sessionsByNormalizedPath(sessions);
   const visible = new Set<string>();
   for (const session of sessions) {
@@ -686,10 +686,10 @@ export function sessionRowsForCurrentTree(sessions: SessionInfo[]): SessionRow[]
       parentKey = parent.parentSessionPath === undefined ? undefined : normalizeSessionPath(parent.parentSessionPath);
     }
   }
-  return sessionRows(sessions.filter((session) => visible.has(session.id)));
+  return sessionRows(sessions.filter((session) => visible.has(session.id)), pinnedSessionIds);
 }
 
-function sessionRows(sessions: SessionInfo[]): SessionRow[] {
+function sessionRows(sessions: SessionInfo[], pinnedSessionIds: readonly string[] = []): SessionRow[] {
   const byPath = sessionsByNormalizedPath(sessions);
   const childrenByPath = new Map<string, SessionInfo[]>();
   const roots: SessionInfo[] = [];
@@ -706,6 +706,29 @@ function sessionRows(sessions: SessionInfo[]): SessionRow[] {
     childrenByPath.set(parentKey, children);
   }
 
+  const pinned = new Set(pinnedSessionIds);
+  const originalOrder = new Map(sessions.map((session, index) => [normalizeSessionPath(session.path), index]));
+  const containsPinnedMemo = new Map<string, boolean>();
+  const containsPinned = (session: SessionInfo, stack: Set<string>): boolean => {
+    if (pinned.has(session.id)) return true;
+    const sessionKey = normalizeSessionPath(session.path);
+    const cached = containsPinnedMemo.get(sessionKey);
+    if (cached !== undefined) return cached;
+    if (stack.has(sessionKey)) return false;
+    const nextStack = new Set(stack);
+    nextStack.add(sessionKey);
+    const result = (childrenByPath.get(sessionKey) ?? []).some((child) => containsPinned(child, nextStack));
+    containsPinnedMemo.set(sessionKey, result);
+    return result;
+  };
+  const compareSessions = (left: SessionInfo, right: SessionInfo): number => {
+    const pinnedOrder = Number(containsPinned(right, new Set())) - Number(containsPinned(left, new Set()));
+    if (pinnedOrder !== 0) return pinnedOrder;
+    const modifiedOrder = right.modified.localeCompare(left.modified);
+    if (modifiedOrder !== 0) return modifiedOrder;
+    return (originalOrder.get(normalizeSessionPath(left.path)) ?? 0) - (originalOrder.get(normalizeSessionPath(right.path)) ?? 0);
+  };
+
   const rows: SessionRow[] = [];
   const visit = (session: SessionInfo, depth: number, stack: Set<string>) => {
     const sessionKey = normalizeSessionPath(session.path);
@@ -714,8 +737,8 @@ function sessionRows(sessions: SessionInfo[]): SessionRow[] {
     rows.push({ session, depth, hasMissingParent: parentPath !== undefined && !byPath.has(normalizeSessionPath(parentPath)) });
     const nextStack = new Set(stack);
     nextStack.add(sessionKey);
-    for (const child of childrenByPath.get(sessionKey) ?? []) visit(child, depth + 1, nextStack);
+    for (const child of [...(childrenByPath.get(sessionKey) ?? [])].sort(compareSessions)) visit(child, depth + 1, nextStack);
   };
-  for (const root of roots) visit(root, 0, new Set());
+  for (const root of roots.sort(compareSessions)) visit(root, 0, new Set());
   return rows;
 }
