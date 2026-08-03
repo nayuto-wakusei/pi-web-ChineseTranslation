@@ -66,7 +66,8 @@ export class TerminalService {
 
   create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo {
     if (options.managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
-    return this.createTerminal({ ...options, shellArgs: [] });
+    const shell = interactiveShell();
+    return this.createTerminal({ ...options, shell, shellArgs: interactiveShellArgs(shell) });
   }
 
   runCommand(options: RunTerminalCommandOptions): TerminalCommandRun {
@@ -185,7 +186,7 @@ export class TerminalService {
     record.buffer = trimReplayBuffer(record.buffer + marker);
     record.events.emit("output", marker);
     const shell = interactiveShell();
-    record.pty = pty.spawn(shell, [], {
+    record.pty = pty.spawn(shell, interactiveShellArgs(shell), {
       name: "xterm-256color",
       cwd: record.cwd,
       cols: 100,
