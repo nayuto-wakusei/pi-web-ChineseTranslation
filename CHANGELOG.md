@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.3
+
+### Patch Changes
+
+- 955c863: Keep manually pinned conversations at the top of the session list, including pinned conversation trees.
+
 ## 1.202608.2
 
 ### Patch Changes
