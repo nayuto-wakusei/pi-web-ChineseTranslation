@@ -10,6 +10,10 @@ const NPM_VERSION = "12.0.1";
 const MARKER = "pi-web-package-pty-ok";
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const packageManifest = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
+if (typeof packageManifest.name !== "string" || packageManifest.name === "") {
+  throw new Error("package.json must define a package name");
+}
 
 if (process.platform === "win32") {
   throw new Error("The installed-package PTY smoke test requires a POSIX shell");
@@ -57,7 +61,7 @@ try {
     "--no-fund",
   ], root);
 
-  const packageRoot = join(globalPrefix, "lib", "node_modules", "@jmfederico", "pi-web");
+  const packageRoot = join(globalPrefix, "lib", "node_modules", ...packageManifest.name.split("/"));
   await smokeInstalledTerminalService(packageRoot);
   console.log(`Installed-package PTY smoke test passed with npm ${NPM_VERSION}.`);
 } finally {
