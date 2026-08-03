@@ -18,6 +18,14 @@ export function withManagementEmbedQuery(url: string, pageUrl: URL | undefined =
   return scopedManagementUrl(url, pageUrl, scope, false);
 }
 
+export function removeManagementEntryToken(scope: ApiScope): void {
+  if (scope !== "management" || typeof globalThis.history === "undefined") return;
+  const pageUrl = currentPageUrl();
+  if (pageUrl === undefined || managementEmbedParams(pageUrl)?.token === undefined) return;
+  pageUrl.searchParams.delete("token");
+  globalThis.history.replaceState(globalThis.history.state, "", `${pageUrl.pathname}${pageUrl.search}${pageUrl.hash}`);
+}
+
 function scopedManagementUrl(url: string, pageUrl: URL | undefined, scope: ApiScope, includeHash: boolean): string {
   if (scope === "normal") return url;
   if (pageUrl === undefined) return url;

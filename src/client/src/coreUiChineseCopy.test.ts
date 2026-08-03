@@ -63,7 +63,7 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes the live activity dock state labels",
     paths: ["components/ChatView.ts", "controllers/sessionController.ts"],
-    expected: ["activityStateLabel(activity.label, activity.phase)", "return activityStateLabel(state);", "空闲", "正在重新加载资源", "正在创建会话", "会话创建失败", "启动会话失败"],
+    expected: ["activityStateLabel(activity.label, activity.phase)", "return activityStateLabel(state);", "空闲", "正在接收回复", "正在运行工具", "工具执行完成", "正在重新加载资源", "running: \"代理正在运行\"", "正在创建会话", "会话创建失败", "启动会话失败"],
     forbidden: [
       "if (activity === undefined) return state;",
       "return activity.detail !== undefined && activity.detail !== \"\" ? `${activity.label}: ${activity.detail}` : activity.label;",

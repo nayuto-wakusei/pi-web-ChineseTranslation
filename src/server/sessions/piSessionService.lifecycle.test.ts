@@ -354,7 +354,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     const extensionErrorActivity = hub.globalEvents.find((event) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
     expect(extensionErrorActivity).toMatchObject({
       type: "activity.update",
-      activity: { sessionId: "extension-session", phase: "error", label: "extension error", detail: "pi-mcp-adapter: MCP failed" },
+      activity: { sessionId: "extension-session", phase: "error", label: "扩展错误", detail: "pi-mcp-adapter: MCP failed" },
     });
 
     await service.dispose();
@@ -692,7 +692,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     listener?.({ type: "tool_execution_end", toolName: "read", isError: false });
 
     expect(hub.globalEvents.filter((event) => event.type === "activity.update")).toMatchObject([
-      { activity: { sessionId: "completion-session", phase: "idle", label: "tool complete", detail: "read" } },
+      { activity: { sessionId: "completion-session", phase: "idle", label: "工具执行完成", detail: "read" } },
     ]);
 
     await service.dispose();
@@ -806,7 +806,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     expect(fake.calls.reload).toBe(1);
     expect(fake.calls.abort).toBe(0);
     expect(fake.calls.dispose).toBe(0);
-    expect(hub.globalEvents.some((event) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "resources reloaded")).toBe(true);
+    expect(hub.globalEvents.some((event) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "资源已重新加载")).toBe(true);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "runtime-reload-session")).toBe(true);
 
     await service.dispose();

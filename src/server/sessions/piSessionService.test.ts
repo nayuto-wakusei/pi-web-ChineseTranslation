@@ -578,7 +578,7 @@ describe("PiSessionService", () => {
     const extensionErrorActivity = hub.globalEvents.find(({ event }) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
     expect(extensionErrorActivity?.event).toMatchObject({
       type: "activity.update",
-      activity: { sessionId: "extension-session", phase: "error", label: "extension error", detail: "pi-mcp-adapter: MCP failed" },
+      activity: { sessionId: "extension-session", phase: "error", label: "扩展错误", detail: "pi-mcp-adapter: MCP failed" },
     });
 
     await service.dispose();
@@ -643,8 +643,56 @@ describe("PiSessionService", () => {
     listener?.({ type: "tool_execution_end", toolName: "read", isError: false });
 
     expect(hub.globalEvents.filter(({ event }) => event.type === "activity.update").map(({ event }) => event)).toMatchObject([
-      { activity: { sessionId: "completion-session", phase: "idle", label: "tool complete", detail: "read" } },
+      { activity: { sessionId: "completion-session", phase: "idle", label: "工具执行完成", detail: "read" } },
     ]);
+
+    await service.dispose();
+  });
+
+  it("localizes realtime session activity events", async () => {
+    const hub = new CapturingSessionEventHub();
+    let listener: ((event: unknown) => void) | undefined;
+    const fake = fakeRuntime("response-session", {
+      subscribe: (next) => {
+        listener = next;
+        return () => undefined;
+      },
+    });
+    const service = new PiSessionService(hub, {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("response-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("response-session"));
+    const cases = [
+      [{ type: "agent_start" }, "active", "代理正在运行"],
+      [{ type: "agent_end" }, "idle", "空闲"],
+      [{ type: "turn_end" }, "idle", "本轮已完成"],
+      [{ type: "message_start" }, "active", "消息开始处理"],
+      [{ type: "message_end" }, "idle", "消息处理完成"],
+      [{ type: "message_update" }, "active", "正在接收回复"],
+      [{ type: "tool_execution_start", toolName: "read" }, "active", "正在运行工具", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: false }, "idle", "工具执行完成", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: true }, "error", "工具执行失败", "read"],
+      [{ type: "bash_execution_start" }, "active", "正在运行命令"],
+      [{ type: "bash_execution_end" }, "idle", "命令执行完成"],
+    ] as const;
+
+    for (const [event, phase, label, detail] of cases) {
+      hub.globalEvents.length = 0;
+      listener?.(event);
+      const activity = hub.globalEvents.find(({ event: published }) => published.type === "activity.update");
+      expect(activity?.event).toMatchObject({
+        activity: { sessionId: "response-session", phase, label, ...(detail === undefined ? {} : { detail }) },
+      });
+    }
+
+    fake.session.isStreaming = true;
+    hub.globalEvents.length = 0;
+    listener?.({ type: "resource_update" });
+    const fallbackActivity = hub.globalEvents.find(({ event }) => event.type === "activity.update");
+    expect(fallbackActivity?.event).toMatchObject({ activity: { sessionId: "response-session", phase: "active", label: "正在处理" } });
 
     await service.dispose();
   });
@@ -1074,7 +1122,7 @@ describe("PiSessionService", () => {
     expect(fake.calls.reload).toBe(1);
     expect(fake.calls.abort).toBe(0);
     expect(fake.calls.dispose).toBe(0);
-    expect(hub.globalEvents.some(({ event }) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "resources reloaded")).toBe(true);
+    expect(hub.globalEvents.some(({ event }) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "资源已重新加载")).toBe(true);
     expect(hub.globalEvents.some(({ event }) => event.type === "status.update" && event.status.sessionId === "runtime-reload-session")).toBe(true);
 
     await service.dispose();

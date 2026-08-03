@@ -101,15 +101,15 @@ const DEFAULT_UNREAD_PUBLICATION_RETRY_MS = 1_000;
  * is inside: it awaits exactly one call for each, so the phase is a fact rather
  * than a guess. Deliberately free of internal symbol names and file paths.
  */
-const STARTUP_PHASE_RUNTIME = "Starting the Pi session";
-const STARTUP_PHASE_EXTENSIONS = "Loading session extensions";
+const STARTUP_PHASE_RUNTIME = "正在启动 Pi 会话";
+const STARTUP_PHASE_EXTENSIONS = "正在加载会话扩展";
 /**
  * Appended to whichever phase is running when a background provider catalog
  * refresh happens to be in flight. It is stated as a concurrent fact, never as
  * the cause: PI WEB can verify that a refresh is running, but not that this
  * particular startup is waiting on it.
  */
-const STARTUP_CONCURRENT_CATALOG_REFRESH = "provider model lists are refreshing";
+const STARTUP_CONCURRENT_CATALOG_REFRESH = "服务商模型列表正在刷新";
 const MAX_UNREAD_PUBLICATION_RETRY_MS = 30_000;
 const MAX_PENDING_UNREAD_MUTATIONS = SESSION_UNREAD_LIMIT + 1;
 
@@ -986,12 +986,12 @@ export class PiSessionService {
       {
         onCompactionStart: (session) => {
           this.beginSessionEntryMutation(session, "compact the session");
-          this.publishActivity(session, "compacting", "active");
+          this.publishActivity(session, "正在压缩上下文", "active");
           this.publishStatus(session);
         },
         onCompactionEnd: (session, result, detail) => {
           this.endSessionEntryMutation(session);
-          this.publishActivity(session, result === "success" ? "compaction complete" : "compaction failed", result === "success" ? "idle" : "error", detail);
+          this.publishActivity(session, result === "success" ? "上下文压缩完成" : "上下文压缩失败", result === "success" ? "idle" : "error", detail);
           this.publishStatus(session);
         },
         reloadSession: (session) => this.reloadSessionRuntime(session),
@@ -1826,7 +1826,7 @@ export class PiSessionService {
       ?? session.modelRuntime.getModel(provider, modelId);
     if (model === undefined) throw new Error(`未找到模型：${provider}/${modelId}`);
     await this.runSessionEntryMutation(session, "change models", () => session.setModel(model));
-    this.publishActivity(session, `model: ${model.id}`, "idle", model.provider);
+    this.publishActivity(session, `模型：${model.id}`, "idle", model.provider);
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -1836,7 +1836,7 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     const result = await this.runSessionEntryMutation(session, "change models", () => session.cycleModel(direction));
     if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "作用域内只有一个模型" : "只有一个可用模型");
-    this.publishActivity(session, `model: ${result.model.id}`, "idle", result.model.provider);
+    this.publishActivity(session, `模型：${result.model.id}`, "idle", result.model.provider);
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -1859,7 +1859,7 @@ export class PiSessionService {
       session.setThinkingLevel(match);
       return Promise.resolve();
     });
-    this.publishActivity(session, `thinking: ${session.thinkingLevel}`, "idle");
+    this.publishActivity(session, `思考级别：${session.thinkingLevel}`, "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -1869,7 +1869,7 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     const level = await this.runSessionEntryMutation(session, "change the thinking level", () => Promise.resolve(session.cycleThinkingLevel()));
     if (level === undefined) throw new Error("当前模型不支持思考");
-    this.publishActivity(session, `thinking: ${level}`, "idle");
+    this.publishActivity(session, `思考级别：${level}`, "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -1906,7 +1906,7 @@ export class PiSessionService {
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
     if (isQueued && images.length === 0 && this.hasQueuedMessageText(session, promptText)) {
-      this.publishActivity(session, "duplicate queued message ignored", "active");
+      this.publishActivity(session, "已忽略重复的排队消息", "active");
       this.publishStatus(session);
       return;
     }
@@ -1923,13 +1923,13 @@ export class PiSessionService {
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
-    this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
+    this.publishActivity(session, behavior === "steer" ? "插队消息已排队" : behavior === "followUp" ? "消息已排队" : "消息已接收", "active");
     const eventScope = this.eventScopeForSession(session);
     if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
     const promptOptions = buildPromptOptions(behavior, images);
     const promptPromise = this.runSessionEntryMutation(session, "send a prompt", () => session.prompt(text, promptOptions)).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      this.publishActivity(session, "error", "error", message);
+      this.publishActivity(session, "发生错误", "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
     });
     void promptPromise;
@@ -1940,7 +1940,7 @@ export class PiSessionService {
     const queue = this.compactionPromptQueues.get(session.sessionId) ?? [];
     queue.push({ kind, text, ...(images.length > 0 ? { images } : {}), ...(echoUserMessage ? {} : { echoUserMessage: false }) });
     this.compactionPromptQueues.set(session.sessionId, queue);
-    this.publishActivity(session, "message queued during compaction", "active");
+    this.publishActivity(session, "压缩期间消息已排队", "active");
     this.publishStatus(session);
   }
 
@@ -1963,11 +1963,11 @@ export class PiSessionService {
     if (session.isBashRunning) throw new Error("已有 bash 命令正在运行");
 
     const eventScope = active.eventScope;
-    this.publishActivity(session, "running bash", "active", command);
+    this.publishActivity(session, "正在运行命令", "active", command);
     this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded }, eventScope);
     void this.runSessionEntryMutation(session, "run a shell command", () => session.executeBash(command, (chunk) => {
       this.events.publish(session.sessionId, { type: "shell.chunk", chunk }, eventScope);
-      this.publishActivity(session, "running bash", "active", command);
+      this.publishActivity(session, "正在运行命令", "active", command);
       this.publishStatus(session);
     }, { excludeFromContext: isExcluded })).then((result) => {
       this.events.publish(session.sessionId, {
@@ -1978,13 +1978,13 @@ export class PiSessionService {
         truncated: result.truncated,
         ...(result.fullOutputPath === undefined ? {} : { fullOutputPath: result.fullOutputPath }),
       }, eventScope);
-      this.publishActivity(session, "bash complete", result.exitCode === 0 ? "idle" : "error", command);
+      this.publishActivity(session, "命令执行完成", result.exitCode === 0 ? "idle" : "error", command);
       this.publishStatus(session);
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.events.publish(session.sessionId, { type: "shell.end", output: message, isError: true }, eventScope);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
-      this.publishActivity(session, "bash failed", "error", message);
+      this.publishActivity(session, "命令执行失败", "error", message);
       this.publishStatus(session);
     });
   }
@@ -2020,21 +2020,21 @@ export class PiSessionService {
         throw new Error("The session changed since /tree was opened. Reopen /tree and try again.");
       }
 
-      this.publishActivity(session, options.summarize ? "summarizing branch" : "navigating session tree", "active");
+      this.publishActivity(session, options.summarize ? "正在汇总分支" : "正在切换会话树", "active");
       this.publishStatus(session);
       const result = await session.navigateTree(request.targetId, options);
       if (result.cancelled) {
         if (this.isCurrentActiveSession(session)) {
-          this.publishActivity(session, result.aborted === true ? "branch summary aborted" : "tree navigation cancelled", "idle");
+          this.publishActivity(session, result.aborted === true ? "分支汇总已终止" : "会话树切换已取消", "idle");
         }
         return { cancelled: true, ...(result.aborted === undefined ? {} : { aborted: result.aborted }) };
       }
 
-      if (this.isCurrentActiveSession(session)) this.publishActivity(session, "session tree navigated", "idle");
+      if (this.isCurrentActiveSession(session)) this.publishActivity(session, "已切换会话树", "idle");
       return { cancelled: false, ...(result.editorText === undefined ? {} : { editorText: result.editorText }) };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.publishActivity(session, "reload failed", "error", message);
+      this.publishActivity(session, "重新加载失败", "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
       this.publishStatus(session);
       throw error;
@@ -2327,10 +2327,10 @@ export class PiSessionService {
     clearSessionQueue(active.runtime.session);
     try {
       await this.abortSessionOperations(active.runtime.session);
-      this.publishActivity(active.runtime.session, "stopped", "idle");
+      this.publishActivity(active.runtime.session, "已停止", "idle");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.publishActivity(active.runtime.session, "stop failed", "error", message);
+      this.publishActivity(active.runtime.session, "停止失败", "error", message);
       throw error;
     } finally {
       this.publishStatus(active.runtime.session);
@@ -2756,7 +2756,7 @@ export class PiSessionService {
       mode: "rpc",
       onError: (error) => {
         const message = `${error.extensionPath}: ${error.error}`;
-        this.publishActivity(session, "extension error", "error", message);
+        this.publishActivity(session, "扩展错误", "error", message);
         this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
       },
     });
@@ -2936,13 +2936,13 @@ export class PiSessionService {
   }
 
   private activityLabelFromStatus(session: PiAgentSession): string {
-    if (this.treeNavigations.has(session)) return "navigating session tree";
-    if (this.isSessionEntryMutationActive(session)) return "updating session";
-    if (session.isCompacting) return "compacting";
-    if (session.isBashRunning) return "running bash";
-    if (session.isStreaming) return "agent running";
-    if (this.pendingMessageCount(session) > 0) return "queued";
-    return "active";
+    if (this.treeNavigations.has(session)) return "正在切换会话树";
+    if (this.isSessionEntryMutationActive(session)) return "正在更新会话";
+    if (session.isCompacting) return "正在压缩上下文";
+    if (session.isBashRunning) return "正在运行命令";
+    if (session.isStreaming) return "代理正在运行";
+    if (this.pendingMessageCount(session) > 0) return "正在排队";
+    return "正在处理";
   }
 
   private hasActiveWork(session: PiAgentSession): boolean {
@@ -3040,31 +3040,31 @@ export class PiSessionService {
   private publishActivityForEvent(session: PiAgentSession, event: unknown): void {
     const eventType = getString(event, "type");
     if (eventType === undefined) return;
-    if (eventType === "agent_start") { this.publishActivity(session, "agent running", "active"); return; }
+    if (eventType === "agent_start") { this.publishActivity(session, "代理正在运行", "active"); return; }
     if (eventType === "agent_end") {
-      this.publishActivity(session, "idle", "idle");
+      this.publishActivity(session, "空闲", "idle");
       const eventScope = this.eventScopeForSession(session);
       const sessionKey = activeSessionKey(session.sessionId, eventScope);
       this.activities.scheduleSettledRefresh(sessionKey, () => {
         if (this.active.get(sessionKey)?.runtime.session !== session) return;
-        this.publishActivity(session, "idle", "idle");
+        this.publishActivity(session, "空闲", "idle");
         this.publishStatus(session);
       }, 250);
       return;
     }
-    if (eventType === "turn_end") { this.publishActivity(session, "turn complete", "idle"); return; }
-    if (eventType === "message_start") { this.publishActivity(session, "message started", "active"); return; }
-    if (eventType === "message_end") { this.publishActivity(session, "message complete", "idle"); return; }
-    if (eventType === "message_update") { this.publishActivity(session, "receiving response", "active"); return; }
-    if (eventType === "tool_execution_start") { this.publishActivity(session, "running tool", "active", getString(event, "toolName")); return; }
+    if (eventType === "turn_end") { this.publishActivity(session, "本轮已完成", "idle"); return; }
+    if (eventType === "message_start") { this.publishActivity(session, "消息开始处理", "active"); return; }
+    if (eventType === "message_end") { this.publishActivity(session, "消息处理完成", "idle"); return; }
+    if (eventType === "message_update") { this.publishActivity(session, "正在接收回复", "active"); return; }
+    if (eventType === "tool_execution_start") { this.publishActivity(session, "正在运行工具", "active", getString(event, "toolName")); return; }
     if (eventType === "tool_execution_end") {
       const isError = getBoolean(event, "isError") === true;
-      this.publishActivity(session, isError ? "tool failed" : "tool complete", isError ? "error" : "idle", getString(event, "toolName"));
+      this.publishActivity(session, isError ? "工具执行失败" : "工具执行完成", isError ? "error" : "idle", getString(event, "toolName"));
       return;
     }
-    if (eventType === "bash_execution_start") { this.publishActivity(session, "running bash", "active"); return; }
-    if (eventType === "bash_execution_end") { this.publishActivity(session, "bash complete", "idle"); return; }
-    if (this.hasActiveWork(session)) this.publishActivity(session, eventType.replaceAll("_", " "), "active");
+    if (eventType === "bash_execution_start") { this.publishActivity(session, "正在运行命令", "active"); return; }
+    if (eventType === "bash_execution_end") { this.publishActivity(session, "命令执行完成", "idle"); return; }
+    if (this.hasActiveWork(session)) this.publishActivity(session, "正在处理", "active");
   }
 
   /**
@@ -3084,14 +3084,14 @@ export class PiSessionService {
   ): SessionStartupProgressReporter {
     const sessionId = sessionManager.getSessionId();
     if (sessionId === "") return { report: noop, end: noop };
-    const label = intent === "create" ? "Creating session" : "Opening session";
+    const label = intent === "create" ? "正在创建会话" : "正在打开会话";
     return {
       report: (phase) => { this.publishStartupProgress(sessionId, startupToken, label, "active", this.startupDetail(phase), eventScope); },
       end: () => {
         // A real activity published during the window (an extension error, say)
         // is the truth about this session and must survive the clear.
         if (this.activities.get(activeSessionKey(sessionId, eventScope)) !== undefined) return;
-        this.publishStartupProgress(sessionId, startupToken, "idle", "idle", undefined, eventScope);
+        this.publishStartupProgress(sessionId, startupToken, "空闲", "idle", undefined, eventScope);
       },
     };
   }
@@ -3158,7 +3158,7 @@ export class PiSessionService {
     const current = this.activities.get(activeSessionKey(session.sessionId, eventScope));
     if (current?.phase !== "active" || this.hasActiveWork(session)) return;
     const at = new Date().toISOString();
-    const stored = { phase: "idle" as const, label: "idle", at };
+    const stored = { phase: "idle" as const, label: "空闲", at };
     this.activities.set(activeSessionKey(session.sessionId, eventScope), stored);
     const activity = { sessionId: session.sessionId, ...stored };
     this.events.publish(session.sessionId, { type: "activity.update", activity }, eventScope);
@@ -3299,7 +3299,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
       [{ sessionId: session.sessionId, session }],
       "Stop current session activity before reloading",
       async () => {
-        this.publishActivity(session, "reloading resources", "active");
+        this.publishActivity(session, "正在重新加载资源", "active");
         const priorGeneration = this.notificationGenerationBySession.get(session);
         let candidateGeneration: SessionNotificationGeneration | undefined;
         try {
@@ -3313,7 +3313,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
           if (candidateGeneration !== undefined) {
             this.publishNotificationMutations(this.notificationStore.commitReplacement(candidateGeneration));
           }
-          this.publishActivity(session, "resources reloaded", "idle");
+          this.publishActivity(session, "资源已重新加载", "idle");
           this.publishStatus(session);
         } catch (error: unknown) {
           if (candidateGeneration !== undefined) {
@@ -3321,7 +3321,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
             this.notificationGenerationBySession.set(session, candidateGeneration);
           }
           const message = error instanceof Error ? error.message : String(error);
-          this.publishActivity(session, "reload failed", "error", message);
+          this.publishActivity(session, "重新加载失败", "error", message);
           this.events.publish(session.sessionId, { type: "session.error", message });
           this.publishStatus(session);
           throw error;

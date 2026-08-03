@@ -64,8 +64,8 @@ describe("sessiond session service dependency assembly", () => {
     })));
 
     expect(details).toEqual([
-      "Starting the Pi session · provider model lists are refreshing",
-      "Loading session extensions · provider model lists are refreshing",
+      "正在启动 Pi 会话 · 服务商模型列表正在刷新",
+      "正在加载会话扩展 · 服务商模型列表正在刷新",
     ]);
   });
 
@@ -74,7 +74,7 @@ describe("sessiond session service dependency assembly", () => {
 
     // Pins the note to the refresher's answer, so the test above cannot pass on
     // wording that is always appended.
-    expect(details).toEqual(["Starting the Pi session", "Loading session extensions"]);
+    expect(details).toEqual(["正在启动 Pi 会话", "正在加载会话扩展"]);
   });
 
   it("keeps tracked subsessions off unless spawning is configured as well", () => {

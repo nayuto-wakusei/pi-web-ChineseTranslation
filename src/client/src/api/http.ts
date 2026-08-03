@@ -1,4 +1,4 @@
-import { currentApiScope, type ApiScope, withManagementEmbed } from "./managementEmbed";
+import { currentApiScope, removeManagementEntryToken, type ApiScope, withManagementEmbed } from "./managementEmbed";
 import { resolveAppUrl } from "../appUrl";
 
 let apiScope = currentApiScope();
@@ -19,17 +19,23 @@ export async function request<T>(url: string, parse: (value: unknown) => T, init
     const body: unknown = await response.json().catch((): unknown => ({}));
     throw new Error(errorMessage(body) ?? response.statusText);
   }
+  removeManagementEntryToken(apiScope);
   const body: unknown = await response.json();
   return parse(body);
 }
 
 export async function requestOptional<T>(url: string, parse: (value: unknown) => T): Promise<T | undefined> {
   const response = await fetch(scopedApiUrl(url));
-  if (response.status === 204 || response.status === 404) return undefined;
+  if (response.status === 204) {
+    removeManagementEntryToken(apiScope);
+    return undefined;
+  }
+  if (response.status === 404) return undefined;
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
     throw new Error(errorMessage(body) ?? response.statusText);
   }
+  removeManagementEntryToken(apiScope);
   return parse(await response.json());
 }
 

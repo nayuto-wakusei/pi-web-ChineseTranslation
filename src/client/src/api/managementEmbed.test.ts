@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { currentApiScope, isManagementEmbedMode, withManagementEmbed } from "./managementEmbed";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { currentApiScope, isManagementEmbedMode, removeManagementEntryToken, withManagementEmbed } from "./managementEmbed";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("management embed API routing", () => {
   it.each([
@@ -25,6 +29,16 @@ describe("management embed API routing", () => {
 
     expect(currentApiScope(pageUrl)).toBe("management");
     expect(withManagementEmbed("/api/projects", pageUrl)).toBe("/api/projects?embed=management");
+  });
+
+  it("removes the one-time entry token after management session establishment", () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", { href: "https://pi.example.test/pi-web/?embed=management&token=launch-token&session=s1" });
+    vi.stubGlobal("history", { state: { current: true }, replaceState });
+
+    removeManagementEntryToken("management");
+
+    expect(replaceState).toHaveBeenCalledWith({ current: true }, "", "/pi-web/?embed=management&session=s1");
   });
 
   it("preserves existing query parameters when adding management embed parameters", () => {

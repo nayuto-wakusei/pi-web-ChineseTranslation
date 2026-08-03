@@ -1250,6 +1250,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async refreshActiveTerminals(workspace: Workspace): Promise<void> {
+    if (this.apiScope === "management") return;
     const machineId = selectedMachineId(this.state);
     try {
       const terminals = await terminalsApi.terminals(workspace.projectId, workspace.id, machineId);

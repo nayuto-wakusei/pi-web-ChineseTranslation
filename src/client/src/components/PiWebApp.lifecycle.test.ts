@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { terminalsApi, type Workspace } from "../api";
 import { PiWebApp } from "./PiWebApp";
 
 afterEach(() => {
@@ -49,12 +50,31 @@ describe("PiWebApp connection lifecycle", () => {
     expect(Reflect.get(app, "normalAuthStatus")).toBeUndefined();
     expect(startAuthenticatedApp).not.toHaveBeenCalled();
   });
+
+  it("does not refresh interactive terminals in management embed mode", async () => {
+    const app = createConnectedApp("?embed=management");
+    const terminals = vi.spyOn(terminalsApi, "terminals");
+
+    await callAsyncMethod(app, "refreshActiveTerminals", workspace);
+
+    expect(terminals).not.toHaveBeenCalled();
+  });
 });
 
-function createConnectedApp(): PiWebApp {
+const workspace: Workspace = {
+  id: "workspace-1",
+  projectId: "project-1",
+  path: "/repo",
+  label: "repo",
+  isMain: true,
+  isGitRepo: true,
+  isGitWorktree: false,
+};
+
+function createConnectedApp(search = ""): PiWebApp {
   const storage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
   vi.stubGlobal("window", {
-    location: { search: "" },
+    location: { search },
     localStorage: storage,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),

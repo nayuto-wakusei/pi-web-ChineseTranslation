@@ -329,7 +329,7 @@ describe("PiSessionService session-tree behavior", () => {
     expect(abortBranchSummary).toHaveBeenCalledOnce();
     expect(abort).toHaveBeenCalledOnce();
     expect(abortBranchSummary.mock.invocationCallOrder[0]).toBeLessThan(abort.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
-    expect(hub.sessionEvents.some(({ event }) => event.type === "activity.update" && event.activity.label === "branch summary aborted")).toBe(true);
+    expect(hub.sessionEvents.some(({ event }) => event.type === "activity.update" && event.activity.label === "分支汇总已终止")).toBe(true);
 
     await service.dispose();
   });

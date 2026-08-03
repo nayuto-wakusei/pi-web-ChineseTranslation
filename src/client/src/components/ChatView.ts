@@ -338,7 +338,7 @@ export class ChatView extends LitElement {
       this.pendingNotificationFocus = undefined;
       this.retainedEmptyNotificationTrayTargetKey = undefined;
     }
-    if (changed.has("messages") || changed.has("pendingAsk")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
+    if (this.liveTailContentChanged(changed)) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
   protected override update(changed: Map<string, unknown>): void {
@@ -355,12 +355,19 @@ export class ChatView extends LitElement {
     // The form uses the transcript scroller. Start a new long form at question
     // one rather than applying the usual live-tail scroll and landing at its end.
     if (!changed.has("sessionId") && openedAsk && this.pinnedToBottom) this.scrollToOpenAsk();
-    else if (!changed.has("sessionId") && (changed.has("messages") || changed.has("pendingAsk")) && this.pinnedToBottom) this.scrollToBottom();
+    else if (!changed.has("sessionId") && this.liveTailContentChanged(changed) && this.pinnedToBottom) this.scrollToBottom();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore") || changed.has("pendingAsk")) this.continuePendingScrollRestore();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
     if (changed.has("notificationInbox") && this.pendingNotificationFocus !== undefined) this.focusPendingNotificationTarget();
     if (changed.has("zoomedImage")) this.syncImageZoomDialog();
+  }
+
+  private liveTailContentChanged(changed: Map<string, unknown>): boolean {
+    return changed.has("messages")
+      || changed.has("pendingAsk")
+      || changed.has("pendingMessageCount")
+      || changed.has("clientQueuedMessages");
   }
 
   private syncImageZoomDialog(): void {
@@ -1277,12 +1284,41 @@ function activityStateLabel(state: string, phase?: SessionActivity["phase"]): st
   if (phase === "idle") return "空闲";
   if (phase !== undefined) return activityStateLabel(state);
   const labels: Record<string, string> = {
+    "agent running": "代理正在运行",
+    "bash complete": "命令执行完成",
+    "bash failed": "命令执行失败",
+    "branch summary aborted": "分支汇总已终止",
+    "compacting": "正在压缩上下文",
+    "compaction complete": "上下文压缩完成",
+    "compaction failed": "上下文压缩失败",
+    "duplicate queued message ignored": "已忽略重复的排队消息",
+    "error": "发生错误",
+    "extension error": "扩展错误",
+    "idle": "空闲",
+    "message complete": "消息处理完成",
+    "message queued": "消息已排队",
+    "message queued during compaction": "压缩期间消息已排队",
+    "message started": "消息开始处理",
+    "navigating session tree": "正在切换会话树",
+    "prompt accepted": "消息已接收",
+    "receiving response": "正在接收回复",
+    "reload failed": "重新加载失败",
     "reloading resources": "正在重新加载资源",
     "resources reloaded": "资源已重新加载",
+    running: "代理正在运行",
     "running bash": "正在运行命令",
-    "agent running": "代理正在运行",
-    compacting: "正在压缩",
-    queued: "正在等待",
+    "running tool": "正在运行工具",
+    "session tree navigated": "已切换会话树",
+    "steering queued": "插队消息已排队",
+    "stop failed": "停止失败",
+    "stopped": "已停止",
+    "summarizing branch": "正在汇总分支",
+    "tool complete": "工具执行完成",
+    "tool failed": "工具执行失败",
+    "tree navigation cancelled": "会话树切换已取消",
+    "turn complete": "本轮已完成",
+    "updating session": "正在更新会话",
+    queued: "正在排队",
   };
   return labels[state] ?? state;
 }
