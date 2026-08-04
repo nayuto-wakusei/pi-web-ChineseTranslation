@@ -157,6 +157,21 @@ describe("chat scroll helpers", () => {
     expect(findFirstVisibleArticle(scroller, [first, second])).toBe(second);
   });
 
+  it("finds a visible article with logarithmic geometry reads", () => {
+    let rectReads = 0;
+    const articles: ChatScrollElement[] = Array.from({ length: 1024 }, (_, index) => ({
+      dataset: { scrollAnchorId: `m:${String(index)}` },
+      getBoundingClientRect: () => {
+        rectReads += 1;
+        return { top: index * 20, bottom: index * 20 + 18 };
+      },
+    }));
+    const scroller = new FakeScroller(0, 30_000, 100, 10_000, 10_100);
+
+    expect(findFirstVisibleArticle(scroller, articles)?.dataset.scrollAnchorId).toBe("m:500");
+    expect(rectReads).toBeLessThanOrEqual(14);
+  });
+
   it("finds the visible scroll anchor nearest the viewport top", () => {
     const scroller = new FakeScroller(0, 1000, 100, 100, 200);
     const wrapper = new FakeArticle(-500, 180, "g:0");

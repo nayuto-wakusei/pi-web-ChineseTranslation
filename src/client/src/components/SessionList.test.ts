@@ -15,7 +15,7 @@ import {
   templateValues,
   type TemplateEventHandler,
 } from "../templateInspection.testSupport";
-import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, sessionRowUnread, unreadSessionCount } from "./SessionList";
+import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, sessionRowUnread, unarchivedDescendantCount, unreadSessionCount } from "./SessionList";
 
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
@@ -159,6 +159,16 @@ describe("mark-as-read actions", () => {
 });
 
 describe("sessionRowsForCurrentTree", () => {
+  it("counts descendants only for the requested session", () => {
+    const parent = session("parent");
+    const child = session("child", { parentSessionPath: parent.path });
+    const archivedGrandchild = { ...session("grandchild", { parentSessionPath: child.path }), archived: true };
+    const liveGrandchild = session("live-grandchild", { parentSessionPath: child.path });
+
+    expect(unarchivedDescendantCount([parent, child, archivedGrandchild, liveGrandchild], parent)).toBe(2);
+    expect(unarchivedDescendantCount([parent, child, archivedGrandchild, liveGrandchild], child)).toBe(1);
+  });
+
   it("keeps a pinned descendant and its parent tree before newer unpinned roots", () => {
     const unpinned = session("unpinned", { modified: "2026-06-10T00:00:00.000Z" });
     const parent = session("parent", { modified: "2026-06-09T00:00:00.000Z" });

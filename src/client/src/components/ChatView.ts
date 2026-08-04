@@ -240,6 +240,12 @@ export class ChatView extends LitElement {
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
+  private transcriptStructureKey = "";
+  private primaryArticleElements: HTMLElement[] = [];
+  private articleElements: HTMLElement[] = [];
+  private scrollAnchorElementIndex: HTMLElement[] = [];
+  private scrollMarkerElements: HTMLElement[] = [];
+  private scrollMarkerElementById = new Map<string, HTMLElement>();
   private readonly messageMetaCache = new WeakMap<ChatLine, string>();
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
   private lastScrollTop = 0;
@@ -302,6 +308,7 @@ export class ChatView extends LitElement {
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
+    this.clearTranscriptElementIndex();
     super.disconnectedCallback();
   }
 
@@ -320,6 +327,7 @@ export class ChatView extends LitElement {
     this.pendingScrollRestoreSessionId = undefined;
     this.pendingScrollRestorePosition = undefined;
     this.prependRestoreToken += 1;
+    this.clearTranscriptElementIndex();
     if (this.restoreScrollFrame !== undefined) {
       cancelAnimationFrame(this.restoreScrollFrame);
       this.restoreScrollFrame = undefined;
@@ -344,6 +352,7 @@ export class ChatView extends LitElement {
   protected override update(changed: Map<string, unknown>): void {
     const prependAnchor = this.isPrependingMessages(changed) ? this.capturePrependScrollAnchor() : undefined;
     super.update(changed);
+    this.syncTranscriptElementIndex();
     if (prependAnchor !== undefined) this.restorePrependScrollAnchor(prependAnchor);
   }
 
@@ -1217,26 +1226,66 @@ export class ChatView extends LitElement {
   }
 
   private scrollMarkers(): HTMLElement[] {
-    return Array.from(this.renderRoot.querySelectorAll<HTMLElement>(".scroll-marker"));
+    return this.scrollMarkerElements;
   }
 
   private scrollMarkerAt(markerId: string): HTMLElement | undefined {
-    return this.scrollMarkers().find((marker) => marker.dataset["markerId"] === markerId);
+    return this.scrollMarkerElementById.get(markerId);
   }
 
   private firstVisibleArticle(): HTMLElement | undefined {
     const chat = this.chat;
     if (chat === undefined) return undefined;
-    const primaryArticles = Array.from(this.renderRoot.querySelectorAll<HTMLElement>("article.msg"));
-    return findFirstVisibleArticle(chat, primaryArticles) ?? findFirstVisibleArticle(chat, this.articles());
+    return findFirstVisibleArticle(chat, this.primaryArticleElements) ?? findFirstVisibleArticle(chat, this.articles());
   }
 
   private articles(): HTMLElement[] {
-    return Array.from(this.renderRoot.querySelectorAll<HTMLElement>("article.msg, details.msg"));
+    return this.articleElements;
   }
 
   private scrollAnchorElements(): HTMLElement[] {
-    return Array.from(this.renderRoot.querySelectorAll<HTMLElement>("[data-scroll-anchor-id]"));
+    return this.scrollAnchorElementIndex;
+  }
+
+  private syncTranscriptElementIndex(): void {
+    const structureKey = this.currentTranscriptStructureKey();
+    if (structureKey === this.transcriptStructureKey) return;
+    this.transcriptStructureKey = structureKey;
+    this.primaryArticleElements = Array.from(this.renderRoot.querySelectorAll<HTMLElement>("article.msg"));
+    this.articleElements = Array.from(this.renderRoot.querySelectorAll<HTMLElement>("article.msg, details.msg"));
+    this.scrollAnchorElementIndex = Array.from(this.renderRoot.querySelectorAll<HTMLElement>("[data-scroll-anchor-id]"));
+    this.scrollMarkerElements = Array.from(this.renderRoot.querySelectorAll<HTMLElement>(".scroll-marker"));
+    this.scrollMarkerElementById = new Map(this.scrollMarkerElements.flatMap((marker) => {
+      const markerId = marker.dataset["markerId"];
+      return markerId === undefined ? [] : [[markerId, marker] as const];
+    }));
+  }
+
+  private currentTranscriptStructureKey(): string {
+    const groupedMessages = this.groupedMessages();
+    const groups = groupedMessages.map((group, index) => {
+      if (group.kind !== "group") return [group.kind, group.index];
+      const defaultOpen = this.isLiveTailGroup(groupedMessages, index);
+      const disclosureKey = this.groupDisclosureKey(group.startIndex, group.endIndex, defaultOpen);
+      return [group.kind, group.startIndex, group.endIndex, this.disclosures.isOpen(disclosureKey, defaultOpen)];
+    });
+    return JSON.stringify([
+      this.sessionId,
+      this.messageStart,
+      groups,
+      this.hasMore,
+      this.loadingMore,
+      this.pendingAsk?.askId,
+    ]);
+  }
+
+  private clearTranscriptElementIndex(): void {
+    this.transcriptStructureKey = "";
+    this.primaryArticleElements = [];
+    this.articleElements = [];
+    this.scrollAnchorElementIndex = [];
+    this.scrollMarkerElements = [];
+    this.scrollMarkerElementById.clear();
   }
 
   private withSuppressedScrollSave(callback: () => void) {

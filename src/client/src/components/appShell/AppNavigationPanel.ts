@@ -172,6 +172,7 @@ export class AppNavigationPanel extends LitElement {
         .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></workspace-list>
       <session-list
+        .scopeKey=${sessionListScopeKey(this.selectedMachine?.id, this.selectedWorkspace?.id)}
         .sessions=${this.sessions}
         .pinnedSessionIds=${this.pinnedSessionIds}
         .statuses=${this.sessionStatuses}
@@ -259,6 +260,10 @@ export class AppNavigationPanel extends LitElement {
     :host([compact]) session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   `;
+}
+
+function sessionListScopeKey(machineId: string | undefined, workspaceId: string | undefined): string {
+  return JSON.stringify([machineId ?? "", workspaceId ?? ""]);
 }
 
 /** Stable default so the session list does not see a new resolver identity each render. */

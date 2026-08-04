@@ -215,10 +215,24 @@ export function findVisibleScrollAnchor<T extends ChatScrollElement>(scroller: C
 
 export function findFirstVisibleArticle<T extends ChatScrollElement>(scroller: ChatScrollViewport, articles: T[]): T | undefined {
   const scrollerRect = scroller.getBoundingClientRect();
-  return articles.find((article) => {
+  let low = 0;
+  let high = articles.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const article = articles[middle];
+    if (article === undefined || article.getBoundingClientRect().bottom < scrollerRect.top) low = middle + 1;
+    else high = middle;
+  }
+
+  const start = Math.max(0, low - 1);
+  for (let index = start; index < articles.length; index += 1) {
+    const article = articles[index];
+    if (article === undefined) continue;
     const rect = article.getBoundingClientRect();
-    return rect.bottom >= scrollerRect.top && rect.top <= scrollerRect.bottom;
-  });
+    if (rect.top > scrollerRect.bottom) return undefined;
+    if (rect.bottom >= scrollerRect.top && rect.top <= scrollerRect.bottom) return article;
+  }
+  return undefined;
 }
 
 function findAnchorById<T extends ChatScrollElement>(anchors: T[], anchorId: string): T | undefined {

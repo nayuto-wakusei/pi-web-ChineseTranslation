@@ -10,7 +10,7 @@ export const chatStyles = css`
   .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }
   .activity-dock.active .dot { animation: pulse 1s ease-in-out infinite; opacity: 1; }
-  .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overflow: visible; }
+  .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overflow: visible; content-visibility: auto; contain-intrinsic-size: auto 180px; }
   .msg.search-target { border-color: var(--pi-warning-border); background: color-mix(in srgb, var(--pi-warning-surface) 72%, var(--pi-bg)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-warning-border) 35%, transparent); }
   .msg.assistant { background: var(--pi-surface); }
   .msg.user { border-color: var(--pi-accent-border); background: var(--pi-selection-bg); }
@@ -27,7 +27,7 @@ export const chatStyles = css`
   .group-body { padding: 0 12px 12px; }
   .chat-image { margin: 0; }
   .chat-image img { display: block; max-width: min(100%, 420px); max-height: 320px; object-fit: contain; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: var(--pi-bg); }
-  .group-msg { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 0; border-top: 1px solid var(--pi-border-muted); color: var(--pi-text); overflow: visible; }
+  .group-msg { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 0; border-top: 1px solid var(--pi-border-muted); color: var(--pi-text); overflow: visible; content-visibility: auto; contain-intrinsic-size: auto 120px; }
   .group-msg.tool { color: var(--pi-warning); }
   .group-msg.tool-execution-shell { color: var(--pi-text); }
   .group-msg.system { color: var(--pi-danger); }

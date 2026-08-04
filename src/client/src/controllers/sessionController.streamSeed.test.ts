@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import { SessionController } from "./sessionController";
 import { defaultApi, deferred, EmitSocket, oldSession, runPendingAnimationFrames, status, workspace, type AppState, type MessagePage, type SessionStatus, type SessionStreamSnapshot } from "./sessionController.testSupport";
@@ -8,6 +8,54 @@ function assistantPartial(text: string): SessionStreamSnapshot["partial"] {
 }
 
 describe("SessionController stream seed + watermark reconciliation", () => {
+  it("restores a background streaming session from its latest snapshot without stopping it", async () => {
+    const socket = new EmitSocket();
+    const otherSession = { ...oldSession, id: "other-session", path: "/tmp/other-session.jsonl" };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession, otherSession] };
+    let oldSessionSnapshotCount = 0;
+    const stop = vi.fn<typeof defaultApi.stop>();
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      stop,
+      messages: (session) => {
+        const sessionId = typeof session === "string" ? session : session.id;
+        return Promise.resolve({ messages: [{ role: "user", content: sessionId === oldSession.id ? "question A" : "question B" }], start: 0, total: 1 });
+      },
+      status: (session) => {
+        const sessionId = typeof session === "string" ? session : session.id;
+        return Promise.resolve({ ...status(sessionId), isStreaming: sessionId === oldSession.id });
+      },
+      streamSnapshot: (session) => {
+        const sessionId = typeof session === "string" ? session : session.id;
+        if (sessionId !== oldSession.id) return Promise.resolve({ seq: 0, partial: null });
+        oldSessionSnapshotCount += 1;
+        return Promise.resolve(oldSessionSnapshotCount === 1
+          ? { seq: 1, partial: assistantPartial("answer") }
+          : { seq: 4, partial: assistantPartial("answer continued") });
+      },
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket },
+    );
+
+    await controller.selectSession(oldSession, { updateUrl: false });
+    await controller.selectSession(otherSession, { updateUrl: false });
+    await controller.selectSession(oldSession, { updateUrl: false });
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(state.messages.at(-1)).toEqual({ role: "assistant", parts: [{ type: "text", text: "answer continued" }] });
+
+    socket.emit({ type: "assistant.delta", text: " duplicate", seq: 4 });
+    socket.emit({ type: "assistant.delta", text: " live", seq: 5 });
+    runPendingAnimationFrames();
+
+    expect(state.messages.at(-1)).toEqual({ role: "assistant", parts: [{ type: "text", text: "answer continued live" }] });
+  });
+
   it("seeds the in-flight partial on top of committed history at join time", async () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };

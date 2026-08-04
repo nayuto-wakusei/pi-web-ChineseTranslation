@@ -1,9 +1,9 @@
 import { LitElement, css, html, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, query, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { shortSessionId } from "../sessionLabels";
-import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
+import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceState } from "../sessionPersistence";
 import { parentSessionLocationLabel, parentSessionLocationTitle, type ParentSessionLocation } from "../parentSessionLocation";
 import { normalizeSessionPath } from "../sessionPaths";
 import { isSessionActive } from "../../../shared/activity";
@@ -26,8 +26,19 @@ export interface SessionRow {
 
 type SessionSelectionScope = "current" | "archived";
 
+export const SESSION_LIST_BATCH_SIZE = 50;
+
+const NON_RENDERING_PROPERTIES = new Set([
+  "onSelect", "onSearch", "onTogglePin", "onStart", "onToggleCollapsed", "onArchivedCollapsed",
+  "onFocusPreviousSection", "onFocusNextSection", "onCancelKeyboardNavigation", "onArchive",
+  "onArchiveWithDescendants", "onArchiveMany", "onRestore", "onDelete", "onDeleteArchived",
+  "onDeleteArchivedMany", "onRename", "onDetachParent", "parentLocation", "onGoToParent", "onMarkRead",
+  "onMarkReadMany", "onReload", "onCleanup",
+]);
+
 @customElement("session-list")
 export class SessionList extends LitElement implements KeyboardNavigableSection {
+  @property({ attribute: false }) scopeKey = "";
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
@@ -76,6 +87,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @state() private archivedExpanded = false;
   @state() private selectionScopes: ReadonlySet<SessionSelectionScope> = new Set();
   @state() private selectedSessionIds: ReadonlySet<string> = new Set();
+  @state() private currentVisibleLimit = SESSION_LIST_BATCH_SIZE;
+  @state() private archivedVisibleLimit = SESSION_LIST_BATCH_SIZE;
+  @query(".list-body") private listBody?: HTMLElement;
+  private loadMoreObserver: IntersectionObserver | undefined;
 
   private readonly onDocumentClick = (event: MouseEvent) => {
     if (event.composedPath().includes(this)) return;
@@ -89,7 +104,29 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   override disconnectedCallback(): void {
     document.removeEventListener("click", this.onDocumentClick);
+    this.loadMoreObserver?.disconnect();
+    this.loadMoreObserver = undefined;
     super.disconnectedCallback();
+  }
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("scopeKey")) {
+      this.currentVisibleLimit = SESSION_LIST_BATCH_SIZE;
+      this.archivedVisibleLimit = SESSION_LIST_BATCH_SIZE;
+    }
+    if (changed.has("selected") || changed.has("sessions") || changed.has("pinnedSessionIds")) this.expandVisibleLimitForSelected();
+  }
+
+  protected override shouldUpdate(changed: PropertyValues<this>): boolean {
+    for (const [name, previous] of changed) {
+      if (NON_RENDERING_PROPERTIES.has(String(name))) continue;
+      if (name === "sessions" && sessionsRenderEqual(previous, this.sessions)) continue;
+      if (name === "selected" && selectedSessionRenderEqual(previous, this.selected)) continue;
+      if (name === "statuses" && sessionRuntimeMapRenderEqual(previous, this.statuses, this.activities, this.sending, this.sessions, this.authoritativeSessionPersistence, "status")) continue;
+      if (name === "activities" && sessionRuntimeMapRenderEqual(previous, this.activities, this.statuses, this.sending, this.sessions, this.authoritativeSessionPersistence, "activity")) continue;
+      return true;
+    }
+    return false;
   }
 
   protected override updated(changed: PropertyValues<this>): void {
@@ -106,6 +143,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       return;
     }
     if (this.shouldRevealSelectedRow(changed)) this.scrollSelectedIntoView();
+    this.observeLoadMoreSentinels();
   }
 
   /**
@@ -135,21 +173,26 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const currentRowIds = new Set(currentRows.map((row) => row.session.id));
     const currentSelectableSessions = currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
     const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
-    const descendantCounts = unarchivedDescendantCounts(this.sessions);
     const unreadCount = unreadSessionCount(currentSelectableSessions, this.unreadSessionIds);
+    const visibleCurrentRows = currentRows.slice(0, this.currentVisibleLimit);
+    const visibleCurrentSessions = visibleCurrentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
+    const visibleArchivedRows = archivedRows.slice(0, this.archivedVisibleLimit);
+    const visibleArchivedSessions = visibleArchivedRows.map((row) => row.session);
     return html`
       <section>
         ${this.renderHeading(currentRows.length + archivedRows.length, currentSelectableSessions, unreadCount)}
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${this.renderCurrentSelectionToolbar(currentSelectableSessions)}
+            ${this.renderCurrentSelectionToolbar(visibleCurrentSessions)}
             ${this.startingCount > 0 ? this.renderStartingSession() : null}
-            ${currentRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0, "current"))}
+            ${visibleCurrentRows.map((row) => this.renderSession(row, "current"))}
+            ${this.renderLoadMoreSentinel("current", visibleCurrentRows.length, currentRows.length)}
             ${archivedRows.length > 0 ? html`
-              ${this.renderArchivedHeading(archivedRows.map((row) => row.session))}
+              ${this.renderArchivedHeading(archivedRows.map((row) => row.session), visibleArchivedSessions)}
               ${this.archivedExpanded ? html`
-                ${this.renderArchivedSelectionToolbar(archivedRows.map((row) => row.session))}
-                ${archivedRows.map((row) => this.renderSession(row, descendantCounts.get(row.session.id) ?? 0, "archived"))}
+                ${this.renderArchivedSelectionToolbar(visibleArchivedSessions)}
+                ${visibleArchivedRows.map((row) => this.renderSession(row, "archived"))}
+                ${this.renderLoadMoreSentinel("archived", visibleArchivedRows.length, archivedRows.length)}
               ` : null}
             ` : null}
           </div>
@@ -223,12 +266,12 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     `;
   }
 
-  private renderArchivedHeading(archivedSessions: SessionInfo[]) {
+  private renderArchivedHeading(archivedSessions: SessionInfo[], visibleArchivedSessions: SessionInfo[]) {
     const active = this.selectionScopes.has("archived");
     return html`
       <h2 class="subheading">
         <button class="section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} 已归档</span></button>
-        ${this.archivedExpanded ? html`<button class="bulk-select-entry ${active ? "selected" : ""}" title=${active ? "关闭已归档会话选择" : "选择已归档会话"} aria-label=${active ? "关闭已归档会话选择" : "选择已归档会话"} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${() => { this.toggleSelection("archived", archivedSessions); }}>☑</button>` : null}
+        ${this.archivedExpanded ? html`<button class="bulk-select-entry ${active ? "selected" : ""}" title=${active ? "关闭已归档会话选择" : "选择已归档会话"} aria-label=${active ? "关闭已归档会话选择" : "选择已归档会话"} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${() => { this.toggleSelection("archived", visibleArchivedSessions); }}>☑</button>` : null}
         <small class="section-count">${archivedSessions.length}</small>
       </h2>
     `;
@@ -272,7 +315,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     `;
   }
 
-  private renderSession(row: SessionRow, descendantCount: number, scope: SessionSelectionScope) {
+  private renderSession(row: SessionRow, scope: SessionSelectionScope) {
     const { session } = row;
     const cappedDepth = Math.min(row.depth, 2);
     const canBulkSelect = sessionSelectionScope(session) === scope;
@@ -290,6 +333,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const canReloadSession = canArchive && this.canReload;
     const pinned = this.pinnedSessionIds.includes(session.id);
     const canPin = session.persisted !== false;
+    const descendantCount = this.openMenuSessionId === session.id ? unarchivedDescendantCount(this.sessions, session) : 0;
     return html`
       <div
         class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${pinned ? "pinned" : ""}"
@@ -504,6 +548,58 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     }
   }
 
+  private renderLoadMoreSentinel(scope: SessionSelectionScope, visibleCount: number, totalCount: number) {
+    if (visibleCount >= totalCount) return null;
+    const remaining = totalCount - visibleCount;
+    return html`
+      <div class="session-load-more-sentinel">
+        <button data-load-scope=${scope} @click=${() => { this.loadMore(scope); }}>加载更多（剩余 ${remaining}）</button>
+      </div>
+    `;
+  }
+
+  private loadMore(scope: SessionSelectionScope): void {
+    if (scope === "current") this.currentVisibleLimit += SESSION_LIST_BATCH_SIZE;
+    else this.archivedVisibleLimit += SESSION_LIST_BATCH_SIZE;
+  }
+
+  private observeLoadMoreSentinels(): void {
+    this.loadMoreObserver?.disconnect();
+    this.loadMoreObserver = undefined;
+    if (typeof IntersectionObserver === "undefined" || this.listBody === undefined) return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const scope = entry.target.getAttribute("data-load-scope");
+        if (scope === "current") this.loadMore("current");
+        else if (scope === "archived" && !this.hasMoreCurrentRows()) this.loadMore("archived");
+      }
+    }, { root: this.listBody, rootMargin: "0px 0px 160px" });
+    for (const sentinel of this.renderRoot.querySelectorAll<HTMLElement>("[data-load-scope]")) observer.observe(sentinel);
+    this.loadMoreObserver = observer;
+  }
+
+  private hasMoreCurrentRows(): boolean {
+    return sessionRowsForCurrentTree(this.sessions, this.pinnedSessionIds).length > this.currentVisibleLimit;
+  }
+
+  private expandVisibleLimitForSelected(): void {
+    const selected = this.selected;
+    if (selected === undefined) return;
+    const currentRows = sessionRowsForCurrentTree(this.sessions, this.pinnedSessionIds);
+    const currentIndex = currentRows.findIndex((row) => row.session.id === selected.id);
+    if (currentIndex >= 0) {
+      this.currentVisibleLimit = Math.max(this.currentVisibleLimit, currentIndex + 1);
+      return;
+    }
+    const currentRowIds = new Set(currentRows.map((row) => row.session.id));
+    const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
+    const archivedIndex = archivedRows.findIndex((row) => row.session.id === selected.id);
+    if (archivedIndex < 0) return;
+    this.currentVisibleLimit = Math.max(this.currentVisibleLimit, currentRows.length);
+    this.archivedVisibleLimit = Math.max(this.archivedVisibleLimit, archivedIndex + 1);
+  }
+
   private scrollSelectedIntoView(): void {
     this.renderRoot.querySelector<HTMLElement>(".action-row.selected")?.scrollIntoView({ block: "nearest" });
   }
@@ -540,6 +636,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .bulk-row small { display: inline; min-width: 0; color: var(--pi-muted); }
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .action-row.unread .action-name { color: var(--pi-text-bright); font-weight: 650; }
+    .action-row { content-visibility: auto; contain-intrinsic-size: auto 58px; }
+    .session-load-more-sentinel { display: grid; place-items: center; min-height: 36px; margin: 2px 0 6px; }
+    .session-load-more-sentinel button { padding: 5px 9px; color: var(--pi-muted); font-size: 12px; }
      .plain-heading { min-width: 0; }
      .session-search { box-sizing: border-box; width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 0; font: 19px/1 system-ui, sans-serif; text-transform: none; }
      .session-search:focus-visible { border-color: var(--pi-accent); outline: 2px solid var(--pi-accent); outline-offset: 1px; }
@@ -601,7 +700,7 @@ function removeSessionIds(sessionIds: ReadonlySet<string>, removedIds: readonly 
   return new Set([...sessionIds].filter((sessionId) => !removed.has(sessionId)));
 }
 
-function unarchivedDescendantCounts(sessions: SessionInfo[]): Map<string, number> {
+export function unarchivedDescendantCount(sessions: SessionInfo[], root: SessionInfo): number {
   const childrenByParentPath = new Map<string, SessionInfo[]>();
   for (const session of sessions) {
     if (session.parentSessionPath === undefined) continue;
@@ -625,7 +724,96 @@ function unarchivedDescendantCounts(sessions: SessionInfo[]): Map<string, number
     return count;
   };
 
-  return new Map(sessions.map((session) => [session.id, countFor(session, new Set())]));
+  return countFor(root, new Set());
+}
+
+function sessionsRenderEqual(previous: unknown, current: SessionInfo[]): boolean {
+  if (!Array.isArray(previous) || previous.length !== current.length) return false;
+  return current.every((session, index) => sessionInfoRenderKey(session) === sessionInfoRenderKey(previous[index]));
+}
+
+function sessionInfoRenderKey(session: unknown): string {
+  if (!isSessionInfo(session)) return "";
+  return JSON.stringify([
+    session.id, session.path, session.cwd, session.name, session.firstMessage, session.messageCount,
+    session.modified, session.archived, session.archivedAt, session.persisted, session.parentSessionPath,
+    session.childSessionsElsewhere,
+  ]);
+}
+
+function selectedSessionRenderEqual(previous: unknown, current: SessionInfo | undefined): boolean {
+  if (previous === undefined || current === undefined) return previous === current;
+  return sessionInfoRenderKey(previous) === sessionInfoRenderKey(current);
+}
+
+function sessionRuntimeMapRenderEqual(
+  previous: unknown,
+  current: Record<string, SessionStatus> | Record<string, SessionActivity>,
+  companion: Record<string, SessionActivity> | Record<string, SessionStatus>,
+  sending: Record<string, true>,
+  sessions: SessionInfo[],
+  authoritativePersistence: boolean,
+  changedKind: "status" | "activity",
+): boolean {
+  if (!isRecord(previous)) return false;
+  for (const session of sessions) {
+    const oldStatus = changedKind === "status" ? sessionStatusAt(previous, session.id) : sessionStatusAt(companion, session.id);
+    const newStatus = changedKind === "status" ? sessionStatusAt(current, session.id) : sessionStatusAt(companion, session.id);
+    const oldActivity = changedKind === "activity" ? sessionActivityAt(previous, session.id) : sessionActivityAt(companion, session.id);
+    const newActivity = changedKind === "activity" ? sessionActivityAt(current, session.id) : sessionActivityAt(companion, session.id);
+    const oldKey = sessionRuntimeRenderKey(session, oldStatus, oldActivity, sending[session.id] === true, authoritativePersistence);
+    const newKey = sessionRuntimeRenderKey(session, newStatus, newActivity, sending[session.id] === true, authoritativePersistence);
+    if (oldKey !== newKey) return false;
+  }
+  return true;
+}
+
+function sessionRuntimeRenderKey(session: SessionInfo, status: SessionStatus | undefined, activity: SessionActivity | undefined, sending: boolean, authoritativePersistence: boolean): string {
+  return JSON.stringify([
+    sessionRowActivityKind(session, status, activity, sending),
+    activity?.phase,
+    sessionPersistenceState(session, status, { authoritative: authoritativePersistence }),
+  ]);
+}
+
+function isSessionInfo(value: unknown): value is SessionInfo {
+  return isRecord(value) && typeof value["id"] === "string" && typeof value["path"] === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function sessionStatusAt(value: unknown, sessionId: string): SessionStatus | undefined {
+  if (!isRecord(value)) return undefined;
+  const status = value[sessionId];
+  return isSessionStatus(status) ? status : undefined;
+}
+
+function sessionActivityAt(value: unknown, sessionId: string): SessionActivity | undefined {
+  if (!isRecord(value)) return undefined;
+  const activity = value[sessionId];
+  return isSessionActivity(activity) ? activity : undefined;
+}
+
+function isSessionStatus(value: unknown): value is SessionStatus {
+  return isRecord(value)
+    && typeof value["sessionId"] === "string"
+    && typeof value["isStreaming"] === "boolean"
+    && typeof value["isCompacting"] === "boolean"
+    && typeof value["isBashRunning"] === "boolean"
+    && typeof value["pendingMessageCount"] === "number"
+    && Array.isArray(value["queuedMessages"])
+    && isRecord(value["tokens"])
+    && typeof value["cost"] === "number";
+}
+
+function isSessionActivity(value: unknown): value is SessionActivity {
+  return isRecord(value)
+    && typeof value["sessionId"] === "string"
+    && (value["phase"] === "active" || value["phase"] === "idle" || value["phase"] === "error")
+    && typeof value["label"] === "string"
+    && typeof value["at"] === "string";
 }
 
 /**
