@@ -12,6 +12,18 @@ afterEach(() => {
 });
 
 describe("SessionList incremental rendering", () => {
+  it("disables row paint containment while an action menu is open", async () => {
+    const list = await renderList(sessions(1));
+    const toggle = list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle");
+    if (toggle === null || toggle === undefined) throw new Error("Missing session action menu toggle");
+
+    toggle.click();
+    await list.updateComplete;
+
+    expect(list.shadowRoot?.querySelector(".action-row.menu-open .action-menu-panel")).not.toBeNull();
+    expect(SessionList.elementStyles.some((style) => "cssText" in style && style.cssText.includes(".action-row.menu-open { content-visibility: visible; }"))).toBe(true);
+  });
+
   it("renders current sessions in batches and resets the batch on scope changes", async () => {
     const list = await renderList(sessions(120));
 

@@ -1,12 +1,12 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { filterManagedGlobalContextFiles, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionModelRuntime, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { filterManagedGlobalContextFiles, filterManagedProjectSkills, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionModelRuntime, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
@@ -222,6 +222,51 @@ describe("filterManagedGlobalContextFiles", () => {
     ]);
   });
 });
+
+describe("filterManagedProjectSkills", () => {
+  it("keeps project skills while removing global and package skills outside the workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-skills-"));
+    const cwd = join(root, "project");
+    const projectSkillPath = join(cwd, ".pi/skills/project-skill/SKILL.md");
+    const projectPackageSkillPath = join(cwd, ".pi/npm/node_modules/project-package/skills/package-skill/SKILL.md");
+    const globalSkillPath = join(root, "agent/skills/global-skill/SKILL.md");
+    const globalPackageSkillPath = join(root, "agent/npm/node_modules/global-package/skills/package-skill/SKILL.md");
+
+    try {
+      await Promise.all([projectSkillPath, projectPackageSkillPath, globalSkillPath, globalPackageSkillPath].map(async (filePath) => {
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, "skill");
+      }));
+      const projectSkill = testSkill("project-skill", projectSkillPath, "project");
+      const projectPackageSkill = testSkill("project-package-skill", projectPackageSkillPath, "temporary");
+      const globalSkill = testSkill("global-skill", globalSkillPath, "user");
+      const globalPackageSkill = testSkill("global-package-skill", globalPackageSkillPath, "user");
+
+      const result = filterManagedProjectSkills(cwd, {
+        skills: [globalSkill, projectSkill, globalPackageSkill, projectPackageSkill],
+        diagnostics: [{ type: "warning", message: "preserved diagnostic" }],
+      });
+
+      expect(result).toEqual({
+        skills: [projectSkill, projectPackageSkill],
+        diagnostics: [{ type: "warning", message: "preserved diagnostic" }],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+function testSkill(name: string, filePath: string, scope: "user" | "project" | "temporary") {
+  return {
+    name,
+    description: `${name} description`,
+    filePath,
+    baseDir: dirname(filePath),
+    sourceInfo: { path: filePath, source: "test", scope, origin: "top-level" as const },
+    disableModelInvocation: false,
+  };
+}
 
 function emptyArchiveStore(): NonNullable<PiSessionServiceDependencies["archiveStore"]> {
   return {

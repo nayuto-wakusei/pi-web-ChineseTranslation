@@ -336,7 +336,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const descendantCount = this.openMenuSessionId === session.id ? unarchivedDescendantCount(this.sessions, session) : 0;
     return html`
       <div
-        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${pinned ? "pinned" : ""}"
+        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${pinned ? "pinned" : ""} ${this.openMenuSessionId === session.id ? "menu-open" : ""}"
         style=${`--depth:${String(cappedDepth)}`}
         tabindex="0"
         title=${session.path}
@@ -637,6 +637,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .action-row.unread .action-name { color: var(--pi-text-bright); font-weight: 650; }
     .action-row { content-visibility: auto; contain-intrinsic-size: auto 58px; }
+    .action-row.menu-open { content-visibility: visible; }
     .session-load-more-sentinel { display: grid; place-items: center; min-height: 36px; margin: 2px 0 6px; }
     .session-load-more-sentinel button { padding: 5px 9px; color: var(--pi-muted); font-size: 12px; }
      .plain-heading { min-width: 0; }

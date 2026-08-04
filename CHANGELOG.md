@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.5
+
+### Patch Changes
+
+- 修复会话列表操作菜单被行级渲染优化裁剪、点击后不可见的问题。
+- Restrict management-embed sessions to skills provided by the managed project workspace.
+
 ## 1.202608.4
 
 ### Patch Changes

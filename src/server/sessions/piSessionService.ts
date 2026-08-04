@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -25,6 +25,7 @@ import {
   type EditToolOptions,
   type ExtensionUIContext,
   type ResourceDiagnostic,
+  type Skill,
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
@@ -423,6 +424,11 @@ interface AgentContextFilesResult {
   agentsFiles: { path: string; content: string }[];
 }
 
+interface SkillCollectionResult {
+  skills: Skill[];
+  diagnostics: ResourceDiagnostic[];
+}
+
 const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
 export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
@@ -433,6 +439,20 @@ export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, b
       const fileDir = dirname(file.path);
       if (cwdPathsEqual(fileDir, agentDir)) return false;
       return pathInsideOrEqual(cwd, fileDir);
+    }),
+  };
+}
+
+export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult): SkillCollectionResult {
+  const projectRoot = realpathSync(cwd);
+  return {
+    ...base,
+    skills: base.skills.filter((skill) => {
+      try {
+        return pathInsideOrEqual(projectRoot, realpathSync(skill.filePath));
+      } catch {
+        return false;
+      }
     }),
   };
 }
@@ -717,6 +737,7 @@ function createManagementRuntimeFactory(
         settingsManager,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
+          skillsOverride: (base) => filterManagedProjectSkills(cwd, base),
         },
       });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
