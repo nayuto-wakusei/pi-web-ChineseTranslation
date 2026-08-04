@@ -246,10 +246,15 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     const outcomes = await failedLookups;
     expect(callsWhileOpening).toBe(1);
     expect(outcomes).toHaveLength(2);
-    for (const outcome of outcomes) {
-      expect(outcome.status).toBe("rejected");
-      if (outcome.status === "rejected") expect(outcome.reason).toBe(openingError);
-    }
+    const [messagesOutcome, statusOutcome] = outcomes;
+    expect(messagesOutcome.status).toBe("rejected");
+    if (messagesOutcome.status === "rejected") expect(messagesOutcome.reason).toBe(openingError);
+    // Status no longer parks behind the in-flight open: a session still
+    // binding its extensions is statusable (its session_start dialogs must
+    // stay answerable for startup to be unblockable at all), so the lookup
+    // resolves from the startup window rather than sharing the open's fate.
+    expect(statusOutcome.status).toBe("fulfilled");
+    if (statusOutcome.status === "fulfilled") expect(statusOutcome.value).toMatchObject({ sessionId });
     expect(service.activeCount()).toBe(0);
     expect(failed.calls.abort).toBe(1);
     expect(failed.calls.dispose).toBe(1);

@@ -25,6 +25,7 @@ function daemonCollaborators(patch: Partial<SessionServiceDependencyInput> = {})
     catalogRefreshStatus: { isRefreshInFlight: () => false },
     subsessionsEnabled: false,
     askUserEnabled: true,
+    extensionDialogsTimeoutMs: 300_000,
     ...patch,
   };
 }
@@ -92,5 +93,9 @@ describe("sessiond session service dependency assembly", () => {
   it("passes the ask-user preference through to the session service", () => {
     expect(sessionServiceDependencies(daemonCollaborators({ askUserEnabled: true })).askUserEnabled).toBe(true);
     expect(sessionServiceDependencies(daemonCollaborators({ askUserEnabled: false })).askUserEnabled).toBe(false);
+  });
+
+  it("passes the extension-dialog timeout through to the session service", () => {
+    expect(sessionServiceDependencies(daemonCollaborators({ extensionDialogsTimeoutMs: 60_000 })).extensionDialogsTimeoutMs).toBe(60_000);
   });
 });

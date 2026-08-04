@@ -91,6 +91,7 @@
             <strong>On this page</strong>
             <a href="#extend">What can be extended</a>
             <a href="#packages-vs-plugins">Pi packages, extensions, and plugins</a>
+            <a href="#pi-extension-dialogs">Pi 扩展对话框</a>
             <a href="#ask-ai">What to ask AI to build</a>
             <a href="#example">Canonical example</a>
             <a href="#built-in-plugins">Built-in plugins</a>
@@ -171,6 +172,30 @@
                 discovered or changed PI WEB browser plugins. A provider-registering Pi extension follows a separate
                 daemon-start policy; see
                 <a href="config#pi-extension-provider-baseline">Pi extension provider baseline</a>.
+              </p>
+            </section>
+
+            <section id="pi-extension-dialogs">
+              <h2>PI WEB 中的 Pi 扩展对话框</h2>
+              <p>
+                运行在 PI WEB 会话守护进程中的 Pi 扩展可以通过 <code>ctx.ui.confirm()</code>、
+                <code>ctx.ui.select()</code> 和 <code>ctx.ui.input()</code> 向用户提问。对于这三种方法，
+                <code>ctx.hasUI</code> 确实有效：调用后会在会话记录中以内联方式显示对话框卡片，包括会话仍在启动时
+                由 <code>session_start</code> 钩子发起的对话框以及运行中的 <code>tool_call</code> 钩子对话框，
+                并最终返回用户的实际回答。
+              </p>
+              <p>
+                回答通过独立的会话守护进程通道传递，不进入提示词队列，因此等待回答的 <code>tool_call</code> 钩子
+                不会阻塞运行。打开的对话框可在浏览器刷新后恢复，多个标签页中最先提交的回答生效。中止运行或替换运行时
+                会立即以对应类型的取消值结束未回答的对话框，确认框为 <code>false</code>，选择框和输入框为
+                <code>undefined</code>。扩展自身的 <code>timeout</code> 与守护进程的
+                <code>extensionDialogsTimeoutMs</code> 安全超时同时生效，最终期限取两者中较早的时间；后者默认 5 分钟，
+                设为 <code>0</code> 时永久等待。其他 <code>ExtensionUIContext</code> 能力（组件、状态、编辑器和
+                <code>custom</code>）仍为空实现，即使 <code>hasUI === true</code> 也不可用。
+              </p>
+              <p>
+                完整行为说明和扩展开发指南见 <a href="plugins.md">plugins.md</a>；超时配置见配置参考中的
+                <a href="config#extension-dialogs">扩展对话框</a>。
               </p>
             </section>
 

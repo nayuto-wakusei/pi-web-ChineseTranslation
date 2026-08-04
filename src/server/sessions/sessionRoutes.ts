@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -352,6 +352,35 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     }
   });
 
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; dialogId?: unknown; value?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/dialogs/answer`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      const answer = extensionDialogAnswerFromBody(body);
+      return await sessions.answerDialog(
+        sessionLookupFromBody(request.params.sessionId, body),
+        answer.dialogId,
+        answer.value,
+        managementContextFromHeaders(request.headers),
+      );
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; dialogId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/dialogs/cancel`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      const cancel = extensionDialogCancelFromBody(body);
+      return await sessions.cancelDialog(
+        sessionLookupFromBody(request.params.sessionId, body),
+        cancel.dialogId,
+        managementContextFromHeaders(request.headers),
+      );
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; dismissId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/warnings/dismiss`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
@@ -627,6 +656,21 @@ function askUserAnswerFromValue(value: unknown): AskUserAnswer {
 
 function requireBoundedId(value: unknown, field: string): string {
   return requireNonEmptyBoundedString(value, field, ASK_USER_ID_MAX_LENGTH);
+}
+
+function extensionDialogAnswerFromBody(body: Record<string, unknown>): ExtensionDialogAnswerRequest {
+  const dialogId = requireNonEmptyBoundedString(body["dialogId"], "dialogId", EXTENSION_DIALOG_ID_MAX_LENGTH);
+  const value = body["value"];
+  if (typeof value === "boolean") return { dialogId, value };
+  if (typeof value === "string") {
+    if (value.length > EXTENSION_DIALOG_INPUT_MAX_LENGTH) throw new Error("value exceeds its length limit");
+    return { dialogId, value };
+  }
+  throw new Error("value must be a boolean or string");
+}
+
+function extensionDialogCancelFromBody(body: Record<string, unknown>): ExtensionDialogCancelRequest {
+  return { dialogId: requireNonEmptyBoundedString(body["dialogId"], "dialogId", EXTENSION_DIALOG_ID_MAX_LENGTH) };
 }
 
 function optionalRecord(value: unknown): Record<string, unknown> {

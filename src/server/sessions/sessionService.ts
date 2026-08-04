@@ -1,6 +1,8 @@
 import type {
   AskUserCloseResponse,
   AskUserSubmission,
+  ExtensionDialogAnswer,
+  ExtensionDialogCloseResponse,
   SavedPromptAttachment,
   SessionBulkArchiveResponse,
   SessionBulkDeleteArchivedResponse,
@@ -63,6 +65,8 @@ export interface SessionRouteService {
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
   cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
+  answerDialog(ref: SessionRouteLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
+  cancelDialog(ref: SessionRouteLookup, dialogId: string, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   dismissWarning(ref: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

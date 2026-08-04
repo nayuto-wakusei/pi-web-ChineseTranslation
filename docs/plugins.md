@@ -29,6 +29,20 @@ Use **Settings → PI WEB plugins** to enable or disable discovered PI WEB brows
 
 After installing, removing, or updating a Pi package, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for newly discovered or changed PI WEB browser plugins. A provider-registering Pi extension follows a separate daemon-start policy; see [Pi extension provider baseline](https://pi-web.dev/config#pi-extension-provider-baseline).
 
+## PI WEB 中的 Pi 扩展对话框
+
+运行在 PI WEB 会话守护进程中的 Pi 扩展可以通过 `ctx.ui.confirm()`、`ctx.ui.select()` 和 `ctx.ui.input()` 向用户提问。PI WEB 会报告 `ctx.hasUI === true`，并且这三种对话框方法确实可用：调用后会在会话记录中以内联方式显示对话框卡片，返回的 Promise 将以用户的实际回答结束，确认框返回布尔值，选择框返回所选项，输入框返回输入文本。
+
+- **可在钩子中使用，不经过提示词队列。** 回答通过独立的会话守护进程通道传递，因此运行中的 `tool_call` 钩子可以安全等待对话框；代理循环会等待钩子，并在收到回答后继续运行。支持在 `tool_call` 钩子中使用对话框进行工具授权确认。
+- **启动阶段的对话框可以回答。** 无论创建新会话还是打开已有会话，`session_start` 钩子发起的对话框都能在会话仍在启动时回答；对话框结束后启动流程继续。
+- **浏览器刷新后可恢复，最先提交的回答生效。** 浏览器刷新后会根据会话状态重新显示打开的对话框。同一会话打开多个标签页时，最先提交的回答会结束对话框，其他标签页随后显示结束状态。
+- **结束状态卡片会保留到用户关闭。** 已回答或已关闭的对话框会在会话记录中保留结果卡片。回答只会传给扩展，因此该卡片是这次交互唯一的可见记录。卡片属于浏览器本地状态：只有见过对话框打开的浏览器会显示它，切换会话或刷新页面后会清除。
+- **超时。** 扩展自身的 `timeout` 仍然生效，守护进程还提供 `extensionDialogsTimeoutMs` 安全超时（默认 5 分钟，设为 `0` 时永久等待；见[扩展对话框](https://pi-web.dev/config#extension-dialogs)）。最终期限取两者中较早的时间。没有回答就关闭的对话框会返回对应类型的取消值：确认框为 `false`，选择框和输入框为 `undefined`。
+- **中止和运行时替换。** 中止当前运行时，本轮运行中打开的对话框会立即以取消值结束。替换会话运行时（例如 `/reload` 或销毁会话）也会结束所有仍打开的对话框；新运行时的钩子可以重新打开对话框。扩展传入的 `AbortSignal` 同样有效，中止信号会关闭对话框并返回取消值。
+- **其他 UI 能力仍为空实现。** 除这三种对话框外，PI WEB 尚未实现 `ExtensionUIContext` 的其他方法（组件、状态、编辑器和 `custom`）。即使 `hasUI` 为 `true`，也不能仅凭它判断这些能力可用。
+
+浏览器本地存在一个限制：新会话仍在创建时刷新页面，会丢失浏览器保存的待启动行，因此对话框卡片会消失。守护进程中的对话框仍会在期限到达时结束，会话创建完成后仍会出现在侧边栏中。
+
 ## Trust model
 
 Plugins run as JavaScript in the browser app. Treat them as trusted code:

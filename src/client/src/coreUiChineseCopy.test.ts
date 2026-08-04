@@ -132,6 +132,12 @@ const copyCases: readonly CopyCase[] = [
     forbidden: ["Send answers", "Custom answer", "Navigate session tree", "Summarize and navigate", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
   },
   {
+    name: "localizes extension dialog controls and outcomes",
+    paths: ["components/ExtensionDialogCard.ts", "components/ChatView.ts"],
+    expected: ["已回答", "已取消", "已超时", "你的回答", ">取消<", '"发送中…" : "发送"', "扩展对话框正在排队"],
+    forbidden: [">Cancel<", ">Yes<", ">No<", ">Send<", ">Dismiss<", "Your answer", "Auto-cancels in", "more extension dialog"],
+  },
+  {
     name: "localizes workspace files, git, machine, project, and workspace controls",
     paths: ["components/WorkspaceFilesPanel.ts", "components/WorkspaceGitPanel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "plugins/core/panels.ts"],
     expected: ["拖放文件以上传", "工作区上传", "没有更改。", "全部展开", "机器活动中", "项目活动中", "工作区活动中", "复制路径", "title: \"文件\"", "title: \"终端\""],

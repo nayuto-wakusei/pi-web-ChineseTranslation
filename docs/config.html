@@ -102,6 +102,7 @@
             <a href="#pi-extension-provider-baseline">Pi extension providers</a>
             <a href="#catalog-refresh">Model catalog refresh</a>
             <a href="#session-tools">Session tools</a>
+            <a href="#extension-dialogs">扩展对话框</a>
             <a href="#completion-tools">Completion tools</a>
           </aside>
 
@@ -173,7 +174,7 @@
               <ul>
                 <li><code>host</code> / <code>port</code>: restart the gateway web/API service or process.</li>
                 <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
-                <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code>: restart the session daemon on that machine.</li>
+                <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
                 <li><code>plugins</code>: reload the browser tab after changing PI WEB plugin enablement.</li>
@@ -213,6 +214,7 @@
   "spawnSessions": true,
   "subsessions": false,
   "askUser": true,
+  "extensionDialogsTimeoutMs": 300000,
   "plugins": {
     "workspace-tasks": { "enabled": true },
     "updates": { "enabled": true },
@@ -372,6 +374,14 @@
                       <td>Agent can post question forms</td>
                       <td><code>askUser</code></td>
                       <td><code>PI_WEB_ASK_USER</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon on that machine</td>
+                    </tr>
+                    <tr>
+                      <td>扩展对话框自动取消超时</td>
+                      <td><code>extensionDialogsTimeoutMs</code></td>
+                      <td>—</td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
                       <td>Restart session daemon on that machine</td>
@@ -838,6 +848,29 @@
               <div class="callout warning">
                 <strong>Restart required:</strong> restart the session daemon after changing <code>askUser</code> or after
                 upgrading PI WEB to a version that introduces this tool. For the systemd user service, run
+                <code>systemctl --user restart pi-web-sessiond</code>。
+              </div>
+            </section>
+
+            <section id="extension-dialogs">
+              <h2>扩展对话框</h2>
+              <p>
+                Pi 扩展可以通过 <code>ctx.ui.confirm()</code>、<code>ctx.ui.select()</code> 和
+                <code>ctx.ui.input()</code> 向用户提问，包括从 <code>session_start</code> 钩子以及运行中的
+                <code>tool_call</code> 钩子发起。PI WEB 会在会话记录中以内联方式显示这些对话框，并通过独立的
+                会话守护进程通道返回回答，不经过提示词队列，因此等待回答的 <code>tool_call</code> 钩子不会阻塞运行。
+                对话框支持始终启用，没有单独的启用开关。行为细节和扩展开发说明见
+                <a href="plugins#pi-extension-dialogs">PI WEB 中的 Pi 扩展对话框</a>。
+              </p>
+              <p>
+                <code>extensionDialogsTimeoutMs</code> 是无人处理对话框时的安全超时：会话守护进程等待回答的最长时间。
+                超时后将以对应类型的取消值结束对话框，确认框为 <code>false</code>，选择框和输入框为
+                <code>undefined</code>。默认值为 <code>300000</code>（5 分钟）；设为 <code>0</code> 时永久等待。
+                扩展自身设置的 <code>timeout</code> 仍然生效，最终期限取两者中较早的时间。
+              </p>
+              <div class="callout warning">
+                <strong>需要重启：</strong><code>extensionDialogsTimeoutMs</code> 直接在全局配置文件中编辑。
+                修改后需要重启会话守护进程；使用 systemd 用户服务时运行
                 <code>systemctl --user restart pi-web-sessiond</code>.
               </div>
             </section>

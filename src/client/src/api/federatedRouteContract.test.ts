@@ -44,6 +44,14 @@ describe("federated route contract", () => {
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("ask"))).toBe(false);
   });
 
+  it("allowlists both extension dialog routes on the existing session WebSocket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("/dialogs/"))).toEqual([
+      { method: "POST", path: "/sessions/:sessionId/dialogs/answer" },
+      { method: "POST", path: "/sessions/:sessionId/dialogs/cancel" },
+    ]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("dialogs"))).toBe(false);
+  });
+
   it("allowlists daemon-authoritative unread HTTP routes on the existing global socket", () => {
     expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("unread"))).toEqual([
       { method: "GET", path: "/sessions/unread" },
@@ -110,6 +118,8 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.dismissWarning(session, "anthropicExtraUsage", machineId)),
       ignoreParseFailure(sessionsApi.submitAsk(session, "ask 1", { answers: [{ id: "q1", values: ["pg"] }] }, machineId)),
       ignoreParseFailure(sessionsApi.cancelAsk(session, "ask 1", machineId)),
+      ignoreParseFailure(sessionsApi.answerDialog(session, "dialog 1", true, machineId)),
+      ignoreParseFailure(sessionsApi.cancelDialog(session, "dialog 1", machineId)),
       ignoreParseFailure(sessionsApi.models(session, machineId)),
       ignoreParseFailure(sessionsApi.setModel(session, "openai", "gpt", machineId)),
       ignoreParseFailure(sessionsApi.cycleModel(session, "forward", machineId)),
