@@ -46,7 +46,7 @@ import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachm
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT } from "../../shared/apiTypes.js";
 import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
-import type { SessionRouteLookup, SessionRouteRef } from "./sessionService.js";
+import type { SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
 import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
@@ -300,7 +300,7 @@ type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "arch
 };
 
 export type PiSessionRef = SessionRouteRef;
-type PiSessionLookup = SessionRouteLookup;
+type PiSessionLookup = string | PiSessionRef;
 
 export interface PiSessionListEntry {
   id: string;
@@ -318,7 +318,6 @@ export interface PiSessionListEntry {
 
 interface BulkSessionLookupContext {
   sessionsByCwd: Map<string, PiSessionListEntry[]>;
-  allSessions?: readonly PiSessionListEntry[];
 }
 
 interface WorkspaceSessionListing {
@@ -1241,8 +1240,8 @@ export class PiSessionService {
     return { sessionIds };
   }
 
-  async setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse> {
-    if (typeof ref === "string" || ref.cwd === "") throw new Error("置顶会话必须提供工作区");
+  async setPinned(ref: SessionRouteRef, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse> {
+    if (ref.cwd === "") throw new Error("置顶会话必须提供工作区");
     const sessions = await this.list(ref.cwd, managementContext);
     const session = sessions.find((candidate) => candidate.id === ref.id);
     if (session === undefined) throw new Error("未找到会话");
@@ -2654,18 +2653,7 @@ export class PiSessionService {
   }
 
   private async bulkSessionLookupContext(refs: readonly SessionBulkMutationRef[]): Promise<BulkSessionLookupContext> {
-    const cwdSet = new Set<string>();
-    let needsAllSessions = false;
-    for (const ref of refs) {
-      if (ref.cwd === undefined) needsAllSessions = true;
-      else cwdSet.add(ref.cwd);
-    }
-
-    const [sessionsByCwd, allSessions] = await Promise.all([
-      this.listSessionsByCwd([...cwdSet]),
-      needsAllSessions ? this.sessionManager.listAll?.() ?? Promise.resolve([]) : Promise.resolve(undefined),
-    ]);
-    return allSessions === undefined ? { sessionsByCwd } : { sessionsByCwd, allSessions };
+    return { sessionsByCwd: await this.listSessionsByCwd(refs.map((ref) => ref.cwd)) };
   }
 
   private async listSessionsByCwd(cwds: readonly string[]): Promise<Map<string, PiSessionListEntry[]>> {
@@ -4075,7 +4063,7 @@ function uniqueBulkSessionRefs(refs: readonly SessionBulkMutationRef[]): Session
   const seen = new Set<string>();
   const unique: SessionBulkMutationRef[] = [];
   for (const ref of refs) {
-    const key = `${ref.cwd ?? ""}\0${ref.id}`;
+    const key = `${ref.cwd}\0${ref.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(ref);
@@ -4084,16 +4072,15 @@ function uniqueBulkSessionRefs(refs: readonly SessionBulkMutationRef[]): Session
 }
 
 function bulkRefToLookup(ref: SessionBulkMutationRef): PiSessionLookup {
-  return ref.cwd === undefined ? ref.id : { id: ref.id, cwd: ref.cwd };
+  return ref;
 }
 
 function findArchivedRecordForBulkRef(records: readonly ArchivedSessionRecord[], ref: SessionBulkMutationRef): ArchivedSessionRecord | undefined {
-  return records.find((record) => (ref.cwd === undefined || record.cwd === ref.cwd) && (record.sessionId === ref.id || record.sessionId.startsWith(ref.id)));
+  return records.find((record) => record.cwd === ref.cwd && (record.sessionId === ref.id || record.sessionId.startsWith(ref.id)));
 }
 
 function findListedSessionForBulkRef(context: BulkSessionLookupContext, ref: SessionBulkMutationRef): PiSessionListEntry | undefined {
-  if (ref.cwd !== undefined) return findSessionByIdOrPrefix(context.sessionsByCwd.get(ref.cwd) ?? [], ref.id);
-  return context.allSessions === undefined ? undefined : findSessionByIdOrPrefix(context.allSessions, ref.id);
+  return findSessionByIdOrPrefix(context.sessionsByCwd.get(ref.cwd) ?? [], ref.id);
 }
 
 function findSessionByIdOrPrefix(sessions: readonly PiSessionListEntry[], sessionId: string): PiSessionListEntry | undefined {

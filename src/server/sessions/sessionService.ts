@@ -37,7 +37,7 @@ import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export type SessionRouteRef = ClientSessionRef;
-export type SessionRouteLookup = string | SessionRouteRef;
+export type SessionRouteLookup = SessionRouteRef;
 
 /**
  * Route-facing session contract for PI WEB's HTTP/WebSocket API.

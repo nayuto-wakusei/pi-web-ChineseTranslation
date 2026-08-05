@@ -838,7 +838,7 @@ export class SessionController {
     if (session === undefined || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
     const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.reloadSession(session.id, machineId);
+      await this.api.reloadSession(session, machineId);
       this.transcripts.discard(this.sessionCacheKey(session.id));
       if (this.getState().selectedSession?.id === session.id) {
         await this.selectSession(session, { updateUrl: false });

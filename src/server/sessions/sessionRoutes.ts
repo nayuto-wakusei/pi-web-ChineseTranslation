@@ -214,7 +214,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const messages = await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
       return projectBrowserMessageResponse(messages);
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -222,7 +222,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -240,7 +240,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.streamSnapshot(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -248,7 +248,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -276,7 +276,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -304,7 +304,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -541,8 +541,7 @@ function parseBulkMutationRef(value: unknown): SessionBulkMutationRef {
   const id = requireString(record, "id").trim();
   if (id === "") throw new Error("id field must not be empty");
   const cwd = record["cwd"];
-  if (cwd === undefined || cwd === "") return { id };
-  if (typeof cwd !== "string") throw new Error("cwd field must be a string");
+  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd field is required");
   return { id, cwd: normalizeRequestCwd(cwd) };
 }
 
@@ -564,7 +563,7 @@ function notificationRef(id: string, cwd: string): { id: string; cwd: string } {
 }
 
 function sessionLookupFromQuery(id: string, query: SessionQuery): SessionLookup {
-  return sessionLookupFromCwd(id, query.cwd);
+  return sessionLookupFromRequiredCwd(id, query, "cwd query parameter is required");
 }
 
 function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
@@ -577,22 +576,13 @@ function eventScopeFromHeaders(headers: Record<string, string | string[] | undef
 }
 
 function sessionLookupFromBody(id: string, body: Record<string, unknown>): SessionLookup {
-  const cwd = body["cwd"];
-  if (cwd === undefined || cwd === "") return id;
-  if (typeof cwd !== "string") throw new Error("cwd field must be a string");
-  return { id, cwd: normalizeRequestCwd(cwd) };
+  return sessionLookupFromRequiredCwd(id, body, "cwd field is required");
 }
 
-function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery): SessionLookup {
+function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery, message = "cwd query parameter is required"): SessionLookup {
   const cwd = value.cwd;
-  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd query parameter is required");
+  if (typeof cwd !== "string" || cwd === "") throw new Error(message);
   return { id, cwd: normalizeRequestCwd(cwd) };
-}
-
-function sessionLookupFromCwd(id: string, cwd: string | undefined): SessionLookup {
-  // Legacy id-only lookups (no cwd) remain supported; a supplied cwd is
-  // normalized here so everything past the route layer sees canonical paths.
-  return cwd === undefined || cwd === "" ? id : { id, cwd: normalizeRequestCwd(cwd) };
 }
 
 function sessionTreeNavigateRequestFromBody(body: Record<string, unknown>): SessionTreeNavigateRequest {

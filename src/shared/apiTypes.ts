@@ -446,7 +446,7 @@ export interface ArchiveSessionsResponse {
 
 export interface SessionBulkMutationRef {
   id: string;
-  cwd?: string;
+  cwd: string;
 }
 
 export interface SessionBulkMutationRequest {
