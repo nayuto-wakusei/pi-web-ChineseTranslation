@@ -29,6 +29,12 @@ interface RelaySelection {
  * sanitized HTML and everything else as preformatted text. All async loads
  * flow through scanToken so stale responses for a previous workspace or
  * selection never overwrite newer state.
+ *
+ * Rendering is region-scoped: the toolbar, tab strip, and viewer are
+ * persistent elements built once, and each async stage re-renders only its
+ * own region. Clicking a tab never rebuilds the strip — it toggles the
+ * active marker in place and re-renders the viewer — so the strip's
+ * horizontal scroll position and keyboard focus survive document switches.
  */
 class PiWebRelaysPanel extends HTMLElement {
   private contextValue: WorkspacePanelContext | undefined;
@@ -39,36 +45,64 @@ class PiWebRelaysPanel extends HTMLElement {
   private documentContent: RelayDocumentContent | undefined;
   private scanToken = 0;
   private readonly root: ShadowRoot;
+  private readonly toolbar: HTMLElement;
+  private readonly tabStrip: HTMLElement;
+  private readonly viewer: HTMLElement;
 
   constructor() {
     super();
     this.root = this.attachShadow({ mode: "open" });
+    this.root.innerHTML = `
+      ${relaysStyles()}
+      <section class="toolbar" hidden></section>
+      <nav class="document-tabs" aria-label="中继文档" hidden></nav>
+      <section class="viewer"><div class="empty">请选择工作区。</div></section>
+    `;
+    this.toolbar = requiredRegion(this.root, ".toolbar");
+    this.tabStrip = requiredRegion(this.root, "nav.document-tabs");
+    this.viewer = requiredRegion(this.root, ".viewer");
+
+    // Listeners bind once against the persistent regions and delegate to
+    // whichever controls the latest region render produced.
+    this.toolbar.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("button[data-refresh]") : null;
+      if (button !== null) this.refresh();
+    });
+    this.toolbar.addEventListener("change", (event) => {
+      const picker = event.target;
+      if (!(picker instanceof HTMLSelectElement) || !picker.matches("select[data-relay-picker]")) return;
+      const context = this.contextValue;
+      if (context !== undefined) void this.openRelay(context, picker.value);
+    });
+    this.tabStrip.addEventListener("click", (event) => {
+      const tab = event.target instanceof Element ? event.target.closest("button[data-document-path]") : null;
+      if (tab === null) return;
+      const documentPath = tab.getAttribute("data-document-path");
+      const context = this.contextValue;
+      if (context !== undefined && documentPath !== null) void this.openDocument(context, documentPath);
+    });
   }
 
   set context(value: WorkspacePanelContext | undefined) {
     const previousKey = this.contextValue === undefined ? undefined : contextKey(this.contextValue);
     const nextKey = value === undefined ? undefined : contextKey(value);
     this.contextValue = value;
-    // Parent app updates should not rescan or rebuild this shadow DOM for the
+    // Parent app updates should not rescan or re-render this panel for the
     // same workspace (mirrors the workspace-tasks panel).
     if (previousKey === nextKey) return;
     if (value === undefined) {
       this.resetScanState();
-      this.render();
+      this.renderAll();
       return;
     }
     void this.scan(value, {});
-  }
-
-  connectedCallback(): void {
-    this.render();
   }
 
   /** Rescan relays, then reload the selected relay's documents and the open document. */
   private async scan(context: WorkspacePanelContext, selection: RelaySelection): Promise<void> {
     const token = ++this.scanToken;
     this.resetScanState();
-    this.render();
+    this.renderAll();
 
     const listing = await listWorkspaceRelays(context.files);
     if (!this.isCurrentScan(context, token)) return;
@@ -80,8 +114,9 @@ class PiWebRelaysPanel extends HTMLElement {
       ? listing.relays.find((candidate) => candidate.path === selection.relayPath) ?? listing.relays[0]
       : undefined;
     this.selectedRelayPath = relay?.path;
+    this.renderToolbar();
     if (relay === undefined) {
-      this.render();
+      this.renderViewer();
       return;
     }
     await this.loadDocuments(context, token, relay.path, selection.documentPath);
@@ -96,6 +131,11 @@ class PiWebRelaysPanel extends HTMLElement {
   private async openDocument(context: WorkspacePanelContext, documentPath: string): Promise<void> {
     const token = ++this.scanToken;
     this.selectedDocumentPath = documentPath;
+    // The tab set is unchanged: toggle the active marker on the mounted
+    // buttons instead of rebuilding the strip, so its scroll position and
+    // focus stay put. A different document starts reading from the top.
+    this.updateActiveTab();
+    this.viewer.scrollTop = 0;
     await this.loadDocumentContent(context, token, documentPath);
   }
 
@@ -103,7 +143,8 @@ class PiWebRelaysPanel extends HTMLElement {
     this.documents = undefined;
     this.selectedDocumentPath = undefined;
     this.documentContent = undefined;
-    this.render();
+    this.renderTabs();
+    this.renderViewer();
 
     const documents = await listRelayDocuments(context.files, relayPath);
     if (!this.isCurrentScan(context, token)) return;
@@ -113,8 +154,9 @@ class PiWebRelaysPanel extends HTMLElement {
       ? documents.documents.find((candidate) => candidate.path === preferredDocumentPath) ?? defaultRelayDocument(documents.documents)
       : undefined;
     this.selectedDocumentPath = document?.path;
+    this.renderTabs();
     if (document === undefined) {
-      this.render();
+      this.renderViewer();
       return;
     }
     await this.loadDocumentContent(context, token, document.path);
@@ -122,12 +164,12 @@ class PiWebRelaysPanel extends HTMLElement {
 
   private async loadDocumentContent(context: WorkspacePanelContext, token: number, documentPath: string): Promise<void> {
     this.documentContent = undefined;
-    this.render();
+    this.renderViewer();
 
     const content = await readRelayDocument(context.files, documentPath);
     if (!this.isCurrentScan(context, token)) return;
     this.documentContent = content;
-    this.render();
+    this.renderViewer();
   }
 
   private refresh(): void {
@@ -148,38 +190,26 @@ class PiWebRelaysPanel extends HTMLElement {
     return token === this.scanToken && this.contextValue !== undefined && contextKey(this.contextValue) === contextKey(context);
   }
 
-  private render(): void {
-    const context = this.contextValue;
-    if (context === undefined) {
-      this.root.innerHTML = `${relaysStyles()}<section class="empty">请选择工作区。</section>`;
+  private renderAll(): void {
+    this.renderToolbar();
+    this.renderTabs();
+    this.renderViewer();
+  }
+
+  private renderToolbar(): void {
+    if (this.contextValue === undefined) {
+      this.toolbar.hidden = true;
+      this.toolbar.replaceChildren();
       return;
     }
-    this.root.innerHTML = `
-      ${relaysStyles()}
-      <section class="toolbar">
-        <strong>中继</strong>
-        <span class="toolbar-actions">
-          ${this.renderRelayPicker()}
-          <button class="icon-button" data-refresh aria-label="刷新" title="刷新">${refreshIconSvg()}</button>
-        </span>
-      </section>
-      ${this.renderDocumentTabs()}
-      <section class="viewer">${this.renderViewer()}</section>
+    this.toolbar.hidden = false;
+    this.toolbar.innerHTML = `
+      <strong>中继</strong>
+      <span class="toolbar-actions">
+        ${this.renderRelayPicker()}
+        <button class="icon-button" data-refresh aria-label="刷新" title="刷新">${refreshIconSvg()}</button>
+      </span>
     `;
-
-    this.root.querySelector("button[data-refresh]")?.addEventListener("click", () => {
-      this.refresh();
-    });
-    this.root.querySelector("select[data-relay-picker]")?.addEventListener("change", (event) => {
-      const picker = event.target;
-      if (picker instanceof HTMLSelectElement) void this.openRelay(context, picker.value);
-    });
-    for (const tab of this.root.querySelectorAll("button[data-document-path]")) {
-      tab.addEventListener("click", () => {
-        const documentPath = tab.getAttribute("data-document-path");
-        if (documentPath !== null) void this.openDocument(context, documentPath);
-      });
-    }
   }
 
   private renderRelayPicker(): string {
@@ -197,17 +227,43 @@ class PiWebRelaysPanel extends HTMLElement {
     return `<select data-relay-picker aria-label="中继">${options}</select>`;
   }
 
-  private renderDocumentTabs(): string {
+  private renderTabs(): void {
     const documents = this.documents;
-    if (documents?.kind !== "loaded" || documents.documents.length === 0) return "";
-    const tabs = documents.documents.map((document) => {
+    if (documents?.kind !== "loaded" || documents.documents.length === 0) {
+      this.tabStrip.hidden = true;
+      // A new tab set starts at the left edge, not at the previous set's offset.
+      this.tabStrip.replaceChildren();
+      this.tabStrip.scrollLeft = 0;
+      return;
+    }
+    this.tabStrip.hidden = false;
+    // The strip element itself persists across re-renders, so replacing its
+    // buttons keeps the container's horizontal scroll position.
+    this.tabStrip.innerHTML = documents.documents.map((document) => {
       const active = document.path === this.selectedDocumentPath;
       return `<button class="document-tab${active ? " active" : ""}" data-document-path="${escapeAttr(document.path)}"${active ? ' aria-current="true"' : ""}>${escapeHtml(document.name)}</button>`;
     }).join("");
-    return `<nav class="document-tabs" aria-label="中继文档">${tabs}</nav>`;
   }
 
-  private renderViewer(): string {
+  /** Move the active marker between the mounted tab buttons without rebuilding them. */
+  private updateActiveTab(): void {
+    for (const tab of this.tabStrip.querySelectorAll("button[data-document-path]")) {
+      const active = tab.getAttribute("data-document-path") === this.selectedDocumentPath;
+      tab.classList.toggle("active", active);
+      if (active) tab.setAttribute("aria-current", "true");
+      else tab.removeAttribute("aria-current");
+    }
+  }
+
+  private renderViewer(): void {
+    if (this.contextValue === undefined) {
+      this.viewer.innerHTML = `<div class="empty">请选择工作区。</div>`;
+      return;
+    }
+    this.viewer.innerHTML = this.renderViewerContent();
+  }
+
+  private renderViewerContent(): string {
     const listing = this.listing;
     if (listing === undefined) return `<p class="muted">正在扫描 ${escapeHtml(RELAYS_ROOT)}…</p>`;
     if (listing.kind === "unavailable") return renderErrorState("无法扫描工作区中继。", listing.detail);
@@ -255,6 +311,13 @@ class PiWebRelaysPanel extends HTMLElement {
   }
 }
 
+/** Shell regions come from a literal template; absence means the template broke. */
+function requiredRegion(root: ShadowRoot, selector: string): HTMLElement {
+  const element = root.querySelector(selector);
+  if (!(element instanceof HTMLElement)) throw new Error(`relays panel shell is missing ${selector}`);
+  return element;
+}
+
 /** Reload glyph matching the app's own refresh control (AppRefreshControl). */
 function refreshIconSvg(): string {
   return `
@@ -297,6 +360,7 @@ function relaysStyles(): string {
          the viewer's huge content basis starves them down to a sliver once a
          tall document renders). The viewer absorbs all shrinking instead. */
       .toolbar { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--pi-border-muted); }
+      .toolbar[hidden], .document-tabs[hidden] { display: none; }
       .toolbar-actions { display: inline-flex; align-items: center; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; min-width: 0; }
       .relay-name { min-width: 0; color: var(--pi-text-secondary); overflow-wrap: anywhere; }
       /* Bottom padding (not viewer margin) so the gap below the tabs persists
