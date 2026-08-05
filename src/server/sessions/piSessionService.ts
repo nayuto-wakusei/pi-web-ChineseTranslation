@@ -86,7 +86,7 @@ import {
   compareArchivedRecords,
   type WorkspaceArchiveCandidate,
 } from "./sessionArchiveMapping.js";
-import { getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
+import { annotateAssistantThinkingLevel, getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
 
 /**
  * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
@@ -2092,7 +2092,7 @@ export class PiSessionService {
     const streamingMessage = session.state.streamingMessage;
     const partial = streamingMessage === undefined || streamingMessage === null
       ? null
-      : projectBrowserMessage(streamingMessage);
+      : annotateAssistantThinkingLevel(projectBrowserMessage(streamingMessage), session.thinkingLevel);
     return { seq, partial };
   }
 
@@ -3098,7 +3098,7 @@ export class PiSessionService {
       }
     }
     active.unsubscribe = session.subscribe((event) => {
-      this.events.publish(session.sessionId, toClientEvent(event), active.eventScope);
+      this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel), active.eventScope);
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
       if (eventType === "agent_end") this.abortRunScopedExtensionDialogs(session);
@@ -4422,9 +4422,14 @@ function historyMessages(session: PiAgentSession): unknown[] {
 
 function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[] {
   const messages: unknown[] = [];
+  let thinkingLevel: string | undefined;
   for (const entry of sessionManager.getBranch()) {
     if (!isRecord(entry)) continue;
-    if (entry["type"] === "message") messages.push(entry["message"]);
+    if (entry["type"] === "message") messages.push(annotateAssistantThinkingLevel(entry["message"], thinkingLevel));
+    else if (entry["type"] === "thinking_level_change") {
+      const level = getString(entry, "thinkingLevel");
+      if (level !== undefined) thinkingLevel = level;
+    }
     else if (entry["type"] === "custom_message" && entry["display"] === true) messages.push({ role: "custom", content: entry["content"], customType: entry["customType"], details: entry["details"] });
     else if (entry["type"] === "compaction") messages.push({ role: "system", source: "compaction", content: `Compacted history:\n\n${stringValue(entry["summary"])}` });
     else if (entry["type"] === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${stringValue(entry["summary"])}` });

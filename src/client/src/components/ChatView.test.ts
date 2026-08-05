@@ -273,6 +273,17 @@ describe("chatMessageMetadataLabel", () => {
       meta: { timestamp, model: { provider: "provider", id: "model" } },
     })).toBe(`${formattedTimestamp} · provider/model`);
   });
+
+  it("appends the localized thinking level after the model when present", () => {
+    const timestamp = "2026-07-10T19:15:30.000Z";
+    const formattedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
+
+    expect(chatMessageMetadataLabel({
+      role: "assistant",
+      parts: [],
+      meta: { timestamp, model: { provider: "provider", id: "model" }, thinkingLevel: "high" },
+    })).toBe(`${formattedTimestamp} · provider/model · 高`);
+  });
 });
 
 describe("chat event-group content seams", () => {

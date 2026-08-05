@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
+import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ChatDisclosureController } from "../chatDisclosure";
 import { groupChatMessages, summarizeChatGroup, type ChatGroup } from "../chatGroups";
 import { writeClipboardText } from "../clipboard";
@@ -177,7 +178,9 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const timestamp = message.meta?.timestamp;
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
-  const parts = [time, model].filter((part): part is string => part !== undefined && part !== "");
+  const thinkingLevel = message.meta?.thinkingLevel;
+  const parts = [time, model, thinkingLevel === undefined || thinkingLevel === "" ? undefined : thinkingLevelDisplayLabel(thinkingLevel)]
+    .filter((part): part is string => part !== undefined && part !== "");
   return parts.length === 0 ? "没有可用的 Pi 消息元数据" : parts.join(" · ");
 }
 

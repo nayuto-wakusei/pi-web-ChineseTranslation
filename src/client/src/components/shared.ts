@@ -69,6 +69,8 @@ export interface ChatLine {
   meta?: {
     timestamp?: string;
     model?: { provider?: string; id?: string; responseId?: string };
+    /** Thinking level the assistant message was generated with, when known. */
+    thinkingLevel?: string;
   };
 }
 
