@@ -90,11 +90,11 @@ describe("Docker command assets", () => {
     expect(runtimeCompose).toContain("PI_WEB_DOCKER_MODE: runtime");
     expect(runtimeCompose).toContain("PI_WEB_DOCKER_INSTALL_DIR: ${PI_WEB_DOCKER_INSTALL_DIR:?set by docker/install.sh}");
     expect(runtimeCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_IMAGE:-pi-web:local}");
-    expect(runtimeCompose).toContain("COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web}");
+    expect(runtimeCompose).not.toContain("COMPOSE_PROJECT_NAME:");
     expect(devCompose).toContain("PI_WEB_DOCKER_MODE: dev");
     expect(devCompose).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}");
     expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
-    expect(devCompose).toContain("COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web-dev}");
+    expect(devCompose).not.toContain("COMPOSE_PROJECT_NAME:");
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
   });

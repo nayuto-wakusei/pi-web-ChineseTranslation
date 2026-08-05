@@ -115,12 +115,12 @@ Common environment variables written to `.env`:
 | `PI_WEB_NODEJS_REPO` | Node.js zypper repository URL, `auto`, or `disabled` |
 | `PI_WEB_EXTRA_ZYPPER_PACKAGES` | extra openSUSE packages installed during the image build |
 | `PI_WEB_IMAGE` | local image tag to build and run |
-| `COMPOSE_PROJECT_NAME` | Docker Compose project name used by the runtime and its detached update/restart helpers; defaults to `pi-web` |
+| `COMPOSE_PROJECT_NAME` | Docker Compose project name used by host-side lifecycle commands and detached update/restart helpers; defaults to `pi-web` and is not exported to the long-lived services |
 | `HOSTEXEC_IMAGE` | helper image used by `hostexec` |
 
 Host-derived IDs and the Docker host profile are refreshed on rerun unless you explicitly override the IDs. User-facing values such as data directory, bind address, port, image names, upload limit, extra host paths, base image, Node.js settings, extra packages, and npm package selection are preserved from an existing `.env` unless you pass a flag or environment override.
 
-The installer also writes a generated `compose.override.yml` in the install directory. `pi-web-docker` loads the generated `.env` and Compose override explicitly for runtime commands and passes the generated `COMPOSE_PROJECT_NAME` to Docker Compose, so an unrelated ambient Compose project name cannot redirect lifecycle commands. Re-run `pi-web-docker install` or `pi-web-docker update` instead of editing generated files by hand.
+The installer also writes a generated `compose.override.yml` in the install directory. `pi-web-docker` loads the generated `.env` and Compose override explicitly for runtime commands and passes the generated `COMPOSE_PROJECT_NAME` to Docker Compose, so an unrelated ambient Compose project name cannot redirect lifecycle commands. The project name stays scoped to this lifecycle control path instead of entering web, terminal, or agent environments. Re-run `pi-web-docker install` or `pi-web-docker update` instead of editing generated files by hand.
 
 ### Base image and tooling
 
