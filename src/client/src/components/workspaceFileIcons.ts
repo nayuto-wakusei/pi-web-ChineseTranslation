@@ -33,5 +33,5 @@ export function renderDeleteIcon(): TemplateResult {
 }
 
 export function renderRefreshIcon(): TemplateResult {
-  return icon(svg`<path d="M20 7v5h-5"></path><path d="M4 17v-5h5"></path><path d="M6.1 9A7 7 0 0 1 18.5 6.5L20 12"></path><path d="M17.9 15A7 7 0 0 1 5.5 17.5L4 12"></path>`);
+  return icon(svg`<path d="M20 6v5h-5"></path><path d="M20 11a8 8 0 1 0-2.34 5.66"></path>`);
 }
