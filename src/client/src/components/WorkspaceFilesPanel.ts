@@ -7,6 +7,7 @@ import type { WorkspaceUploadBatchState, WorkspaceUploadFileState } from "../wor
 import { MAX_IMAGE_PREVIEW_BYTES, MAX_IMAGE_PREVIEW_LABEL } from "../../../shared/workspaceFiles";
 import type { WorkspacePanelContext } from "../plugins/types";
 import { workspacePanelStyles } from "./shared";
+import { renderDeleteIcon, renderDownloadIcon, renderNewFileIcon, renderNewFolderIcon, renderRefreshIcon, renderRenameIcon, renderUploadIcon } from "./workspaceFileIcons";
 
 interface PendingWorkspaceUploadReview {
   files: File[];
@@ -55,13 +56,13 @@ export class WorkspaceFilesPanel extends LitElement {
           <strong>文件</strong>
           ${context.fileTreeStale ? html`<span class="stale">已过期</span>` : null}
           <div class="toolbar-actions">
-            <button title="新建文件" aria-label="新建文件" @click=${() => { this.promptCreateFile(context, selectedKind); }}>新建文件</button>
-            <button title="新建文件夹" aria-label="新建文件夹" @click=${() => { this.promptCreateDirectory(context, selectedKind); }}>新建文件夹</button>
-            <button aria-label="上传文件" @click=${this.openFilePicker}>上传</button>
-            <button aria-label="下载文件" title=${canDownload ? `下载 ${selectedPath}` : "请选择要下载的文件"} ?disabled=${!canDownload} @click=${context.onDownloadSelectedFile}>下载</button>
-            <button aria-label="移动或重命名" title=${hasSelection ? `移动或重命名 ${selectedPath}` : "请选择要移动或重命名的文件或文件夹"} ?disabled=${!hasSelection} @click=${() => { this.promptMoveSelectedPath(context, selectedKind); }}>移动/重命名</button>
-            <button class="danger" aria-label="删除文件或文件夹" title=${hasSelection ? `删除 ${selectedPath}` : "请选择要删除的文件或文件夹"} ?disabled=${!hasSelection} @click=${() => { this.confirmDeleteSelectedPath(context, selectedKind); }}>删除</button>
-            <button @click=${context.onRefreshFiles}>刷新</button>
+            <button class="icon-button" title="新建文件" aria-label="新建文件" @click=${() => { this.promptCreateFile(context, selectedKind); }}>${renderNewFileIcon()}</button>
+            <button class="icon-button" title="新建文件夹" aria-label="新建文件夹" @click=${() => { this.promptCreateDirectory(context, selectedKind); }}>${renderNewFolderIcon()}</button>
+            <button class="icon-button" title="上传文件" aria-label="上传文件" @click=${this.openFilePicker}>${renderUploadIcon()}</button>
+            <button class="icon-button" aria-label="下载文件" title=${canDownload ? `下载 ${selectedPath}` : "请选择要下载的文件"} ?disabled=${!canDownload} @click=${context.onDownloadSelectedFile}>${renderDownloadIcon()}</button>
+            <button class="icon-button" aria-label="移动或重命名" title=${hasSelection ? `移动或重命名 ${selectedPath}` : "请选择要移动或重命名的文件或文件夹"} ?disabled=${!hasSelection} @click=${() => { this.promptMoveSelectedPath(context, selectedKind); }}>${renderRenameIcon()}</button>
+            <button class="icon-button danger" aria-label="删除文件或文件夹" title=${hasSelection ? `删除 ${selectedPath}` : "请选择要删除的文件或文件夹"} ?disabled=${!hasSelection} @click=${() => { this.confirmDeleteSelectedPath(context, selectedKind); }}>${renderDeleteIcon()}</button>
+            <button class="icon-button" title="刷新" aria-label="刷新" @click=${context.onRefreshFiles}>${renderRefreshIcon()}</button>
           </div>
           <input id="workspace-upload-input" class="visually-hidden" type="file" multiple hidden @change=${this.handleFileInputChange} />
         </section>
@@ -373,8 +374,12 @@ export class WorkspaceFilesPanel extends LitElement {
     css`
       :host { flex: 1 1 auto; }
       .files-panel { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-      .toolbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+      .toolbar { min-width: 0; }
+      .toolbar > strong { flex: 0 0 auto; white-space: nowrap; }
+      .toolbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: 4px; min-width: 0; margin-left: auto; }
       .toolbar .toolbar-actions button { margin-left: 0; }
+      .toolbar .toolbar-actions .icon-button { flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; }
+      .file-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
       .toolbar .toolbar-actions button.danger { color: var(--pi-danger); }
       .toolbar .toolbar-actions button.danger:not(:disabled):hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
       .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
