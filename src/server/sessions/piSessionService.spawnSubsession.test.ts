@@ -64,17 +64,19 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("uses the parent model and disables delegation before creating the tracked child runtime", async () => {
+    it("uses the parent model and thinking level and disables delegation before creating the tracked child runtime", async () => {
       const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
       const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
       const model = testModel();
       const initialModels: PiAgentSession["model"][] = [];
+      const initialThinkingLevels: unknown[] = [];
       const delegationCapabilities: boolean[] = [];
       const runtimes = [parent.runtime, child.runtime];
       let index = 0;
       const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
         await Promise.resolve();
         initialModels.push(options.initialModel);
+        initialThinkingLevels.push(options.initialThinkingLevel);
         delegationCapabilities.push(options.delegationToolsEnabled);
         const runtime = runtimes[index] ?? child.runtime;
         index += 1;
@@ -91,9 +93,10 @@ describe("PiSessionService", () => {
       });
 
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature", model });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature", model, thinkingLevel: "max" });
 
       expect(initialModels).toEqual([undefined, model]);
+      expect(initialThinkingLevels).toEqual([undefined, "max"]);
       expect(delegationCapabilities).toEqual([true, false]);
       await service.dispose();
     });

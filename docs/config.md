@@ -280,7 +280,7 @@ A completion notice wakes an idle parent or queues behind in-flight work. Each n
 
 `list_subsessions`, `check_subsession`, and `read_subsession` never yield or change control flow. They are for deliberate inspection or recovery, not completion polling. While a child works, agent-facing `check_subsession` and `read_subsession` withhold partial output and direct the parent to continue independent work or yield at the join point. Output becomes available when the child stops. Included output and transcripts follow a labeled marker and come last, after PI WEB guidance.
 
-`spawn_session` 和 `spawn_subsession` 都接受可选的 `model` 参数，其值必须是精确的 `provider/model-id`，例如 `anthropic/claude-sonnet-4-5`。设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。用户可以在提示词中通过 `#provider/model-id` 引用指定模型（见[提示词补全](#prompt-completions)），代理会将该引用作为此参数传递。
+`spawn_session` 和 `spawn_subsession` 都接受可选的 `model` 参数，其值必须是精确的 `provider/model-id`，例如 `anthropic/claude-sonnet-4-5`。设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。用户可以在提示词中通过 `#provider/model-id` 引用指定模型（见[提示词补全](#prompt-completions)），代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
 
 In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
 

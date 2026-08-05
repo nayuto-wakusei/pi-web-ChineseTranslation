@@ -811,7 +811,7 @@
                 其值必须是精确的 <code>provider/model-id</code>，例如 <code>anthropic/claude-sonnet-4-5</code>。
                 设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。
                 用户可以在提示词中通过 <code>#provider/model-id</code> 引用指定模型（见<a href="#prompt-completions">提示词补全</a>），
-                代理会将该引用作为此参数传递。
+                代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
               </p>
               <p>
                 In <strong>Settings → Session daemon</strong>, these keys are saved on the selected machine. Restart the

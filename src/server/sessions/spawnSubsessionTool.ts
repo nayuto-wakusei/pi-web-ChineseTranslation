@@ -13,6 +13,7 @@ export interface SpawnSubsessionResult {
 }
 
 export type SpawnSubsessionModel = NonNullable<ExtensionContext["model"]>;
+export type SpawnSubsessionThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
 
 export interface SpawnSubsessionInvocation {
   /** cwd of the session that invoked the tool (used for project-scope checks). */
@@ -27,6 +28,8 @@ export interface SpawnSubsessionInvocation {
   model?: SpawnSubsessionModel;
   /** Strict `provider/model-id` requested by the parent; overrides {@link model} when set. */
   modelSpec?: string;
+  /** Parent's current thinking level, inherited by the child session (pi clamps it to the child model's capabilities). */
+  thinkingLevel?: SpawnSubsessionThinkingLevel;
 }
 
 export interface SubsessionSummary {
@@ -205,6 +208,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         cwd: params.cwd,
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
         ...(params.model === undefined ? {} : { modelSpec: params.model }),
+        ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),
       });
       const modelNote = result.model === undefined ? "" : `，使用模型 ${result.model}`;
       return {

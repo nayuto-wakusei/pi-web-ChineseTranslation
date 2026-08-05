@@ -4,26 +4,26 @@ import { createSpawnSessionToolDefinition } from "./spawnSessionTool.js";
 
 const dispatchModel = { provider: "anthropic", id: "claude-sonnet" };
 
-function ctxFor(sessionId: string, model?: unknown): ExtensionContext {
+function ctxFor(sessionId: string, model?: unknown, thinkingLevel?: string): ExtensionContext {
   const sessionManager = { getSessionId: () => sessionId };
-  // The spawn tool only reads sessionManager.getSessionId and model.
+  // The spawn tool only reads sessionManager.getSessionId, model, and thinkingLevel.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test stub with the minimal surface the tool reads.
-  return { sessionManager, ...(model === undefined ? {} : { model }) } as unknown as ExtensionContext;
+  return { sessionManager, ...(model === undefined ? {} : { model }), ...(thinkingLevel === undefined ? {} : { thinkingLevel }) } as unknown as ExtensionContext;
 }
 
 describe("createSpawnSessionToolDefinition", () => {
-  it("passes the spawning identity, explicit cwd, dispatching model, and prompt to spawn callback", async () => {
+  it("passes the spawning identity, explicit cwd, dispatching model, thinking level, and prompt to spawn callback", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-1", cwd: "/repos/a-feature" }));
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
 
-    const result = await tool.execute("call-1", { prompt: "do the thing", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("spawner-1", dispatchModel));
+    const result = await tool.execute("call-1", { prompt: "do the thing", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("spawner-1", dispatchModel, "high"));
 
-    expect(spawn).toHaveBeenCalledWith({ spawningCwd: "/repos/a", spawningSessionId: "spawner-1", prompt: "do the thing", cwd: "/repos/a-feature", model: dispatchModel });
+    expect(spawn).toHaveBeenCalledWith({ spawningCwd: "/repos/a", spawningSessionId: "spawner-1", prompt: "do the thing", cwd: "/repos/a-feature", model: dispatchModel, thinkingLevel: "high" });
     expect(result.details).toEqual({ sessionId: "new-1", cwd: "/repos/a-feature" });
     expect(result.content[0]).toMatchObject({ type: "text", text: "已在 /repos/a-feature 启动独立会话 new-1。" });
   });
 
-  it("forwards omitted cwd as undefined and omits a missing dispatching model", async () => {
+  it("forwards omitted cwd as undefined and omits a missing dispatching model and thinking level", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-2", cwd: "/repos/a" }));
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
 

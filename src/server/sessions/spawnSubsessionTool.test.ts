@@ -5,11 +5,11 @@ import { createSubsessionToolDefinitions, type SubsessionToolDeps } from "./spaw
 
 const dispatchModel = { provider: "anthropic", id: "claude-sonnet" };
 
-function ctxFor(sessionId: string, sessionFile: string | undefined, model?: unknown): ExtensionContext {
+function ctxFor(sessionId: string, sessionFile: string | undefined, model?: unknown, thinkingLevel?: string): ExtensionContext {
   const sessionManager = { getSessionId: () => sessionId, getSessionFile: () => sessionFile };
-  // The subsession tools only read sessionManager.getSessionId/getSessionFile and model.
+  // The subsession tools only read sessionManager.getSessionId/getSessionFile, model, and thinkingLevel.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test stub with the minimal surface the tools use.
-  return { sessionManager, ...(model === undefined ? {} : { model }) } as unknown as ExtensionContext;
+  return { sessionManager, ...(model === undefined ? {} : { model }), ...(thinkingLevel === undefined ? {} : { thinkingLevel }) } as unknown as ExtensionContext;
 }
 
 function tools(deps: Partial<SubsessionToolDeps>) {
@@ -48,7 +48,7 @@ describe("createSubsessionToolDefinitions", () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" }));
     const { spawn: spawnTool } = tools({ spawn });
 
-    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel));
+    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel, "max"));
 
     expect(spawn).toHaveBeenCalledWith({
       spawningCwd: "/repos/a",
@@ -57,6 +57,7 @@ describe("createSubsessionToolDefinitions", () => {
       prompt: "do it",
       cwd: "/repos/a-feature",
       model: dispatchModel,
+      thinkingLevel: "max",
     });
     expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a-feature" });
     expect(firstText(result.content)).toContain("启动受跟踪子会话 child-1");

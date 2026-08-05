@@ -62,6 +62,52 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
+    it("passes the dispatching session's thinking level to the spawned session's runtime", async () => {
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      let initialThinkingLevel: unknown;
+      const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+        await Promise.resolve();
+        initialThinkingLevel = options.initialThinkingLevel;
+        return fake.runtime;
+      };
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+        createAgentRuntime,
+        sessionManager: sessionGateway([]),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "continue", cwd: "/workspace-feature", thinkingLevel: "high" });
+
+      expect(initialThinkingLevel).toBe("high");
+      await service.dispose();
+    });
+
+    it("leaves the spawned session's thinking level to pi defaults when the dispatcher has none", async () => {
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      let initialThinkingLevel: unknown = "unset";
+      const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+        await Promise.resolve();
+        initialThinkingLevel = options.initialThinkingLevel;
+        return fake.runtime;
+      };
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+        createAgentRuntime,
+        sessionManager: sessionGateway([]),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "continue", cwd: "/workspace-feature" });
+
+      expect(initialThinkingLevel).toBeUndefined();
+      await service.dispose();
+    });
+
     it("names the spawned session's model in the result", async () => {
       const spawned = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", model: testModel() });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
@@ -264,10 +310,11 @@ describe("PiSessionService", () => {
           prompt: "go",
           cwd: "/workspace-feature",
           modelSpec: TEST_MODEL_SPEC,
+          thinkingLevel: "high",
           managementContext,
         });
 
-        expect(createCalls[1]).toMatchObject({ managementContext, initialModel: model });
+        expect(createCalls[1]).toMatchObject({ managementContext, initialModel: model, initialThinkingLevel: "high" });
         expect(spawned.calls.prompt).toEqual([{ text: "go", options: undefined }]);
         expect(result).toEqual({ sessionId: "spawned-managed", cwd: "/workspace-feature", model: TEST_MODEL_SPEC });
         await service.dispose();

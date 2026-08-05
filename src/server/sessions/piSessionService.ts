@@ -267,6 +267,11 @@ interface StartSessionOptions {
   managementContext?: ManagementEmbedContext;
   initialModel?: AgentModel;
   /**
+   * Thinking level for the brand new session; omit to resolve from settings
+   * and Pi defaults. Pi clamps it to the initial model's capabilities.
+   */
+  initialThinkingLevel?: ClientThinkingLevel;
+  /**
    * Opaque label, echoed on this construction's startup progress so a browser
    * row with no session id yet can recognise its own.
    */
@@ -453,7 +458,12 @@ export interface PiSessionRuntime {
   dispose(): Promise<void>;
 }
 
-type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & { managementContext?: ManagementEmbedContext; initialModel?: AgentModel; delegationToolsEnabled?: boolean };
+type PiCreateRuntimeFactoryOptions = Parameters<CreateAgentSessionRuntimeFactory>[0] & {
+  managementContext?: ManagementEmbedContext;
+  initialModel?: AgentModel;
+  initialThinkingLevel?: ClientThinkingLevel;
+  delegationToolsEnabled?: boolean;
+};
 type PiCreateAgentSessionRuntimeFactory = (options: PiCreateRuntimeFactoryOptions) => ReturnType<CreateAgentSessionRuntimeFactory>;
 
 interface AgentContextFilesResult {
@@ -481,7 +491,7 @@ function pathInsideOrEqual(parent: string, child: string): boolean {
   return childRelativePath === "" || (!childRelativePath.startsWith("..") && !isAbsolute(childRelativePath));
 }
 
-interface CreateSessionRuntimeOptions extends Pick<InternalStartSessionOptions, "managementContext" | "initialModel" | "creationProvenance" | "startupToken"> {
+interface CreateSessionRuntimeOptions extends Pick<InternalStartSessionOptions, "managementContext" | "initialModel" | "initialThinkingLevel" | "creationProvenance" | "startupToken"> {
   notificationGeneration?: SessionNotificationGeneration;
   notifications?: "enabled" | "disabled";
   /**
@@ -650,13 +660,20 @@ interface CreateAgentRuntimeOptions {
   delegationToolsEnabled: boolean;
   managementContext?: ManagementEmbedContext;
   initialModel?: AgentModel;
+  initialThinkingLevel?: ClientThinkingLevel;
 }
 
 type CreateAgentRuntime = (createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
 
 function defaultCreateAgentRuntime(createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
   if (!(options.sessionManager instanceof SessionManager)) throw new Error("Default runtime creation requires an SDK SessionManager");
-  const runtimeFactory = createRuntimeWithContextAndOneShotInitialModel(createRuntime, options.managementContext, options.initialModel, options.delegationToolsEnabled);
+  const runtimeFactory = createRuntimeWithContextAndOneShotSessionOptions(
+    createRuntime,
+    options.managementContext,
+    options.initialModel,
+    options.initialThinkingLevel,
+    options.delegationToolsEnabled,
+  );
   return createAgentSessionRuntime(runtimeFactory, {
     cwd: options.cwd,
     agentDir: options.agentDir,
@@ -664,25 +681,30 @@ function defaultCreateAgentRuntime(createRuntime: PiCreateAgentSessionRuntimeFac
   });
 }
 
-function createRuntimeWithContextAndOneShotInitialModel(
+function createRuntimeWithContextAndOneShotSessionOptions(
   createRuntime: PiCreateAgentSessionRuntimeFactory,
   managementContext: ManagementEmbedContext | undefined,
   initialModel: AgentModel | undefined,
+  initialThinkingLevel: ClientThinkingLevel | undefined,
   delegationToolsEnabled: boolean,
 ): CreateAgentSessionRuntimeFactory {
-  // The inherited model belongs only to the session being spawned. Do not keep
-  // reapplying it if that runtime later creates/forks/switches sessions itself.
+  // These inherited options belong only to the session being spawned. A later
+  // runtime replacement restores its own model and thinking level from disk.
   let pendingInitialModel = initialModel;
+  let pendingInitialThinkingLevel = initialThinkingLevel;
   let pendingDelegationToolsEnabled: boolean | undefined = delegationToolsEnabled;
   return async (options) => {
     const model = pendingInitialModel;
+    const thinkingLevel = pendingInitialThinkingLevel;
     const toolsEnabled = pendingDelegationToolsEnabled;
     pendingInitialModel = undefined;
+    pendingInitialThinkingLevel = undefined;
     pendingDelegationToolsEnabled = undefined;
     return createRuntime({
       ...options,
       ...(managementContext === undefined ? {} : { managementContext }),
       ...(model === undefined ? {} : { initialModel: model }),
+      ...(thinkingLevel === undefined ? {} : { initialThinkingLevel: thinkingLevel }),
       ...(toolsEnabled === undefined ? {} : { delegationToolsEnabled: toolsEnabled }),
     });
   };
@@ -705,7 +727,7 @@ function createDefaultRuntimeFactory(
   subsessions?: ScopedSubsessionToolDeps,
   askUser?: AskUserToolDeps,
 ): PiCreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, delegationToolsEnabled = true }) => {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
       return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext)({
@@ -715,6 +737,7 @@ function createDefaultRuntimeFactory(
         delegationToolsEnabled,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         ...(initialModel === undefined ? {} : { initialModel }),
+        ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
       });
     }
 
@@ -731,6 +754,7 @@ function createDefaultRuntimeFactory(
       customTools,
       ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
       ...(initialModel === undefined ? {} : { model: initialModel }),
+      ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
     });
     return { ...result, services, diagnostics: services.diagnostics };
   };
@@ -744,7 +768,7 @@ function createManagementRuntimeFactory(
   askUser: AskUserToolDeps | undefined,
   managementContext: ManagementEmbedContext,
 ): PiCreateAgentSessionRuntimeFactory {
-  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, delegationToolsEnabled = true }) => {
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const settingsManager = await createScopedSettingsManager({
@@ -785,6 +809,7 @@ function createManagementRuntimeFactory(
         customTools,
         tools: managementAgentToolNames(managementContext),
         ...(initialModel === undefined ? {} : { model: initialModel }),
+        ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
       };
       const result = await createAgentSessionFromServices(options);
       return { ...result, services, diagnostics: services.diagnostics };
@@ -1337,6 +1362,7 @@ export class PiSessionService {
       {
         ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
         ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
+        ...(options.initialThinkingLevel === undefined ? {} : { initialThinkingLevel: options.initialThinkingLevel }),
         ...(options.creationProvenance === undefined ? {} : { creationProvenance: options.creationProvenance }),
         ...(options.startupToken === undefined ? {} : { startupToken: options.startupToken }),
         startupIntent: "create",
@@ -1383,6 +1409,7 @@ export class PiSessionService {
     }
     const created = await this.start(decision.cwd, {
       ...(model === undefined ? {} : { initialModel: model }),
+      ...(input.thinkingLevel === undefined ? {} : { initialThinkingLevel: input.thinkingLevel }),
       ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
     });
     const modelUsed = this.activeForLookup(created.id, input.managementContext)?.runtime.session.model;
@@ -1422,6 +1449,7 @@ export class PiSessionService {
     const created = await this.startSession(decision.cwd, {
       ...(input.parentSessionFile === undefined ? {} : { parentSession: input.parentSessionFile }),
       ...(model === undefined ? {} : { initialModel: model }),
+      ...(input.thinkingLevel === undefined ? {} : { initialThinkingLevel: input.thinkingLevel }),
       ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
       creationProvenance: "tracked-subsession",
     });
@@ -3699,6 +3727,7 @@ private async createSessionRuntime(
       delegationToolsEnabled,
       ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
       ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
+      ...(options.initialThinkingLevel === undefined ? {} : { initialThinkingLevel: options.initialThinkingLevel }),
     });
     const active: ManagedActiveSession = {
       runtime,

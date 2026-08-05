@@ -9,6 +9,7 @@ export interface SpawnSessionResult {
 }
 
 export type SpawnSessionModel = NonNullable<ExtensionContext["model"]>;
+export type SpawnSessionThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
 
 export interface SpawnSessionInvocation {
   spawningCwd: string;
@@ -20,6 +21,8 @@ export interface SpawnSessionInvocation {
   model?: SpawnSessionModel;
   /** Strict `provider/model-id` requested by the dispatcher; overrides {@link model} when set. */
   modelSpec?: string;
+  /** Dispatching session's current thinking level, inherited by the spawned session (pi clamps it to the spawned model's capabilities). */
+  thinkingLevel?: SpawnSessionThinkingLevel;
 }
 
 export interface SpawnSessionToolDeps {
@@ -64,6 +67,7 @@ export function createSpawnSessionToolDefinition(spawningCwd: string, deps: Spaw
         cwd: params.cwd,
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
         ...(params.model === undefined ? {} : { modelSpec: params.model }),
+        ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),
       });
       const modelNote = result.model === undefined ? "" : `，使用模型 ${result.model}`;
       return {
