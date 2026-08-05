@@ -1578,7 +1578,7 @@ describe("PiSessionService", () => {
     it("starts a session at the resolved target, delivers the prompt, and logs the spawn", async () => {
       const { fake, service, log } = spawnService({ allowed: true, cwd: "/workspace-feature" });
 
-      const result = await service.spawnSession({ spawningCwd: "/workspace", prompt: "continue the plan", cwd: "/workspace-feature" });
+      const result = await service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "continue the plan", cwd: "/workspace-feature" });
 
       expect(result).toEqual({ sessionId: "spawned-1", cwd: "/workspace-feature" });
       expect(fake.calls.prompt).toEqual([{ text: "continue the plan", options: undefined }]);
@@ -1602,7 +1602,7 @@ describe("PiSessionService", () => {
         heartbeatIntervalMs: 60_000,
       });
 
-      await service.spawnSession({ spawningCwd: "/workspace", prompt: "continue", cwd: "/workspace-feature", model });
+      await service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "continue", cwd: "/workspace-feature", model });
 
       expect(initialModel).toBe(model);
       await service.dispose();
@@ -1611,7 +1611,7 @@ describe("PiSessionService", () => {
     it("rejects an out-of-project target without starting a session", async () => {
       const { fake, service } = spawnService({ allowed: false, reason: "out-of-project", allowedCwds: ["/workspace"] });
 
-      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: "/elsewhere" }))
+      await expect(service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "go", cwd: "/elsewhere" }))
         .rejects.toThrow("cwd 必须是此项目的工作区。允许的路径：/workspace");
       expect(fake.calls.prompt).toEqual([]);
       expect(service.activeCount()).toBe(0);
@@ -1621,7 +1621,7 @@ describe("PiSessionService", () => {
     it("rejects when the spawning session is not in a registered project", async () => {
       const { service } = spawnService({ allowed: false, reason: "not-registered" });
 
-      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
+      await expect(service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "go", cwd: undefined }))
         .rejects.toThrow("派生会话不在已注册项目中");
       await service.dispose();
     });
@@ -1634,7 +1634,7 @@ describe("PiSessionService", () => {
         heartbeatIntervalMs: 60_000,
       });
 
-      await expect(service.spawnSession({ spawningCwd: "/workspace", prompt: "go", cwd: undefined }))
+      await expect(service.spawnSession({ spawningCwd: "/workspace", spawningSessionId: "spawner-1", prompt: "go", cwd: undefined }))
         .rejects.toThrow("派生会话已禁用");
       await service.dispose();
     });
@@ -2470,7 +2470,7 @@ describe("PiSessionService", () => {
         heartbeatIntervalMs: 60_000,
       });
       await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "p", parentSessionFile: undefined, prompt: "go", cwd: undefined }))
-        .rejects.toThrow("Spawning sessions is disabled");
+        .rejects.toThrow("派生会话已禁用");
       await service.dispose();
     });
   });

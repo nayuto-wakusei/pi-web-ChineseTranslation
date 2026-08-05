@@ -125,6 +125,30 @@ function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: fals
   return new Error(`cwd 必须是此项目的工作区。允许的路径：${decision.allowedCwds.join(", ")}`);
 }
 
+function modelSpecOf(model: { provider: string; id: string }): string {
+  return `${model.provider}/${model.id}`;
+}
+
+/**
+ * Parse a strict `provider/model-id` spec: split on the first `/` (model ids
+ * may themselves contain `/`) and require both parts to be non-empty.
+ */
+function parseModelSpec(spec: string): { provider: string; modelId: string } | undefined {
+  const slash = spec.indexOf("/");
+  if (slash <= 0 || slash === spec.length - 1) return undefined;
+  return { provider: spec.slice(0, slash), modelId: spec.slice(slash + 1) };
+}
+
+/**
+ * Error for a spawn-tool model spec that matched nothing. States the facts —
+ * the bad spec and the required format — with deliberately no model list
+ * (a list would invite guesses). The agent loop turns the throw into an
+ * error tool result; how to recover is the agent's call.
+ */
+function unknownSpawnModelError(modelSpec: string): Error {
+  return new Error(`未找到模型“${modelSpec}”。请传入精确的“provider/model-id”。`);
+}
+
 function authLossWarningKey(sessionId: string, eventScope: string, provider: string, modelId: string): string {
   return `${eventScope}:${sessionId}:${provider}/${modelId}`;
 }
@@ -664,7 +688,12 @@ function createRuntimeWithContextAndOneShotInitialModel(
   };
 }
 
-type SpawnSessionFn = (input: SpawnSessionInvocation) => Promise<SpawnSessionResult>;
+type ScopedSpawnSessionInvocation = SpawnSessionInvocation & { managementContext?: ManagementEmbedContext };
+type ScopedSpawnSubsessionInvocation = SpawnSubsessionInvocation & { managementContext?: ManagementEmbedContext };
+type SpawnSessionFn = (input: ScopedSpawnSessionInvocation) => Promise<SpawnSessionResult>;
+type ScopedSubsessionToolDeps = Omit<SubsessionToolDeps, "spawn"> & {
+  spawn(input: ScopedSpawnSubsessionInvocation): Promise<SpawnSubsessionResult>;
+};
 
 type ResolveSettingsScopeDirectory = (cwd: string, mode: SessionSettingsMode) => Promise<string>;
 
@@ -673,7 +702,7 @@ function createDefaultRuntimeFactory(
   managementModelRuntime: () => Promise<ModelRuntime>,
   resolveSettingsScope: ResolveSettingsScopeDirectory,
   spawn?: SpawnSessionFn,
-  subsessions?: SubsessionToolDeps,
+  subsessions?: ScopedSubsessionToolDeps,
   askUser?: AskUserToolDeps,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, delegationToolsEnabled = true }) => {
@@ -711,7 +740,7 @@ function createManagementRuntimeFactory(
   modelRuntime: ModelRuntime,
   resolveSettingsScope: ResolveSettingsScopeDirectory,
   spawn: SpawnSessionFn | undefined,
-  subsessions: SubsessionToolDeps | undefined,
+  subsessions: ScopedSubsessionToolDeps | undefined,
   askUser: AskUserToolDeps | undefined,
   managementContext: ManagementEmbedContext,
 ): PiCreateAgentSessionRuntimeFactory {
@@ -733,11 +762,20 @@ function createManagementRuntimeFactory(
         },
       });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
+      const scopedSpawn = spawn === undefined
+        ? undefined
+        : (input: SpawnSessionInvocation) => spawn({ ...input, managementContext });
+      const scopedSubsessions = subsessions === undefined
+        ? undefined
+        : {
+            ...subsessions,
+            spawn: (input: SpawnSubsessionInvocation) => subsessions.spawn({ ...input, managementContext }),
+          };
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
         createManagedPythonToolDefinition(cwd, managementContext),
-        ...(delegationToolsEnabled && spawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))] : []),
-        ...(delegationToolsEnabled && subsessions !== undefined ? createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool)) : []),
+        ...(delegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
+        ...(delegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
         ...(askUser === undefined ? [] : [createAskUserToolDefinition(askUser)]),
       ];
       const options = {
@@ -1329,17 +1367,37 @@ export class PiSessionService {
    * The target cwd is constrained to a workspace of the same registered project
    * as the spawning session so the new session is visible in the web UI.
    */
-  async spawnSession(input: SpawnSessionInvocation): Promise<SpawnSessionResult> {
+  async spawnSession(input: ScopedSpawnSessionInvocation): Promise<SpawnSessionResult> {
     if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
     const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
-    const created = await this.start(decision.cwd, input.model === undefined ? {} : { initialModel: input.model });
-    await this.prompt(created.id, input.prompt);
+    // A model spec overrides the inherited model. Only a spec triggers a
+    // spawning-session lookup; the default path must not depend on it.
+    let model = input.model;
+    if (input.modelSpec !== undefined) {
+      model = await this.resolveSpawnModel(
+        { id: input.spawningSessionId, cwd: input.spawningCwd },
+        input.modelSpec,
+        input.managementContext,
+      );
+    }
+    const created = await this.start(decision.cwd, {
+      ...(model === undefined ? {} : { initialModel: model }),
+      ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
+    });
+    const modelUsed = this.activeForLookup(created.id, input.managementContext)?.runtime.session.model;
+    await this.prompt(created.id, input.prompt, undefined, undefined, {
+      ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
+    });
     this.logger.info(
       { spawningCwd: input.spawningCwd, sessionId: created.id, cwd: decision.cwd, promptLength: input.prompt.length },
       "spawn_session started a new session",
     );
-    return { sessionId: created.id, cwd: decision.cwd };
+    return {
+      sessionId: created.id,
+      cwd: decision.cwd,
+      ...(modelUsed === undefined ? {} : { model: modelSpecOf(modelUsed) }),
+    };
   }
 
   /**
@@ -1348,15 +1406,26 @@ export class PiSessionService {
    * records its parent (so it shows in the session tree) and is registered so
    * the parent is notified when it stops working and can inspect it later.
    */
-  async spawnSubsession(input: SpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
-    if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
+  async spawnSubsession(input: ScopedSpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
+    if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
     const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
+    // A model spec overrides the inherited model and is resolved against the
+    // parent's model runtime; only a spec triggers that lookup.
+    const model = input.modelSpec === undefined
+      ? input.model
+      : await this.resolveSpawnModel(
+          { id: input.parentSessionId, cwd: input.spawningCwd },
+          input.modelSpec,
+          input.managementContext,
+        );
     const created = await this.startSession(decision.cwd, {
       ...(input.parentSessionFile === undefined ? {} : { parentSession: input.parentSessionFile }),
-      ...(input.model === undefined ? {} : { initialModel: input.model }),
+      ...(model === undefined ? {} : { initialModel: model }),
+      ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
       creationProvenance: "tracked-subsession",
     });
+    const modelUsed = this.activeForLookup(created.id, input.managementContext)?.runtime.session.model;
     const parentSessionFile = nonEmptyString(input.parentSessionFile);
     const link: TrackedSubsessionLink = {
       parentSessionId: input.parentSessionId,
@@ -1368,12 +1437,53 @@ export class PiSessionService {
     await this.registerVerifiedSubsession(link);
     this.persistSubsessionLink(link);
     this.persistSubsessionChildMarker(input.parentSessionId, created.id);
-    await this.prompt(created.id, input.prompt);
+    await this.prompt(created.id, input.prompt, undefined, undefined, {
+      ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
+    });
     this.logger.info(
       { parentSessionId: input.parentSessionId, sessionId: created.id, cwd: decision.cwd, promptLength: input.prompt.length },
       "spawn_subsession started a tracked child session",
     );
-    return { sessionId: created.id, cwd: decision.cwd };
+    return {
+      sessionId: created.id,
+      cwd: decision.cwd,
+      ...(modelUsed === undefined ? {} : { model: modelSpecOf(modelUsed) }),
+    };
+  }
+
+  /**
+   * The models a session may pick from: its scoped set when model-scoped,
+   * otherwise the runtime's available snapshot. Refreshes the runtime catalog
+   * first so callers see newly configured providers and models.
+   */
+  private async sessionModelCandidates(session: PiAgentSession): Promise<readonly AgentModel[]> {
+    await session.modelRuntime.refresh();
+    return session.scopedModels.length > 0
+      ? session.scopedModels.map((scoped) => scoped.model)
+      : await session.modelRuntime.getAvailable();
+  }
+
+  /**
+   * Resolve a strict `provider/model-id` spec from a spawn tool against the
+   * *spawning* session's model runtime, using the same candidates
+   * {@link setModel} offers plus a direct runtime lookup as fallback. Unknown
+   * or malformed specs throw; the agent loop turns that into an error tool
+   * result the spawning agent can retry from.
+   */
+  private async resolveSpawnModel(
+    spawningSession: PiSessionLookup,
+    modelSpec: string,
+    managementContext?: ManagementEmbedContext,
+  ): Promise<AgentModel> {
+    const session = await this.getOrOpen(spawningSession, managementContext);
+    const parsed = parseModelSpec(modelSpec);
+    const candidates = await this.sessionModelCandidates(session);
+    const model = parsed === undefined
+      ? undefined
+      : candidates.find((candidate) => candidate.provider === parsed.provider && candidate.id === parsed.modelId)
+        ?? session.modelRuntime.getModel(parsed.provider, parsed.modelId);
+    if (model === undefined) throw unknownSpawnModelError(modelSpec);
+    return model;
   }
 
   /**
@@ -1960,20 +2070,16 @@ export class PiSessionService {
 
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.refresh();
-    const models = session.scopedModels.length > 0
-      ? session.scopedModels.map((scoped) => scoped.model)
-      : await session.modelRuntime.getAvailable();
+    const models = await this.sessionModelCandidates(session);
     return models.map(modelToClientModel);
   }
 
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    await session.modelRuntime.refresh();
-    const candidates = session.scopedModels.length > 0
-      ? session.scopedModels.map((scoped) => scoped.model)
-      : await session.modelRuntime.getAvailable();
+    this.assertTreeNavigationInactive(session, "change models");
+    const candidates = await this.sessionModelCandidates(session);
+    this.assertTreeNavigationInactive(session, "change models");
     const model = candidates.find((candidate) => candidate.provider === provider && candidate.id === modelId)
       ?? session.modelRuntime.getModel(provider, modelId);
     if (model === undefined) throw new Error(`未找到模型：${provider}/${modelId}`);

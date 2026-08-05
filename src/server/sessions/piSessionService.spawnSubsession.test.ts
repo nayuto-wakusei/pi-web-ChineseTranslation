@@ -98,6 +98,38 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
+    it("resolves a model spec against the parent's models and names it in the result", async () => {
+      const scoped = testModel();
+      const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl", scopedModels: [{ model: scoped }] });
+      const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature"), model: scoped });
+      const initialModels: PiAgentSession["model"][] = [];
+      const runtimes = [parent.runtime, child.runtime];
+      let index = 0;
+      const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
+        await Promise.resolve();
+        initialModels.push(options.initialModel);
+        const runtime = runtimes[index] ?? child.runtime;
+        index += 1;
+        return runtime;
+      };
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+        createAgentRuntime,
+        sessionManager: sessionGateway([]),
+        archiveStore: emptyArchiveStore(),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature", modelSpec: "anthropic/claude-sonnet-4-5-20250929" });
+
+      expect(initialModels[1]).toBe(scoped);
+      expect(result).toEqual({ sessionId: "child-1", cwd: "/workspace-feature", model: "anthropic/claude-sonnet-4-5-20250929" });
+      await service.dispose();
+    });
+
     it("persists tracked child links in the parent and child sessions", async () => {
       const parentPersisted: { customType: string; data?: unknown }[] = [];
       const childPersisted: { customType: string; data?: unknown }[] = [];
@@ -982,7 +1014,7 @@ describe("PiSessionService", () => {
         heartbeatIntervalMs: 60_000,
       });
       await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "p", parentSessionFile: undefined, prompt: "go", cwd: undefined }))
-        .rejects.toThrow("Spawning sessions is disabled");
+        .rejects.toThrow("派生会话已禁用");
       await service.dispose();
     });
   });

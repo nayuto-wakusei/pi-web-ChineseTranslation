@@ -103,6 +103,7 @@
             <a href="#catalog-refresh">Model catalog refresh</a>
             <a href="#session-tools">Session tools</a>
             <a href="#extension-dialogs">扩展对话框</a>
+            <a href="#prompt-completions">提示词补全</a>
             <a href="#completion-tools">Completion tools</a>
           </aside>
 
@@ -806,6 +807,13 @@
                 after PI WEB guidance.
               </p>
               <p>
+                <code>spawn_session</code> 和 <code>spawn_subsession</code> 都接受可选的 <code>model</code> 参数，
+                其值必须是精确的 <code>provider/model-id</code>，例如 <code>anthropic/claude-sonnet-4-5</code>。
+                设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。
+                用户可以在提示词中通过 <code>#provider/model-id</code> 引用指定模型（见<a href="#prompt-completions">提示词补全</a>），
+                代理会将该引用作为此参数传递。
+              </p>
+              <p>
                 In <strong>Settings → Session daemon</strong>, these keys are saved on the selected machine. Restart the
                 session daemon on that machine after changing them.
               </p>
@@ -873,6 +881,24 @@
                 修改后需要重启会话守护进程；使用 systemd 用户服务时运行
                 <code>systemctl --user restart pi-web-sessiond</code>.
               </div>
+            </section>
+
+            <section id="prompt-completions">
+              <h2>提示词补全</h2>
+              <p>聊天输入框会在键入以下三个触发字符时打开补全菜单：</p>
+              <ul>
+                <li>在草稿开头键入 <code>/</code> 可补全会话命令。</li>
+                <li>
+                  <code>@</code> 用于补全文件路径：<code>@</code> 显示已跟踪文件，<code>@ </code>（先键入
+                  <code>@</code>，再键入空格）或 <code>!@</code> 显示所有文件。选中后会把 <code>@path</code>
+                  引用插入草稿；路径包含空格时会自动加引号。
+                </li>
+                <li>
+                  <code>#</code> 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。
+                  选中后会把 <code>#provider/model-id</code> 引用插入草稿，提示代理应使用该模型执行请求，
+                  例如作为 <code>spawn_session</code> 的 <code>model</code> 参数。
+                </li>
+              </ul>
             </section>
 
 
