@@ -92,8 +92,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes model picker and session bulk action copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "重命名", "完成", "搜索会话内容", "置顶", "取消置顶"],
-    forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
+    expected: ["选择模型", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
+    forbidden: ["Select Model", "✓ current", "Select visible", "Clear selected", "} selected", "Archive selected", "Delete selected", ">Done<", ">Archive<"],
   },
   {
     name: "localizes session content search dialog copy",

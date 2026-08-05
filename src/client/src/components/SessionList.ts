@@ -283,16 +283,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const selectedSessions = this.selectedSessions("current");
     const archivableSessions = selectedSessions.filter((session) => isArchivableSessionInfo(session, this.statuses[session.id], this.sessionPersistenceOptions()));
     const unreadSelectedSessions = selectedSessions.filter((session) => this.unreadSessionIds.has(session.id));
-    const allVisibleSelected = visibleSessions.length > 0 && visibleSessions.every((session) => this.selectedSessionIds.has(session.id));
-    const visibleSelectedCount = visibleSessions.filter((session) => this.selectedSessionIds.has(session.id)).length;
     return html`
       <div class="bulk-row selecting">
-        <button ?disabled=${visibleSessions.length === 0} @click=${() => { this.toggleVisibleSelection(visibleSessions, !allVisibleSelected); }}>${allVisibleSelected ? "清除可见" : "选择可见"}</button>
-        <small>已选 ${selectedSessions.length}${visibleSelectedCount !== selectedSessions.length ? html` · 可见 ${visibleSelectedCount}` : null}</small>
-        <button ?disabled=${archivableSessions.length === 0} @click=${() => { this.archiveSelectedCurrent(); }}>归档所选</button>
+        ${this.renderSelectionControls("current", visibleSessions)}
+        <button ?disabled=${archivableSessions.length === 0} @click=${() => { this.archiveSelectedCurrent(); }}>归档</button>
         <button ?disabled=${unreadSelectedSessions.length === 0} @click=${() => { this.markSelectedCurrentRead(); }}>标记已读</button>
-        <button @click=${() => { this.clearSelection("current"); }}>清除</button>
-        <button @click=${() => { this.closeSelection("current"); }}>完成</button>
       </div>
     `;
   }
@@ -301,17 +296,27 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     if (visibleSessions.length === 0 || !this.selectionScopes.has("archived")) return null;
 
     const selectedSessions = this.selectedSessions("archived");
-    const allVisibleSelected = visibleSessions.length > 0 && visibleSessions.every((session) => this.selectedSessionIds.has(session.id));
-    const visibleSelectedCount = visibleSessions.filter((session) => this.selectedSessionIds.has(session.id)).length;
     return html`
       <div class="bulk-row selecting">
-        <button ?disabled=${visibleSessions.length === 0} @click=${() => { this.toggleVisibleSelection(visibleSessions, !allVisibleSelected); }}>${allVisibleSelected ? "清除可见" : "选择可见"}</button>
-        <small>已选 ${selectedSessions.length}${visibleSelectedCount !== selectedSessions.length ? html` · 可见 ${visibleSelectedCount}` : null}</small>
-        <button class="danger" title=${this.canDeleteArchived ? "永久删除所选已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${selectedSessions.length === 0 || !this.canDeleteArchived} @click=${() => { this.confirmDeleteSelectedArchived(); }}>删除所选</button>
-        <button @click=${() => { this.clearSelection("archived"); }}>清除</button>
-        <button @click=${() => { this.closeSelection("archived"); }}>完成</button>
+        ${this.renderSelectionControls("archived", visibleSessions)}
+        <button class="danger" title=${this.canDeleteArchived ? "永久删除所选已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${selectedSessions.length === 0 || !this.canDeleteArchived} @click=${() => { this.confirmDeleteSelectedArchived(); }}>删除</button>
         ${this.canDeleteArchived ? null : html`<small class="capability-hint">${this.archivedDeleteUnavailableMessage}</small>`}
       </div>
+    `;
+  }
+
+  /**
+   * 两个范围共用同一组选中状态控件。存在选中项时清除该范围的选择；
+   * 选择模式本身由标题栏中进入该模式的同一个按钮关闭。
+   */
+  private renderSelectionControls(scope: SessionSelectionScope, visibleSessions: SessionInfo[]) {
+    const selectedCount = this.selectedSessions(scope).length;
+    const visibleSelectedCount = visibleSessions.filter((session) => this.selectedSessionIds.has(session.id)).length;
+    return html`
+      ${selectedCount === 0
+        ? html`<button @click=${() => { this.selectVisibleSessions(visibleSessions); }}>选择可见</button>`
+        : html`<button @click=${() => { this.clearSelection(scope); }}>清除所选</button>`}
+      <small>已选 ${selectedCount}${visibleSelectedCount !== selectedCount ? html` · 可见 ${visibleSelectedCount}` : null}</small>
     `;
   }
 
@@ -509,13 +514,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     this.selectedSessionIds = next;
   }
 
-  private toggleVisibleSelection(sessions: SessionInfo[], selected: boolean): void {
-    const next = new Set(this.selectedSessionIds);
-    for (const session of sessions) {
-      if (selected) next.add(session.id);
-      else next.delete(session.id);
-    }
-    this.selectedSessionIds = next;
+  private selectVisibleSessions(sessions: SessionInfo[]): void {
+    this.selectedSessionIds = new Set([...this.selectedSessionIds, ...sessions.map((session) => session.id)]);
   }
 
   private selectedSessions(scope: SessionSelectionScope): SessionInfo[] {
