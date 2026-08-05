@@ -9,7 +9,7 @@ import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
 // rationale. Viewer content messaging is asserted via the public
 // workspaceFileViewerStatusLabel seam instead of scraping Lit markup.
 import { findOptionalTemplateEventHandlerAfterMarker, templateClickHandlerForText, templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
-import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceFileViewerStatusLabel, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
+import { selectedWorkspacePathKind, WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceFileViewerStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,6 +48,7 @@ describe("workspace-files-panel upload review", () => {
 describe("workspace-files-panel file tree boundary", () => {
   it("renders expanded tree and selected-file state while wiring row clicks", () => {
     const onExpandDir = vi.fn<WorkspacePanelContext["onExpandDir"]>();
+    const onSelectDirectory = vi.fn<WorkspacePanelContext["onSelectDirectory"]>();
     const onSelectFile = vi.fn<WorkspacePanelContext["onSelectFile"]>();
     const panel = new WorkspaceFilesPanel();
     panel.context = workspacePanelContext({
@@ -56,6 +57,7 @@ describe("workspace-files-panel file tree boundary", () => {
       selectedFilePath: "README.md",
       selectedFileContent: binaryFileContent("README.md", 4096),
       onExpandDir,
+      onSelectDirectory,
       onSelectFile,
     });
 
@@ -69,6 +71,7 @@ describe("workspace-files-panel file tree boundary", () => {
     templateClickHandlerForText(rendered, "README.md")(new Event("click"));
 
     expect(onExpandDir).toHaveBeenCalledWith("src");
+    expect(onSelectDirectory).toHaveBeenCalledWith("src");
     expect(onSelectFile).toHaveBeenCalledWith("src/main.ts");
     expect(onSelectFile).toHaveBeenCalledWith("README.md");
 
@@ -78,6 +81,56 @@ describe("workspace-files-panel file tree boundary", () => {
       selectedFilePath: "README.md",
       selectedFileContent: binaryFileContent("README.md", 4096),
     }))).toBe("二进制文件：README.md · 4.0 KB");
+  });
+});
+
+describe("workspace-files-panel file actions", () => {
+  it("uses the selected path when deriving new file and folder defaults", () => {
+    expect(workspaceNewPathDefault("src", "directory", "new-file.txt")).toBe("src/new-file.txt");
+    expect(workspaceNewPathDefault("src/index.ts", "file", "new-file.txt")).toBe("src/new-file.txt");
+    expect(selectedWorkspacePathKind([directoryEntry("src")], { src: [fileEntry("src/index.ts")] }, "src/index.ts")).toBe("file");
+  });
+
+  it("wires create, download, move or rename, and delete actions to the existing file controller boundary", () => {
+    const prompt = vi.fn((message: string) => {
+      if (message === "新建文件路径") return "src/new.ts";
+      if (message === "新建文件夹路径") return "src/new-folder";
+      if (message === "移动或重命名文件到") return "docs/README.md";
+      return null;
+    });
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("window", { prompt, confirm });
+    const onCreateFile = vi.fn<WorkspacePanelContext["onCreateFile"]>();
+    const onCreateDirectory = vi.fn<WorkspacePanelContext["onCreateDirectory"]>();
+    const onDownloadSelectedFile = vi.fn<WorkspacePanelContext["onDownloadSelectedFile"]>();
+    const onMoveSelectedPath = vi.fn<WorkspacePanelContext["onMoveSelectedPath"]>();
+    const onDeleteSelectedPath = vi.fn<WorkspacePanelContext["onDeleteSelectedPath"]>();
+    const panel = new WorkspaceFilesPanel();
+    panel.context = workspacePanelContext({
+      fileTree: [directoryEntry("src"), fileEntry("README.md")],
+      selectedFilePath: "README.md",
+      selectedFileContent: binaryFileContent("README.md", 4096),
+      onCreateFile,
+      onCreateDirectory,
+      onDownloadSelectedFile,
+      onMoveSelectedPath,
+      onDeleteSelectedPath,
+    });
+    const rendered = panel.render();
+
+    templateEventHandlerAfterMarker(rendered, 'aria-label="新建文件"')(new Event("click"));
+    templateEventHandlerAfterMarker(rendered, 'aria-label="新建文件夹"')(new Event("click"));
+    templateEventHandlerAfterMarker(rendered, 'aria-label="下载文件"')(new Event("click"));
+    templateEventHandlerAfterMarker(rendered, 'aria-label="移动或重命名"')(new Event("click"));
+    templateEventHandlerAfterMarker(rendered, 'aria-label="删除文件或文件夹"')(new Event("click"));
+
+    expect(onCreateFile).toHaveBeenCalledWith("src/new.ts");
+    expect(onCreateDirectory).toHaveBeenCalledWith("src/new-folder");
+    expect(onDownloadSelectedFile).toHaveBeenCalledOnce();
+    expect(prompt).toHaveBeenLastCalledWith("移动或重命名文件到", "README.md");
+    expect(onMoveSelectedPath).toHaveBeenCalledWith("docs/README.md");
+    expect(confirm).toHaveBeenCalledWith("删除文件 README.md？此操作无法撤销。");
+    expect(onDeleteSelectedPath).toHaveBeenCalledOnce();
   });
 });
 
