@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { ASK_USER_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
-import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
+import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
@@ -796,6 +796,65 @@ describe("API parsers", () => {
       sessionStatus: statusWire(),
     })).toThrow("Ask answer selected an option the question never offered");
   });
+
+  it("parses open extension dialogs on the session status, oldest first", () => {
+    const parsed = parseSessionStatus({ ...statusWire(), pendingDialogs: [confirmDialogWire(), selectDialogWire(), inputDialogWire()] });
+
+    expect(parsed.pendingDialogs).toEqual([
+      { dialogId: "dialog-1", kind: "confirm", title: "Delete the build cache?", message: "This cannot be undone", askedAt: "2026-07-20T00:00:00.000Z", runScoped: true },
+      { dialogId: "dialog-2", kind: "select", title: "Pick a database", options: ["Postgres", "SQLite"], askedAt: "2026-07-20T00:01:00.000Z", timeoutAt: "2026-07-20T00:06:00.000Z", runScoped: false },
+      { dialogId: "dialog-3", kind: "input", title: "Name the branch", placeholder: "feature/...", askedAt: "2026-07-20T00:02:00.000Z", runScoped: false },
+    ]);
+  });
+
+  it("omits pending dialogs entirely when the field is absent", () => {
+    expect(parseSessionStatus(statusWire()).pendingDialogs).toBeUndefined();
+  });
+
+  it("validates an extension dialog before rendering it", () => {
+    const dialog = confirmDialogWire();
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...dialog, kind: "modal" }] })).toThrow("Invalid extension dialog kind");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...dialog, title: "" }] })).toThrow("Expected non-empty string field: title");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...dialog, title: "x".repeat(EXTENSION_DIALOG_TEXT_MAX_LENGTH + 1) }] })).toThrow("String field exceeds limit: title");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...dialog, runScoped: "yes" }] })).toThrow("Expected boolean field: runScoped");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...dialog, timeoutAt: "" }] })).toThrow("Expected non-empty string field: timeoutAt");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...selectDialogWire(), options: [] }] })).toThrow("Select dialog has no options");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [{ ...selectDialogWire(), options: ["a", "a"] }] })).toThrow("Duplicate dialog option");
+    expect(() => parseSessionStatus({ ...statusWire(), pendingDialogs: [dialog, { ...inputDialogWire(), dialogId: "dialog-1" }] })).toThrow("Duplicate dialog id");
+  });
+
+  it("parses a closed dialog response carrying the outcome and recomputed status", () => {
+    const response = parseExtensionDialogCloseResponse({
+      result: "closed",
+      outcome: dialogOutcomeWire(),
+      sessionStatus: statusWire(),
+    });
+
+    expect(response.result).toBe("closed");
+    expect(response.outcome).toEqual({
+      dialogId: "dialog-1",
+      reason: "answered",
+      answer: true,
+      askedAt: "2026-07-20T00:00:00.000Z",
+      closedAt: "2026-07-20T00:01:00.000Z",
+    });
+    expect(response.sessionStatus.sessionId).toBe("s1");
+  });
+
+  it("parses a stale dialog close as an ordinary race with no outcome", () => {
+    const response = parseExtensionDialogCloseResponse({ result: "stale", sessionStatus: statusWire() });
+
+    expect(response).toEqual({ result: "stale", sessionStatus: parseSessionStatus(statusWire()) });
+  });
+
+  it("rejects dialog close responses whose outcome contradicts itself", () => {
+    const outcome = dialogOutcomeWire();
+    expect(() => parseExtensionDialogCloseResponse({ result: "closed", sessionStatus: statusWire() })).toThrow("Dialog close response outcome mismatch");
+    expect(() => parseExtensionDialogCloseResponse({ result: "stale", outcome, sessionStatus: statusWire() })).toThrow("Dialog close response outcome mismatch");
+    expect(() => parseExtensionDialogCloseResponse({ result: "closed", outcome: { ...outcome, reason: "timeout" }, sessionStatus: statusWire() })).toThrow("Dialog outcome answer mismatch");
+    expect(() => parseExtensionDialogCloseResponse({ result: "closed", outcome: { ...outcome, answer: 1 }, sessionStatus: statusWire() })).toThrow("Invalid extension dialog answer");
+    expect(() => parseExtensionDialogCloseResponse({ result: "closed", outcome: { ...outcome, reason: "ignored" }, sessionStatus: statusWire() })).toThrow("Invalid extension dialog close reason");
+  });
 });
 
 function statusWire() {
@@ -842,6 +901,50 @@ function askOutcomeWire() {
     answeredCount: 1,
     unansweredIds: ["q2"],
     summary: "Answered 1 of 2; unanswered: q2",
+  };
+}
+
+function confirmDialogWire() {
+  return {
+    dialogId: "dialog-1",
+    kind: "confirm",
+    title: "Delete the build cache?",
+    message: "This cannot be undone",
+    askedAt: "2026-07-20T00:00:00.000Z",
+    runScoped: true,
+  };
+}
+
+function selectDialogWire() {
+  return {
+    dialogId: "dialog-2",
+    kind: "select",
+    title: "Pick a database",
+    options: ["Postgres", "SQLite"],
+    askedAt: "2026-07-20T00:01:00.000Z",
+    timeoutAt: "2026-07-20T00:06:00.000Z",
+    runScoped: false,
+  };
+}
+
+function inputDialogWire() {
+  return {
+    dialogId: "dialog-3",
+    kind: "input",
+    title: "Name the branch",
+    placeholder: "feature/...",
+    askedAt: "2026-07-20T00:02:00.000Z",
+    runScoped: false,
+  };
+}
+
+function dialogOutcomeWire() {
+  return {
+    dialogId: "dialog-1",
+    reason: "answered",
+    answer: true,
+    askedAt: "2026-07-20T00:00:00.000Z",
+    closedAt: "2026-07-20T00:01:00.000Z",
   };
 }
 

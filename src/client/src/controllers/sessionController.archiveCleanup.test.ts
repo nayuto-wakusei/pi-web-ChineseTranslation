@@ -95,9 +95,9 @@ describe("SessionController archive and cleanup", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [persistedSession, secondSession, nextSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
-      archive: (session) => {
-        archivedIds.push(sessionLookupId(session));
-        return Promise.resolve({ archived: true });
+      archiveMany: (sessions) => {
+        archivedIds.push(...sessions.map(sessionLookupId));
+        return Promise.resolve({ archived: true, archivedSessionIds: archivedIds, failures: [], generatedAt: "now" });
       },
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
@@ -119,7 +119,7 @@ describe("SessionController archive and cleanup", () => {
     expect(state.selectedSession?.id).toBe(nextSession.id);
   });
 
-  it("uses true bulk archive when the selected runtime supports it and applies partial failures", async () => {
+  it("uses bulk archive and applies partial failures", async () => {
     const persistedSession = { ...oldSession, persisted: true };
     const failedSession = { ...oldSession, id: "failed-session", path: "/tmp/failed-session.jsonl", persisted: true };
     const archiveCalls: { ids: string[]; machineId: string }[] = [];
@@ -157,24 +157,17 @@ describe("SessionController archive and cleanup", () => {
     expect(state.error).toBe("归档失败，1 个会话处理失败：failed-session: busy");
   });
 
-  it("throttles per-session archive fallback when bulk mutations are unsupported", async () => {
+  it("uses bulk archive when the runtime omits capability metadata", async () => {
     const sessions = Array.from({ length: 6 }, (_value, index) => ({ ...oldSession, id: `session-${String(index)}`, path: `/tmp/session-${String(index)}.jsonl`, persisted: true }));
-    const resolvers: (() => void)[] = [];
     const startedIds: string[] = [];
-    let activeCount = 0;
-    let maxActiveCount = 0;
-    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions, machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } };
     const api: typeof defaultApi = {
       ...defaultApi,
-      archive: (session) => new Promise((resolve) => {
-        activeCount += 1;
-        maxActiveCount = Math.max(maxActiveCount, activeCount);
-        startedIds.push(sessionLookupId(session));
-        resolvers.push(() => {
-          activeCount -= 1;
-          resolve({ archived: true });
-        });
-      }),
+      archiveMany: (targets) => {
+        startedIds.push(...targets.map(sessionLookupId));
+        return Promise.resolve({ archived: true, archivedSessionIds: startedIds, failures: [], generatedAt: "now" });
+      },
+      archive: () => { throw new Error("single archive should not be used"); },
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
     };
@@ -186,21 +179,9 @@ describe("SessionController archive and cleanup", () => {
       { api, socket: new FakeSocket() },
     );
 
-    const archive = controller.archiveSessions(sessions);
-    await Promise.resolve();
+    await controller.archiveSessions(sessions);
 
-    expect(startedIds).toHaveLength(4);
-    resolvers.shift()?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(startedIds).toHaveLength(5);
-    for (const resolve of resolvers.splice(0)) resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    for (const resolve of resolvers.splice(0)) resolve();
-    await archive;
-
-    expect(maxActiveCount).toBe(4);
+    expect(startedIds).toEqual(sessions.map((session) => session.id));
     expect(state.sessions.every((session) => session.archived === true)).toBe(true);
   });
 
@@ -217,9 +198,9 @@ describe("SessionController archive and cleanup", () => {
     };
     const api: typeof defaultApi = {
       ...defaultApi,
-      deleteArchived: (session) => {
-        deletedIds.push(sessionLookupId(session));
-        return Promise.resolve({ deleted: true });
+      deleteArchivedMany: (sessions) => {
+        deletedIds.push(...sessions.map(sessionLookupId));
+        return Promise.resolve({ deleted: true, deletedSessionIds: deletedIds, failures: [], generatedAt: "now" });
       },
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
@@ -239,7 +220,7 @@ describe("SessionController archive and cleanup", () => {
     expect(state.selectedSession?.id).toBe(nextSession.id);
   });
 
-  it("uses true bulk delete when supported and keeps partial failures visible", async () => {
+  it("uses bulk delete and keeps partial failures visible", async () => {
     const deletedSession = { ...oldSession, archived: true, archivedAt: "later" };
     const failedSession = { ...oldSession, id: "failed-archived", path: "/tmp/failed-archived.jsonl", archived: true, archivedAt: "later" };
     const deleteCalls: { ids: string[]; machineId: string }[] = [];
@@ -324,15 +305,15 @@ describe("SessionController archive and cleanup", () => {
     expect(state.sessionActivities[oldSession.id]).toBeUndefined();
   });
 
-  it("does not delete archived sessions when the selected machine runtime reports no support", async () => {
+  it("deletes archived sessions when the runtime omits capability metadata", async () => {
     const archivedSession = { ...oldSession, archived: true, archivedAt: "later" };
     const deletedIds: string[] = [];
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [archivedSession], machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } };
     const api: typeof defaultApi = {
       ...defaultApi,
-      deleteArchived: (session) => {
-        deletedIds.push(sessionLookupId(session));
-        return Promise.resolve({ deleted: true });
+      deleteArchivedMany: (sessions) => {
+        deletedIds.push(...sessions.map(sessionLookupId));
+        return Promise.resolve({ deleted: true, deletedSessionIds: deletedIds, failures: [], generatedAt: "now" });
       },
     };
     const controller = new SessionController(
@@ -345,9 +326,9 @@ describe("SessionController archive and cleanup", () => {
 
     await controller.deleteArchivedSessions([archivedSession]);
 
-    expect(deletedIds).toEqual([]);
-    expect(state.sessions).toEqual([archivedSession]);
-    expect(state.error).toContain("需要更新此机器上的 Pi-Web 运行时");
+    expect(deletedIds).toEqual([archivedSession.id]);
+    expect(state.sessions).toEqual([]);
+    expect(state.error).toBe("");
   });
 
   it("allows legacy archived-session deletion when runtime support is unknown", async () => {
@@ -356,9 +337,9 @@ describe("SessionController archive and cleanup", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: archivedSession, sessions: [archivedSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
-      deleteArchived: (session) => {
-        deletedIds.push(sessionLookupId(session));
-        return Promise.resolve({ deleted: true });
+      deleteArchivedMany: (sessions) => {
+        deletedIds.push(...sessions.map(sessionLookupId));
+        return Promise.resolve({ deleted: true, deletedSessionIds: deletedIds, failures: [], generatedAt: "now" });
       },
     };
     const controller = new SessionController(

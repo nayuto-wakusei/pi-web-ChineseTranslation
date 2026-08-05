@@ -131,6 +131,31 @@ describe("notification socket guards", () => {
     expect(parseRealtimeSocketEvent({ type: "ask.opened", ask })).toBeUndefined();
   });
 
+  it("accepts validated dialog frames and drops malformed ones", () => {
+    const dialog = {
+      dialogId: "dialog-1",
+      kind: "select",
+      title: "Pick a database",
+      options: ["Postgres", "SQLite"],
+      askedAt: "2026-07-20T00:00:00.000Z",
+      runScoped: true,
+    };
+
+    expect(parseSessionSocketEvent({ type: "dialog.opened", dialog })).toEqual({ type: "dialog.opened", dialog });
+    expect(parseSessionSocketEvent({ type: "dialog.closed", dialogId: "dialog-1", reason: "answered", answer: "SQLite" }))
+      .toEqual({ type: "dialog.closed", dialogId: "dialog-1", reason: "answered", answer: "SQLite" });
+    expect(parseSessionSocketEvent({ type: "dialog.closed", dialogId: "dialog-1", reason: "timeout" }))
+      .toEqual({ type: "dialog.closed", dialogId: "dialog-1", reason: "timeout" });
+    expect(parseSessionSocketEvent({ type: "dialog.opened", dialog: { ...dialog, kind: "modal" } })).toBeUndefined();
+    expect(parseSessionSocketEvent({ type: "dialog.opened" })).toBeUndefined();
+    expect(parseSessionSocketEvent({ type: "dialog.closed", dialogId: "dialog-1", reason: "ignored" })).toBeUndefined();
+    // A close whose reason disagrees with its answer cannot be rendered honestly.
+    expect(parseSessionSocketEvent({ type: "dialog.closed", dialogId: "dialog-1", reason: "answered" })).toBeUndefined();
+    expect(parseSessionSocketEvent({ type: "dialog.closed", dialogId: "dialog-1", reason: "cancelled", answer: true })).toBeUndefined();
+    // Dialog frames are per-session only, so they must not be accepted globally.
+    expect(parseRealtimeSocketEvent({ type: "dialog.opened", dialog })).toBeUndefined();
+  });
+
   it("preserves existing event acceptance without treating unknown types as realtime events", () => {
     expect(parseSessionSocketEvent({ type: "command.output", level: "info", message: "legacy" })).toMatchObject({ type: "command.output" });
     expect(parseRealtimeSocketEvent({ type: "future.notification", payload: {} })).toBeUndefined();

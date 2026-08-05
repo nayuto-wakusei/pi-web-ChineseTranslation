@@ -1,10 +1,9 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { thinkingLevelDescription, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ActivityController } from "../controllers/activityController";
 import { AuthController } from "../controllers/authController";
@@ -1138,9 +1137,7 @@ export class PiWebApp extends LitElement {
       if (runtime === undefined) continue;
       const capability = this.unreadRuntimeRefreshes.has(machineId) || !runtime.ok
         ? "unknown"
-        : supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsUnread)
-          ? "supported"
-          : "unsupported";
+        : "supported";
       if (this.sessionUnread.setCapability(machineId, capability)) void this.sessionUnread.refresh(machineId);
     }
   }
@@ -1412,27 +1409,21 @@ export class PiWebApp extends LitElement {
   }
 
   private canDeleteArchivedSessions(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    // COMPAT-CAP sessions.deleteArchived: older federated machines may support
-    // the legacy DELETE route without advertising runtime capabilities. Only
-    // block when capability discovery succeeds and reports no support.
-    return runtime?.ok !== true || supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
+    return true;
   }
 
   private canReloadSessions(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload);
+    return this.selectedMachineRuntime()?.ok === true;
   }
 
   private canClearServerQueue(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsClearQueue);
+    return this.selectedMachineRuntime()?.ok === true;
   }
 
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
     if (this.apiScope === "management" && this.state.selectedProject === undefined) return false;
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
+    return runtime?.ok === true;
   }
 
   private hasAuthoritativeSessionPersistence(): boolean {
@@ -1441,10 +1432,7 @@ export class PiWebApp extends LitElement {
 
   private supportsWorkspaceFileSuggestions(machineId = selectedMachineId(this.state)): boolean {
     if (machineId === "local") return true;
-    // COMPAT-CAP workspace.fileSuggestions: remote machines without this
-    // capability stay on the legacy cwd-based /files route.
-    const runtime = this.state.machineRuntimes[machineId];
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.workspaceFileSuggestions);
+    return this.state.machineRuntimes[machineId]?.ok === true;
   }
 
   private archivedDeleteUnavailableMessage(): string {
@@ -2391,6 +2379,14 @@ export class PiWebApp extends LitElement {
 
   private readonly handleSubmitAsk = (askId: string, submission: AskUserSubmission): Promise<void> => this.sessions.submitAsk(askId, submission);
 
+  private readonly handleAnswerDialog = (dialogId: string, value: ExtensionDialogAnswer): Promise<void> => this.sessions.answerDialog(dialogId, value);
+
+  private readonly handleCancelDialog = (dialogId: string): Promise<void> => this.sessions.cancelDialog(dialogId);
+
+  private readonly handleDismissClosedDialog = (dialogId: string): void => {
+    this.sessions.dismissClosedDialog(dialogId);
+  };
+
   private readonly handleDismissNotification = (notificationId: string): void => {
     void this.notifications.dismissNotification(notificationId);
   };
@@ -2416,7 +2412,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 

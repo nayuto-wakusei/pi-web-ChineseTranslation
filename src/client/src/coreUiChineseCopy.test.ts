@@ -92,8 +92,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes model picker and session bulk action copy",
     paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "当前", "选择可见", "已选", "归档所选", "重命名", "完成", "搜索会话内容", "置顶", "取消置顶"],
-    forbidden: ["Select Model", "✓ current", "Select visible", "} selected", "Archive selected", ">Done<", ">Archive<"],
+    expected: ["选择模型", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
+    forbidden: ["Select Model", "✓ current", "Select visible", "Clear selected", "} selected", "Archive selected", "Delete selected", ">Done<", ">Archive<"],
   },
   {
     name: "localizes session content search dialog copy",
@@ -130,6 +130,12 @@ const copyCases: readonly CopyCase[] = [
     paths: ["components/AskUserCard.ts", "components/SessionTreeNavigator.ts", "components/ChatView.ts", "controllers/sessionController.ts", "sessionNotifications.ts", "sessionTreeModel.ts"],
     expected: ["发送回答", "自定义回答", "浏览会话树", "生成摘要并导航", "case \"bash\": return \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
     forbidden: ["Send answers", "Custom answer", "Navigate session tree", "Summarize and navigate", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
+  },
+  {
+    name: "localizes extension dialog controls and outcomes",
+    paths: ["components/ExtensionDialogCard.ts", "components/ChatView.ts"],
+    expected: ["已回答", "已取消", "已超时", "你的回答", ">取消<", '"发送中…" : "发送"', "扩展对话框正在排队"],
+    forbidden: [">Cancel<", ">Yes<", ">No<", ">Send<", ">Dismiss<", "Your answer", "Auto-cancels in", "more extension dialog"],
   },
   {
     name: "localizes workspace files, git, machine, project, and workspace controls",

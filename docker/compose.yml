@@ -26,7 +26,6 @@ x-pi-web-environment: &pi-web-environment
   PI_WEB_DOCKER_MODE: runtime
   PI_WEB_DOCKER_INSTALL_DIR: ${PI_WEB_DOCKER_INSTALL_DIR:?set by docker/install.sh}
   PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_IMAGE:-pi-web:local}
-  COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pi-web}
 
 x-pi-web-volumes: &pi-web-volumes
   - type: bind

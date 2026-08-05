@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -214,7 +214,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const messages = await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
       return projectBrowserMessageResponse(messages);
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -222,7 +222,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -240,7 +240,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.streamSnapshot(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -248,7 +248,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -276,7 +276,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -304,7 +304,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(404).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -347,6 +347,35 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const body = requireRecord(request.body);
       return await sessions.cancelAsk(sessionLookupFromBody(request.params.sessionId, body), requireBoundedId(body["askId"], "askId"));
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; dialogId?: unknown; value?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/dialogs/answer`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      const answer = extensionDialogAnswerFromBody(body);
+      return await sessions.answerDialog(
+        sessionLookupFromBody(request.params.sessionId, body),
+        answer.dialogId,
+        answer.value,
+        managementContextFromHeaders(request.headers),
+      );
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; dialogId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/dialogs/cancel`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      const cancel = extensionDialogCancelFromBody(body);
+      return await sessions.cancelDialog(
+        sessionLookupFromBody(request.params.sessionId, body),
+        cancel.dialogId,
+        managementContextFromHeaders(request.headers),
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -512,8 +541,7 @@ function parseBulkMutationRef(value: unknown): SessionBulkMutationRef {
   const id = requireString(record, "id").trim();
   if (id === "") throw new Error("id field must not be empty");
   const cwd = record["cwd"];
-  if (cwd === undefined || cwd === "") return { id };
-  if (typeof cwd !== "string") throw new Error("cwd field must be a string");
+  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd field is required");
   return { id, cwd: normalizeRequestCwd(cwd) };
 }
 
@@ -535,7 +563,7 @@ function notificationRef(id: string, cwd: string): { id: string; cwd: string } {
 }
 
 function sessionLookupFromQuery(id: string, query: SessionQuery): SessionLookup {
-  return sessionLookupFromCwd(id, query.cwd);
+  return sessionLookupFromRequiredCwd(id, query, "cwd query parameter is required");
 }
 
 function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
@@ -548,22 +576,13 @@ function eventScopeFromHeaders(headers: Record<string, string | string[] | undef
 }
 
 function sessionLookupFromBody(id: string, body: Record<string, unknown>): SessionLookup {
-  const cwd = body["cwd"];
-  if (cwd === undefined || cwd === "") return id;
-  if (typeof cwd !== "string") throw new Error("cwd field must be a string");
-  return { id, cwd: normalizeRequestCwd(cwd) };
+  return sessionLookupFromRequiredCwd(id, body, "cwd field is required");
 }
 
-function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery): SessionLookup {
+function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery, message = "cwd query parameter is required"): SessionLookup {
   const cwd = value.cwd;
-  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd query parameter is required");
+  if (typeof cwd !== "string" || cwd === "") throw new Error(message);
   return { id, cwd: normalizeRequestCwd(cwd) };
-}
-
-function sessionLookupFromCwd(id: string, cwd: string | undefined): SessionLookup {
-  // Legacy id-only lookups (no cwd) remain supported; a supplied cwd is
-  // normalized here so everything past the route layer sees canonical paths.
-  return cwd === undefined || cwd === "" ? id : { id, cwd: normalizeRequestCwd(cwd) };
 }
 
 function sessionTreeNavigateRequestFromBody(body: Record<string, unknown>): SessionTreeNavigateRequest {
@@ -627,6 +646,21 @@ function askUserAnswerFromValue(value: unknown): AskUserAnswer {
 
 function requireBoundedId(value: unknown, field: string): string {
   return requireNonEmptyBoundedString(value, field, ASK_USER_ID_MAX_LENGTH);
+}
+
+function extensionDialogAnswerFromBody(body: Record<string, unknown>): ExtensionDialogAnswerRequest {
+  const dialogId = requireNonEmptyBoundedString(body["dialogId"], "dialogId", EXTENSION_DIALOG_ID_MAX_LENGTH);
+  const value = body["value"];
+  if (typeof value === "boolean") return { dialogId, value };
+  if (typeof value === "string") {
+    if (value.length > EXTENSION_DIALOG_INPUT_MAX_LENGTH) throw new Error("value exceeds its length limit");
+    return { dialogId, value };
+  }
+  throw new Error("value must be a boolean or string");
+}
+
+function extensionDialogCancelFromBody(body: Record<string, unknown>): ExtensionDialogCancelRequest {
+  return { dialogId: requireNonEmptyBoundedString(body["dialogId"], "dialogId", EXTENSION_DIALOG_ID_MAX_LENGTH) };
 }
 
 function optionalRecord(value: unknown): Record<string, unknown> {

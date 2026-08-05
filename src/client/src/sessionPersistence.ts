@@ -1,20 +1,18 @@
 import type { MachineRuntime, SessionInfo, SessionStatus } from "./api";
 import { isCachedNewSessionInfo } from "./cachedNewSessions";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../shared/capabilities";
 
 export type SessionPersistenceState = "persisted" | "transient" | "unknown";
 
 export interface SessionPersistenceOptions {
   /**
-   * True when the selected runtime advertises reliable persisted/transient
-   * session state. Legacy federated runtimes omit this field, so missing data
-   * must preserve the old "listed sessions are persisted" behavior.
+   * True when the selected runtime is available and its persisted/transient
+   * session state can be treated as authoritative.
    */
   authoritative?: boolean;
 }
 
 export function hasAuthoritativeSessionPersistence(runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): boolean {
-  return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsPersistedState);
+  return runtime?.ok === true;
 }
 
 export function sessionPersistenceOptionsForRuntime(runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): SessionPersistenceOptions {

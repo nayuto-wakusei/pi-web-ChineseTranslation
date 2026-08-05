@@ -1,5 +1,5 @@
 import { realtimeEvents, sessionEvents } from "./api";
-import { parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
+import { parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
 import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 import type { SocketScope } from "./api/sockets";
 
@@ -164,6 +164,10 @@ export function parseSessionSocketEvent(event: unknown): SessionUiEvent | undefi
   // so they are validated rather than accepted on their type alone.
   if (type === "ask.opened") return safelyParseValidatedEvent(() => parseSessionAskOpenedEvent(event));
   if (type === "ask.closed") return safelyParseValidatedEvent(() => parseSessionAskClosedEvent(event));
+  // Dialog frames drive an interactive card the user answers on the extension's
+  // behalf, so they are validated rather than accepted on their type alone.
+  if (type === "dialog.opened") return safelyParseValidatedEvent(() => parseSessionDialogOpenedEvent(event));
+  if (type === "dialog.closed") return safelyParseValidatedEvent(() => parseSessionDialogClosedEvent(event));
   return isLegacySessionUiEvent(event) ? event : undefined;
 }
 

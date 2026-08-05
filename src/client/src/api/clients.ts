@@ -1,4 +1,4 @@
-import type { AskUserSubmission, DeleteWorkspaceFileResponse, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionNotificationDismissThrough, SessionRef, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionNotificationDismissThrough, SessionRef, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import { request, requestOptional } from "./http";
 import {
   arrayOf,
@@ -12,6 +12,7 @@ import {
   parseDeleted,
   parseDeleteWorkspaceFileResponse,
   parseDetached,
+  parseExtensionDialogCloseResponse,
   parseFileContentResponse,
   parseFileSuggestion,
   parseFileTreeResponse,
@@ -64,7 +65,7 @@ import { machineGitDiffPath, messagePath, workspaceFileDownloadUrl } from "./url
 
 const machinePrefix = (machineId = "local") => `api/machines/${encodeURIComponent(machineId)}`;
 
-type SessionLookup = SessionRef | string;
+type SessionLookup = SessionRef;
 
 export interface AuthRequestTarget {
   machineId: string;
@@ -77,48 +78,32 @@ interface AuthProvidersOptions extends AuthRequestTarget {
   authType?: "oauth" | "api_key";
 }
 
-function sessionId(session: SessionLookup): string {
-  return typeof session === "string" ? session : session.id;
+function sessionBasePath(session: SessionRef, machineId = "local"): string {
+  return `${machinePrefix(machineId)}/sessions/${encodeURIComponent(session.id)}`;
 }
 
-function sessionCwd(session: SessionLookup): string | undefined {
-  return typeof session === "string" ? undefined : session.cwd;
-}
-
-function sessionBasePath(session: SessionLookup, machineId = "local"): string {
-  return `${machinePrefix(machineId)}/sessions/${encodeURIComponent(sessionId(session))}`;
-}
-
-function sessionPath(session: SessionLookup, endpoint: string, machineId = "local"): string {
+function sessionPath(session: SessionRef, endpoint: string, machineId = "local"): string {
   return `${sessionBasePath(session, machineId)}/${endpoint}`;
 }
 
-function sessionQueryPath(session: SessionLookup, endpoint: string, machineId = "local"): string {
+function sessionQueryPath(session: SessionRef, endpoint: string, machineId = "local"): string {
   return `${sessionPath(session, endpoint, machineId)}${sessionQuery(session)}`;
 }
 
-function sessionBaseQueryPath(session: SessionLookup, machineId = "local"): string {
+function sessionBaseQueryPath(session: SessionRef, machineId = "local"): string {
   return `${sessionBasePath(session, machineId)}${sessionQuery(session)}`;
 }
 
-function sessionQuery(session: SessionLookup): string {
-  const cwd = sessionCwd(session);
-  return cwd === undefined || cwd === "" ? "" : `?${new URLSearchParams({ cwd }).toString()}`;
+function sessionQuery(session: SessionRef): string {
+  return `?${new URLSearchParams({ cwd: session.cwd }).toString()}`;
 }
 
-function sessionBody(session: SessionLookup, fields: Record<string, unknown> = {}): string {
-  const cwd = sessionCwd(session);
-  return JSON.stringify(cwd === undefined || cwd === "" ? fields : { cwd, ...fields });
+function sessionBody(session: SessionRef, fields: Record<string, unknown> = {}): string {
+  return JSON.stringify({ cwd: session.cwd, ...fields });
 }
 
-function sessionBulkMutationBody(sessions: readonly SessionLookup[]): string {
-  return JSON.stringify({ sessions: sessions.map(sessionBulkMutationRef) });
-}
-
-function sessionBulkMutationRef(session: SessionLookup): SessionBulkMutationRef {
-  const id = sessionId(session);
-  const cwd = sessionCwd(session);
-  return cwd === undefined || cwd === "" ? { id } : { id, cwd };
+function sessionBulkMutationBody(sessions: readonly SessionRef[]): string {
+  return JSON.stringify({ sessions: sessions satisfies readonly SessionBulkMutationRef[] });
 }
 
 function authUrl(endpoint: string, target: AuthRequestTarget): string {
@@ -248,8 +233,8 @@ export const sessionsApi = {
   search: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search?${new URLSearchParams({ cwd, q: query }).toString()}`, arrayOf(parseSessionInfo)),
   searchContent: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search-content?${new URLSearchParams({ cwd, q: query }).toString()}`, parseSessionContentSearchResponse),
   pinned: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/pins?cwd=${encodeURIComponent(cwd)}`, parseSessionPinnedIdsResponse),
-  pin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
-  unpin: (session: SessionLookup, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),
+  pin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
+  unpin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),
   unreadCatalog: (machineId = "local") => request(`${machinePrefix(machineId)}/sessions/unread`, parseSessionUnreadCatalogSnapshot, { cache: "no-store" }),
   acknowledgeUnread: (session: SessionRef, catalogId: string, throughCompletionOrder: number, machineId = "local") => {
     const body: SessionUnreadAcknowledgeRequest = { cwd: session.cwd, catalogId, throughCompletionOrder };
@@ -294,6 +279,8 @@ export const sessionsApi = {
   dismissWarning: (session: SessionLookup, dismissId: string, machineId = "local") => request(sessionPath(session, "warnings/dismiss", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { dismissId }) }),
   submitAsk: (session: SessionLookup, askId: string, submission: AskUserSubmission, machineId = "local") => request(sessionPath(session, "ask/submit", machineId), parseAskUserCloseResponse, { method: "POST", body: sessionBody(session, { askId, answers: submission.answers }) }),
   cancelAsk: (session: SessionLookup, askId: string, machineId = "local") => request(sessionPath(session, "ask/cancel", machineId), parseAskUserCloseResponse, { method: "POST", body: sessionBody(session, { askId }) }),
+  answerDialog: (session: SessionLookup, dialogId: string, value: ExtensionDialogAnswer, machineId = "local") => request(sessionPath(session, "dialogs/answer", machineId), parseExtensionDialogCloseResponse, { method: "POST", body: sessionBody(session, { dialogId, value }) }),
+  cancelDialog: (session: SessionLookup, dialogId: string, machineId = "local") => request(sessionPath(session, "dialogs/cancel", machineId), parseExtensionDialogCloseResponse, { method: "POST", body: sessionBody(session, { dialogId }) }),
   authProviders: (options: AuthProvidersOptions) => {
     const params = new URLSearchParams();
     if (options.mode !== undefined) params.set("mode", options.mode);

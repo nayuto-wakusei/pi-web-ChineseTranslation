@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -120,6 +120,22 @@ describe("PI WEB config persistence", () => {
   it("persists and reads maxUploadBytes", () => {
     savePiWebConfig({ maxUploadBytes: 1234 }, testOptions());
     expect(loadPiWebConfig(testOptions()).config.maxUploadBytes).toBe(1234);
+  });
+
+  it("keeps a hand-edited extensionDialogsTimeoutMs across settings saves", async () => {
+    await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: 60_000 }, null, 2)}\n`, "utf8");
+
+    savePiWebConfig({ port: 9000 }, testOptions());
+
+    expect(loadPiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(60_000);
+  });
+
+  it("rejects an invalid extensionDialogsTimeoutMs", async () => {
+    for (const value of [-1, 1.5, "5000", null]) {
+      await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: value }, null, 2)}\n`, "utf8");
+
+      expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config extensionDialogsTimeoutMs must be a non-negative integer");
+    }
   });
 
   it("persists and reads custom agent runtime settings", () => {
@@ -279,6 +295,18 @@ describe("maxUploadBytes", () => {
 
   it("falls back to config when env is unset or invalid", () => {
     expect(maxUploadBytes({ PI_WEB_MAX_UPLOAD_BYTES: "not-a-number" }, { maxUploadBytes: 555 })).toBe(555);
+  });
+});
+
+describe("extensionDialogsTimeoutMs", () => {
+  it("defaults to five minutes when nothing is configured", () => {
+    expect(effectivePiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS);
+  });
+
+  it("resolves a configured value, including zero for waiting forever", async () => {
+    await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: 0 }, null, 2)}\n`, "utf8");
+
+    expect(effectivePiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(0);
   });
 });
 

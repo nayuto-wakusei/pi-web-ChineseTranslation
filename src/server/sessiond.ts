@@ -73,6 +73,7 @@ await runSessionDaemonStartup({
       logger: app.log,
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
+      extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
       sessionManager: createPiSessionManagerGateway({
         agentDir: activeAgentProfile.dir,
         env: daemonEnvironment,

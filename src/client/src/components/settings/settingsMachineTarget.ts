@@ -1,5 +1,4 @@
 import type { Machine, MachineKind, MachineRuntime } from "../../api";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../../shared/capabilities";
 
 export interface SettingsMachineTarget {
   id: string;
@@ -28,8 +27,7 @@ export function settingsMachineTargetLabel(target: SettingsMachineTarget): strin
 export function selectedMachineSettingsSupport(target: SettingsMachineTarget, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): SelectedMachineSettingsSupport {
   if (target.kind === "local") return { state: "supported" };
   if (runtime?.ok !== true) return { state: "unknown" };
-  if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.selectedMachineSettings)) return { state: "supported" };
-  return { state: "unsupported", message: selectedMachineSettingsUnavailableMessage(target) };
+  return { state: "supported" };
 }
 
 export function agentProfileSettingsSupport(target: SettingsMachineTarget, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): AgentProfileSettingsSupport {
@@ -40,11 +38,7 @@ export function agentProfileSettingsSupport(target: SettingsMachineTarget, runti
       message: `无法确认 ${target.name} 是否支持 Pi 兼容代理配置档案。更改配置档案前请重新加载机器状态。`,
     };
   }
-  if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.agentProfileConfig)) return { state: "supported" };
-  return {
-    state: "unsupported",
-    message: `${target.name} 不支持 Pi 兼容代理配置档案设置。请更新并重启该机器上的 PI WEB，然后重试。`,
-  };
+  return { state: "supported" };
 }
 
 export function selectedMachineSettingsSupportKey(support: SelectedMachineSettingsSupport): string {

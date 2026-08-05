@@ -109,7 +109,7 @@ describe("multiple relays", () => {
     const select = picker(panel);
     if (select === null) throw new Error("relay picker missing");
     select.value = `${RELAYS_ROOT}/older`;
-    select.dispatchEvent(new Event("change"));
+    select.dispatchEvent(new Event("change", { bubbles: true })); // Real change events bubble; the panel listens at the region container.
     await flushAsync();
 
     expect(fake.listFiles).toHaveBeenCalledWith(`${RELAYS_ROOT}/older`);
@@ -165,6 +165,77 @@ describe("document tabs", () => {
     const children = [...(strip?.children ?? [])];
     expect(children.every((child) => child instanceof HTMLButtonElement)).toBe(true);
     expect(children.map((child) => child.textContent)).toEqual(["status.md", "log.md", "notes.md"]);
+  });
+
+  it("keeps the tab strip mounted with its scroll and focus when switching documents", async () => {
+    const fake = workspaceFilesFake();
+    fake.addDirectory(RELAYS_ROOT, [relayDirectory("relay")]);
+    fake.addDirectory(`${RELAYS_ROOT}/relay`, [
+      relayDocument("relay", "notes.md"),
+      relayDocument("relay", "log.md"),
+      relayDocument("relay", "status.md"),
+    ]);
+    fake.addDocument(`${RELAYS_ROOT}/relay/status.md`, "status body");
+    fake.addDocument(`${RELAYS_ROOT}/relay/log.md`, "log body");
+
+    const panel = await mountPanel(panelContext(fake));
+    const strip = tabStrip(panel);
+    strip.scrollLeft = 120;
+    const logTab = tabNamed(panel, "log.md");
+
+    logTab.click();
+    await flushAsync();
+
+    // Switching documents only re-renders the viewer: the strip element and
+    // its buttons stay mounted, so scroll position and button identity survive.
+    expect(documentText(panel)).toBe("log body");
+    expect(tabStrip(panel)).toBe(strip);
+    expect(tabStrip(panel).scrollLeft).toBe(120);
+    expect(tabNamed(panel, "log.md")).toBe(logTab);
+    expect(activeTab(panel)?.textContent).toBe("log.md");
+  });
+
+  it("scrolls the viewer back to the top when switching documents", async () => {
+    const fake = workspaceFilesFake();
+    fake.addDirectory(RELAYS_ROOT, [relayDirectory("relay")]);
+    fake.addDirectory(`${RELAYS_ROOT}/relay`, [relayDocument("relay", "log.md"), relayDocument("relay", "status.md")]);
+    fake.addDocument(`${RELAYS_ROOT}/relay/status.md`, "status body");
+    fake.addDocument(`${RELAYS_ROOT}/relay/log.md`, "log body");
+
+    const panel = await mountPanel(panelContext(fake));
+    const viewer = shadow(panel).querySelector("section.viewer");
+    if (!(viewer instanceof HTMLElement)) throw new Error("viewer missing");
+    viewer.scrollTop = 80;
+
+    tabNamed(panel, "log.md").click();
+    await flushAsync();
+
+    expect(documentText(panel)).toBe("log body");
+    expect(viewer.scrollTop).toBe(0);
+  });
+
+  it("starts a different relay's tab strip at the left edge", async () => {
+    const fake = workspaceFilesFake();
+    fake.addDirectory(RELAYS_ROOT, [
+      relayDirectory("alpha", "2026-01-01T00:00:00.000Z"),
+      relayDirectory("beta", "2026-02-01T00:00:00.000Z"),
+    ]);
+    fake.addDirectory(`${RELAYS_ROOT}/alpha`, [relayDocument("alpha", "status.md")]);
+    fake.addDirectory(`${RELAYS_ROOT}/beta`, [relayDocument("beta", "status.md"), relayDocument("beta", "log.md")]);
+    fake.addDocument(`${RELAYS_ROOT}/beta/status.md`, "beta status");
+    fake.addDocument(`${RELAYS_ROOT}/alpha/status.md`, "alpha status");
+
+    const panel = await mountPanel(panelContext(fake));
+    tabStrip(panel).scrollLeft = 120;
+
+    const select = picker(panel);
+    if (select === null) throw new Error("relay picker missing");
+    select.value = `${RELAYS_ROOT}/alpha`;
+    select.dispatchEvent(new Event("change", { bubbles: true })); // Real change events bubble; the panel listens at the region container.
+    await flushAsync();
+
+    expect(documentText(panel)).toBe("alpha status");
+    expect(tabStrip(panel).scrollLeft).toBe(0);
   });
 
   it("shows a truncation notice when the open document is truncated", async () => {
@@ -308,7 +379,7 @@ describe("refresh and context changes", () => {
     const select = picker(panel);
     if (select === null) throw new Error("relay picker missing");
     select.value = `${RELAYS_ROOT}/alpha`;
-    select.dispatchEvent(new Event("change"));
+    select.dispatchEvent(new Event("change", { bubbles: true })); // Real change events bubble; the panel listens at the region container.
     await flushAsync();
     tabNamed(panel, "log.md").click();
     await flushAsync();
@@ -461,6 +532,12 @@ function refreshButton(panel: RelaysPanelTestElement): HTMLElement {
   const button = shadow(panel).querySelector("button[data-refresh]");
   if (!(button instanceof HTMLElement)) throw new Error("refresh button missing");
   return button;
+}
+
+function tabStrip(panel: RelaysPanelTestElement): HTMLElement {
+  const strip = shadow(panel).querySelector("nav.document-tabs");
+  if (!(strip instanceof HTMLElement)) throw new Error("tab strip missing");
+  return strip;
 }
 
 function tabNames(panel: RelaysPanelTestElement): string[] {

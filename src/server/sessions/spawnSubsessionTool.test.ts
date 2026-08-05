@@ -5,11 +5,11 @@ import { createSubsessionToolDefinitions, type SubsessionToolDeps } from "./spaw
 
 const dispatchModel = { provider: "anthropic", id: "claude-sonnet" };
 
-function ctxFor(sessionId: string, sessionFile: string | undefined, model?: unknown): ExtensionContext {
+function ctxFor(sessionId: string, sessionFile: string | undefined, model?: unknown, thinkingLevel?: string): ExtensionContext {
   const sessionManager = { getSessionId: () => sessionId, getSessionFile: () => sessionFile };
-  // The subsession tools only read sessionManager.getSessionId/getSessionFile and model.
+  // The subsession tools only read sessionManager.getSessionId/getSessionFile, model, and thinkingLevel.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test stub with the minimal surface the tools use.
-  return { sessionManager, ...(model === undefined ? {} : { model }) } as unknown as ExtensionContext;
+  return { sessionManager, ...(model === undefined ? {} : { model }), ...(thinkingLevel === undefined ? {} : { thinkingLevel }) } as unknown as ExtensionContext;
 }
 
 function tools(deps: Partial<SubsessionToolDeps>) {
@@ -48,7 +48,7 @@ describe("createSubsessionToolDefinitions", () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" }));
     const { spawn: spawnTool } = tools({ spawn });
 
-    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel));
+    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel, "max"));
 
     expect(spawn).toHaveBeenCalledWith({
       spawningCwd: "/repos/a",
@@ -57,9 +57,10 @@ describe("createSubsessionToolDefinitions", () => {
       prompt: "do it",
       cwd: "/repos/a-feature",
       model: dispatchModel,
+      thinkingLevel: "max",
     });
     expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a-feature" });
-    expect(firstText(result.content)).toContain("Started tracked subsession child-1");
+    expect(firstText(result.content)).toContain("启动受跟踪子会话 child-1");
   });
 
   it("describes tracked child work whose result remains available to the parent", async () => {
@@ -72,7 +73,7 @@ describe("createSubsessionToolDefinitions", () => {
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
-    expect(firstText(result.content)).toBe("Started tracked subsession child-1 in /repos/a-feature. Continue other work, then join with yield_to_subsessions; do not poll.");
+    expect(firstText(result.content)).toBe("已在 /repos/a-feature 启动受跟踪子会话 child-1。请继续其他工作，并在汇合点使用 yield_to_subsessions；不要轮询。");
   });
 
   it("distinguishes status inspection from yielding in tool metadata", () => {
@@ -109,6 +110,36 @@ describe("createSubsessionToolDefinitions", () => {
       parentSessionFile: undefined,
       prompt: "do it",
       cwd: undefined,
+    });
+  });
+
+  it("spawn_subsession forwards an explicit model as a model spec and names the model used", async () => {
+    const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-3", cwd: "/repos/a", model: "openai/gpt-5" }));
+    const { spawn: spawnTool } = tools({ spawn });
+
+    const result = await spawnTool.execute("call-model", { prompt: "do it", model: "openai/gpt-5" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel));
+
+    expect(spawn).toHaveBeenCalledWith({
+      spawningCwd: "/repos/a",
+      parentSessionId: "parent-1",
+      parentSessionFile: "/sessions/parent-1.jsonl",
+      prompt: "do it",
+      cwd: undefined,
+      model: dispatchModel,
+      modelSpec: "openai/gpt-5",
+    });
+    expect(result.details).toEqual({ sessionId: "child-3", cwd: "/repos/a", model: "openai/gpt-5" });
+    expect(firstText(result.content)).toBe("已在 /repos/a 启动受跟踪子会话 child-3，使用模型 openai/gpt-5。请继续其他工作，并在汇合点使用 yield_to_subsessions；不要轮询。");
+  });
+
+  it("spawn_subsession teaches the model parameter format and the #provider/model-id reference convention", () => {
+    const { spawn: spawnTool } = tools({});
+
+    expect(spawnTool.parameters).toMatchObject({
+      properties: {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- stringMatching yields `any` against the loosely typed tool schema.
+        model: { description: expect.stringMatching(/provider\/model-id.*#provider\/model-id.*省略时继承/s) },
+      },
     });
   });
 

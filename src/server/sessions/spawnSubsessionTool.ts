@@ -8,9 +8,12 @@ export type SubsessionStatus = "working" | "idle" | "error" | "unknown";
 export interface SpawnSubsessionResult {
   sessionId: string;
   cwd: string;
+  /** Model the child session runs with, as `provider/id`; absent when unknown. */
+  model?: string;
 }
 
 export type SpawnSubsessionModel = NonNullable<ExtensionContext["model"]>;
+export type SpawnSubsessionThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
 
 export interface SpawnSubsessionInvocation {
   /** cwd of the session that invoked the tool (used for project-scope checks). */
@@ -23,6 +26,10 @@ export interface SpawnSubsessionInvocation {
   cwd: string | undefined;
   /** Current model from the dispatching session, used as the spawned session's default. */
   model?: SpawnSubsessionModel;
+  /** Strict `provider/model-id` requested by the parent; overrides {@link model} when set. */
+  modelSpec?: string;
+  /** Parent's current thinking level, inherited by the child session (pi clamps it to the child model's capabilities). */
+  thinkingLevel?: SpawnSubsessionThinkingLevel;
 }
 
 export interface SubsessionSummary {
@@ -71,6 +78,9 @@ const SpawnSubsessionParams = Type.Object({
   }),
   cwd: Type.Optional(Type.String({
     description: "Child workspace in the same project (worktree or root); defaults to the parent's directory.",
+  })),
+  model: Type.Optional(Type.String({
+    description: '子会话使用的模型，必须是精确的“provider/model-id”，例如“anthropic/claude-sonnet-4-5”。当用户在请求中以 #provider/model-id 引用模型时，将该值传入这里。未知值会被拒绝；省略时继承当前会话的模型。',
   })),
 });
 
@@ -197,9 +207,12 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         prompt: params.prompt,
         cwd: params.cwd,
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
+        ...(params.model === undefined ? {} : { modelSpec: params.model }),
+        ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),
       });
+      const modelNote = result.model === undefined ? "" : `，使用模型 ${result.model}`;
       return {
-        content: [{ type: "text", text: `Started tracked subsession ${result.sessionId} in ${result.cwd}. Continue other work, then join with yield_to_subsessions; do not poll.` }],
+        content: [{ type: "text", text: `已在 ${result.cwd} 启动受跟踪子会话 ${result.sessionId}${modelNote}。请继续其他工作，并在汇合点使用 yield_to_subsessions；不要轮询。` }],
         details: result,
       };
     },

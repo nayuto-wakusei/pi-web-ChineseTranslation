@@ -102,6 +102,8 @@
             <a href="#pi-extension-provider-baseline">Pi extension providers</a>
             <a href="#catalog-refresh">Model catalog refresh</a>
             <a href="#session-tools">Session tools</a>
+            <a href="#extension-dialogs">扩展对话框</a>
+            <a href="#prompt-completions">提示词补全</a>
             <a href="#completion-tools">Completion tools</a>
           </aside>
 
@@ -173,7 +175,7 @@
               <ul>
                 <li><code>host</code> / <code>port</code>: restart the gateway web/API service or process.</li>
                 <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
-                <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code>: restart the session daemon on that machine.</li>
+                <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
                 <li><code>plugins</code>: reload the browser tab after changing PI WEB plugin enablement.</li>
@@ -213,6 +215,7 @@
   "spawnSessions": true,
   "subsessions": false,
   "askUser": true,
+  "extensionDialogsTimeoutMs": 300000,
   "plugins": {
     "workspace-tasks": { "enabled": true },
     "updates": { "enabled": true },
@@ -372,6 +375,14 @@
                       <td>Agent can post question forms</td>
                       <td><code>askUser</code></td>
                       <td><code>PI_WEB_ASK_USER</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon on that machine</td>
+                    </tr>
+                    <tr>
+                      <td>扩展对话框自动取消超时</td>
+                      <td><code>extensionDialogsTimeoutMs</code></td>
+                      <td>—</td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
                       <td>Restart session daemon on that machine</td>
@@ -796,6 +807,13 @@
                 after PI WEB guidance.
               </p>
               <p>
+                <code>spawn_session</code> 和 <code>spawn_subsession</code> 都接受可选的 <code>model</code> 参数，
+                其值必须是精确的 <code>provider/model-id</code>，例如 <code>anthropic/claude-sonnet-4-5</code>。
+                设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。
+                用户可以在提示词中通过 <code>#provider/model-id</code> 引用指定模型（见<a href="#prompt-completions">提示词补全</a>），
+                代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
+              </p>
+              <p>
                 In <strong>Settings → Session daemon</strong>, these keys are saved on the selected machine. Restart the
                 session daemon on that machine after changing them.
               </p>
@@ -838,8 +856,49 @@
               <div class="callout warning">
                 <strong>Restart required:</strong> restart the session daemon after changing <code>askUser</code> or after
                 upgrading PI WEB to a version that introduces this tool. For the systemd user service, run
+                <code>systemctl --user restart pi-web-sessiond</code>。
+              </div>
+            </section>
+
+            <section id="extension-dialogs">
+              <h2>扩展对话框</h2>
+              <p>
+                Pi 扩展可以通过 <code>ctx.ui.confirm()</code>、<code>ctx.ui.select()</code> 和
+                <code>ctx.ui.input()</code> 向用户提问，包括从 <code>session_start</code> 钩子以及运行中的
+                <code>tool_call</code> 钩子发起。PI WEB 会在会话记录中以内联方式显示这些对话框，并通过独立的
+                会话守护进程通道返回回答，不经过提示词队列，因此等待回答的 <code>tool_call</code> 钩子不会阻塞运行。
+                对话框支持始终启用，没有单独的启用开关。行为细节和扩展开发说明见
+                <a href="plugins#pi-extension-dialogs">PI WEB 中的 Pi 扩展对话框</a>。
+              </p>
+              <p>
+                <code>extensionDialogsTimeoutMs</code> 是无人处理对话框时的安全超时：会话守护进程等待回答的最长时间。
+                超时后将以对应类型的取消值结束对话框，确认框为 <code>false</code>，选择框和输入框为
+                <code>undefined</code>。默认值为 <code>300000</code>（5 分钟）；设为 <code>0</code> 时永久等待。
+                扩展自身设置的 <code>timeout</code> 仍然生效，最终期限取两者中较早的时间。
+              </p>
+              <div class="callout warning">
+                <strong>需要重启：</strong><code>extensionDialogsTimeoutMs</code> 直接在全局配置文件中编辑。
+                修改后需要重启会话守护进程；使用 systemd 用户服务时运行
                 <code>systemctl --user restart pi-web-sessiond</code>.
               </div>
+            </section>
+
+            <section id="prompt-completions">
+              <h2>提示词补全</h2>
+              <p>聊天输入框会在键入以下三个触发字符时打开补全菜单：</p>
+              <ul>
+                <li>在草稿开头键入 <code>/</code> 可补全会话命令。</li>
+                <li>
+                  <code>@</code> 用于补全文件路径：<code>@</code> 显示已跟踪文件，<code>@ </code>（先键入
+                  <code>@</code>，再键入空格）或 <code>!@</code> 显示所有文件。选中后会把 <code>@path</code>
+                  引用插入草稿；路径包含空格时会自动加引号。
+                </li>
+                <li>
+                  <code>#</code> 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。
+                  选中后会把 <code>#provider/model-id</code> 引用插入草稿，提示代理应使用该模型执行请求，
+                  例如作为 <code>spawn_session</code> 的 <code>model</code> 参数。
+                </li>
+              </ul>
             </section>
 
 

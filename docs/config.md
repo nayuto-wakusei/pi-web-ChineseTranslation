@@ -46,7 +46,7 @@ Process restarts depend on the key:
 
 - `host` / `port`: restart the gateway web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
-- `agent.command` / `agent.dir` / `spawnSessions` / `subsessions` / `askUser`: restart the session daemon on that machine.
+- `agent.command` / `agent.dir` / `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs`: restart the session daemon on that machine.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `plugins`: reload the browser tab after changing PI WEB plugin enablement.
@@ -73,6 +73,7 @@ Process restarts depend on the key:
   "spawnSessions": true,
   "subsessions": false,
   "askUser": true,
+  "extensionDialogsTimeoutMs": 300000,
   "plugins": {
     "workspace-tasks": { "enabled": true },
     "updates": { "enabled": true },
@@ -125,6 +126,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
 | Agent can post question forms | `askUser` | `PI_WEB_ASK_USER` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
+| 扩展对话框自动取消超时 | `extensionDialogsTimeoutMs` | — | 全局/会话守护进程 | 不支持项目级配置 | 重启对应机器上的会话守护进程 |
 | Plugin enablement/settings | `plugins.<id>.enabled`, `plugins.<id>.settings` | — | Global | Not core local config; plugins may read their own project files | Reload browser tab |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
@@ -278,6 +280,8 @@ A completion notice wakes an idle parent or queues behind in-flight work. Each n
 
 `list_subsessions`, `check_subsession`, and `read_subsession` never yield or change control flow. They are for deliberate inspection or recovery, not completion polling. While a child works, agent-facing `check_subsession` and `read_subsession` withhold partial output and direct the parent to continue independent work or yield at the join point. Output becomes available when the child stops. Included output and transcripts follow a labeled marker and come last, after PI WEB guidance.
 
+`spawn_session` 和 `spawn_subsession` 都接受可选的 `model` 参数，其值必须是精确的 `provider/model-id`，例如 `anthropic/claude-sonnet-4-5`。设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。用户可以在提示词中通过 `#provider/model-id` 引用指定模型（见[提示词补全](#prompt-completions)），代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
+
 In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
 
 #### `askUser` and `ask_user`
@@ -295,6 +299,14 @@ PI WEB confirms a partial submission before sending it and names the unanswered 
 Sending an ordinary chat message while a form is open voids the form: the card closes as cancelled and the model is told its questions went unanswered as part of the turn the message itself starts.
 
 Restart the session daemon after changing `askUser` or after upgrading PI WEB to a version that introduces this tool. For the systemd user service, run `systemctl --user restart pi-web-sessiond`.
+
+### 扩展对话框
+
+Pi 扩展可以通过 `ctx.ui.confirm()`、`ctx.ui.select()` 和 `ctx.ui.input()` 向用户提问，包括从 `session_start` 钩子以及运行中的 `tool_call` 钩子发起。PI WEB 会在会话记录中以内联方式显示这些对话框，并通过独立的会话守护进程通道返回回答，不经过提示词队列，因此等待回答的 `tool_call` 钩子不会阻塞运行。对话框支持始终启用，没有单独的启用开关。行为细节和扩展开发说明见 [PI WEB 中的 Pi 扩展对话框](https://pi-web.dev/plugins#pi-extension-dialogs)。
+
+`extensionDialogsTimeoutMs` 是无人处理对话框时的安全超时：会话守护进程等待回答的最长时间，超时后将以对应类型的取消值结束对话框（确认框为 `false`，选择框和输入框为 `undefined`）。默认值为 `300000`（5 分钟）；设为 `0` 时永久等待。扩展自身设置的 `timeout` 仍然生效，最终期限取两者中较早的时间。
+
+该配置项直接在全局配置文件中编辑。修改后需要重启会话守护进程；使用 systemd 用户服务时运行 `systemctl --user restart pi-web-sessiond`。
 
 ### Plugin config
 
@@ -327,6 +339,14 @@ Shortcut values are keyed by action id. Values are shortcut strings such as `mod
 ```
 
 Prefer Settings → Keyboard for editing shortcuts interactively.
+
+## 提示词补全
+
+聊天输入框会在键入以下三个触发字符时打开补全菜单：
+
+- 在草稿开头键入 `/` 可补全会话命令。
+- `@` 用于补全文件路径：`@` 显示已跟踪文件，`@ `（先键入 `@`，再键入空格）或 `!@` 显示所有文件。选中后会把 `@path` 引用插入草稿；路径包含空格时会自动加引号。
+- `#` 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。选中后会把 `#provider/model-id` 引用插入草稿，提示代理应使用该模型执行请求，例如作为 `spawn_session` 的 `model` 参数。
 
 ## Optional completion tools
 

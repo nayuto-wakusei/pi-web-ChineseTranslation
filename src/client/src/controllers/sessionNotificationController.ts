@@ -9,7 +9,6 @@ import {
   type SelectedSessionNotificationInbox,
   type SessionNotificationTarget,
 } from "../sessionNotifications";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import type {
   SessionNotificationInboxEvent,
   SessionNotificationInboxSnapshot,
@@ -322,7 +321,7 @@ export class SessionNotificationController {
 
   private machineSupportsNotificationsInState(state: AppState, machineId: string): boolean {
     return this.acceptedSupportByMachine.has(machineId)
-      || (state.machineRuntimes[machineId]?.ok === true && supportsPiWebCapability(state.machineRuntimes[machineId], PI_WEB_CAPABILITIES.sessionsNotifications));
+      || state.machineRuntimes[machineId]?.ok === true;
   }
 
   private machineIsReachable(machineId: string): boolean {

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MachineRuntime, SessionInfo, SessionStatus } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
-import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 // Template inspection is the proportionate escape hatch for wiring assertions
 // in the repository's node-only Lit test environment.
 import { templateValueAfterMarker } from "../templateInspection.testSupport";
@@ -17,7 +16,7 @@ afterEach(() => {
 describe("PiWebApp queued-message clear wiring", () => {
   it("passes a stable supported-runtime callback through to SessionController", () => {
     const app = createApp();
-    const state = stateWithRuntime(runtimeWithCapabilities([PI_WEB_CAPABILITIES.sessionsClearQueue]));
+    const state = stateWithRuntime(runtimeWithCapabilities([]));
     setAppState(app, state);
     const controller = appSessionController(app);
     const clearServerQueue = vi.spyOn(controller, "clearServerQueue").mockResolvedValue(undefined);
@@ -33,12 +32,11 @@ describe("PiWebApp queued-message clear wiring", () => {
     expect(clearServerQueue).toHaveBeenCalledOnce();
   });
 
-  it("passes false when runtime discovery is unavailable, unhealthy, or lacks the capability", () => {
+  it("uses runtime health rather than capability metadata", () => {
     const app = createApp();
     const runtimes: (MachineRuntime | undefined)[] = [
       undefined,
-      { ...runtimeWithCapabilities([PI_WEB_CAPABILITIES.sessionsClearQueue]), ok: false },
-      runtimeWithCapabilities([PI_WEB_CAPABILITIES.sessionsReload]),
+      { ...runtimeWithCapabilities([]), ok: false },
     ];
 
     for (const runtime of runtimes) {
@@ -46,6 +44,10 @@ describe("PiWebApp queued-message clear wiring", () => {
       setAppState(app, state);
       expect(templateValueAfterMarker(renderChatView(app, state), ".canClearServerQueue=")).toBe(false);
     }
+
+    const healthyState = stateWithRuntime(runtimeWithCapabilities([]));
+    setAppState(app, healthyState);
+    expect(templateValueAfterMarker(renderChatView(app, healthyState), ".canClearServerQueue=")).toBe(true);
   });
 });
 

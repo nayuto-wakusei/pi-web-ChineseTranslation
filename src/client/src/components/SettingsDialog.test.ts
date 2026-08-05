@@ -97,7 +97,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
-  it("skips selected-machine settings loads when the remote runtime does not advertise support", async () => {
+  it("loads selected-machine settings without capability metadata", async () => {
     const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ spawnSessions: true }));
     const pluginsSpy = vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([pluginInfo("info", true)]));
     const dialog = new SettingsDialog();
@@ -108,17 +108,14 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "loadAccessConfigForTarget");
     await callDialogPromise(dialog, "loadPluginsForTarget");
 
-    expect(configSpy).not.toHaveBeenCalled();
-    expect(pluginsSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "accessConfigResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
-    expect(getDialogProperty(dialog, "accessError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
-    expect(getDialogProperty(dialog, "pluginError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(configSpy).toHaveBeenCalledWith(remoteMachine.id);
+    expect(pluginsSpy).toHaveBeenCalledWith(remoteMachine.id);
+    expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeDefined();
+    expect(getDialogProperty(dialog, "accessConfigResponse")).toBeDefined();
+    expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeDefined();
   });
 
-  it("does not save remote selected-machine settings when runtime support is missing", async () => {
+  it("saves remote selected-machine settings without capability metadata", async () => {
     const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ spawnSessions: true }));
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
@@ -129,10 +126,11 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "saveMachineAccessConfig", { pathAccess: { allowedPaths: ["/mnt/share"] } });
     await callDialogPromise(dialog, "togglePlugin", "info", false);
 
-    expect(saveSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
-    expect(getDialogProperty(dialog, "accessError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
-    expect(getDialogProperty(dialog, "pluginError")).toBe("Lab Mac 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。");
+    expect(saveSpy.mock.calls).toEqual([
+      [{ spawnSessions: true }, remoteMachine.id],
+      [{ pathAccess: { allowedPaths: ["/mnt/share"] } }, remoteMachine.id],
+      [{ plugins: { info: { enabled: false } } }, remoteMachine.id],
+    ]);
   });
 
   it("shows selected-machine settings errors with the selected target name", async () => {

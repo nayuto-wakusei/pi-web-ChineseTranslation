@@ -1,4 +1,4 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./components/shared";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
@@ -43,6 +43,21 @@ export interface AppState {
    * dropped when the machine reports no `sessions.askUser` support.
    */
   pendingAsk: PendingAskUser | undefined;
+  /**
+   * The selected session's open extension dialogs, derived from the
+   * daemon-owned {@link SessionStatus.pendingDialogs} plus live dialog events.
+   * Oldest first; unlike an ask, opening never supersedes, so several dialogs
+   * may wait at once.
+   */
+  pendingDialogs: PendingExtensionDialog[];
+  /**
+   * Dialogs that closed while their session was selected, kept with the close
+   * reason and any answer so the settled card can show what became of the
+   * dialog. The card stays until the user dismisses it. The wire outcome is
+   * deliberately small, so only a browser that saw the dialog open can show
+   * the closed card; deselection and reloads drop these.
+   */
+  closedDialogs: ClosedExtensionDialog[];
   /** Thinking levels available for the selected session's current model. */
   availableThinkingLevels: readonly string[];
   sessionStatuses: Record<string, SessionStatus>;
@@ -80,6 +95,14 @@ export interface AppState {
   selectedTerminalId: string | undefined;
   piWebStatus: PiWebStatusResponse | undefined;
   error: string;
+}
+
+/** A closed extension dialog paired with the record the browser rendered while it was open. */
+export interface ClosedExtensionDialog {
+  dialog: PendingExtensionDialog;
+  reason: ExtensionDialogCloseReason;
+  /** Present only when `reason` is `"answered"`. */
+  answer?: ExtensionDialogAnswer;
 }
 
 export interface AuthDialogTarget extends AuthRequestTarget {
@@ -187,6 +210,8 @@ export function initialAppState(): AppState {
     status: undefined,
     activity: undefined,
     pendingAsk: undefined,
+    pendingDialogs: [],
+    closedDialogs: [],
     availableThinkingLevels: [],
     sessionStatuses: {},
     sessionActivities: {},
