@@ -11,7 +11,6 @@ import { fileCompletionInsertText } from "../promptCompletions";
 import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
 import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceOptionsForRuntime } from "../sessionPersistence";
 import { isSessionActive } from "../../../shared/activity";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionStartupProgressEvent } from "../../../shared/apiTypes";
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
@@ -20,7 +19,6 @@ import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 
 const MESSAGE_PAGE_SIZE = 100;
 const SEARCH_JUMP_PAGE_SIZE = 500;
-const BULK_FALLBACK_CONCURRENCY = 4;
 const SESSION_LIST_REFRESH_MS = 5000;
 
 export interface SessionEventSocket {
@@ -305,7 +303,7 @@ export class SessionController {
       isLoadingEarlierMessages: false,
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
       activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
-      pendingAsk: session.archived === true ? undefined : this.selectedPendingAsk(this.getState().sessionStatuses[session.id], machineId),
+      pendingAsk: session.archived === true ? undefined : this.selectedPendingAsk(this.getState().sessionStatuses[session.id]),
       pendingDialogs: session.archived === true ? [] : (this.getState().sessionStatuses[session.id]?.pendingDialogs ?? []),
       closedDialogs: [],
       availableThinkingLevels: [],
@@ -699,13 +697,6 @@ export class SessionController {
     if (candidates.length === 0) return;
 
     const machineId = selectedMachineId(this.getState());
-    const runtime = this.getState().machineRuntimes[machineId];
-    // Preserve legacy federated deletes when capability discovery is unavailable;
-    // only a positive runtime response without support should block the action.
-    if (runtime?.ok === true && !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived)) {
-      this.setState({ error: "删除已归档会话需要更新此机器上的 Pi-Web 运行时。" });
-      return;
-    }
     try {
       const { succeededIds: deletedIds, failures } = await this.deleteArchivedSessionBatch(candidates, machineId);
       if (deletedIds.length > 0) {
@@ -727,31 +718,13 @@ export class SessionController {
   }
 
   private async archiveSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
-    const runtime = this.getState().machineRuntimes[machineId];
-    if (runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsBulkMutations)) {
-      const response = await this.api.archiveMany(sessions, machineId);
-      return { succeededIds: response.archivedSessionIds, failures: bulkFailureMessages(response.failures), generatedAt: response.generatedAt };
-    }
-
-    const results = await allSettledWithConcurrency(sessions, BULK_FALLBACK_CONCURRENCY, async (session) => {
-      await this.api.archive(session, machineId);
-      return session.id;
-    });
-    return { succeededIds: fulfilledValues(results), failures: settledSessionFailureMessages(sessions, results) };
+    const response = await this.api.archiveMany(sessions, machineId);
+    return { succeededIds: response.archivedSessionIds, failures: bulkFailureMessages(response.failures), generatedAt: response.generatedAt };
   }
 
   private async deleteArchivedSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
-    const runtime = this.getState().machineRuntimes[machineId];
-    if (runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsBulkMutations)) {
-      const response = await this.api.deleteArchivedMany(sessions, machineId);
-      return { succeededIds: response.deletedSessionIds, failures: bulkFailureMessages(response.failures) };
-    }
-
-    const results = await allSettledWithConcurrency(sessions, BULK_FALLBACK_CONCURRENCY, async (session) => {
-      await this.api.deleteArchived(session, machineId);
-      return session.id;
-    });
-    return { succeededIds: fulfilledValues(results), failures: settledSessionFailureMessages(sessions, results) };
+    const response = await this.api.deleteArchivedMany(sessions, machineId);
+    return { succeededIds: response.deletedSessionIds, failures: bulkFailureMessages(response.failures) };
   }
 
   async applySessionCleanupResult(result: SessionCleanupExecuteResponse, machineId = selectedMachineId(this.getState())): Promise<void> {
@@ -864,11 +837,6 @@ export class SessionController {
   async reloadSession(session = this.getState().selectedSession) {
     if (session === undefined || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
     const machineId = selectedMachineId(this.getState());
-    const runtime = this.getState().machineRuntimes[machineId];
-    if (runtime?.ok !== true || !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload)) {
-      this.setState({ error: "从磁盘重新加载会话需要更新此机器上的 Pi-Web 运行时。" });
-      return;
-    }
     try {
       await this.api.reloadSession(session.id, machineId);
       this.transcripts.discard(this.sessionCacheKey(session.id));
@@ -1272,7 +1240,7 @@ export class SessionController {
       sessionActivities: omitSessionActivity(state.sessionActivities, tempId),
       sendingPrompts: moveRecordKey(state.sendingPrompts, tempId, cachedSession.id),
       clientQueuedSessionMessages: moveRecordKey(state.clientQueuedSessionMessages, tempId, cachedSession.id),
-      ...(wasSelected ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id], pending.machineId), pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
+      ...(wasSelected ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id]), pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
       error: "",
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
@@ -1433,7 +1401,7 @@ export class SessionController {
       activity: isSelected && clearsStaleActivity ? undefined : state.activity,
       // The daemon owns whether an ask is open, so every status it publishes is
       // authoritative for the selected session's card, including its removal.
-      ...(isSelected ? { pendingAsk: this.selectedPendingAsk(status, selectedMachineId(state)) } : {}),
+      ...(isSelected ? { pendingAsk: this.selectedPendingAsk(status) } : {}),
       ...(isSelected ? { pendingDialogs: status.pendingDialogs ?? [] } : {}),
     });
   }
@@ -1468,7 +1436,7 @@ export class SessionController {
   private applyOpenedAsk(ask: PendingAskUser): void {
     const state = this.getState();
     if (state.selectedSession === undefined) return;
-    this.setState({ pendingAsk: this.selectedPendingAsk({ pendingAsk: ask }, selectedMachineId(state)) });
+    this.setState({ pendingAsk: this.selectedPendingAsk({ pendingAsk: ask }) });
   }
 
   private applyClosedAsk(askId: string): void {
@@ -1476,10 +1444,8 @@ export class SessionController {
     this.setState({ pendingAsk: undefined });
   }
 
-  private selectedPendingAsk(status: Pick<SessionStatus, "pendingAsk"> | undefined, machineId: string): PendingAskUser | undefined {
+  private selectedPendingAsk(status: Pick<SessionStatus, "pendingAsk"> | undefined): PendingAskUser | undefined {
     if (status?.pendingAsk === undefined) return undefined;
-    const runtime = this.getState().machineRuntimes[machineId];
-    if (runtime?.ok === true && !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsAskUser)) return undefined;
     return status.pendingAsk;
   }
 
@@ -1857,51 +1823,8 @@ function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {
   return unique;
 }
 
-function fulfilledValues<T>(results: readonly PromiseSettledResult<T>[]): T[] {
-  return results.filter(isFulfilled).map((result) => result.value);
-}
-
 function bulkFailureMessages(failures: readonly SessionBulkFailure[]): string[] {
   return failures.map((failure) => `${failure.sessionId}: ${failure.error}`);
-}
-
-function settledSessionFailureMessages(sessions: readonly SessionInfo[], results: readonly PromiseSettledResult<unknown>[]): string[] {
-  return results.flatMap((result, index) => {
-    if (!isRejected(result)) return [];
-    const sessionId = sessions[index]?.id ?? "unknown";
-    return [`${sessionId}: ${errorMessage(result.reason)}`];
-  });
-}
-
-async function allSettledWithConcurrency<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
-  const indexedItems = items.map((item, index) => ({ item, index }));
-  const results: PromiseSettledResult<R>[] = [];
-  let nextIndex = 0;
-
-  async function runWorker(): Promise<void> {
-    while (nextIndex < indexedItems.length) {
-      const entry = indexedItems[nextIndex];
-      if (entry === undefined) return;
-      nextIndex += 1;
-      try {
-        results[entry.index] = { status: "fulfilled", value: await worker(entry.item) };
-      } catch (reason) {
-        results[entry.index] = { status: "rejected", reason };
-      }
-    }
-  }
-
-  const workerCount = Math.min(Math.max(1, concurrency), indexedItems.length);
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return results;
-}
-
-function isFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfilledResult<T> {
-  return result.status === "fulfilled";
-}
-
-function isRejected<T>(result: PromiseSettledResult<T>): result is PromiseRejectedResult {
-  return result.status === "rejected";
 }
 
 function errorMessage(error: unknown): string {

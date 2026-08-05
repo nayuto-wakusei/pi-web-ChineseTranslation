@@ -4,7 +4,6 @@ import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, 
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { thinkingLevelDescription, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ActivityController } from "../controllers/activityController";
 import { AuthController } from "../controllers/authController";
@@ -1138,9 +1137,7 @@ export class PiWebApp extends LitElement {
       if (runtime === undefined) continue;
       const capability = this.unreadRuntimeRefreshes.has(machineId) || !runtime.ok
         ? "unknown"
-        : supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsUnread)
-          ? "supported"
-          : "unsupported";
+        : "supported";
       if (this.sessionUnread.setCapability(machineId, capability)) void this.sessionUnread.refresh(machineId);
     }
   }
@@ -1412,27 +1409,21 @@ export class PiWebApp extends LitElement {
   }
 
   private canDeleteArchivedSessions(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    // COMPAT-CAP sessions.deleteArchived: older federated machines may support
-    // the legacy DELETE route without advertising runtime capabilities. Only
-    // block when capability discovery succeeds and reports no support.
-    return runtime?.ok !== true || supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
+    return true;
   }
 
   private canReloadSessions(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload);
+    return this.selectedMachineRuntime()?.ok === true;
   }
 
   private canClearServerQueue(): boolean {
-    const runtime = this.selectedMachineRuntime();
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsClearQueue);
+    return this.selectedMachineRuntime()?.ok === true;
   }
 
   private canCleanupSessions(): boolean {
     const runtime = this.selectedMachineRuntime();
     if (this.apiScope === "management" && this.state.selectedProject === undefined) return false;
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsCleanup);
+    return runtime?.ok === true;
   }
 
   private hasAuthoritativeSessionPersistence(): boolean {
@@ -1441,10 +1432,7 @@ export class PiWebApp extends LitElement {
 
   private supportsWorkspaceFileSuggestions(machineId = selectedMachineId(this.state)): boolean {
     if (machineId === "local") return true;
-    // COMPAT-CAP workspace.fileSuggestions: remote machines without this
-    // capability stay on the legacy cwd-based /files route.
-    const runtime = this.state.machineRuntimes[machineId];
-    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.workspaceFileSuggestions);
+    return this.state.machineRuntimes[machineId]?.ok === true;
   }
 
   private archivedDeleteUnavailableMessage(): string {

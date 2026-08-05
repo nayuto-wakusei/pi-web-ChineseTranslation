@@ -111,16 +111,16 @@ describe("SessionController open ask state", () => {
     expect(harness.state().pendingAsk?.askId).toBe("ask-2");
   });
 
-  it("drops an open ask on a machine that reports no ask support", async () => {
+  it("shows an open ask when the runtime omits capability metadata", async () => {
     const harness = await liveSession(
       { machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } },
       statusWithAsk(oldSession.id, ask("ask-1")),
     );
-    expect(harness.state().pendingAsk).toBeUndefined();
+    expect(harness.state().pendingAsk?.askId).toBe("ask-1");
 
     harness.socket.emit({ type: "ask.opened", ask: ask("ask-1") });
 
-    expect(harness.state().pendingAsk).toBeUndefined();
+    expect(harness.state().pendingAsk?.askId).toBe("ask-1");
   });
 
   it("still shows an open ask while capability discovery is unavailable", async () => {

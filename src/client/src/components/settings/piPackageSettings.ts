@@ -1,5 +1,4 @@
 import type { Machine, MachineKind, MachineRuntime, PiPackageInfo, PiPackageMutationAction } from "../../api";
-import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../../shared/capabilities";
 
 export type PiPackageOperationKind = PiPackageMutationAction | "update-all";
 
@@ -33,8 +32,7 @@ export function piPackageTargetLabel(target: PiPackageTargetContext): string {
 export function piPackageManagementSupport(target: PiPackageTargetContext, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): PiPackageManagementSupport {
   if (target.kind === "local") return { state: "supported" };
   if (runtime?.ok !== true) return { state: "unknown" };
-  if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.piPackagesManage)) return { state: "supported" };
-  return { state: "unsupported", message: piPackageManagementUnavailableMessage(target) };
+  return { state: "supported" };
 }
 
 export function piPackageManagementSupportKey(support: PiPackageManagementSupport): string {

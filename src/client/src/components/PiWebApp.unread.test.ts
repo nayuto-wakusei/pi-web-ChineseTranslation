@@ -128,7 +128,7 @@ describe("PiWebApp session unread wiring", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fetches initial state only after the selected runtime advertises unread support", async () => {
+  it("fetches initial state after the selected runtime is healthy", async () => {
     const background = session("background");
     const durable = { catalogId: "catalog-a", catalogRevision: 1, sessions: [unreadSummary(background, 1)] };
     const fetchMock = stubJsonFetch(durable);
@@ -152,13 +152,7 @@ describe("PiWebApp session unread wiring", () => {
     });
 
     setState(app, { machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } });
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    setState(app, {
-      machineRuntimes: {
-        local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsUnread] },
-      },
-    });
+    await refreshUnread(app, "local");
     await vi.waitFor(() => { expect([...navigationUnreadSessionIds(app)]).toEqual([background.id]); });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://pi.example.test/api/machines/local/sessions/unread");
@@ -190,8 +184,8 @@ describe("PiWebApp session unread wiring", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://pi.example.test/api/machines/local/sessions/unread");
   });
 
-  it("renegotiates cached support before refreshing after a runtime rollback", async () => {
-    const fetchMock = vi.fn(() => Promise.reject(new Error("Unexpected unread request")));
+  it("keeps unread support after capability metadata disappears", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ catalogId: "catalog-a", catalogRevision: 1, sessions: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     const app = createApp();
     enableUnread(app);
@@ -221,7 +215,7 @@ describe("PiWebApp session unread wiring", () => {
     await renegotiateUnreadMachine(app, "local");
     await refreshUnread(app, "local");
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it("does not treat the legacy browser-local key as unread authority", () => {

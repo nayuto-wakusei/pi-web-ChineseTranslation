@@ -61,7 +61,7 @@ describe("SessionController reload and selection", () => {
     expect(state.error).toBe("");
   });
 
-  it("does not reload sessions from disk when the selected machine runtime does not support it", async () => {
+  it("reloads sessions from disk without capability metadata", async () => {
     const persistedSession = { ...oldSession, persisted: true };
     const reloadCalls: string[] = [];
     let state: AppState = {
@@ -76,6 +76,9 @@ describe("SessionController reload and selection", () => {
         reloadCalls.push(sessionLookupId(session));
         return Promise.resolve({ reloaded: true });
       },
+      messages: () => Promise.resolve({ messages: [], start: 0, total: 0 }),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
     };
     const controller = new SessionController(
       () => state,
@@ -87,8 +90,8 @@ describe("SessionController reload and selection", () => {
 
     await controller.reloadSession(persistedSession);
 
-    expect(reloadCalls).toEqual([]);
-    expect(state.error).toContain("从磁盘重新加载会话需要更新此机器上的 Pi-Web 运行时");
+    expect(reloadCalls).toEqual([persistedSession.id]);
+    expect(state.error).toBe("");
   });
 
   it("does not reload sessions from disk without a persisted server signal when persistence is authoritative", async () => {

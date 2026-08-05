@@ -48,13 +48,13 @@ describe("Pi package settings helpers", () => {
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(remoteTarget)).toBe(false);
   });
 
-  it("uses runtime capabilities as package-management UX guidance without blocking older remotes", () => {
+  it("treats package management as fixed on a healthy remote runtime", () => {
     expect(piPackageManagementSupport(localTarget, undefined)).toEqual({ state: "supported" });
     expect(piPackageManagementSupport(remoteTarget, runtimeWithPackageManagement)).toEqual({ state: "supported" });
 
-    const unsupported = piPackageManagementSupport(remoteTarget, runtimeWithoutPackageManagement);
-    expect(isPiPackageManagementUnsupported(unsupported)).toBe(true);
-    expect(unsupported.message).toContain("请更新并重启该机器上的 PI WEB");
+    const supportedWithoutMetadata = piPackageManagementSupport(remoteTarget, runtimeWithoutPackageManagement);
+    expect(isPiPackageManagementUnsupported(supportedWithoutMetadata)).toBe(false);
+    expect(supportedWithoutMetadata).toEqual({ state: "supported" });
 
     expect(piPackageManagementSupport(remoteTarget, undefined)).toEqual({ state: "unknown" });
     expect(piPackageManagementSupport(remoteTarget, unavailableRuntime)).toEqual({ state: "unknown" });
