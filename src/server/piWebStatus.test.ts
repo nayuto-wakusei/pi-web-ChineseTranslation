@@ -203,6 +203,30 @@ describe("PI WEB status", () => {
     });
   });
 
+  it("computes session daemon staleness from the daemon-reported runtime version", async () => {
+    process.env["PI_WEB_SKIP_VERSION_CHECK"] = "1";
+    disableDockerRuntimeEnv();
+    const daemon = daemonWithRuntime({
+      component: "sessiond",
+      label: "Session daemon",
+      runtimeVersion: "1.202605.7",
+      available: true,
+      capabilities: [],
+    });
+
+    const status = await getPiWebStatus(daemon);
+    const installedVersion = status.components.sessiond.installedVersion;
+
+    expect(installedVersion).toBeDefined();
+    if (installedVersion === undefined) throw new Error("Expected an installed session daemon version");
+    expect(status.components.sessiond.runtimeVersion).toBe("1.202605.7");
+    expect(status.components.sessiond.stale).toBe(true);
+    expect(status.messages.find((message) => message.id === "sessiond-stale")).toMatchObject({
+      title: "会话守护进程需要重启",
+      body: `会话守护进程正在运行 1.202605.7，但已安装 ${installedVersion}。重启会话守护进程服务或进程即可使用已安装版本。`,
+    });
+  });
+
   it("suppresses Pi package update planning without an active companion command", async () => {
     const hasCommand = vi.fn(() => Promise.resolve(true));
 
