@@ -4,6 +4,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      deprecate-version:
+        description: Exact published version to deprecate; leave blank to publish the checked-out version
+        required: false
+        type: string
+      deprecation-message:
+        description: Deprecation notice shown by npm
+        required: false
+        default: Withdrawn; use a newer version.
+        type: string
 
 permissions:
   contents: read
@@ -12,7 +22,7 @@ permissions:
 jobs:
   publish:
     name: Publish to npm
-    if: ${{ github.event_name != 'release' || (github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.deprecate-version == '') || (github.event_name == 'release' && github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-')) }}
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -42,3 +52,25 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
+
+  deprecate:
+    name: Deprecate npm version
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deprecate-version != '' }}
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Deprecate exact version
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ inputs.deprecate-version }}
+          MESSAGE: ${{ inputs.deprecation-message }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "Invalid exact version: $VERSION"; exit 1; }
+          npm deprecate "@chainingintention/pi-web-cn@$VERSION" "$MESSAGE"
