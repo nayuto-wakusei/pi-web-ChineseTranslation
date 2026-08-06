@@ -99,6 +99,44 @@ describe("management permission system", () => {
       terminal: "deny",
     });
   });
+
+  it("allows registered delegation and ask-user tools while preserving explicit denies", () => {
+    const controlledTools = [
+      "spawn_session",
+      "spawn_subsession",
+      "list_subsessions",
+      "check_subsession",
+      "read_subsession",
+      "yield_to_subsessions",
+      "ask_user",
+    ];
+    const context = managementContext();
+
+    expect(managementAgentToolNames(context, controlledTools)).toEqual([
+      "read",
+      "write",
+      "edit",
+      "ls",
+      "grep",
+      "find",
+      "python",
+      ...controlledTools,
+    ]);
+    expect(createManagementPermissionSystemPolicy(context, controlledTools).tools).toMatchObject({
+      spawn_session: "allow",
+      spawn_subsession: "allow",
+      list_subsessions: "allow",
+      check_subsession: "allow",
+      read_subsession: "allow",
+      yield_to_subsessions: "allow",
+      ask_user: "allow",
+      bash: "deny",
+    });
+
+    const deniedContext = managementContext({ tools: { deny: ["ask_user"] } });
+    expect(managementAgentToolNames(deniedContext, controlledTools)).not.toContain("ask_user");
+    expect(createManagementPermissionSystemPolicy(deniedContext, controlledTools).tools["ask_user"]).toBe("deny");
+  });
 });
 
 function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {

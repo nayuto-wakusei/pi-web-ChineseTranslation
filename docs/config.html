@@ -626,6 +626,9 @@ pi-web audit vacuum</code></pre>
                 The adapter keeps Agent Session tokens and short-lived capability and Skill credentials server-side. It
                 loads only the fixed authorized snapshot and exposes <code>icnoc_search_capabilities</code> and
                 <code>icnoc_call_capability</code> alongside the managed file tools and sandboxed <code>python</code> tool.
+                When their global feature switches are enabled, management sessions also receive
+                <code>spawn_session</code>, the tracked-subsession tool set headed by <code>spawn_subsession</code>, and
+                <code>ask_user</code>; spawned sessions inherit the same management context.
                 Python runs without network access in an isolated Bubblewrap environment that binds only the managed
                 workspace; generic MCP, HTTP, web search, shell, and terminal tools remain denied.
                 Authorized Skill bundles are validated against their manifests before they enter the managed project.

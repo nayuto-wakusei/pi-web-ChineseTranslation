@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.8
+
+### Patch Changes
+
+- Allow management-embed sessions to use the configured `spawn_session`, tracked subsession, and `ask_user` tools while preserving management context and explicit tool denies.
+
 ## 1.202608.7
 
 ### Patch Changes

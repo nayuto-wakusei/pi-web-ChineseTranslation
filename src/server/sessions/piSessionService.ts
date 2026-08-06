@@ -859,8 +859,23 @@ function createManagementRuntimeFactory(
         cwd,
       },
     });
-    const workbenchToolNames = workbenchTools.map((tool) => tool.name);
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, workbenchToolNames);
+    const scopedSpawn = spawn === undefined
+      ? undefined
+      : (input: SpawnSessionInvocation) => spawn({ ...input, managementContext });
+    const scopedSubsessions = subsessions === undefined
+      ? undefined
+      : {
+          ...subsessions,
+          spawn: (input: SpawnSubsessionInvocation) => subsessions.spawn({ ...input, managementContext }),
+        };
+    const controlledManagementTools = [
+      ...(delegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
+      ...(delegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
+      ...(askUser === undefined ? [] : [createAskUserToolDefinition(askUser)]),
+      ...workbenchTools,
+    ];
+    const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
+    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, controlledManagementToolNames);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const settingsManager = await createScopedSettingsManager({
         cwd,
@@ -878,29 +893,17 @@ function createManagementRuntimeFactory(
         },
       });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
-      const scopedSpawn = spawn === undefined
-        ? undefined
-        : (input: SpawnSessionInvocation) => spawn({ ...input, managementContext });
-      const scopedSubsessions = subsessions === undefined
-        ? undefined
-        : {
-            ...subsessions,
-            spawn: (input: SpawnSubsessionInvocation) => subsessions.spawn({ ...input, managementContext }),
-          };
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
         createManagedPythonToolDefinition(cwd, managementContext),
-        ...(delegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
-        ...(delegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
-        ...(askUser === undefined ? [] : [createAskUserToolDefinition(askUser)]),
-        ...workbenchTools,
+        ...controlledManagementTools,
       ];
       const options = {
         services,
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        tools: managementAgentToolNames(managementContext, workbenchToolNames),
+        tools: managementAgentToolNames(managementContext, controlledManagementToolNames),
         ...(initialModel === undefined ? {} : { model: initialModel }),
         ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
       };
