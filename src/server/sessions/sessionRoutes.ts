@@ -4,7 +4,7 @@ import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
-import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
+import { attachWorkbenchAccessHandle, decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { normalizeSessionCleanupRequest } from "./sessionCleanup.js";
 
@@ -568,7 +568,10 @@ function sessionLookupFromQuery(id: string, query: SessionQuery): SessionLookup 
 
 function managementContextFromHeaders(headers: Record<string, string | string[] | undefined>): ManagementEmbedContext | undefined {
   const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
-  return decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+  const context = decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+  if (context === undefined) return undefined;
+  const handle = headers[WORKBENCH_ACCESS_HANDLE_HEADER];
+  return attachWorkbenchAccessHandle(context, Array.isArray(handle) ? handle[0] : handle);
 }
 
 function eventScopeFromHeaders(headers: Record<string, string | string[] | undefined>): string {

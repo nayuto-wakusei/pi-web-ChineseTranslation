@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { WebSocket, type RawData } from "ws";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
-import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
@@ -16,7 +16,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       const daemonPath = stripPrefix(request.url, prefix);
       const body = await managementBody(daemonPath, request.body, managementContext, managementEmbed, resolveManagementProjectCwds);
-      const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext));
+      const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext, managementEmbed));
       reply.code(upstream.statusCode);
       const contentType = upstream.headers["content-type"];
       if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
@@ -55,7 +55,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 
   app.get<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
     void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context)));
+      bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
       closeSocketWithError(socket, error);
     });
@@ -63,7 +63,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 
   app.get(`${prefix}/sessions/events`, { websocket: true }, (socket, request) => {
     void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket("/sessions/events", managementHeaders(context)));
+      bridgeSockets(socket, daemon.connectWebSocket("/sessions/events", managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
       closeSocketWithError(socket, error);
     });
@@ -71,7 +71,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 
   app.get(`${prefix}/events`, { websocket: true }, (socket, request) => {
     void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket("/events", managementHeaders(context)));
+      bridgeSockets(socket, daemon.connectWebSocket("/events", managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
       closeSocketWithError(socket, error);
     });
@@ -121,8 +121,13 @@ async function managementCleanupBody(body: unknown, context: ManagementEmbedCont
   return { ...body, projectCwds: [...new Set(requestedCwds)] };
 }
 
-function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
-  return context === undefined ? undefined : { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
+function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
+  if (context === undefined) return undefined;
+  const handle = runtime?.resourceHandle?.(context);
+  return {
+    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
+    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
+  };
 }
 
 function stripPrefix(url: string, prefix: string): string {

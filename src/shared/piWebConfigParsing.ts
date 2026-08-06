@@ -1,4 +1,4 @@
-﻿import type { PiWebConfigValues } from "./apiTypes.js";
+import type { PiWebConfigValues } from "./apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
 
 export type ParsedPiWebConfig = PiWebConfigValues;
@@ -16,6 +16,8 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.normalAuth !== undefined ? { normalAuth: config.normalAuth } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
+    ...(config.workbenchIntegration !== undefined ? { workbenchIntegration: config.workbenchIntegration } : {}),
+    ...(config.auditLog !== undefined ? { auditLog: config.auditLog } : {}),
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
@@ -58,12 +60,107 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], context) } : {}),
     ...(value["normalAuth"] !== undefined ? { normalAuth: parseNormalAuth(value["normalAuth"], context) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], context) } : {}),
+    ...(value["workbenchIntegration"] !== undefined ? { workbenchIntegration: parseWorkbenchIntegration(value["workbenchIntegration"], context) } : {}),
+    ...(value["auditLog"] !== undefined ? { auditLog: parseAuditLog(value["auditLog"], context) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.format === "file" ? context.path : "request") } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseBoolean(value["subsessions"], "subsessions", context) } : {}),
   };
+}
+
+const AUDIT_LOG_KEYS = new Set(["normalMode", "managementMode"]);
+const NORMAL_MODE_AUDIT_KEYS = new Set(["enabled", "retentionDays", "maxRows"]);
+const MANAGEMENT_MODE_AUDIT_KEYS = new Set(["enabled", "baseUrl", "indexPrefix", "retentionDays"]);
+
+function parseAuditLog(value: unknown, context: ParseContext): NonNullable<PiWebConfigValues["auditLog"]> {
+  if (!isRecord(value) || Array.isArray(value)) throw new Error(error(context, "auditLog must be an object"));
+  const unknownKey = Object.keys(value).find((key) => !AUDIT_LOG_KEYS.has(key));
+  if (unknownKey !== undefined) throw new Error(error(context, `auditLog contains unknown key ${JSON.stringify(unknownKey)}`));
+  const normalMode = optionalAuditSection(value, "normalMode", NORMAL_MODE_AUDIT_KEYS, context);
+  const managementMode = optionalAuditSection(value, "managementMode", MANAGEMENT_MODE_AUDIT_KEYS, context);
+  return {
+    ...(normalMode === undefined ? {} : { normalMode: {
+      ...(normalMode["enabled"] === undefined ? {} : { enabled: parseBoolean(normalMode["enabled"], "auditLog.normalMode.enabled", context) }),
+      ...optionalPositiveInteger(normalMode, "retentionDays", "auditLog.normalMode.retentionDays", context),
+      ...optionalPositiveInteger(normalMode, "maxRows", "auditLog.normalMode.maxRows", context),
+    } }),
+    ...(managementMode === undefined ? {} : { managementMode: {
+      ...(managementMode["enabled"] === undefined ? {} : { enabled: parseBoolean(managementMode["enabled"], "auditLog.managementMode.enabled", context) }),
+      ...(managementMode["baseUrl"] === undefined ? {} : { baseUrl: parseHttpUrl(managementMode["baseUrl"], "auditLog.managementMode.baseUrl", context) }),
+      ...(managementMode["indexPrefix"] === undefined ? {} : { indexPrefix: parseElasticsearchIndexPrefix(managementMode["indexPrefix"], context) }),
+      ...optionalPositiveInteger(managementMode, "retentionDays", "auditLog.managementMode.retentionDays", context),
+    } }),
+  };
+}
+
+function optionalAuditSection(value: Record<string, unknown>, key: string, keys: ReadonlySet<string>, context: ParseContext): Record<string, unknown> | undefined {
+  const section = value[key];
+  if (section === undefined) return undefined;
+  if (!isRecord(section) || Array.isArray(section)) throw new Error(error(context, `auditLog.${key} must be an object`));
+  const unknownKey = Object.keys(section).find((candidate) => !keys.has(candidate));
+  if (unknownKey !== undefined) throw new Error(error(context, `auditLog.${key} contains unknown key ${JSON.stringify(unknownKey)}`));
+  return section;
+}
+
+function parseElasticsearchIndexPrefix(value: unknown, context: ParseContext): string {
+  const prefix = parseString(value, "auditLog.managementMode.indexPrefix", context);
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(prefix) || prefix === "." || prefix === "..") {
+    throw new Error(error(context, "auditLog.managementMode.indexPrefix must be a lowercase Elasticsearch index prefix"));
+  }
+  return prefix;
+}
+
+const WORKBENCH_INTEGRATION_KEYS = new Set([
+  "baseUrl",
+  "mcpUrl",
+  "requestTimeoutMs",
+  "capabilityTimeoutMs",
+  "skillBundleMaxBytes",
+  "skillFileMaxBytes",
+  "skillFileCountMax",
+]);
+
+function parseWorkbenchIntegration(value: unknown, context: ParseContext): NonNullable<PiWebConfigValues["workbenchIntegration"]> {
+  if (!isRecord(value) || Array.isArray(value)) throw new Error(error(context, "workbenchIntegration must be an object"));
+  const unknownKey = Object.keys(value).find((key) => !WORKBENCH_INTEGRATION_KEYS.has(key));
+  if (unknownKey !== undefined) throw new Error(error(context, `workbenchIntegration contains unknown key ${JSON.stringify(unknownKey)}`));
+  return {
+    baseUrl: parseHttpUrl(value["baseUrl"], "workbenchIntegration.baseUrl", context),
+    mcpUrl: parseHttpUrl(value["mcpUrl"], "workbenchIntegration.mcpUrl", context),
+    ...optionalPositiveInteger(value, "requestTimeoutMs", "workbenchIntegration.requestTimeoutMs", context),
+    ...optionalPositiveInteger(value, "capabilityTimeoutMs", "workbenchIntegration.capabilityTimeoutMs", context),
+    ...optionalPositiveInteger(value, "skillBundleMaxBytes", "workbenchIntegration.skillBundleMaxBytes", context),
+    ...optionalPositiveInteger(value, "skillFileMaxBytes", "workbenchIntegration.skillFileMaxBytes", context),
+    ...optionalPositiveInteger(value, "skillFileCountMax", "workbenchIntegration.skillFileCountMax", context),
+  };
+}
+
+function parseHttpUrl(value: unknown, key: string, context: ParseContext): string {
+  const text = parseString(value, key, context);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error(error(context, `${key} must be an absolute HTTP URL`));
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username !== "" || url.password !== "") {
+    throw new Error(error(context, `${key} must be an absolute HTTP URL without credentials`));
+  }
+  return url.toString();
+}
+
+function optionalPositiveInteger(
+  value: Record<string, unknown>,
+  field: string,
+  key: string,
+  context: ParseContext,
+): Record<string, number> {
+  const candidate = value[field];
+  if (candidate === undefined) return {};
+  if (typeof candidate !== "number" || !Number.isInteger(candidate) || candidate < 1) throw new Error(error(context, `${key} must be a positive integer`));
+  return { [field]: candidate };
 }
 
 function parseRequestPort(value: unknown): number {

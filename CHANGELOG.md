@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.7
+
+### Patch Changes
+
+- Add a controlled management-mode integration for network model workbench resource sessions, authorized fixed-version Skills, L0 MCP capability search and calls, and workspace-only sandboxed Python execution. Reuse a single Agent Session when the embedded workbench sends concurrent requests with the same entry ticket. Keep metadata-only service logs for both modes, persist ordinary-mode tool audits in a managed SQLite database, and add CLI commands for querying, exporting, pruning, and compacting those records. Add user-scoped management audit delivery to weekly Elasticsearch indices with monthly one-year retention cleanup.
+
 ## 1.202608.6
 
 ### Patch Changes

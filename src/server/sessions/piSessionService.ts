@@ -59,7 +59,7 @@ import { readSessionHeaderSummary, type SessionHeaderSummary } from "./sessionFi
 import { countOutOfListingChildren, locateOutOfListingParents, type SessionHeaderReader } from "./parentSessionLocator.js";
 import { siblingWorkspaceCwds, type ProjectWorkspaceCwds } from "../workspaces/projectWorkspaceCwds.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
 import { createAskUserToolDefinition, type AskUserInvocation, type AskUserToolDeps } from "./askUserTool.js";
@@ -88,6 +88,14 @@ import {
   type WorkspaceArchiveCandidate,
 } from "./sessionArchiveMapping.js";
 import { annotateAssistantThinkingLevel, getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
+import { WorkbenchAccessStateStore } from "../workbench/accessStateStore.js";
+import { WorkbenchClient, WorkbenchHttpError } from "../workbench/workbenchClient.js";
+import { WorkbenchMcpClient } from "../workbench/mcpClient.js";
+import { WorkbenchSkillSynchronizer } from "../workbench/skillSync.js";
+import { createWorkbenchToolDefinitions } from "../workbench/workbenchTools.js";
+import type { WorkbenchSkillReceiptFile } from "../workbench/types.js";
+import type { NormalToolAuditEvent, NormalToolAuditStore } from "../audit/normalToolAuditStore.js";
+import type { ManagementAuditIdentity, ManagementAuditRecorder } from "../audit/managementAuditStore.js";
 
 /**
  * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
@@ -162,7 +170,11 @@ function isPiSessionRef(ref: PiSessionLookup): ref is PiSessionRef {
   return typeof ref !== "string";
 }
 
-type ManagedActiveSession = ActiveSession<PiSessionRuntime> & { managementContextKey: string | undefined; eventScope: string };
+type ManagedActiveSession = ActiveSession<PiSessionRuntime> & {
+  managementContextKey: string | undefined;
+  eventScope: string;
+  managementAuditIdentity?: ManagementAuditIdentity;
+};
 
 interface ManagedStartupSession {
   session: PiAgentSession;
@@ -503,6 +515,22 @@ export function filterManagedProjectSkills(cwd: string, base: SkillCollectionRes
   };
 }
 
+export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
+  const projectRoot = realpathSync(cwd);
+  const allowedDirectories = new Set(receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)));
+  return {
+    ...base,
+    skills: base.skills.filter((skill) => {
+      try {
+        const path = realpathSync(skill.filePath);
+        return [...allowedDirectories].some((directory) => pathInsideOrEqual(directory, path));
+      } catch {
+        return false;
+      }
+    }),
+  };
+}
+
 function pathInsideOrEqual(parent: string, child: string): boolean {
   const normalizedParent = resolve(parent);
   const normalizedChild = resolve(child);
@@ -738,6 +766,13 @@ type ScopedSubsessionToolDeps = Omit<SubsessionToolDeps, "spawn"> & {
 
 type ResolveSettingsScopeDirectory = (cwd: string, mode: SessionSettingsMode) => Promise<string>;
 
+export interface WorkbenchRuntimeDependencies {
+  accessStates: WorkbenchAccessStateStore;
+  client: WorkbenchClient;
+  mcp: WorkbenchMcpClient;
+  skills: WorkbenchSkillSynchronizer;
+}
+
 function createDefaultRuntimeFactory(
   normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>,
   managementModelRuntime: () => Promise<ModelRuntime>,
@@ -745,11 +780,15 @@ function createDefaultRuntimeFactory(
   spawn?: SpawnSessionFn,
   subsessions?: ScopedSubsessionToolDeps,
   askUser?: AskUserToolDeps,
+  workbench?: WorkbenchRuntimeDependencies,
+  logger: PiSessionLogger = noopLogger,
+  managementAudit?: ManagementAuditRecorder,
+  managementProjectIdForCwd?: (cwd: string, context: ManagementEmbedContext) => Promise<string>,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd)({
         cwd,
         agentDir,
         sessionManager,
@@ -786,9 +825,42 @@ function createManagementRuntimeFactory(
   subsessions: ScopedSubsessionToolDeps | undefined,
   askUser: AskUserToolDeps | undefined,
   managementContext: ManagementEmbedContext,
+  workbench: WorkbenchRuntimeDependencies | undefined,
+  logger: PiSessionLogger,
+  managementAudit: ManagementAuditRecorder | undefined,
+  managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext);
+    const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
+    const accessHandle = workbenchAccessHandle(managementContext);
+    const state = workbench === undefined ? undefined : workbench.accessStates.require(accessHandle);
+    let receipt;
+    try {
+      receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
+        ...(managementAudit === undefined ? {} : { recorder: managementAudit }),
+        ...auditIdentity,
+        sessionId: sessionManager.getSessionId(),
+        cwd,
+      });
+    } catch (error) {
+      if (error instanceof WorkbenchHttpError && error.status === 401 && accessHandle !== undefined) workbench?.accessStates.delete(accessHandle);
+      throw error;
+    }
+    const workbenchTools = state === undefined || workbench === undefined ? [] : createWorkbenchToolDefinitions({
+      getState: () => workbench.accessStates.require(accessHandle),
+      workbench: workbench.client,
+      mcp: workbench.mcp,
+      invalidate: () => { if (accessHandle !== undefined) workbench.accessStates.delete(accessHandle); },
+      logger,
+      ...(managementAudit === undefined ? {} : { audit: managementAudit }),
+      auditContext: {
+        ...auditIdentity,
+        sessionId: sessionManager.getSessionId(),
+        cwd,
+      },
+    });
+    const workbenchToolNames = workbenchTools.map((tool) => tool.name);
+    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, workbenchToolNames);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const settingsManager = await createScopedSettingsManager({
         cwd,
@@ -802,7 +874,7 @@ function createManagementRuntimeFactory(
         settingsManager,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
-          skillsOverride: (base) => filterManagedProjectSkills(cwd, base),
+          skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
         },
       });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
@@ -821,13 +893,14 @@ function createManagementRuntimeFactory(
         ...(delegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
         ...(delegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
         ...(askUser === undefined ? [] : [createAskUserToolDefinition(askUser)]),
+        ...workbenchTools,
       ];
       const options = {
         services,
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        tools: managementAgentToolNames(managementContext),
+        tools: managementAgentToolNames(managementContext, workbenchToolNames),
         ...(initialModel === undefined ? {} : { model: initialModel }),
         ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
       };
@@ -951,6 +1024,12 @@ export interface PiSessionServiceDependencies {
   extensionDialogsTimeoutMs?: number;
   /** Structured logger for notable runtime events (e.g. spawns). */
   logger?: PiSessionLogger;
+  /** Optional durable metadata-only recorder for ordinary-mode tool calls. */
+  normalToolAudit?: Pick<NormalToolAuditStore, "record">;
+  /** Optional Elasticsearch recorder for user-scoped management-mode audit events. */
+  managementAudit?: ManagementAuditRecorder;
+  /** Resolve the authorized management project owning a session cwd. */
+  managementProjectIdForCwd?: (cwd: string, context: ManagementEmbedContext) => Promise<string>;
   /** Clock seam for cleanup planning tests. */
   now?: () => Date;
   /** Daemon-lifetime notification state, injected by sessiond in production. */
@@ -964,6 +1043,7 @@ export interface PiSessionServiceDependencies {
    * a session is being constructed. Omit to report the startup phase alone.
    */
   catalogRefreshStatus?: CatalogRefreshStatus;
+  workbench?: WorkbenchRuntimeDependencies;
 }
 
 export class PiSessionService {
@@ -1017,6 +1097,9 @@ export class PiSessionService {
   private readonly spawnTargets: SpawnTargetResolver | undefined;
   private readonly projectWorkspaces: ProjectWorkspaceCwds | undefined;
   private readonly logger: PiSessionLogger;
+  private readonly normalToolAudit: Pick<NormalToolAuditStore, "record"> | undefined;
+  private readonly managementAudit: ManagementAuditRecorder | undefined;
+  private readonly managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined;
   private readonly now: () => Date;
   private readonly notificationStore: SessionNotificationStore;
   private readonly notificationGenerationBySession = new WeakMap<PiAgentSession, SessionNotificationGeneration>();
@@ -1060,6 +1143,9 @@ export class PiSessionService {
     this.spawnTargets = deps.spawnTargets;
     this.projectWorkspaces = deps.projectWorkspaces;
     this.logger = deps.logger ?? noopLogger;
+    this.normalToolAudit = deps.normalToolAudit;
+    this.managementAudit = deps.managementAudit;
+    this.managementProjectIdForCwd = deps.managementProjectIdForCwd;
     this.now = deps.now ?? (() => new Date());
     this.notificationStore = deps.notificationStore ?? new SessionNotificationStore();
     this.unreadStore = deps.unreadStore ?? new SessionUnreadStore();
@@ -1087,6 +1173,10 @@ export class PiSessionService {
         read: (parentSessionId, sessionId, query, parentSessionFile) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile),
       },
       deps.askUserEnabled === true ? { open: (input) => this.openAsk(input) } : undefined,
+      deps.workbench,
+      this.logger,
+      this.managementAudit,
+      this.managementProjectIdForCwd,
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
@@ -3108,6 +3198,7 @@ export class PiSessionService {
     }
     active.unsubscribe = session.subscribe((event) => {
       this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel), active.eventScope);
+      this.auditToolExecutionEvent(active, event);
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
       if (eventType === "agent_end") this.abortRunScopedExtensionDialogs(session);
@@ -3401,6 +3492,43 @@ export class PiSessionService {
     if (eventType === "bash_execution_start") { this.publishActivity(session, "正在运行命令", "active"); return; }
     if (eventType === "bash_execution_end") { this.publishActivity(session, "命令执行完成", "idle"); return; }
     if (this.hasActiveWork(session)) this.publishActivity(session, "正在处理", "active");
+  }
+
+  private auditToolExecutionEvent(active: ManagedActiveSession, event: unknown): void {
+    const eventType = getString(event, "type");
+    if (eventType !== "tool_execution_start" && eventType !== "tool_execution_end") return;
+    const isEnd = eventType === "tool_execution_end";
+    const auditEvent: NormalToolAuditEvent = {
+      sessionId: active.runtime.session.sessionId,
+      cwd: active.runtime.cwd,
+      toolName: getString(event, "toolName") ?? "unknown",
+      toolCallId: getString(event, "toolCallId") ?? "unknown",
+      status: isEnd ? (getBoolean(event, "isError") === true ? "failed" : "completed") : "started",
+    };
+    const managementIdentity = active.managementAuditIdentity;
+    this.logger.info({
+      mode: active.managementContextKey === undefined ? "normal" : "management",
+      ...(managementIdentity ?? {}),
+      ...auditEvent,
+    }, "Pi tool execution audit");
+    if (managementIdentity !== undefined) {
+      try {
+        this.managementAudit?.record({ action: "tool_execution", ...managementIdentity, ...auditEvent });
+      } catch (error) {
+        this.logger.info({ sessionId: auditEvent.sessionId, toolCallId: auditEvent.toolCallId, error: error instanceof Error ? error.message : String(error) }, "failed to enqueue management-mode tool audit");
+      }
+      return;
+    }
+    if (this.normalToolAudit === undefined) return;
+    try {
+      this.normalToolAudit.record(auditEvent);
+    } catch (error) {
+      this.logger.info({
+        sessionId: auditEvent.sessionId,
+        toolCallId: auditEvent.toolCallId,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to persist ordinary-mode tool audit");
+    }
   }
 
   /**
@@ -3743,6 +3871,9 @@ private async createSessionRuntime(
       unsubscribe: noop,
       managementContextKey: managementContextKey(options.managementContext),
       eventScope: eventScopeFromManagementContext(options.managementContext),
+      ...(options.managementContext === undefined ? {} : {
+        managementAuditIdentity: await resolveManagementAuditIdentity(cwd, options.managementContext, this.managementProjectIdForCwd, this.logger),
+      }),
     };
     let boundSession = runtime.session;
     let notificationGeneration = options.notificationGeneration;
@@ -4483,4 +4614,21 @@ function finalAssistantText(messages: readonly unknown[]): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+async function resolveManagementAuditIdentity(
+  cwd: string,
+  context: ManagementEmbedContext,
+  resolveProjectId: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
+  logger: PiSessionLogger,
+): Promise<ManagementAuditIdentity> {
+  let projectId = context.projects[0]?.id ?? "default-project";
+  if (resolveProjectId !== undefined) {
+    try {
+      projectId = await resolveProjectId(cwd, context);
+    } catch (error) {
+      logger.info({ userId: context.user.id, cwd, error: error instanceof Error ? error.message : String(error) }, "failed to resolve management audit project; using the authorized default");
+    }
+  }
+  return { userId: context.user.id, rootUserId: context.user.rootUserId, projectId };
 }

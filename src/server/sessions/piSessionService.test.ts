@@ -694,6 +694,118 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  it("audits ordinary-mode tool execution without arguments or results", async () => {
+    let listener: ((event: unknown) => void) | undefined;
+    const fake = fakeRuntime("audit-session", {
+      subscribe: (next) => {
+        listener = next;
+        return () => undefined;
+      },
+    });
+    const logger = { info: vi.fn() };
+    const normalToolAudit = { record: vi.fn() };
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("audit-session")]),
+      heartbeatIntervalMs: 60_000,
+      logger,
+      normalToolAudit,
+    });
+
+    await service.status(sessionRef("audit-session"));
+    listener?.({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1", args: { token: "secret" } });
+    listener?.({ type: "tool_execution_end", toolName: "read", toolCallId: "call-1", isError: false, result: "private result" });
+
+    expect(logger.info).toHaveBeenNthCalledWith(1, {
+      mode: "normal",
+      sessionId: "audit-session",
+      cwd: "/workspace",
+      toolName: "read",
+      toolCallId: "call-1",
+      status: "started",
+    }, "Pi tool execution audit");
+    expect(logger.info).toHaveBeenNthCalledWith(2, expect.objectContaining({ mode: "normal", status: "completed" }), "Pi tool execution audit");
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain("secret");
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain("private result");
+    expect(normalToolAudit.record).toHaveBeenCalledTimes(2);
+    expect(normalToolAudit.record).toHaveBeenLastCalledWith({
+      sessionId: "audit-session",
+      cwd: "/workspace",
+      toolName: "read",
+      toolCallId: "call-1",
+      status: "completed",
+    });
+
+    await service.dispose();
+  });
+
+  it("does not write management-mode tool calls to the ordinary SQLite audit recorder", async () => {
+    let listener: ((event: unknown) => void) | undefined;
+    const fake = fakeRuntime("managed-audit-session", {
+      subscribe: (next) => {
+        listener = next;
+        return () => undefined;
+      },
+    });
+    const logger = { info: vi.fn() };
+    const normalToolAudit = { record: vi.fn() };
+    const managementAudit = { record: vi.fn() };
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("managed-audit-session")]),
+      heartbeatIntervalMs: 60_000,
+      logger,
+      normalToolAudit,
+      managementAudit,
+      managementProjectIdForCwd: vi.fn().mockResolvedValue("matched-project"),
+    });
+
+    await service.status(sessionRef("managed-audit-session"), testManagementContext());
+    listener?.({ type: "tool_execution_end", toolName: "read", toolCallId: "call-1", isError: false });
+
+    expect(normalToolAudit.record).not.toHaveBeenCalled();
+    expect(managementAudit.record).toHaveBeenCalledWith({
+      action: "tool_execution",
+      status: "completed",
+      userId: "account-1",
+      rootUserId: "root-user",
+      projectId: "matched-project",
+      sessionId: "managed-audit-session",
+      cwd: "/workspace",
+      toolName: "read",
+      toolCallId: "call-1",
+    });
+    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ mode: "management", userId: "account-1", projectId: "matched-project" }), "Pi tool execution audit");
+    await service.dispose();
+  });
+
+  it("keeps ordinary tool execution running when SQLite audit persistence fails", async () => {
+    let listener: ((event: unknown) => void) | undefined;
+    const fake = fakeRuntime("audit-failure-session", {
+      subscribe: (next) => {
+        listener = next;
+        return () => undefined;
+      },
+    });
+    const logger = { info: vi.fn() };
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("audit-failure-session")]),
+      heartbeatIntervalMs: 60_000,
+      logger,
+      normalToolAudit: { record() { throw new Error("database unavailable"); } },
+    });
+
+    await service.status(sessionRef("audit-failure-session"));
+    expect(() => { listener?.({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1" }); }).not.toThrow();
+    expect(logger.info).toHaveBeenCalledWith({
+      sessionId: "audit-failure-session",
+      toolCallId: "call-1",
+      error: "database unavailable",
+    }, "failed to persist ordinary-mode tool audit");
+    await service.dispose();
+  });
+
   it("localizes realtime session activity events", async () => {
     const hub = new CapturingSessionEventHub();
     let listener: ((event: unknown) => void) | undefined;

@@ -77,6 +77,30 @@ export interface PiWebAgentConfig {
   dir?: string;
 }
 
+export interface PiWebWorkbenchIntegrationConfig {
+  baseUrl: string;
+  mcpUrl: string;
+  requestTimeoutMs?: number;
+  capabilityTimeoutMs?: number;
+  skillBundleMaxBytes?: number;
+  skillFileMaxBytes?: number;
+  skillFileCountMax?: number;
+}
+
+export interface PiWebAuditLogConfig {
+  normalMode?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    maxRows?: number;
+  };
+  managementMode?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    indexPrefix?: string;
+    retentionDays?: number;
+  };
+}
+
 export interface PiWebConfigValues {
   host?: string;
   port?: number;
@@ -85,6 +109,9 @@ export interface PiWebConfigValues {
   plugins?: PiWebPluginConfigMap;
   normalAuth?: PiWebNormalAuthConfig;
   managementEmbed?: PiWebManagementEmbedConfig;
+  workbenchIntegration?: PiWebWorkbenchIntegrationConfig;
+  /** Durable metadata-only audit records for ordinary-mode tool calls. */
+  auditLog?: PiWebAuditLogConfig;
   /** External filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */

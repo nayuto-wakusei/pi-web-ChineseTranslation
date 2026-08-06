@@ -10,6 +10,7 @@ import { createFixedTtlSessionStore, readCookie, type HttpSession } from "./http
 export const MANAGEMENT_EMBED_MODE_HEADER = "x-pi-web-embed-mode";
 export const MANAGEMENT_EMBED_TOKEN_HEADER = "x-pi-web-embed-token";
 export const MANAGEMENT_EMBED_CONTEXT_HEADER = "x-pi-web-management-context";
+export const WORKBENCH_ACCESS_HANDLE_HEADER = "x-pi-web-workbench-access-handle";
 const MANAGEMENT_FORCE_DENY_TOOLS = new Set(["bash", "shell", "terminal"]);
 const DEFAULT_MANAGED_PROJECT_ID = "default-project";
 const DEFAULT_MANAGEMENT_SHARED_SECRET_ENV = "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN";
@@ -38,6 +39,18 @@ export interface ManagementEmbedRuntime {
   createSession?(context: ManagementEmbedContext): ManagementEmbedSession;
   readSession?(id: string): ManagementEmbedContext | undefined;
   sessionCookieName?: string;
+  resourceHandle?(context: ManagementEmbedContext): string | undefined;
+}
+
+const workbenchHandles = new WeakMap<ManagementEmbedContext, string>();
+
+export function attachWorkbenchAccessHandle(context: ManagementEmbedContext, handle: string | undefined): ManagementEmbedContext {
+  if (handle !== undefined && handle !== "") workbenchHandles.set(context, handle);
+  return context;
+}
+
+export function workbenchAccessHandle(context: ManagementEmbedContext): string | undefined {
+  return workbenchHandles.get(context);
 }
 
 export interface ManagementEmbedRuntimeOptions {
@@ -174,6 +187,14 @@ export async function projectsFromManagedEmbedContext(projectRoot: string, conte
   return Promise.all(authorizedManagedProjects(context).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id, { create: false })));
 }
 
+export async function managementProjectIdForCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string): Promise<string> {
+  const requested = await realpath(resolve(cwd));
+  const projects = await projectsFromManagedEmbedContext(projectRoot, context);
+  const project = projects.find((candidate) => pathsEqual(candidate.path, requested) || isInside(candidate.path, requested));
+  if (project === undefined) throw new Error("Managed workspace does not match an authorized project");
+  return project.id;
+}
+
 export async function assertManagedCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string, options: ManagedProjectPathOptions = {}): Promise<string> {
   const root = await ensureRealDirectory(projectRoot);
   const create = options.create !== false;
@@ -240,7 +261,7 @@ function verifyManagementEntryToken(
   if (iat > nowSeconds + 60) throw new Error("Management embed token is invalid");
   if (exp <= nowSeconds) throw new Error("Management embed token is expired");
   stringField(parsed, "jti");
-  return parseIntrospectionPayload({ active: true, ...parsed });
+  return parseIntrospectionPayload({ active: true, ...parsed, expiresAt: new Date(exp * 1000).toISOString() });
 }
 
 function writeSessionCookie(reply: ManagementEmbedReplyTarget, name: string, session: ManagementEmbedSession, secure: boolean): void {

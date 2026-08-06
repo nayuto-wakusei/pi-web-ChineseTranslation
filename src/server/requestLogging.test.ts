@@ -9,6 +9,9 @@ describe("request logging", () => {
     );
     expect(redactRequestUrl("/api/sessions?token=first&token=second")).toBe("/api/sessions?token=%5BREDACTED%5D");
     expect(redactRequestUrl("/api/sessions?tokenized=public")).toBe("/api/sessions?tokenized=public");
+    expect(redactRequestUrl("/_internal/workbench/access-states/opaque-handle?view=active")).toBe(
+      "/_internal/workbench/access-states/[REDACTED]?view=active",
+    );
   });
 
   it("keeps management query tokens and sensitive headers out of Fastify logs", async () => {
@@ -30,6 +33,7 @@ describe("request logging", () => {
           cookie: "pi_web_management_session=cookie-secret",
           "x-pi-web-embed-token": "bridge-token-secret",
           "x-pi-web-management-context": "encoded-context-secret",
+          "x-pi-web-workbench-access-handle": "opaque-handle-secret",
           "x-visible-header": "visible-value",
         },
       });
@@ -43,6 +47,7 @@ describe("request logging", () => {
       expect(logOutput).not.toContain("cookie-secret");
       expect(logOutput).not.toContain("bridge-token-secret");
       expect(logOutput).not.toContain("encoded-context-secret");
+      expect(logOutput).not.toContain("opaque-handle-secret");
     } finally {
       await app.close();
     }

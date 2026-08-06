@@ -16,10 +16,12 @@ export function requestLoggerOptions(stream?: { write(message: string): void }):
         "req.headers.cookie",
         "req.headers['x-pi-web-embed-token']",
         "req.headers['x-pi-web-management-context']",
+        "req.headers['x-pi-web-workbench-access-handle']",
         "headers.authorization",
         "headers.cookie",
         "headers['x-pi-web-embed-token']",
         "headers['x-pi-web-management-context']",
+        "headers['x-pi-web-workbench-access-handle']",
       ],
       censor: REDACTED,
     },
@@ -30,17 +32,21 @@ export function requestLoggerOptions(stream?: { write(message: string): void }):
 }
 
 export function redactRequestUrl(url: string): string {
-  const queryStart = url.indexOf("?");
-  if (queryStart === -1) return url;
+  const withoutWorkbenchHandle = url.replace(
+    /(\/_internal\/workbench\/access-states\/)[^/?#]+/u,
+    "$1[REDACTED]",
+  );
+  const queryStart = withoutWorkbenchHandle.indexOf("?");
+  if (queryStart === -1) return withoutWorkbenchHandle;
 
-  const fragmentStart = url.indexOf("#", queryStart);
-  const queryEnd = fragmentStart === -1 ? url.length : fragmentStart;
-  const searchParams = new URLSearchParams(url.slice(queryStart + 1, queryEnd));
+  const fragmentStart = withoutWorkbenchHandle.indexOf("#", queryStart);
+  const queryEnd = fragmentStart === -1 ? withoutWorkbenchHandle.length : fragmentStart;
+  const searchParams = new URLSearchParams(withoutWorkbenchHandle.slice(queryStart + 1, queryEnd));
   const tokenKeys = [...new Set(searchParams.keys())].filter((key) => key.toLowerCase() === "token");
-  if (tokenKeys.length === 0) return url;
+  if (tokenKeys.length === 0) return withoutWorkbenchHandle;
 
   for (const key of tokenKeys) searchParams.set(key, REDACTED);
-  return `${url.slice(0, queryStart + 1)}${searchParams.toString()}${url.slice(queryEnd)}`;
+  return `${withoutWorkbenchHandle.slice(0, queryStart + 1)}${searchParams.toString()}${withoutWorkbenchHandle.slice(queryEnd)}`;
 }
 
 function serializeRequest(request: FastifyRequest): Record<string, unknown> {

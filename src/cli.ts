@@ -1058,8 +1058,12 @@ Usage:
   pi-web install [--dev] [--host 127.0.0.1] [--port 8504] [--config ~/.config/pi-web/config.json]
   pi-web uninstall
   pi-web start|stop|restart|status|logs
+  pi-web audit <command> [options]
   pi-web doctor
   pi-web version
+
+Audit commands:
+  pi-web audit list|stats|export|prune|vacuum
 
 Recommended install:
   npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty
@@ -1076,6 +1080,10 @@ async function main(): Promise<void> {
   else if (command === "uninstall") await uninstall();
   else if (command === "start" || command === "stop" || command === "restart" || command === "status") serviceAction(command);
   else if (command === "logs") logs();
+  else if (command === "audit") {
+    const { runNormalToolAuditCommand } = await import("./server/audit/normalToolAuditCli.js");
+    runNormalToolAuditCommand(args);
+  }
   else if (command === "doctor") await doctor();
   else if (command === "version") await printPiWebVersionReport();
   else if (command === "--version" || command === "-v") console.log(packageVersion());

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
@@ -22,10 +23,18 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { agentSessionDirEnvKeys, effectivePiWebConfig, maxUploadBytes, piWebDataDir } from "../config.js";
+import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, agentSessionDirEnvKeys, effectivePiWebConfig, maxUploadBytes, piWebDataDir } from "../config.js";
 import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { runSessionDaemonStartup } from "./sessiond/sessionDaemonStartup.js";
 import { requestLoggerOptions } from "./requestLogging.js";
+import { WorkbenchAccessStateStore } from "./workbench/accessStateStore.js";
+import { registerWorkbenchAccessStateRoutes } from "./workbench/accessStateRoutes.js";
+import { WorkbenchClient } from "./workbench/workbenchClient.js";
+import { WorkbenchMcpClient } from "./workbench/mcpClient.js";
+import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
+import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
+import { ManagementAuditStore } from "./audit/managementAuditStore.js";
+import { managementProjectIdForCwd } from "./managementEmbed.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
 const { config } = effectivePiWebConfig({ env: daemonEnvironment });
@@ -51,6 +60,62 @@ await runSessionDaemonStartup({
         modelsPath: join(activeAgentProfile.dir, "models.json"),
       }),
     });
+    const accessStates = new WorkbenchAccessStateStore();
+    const normalAuditConfig = config.auditLog?.normalMode;
+    let normalToolAudit: NormalToolAuditStore | undefined;
+    if (normalAuditConfig?.enabled !== false) {
+      try {
+        normalToolAudit = new NormalToolAuditStore({
+          path: normalToolAuditDatabasePath(daemonEnvironment),
+          retentionDays: normalAuditConfig?.retentionDays ?? DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS,
+          maxRows: normalAuditConfig?.maxRows ?? DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS,
+          onError: (error) => {
+            app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to maintain ordinary-mode tool audit database");
+          },
+        });
+      } catch (error) {
+        app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to initialize ordinary-mode tool audit database");
+      }
+    }
+    const managementAuditConfig = config.auditLog?.managementMode;
+    let managementAudit: ManagementAuditStore | undefined;
+    if (managementAuditConfig?.enabled === true && managementAuditConfig.baseUrl !== undefined) {
+      const apiKeyValue = daemonEnvironment["PI_WEB_AUDIT_ES_API_KEY"]?.trim();
+      const usernameValue = daemonEnvironment["PI_WEB_AUDIT_ES_USERNAME"]?.trim();
+      const apiKey = apiKeyValue === undefined || apiKeyValue === "" ? undefined : apiKeyValue;
+      const username = usernameValue === undefined || usernameValue === "" ? undefined : usernameValue;
+      const password = daemonEnvironment["PI_WEB_AUDIT_ES_PASSWORD"];
+      if (apiKey === undefined && ((username === undefined) !== (password === undefined))) {
+        app.log.info("management audit Elasticsearch basic authentication requires both PI_WEB_AUDIT_ES_USERNAME and PI_WEB_AUDIT_ES_PASSWORD");
+      } else {
+        managementAudit = new ManagementAuditStore({
+          baseUrl: managementAuditConfig.baseUrl,
+          indexPrefix: managementAuditConfig.indexPrefix ?? DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX,
+          retentionDays: managementAuditConfig.retentionDays ?? DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS,
+          ...(apiKey === undefined ? {} : { apiKey }),
+          ...(apiKey !== undefined || username === undefined || password === undefined ? {} : { username, password }),
+          onError: (error) => { app.log.info({ error: error instanceof Error ? error.message : String(error) }, "management audit Elasticsearch operation failed"); },
+        });
+        await managementAudit.initialize().catch((error: unknown) => {
+          app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to initialize management audit Elasticsearch storage");
+        });
+      }
+    }
+    const workbench = config.workbenchIntegration === undefined ? undefined : (() => {
+      const client = new WorkbenchClient({
+        baseUrl: config.workbenchIntegration.baseUrl,
+        requestTimeoutMs: config.workbenchIntegration.requestTimeoutMs ?? 10_000,
+      });
+      return {
+        accessStates,
+        client,
+        mcp: new WorkbenchMcpClient({
+          mcpUrl: config.workbenchIntegration.mcpUrl,
+          timeoutMs: config.workbenchIntegration.capabilityTimeoutMs ?? 30_000,
+        }),
+        skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log),
+      };
+    })();
     const spawnTargets = config.spawnSessions
       ? new ProjectScopedSpawnTargetResolver({ projects, workspaces })
       : undefined;
@@ -71,9 +136,15 @@ await runSessionDaemonStartup({
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
       logger: app.log,
+      ...(normalToolAudit === undefined ? {} : { normalToolAudit }),
+      ...(managementAudit === undefined ? {} : {
+        managementAudit,
+        managementProjectIdForCwd: (cwd, context) => managementProjectIdForCwd(config.managementEmbed?.projectRoot ?? join(homedir(), "PiWeb"), context, cwd),
+      }),
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
+      ...(workbench === undefined ? {} : { workbench }),
       sessionManager: createPiSessionManagerGateway({
         agentDir: activeAgentProfile.dir,
         env: daemonEnvironment,
@@ -87,13 +158,14 @@ await runSessionDaemonStartup({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
-    return { eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, activeAgentProfile, runtimeComponent };
+    return { eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent };
   },
-  registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, runtimeComponent }) {
+  registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent }) {
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerSessionRoutes(app, sessions, eventHub);
     registerTerminalRoutes(app, terminals);
+    registerWorkbenchAccessStateRoutes(app, accessStates);
 
     app.get("/health", () => ({
       ok: true,
@@ -110,7 +182,7 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ projectAuth, managementAuth, sessions, terminals }) {
+  async listen({ projectAuth, managementAuth, sessions, terminals, normalToolAudit, managementAudit }) {
     let shuttingDown = false;
     async function shutdown(signal: NodeJS.Signals): Promise<void> {
       if (shuttingDown) return;
@@ -120,6 +192,16 @@ await runSessionDaemonStartup({
       await projectAuth.dispose();
       managementAuth.dispose();
       await sessions.dispose();
+      try {
+        normalToolAudit?.close();
+      } catch (error) {
+        app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to close ordinary-mode tool audit database");
+      }
+      try {
+        await managementAudit?.close();
+      } catch (error) {
+        app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to flush management audit Elasticsearch queue");
+      }
       await app.close();
     }
 

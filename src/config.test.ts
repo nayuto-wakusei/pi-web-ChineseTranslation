@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -62,6 +62,18 @@ describe("PI WEB config persistence", () => {
     });
   });
 
+  it("preserves audit settings when saving settings that do not include them", async () => {
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { normalMode: { retentionDays: 30, maxRows: 10_000 } }, future: { enabled: true } }, null, 2)}\n`, "utf8");
+
+    savePiWebConfig({ port: 9000 }, testOptions());
+
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+      future: { enabled: true },
+      auditLog: { normalMode: { retentionDays: 30, maxRows: 10_000 } },
+      port: 9000,
+    });
+  });
+
   it("rejects empty and malformed normal auth password hashes", async () => {
     await writeFile(configPath, `${JSON.stringify({ normalAuth: { passwordHash: "" } }, null, 2)}\n`, "utf8");
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config normalAuth.passwordHash must use pbkdf2-sha256 format");
@@ -109,6 +121,74 @@ describe("PI WEB config persistence", () => {
     }, null, 2)}\n`, "utf8");
 
     expect(() => loadPiWebConfig(testOptions())).toThrow("only supports local signed tokens");
+  });
+
+  it("loads strict workbench integration config and applies environment overrides", async () => {
+    await writeFile(configPath, `${JSON.stringify({
+      workbenchIntegration: {
+        baseUrl: "http://ai-platform-backend:8787",
+        mcpUrl: "http://mcp:8000/mcp",
+      },
+    })}\n`, "utf8");
+
+    const effective = effectivePiWebConfig({
+      ...testOptions(),
+      env: {
+        ...testOptions().env,
+        PI_WEB_WORKBENCH_URL: "http://127.0.0.1:8787",
+        PI_WEB_MCP_TIMEOUT_MS: "45000",
+      },
+    }).config.workbenchIntegration;
+
+    expect(effective).toEqual({
+      baseUrl: "http://127.0.0.1:8787",
+      mcpUrl: "http://mcp:8000/mcp",
+      requestTimeoutMs: 10_000,
+      capabilityTimeoutMs: 45_000,
+      skillBundleMaxBytes: 10 * 1024 * 1024,
+      skillFileMaxBytes: 2 * 1024 * 1024,
+      skillFileCountMax: 200,
+    });
+  });
+
+  it("rejects invalid and unknown workbench integration settings", async () => {
+    await writeFile(configPath, `${JSON.stringify({ workbenchIntegration: { baseUrl: "not-a-url", mcpUrl: "http://mcp:8000/mcp" } })}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("workbenchIntegration.baseUrl must be an absolute HTTP URL");
+
+    await writeFile(configPath, `${JSON.stringify({ workbenchIntegration: { baseUrl: "http://backend:8787", mcpUrl: "http://mcp:8000/mcp", future: true } })}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("workbenchIntegration contains unknown key");
+  });
+
+  it("resolves and validates ordinary-mode audit retention settings", async () => {
+    expect(effectivePiWebConfig(testOptions()).config.auditLog).toEqual({
+      normalMode: { enabled: true, retentionDays: DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, maxRows: DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS },
+      managementMode: { enabled: false, indexPrefix: DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, retentionDays: DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS },
+    });
+
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { normalMode: { enabled: false, retentionDays: 30, maxRows: 10_000 } } })}\n`, "utf8");
+    expect(effectivePiWebConfig(testOptions()).config.auditLog).toEqual({
+      normalMode: { enabled: false, retentionDays: 30, maxRows: 10_000 },
+      managementMode: { enabled: false, indexPrefix: DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, retentionDays: DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS },
+    });
+
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { normalMode: { retentionDays: 0 } } })}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("auditLog.normalMode.retentionDays must be a positive integer");
+  });
+
+  it("resolves and validates management-mode Elasticsearch audit settings", async () => {
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { managementMode: { enabled: true, baseUrl: "http://elasticsearch:9200", indexPrefix: "managed-audit", retentionDays: 366 } } })}\n`, "utf8");
+    expect(effectivePiWebConfig(testOptions()).config.auditLog?.managementMode).toEqual({
+      enabled: true,
+      baseUrl: "http://elasticsearch:9200/",
+      indexPrefix: "managed-audit",
+      retentionDays: 366,
+    });
+
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { managementMode: { enabled: true } } })}\n`, "utf8");
+    expect(() => effectivePiWebConfig(testOptions())).toThrow("management audit requires");
+
+    await writeFile(configPath, `${JSON.stringify({ auditLog: { managementMode: { baseUrl: "http://elasticsearch:9200", indexPrefix: "Bad*Prefix" } } })}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("must be a lowercase Elasticsearch index prefix");
   });
 
   it("rejects invalid path access config", async () => {

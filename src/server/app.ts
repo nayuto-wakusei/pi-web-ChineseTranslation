@@ -48,6 +48,7 @@ import {
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
 import type { Project, Workspace } from "./types.js";
+import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
 export interface AppDependencies {
   projects?: ProjectService;
@@ -220,7 +221,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const machines = deps.machines ?? new MachineService(undefined, {
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
-  const managementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(effectivePiWebConfig().config.managementEmbed);
+  const runtimeConfig = effectivePiWebConfig().config;
+  const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
+  const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
   const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
     const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, projectId, { create: false });
     return (await workspaces.list(project)).map((workspace) => workspace.path);

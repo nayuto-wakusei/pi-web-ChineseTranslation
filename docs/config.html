@@ -176,6 +176,7 @@
                 <li><code>host</code> / <code>port</code>: restart the gateway web/API service or process.</li>
                 <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
                 <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
+                <li><code>workbenchIntegration</code>: restart both the web/API process and session daemon; both must use the same endpoints and limits.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
                 <li><code>plugins</code>: reload the browser tab after changing PI WEB plugin enablement.</li>
@@ -216,6 +217,28 @@
   "subsessions": false,
   "askUser": true,
   "extensionDialogsTimeoutMs": 300000,
+  "workbenchIntegration": {
+    "baseUrl": "http://ai-platform-backend:8787",
+    "mcpUrl": "http://mcp:8000/mcp",
+    "requestTimeoutMs": 10000,
+    "capabilityTimeoutMs": 30000,
+    "skillBundleMaxBytes": 10485760,
+    "skillFileMaxBytes": 2097152,
+    "skillFileCountMax": 200
+  },
+  "auditLog": {
+    "normalMode": {
+      "enabled": true,
+      "retentionDays": 90,
+      "maxRows": 500000
+    },
+    "managementMode": {
+      "enabled": true,
+      "baseUrl": "https://elasticsearch.internal:9200",
+      "indexPrefix": "pi-web-management-audit",
+      "retentionDays": 365
+    }
+  },
   "plugins": {
     "workspace-tasks": { "enabled": true },
     "updates": { "enabled": true },
@@ -388,6 +411,30 @@
                       <td>Restart session daemon on that machine</td>
                     </tr>
                     <tr>
+                      <td>Workbench/MCP integration</td>
+                      <td><code>workbenchIntegration.*</code></td>
+                      <td><code>PI_WEB_WORKBENCH_URL</code>, <code>PI_WEB_MCP_URL</code>, and timeout/Skill limit overrides</td>
+                      <td>Web/API + session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API and session daemon; both must match</td>
+                    </tr>
+                    <tr>
+                      <td>Ordinary tool audit</td>
+                      <td><code>auditLog.normalMode.*</code></td>
+                      <td>—</td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon</td>
+                    </tr>
+                    <tr>
+                      <td>Management tool audit</td>
+                      <td><code>auditLog.managementMode.*</code></td>
+                      <td><code>PI_WEB_AUDIT_ES_URL</code>, <code>PI_WEB_AUDIT_ES_API_KEY</code>, <code>PI_WEB_AUDIT_ES_USERNAME</code>, <code>PI_WEB_AUDIT_ES_PASSWORD</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon</td>
+                    </tr>
+                    <tr>
                       <td>PI WEB plugin enablement/settings</td>
                       <td><code>plugins.&lt;id&gt;.enabled</code>, <code>plugins.&lt;id&gt;.settings</code></td>
                       <td>—</td>
@@ -514,6 +561,81 @@
                   </tbody>
                 </table>
               </div>
+            </section>
+
+            <section id="ordinary-tool-audit">
+              <h2>Ordinary-mode tool audit</h2>
+              <p>
+                PI WEB stores metadata-only ordinary-mode tool calls in
+                <code>$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite</code> while keeping the existing Pino/service logs.
+                Management-embed calls are not written to this database. Rows contain session, workspace, tool and call
+                identifiers, timestamps, duration, and status; arguments, results, prompts, model replies, and credentials
+                are excluded.
+              </p>
+              <p>
+                <code>auditLog.normalMode.enabled</code> defaults to <code>true</code>, <code>retentionDays</code> to
+                <code>90</code>, and <code>maxRows</code> to <code>500000</code>. Sessiond prunes at startup and every 24
+                hours. Audit persistence failures stay in the existing service log and do not stop tool execution.
+              </p>
+              <pre><code>pi-web audit list --since 24h
+pi-web audit list --status failed --since 7d
+pi-web audit stats --since 30d
+pi-web audit export --since 30d --format csv --output audit.csv
+pi-web audit prune --before 2026-05-01
+pi-web audit vacuum</code></pre>
+              <p>The database uses WAL mode. Changing audit configuration requires restarting sessiond.</p>
+            </section>
+
+            <section id="management-tool-audit">
+              <h2>Management-mode Elasticsearch audit</h2>
+              <p>
+                Management-embed audit records can be sent to Elasticsearch while Pino/service logging remains enabled.
+                Enable <code>auditLog.managementMode</code> and set <code>baseUrl</code>, or use
+                <code>PI_WEB_AUDIT_ES_URL</code>. Authentication comes only from the session daemon environment:
+                <code>PI_WEB_AUDIT_ES_API_KEY</code> takes precedence; basic authentication requires both
+                <code>PI_WEB_AUDIT_ES_USERNAME</code> and <code>PI_WEB_AUDIT_ES_PASSWORD</code>.
+              </p>
+              <p>
+                Records use Shanghai-calendar ISO-week indices such as <code>pi-web-management-audit-2026-w32</code>.
+                The default retention is 365 days. Sessiond installs the index template, uses the Bulk API, and runs
+                maintenance at startup and daily. The first successful maintenance in each Shanghai calendar month
+                deletes documents older than the retention cutoff.
+              </p>
+              <p>
+                Each document identifies the user, root user, actual authorized project, Pi session, workspace, tool, and
+                status. Workbench capability and Skill records add resource versions and trace metadata. Prompts,
+                arguments, results, model replies, tokens, cookies, API keys, and tickets are excluded. Elasticsearch
+                failures remain non-blocking and are reported through Pino; use Elasticsearch or Kibana permissions to
+                restrict access to these user-level records.
+              </p>
+            </section>
+
+            <section id="workbench-integration">
+              <h2>Workbench and MCP integration</h2>
+              <p>
+                <code>workbenchIntegration</code> enables the controlled management-embed adapter. Set
+                <code>baseUrl</code> to the server-reachable workbench backend origin and <code>mcpUrl</code> to the MCP
+                Streamable HTTP endpoint. Both values are required; <code>PI_WEB_WORKBENCH_URL</code> and
+                <code>PI_WEB_MCP_URL</code> override the JSON URLs.
+              </p>
+              <p>
+                These resource, tool, and Skill restrictions apply only to management-embed sessions. Normal-mode
+                sessions keep PI WEB's existing behavior.
+              </p>
+              <p>
+                The adapter keeps Agent Session tokens and short-lived capability and Skill credentials server-side. It
+                loads only the fixed authorized snapshot and exposes <code>icnoc_search_capabilities</code> and
+                <code>icnoc_call_capability</code> alongside the managed file tools and sandboxed <code>python</code> tool.
+                Python runs without network access in an isolated Bubblewrap environment that binds only the managed
+                workspace; generic MCP, HTTP, web search, shell, and terminal tools remain denied.
+                Authorized Skill bundles are validated against their manifests before they enter the managed project.
+              </p>
+              <p>
+                The session daemon emits metadata-only tool execution audit entries for normal and management sessions.
+                Logs include the mode, session, workspace, tool name, call id, and status, but never tool arguments or
+                results. Workbench capability calls additionally include their business and MCP trace identifiers.
+              </p>
+              <p>Configure the web/API and session daemon with the same endpoints and limits, then restart both services.</p>
             </section>
 
             <section id="path-access">

@@ -7,6 +7,7 @@ import {
   assertManagedCwd,
   createManagementEmbedRuntime,
   managementContextForRequest,
+  managementProjectIdForCwd,
   managedProjectPath,
   managementToolAllowed,
   projectFromManagedEmbedContext,
@@ -89,6 +90,15 @@ describe("management embed sandbox policy", () => {
 
     expect(projects).toEqual([expect.objectContaining({ path: join(root, "account-1") })]);
     await expect(pathExists(join(root, "account-1"))).resolves.toBe(false);
+  });
+
+  it("resolves the audit project from the actual managed workspace", async () => {
+    const context = contextFor([{ id: "p1", name: "Project 1" }, { id: "p2", name: "Project 2" }]);
+    const projectPath = await managedProjectPath(root, "root-user", "p2");
+    const cwd = join(projectPath, "src");
+    await mkdir(cwd, { recursive: true });
+
+    await expect(managementProjectIdForCwd(root, context, cwd)).resolves.toBe("p2");
   });
 
   it("detects management mode and token from bridge headers", () => {

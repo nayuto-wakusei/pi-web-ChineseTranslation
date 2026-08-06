@@ -58,6 +58,15 @@ export const DEFAULT_UPLOADS_FOLDER = ".pi-web/uploads";
  * enabled.
  */
 export const DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS = 300_000;
+export const DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS = 10_000;
+export const DEFAULT_WORKBENCH_CAPABILITY_TIMEOUT_MS = 30_000;
+export const DEFAULT_WORKBENCH_SKILL_BUNDLE_MAX_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_WORKBENCH_SKILL_FILE_MAX_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_WORKBENCH_SKILL_FILE_COUNT_MAX = 200;
+export const DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS = 90;
+export const DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS = 500_000;
+export const DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX = "pi-web-management-audit";
+export const DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS = 365;
 
 export const DEFAULT_AGENT_COMMAND = "pi";
 export const PI_WEB_AGENT_COMMAND_ENV = "PI_WEB_AGENT_COMMAND";
@@ -152,6 +161,8 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
   const allowedHosts = env["PI_WEB_ALLOWED_HOSTS"];
   const maxUpload = env["PI_WEB_MAX_UPLOAD_BYTES"];
   const agent = effectiveAgentConfig(env, loaded.config);
+  const workbenchIntegration = effectiveWorkbenchIntegrationConfig(env, loaded.config.workbenchIntegration);
+  const auditLog = effectiveAuditLogConfig(loaded.config.auditLog, env);
   return {
     ...loaded,
     config: {
@@ -160,6 +171,8 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       ...(port !== undefined && port !== "" ? { port: parsePort(port, "PI_WEB_PORT") } : {}),
       ...(allowedHosts !== undefined && allowedHosts !== "" ? { allowedHosts: parseAllowedHostsEnv(allowedHosts) } : {}),
       ...(maxUpload !== undefined && maxUpload !== "" ? { maxUploadBytes: parseMaxUploadBytes(maxUpload, "PI_WEB_MAX_UPLOAD_BYTES") } : {}),
+      ...(workbenchIntegration === undefined ? {} : { workbenchIntegration }),
+      auditLog,
       uploads: effectiveUploadsConfig(loaded.config),
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
@@ -173,6 +186,63 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       agent: { command: agent.command, dir: agent.dir },
     },
   };
+}
+
+export function effectiveAuditLogConfig(configured?: PiWebConfig["auditLog"], env: NodeJS.ProcessEnv = process.env): NonNullable<PiWebConfig["auditLog"]> {
+  const managementBaseUrl = envValue(env, "PI_WEB_AUDIT_ES_URL") ?? configured?.managementMode?.baseUrl;
+  const managementEnabled = configured?.managementMode?.enabled ?? managementBaseUrl !== undefined;
+  if (managementEnabled && managementBaseUrl === undefined) throw new Error("PI WEB management audit requires auditLog.managementMode.baseUrl or PI_WEB_AUDIT_ES_URL");
+  return {
+    normalMode: {
+      enabled: configured?.normalMode?.enabled ?? true,
+      retentionDays: configured?.normalMode?.retentionDays ?? DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS,
+      maxRows: configured?.normalMode?.maxRows ?? DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS,
+    },
+    managementMode: {
+      enabled: managementEnabled,
+      ...(managementBaseUrl === undefined ? {} : { baseUrl: effectiveHttpUrl(managementBaseUrl, "PI_WEB_AUDIT_ES_URL/auditLog.managementMode.baseUrl") }),
+      indexPrefix: configured?.managementMode?.indexPrefix ?? DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX,
+      retentionDays: configured?.managementMode?.retentionDays ?? DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS,
+    },
+  };
+}
+
+export function effectiveWorkbenchIntegrationConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  configured?: PiWebConfig["workbenchIntegration"],
+): PiWebConfig["workbenchIntegration"] | undefined {
+  const baseUrl = envValue(env, "PI_WEB_WORKBENCH_URL") ?? configured?.baseUrl;
+  const mcpUrl = envValue(env, "PI_WEB_MCP_URL") ?? configured?.mcpUrl;
+  if (baseUrl === undefined && mcpUrl === undefined && configured === undefined) return undefined;
+  if (baseUrl === undefined || mcpUrl === undefined) throw new Error("PI WEB workbench integration requires both baseUrl and mcpUrl");
+  return {
+    baseUrl: effectiveHttpUrl(baseUrl, "PI_WEB_WORKBENCH_URL/workbenchIntegration.baseUrl"),
+    mcpUrl: effectiveHttpUrl(mcpUrl, "PI_WEB_MCP_URL/workbenchIntegration.mcpUrl"),
+    requestTimeoutMs: positiveIntegerEnv(env, "PI_WEB_WORKBENCH_TIMEOUT_MS") ?? configured?.requestTimeoutMs ?? DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS,
+    capabilityTimeoutMs: positiveIntegerEnv(env, "PI_WEB_MCP_TIMEOUT_MS") ?? configured?.capabilityTimeoutMs ?? DEFAULT_WORKBENCH_CAPABILITY_TIMEOUT_MS,
+    skillBundleMaxBytes: positiveIntegerEnv(env, "PI_WEB_SKILL_BUNDLE_MAX_BYTES") ?? configured?.skillBundleMaxBytes ?? DEFAULT_WORKBENCH_SKILL_BUNDLE_MAX_BYTES,
+    skillFileMaxBytes: positiveIntegerEnv(env, "PI_WEB_SKILL_FILE_MAX_BYTES") ?? configured?.skillFileMaxBytes ?? DEFAULT_WORKBENCH_SKILL_FILE_MAX_BYTES,
+    skillFileCountMax: positiveIntegerEnv(env, "PI_WEB_SKILL_FILE_COUNT_MAX") ?? configured?.skillFileCountMax ?? DEFAULT_WORKBENCH_SKILL_FILE_COUNT_MAX,
+  };
+}
+
+function effectiveHttpUrl(value: string, key: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`PI WEB config ${key} must be an absolute HTTP URL`);
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username !== "" || url.password !== "") {
+    throw new Error(`PI WEB config ${key} must be an absolute HTTP URL without credentials`);
+  }
+  return value;
+}
+
+function positiveIntegerEnv(env: NodeJS.ProcessEnv, key: string): number | undefined {
+  const value = envValue(env, key);
+  if (value === undefined) return undefined;
+  return parseMaxUploadBytes(value, key);
 }
 
 export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}): LoadedPiWebConfig {
@@ -194,6 +264,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["subsessions"];
   delete existing["askUser"];
   delete existing["agent"];
+  delete existing["workbenchIntegration"];
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");

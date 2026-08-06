@@ -62,6 +62,43 @@ describe("management permission system", () => {
       },
     });
   });
+
+  it("adds only the two controlled workbench tools without opening generic MCP or HTTP", () => {
+    const context = managementContext({ tools: { allow: ["read", "python"], deny: ["python"] } });
+    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability"];
+
+    expect(managementAgentToolNames(context, extraTools)).toEqual(["read", ...extraTools]);
+    expect(createManagementPermissionSystemPolicy(context, extraTools).tools).toMatchObject({
+      icnoc_search_capabilities: "allow",
+      icnoc_call_capability: "allow",
+      mcp: "deny",
+      http: "deny",
+      webfetch: "deny",
+      python: "deny",
+    });
+  });
+
+  it("keeps sandboxed Python available alongside controlled workbench tools", () => {
+    const context = managementContext();
+    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability"];
+
+    expect(managementAgentToolNames(context, extraTools)).toEqual([
+      "read",
+      "write",
+      "edit",
+      "ls",
+      "grep",
+      "find",
+      "python",
+      ...extraTools,
+    ]);
+    expect(createManagementPermissionSystemPolicy(context, extraTools).tools).toMatchObject({
+      python: "allow",
+      bash: "deny",
+      shell: "deny",
+      terminal: "deny",
+    });
+  });
 });
 
 function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {

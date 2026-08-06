@@ -39,9 +39,9 @@ interface PiPermissionSystemPolicy {
   };
 }
 
-export function createManagementPermissionSystemPolicy(context: ManagementEmbedContext): PiPermissionSystemPolicy {
+export function createManagementPermissionSystemPolicy(context: ManagementEmbedContext, extraToolNames: readonly string[] = []): PiPermissionSystemPolicy {
   const tools: Record<string, PermissionState> = { "*": "deny" };
-  for (const tool of managementAgentToolNames(context)) tools[tool] = "allow";
+  for (const tool of managementAgentToolNames(context, extraToolNames)) tools[tool] = "allow";
   for (const tool of managementDeniedToolNames(context)) tools[tool] = "deny";
 
   return {
@@ -63,15 +63,16 @@ export function createManagementPermissionSystemPolicy(context: ManagementEmbedC
   };
 }
 
-export function managementAgentToolNames(context: ManagementEmbedContext): string[] {
+export function managementAgentToolNames(context: ManagementEmbedContext, extraToolNames: readonly string[] = []): string[] {
   const denied = new Set([...ALWAYS_DENIED_TOOL_NAMES, ...(context.tools?.deny ?? [])]);
   const safeTools = MANAGEMENT_AGENT_TOOL_NAMES.filter((tool) => !denied.has(tool));
   const allowed = context.tools?.allow;
-  if (allowed === undefined || allowed.length === 0) return [...safeTools];
-  return safeTools.filter((tool) => allowed.includes(tool));
+  const selected = allowed === undefined || allowed.length === 0 ? [...safeTools] : safeTools.filter((tool) => allowed.includes(tool));
+  const selectedNames = new Set<string>(selected);
+  return [...selected, ...extraToolNames.filter((tool) => !denied.has(tool) && !selectedNames.has(tool))];
 }
 
-export async function writeManagementPermissionSystemPolicy(agentDir: string, cwd: string, context: ManagementEmbedContext): Promise<string> {
+export async function writeManagementPermissionSystemPolicy(agentDir: string, cwd: string, context: ManagementEmbedContext, extraToolNames: readonly string[] = []): Promise<string> {
   const policyAgentDir = join(
     agentDir,
     "management-embed",
@@ -80,7 +81,7 @@ export async function writeManagementPermissionSystemPolicy(agentDir: string, cw
     createHash("sha256").update(cwd).digest("hex").slice(0, 16),
   );
   await mkdir(policyAgentDir, { recursive: true });
-  await writeFile(join(policyAgentDir, "pi-permissions.jsonc"), `${JSON.stringify(createManagementPermissionSystemPolicy(context), null, 2)}\n`, "utf8");
+  await writeFile(join(policyAgentDir, "pi-permissions.jsonc"), `${JSON.stringify(createManagementPermissionSystemPolicy(context, extraToolNames), null, 2)}\n`, "utf8");
   return policyAgentDir;
 }
 
