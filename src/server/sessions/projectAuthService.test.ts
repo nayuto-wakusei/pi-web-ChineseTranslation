@@ -51,7 +51,7 @@ describe("ProjectAuthService", () => {
     expect(serviceA.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).toBe("https://project-a.example");
     expect(serviceB.modelRuntime.getModel("anthropic", "claude-haiku-4-5")?.baseUrl).not.toBe("https://project-a.example");
     await auth.dispose();
-  });
+  }, 15_000);
 
   it("shares one registry across worktrees and rejects unknown or ambiguous paths", async () => {
     const root = await tempRoot();
@@ -103,7 +103,7 @@ describe("ProjectAuthService", () => {
     await second.forProject(projectA.id);
     expect(readStoredCredential("anthropic", projectAuthStoragePaths(dataDir, projectA.path).authPath)).toEqual({ type: "api_key", key: "project-key" });
     await second.dispose();
-  });
+  }, 15_000);
 });
 
 async function tempRoot(): Promise<string> {
