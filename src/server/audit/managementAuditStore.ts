@@ -5,11 +5,12 @@ export type ManagementAuditStatus = "started" | "completed" | "failed";
 export interface ManagementAuditIdentity {
   userId: string;
   rootUserId: string;
+  userDisplayName?: string;
   projectId: string;
 }
 
 export interface ManagementAuditEvent extends ManagementAuditIdentity {
-  action: "tool_execution" | "workbench_capability_call" | "workbench_skill_sync";
+  action: "tool_execution" | "workbench_capability_call" | "workbench_skill_sync" | "user_prompt" | "assistant_response";
   status: ManagementAuditStatus;
   sessionId: string;
   cwd: string;
@@ -27,6 +28,7 @@ export interface ManagementAuditEvent extends ManagementAuditIdentity {
   statusCode?: number | string;
   durationMs?: number;
   retryCount?: number;
+  content?: unknown;
 }
 
 export interface ManagementAuditRecorder {
@@ -58,7 +60,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = DAY_MS;
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
-const TEMPLATE_VERSION = 1;
+const TEMPLATE_VERSION = 2;
 
 export class ManagementAuditStore implements ManagementAuditRecorder {
   private readonly fetchImpl: typeof fetch;
@@ -190,6 +192,7 @@ export class ManagementAuditStore implements ManagementAuditRecorder {
               session: { properties: { id: { type: "keyword" }, agent_session_id: { type: "keyword" } } },
               workspace: { properties: { cwd: { type: "keyword", ignore_above: 4096 } } },
               tool: { properties: { name: { type: "keyword" }, call_id: { type: "keyword" } } },
+              content: { enabled: false },
               workbench: { properties: {
                 authorization_revision: { type: "integer" }, capability_name: { type: "keyword" }, capability_version: { type: "keyword" },
                 skill_name: { type: "keyword" }, skill_version: { type: "keyword" }, run_id: { type: "keyword" }, trace_id: { type: "keyword" },
@@ -234,11 +237,12 @@ function managementAuditDocument(id: string, timestamp: Date, event: ManagementA
   return {
     "@timestamp": timestamp.toISOString(),
     event: { id, action: event.action, status: event.status, ...(event.durationMs === undefined ? {} : { duration_ms: event.durationMs }) },
-    user: { id: event.userId, root_user_id: event.rootUserId },
+    user: { id: event.userId, root_user_id: event.rootUserId, ...(event.userDisplayName === undefined ? {} : { name: event.userDisplayName }) },
     project: { id: event.projectId },
     session: { id: event.sessionId, ...(event.agentSessionId === undefined ? {} : { agent_session_id: event.agentSessionId }) },
     workspace: { cwd: event.cwd },
     ...((event.toolName === undefined && event.toolCallId === undefined) ? {} : { tool: { ...(event.toolName === undefined ? {} : { name: event.toolName }), ...(event.toolCallId === undefined ? {} : { call_id: event.toolCallId }) } }),
+    ...(event.content === undefined ? {} : { content: event.content }),
     workbench: compact({
       authorization_revision: event.authorizationRevision,
       capability_name: event.capabilityName,

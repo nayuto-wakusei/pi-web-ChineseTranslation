@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
@@ -6,7 +6,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import { filterManagedGlobalContextFiles, filterManagedProjectSkills, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionModelRuntime, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
+import { ensureManagedRelaySkill, filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills, PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionModelRuntime, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
@@ -244,13 +244,134 @@ describe("filterManagedProjectSkills", () => {
 
       const result = filterManagedProjectSkills(cwd, {
         skills: [globalSkill, projectSkill, globalPackageSkill, projectPackageSkill],
-        diagnostics: [{ type: "warning", message: "preserved diagnostic" }],
+        diagnostics: [
+          { type: "warning", message: "preserved diagnostic" },
+          { type: "warning", message: "project diagnostic", path: projectSkillPath },
+          {
+            type: "collision",
+            message: 'name "project-skill" collision',
+            path: globalSkillPath,
+            collision: {
+              resourceType: "skill",
+              name: "project-skill",
+              winnerPath: projectSkillPath,
+              loserPath: globalSkillPath,
+            },
+          },
+        ],
       });
 
       expect(result).toEqual({
         skills: [projectSkill, projectPackageSkill],
-        diagnostics: [{ type: "warning", message: "preserved diagnostic" }],
+        diagnostics: [
+          { type: "warning", message: "preserved diagnostic" },
+          { type: "warning", message: "project diagnostic", path: projectSkillPath },
+        ],
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ensureManagedRelaySkill", () => {
+  it("adds the bundled relay skill when the project does not have one", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
+    const cwd = join(root, "project");
+    const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
+
+    try {
+      await Promise.all([
+        mkdir(cwd, { recursive: true }),
+        mkdir(dirname(bundledSkillPath), { recursive: true }),
+      ]);
+      await writeFile(bundledSkillPath, "bundled relay");
+
+      const skillPath = await ensureManagedRelaySkill(cwd, bundledSkillPath);
+
+      expect(skillPath).toBe(join(cwd, ".pi", "skills", "relay", "SKILL.md"));
+      await expect(readFile(skillPath, "utf8")).resolves.toBe("bundled relay");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an existing project relay skill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
+    const cwd = join(root, "project");
+    const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
+    const projectSkillPath = join(cwd, ".pi", "skills", "relay", "SKILL.md");
+
+    try {
+      await Promise.all([dirname(projectSkillPath), dirname(bundledSkillPath)].map((directory) => mkdir(directory, { recursive: true })));
+      await Promise.all([
+        writeFile(projectSkillPath, "project relay"),
+        writeFile(bundledSkillPath, "bundled relay"),
+      ]);
+
+      await ensureManagedRelaySkill(cwd, bundledSkillPath);
+
+      await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("project relay");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a project skill directory that escapes through a junction", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
+    const cwd = join(root, "project");
+    const outside = join(root, "outside");
+    const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
+
+    try {
+      await Promise.all([cwd, outside, dirname(bundledSkillPath)].map((directory) => mkdir(directory, { recursive: true })));
+      await Promise.all([
+        symlink(outside, join(cwd, ".pi"), "junction"),
+        writeFile(bundledSkillPath, "bundled relay"),
+      ]);
+
+      await expect(ensureManagedRelaySkill(cwd, bundledSkillPath)).rejects.toThrow("Managed skill path is invalid");
+      await expect(readFile(join(outside, "skills", "relay", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("filterManagedWorkbenchSkills", () => {
+  it("keeps the project relay skill alongside Workbench-authorized skills", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-workbench-skills-"));
+    const cwd = join(root, "project");
+    const relayPath = join(cwd, ".pi", "skills", "relay", "SKILL.md");
+    const authorizedPath = join(cwd, ".pi", "skills", "workbench-approved", "SKILL.md");
+    const otherPath = join(cwd, ".pi", "skills", "other", "SKILL.md");
+
+    try {
+      await Promise.all([relayPath, authorizedPath, otherPath].map(async (filePath) => {
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, "skill");
+      }));
+      const relay = testSkill("relay", relayPath, "project");
+      const authorized = testSkill("approved", authorizedPath, "project");
+      const other = testSkill("other", otherPath, "project");
+
+      const result = filterManagedWorkbenchSkills(cwd, {
+        skills: [relay, authorized, other],
+        diagnostics: [
+          {
+            type: "collision",
+            message: 'name "relay" collision',
+            path: otherPath,
+            collision: { resourceType: "skill", name: "relay", winnerPath: relayPath, loserPath: otherPath },
+          },
+        ],
+      }, {
+        authorizationRevision: 1,
+        skills: [{ name: "approved", version: "1", directory: "workbench-approved", contentSha256: "hash", files: [], degradedCapabilities: [] }],
+      });
+
+      expect(result.skills).toEqual([relay, authorized]);
+      expect(result.diagnostics).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -739,7 +860,7 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
-  it("does not write management-mode tool calls to the ordinary SQLite audit recorder", async () => {
+  it("writes management-mode tool arguments and results only to Elasticsearch audit", async () => {
     let listener: ((event: unknown) => void) | undefined;
     const fake = fakeRuntime("managed-audit-session", {
       subscribe: (next) => {
@@ -760,22 +881,83 @@ describe("PiSessionService", () => {
       managementProjectIdForCwd: vi.fn().mockResolvedValue("matched-project"),
     });
 
-    await service.status(sessionRef("managed-audit-session"), testManagementContext());
-    listener?.({ type: "tool_execution_end", toolName: "read", toolCallId: "call-1", isError: false });
+    const managementContext = testManagementContext();
+    managementContext.user.displayName = "测试用户";
+    await service.status(sessionRef("managed-audit-session"), managementContext);
+    listener?.({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1", args: { path: "/workspace/file.txt" } });
+    listener?.({ type: "tool_execution_end", toolName: "read", toolCallId: "call-1", isError: false, result: { content: [{ type: "text", text: "file body" }] } });
 
     expect(normalToolAudit.record).not.toHaveBeenCalled();
-    expect(managementAudit.record).toHaveBeenCalledWith({
+    expect(managementAudit.record).toHaveBeenNthCalledWith(1, {
       action: "tool_execution",
-      status: "completed",
+      status: "started",
       userId: "account-1",
       rootUserId: "root-user",
+      userDisplayName: "测试用户",
       projectId: "matched-project",
       sessionId: "managed-audit-session",
       cwd: "/workspace",
       toolName: "read",
       toolCallId: "call-1",
+      content: { path: "/workspace/file.txt" },
     });
-    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ mode: "management", userId: "account-1", projectId: "matched-project" }), "Pi tool execution audit");
+    expect(managementAudit.record).toHaveBeenNthCalledWith(2, {
+      action: "tool_execution",
+      status: "completed",
+      userId: "account-1",
+      rootUserId: "root-user",
+      userDisplayName: "测试用户",
+      projectId: "matched-project",
+      sessionId: "managed-audit-session",
+      cwd: "/workspace",
+      toolName: "read",
+      toolCallId: "call-1",
+      content: { content: [{ type: "text", text: "file body" }] },
+    });
+    await service.prompt(
+      sessionRef("managed-audit-session"),
+      "用户的完整问题",
+      undefined,
+      undefined,
+      { managementContext },
+    );
+    listener?.({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "private reasoning" },
+          { type: "text", text: "模型的完整回复" },
+        ],
+      },
+    });
+    expect(managementAudit.record).toHaveBeenNthCalledWith(3, {
+      action: "user_prompt",
+      status: "completed",
+      userId: "account-1",
+      rootUserId: "root-user",
+      userDisplayName: "测试用户",
+      projectId: "matched-project",
+      sessionId: "managed-audit-session",
+      cwd: "/workspace",
+      content: "用户的完整问题",
+    });
+    expect(managementAudit.record).toHaveBeenNthCalledWith(4, {
+      action: "assistant_response",
+      status: "completed",
+      userId: "account-1",
+      rootUserId: "root-user",
+      userDisplayName: "测试用户",
+      projectId: "matched-project",
+      sessionId: "managed-audit-session",
+      cwd: "/workspace",
+      content: {
+        role: "assistant",
+        content: [{ type: "text", text: "模型的完整回复" }],
+      },
+    });
+    expect(JSON.stringify(managementAudit.record.mock.calls)).not.toContain("private reasoning");
+    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ mode: "management", userId: "account-1", userDisplayName: "测试用户", projectId: "matched-project" }), "Pi tool execution audit");
     await service.dispose();
   });
 

@@ -141,7 +141,14 @@ export class WorkbenchSkillSynchronizer {
 
   private logSkill(state: WorkbenchAgentAccessState, skill: AuthorizedResource, result: string | number, message: string, audit?: WorkbenchSkillAuditContext): void {
     const details = {
-      ...(audit === undefined ? {} : { userId: audit.userId, rootUserId: audit.rootUserId, projectId: audit.projectId, sessionId: audit.sessionId, cwd: audit.cwd }),
+      ...(audit === undefined ? {} : {
+        userId: audit.userId,
+        rootUserId: audit.rootUserId,
+        ...(audit.userDisplayName === undefined ? {} : { userDisplayName: audit.userDisplayName }),
+        projectId: audit.projectId,
+        sessionId: audit.sessionId,
+        cwd: audit.cwd,
+      }),
       agentSessionId: state.sessionId,
       authorizationRevision: state.authorizationRevision,
       skillName: skill.resourceName,
@@ -156,6 +163,7 @@ export class WorkbenchSkillSynchronizer {
         status: result === "loaded" ? "completed" : "failed",
         userId: audit.userId,
         rootUserId: audit.rootUserId,
+        ...(audit.userDisplayName === undefined ? {} : { userDisplayName: audit.userDisplayName }),
         projectId: audit.projectId,
         sessionId: audit.sessionId,
         cwd: audit.cwd,

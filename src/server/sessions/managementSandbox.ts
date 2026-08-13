@@ -3,7 +3,7 @@ import type { ManagementEmbedContext } from "../managementEmbed.js";
 const DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin";
 const SAFE_HOST_ENV_KEYS = ["PATH", "LANG", "LC_ALL", "LC_CTYPE"] as const;
 const SENSITIVE_ENV_PATTERNS = ["TOKEN", "SECRET", "PASSWORD", "PRIVATE_KEY", "API_KEY"] as const;
-const SANDBOX_WORKSPACE = "/workspace";
+export const MANAGED_SANDBOX_WORKSPACE = "/workspace";
 const SANDBOX_HOME = "/tmp/pi-web-home";
 
 export const DEFAULT_BUBBLEWRAP_PATHS = [
@@ -86,9 +86,9 @@ export function createBubblewrapPythonInvocation(options: BubblewrapPythonInvoca
     ...[...new Set(options.readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind-try", path, path]),
     "--bind",
     options.workspaceRoot,
-    SANDBOX_WORKSPACE,
+    MANAGED_SANDBOX_WORKSPACE,
     "--chdir",
-    SANDBOX_WORKSPACE,
+    MANAGED_SANDBOX_WORKSPACE,
     options.pythonExecutable,
     "-I",
     "-",
@@ -101,9 +101,9 @@ export function createBubblewrapShellInvocation(options: BubblewrapShellInvocati
     ...bubblewrapBaseArgs(options.env, options.readOnlyPaths),
     "--bind",
     options.workspaceRoot,
-    SANDBOX_WORKSPACE,
+    MANAGED_SANDBOX_WORKSPACE,
     "--chdir",
-    SANDBOX_WORKSPACE,
+    MANAGED_SANDBOX_WORKSPACE,
     options.shellExecutable,
     "-lc",
     options.script,

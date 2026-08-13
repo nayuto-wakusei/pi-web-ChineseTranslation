@@ -1,6 +1,7 @@
-import { realpathSync, statSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { constants, realpathSync, statSync } from "node:fs";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
@@ -124,6 +125,27 @@ const STARTUP_PHASE_EXTENSIONS = "正在加载会话扩展";
 const STARTUP_CONCURRENT_CATALOG_REFRESH = "服务商模型列表正在刷新";
 const MAX_UNREAD_PUBLICATION_RETRY_MS = 30_000;
 const MAX_PENDING_UNREAD_MUTATIONS = SESSION_UNREAD_LIMIT + 1;
+
+function auditVisibleAssistantMessage(message: unknown): unknown {
+  if (!isAuditRecord(message)) return message;
+  const record = message;
+  const content = record["content"];
+  if (!Array.isArray(content)) return message;
+  return {
+    ...record,
+    content: content.filter(part => (
+      typeof part !== "object"
+      || part === null
+      || Array.isArray(part)
+      || !isAuditRecord(part)
+      || part["type"] !== "thinking"
+    )),
+  };
+}
+
+function isAuditRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
@@ -488,6 +510,8 @@ interface SkillCollectionResult {
 }
 
 const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+const MANAGED_RELAY_SKILL_DIRECTORY = join(".pi", "skills", "relay");
+const BUNDLED_RELAY_SKILL_PATH = fileURLToPath(new URL("../../../skills/relay/SKILL.md", import.meta.url));
 
 export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
   return {
@@ -503,32 +527,79 @@ export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, b
 
 export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
+  const pathAllowed = (path: string) => pathInsideRealDirectory(projectRoot, path);
   return {
     ...base,
-    skills: base.skills.filter((skill) => {
-      try {
-        return pathInsideOrEqual(projectRoot, realpathSync(skill.filePath));
-      } catch {
-        return false;
-      }
-    }),
+    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
+    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
   };
+}
+
+export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BUNDLED_RELAY_SKILL_PATH): Promise<string> {
+  const projectRoot = realpathSync(cwd);
+  const piDirectory = resolve(projectRoot, ".pi");
+  const skillsDirectory = join(piDirectory, "skills");
+  const skillDirectory = resolve(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY);
+  const skillPath = join(skillDirectory, "SKILL.md");
+  for (const directory of [piDirectory, skillsDirectory, skillDirectory]) {
+    await ensureManagedSkillDirectory(projectRoot, directory);
+  }
+
+  try {
+    await copyFile(bundledSkillPath, skillPath, constants.COPYFILE_EXCL);
+  } catch (error) {
+    if (!isNodeError(error, "EEXIST")) throw error;
+  }
+  assertManagedSkillPath(projectRoot, skillPath, "file");
+  return skillPath;
 }
 
 export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
-  const allowedDirectories = new Set(receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)));
+  const allowedDirectories = new Set([
+    resolve(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY),
+    ...receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)),
+  ]);
+  const pathAllowed = (path: string) => [...allowedDirectories].some((directory) => pathInsideRealDirectory(directory, path));
   return {
     ...base,
-    skills: base.skills.filter((skill) => {
-      try {
-        const path = realpathSync(skill.filePath);
-        return [...allowedDirectories].some((directory) => pathInsideOrEqual(directory, path));
-      } catch {
-        return false;
-      }
-    }),
+    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
+    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
   };
+}
+
+function filterManagedSkillDiagnostics(diagnostics: ResourceDiagnostic[], pathAllowed: (path: string) => boolean): ResourceDiagnostic[] {
+  return diagnostics.filter((diagnostic) => diagnostic.path === undefined || pathAllowed(diagnostic.path));
+}
+
+function pathInsideRealDirectory(directory: string, path: string): boolean {
+  try {
+    return pathInsideOrEqual(directory, realpathSync(path));
+  } catch {
+    return false;
+  }
+}
+
+async function ensureManagedSkillDirectory(projectRoot: string, path: string): Promise<void> {
+  try {
+    await mkdir(path);
+  } catch (error) {
+    if (!isNodeError(error, "EEXIST")) throw error;
+  }
+  assertManagedSkillPath(projectRoot, path, "directory");
+}
+
+function assertManagedSkillPath(projectRoot: string, path: string, expectedType: "directory" | "file"): void {
+  const realPath = realpathSync(path);
+  const stats = statSync(realPath);
+  const hasExpectedType = expectedType === "directory" ? stats.isDirectory() : stats.isFile();
+  if (!pathInsideOrEqual(projectRoot, realPath) || !hasExpectedType) {
+    throw new Error(`Managed skill path is invalid: ${path}`);
+  }
+}
+
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function pathInsideOrEqual(parent: string, child: string): boolean {
@@ -831,6 +902,7 @@ function createManagementRuntimeFactory(
   managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
+    await ensureManagedRelaySkill(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
     const state = workbench === undefined ? undefined : workbench.accessStates.require(accessHandle);
@@ -2322,6 +2394,7 @@ export class PiSessionService {
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
+    this.auditUserPrompt(session, text);
     this.publishActivity(session, behavior === "steer" ? "插队消息已排队" : behavior === "followUp" ? "消息已排队" : "消息已接收", "active");
     const eventScope = this.eventScopeForSession(session);
     if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
@@ -3202,6 +3275,7 @@ export class PiSessionService {
     active.unsubscribe = session.subscribe((event) => {
       this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel), active.eventScope);
       this.auditToolExecutionEvent(active, event);
+      this.auditAssistantResponseEvent(active, event);
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
       if (eventType === "agent_end") this.abortRunScopedExtensionDialogs(session);
@@ -3516,7 +3590,12 @@ export class PiSessionService {
     }, "Pi tool execution audit");
     if (managementIdentity !== undefined) {
       try {
-        this.managementAudit?.record({ action: "tool_execution", ...managementIdentity, ...auditEvent });
+        this.managementAudit?.record({
+          action: "tool_execution",
+          ...managementIdentity,
+          ...auditEvent,
+          content: isEnd ? getProperty(event, "result") : getProperty(event, "args"),
+        });
       } catch (error) {
         this.logger.info({ sessionId: auditEvent.sessionId, toolCallId: auditEvent.toolCallId, error: error instanceof Error ? error.message : String(error) }, "failed to enqueue management-mode tool audit");
       }
@@ -3531,6 +3610,45 @@ export class PiSessionService {
         toolCallId: auditEvent.toolCallId,
         error: error instanceof Error ? error.message : String(error),
       }, "failed to persist ordinary-mode tool audit");
+    }
+  }
+
+  private auditAssistantResponseEvent(active: ManagedActiveSession, event: unknown): void {
+    if (getString(event, "type") !== "message_end") return;
+    const message = getProperty(event, "message");
+    if (getString(message, "role") !== "assistant") return;
+    this.recordManagementContentAudit(active, "assistant_response", auditVisibleAssistantMessage(message));
+  }
+
+  private auditUserPrompt(session: PiAgentSession, text: string): void {
+    const active = [...new Set(this.active.values())]
+      .find(candidate => candidate.runtime.session === session);
+    if (active === undefined) return;
+    this.recordManagementContentAudit(active, "user_prompt", text);
+  }
+
+  private recordManagementContentAudit(
+    active: ManagedActiveSession,
+    action: "user_prompt" | "assistant_response",
+    content: unknown,
+  ): void {
+    const identity = active.managementAuditIdentity;
+    if (identity === undefined || this.managementAudit === undefined) return;
+    try {
+      this.managementAudit.record({
+        action,
+        status: "completed",
+        ...identity,
+        sessionId: active.runtime.session.sessionId,
+        cwd: active.runtime.cwd,
+        content,
+      });
+    } catch (error) {
+      this.logger.info({
+        sessionId: active.runtime.session.sessionId,
+        action,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to enqueue management-mode content audit");
     }
   }
 
@@ -4633,5 +4751,10 @@ async function resolveManagementAuditIdentity(
       logger.info({ userId: context.user.id, cwd, error: error instanceof Error ? error.message : String(error) }, "failed to resolve management audit project; using the authorized default");
     }
   }
-  return { userId: context.user.id, rootUserId: context.user.rootUserId, projectId };
+  return {
+    userId: context.user.id,
+    rootUserId: context.user.rootUserId,
+    ...(context.user.displayName === undefined ? {} : { userDisplayName: context.user.displayName }),
+    projectId,
+  };
 }

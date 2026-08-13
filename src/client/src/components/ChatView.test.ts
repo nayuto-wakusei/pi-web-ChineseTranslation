@@ -9,6 +9,7 @@ import {
 import type { ChatLine } from "./shared";
 import {
   ChatView,
+  chatActivityText,
   chatEventAnchorKey,
   chatGroupAnchorKey,
   chatGroupScrollMarkerId,
@@ -32,6 +33,17 @@ describe("chatMessageRoleLabel", () => {
       chatMessageRoleLabel("bash"),
       chatMessageRoleLabel("skill"),
     ]).toEqual(["用户", "助手", "工具", "系统", "命令", "技能"]);
+  });
+});
+
+describe("chatActivityText", () => {
+  it("localizes the current running state when the last activity event is idle", () => {
+    expect(chatActivityText("running", {
+      sessionId: "session-1",
+      phase: "idle",
+      label: "idle",
+      at: "2026-08-13T00:00:00.000Z",
+    })).toBe("运行中");
   });
 });
 

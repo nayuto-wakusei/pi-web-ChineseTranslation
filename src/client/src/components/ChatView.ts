@@ -775,11 +775,7 @@ export class ChatView extends LitElement {
   }
 
   private activityText(state: string): string {
-    const activity = this.activity;
-    if (activity === undefined) return activityStateLabel(state);
-    if (state !== "idle" && activity.phase === "idle") return state;
-    const label = activityStateLabel(activity.label, activity.phase);
-    return activity.detail !== undefined && activity.detail !== "" ? `${label}：${activity.detail}` : label;
+    return chatActivityText(state, this.activity);
   }
 
   private renderConversationRail() {
@@ -1415,6 +1411,13 @@ export class ChatView extends LitElement {
   static override styles = chatStyles;
 }
 
+export function chatActivityText(state: string, activity?: SessionActivity): string {
+  if (activity === undefined) return activityStateLabel(state);
+  if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
+  const label = activityStateLabel(activity.label, activity.phase);
+  return activity.detail !== undefined && activity.detail !== "" ? `${label}：${activity.detail}` : label;
+}
+
 function activityStateLabel(state: string, phase?: SessionActivity["phase"]): string {
   if (phase === "idle") return "空闲";
   if (phase !== undefined) return activityStateLabel(state);
@@ -1440,7 +1443,7 @@ function activityStateLabel(state: string, phase?: SessionActivity["phase"]): st
     "reload failed": "重新加载失败",
     "reloading resources": "正在重新加载资源",
     "resources reloaded": "资源已重新加载",
-    running: "代理正在运行",
+    running: "运行中",
     "running bash": "正在运行命令",
     "running tool": "正在运行工具",
     "session tree navigated": "已切换会话树",

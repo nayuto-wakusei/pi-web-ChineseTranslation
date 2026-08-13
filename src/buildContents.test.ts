@@ -25,9 +25,12 @@ describe("production build contents", () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "pi-web-package-contents-"));
     try {
       const fixtureDist = join(fixtureRoot, "dist", "server");
+      const fixtureRelaySkill = join(fixtureRoot, "skills", "relay", "SKILL.md");
       await mkdir(fixtureDist, { recursive: true });
+      await mkdir(dirname(fixtureRelaySkill), { recursive: true });
       await Promise.all([
         copyFile(join(repoRoot, "package.json"), join(fixtureRoot, "package.json")),
+        copyFile(join(repoRoot, "skills", "relay", "SKILL.md"), fixtureRelaySkill),
         writeFile(join(fixtureDist, "app.js"), "export {};\n", "utf8"),
         writeFile(join(fixtureDist, "app.testSupport.js"), "export {};\n", "utf8"),
         writeFile(join(fixtureDist, "app.testSupport.js.map"), "{}\n", "utf8"),
@@ -41,6 +44,7 @@ describe("production build contents", () => {
       const packagedFiles = packageFilePaths(stdout);
 
       expect(packagedFiles).toContain("dist/server/app.js");
+      expect(packagedFiles).toContain("skills/relay/SKILL.md");
       expect(packagedFiles.filter(isTestSupportPath)).toEqual([]);
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });

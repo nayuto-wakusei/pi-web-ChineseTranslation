@@ -5,7 +5,7 @@ import path from "node:path";
 import { defineTool, type EditOperations, type FindOperations, type GrepOperations, type LsOperations, type ReadOperations, type WriteOperations } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS } from "./managementSandbox.js";
+import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS, MANAGED_SANDBOX_WORKSPACE } from "./managementSandbox.js";
 
 interface ManagedAgentToolOptions {
   read: { operations: ReadOperations };
@@ -130,13 +130,13 @@ function createWorkspacePathGuard(cwd: string): WorkspacePathGuard {
     workspaceRoot: () => root,
     existingPath: async (absolutePath) => {
       const workspaceRoot = await root;
-      const resolved = await realpath(absolutePath);
+      const resolved = await realpath(managedHostPath(workspaceRoot, absolutePath));
       assertInsideWorkspace(workspaceRoot, resolved, absolutePath);
       return resolved;
     },
     writablePath: async (absolutePath) => {
       const workspaceRoot = await root;
-      const resolved = path.resolve(absolutePath);
+      const resolved = path.resolve(managedHostPath(workspaceRoot, absolutePath));
       assertInsideWorkspace(workspaceRoot, resolved, absolutePath);
       try {
         const existing = await realpath(resolved);
@@ -151,7 +151,7 @@ function createWorkspacePathGuard(cwd: string): WorkspacePathGuard {
     },
     directoryTarget: async (absolutePath) => {
       const workspaceRoot = await root;
-      const resolved = path.resolve(absolutePath);
+      const resolved = path.resolve(managedHostPath(workspaceRoot, absolutePath));
       assertInsideWorkspace(workspaceRoot, resolved, absolutePath);
       const parent = await nearestExistingParent(resolved);
       const realParent = await realpath(parent);
@@ -159,6 +159,13 @@ function createWorkspacePathGuard(cwd: string): WorkspacePathGuard {
       return resolved;
     },
   };
+}
+
+function managedHostPath(workspaceRoot: string, candidate: string): string {
+  if (candidate === MANAGED_SANDBOX_WORKSPACE) return workspaceRoot;
+  const prefix = `${MANAGED_SANDBOX_WORKSPACE}/`;
+  if (!candidate.startsWith(prefix)) return candidate;
+  return path.resolve(workspaceRoot, candidate.slice(prefix.length));
 }
 
 interface RunManagedPythonOptions {

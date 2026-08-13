@@ -23,6 +23,7 @@ export interface ManagementEmbedContext {
   user: {
     id: string;
     rootUserId: string;
+    displayName?: string;
     roles: string[];
     permissions: string[];
   };
@@ -297,10 +298,12 @@ function parseIntrospectionPayload(payload: Record<string, unknown>): Management
   const user = payload["user"];
   const projects = payload["projects"];
   if (!isRecord(user) || !Array.isArray(projects)) throw new Error("Management embed introspection response is invalid");
+  const displayName = optionalStringField(user, "displayName");
   const context: ManagementEmbedContext = {
     user: {
       id: stringField(user, "id"),
       rootUserId: stringField(user, "rootUserId"),
+      ...(displayName === undefined ? {} : { displayName }),
       roles: stringArray(user["roles"]),
       permissions: stringArray(user["permissions"]),
     },
@@ -421,6 +424,11 @@ function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
   if (typeof field !== "string" || field.trim() === "") throw new Error(`Management embed ${key} is required`);
   return field.trim();
+}
+
+function optionalStringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim() !== "" ? field.trim() : undefined;
 }
 
 function numberField(value: Record<string, unknown>, key: string): number {

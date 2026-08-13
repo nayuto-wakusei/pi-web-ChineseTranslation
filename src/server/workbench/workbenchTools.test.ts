@@ -19,7 +19,7 @@ describe("Workbench controlled tools", () => {
       invalidate: vi.fn(),
       logger,
       audit,
-      auditContext: { userId: "user-1", rootUserId: "root-1", projectId: "personal-project", sessionId: "pi-session-1", cwd: "/workspace" },
+      auditContext: { userId: "user-1", rootUserId: "root-1", userDisplayName: "测试用户", projectId: "personal-project", sessionId: "pi-session-1", cwd: "/workspace" },
     }).find((definition) => definition.name === "icnoc_call_capability");
     if (tool === undefined) throw new Error("call tool was not registered");
 
@@ -29,6 +29,7 @@ describe("Workbench controlled tools", () => {
     expect(issueToken).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
+      userDisplayName: "测试用户",
       projectId: "personal-project",
       agentSessionId: "session-1",
       capabilityName: "not.allowed",
@@ -39,6 +40,7 @@ describe("Workbench controlled tools", () => {
       status: "failed",
       userId: "user-1",
       rootUserId: "root-1",
+      userDisplayName: "测试用户",
       projectId: "personal-project",
       sessionId: "pi-session-1",
       agentSessionId: "session-1",

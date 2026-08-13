@@ -12,7 +12,7 @@ describe("ManagementAuditStore", () => {
     expect(managementAuditIndexName("pi-web-management-audit", new Date("2021-01-03T16:00:00.000Z"))).toBe("pi-web-management-audit-2021-w01");
   });
 
-  it("writes user-scoped metadata through the bulk API without arguments or results", async () => {
+  it("writes complete management content through the bulk API", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ acknowledged: true }))
       .mockResolvedValueOnce(jsonResponse({ deleted: 0 }))
@@ -29,7 +29,7 @@ describe("ManagementAuditStore", () => {
     });
 
     await store.initialize();
-    store.record(toolEvent());
+    store.record({ ...toolEvent(), content: { path: "/workspace", includeHidden: true } });
     await store.flush();
 
     const [url, init] = fetchImpl.mock.calls[2] ?? [];
@@ -41,14 +41,13 @@ describe("ManagementAuditStore", () => {
     expect(lines[1]).toMatchObject({
       "@timestamp": "2026-08-06T01:02:03.000Z",
       event: { action: "tool_execution", status: "completed" },
-      user: { id: "user-1", root_user_id: "root-1" },
+      user: { id: "user-1", root_user_id: "root-1", name: "测试用户" },
       project: { id: "project-1" },
       session: { id: "session-1" },
       tool: { name: "read", call_id: "call-1" },
+      content: { path: "/workspace", includeHidden: true },
     });
     expect(body).not.toContain("private-api-key");
-    expect(body).not.toContain("arguments");
-    expect(body).not.toContain("result");
 
     await store.close();
   });
@@ -107,6 +106,7 @@ function toolEvent(): ManagementAuditEvent {
     status: "completed",
     userId: "user-1",
     rootUserId: "root-1",
+    userDisplayName: "测试用户",
     projectId: "project-1",
     sessionId: "session-1",
     cwd: "/workspace",

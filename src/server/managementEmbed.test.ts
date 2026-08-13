@@ -285,6 +285,7 @@ function contextFor(projects: ManagementEmbedContext["projects"]): ManagementEmb
     user: {
       id: "account-1",
       rootUserId: "root-user",
+      displayName: "测试用户",
       roles: ["telecom_staff"],
       permissions: ["runtime:read", "runtime:write", "tools:execute"],
     },
