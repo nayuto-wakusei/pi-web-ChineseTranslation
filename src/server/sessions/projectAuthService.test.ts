@@ -116,6 +116,13 @@ function project(id: string, path: string): Project {
   return { id, path, name: id, createdAt: "2026-01-01T00:00:00.000Z" };
 }
 
-function offlineModelRuntime(paths: ReturnType<typeof projectAuthStoragePaths>): Promise<ModelRuntime> {
-  return ModelRuntime.create({ authPath: paths.authPath, modelsPath: paths.modelsPath, allowModelNetwork: false });
+async function offlineModelRuntime(paths: ReturnType<typeof projectAuthStoragePaths>): Promise<ModelRuntime> {
+  const previous = process.env["PI_OFFLINE"];
+  process.env["PI_OFFLINE"] = "1";
+  try {
+    return await ModelRuntime.create({ authPath: paths.authPath, modelsPath: paths.modelsPath });
+  } finally {
+    if (previous === undefined) delete process.env["PI_OFFLINE"];
+    else process.env["PI_OFFLINE"] = previous;
+  }
 }
