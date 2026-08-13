@@ -1,5 +1,15 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.9
+
+### Patch Changes
+
+- 7d457e6: Include the management-embed user's display name in structured and Elasticsearch audit logs when the integrating project supplies it.
+- 7d457e6: 将会话活动栏的 `running` 状态显示为“运行中”。
+- 7d457e6: 在管理嵌入模式的 Elasticsearch 审计日志中记录用户提示词、助手回复、工具参数和工具结果。
+- 7d457e6: Ensure management-embed projects have a project-local Relay skill without overwriting an existing project version.
+- 7d457e6: 修复管理嵌入模式中文件工具无法读取 Python 沙箱所显示的 `/workspace` 路径。
+
 ## 1.202608.8
 
 ### Patch Changes
