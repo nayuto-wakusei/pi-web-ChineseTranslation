@@ -72,6 +72,8 @@ describe("ChatView ask_user transcript records", () => {
 
     const cardRoot = requiredElement(card.shadowRoot, "ask_user record shadow root");
     expect(cardRoot.textContent).toContain("回答已发送");
+    expect(cardRoot.textContent).toContain("已回答 1/2 个问题；未回答：region");
+    expect(cardRoot.textContent).not.toContain("Answered 1 of 2");
     expect(cardRoot.textContent).toContain("Vim");
     expect(cardRoot.textContent).toContain("Which region?");
     expect(cardRoot.textContent).toContain("未回答");

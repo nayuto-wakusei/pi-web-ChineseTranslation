@@ -148,6 +148,31 @@ describe("ask-user-card live form", () => {
 });
 
 describe("ask-user-card record mode", () => {
+  it("renders a fully answered outcome summary in Chinese", async () => {
+    const outcome: AskUserOutcome = {
+      askId: "ask-complete",
+      reason: "submitted",
+      askedAt: "2026-07-20T10:00:00.000Z",
+      closedAt: "2026-07-20T10:05:00.000Z",
+      questions: [{
+        question: question("speed", "Preferred pace", [option("fast", "Fast")]),
+        answered: true,
+        values: ["fast"],
+      }],
+      answeredCount: 1,
+      unansweredIds: [],
+      summary: "Answered 1 of 1; none left unanswered",
+    };
+    const card = new AskUserCard();
+    card.outcome = outcome;
+    document.body.append(card);
+    await card.updateComplete;
+    const text = renderRoot(card).textContent;
+
+    expect(text).toContain("已回答 1/1 个问题；全部问题均已回答");
+    expect(text).not.toContain("Answered 1 of 1");
+  });
+
   it("has no answer controls and displays draft answers retained for a superseded ask", async () => {
     const draftSessionId = "remote-a:session-1";
     saveAskDraft(draftSessionId, "ask-old", {

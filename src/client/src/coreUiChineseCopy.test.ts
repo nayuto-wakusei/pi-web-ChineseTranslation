@@ -137,8 +137,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes questions, session-tree navigation, chat queues, and notifications",
     paths: ["components/AskUserCard.ts", "components/SessionTreeNavigator.ts", "components/ChatView.ts", "controllers/sessionController.ts", "sessionNotifications.ts", "sessionTreeModel.ts"],
-    expected: ["发送回答", "自定义回答", "浏览会话树", "生成摘要并导航", "case \"bash\": return \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
-    forbidden: ["Send answers", "Custom answer", "Navigate session tree", "Summarize and navigate", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
+    expected: ["发送回答", "自定义回答", "全部问题均已回答", "浏览会话树", "生成摘要并导航", "case \"bash\": return \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
+    forbidden: ["Send answers", "Custom answer", ": outcome.summary", "Navigate session tree", "Summarize and navigate", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
   },
   {
     name: "localizes extension dialog controls and outcomes",

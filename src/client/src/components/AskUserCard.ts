@@ -193,7 +193,7 @@ export class AskUserCard extends LitElement {
         <p class="record-summary">
           ${outcome.reason === "superseded"
             ? "较新的问题组已替代此问题组。下方显示的草稿回答未发送给模型。"
-            : outcome.summary}
+            : askOutcomeSummary(outcome)}
         </p>
         <div class="record-questions">
           ${outcome.questions.map((record, index) => this.renderQuestionRecord(outcome, record, index))}
@@ -546,6 +546,14 @@ export class AskUserCard extends LitElement {
       .primary-action { min-height: 42px; }
     }
   `;
+}
+
+function askOutcomeSummary(outcome: AskUserOutcome): string {
+  const total = outcome.questions.length;
+  const answered = `已回答 ${outcome.answeredCount.toString()}/${total.toString()} 个问题`;
+  return outcome.unansweredIds.length === 0
+    ? `${answered}；全部问题均已回答`
+    : `${answered}；未回答：${outcome.unansweredIds.join("、")}`;
 }
 
 declare global {
