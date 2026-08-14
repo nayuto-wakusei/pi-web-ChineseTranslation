@@ -131,11 +131,24 @@ git diff --check main...HEAD
 - 本地与远端 7 个关键构建文件的 SHA-256 全部一致，覆盖 sessiond、管理作用域、删除链路、daemon 客户端和内置 Git 插件。
 - 重启后的 warning 以上级别日志为空；Git 服务端插件已成功激活。
 
+### `ask_user` 工具热修复
+
+- 现场现象：远端全局配置为 `askUser: true`，但会话运行时没有注册 `ask_user`。
+- 根因：session daemon 创建 `PiSessionService` 时漏传 `askUserEnabled: config.askUser`；工具定义、管理权限 allowlist 和客户端问答卡片链路本身正常。
+- 修复提交：`eef9dd9d fix(sessiond): restore ask user tool registration`。
+- 针对性验证：3 个测试文件、29 个测试通过；TypeScript 类型检查和相关 ESLint 检查通过。
+- 修复包 SHA-256：`2c6550e106e11b7b4af2cfa00d0bf492982373f96f3b9fd9174a77a3ea2d3dbf`，本地与远端一致。
+- 远端旧安装副本：`/home/admin123/deploy/pi-web-ask-user-eef9dd9d-20260814/previous-package`。
+- 已重新安装并仅重启 `pi-web-sessiond.service`；daemon PID 已更新，`/health` 返回 `200`，`stale: false`，warning 以上级别日志为空。
+- 远端运行态检查确认：有效配置为 `askUser: true`，daemon 构建包含配置传递，运行时自定义工具集合包含 `ask_user`。
+
 ## 当前提交序列
 
-从本地 `main` 到集成分支共有 6 个提交：
+截至 `ask_user` 热修复部署，下面列出的代码和既有部署记录基线共有 8 个提交；本段部署进度的文档回写提交另计：
 
 ```text
+eef9dd9d fix(sessiond): restore ask user tool registration
+2a404929 docs: record upstream integration deployment
 0a93455d fix: close upstream integration review gaps
 82e1bef4 fix(runtime): keep Pi auth refreshes local
 9c96a8c1 fix(workspaces): preserve management authority through sessiond
