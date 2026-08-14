@@ -2,6 +2,7 @@ import { isAbsolute, relative } from "node:path";
 import type { Project } from "../types.js";
 import type { WorkspaceListing } from "../../shared/apiTypes.js";
 import { canonicalizeStoredCwd } from "../workingDirectory.js";
+import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/sessionEventScope.js";
 
 export interface CwdAttribution {
   projectId: string;
@@ -9,11 +10,11 @@ export interface CwdAttribution {
 }
 
 export interface WorkspaceAttribution {
-  attribute(cwds: Iterable<string>): Promise<ReadonlyMap<string, CwdAttribution>>;
+  attribute(cwds: Iterable<string>, scope?: SessionEventScope): Promise<ReadonlyMap<string, CwdAttribution>>;
   invalidate(): void;
 }
 
-interface ProjectLister { list(): Promise<Project[]>; }
+interface ProjectLister { list(scope?: SessionEventScope): Promise<Project[]>; }
 interface WorkspaceLister { list(project: Project): Promise<WorkspaceListing[]>; }
 interface AttributionLogger { warn(details: Record<string, unknown>, message: string): void; }
 
@@ -41,17 +42,17 @@ interface TopologyCacheEntry {
 export class CachedWorkspaceAttribution implements WorkspaceAttribution {
   private readonly topologyTtlMs: number;
   private readonly now: () => number;
-  private cache: TopologyCacheEntry | undefined;
+  private readonly cache = new Map<SessionEventScope, TopologyCacheEntry>();
 
   constructor(private readonly dependencies: WorkspaceAttributionDependencies) {
     this.topologyTtlMs = dependencies.topologyTtlMs ?? DEFAULT_WORKSPACE_TOPOLOGY_TTL_MS;
     this.now = dependencies.now ?? (() => Date.now());
   }
 
-  async attribute(cwds: Iterable<string>): Promise<ReadonlyMap<string, CwdAttribution>> {
+  async attribute(cwds: Iterable<string>, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): Promise<ReadonlyMap<string, CwdAttribution>> {
     const requested = [...new Set(cwds)].filter((cwd) => cwd !== "");
     if (requested.length === 0) return new Map();
-    const workspaces = await this.topology();
+    const workspaces = await this.topology(scope);
     const attributions = new Map<string, CwdAttribution>();
     for (const cwd of requested) {
       const canonical = canonicalizeStoredCwd(cwd);
@@ -61,20 +62,20 @@ export class CachedWorkspaceAttribution implements WorkspaceAttribution {
     return attributions;
   }
 
-  invalidate(): void { this.cache = undefined; }
+  invalidate(): void { this.cache.clear(); }
 
-  private topology(): Promise<readonly AttributedWorkspacePath[]> {
-    const cached = this.cache;
+  private topology(scope: SessionEventScope): Promise<readonly AttributedWorkspacePath[]> {
+    const cached = this.cache.get(scope);
     if (cached !== undefined && this.now() - cached.loadedAt < this.topologyTtlMs) return cached.workspaces;
-    const entry: TopologyCacheEntry = { loadedAt: this.now(), workspaces: this.loadTopology() };
-    this.cache = entry;
+    const entry: TopologyCacheEntry = { loadedAt: this.now(), workspaces: this.loadTopology(scope) };
+    this.cache.set(scope, entry);
     return entry.workspaces;
   }
 
-  private async loadTopology(): Promise<readonly AttributedWorkspacePath[]> {
+  private async loadTopology(scope: SessionEventScope): Promise<readonly AttributedWorkspacePath[]> {
     let projects: Project[];
     try {
-      projects = await this.dependencies.projects.list();
+      projects = await this.dependencies.projects.list(scope);
     } catch (error) {
       this.dependencies.logger.warn({ err: error }, "workspace attribution could not list projects");
       return [];

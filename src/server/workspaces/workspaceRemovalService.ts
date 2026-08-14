@@ -6,6 +6,8 @@ import {
   WORKSPACE_REMOVAL_OPERATION_TIMEOUT_MS,
 } from "../../shared/workspaceRemovalProtocol.js";
 import type { Project } from "../types.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import type { RunTerminalCommandOptions } from "../terminals/terminalService.js";
 import {
   WorkspaceProviderRemovalError,
@@ -76,6 +78,7 @@ export class WorkspaceRemovalService {
     workspaceId: string,
     precondition: string,
     signal?: AbortSignal,
+    managementContext?: ManagementEmbedContext,
   ): Promise<TerminalCommandRun> {
     let expectedPrecondition: string;
     try {
@@ -85,7 +88,7 @@ export class WorkspaceRemovalService {
     }
     throwIfAborted(signal);
 
-    const key = removalFlightKey(project.id, workspaceId);
+    const key = removalFlightKey(project, workspaceId, managementContext);
     const currentFlight = this.flights.get(key);
     if (currentFlight !== undefined) {
       if (currentFlight.precondition !== expectedPrecondition) {
@@ -98,7 +101,7 @@ export class WorkspaceRemovalService {
     }
 
     const controller = new AbortController();
-    const promise = this.executeRemoval(project, workspaceId, expectedPrecondition, controller.signal);
+    const promise = this.executeRemoval(project, workspaceId, expectedPrecondition, controller.signal, managementContext);
     const flight: WorkspaceRemovalFlight = {
       precondition: expectedPrecondition,
       controller,
@@ -119,6 +122,7 @@ export class WorkspaceRemovalService {
     workspaceId: string,
     precondition: string,
     flightSignal: AbortSignal,
+    managementContext?: ManagementEmbedContext,
   ): Promise<TerminalCommandRun> {
     try {
       return await runBoundedRemoval(this.timeoutMs, flightSignal, async (signal) => {
@@ -166,6 +170,7 @@ export class WorkspaceRemovalService {
             title: plan.title,
             command,
             metadata: workspaceDeletionMetadata(target),
+            ...(managementContext === undefined ? {} : { managementContext }),
           });
         } catch (error) {
           throw new WorkspaceRemovalError(
@@ -319,8 +324,8 @@ async function runBoundedRemoval<T>(
   }
 }
 
-function removalFlightKey(projectId: string, workspaceId: string): string {
-  return JSON.stringify([projectId, workspaceId]);
+function removalFlightKey(project: Project, workspaceId: string, managementContext: ManagementEmbedContext | undefined): string {
+  return JSON.stringify([eventScopeFromManagementContext(managementContext), project.id, resolve(project.path), workspaceId]);
 }
 
 function requireAbsolutePath(value: string, label: string): string {

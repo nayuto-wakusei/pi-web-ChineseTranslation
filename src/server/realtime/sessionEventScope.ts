@@ -1,4 +1,4 @@
-import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { decodeManagementContext, type ManagementEmbedContext } from "../managementEmbed.js";
 
 export type SessionEventScope = string;
 
@@ -14,7 +14,7 @@ export function managementContextKey(context: ManagementEmbedContext | undefined
       permissions: sortedStrings(context.user.permissions),
     },
     projects: context.projects
-      .map((project) => ({ id: project.id, role: project.role, root: project.root }))
+      .map((project) => ({ id: project.id, name: project.name, role: project.role, root: project.root }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     tools: context.tools === undefined ? undefined : {
       allow: sortedStrings(context.tools.allow),
@@ -31,6 +31,12 @@ export function managementContextKey(context: ManagementEmbedContext | undefined
 export function eventScopeFromManagementContext(context: ManagementEmbedContext | undefined): SessionEventScope {
   const key = managementContextKey(context);
   return key === undefined ? NORMAL_SESSION_EVENT_SCOPE : `management:${key}`;
+}
+
+export function managementContextFromEventScope(scope: SessionEventScope): ManagementEmbedContext | undefined {
+  if (!scope.startsWith("management:")) return undefined;
+  const serialized = scope.slice("management:".length);
+  return decodeManagementContext(Buffer.from(serialized, "utf8").toString("base64url"));
 }
 
 function sortedStrings(values: readonly string[] | undefined): string[] | undefined {

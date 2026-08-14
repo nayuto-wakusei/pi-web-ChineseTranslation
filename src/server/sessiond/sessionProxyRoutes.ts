@@ -4,7 +4,7 @@ import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
 import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 export interface SessionProxyDaemon {
-  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
   connectWebSocket(path: string, headers?: Record<string, string>): WebSocket;
 }
 

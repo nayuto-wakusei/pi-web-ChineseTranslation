@@ -70,7 +70,7 @@ export class MachineStatusService {
 
   private async computeTree(scope: SessionEventScope): Promise<MachineStatusTree> {
     const flagsByCwd = await this.flagsByCwd(scope);
-    const attributions = await this.dependencies.attribution.attribute(flagsByCwd.keys());
+    const attributions = await this.dependencies.attribution.attribute(flagsByCwd.keys(), scope);
     const projects = new FlagAccumulator();
     const workspaces = new FlagAccumulator();
     const unattributed: StatusFlags[] = [];

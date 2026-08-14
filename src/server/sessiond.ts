@@ -39,7 +39,8 @@ import { WorkbenchMcpClient } from "./workbench/mcpClient.js";
 import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
 import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
-import { managementProjectIdForCwd } from "./managementEmbed.js";
+import { managementProjectIdForCwd, projectsFromManagedEmbedContext } from "./managementEmbed.js";
+import { managementContextFromEventScope } from "./realtime/sessionEventScope.js";
 import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
@@ -206,7 +207,17 @@ await runSessionDaemonStartup({
       }),
     });
     const statusAttribution = new CachedWorkspaceAttribution({
-      projects,
+      projects: {
+        list: (scope) => {
+          const managementContext = managementContextFromEventScope(scope ?? "normal");
+          if (managementContext === undefined) return projects.list();
+          if (config.managementEmbed?.enabled !== true) throw new Error("Management embed mode is not configured");
+          return projectsFromManagedEmbedContext(
+            config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb"),
+            managementContext,
+          );
+        },
+      },
       workspaces: { list: (project) => workspaceProviders.list(project) },
       logger: app.log,
     });
@@ -240,8 +251,8 @@ await runSessionDaemonStartup({
       ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
       : undefined;
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot });
-    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
-    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
+    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: (scope) => { statusAttribution.invalidate(); machineStatus.notifyChanged(scope); } });
+    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: (scope) => { statusAttribution.invalidate(); machineStatus.notifyChanged(scope); } });
 
     app.get("/health", () => ({
       ok: true,

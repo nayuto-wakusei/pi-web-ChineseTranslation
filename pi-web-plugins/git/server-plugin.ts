@@ -54,22 +54,22 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
     async list(project: ProjectInput, signal: AbortSignal): Promise<ProviderWorkspace[]> {
       const rootResult = await requireGit(
         runGit(context, project.path, ["rev-parse", "--show-toplevel"], signal),
-        "resolve the Git worktree root",
+        "解析 Git 工作树根目录",
       );
       const mainRootOutput = rootResult.stdout.trim();
-      if (mainRootOutput === "") throw new Error("Git returned an empty worktree root");
+      if (mainRootOutput === "") throw new Error("Git 返回了空的工作树根目录");
       const mainRoot = resolve(mainRootOutput);
       const commonDirectoryResult = await requireGit(
         runGit(context, project.path, ["rev-parse", "--git-common-dir"], signal),
         "resolve the Git common directory",
       );
       const commonDirectoryOutput = commonDirectoryResult.stdout.trim();
-      if (commonDirectoryOutput === "") throw new Error("Git returned an empty common directory");
+      if (commonDirectoryOutput === "") throw new Error("Git 返回了空的公共目录");
       const commonDirectory = resolve(project.path, commonDirectoryOutput);
 
       const listResult = await requireGit(
         runGit(context, project.path, ["worktree", "list", "--porcelain", "-z"], signal),
-        "list Git worktrees",
+        "列出 Git 工作树",
       );
       const worktrees = parseGitWorktreeList(listResult.stdout)
         .filter((worktree) => worktree.bare !== true)
@@ -89,7 +89,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
       if (selectable.length === 0) return [singleGitWorkspace(project)];
 
       return selectable.map(({ worktree, path, isMain }) => {
-        const label = worktree.branch ?? (worktree.detached === true ? "detached" : basename(worktree.path) || worktree.path);
+        const label = worktree.branch ?? (worktree.detached === true ? "游离 HEAD" : basename(worktree.path) || worktree.path);
         return {
           key: path,
           path,
@@ -113,20 +113,20 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {
       const privatePath = gitPrivateWorktreePath(workspace);
       if (resolve(privatePath) !== workspace.path) {
-        throw new Error("Git workspace removal data no longer matches the current workspace path");
+        throw new Error("Git 工作区删除数据与当前工作区路径不再匹配");
       }
       const listResult = await requireGit(
         runGit(context, project.path, ["worktree", "list", "--porcelain", "-z"], signal),
-        "validate the Git worktree before removal",
+        "删除前验证 Git 工作树",
       );
       const current = parseGitWorktreeList(listResult.stdout)
         .find((worktree) => resolve(worktree.path) === workspace.path);
       if (current === undefined || current.prunable === true) {
-        throw new Error("Git worktree is no longer available for removal");
+        throw new Error("Git 工作树已不可用于删除");
       }
-      if (current.bare === true) throw new Error("A bare Git workspace cannot be removed as a linked worktree");
+      if (current.bare === true) throw new Error("裸 Git 仓库不能作为链接工作树删除");
       return {
-        title: `Delete workspace: ${workspace.label}`,
+        title: `删除工作区：${workspace.label}`,
         command: `git worktree remove ${shellQuote(workspace.path)}`,
       };
     },
@@ -165,18 +165,18 @@ function singleGitWorkspace(project: ProjectInput): ProviderWorkspace {
 
 function gitRemovalPresentation(label: string, path: string): NonNullable<ProviderWorkspace["removal"]> {
   return {
-    actionLabel: "Delete workspace",
-    confirmation: `Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${path}\n\nThe Git branch will not be deleted.`,
+    actionLabel: "删除工作区",
+    confirmation: `删除工作区 ${label}？\n\n此操作将运行 git worktree remove 并删除：\n${path}\n\n不会删除对应的 Git 分支。`,
   };
 }
 
 function gitPrivateWorktreePath(workspace: ProviderWorkspace): string {
   const data = workspace.data;
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new Error("Git workspace removal data is unavailable");
+    throw new Error("Git 工作区删除数据不可用");
   }
   const path: unknown = Reflect.get(data, "worktreePath");
-  if (typeof path !== "string" || path === "") throw new Error("Git worktree path is unavailable for removal");
+  if (typeof path !== "string" || path === "") throw new Error("用于删除的 Git 工作树路径不可用");
   return path;
 }
 

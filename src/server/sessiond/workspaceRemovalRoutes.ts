@@ -5,9 +5,11 @@ import {
   WORKSPACE_REMOVAL_REQUEST_BODY_MAX_BYTES,
 } from "../../shared/workspaceRemovalProtocol.js";
 import { requestCancellation } from "../requestCancellation.js";
+import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
+import { eventScopeFromManagementContext, type SessionEventScope } from "../realtime/sessionEventScope.js";
 import type { Project } from "../types.js";
 import { workspaceRemovalHttpStatus } from "../workspaces/workspaceRemovalService.js";
-import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
+import { managementContextFromSessiondHeaders, resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 
 export interface WorkspaceRemover {
   remove(
@@ -15,6 +17,7 @@ export interface WorkspaceRemover {
     workspaceId: string,
     precondition: string,
     signal: AbortSignal,
+    managementContext?: ManagementEmbedContext,
   ): Promise<TerminalCommandRun>;
 }
 
@@ -22,7 +25,7 @@ export interface WorkspaceRemovalRouteDependencies {
   projects: SessiondProjectReader;
   removals: WorkspaceRemover;
   managementProjectRoot?: string | undefined;
-  onWorkspacesMutated?: () => void;
+  onWorkspacesMutated?: (scope: SessionEventScope) => void;
 }
 
 /** Internal sessiond endpoint for host-orchestrated provider workspace removal. */
@@ -42,6 +45,11 @@ export function registerWorkspaceRemovalRoutes(
         return reply.code(400).send({ error: errorMessage(error) });
       }
 
+      const managementContext = managementContextFromSessiondHeaders(request.headers);
+      if (managementContext !== undefined && !managementToolAllowed(managementContext, "terminal-command-runs")) {
+        return reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
+      }
+
       let project: Project;
       try {
         project = await resolveSessiondProject(request.headers, request.params.projectId, dependencies);
@@ -57,8 +65,9 @@ export function registerWorkspaceRemovalRoutes(
           request.params.workspaceId,
           precondition,
           cancellation.signal,
+          managementContext,
         );
-        dependencies.onWorkspacesMutated?.();
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
         return result;
       } catch (error) {
         return await removalRequestFailed(reply, error);

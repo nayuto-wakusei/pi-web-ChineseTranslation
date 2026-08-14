@@ -11,17 +11,17 @@ export type SessionDaemonAgentProfileResult =
   | { status: "invalid"; error: string };
 
 export interface SessionDaemonRequestClient {
-  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
 }
 
 export class SessionDaemonClient {
   private readonly baseUrl = sessiondHttpUrl();
   private readonly socketPath = sessiondSocketPath();
 
-  async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+  async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload, headers);
-    return this.requestSocket(method, path, payload, headers);
+    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload, headers, signal);
+    return this.requestSocket(method, path, payload, headers, signal);
   }
 
   getActiveAgentProfile(): Promise<SessionDaemonAgentProfileResult> {
@@ -37,8 +37,8 @@ export class SessionDaemonClient {
     return new WebSocket(`ws+unix:${this.socketPath}:${path}`, { headers });
   }
 
-  private async requestUrl(method: string, path: string, payload?: string, headers: Record<string, string> = {}) {
-    const init: RequestInit = { method, headers };
+  private async requestUrl(method: string, path: string, payload?: string, headers: Record<string, string> = {}, signal?: AbortSignal) {
+    const init: RequestInit = { method, headers, ...(signal === undefined ? {} : { signal }) };
     if (payload !== undefined && payload !== "") {
       init.headers = { ...headers, "content-type": "application/json" };
       init.body = payload;
@@ -51,13 +51,14 @@ export class SessionDaemonClient {
     };
   }
 
-  private requestSocket(method: string, path: string, payload?: string, headers: Record<string, string> = {}): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+  private requestSocket(method: string, path: string, payload?: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     return new Promise((resolve, reject) => {
       const request = http.request(
         {
           socketPath: this.socketPath,
           path,
           method,
+          signal,
           headers: payload !== undefined && payload !== ""
             ? { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
             : headers,

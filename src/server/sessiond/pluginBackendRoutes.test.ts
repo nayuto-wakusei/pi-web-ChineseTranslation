@@ -6,16 +6,19 @@ import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER } from "../man
 import type { Project } from "../types.js";
 import type { WorkspaceProviderRequest } from "../workspaces/workspaceProviderRegistry.js";
 import { registerPluginBackendRoutes } from "./pluginBackendRoutes.js";
+import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 
 let app: FastifyInstance;
 let projectRoot: string;
 let requestProject: Project | undefined;
+let mutatedScope: string | undefined;
 const normalProject: Project = { id: "normal", name: "Normal", path: "/normal", createdAt: new Date(0).toISOString() };
 
 beforeEach(async () => {
   app = Fastify({ logger: false });
   projectRoot = await mkdtemp(join(process.env["TEMP"] ?? process.env["TMP"] ?? ".", "pi-web-managed-plugin-"));
   requestProject = undefined;
+  mutatedScope = undefined;
   registerPluginBackendRoutes(app, {
     projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },
     managementProjectRoot: projectRoot,
@@ -25,6 +28,7 @@ beforeEach(async () => {
         return Promise.resolve({ ok: true });
       },
     },
+    onWorkspacesMutated: (scope) => { mutatedScope = scope; },
   });
 });
 
@@ -59,6 +63,7 @@ describe("sessiond plugin backend project resolution", () => {
 
     expect(response.statusCode).toBe(200);
     expect(requestProject).toMatchObject({ id: "managed", name: "Managed", path: projectRoot });
+    expect(mutatedScope).toBe(eventScopeFromManagementContext(context));
   });
 
   it("rejects an unauthorized management project instead of falling back to ProjectStore", async () => {

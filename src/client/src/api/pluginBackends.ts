@@ -10,7 +10,7 @@ import {
   requirePluginBackendRevision,
   utf8ByteLength,
 } from "../../../shared/pluginBackendProtocol";
-import { resolveAppUrl, type AppUrlContext } from "../appUrl";
+import { scopedApiUrl } from "./http";
 
 export interface PluginBackendRequestTarget {
   pluginId: string;
@@ -35,15 +35,6 @@ export function pluginBackendRequestPath(
   return `${prefix}/plugin-backends/${encodeURIComponent(target.pluginId)}/projects/${encodeURIComponent(target.projectId)}/workspaces/${encodeURIComponent(target.workspaceId)}/${encodeURIComponent(validatedOperation)}`;
 }
 
-export function pluginBackendRequestUrl(
-  target: Pick<PluginBackendRequestTarget, "pluginId" | "machineId" | "projectId" | "workspaceId">,
-  operation: string,
-  context?: AppUrlContext,
-): string {
-  const path = pluginBackendRequestPath(target, operation);
-  return context === undefined ? resolveAppUrl(path) : resolveAppUrl(path, context);
-}
-
 export async function requestPluginBackend(
   target: PluginBackendRequestTarget,
   operation: string,
@@ -58,7 +49,7 @@ export async function requestPluginBackend(
 
   let response: Response;
   try {
-    response = await fetch(pluginBackendRequestUrl(target, operation), {
+    response = await fetch(scopedApiUrl(pluginBackendRequestPath(target, operation)), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,

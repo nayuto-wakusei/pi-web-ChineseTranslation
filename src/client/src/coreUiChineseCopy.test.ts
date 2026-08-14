@@ -126,6 +126,15 @@ const copyCases: readonly CopyCase[] = [
     forbidden: ["title: \"Info\"", "<strong>Info</strong>", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
   },
   {
+    name: "localizes the bundled Git plugin surfaces",
+    paths: [
+      "../../../pi-web-plugins/git/browser/git-panel.ts",
+      "../../../pi-web-plugins/git/server-plugin.ts",
+    ],
+    expected: ["转到 Git", "刷新 Git", "全部折叠", "全部展开", "正在加载状态…", "没有更改。", "删除工作区", "不会删除对应的 Git 分支。"],
+    forbidden: ["Go to Git", "Refresh Git", ">Refresh<", "Collapse all", "Expand all", "Loading status…", "No changes.", "Delete workspace"],
+  },
+  {
     name: "localizes questions, session-tree navigation, chat queues, and notifications",
     paths: ["components/AskUserCard.ts", "components/SessionTreeNavigator.ts", "components/ChatView.ts", "controllers/sessionController.ts", "sessionNotifications.ts", "sessionTreeModel.ts"],
     expected: ["发送回答", "自定义回答", "浏览会话树", "生成摘要并导航", "case \"bash\": return \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],

@@ -32,7 +32,7 @@ export interface GitDiffResponse {
 }
 
 export function parseGitStatusResponse(value: unknown): GitStatusResponse {
-  const record = requireRecord(value, "Git status response");
+  const record = requireRecord(value, "Git 状态响应");
   const branch = optionalString(record, "branch");
   const upstream = optionalString(record, "upstream");
   const ahead = optionalNumber(record, "ahead");
@@ -50,7 +50,7 @@ export function parseGitStatusResponse(value: unknown): GitStatusResponse {
 }
 
 export function parseGitDiffResponse(value: unknown): GitDiffResponse {
-  const record = requireRecord(value, "Git diff response");
+  const record = requireRecord(value, "Git 差异响应");
   const path = optionalString(record, "path");
   return {
     ...(path === undefined ? {} : { path }),
@@ -62,7 +62,7 @@ export function parseGitDiffResponse(value: unknown): GitDiffResponse {
 }
 
 function parseGitStatusFile(value: unknown): GitStatusFile {
-  const record = requireRecord(value, "Git status file");
+  const record = requireRecord(value, "Git 状态文件");
   const oldPath = optionalString(record, "oldPath");
   const submoduleFromCommit = optionalString(record, "submoduleFromCommit");
   const submoduleToCommit = optionalString(record, "submoduleToCommit");
@@ -89,49 +89,49 @@ function parseGitFileState(value: unknown): GitFileState {
     case "conflicted":
       return value;
     default:
-      throw new Error("Invalid Git file state");
+      throw new Error("无效的 Git 文件状态");
   }
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${label} must be an object`);
+  if (!isRecord(value)) throw new Error(`${label}必须是对象`);
   return value;
 }
 
 function requireArray(record: Record<string, unknown>, key: string): unknown[] {
   const value = record[key];
-  if (!Array.isArray(value)) throw new Error(`Expected array field: ${key}`);
+  if (!Array.isArray(value)) throw new Error(`字段必须是数组：${key}`);
   return value;
 }
 
 function requireString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
-  if (typeof value !== "string") throw new Error(`Expected string field: ${key}`);
+  if (typeof value !== "string") throw new Error(`字段必须是字符串：${key}`);
   return value;
 }
 
 function requireBoolean(record: Record<string, unknown>, key: string): boolean {
   const value = record[key];
-  if (typeof value !== "boolean") throw new Error(`Expected boolean field: ${key}`);
+  if (typeof value !== "boolean") throw new Error(`字段必须是布尔值：${key}`);
   return value;
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`Expected string field: ${key}`);
+  if (typeof value !== "string") throw new Error(`字段必须是字符串：${key}`);
   return value;
 }
 
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`Expected number field: ${key}`);
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`字段必须是有限数字：${key}`);
   return value;
 }
 
 function requireStringArray(value: unknown, key: string): string[] {
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`Expected string array field: ${key}`);
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`字段必须是字符串数组：${key}`);
   return value;
 }
 

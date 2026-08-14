@@ -9,7 +9,7 @@ import { requestCancellation } from "../requestCancellation.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ProjectService } from "../projects/projectService.js";
 import type { WorkspaceService } from "./workspaceService.js";
-import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { encodeManagementContext, managementContextForRequest, managementToolAllowed, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 /** Browser-facing adapter; sessiond owns all workspace removal decisions and effects. */
 export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
@@ -38,6 +38,9 @@ export function registerWorkspaceDeletionRoutes(
     { bodyLimit: WORKSPACE_REMOVAL_REQUEST_BODY_MAX_BYTES },
     async (request, reply) => {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
+      if (managementContext !== undefined && !managementToolAllowed(managementContext, "terminal-command-runs")) {
+        return reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
+      }
       let body: ReturnType<typeof parseWorkspaceRemovalRequest>;
       try {
         body = parseWorkspaceRemovalRequest(request.body);
@@ -52,6 +55,7 @@ export function registerWorkspaceDeletionRoutes(
           `/workspace-removals/projects/${encodeURIComponent(request.params.projectId)}/workspaces/${encodeURIComponent(request.params.workspaceId)}`,
           body,
           managementHeaders(managementContext, managementEmbed),
+          cancellation.signal,
         );
         return await proxyJsonResponse(reply, upstream);
       } catch (error) {
@@ -119,6 +123,9 @@ function registerLegacyWorkspaceDeletionRoutes(
   app.delete<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId`, async (request, reply) => {
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
+      if (context !== undefined && !managementToolAllowed(context, "terminal-command-runs")) {
+        return await reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
+      }
       const project = context === undefined ? await projects.requireProject(request.params.projectId) : await projects.requireProject(request.params.projectId);
       const listed = await workspaces.list(project);
       const target = listed.find((workspace) => workspace.id === request.params.workspaceId);

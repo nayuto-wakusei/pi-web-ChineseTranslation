@@ -133,7 +133,7 @@ Module shape excerpt:
 
 ```js
 export default {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "Info Plugin",
   activate: ({ html, svg }) => ({
     contributions: {
@@ -409,14 +409,15 @@ The entry module must default-export a plugin object:
 
 ```ts
 interface PiWebPlugin {
-  apiVersion: 1;
+  apiVersion: 2;
   name: string;
   activate: (context: PluginActivationContext) => PluginActivationResult;
 }
 
 interface PluginActivationContext {
-  apiVersion: 1;
+  apiVersion: 2;
   pluginId: string;
+  runtimePluginId?: string;
   html: typeof import("lit").html;
   svg: typeof import("lit").svg;
 }
@@ -430,7 +431,7 @@ Example:
 
 ```js
 export default {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "My Plugin",
   activate: ({ pluginId, html }) => ({
     contributions: {
@@ -443,6 +444,8 @@ export default {
 ```
 
 `activate()` is called once when the UI loads the plugin. Keep it cheap: define contributions there, but move expensive or async work into actions, custom elements, or explicit user interactions.
+
+Browser API v2 is a deliberate compatibility break. PI WEB rejects browser API v1 modules instead of silently adapting them. Migrate by setting `apiVersion: 2`, using `pluginId` for the stable package/provider identity, and using `runtimePluginId` when a host-qualified contribution id is required. The former `@chainingintention/pi-web-cn/plugin-api/unstable` path is no longer exported; rely on the documented stable helpers instead.
 
 The plugin id comes from `package.json`, not from the JavaScript module. Contribution ids are local to the plugin and PI WEB qualifies them internally as:
 
@@ -535,7 +538,7 @@ Notes:
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.
-- Only fields documented here and declared in `plugin-api.d.ts` are stable public plugin API. Unstable runtime fields are intentionally omitted from these types; if a plugin author chooses to depend on them, they must explicitly import unstable types from `@chainingintention/pi-web-cn/plugin-api/unstable` and type-assert the context in their own code.
+- Only fields documented here and declared in `plugin-api.d.ts` are stable public browser plugin API. Runtime-only fields and private HTTP routes are not compatibility surfaces.
 
 ### Prompt editor API
 
@@ -760,7 +763,7 @@ if (!customElements.get("my-workspace-badge")) {
 }
 
 export default {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "My Plugin",
   activate: ({ html }) => ({
     contributions: {
@@ -995,18 +998,7 @@ Review command strings carefully. They are trusted shell commands executed in th
 
 PI WEB's `/api/...` HTTP and WebSocket routes and runtime-only fields are private implementation details. They exist because plugins are trusted browser code, and because some capabilities may be evaluated there before they are designed as stable helpers.
 
-If a plugin author deliberately chooses to depend on an unstable runtime field while a public helper is still being designed, make that decision explicit in code with a type-only unstable import and a local type assertion:
-
-```ts
-import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
-import type { UnstableWorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api/unstable";
-
-function unstableContext(context: WorkspacePanelContext) {
-  return context as WorkspacePanelContext & UnstableWorkspacePanelContext;
-}
-```
-
-Unstable APIs are not covered by the v1 compatibility promise. Prefer documented helpers whenever they exist.
+The stable browser API is the documented helper surface and the type-only `@chainingintention/pi-web-cn/plugin-api` export. The stable server API is the separate type-only `@chainingintention/pi-web-cn/server-plugin-api` export. The former browser `plugin-api/unstable` entry is not part of API v2 and is no longer exported. Code that deliberately depends on another private runtime surface must keep that dependency local and expect to revisit it after PI WEB upgrades.
 
 ## Async data and caching
 
@@ -1024,7 +1016,7 @@ If you are an AI agent building or editing a PI WEB plugin, follow this checklis
 
 1. Create or update a plugin folder with `package.json` and a JavaScript module such as `pi-web-plugin.js`.
 2. Use the single supported package metadata shape: `piWeb.plugins` array with `{ id, module, machineSpecific? }` entries.
-3. Default-export `{ apiVersion: 1, name, activate }` from the module.
+3. Default-export `{ apiVersion: 2, name, activate }` from a browser module. Server modules use server-plugin API v1.
 4. Return `{ contributions: { actions, workspacePanels, workspaceLabels } }` from `activate()`.
 5. Use ids matching `^[a-z][a-z0-9.-]*$`.
 6. Use the activation context's `html` function for Lit templates.
@@ -1034,7 +1026,7 @@ If you are an AI agent building or editing a PI WEB plugin, follow this checklis
 10. Add workspace labels for compact inline metadata.
 11. Return arrays from workspace label `items()`; return an empty array to render nothing.
 12. Use documented context helpers first: `files`, `terminal`, `host.requestRender`, `workspace`, `machine`, `state.selectedWorkspace`, `state.selectedSession`, `state.piWebStatus`, and `prompt`.
-13. Do not fetch PI WEB `/api/...` endpoints directly unless you intentionally accept private API churn; prefer documented helpers. If an unstable runtime field is intentionally required, import the type from `@chainingintention/pi-web-cn/plugin-api/unstable` and type-assert locally.
+13. Do not fetch PI WEB `/api/...` endpoints directly unless you intentionally accept private API churn; prefer documented helpers such as the paired workspace `backend` bridge.
 14. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
 15. After local edits, tell the user to hard reload the browser and check the console for plugin errors.
 
@@ -1056,7 +1048,7 @@ Common issues:
 
 - invalid plugin id or contribution id;
 - missing default export;
-- missing `apiVersion: 1`, `name`, or `activate` function;
+- missing browser `apiVersion: 2`, `name`, or `activate` function;
 - missing `package.json` or incorrect `piWeb.plugins` metadata;
 - legacy shortcuts such as `piWeb.plugin`, string plugin entries, or no-`package.json` fallback;
 - duplicate plugin ids; later duplicates are skipped rather than renamed;

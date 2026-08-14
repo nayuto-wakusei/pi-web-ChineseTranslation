@@ -14,14 +14,20 @@ export interface SessiondProjectResolverDependencies {
   managementProjectRoot?: string | undefined;
 }
 
+export function managementContextFromSessiondHeaders(
+  headers: Record<string, string | string[] | undefined>,
+) {
+  const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
+  return decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+}
+
 /** Resolve the project at the daemon boundary without allowing managed ids into ProjectStore. */
 export async function resolveSessiondProject(
   headers: Record<string, string | string[] | undefined>,
   projectId: string,
   dependencies: SessiondProjectResolverDependencies,
 ): Promise<Project> {
-  const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
-  const context = decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+  const context = managementContextFromSessiondHeaders(headers);
   if (context === undefined) return dependencies.projects.requireProject(projectId);
   const projectRoot = dependencies.managementProjectRoot;
   if (projectRoot === undefined || projectRoot === "") throw new Error("Management embed mode is not configured");

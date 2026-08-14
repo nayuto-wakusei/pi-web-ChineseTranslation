@@ -196,10 +196,10 @@ async function gitDiffWithRunner(runGit: RunGit, cwd: string, options: { path?: 
   if (path !== undefined) args.push("--", path);
 
   const result = await runGit(cwd, args);
-  if (result.code !== 0) throw new Error(result.stderr.trim() || "git diff failed");
+  if (result.code !== 0) throw new Error(result.stderr.trim() || "git diff 执行失败");
   if (!staged && path !== undefined && result.stdout === "" && await isUntracked(runGit, cwd, path)) {
     const untracked = await runGit(cwd, ["diff", "--no-ext-diff", "--color=never", "--no-index", "/dev/null", "--", path]);
-    if (untracked.code !== 0 && untracked.code !== 1) throw new Error(untracked.stderr.trim() || "git diff failed");
+    if (untracked.code !== 0 && untracked.code !== 1) throw new Error(untracked.stderr.trim() || "git diff 执行失败");
     return { path, staged, hash: hash(untracked.stdout), diff: untracked.stdout, truncated: untracked.truncated };
   }
   return { ...(path === undefined ? {} : { path }), staged, hash: hash(result.stdout), diff: result.stdout, truncated: result.truncated };
@@ -220,10 +220,10 @@ async function submoduleDiff(runGit: RunGit, owner: ValidatedSubmodule, path: st
   args.push("--", rel);
 
   const result = await runGit(subCwd, args);
-  if (result.code !== 0) throw new Error(result.stderr.trim() || "git diff failed");
+  if (result.code !== 0) throw new Error(result.stderr.trim() || "git diff 执行失败");
   if (!staged && result.stdout === "" && await isUntracked(runGit, subCwd, rel)) {
     const untracked = await runGit(subCwd, ["diff", "--no-ext-diff", "--color=never", "--no-index", "/dev/null", "--", rel]);
-    if (untracked.code !== 0 && untracked.code !== 1) throw new Error(untracked.stderr.trim() || "git diff failed");
+    if (untracked.code !== 0 && untracked.code !== 1) throw new Error(untracked.stderr.trim() || "git diff 执行失败");
     return { path, staged, hash: hash(untracked.stdout), diff: untracked.stdout, truncated: untracked.truncated };
   }
   return { path, staged, hash: hash(result.stdout), diff: result.stdout, truncated: result.truncated };
@@ -463,17 +463,17 @@ function commandResult(result: ServerPluginExecFileResult, args: readonly string
 }
 
 function requireStatusInput(input: JsonValue): void {
-  if (input !== null) throw new Error("Git status input must be null");
+  if (input !== null) throw new Error("Git 状态输入必须为 null");
 }
 
 function parseDiffInput(input: JsonValue): { path?: string; staged?: boolean } {
-  if (!isRecord(input)) throw new Error("Git diff input must be an object");
+  if (!isRecord(input)) throw new Error("Git 差异输入必须是对象");
   const unsupported = Object.keys(input).find((key) => key !== "path" && key !== "staged");
-  if (unsupported !== undefined) throw new Error(`Git diff input contains an unsupported field: ${unsupported}`);
+  if (unsupported !== undefined) throw new Error(`Git 差异输入包含不支持的字段：${unsupported}`);
   const path = input["path"];
   const staged = input["staged"];
-  if (path !== undefined && typeof path !== "string") throw new Error("Git diff input path must be a string");
-  if (staged !== undefined && typeof staged !== "boolean") throw new Error("Git diff input staged must be a boolean");
+  if (path !== undefined && typeof path !== "string") throw new Error("Git 差异输入的 path 必须是字符串");
+  if (staged !== undefined && typeof staged !== "boolean") throw new Error("Git 差异输入的 staged 必须是布尔值");
   return {
     ...(path === undefined ? {} : { path }),
     ...(staged === undefined ? {} : { staged }),

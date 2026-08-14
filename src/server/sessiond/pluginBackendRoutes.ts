@@ -9,11 +9,12 @@ import {
   type PluginBackendRequestEnvelope,
 } from "../../shared/pluginBackendProtocol.js";
 import type { Project } from "../types.js";
+import { eventScopeFromManagementContext, type SessionEventScope } from "../realtime/sessionEventScope.js";
 import {
   WorkspaceProviderRequestError,
   type WorkspaceProviderRequest,
 } from "../workspaces/workspaceProviderRegistry.js";
-import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
+import { managementContextFromSessiondHeaders, resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 
 interface PluginBackendRouteParams {
   pluginId: string;
@@ -30,7 +31,7 @@ export interface PluginBackendRouteDependencies {
   projects: SessiondProjectReader;
   backends: PluginBackendDispatcher;
   managementProjectRoot?: string | undefined;
-  onWorkspacesMutated?: () => void;
+  onWorkspacesMutated?: (scope: SessionEventScope) => void;
 }
 
 /** JSON-only sessiond boundary for the active owner of one current workspace. */
@@ -85,7 +86,7 @@ export function registerPluginBackendRoutes(
           `Server plugin ${pluginId} operation ${operation} result`,
           PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
         );
-        dependencies.onWorkspacesMutated?.();
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContextFromSessiondHeaders(request.headers)));
         return await reply.type("application/json; charset=utf-8").send(serialized);
       } catch (error) {
         return pluginBackendRequestFailed(reply, error, pluginId, operation);
