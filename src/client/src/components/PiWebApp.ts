@@ -1596,7 +1596,7 @@ export class PiWebApp extends LitElement {
         .sessionsCollapsed=${this.navigationSections.isCollapsed("sessions")}
         .workspaceLabelItems=${(workspace: Workspace) => this.workspaceLabelItems(workspace)}
         .refreshControl=${this.appShell.shouldShowAppRefreshInHeader() ? this.renderAppRefresh() : undefined}
-        .onShowActions=${() => { this.setState({ actionPaletteOpen: true }); }}
+        .onShowActions=${this.apiScope === "management" ? undefined : () => { this.setState({ actionPaletteOpen: true }); }}
         .onToggleProjects=${() => { this.navigationSections.toggle("projects"); }}
         .onToggleWorkspaces=${() => { this.navigationSections.toggle("workspaces"); }}
         .onToggleSessions=${() => { this.navigationSections.toggle("sessions"); }}
@@ -2476,7 +2476,7 @@ export class PiWebApp extends LitElement {
         .session=${this.state.selectedSession}
         .refreshControl=${this.appShell.shouldShowAppRefreshInContextBar() ? this.renderAppRefresh() : undefined}
         .onOpenSection=${(section: NavigationSection) => { this.openNavigationSection(section); }}
-        .onShowActions=${() => { this.setState({ actionPaletteOpen: true }); }}
+        .onShowActions=${this.apiScope === "management" ? undefined : () => { this.setState({ actionPaletteOpen: true }); }}
       ></app-context-bar>
     `;
   }

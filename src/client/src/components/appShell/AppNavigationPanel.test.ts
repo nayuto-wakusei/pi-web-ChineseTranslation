@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine, Project, Workspace } from "../../api";
 import type { UnreadPresence } from "../../unreadPresence";
 import { MachineList } from "../MachineList";
@@ -39,7 +39,20 @@ describe("brand visibility", () => {
     document.body.append(panel);
     await panel.updateComplete;
 
-    expect(panel.shadowRoot?.querySelector("header strong")).toBeNull();
+    expect(panel.shadowRoot?.querySelector("header")).toBeNull();
+  });
+
+  it("shows the actions button only when its action is available", async () => {
+    const onShowActions = vi.fn();
+    const panel = new AppNavigationPanel();
+    panel.onShowActions = onShowActions;
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    const button = panel.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="显示操作"]');
+    expect(button).not.toBeNull();
+    button?.click();
+    expect(onShowActions).toHaveBeenCalledOnce();
   });
 });
 

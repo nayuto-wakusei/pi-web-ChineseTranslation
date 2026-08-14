@@ -106,10 +106,13 @@ export class AppNavigationPanel extends LitElement {
   }
 
   override render() {
+    const showMachines = shouldShowMachinesSection(this.machines);
+    const showHeaderActions = this.refreshControl !== undefined || this.onShowActions !== undefined;
+    const showHeader = this.showBrand || showMachines || showHeaderActions;
     return html`
-      <header>
+      ${showHeader ? html`<header>
         ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
-        ${shouldShowMachinesSection(this.machines) ? html`
+        ${showMachines ? html`
           <machine-switcher
             .machines=${this.machines}
             .selected=${this.selectedMachine}
@@ -123,12 +126,14 @@ export class AppNavigationPanel extends LitElement {
             .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
           ></machine-switcher>
         ` : null}
-        <div class="header-actions">
+        ${showHeaderActions ? html`<div class="header-actions">
           ${this.refreshControl}
-          <button title="显示操作" aria-label="显示操作" @click=${() => { this.onShowActions?.(); }}>操作</button>
-        </div>
-      </header>
-      ${this.compact && shouldShowMachinesSection(this.machines) ? html`
+          ${this.onShowActions === undefined ? null : html`
+            <button title="显示操作" aria-label="显示操作" @click=${() => { this.onShowActions?.(); }}>操作</button>
+          `}
+        </div>` : null}
+      </header>` : null}
+      ${this.compact && showMachines ? html`
         <machine-list
           .machines=${this.machines}
           .selected=${this.selectedMachine}
