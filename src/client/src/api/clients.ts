@@ -58,6 +58,7 @@ import {
   parseWriteWorkspaceFileResponse,
   parseWorkspace,
   parseWorkspaceActivityResponse,
+  requireMachineStatusSnapshot,
   parseWorkspaceDeleteResponse,
   parseWorkspacePathOperationResponse,
 } from "./parsers";
@@ -178,6 +179,10 @@ export const piPackagesApi = {
 
 export const activityApi = {
   workspaceActivity: (machineId = "local") => request(`${machinePrefix(machineId)}/activity`, parseWorkspaceActivityResponse),
+};
+
+export const machineStatusApi = {
+  machineStatus: (machineId = "local") => request(`${machinePrefix(machineId)}/status`, requireMachineStatusSnapshot),
 };
 
 export const projectsApi = {
@@ -391,6 +396,7 @@ export const api = {
   ...pluginsApi,
   ...piPackagesApi,
   ...activityApi,
+  ...machineStatusApi,
   ...projectsApi,
   ...workspacesApi,
   ...sessionsApi,

@@ -7,6 +7,9 @@ import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
 import { registerWorkspaceActivityRoutes } from "./activity/workspaceActivityRoutes.js";
+import { MachineStatusService } from "./status/machineStatusService.js";
+import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
+import { CachedWorkspaceAttribution } from "./status/workspaceAttribution.js";
 import { SessionEventHub } from "./realtime/sessionEventHub.js";
 import { AuthService } from "./sessions/authService.js";
 import { ProjectAuthService } from "./sessions/projectAuthService.js";
@@ -67,7 +70,7 @@ await runSessionDaemonStartup({
   logger: app.log,
   async createRuntime() {
     const eventHub = new SessionEventHub();
-    const workspaceActivity = new WorkspaceActivityService(eventHub);
+    const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore());
     const workspaces = new WorkspaceService();
     const serverPlugins = await createServerPluginRuntime({
@@ -169,6 +172,7 @@ await runSessionDaemonStartup({
       dataDir: piWebDataDir(),
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
+      onUnreadChanged: (scope) => { machineStatus.notifyChanged(scope); },
       logger: app.log,
       ...(normalToolAudit === undefined ? {} : { normalToolAudit }),
       ...(managementAudit === undefined ? {} : {
@@ -185,6 +189,20 @@ await runSessionDaemonStartup({
         sessionDirEnvKeys: activeAgentProfile.sessionDirEnvKeys,
       }),
     });
+    const statusAttribution = new CachedWorkspaceAttribution({
+      projects,
+      workspaces: { list: (project) => workspaceProviders.list(project) },
+      logger: app.log,
+    });
+    const machineStatus = new MachineStatusService({
+      activity: workspaceActivity,
+      unread: { catalogSnapshot: (scope) => sessions.unreadCatalogForScope(scope ?? "normal") },
+      attribution: statusAttribution,
+      publisher: { publish: (snapshot, scope) => { eventHub.publishRealtime({ type: "machine.status", status: snapshot }, scope); } },
+      logger: app.log,
+    });
+    eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
+    machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     const terminals = new TerminalService(eventHub, workspaceActivity);
@@ -193,17 +211,18 @@ await runSessionDaemonStartup({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
-    return { eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
+    return { eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
   },
-  registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
+  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
     registerWorkspaceActivityRoutes(app, workspaceActivity);
+    registerMachineStatusRoutes(app, machineStatus);
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerSessionRoutes(app, sessions, eventHub);
     registerTerminalRoutes(app, terminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime });
-    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders });
-    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals });
+    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
+    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
 
     app.get("/health", () => ({
       ok: true,

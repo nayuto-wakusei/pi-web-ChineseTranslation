@@ -1,8 +1,9 @@
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { Machine, MachineHealth, WorkspaceActivity } from "../api";
+import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { machineActivityIndicator } from "../workspaceActivity";
-import { renderActionActivityIndicator } from "./activityBadge";
+import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
@@ -15,6 +16,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) statuses: Record<string, MachineHealth> = {};
   @property({ attribute: false }) activities: Record<string, Record<string, WorkspaceActivity>> = {};
   @property({ attribute: false }) unreadMachineIds: ReadonlySet<string> = new Set();
+  @property({ attribute: false }) statusSnapshots: Record<string, MachineStatusSnapshot> = {};
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (machine: Machine) => void;
@@ -69,8 +71,10 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
 
   private renderActivity(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status;
-    const kind = status === "offline" || status === "error" ? undefined : machineActivityIndicator(this.activities[machine.id]);
-    const unreadLabel = this.unreadMachineIds.has(machine.id) ? "此机器上有未读会话" : undefined;
+    const snapshot = this.statusSnapshots[machine.id];
+    const flags = snapshot?.machine;
+    const kind = status === "offline" || status === "error" ? undefined : (snapshot === undefined ? machineActivityIndicator(this.activities[machine.id]) : statusActivityKind(flags));
+    const unreadLabel = snapshot === undefined ? (this.unreadMachineIds.has(machine.id) ? "此机器上有未读会话" : undefined) : (hasStatusUnread(flags) ? "此机器上有未读会话" : undefined);
     return renderActionActivityIndicator(kind, kind === "terminal" ? "机器终端活动中" : "机器活动中", unreadLabel);
   }
 

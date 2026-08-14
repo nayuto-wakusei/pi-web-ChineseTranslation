@@ -1,8 +1,9 @@
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { Project, Workspace, WorkspaceActivity } from "../api";
+import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { projectActivityIndicator } from "../workspaceActivity";
-import { renderActionActivityIndicator } from "./activityBadge";
+import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
@@ -15,6 +16,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) activities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) workspacesByProjectId: Record<string, Workspace[]> = {};
   @property({ attribute: false }) unreadProjectIds: ReadonlySet<string> = new Set();
+  @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
@@ -91,8 +93,9 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   }
 
   private renderActivity(project: Project) {
-    const kind = projectActivityIndicator(project, this.workspacesByProjectId[project.id] ?? [], this.activities);
-    const unreadLabel = this.unreadProjectIds.has(project.id) ? "此项目中有未读会话" : undefined;
+    const flags = this.statusSnapshot?.projects[project.id];
+    const kind = this.statusSnapshot === undefined ? projectActivityIndicator(project, this.workspacesByProjectId[project.id] ?? [], this.activities) : statusActivityKind(flags);
+    const unreadLabel = this.statusSnapshot === undefined ? (this.unreadProjectIds.has(project.id) ? "此项目中有未读会话" : undefined) : (hasStatusUnread(flags) ? "此项目中有未读会话" : undefined);
     return renderActionActivityIndicator(kind, kind === "terminal" ? "项目终端活动中" : "项目活动中", unreadLabel);
   }
 

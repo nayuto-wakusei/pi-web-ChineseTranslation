@@ -6,6 +6,12 @@ export interface WorkspaceActivityPublisher {
   publishRealtime(event: RealtimeEvent, scope?: SessionEventScope): void;
 }
 
+export interface ActiveWorkspaceActivity {
+  cwd: string;
+  hasSessionActivity: boolean;
+  hasTerminalActivity: boolean;
+}
+
 interface SessionRecord {
   cwd: string;
   status?: SessionStatus;
@@ -20,7 +26,15 @@ export class WorkspaceActivityService {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly terminals = new Map<string, TerminalRecord>();
 
-  constructor(private readonly publisher?: WorkspaceActivityPublisher) {}
+  constructor(
+    private readonly publisher?: WorkspaceActivityPublisher,
+    private readonly onChanged?: (scope: SessionEventScope) => void,
+  ) {}
+
+  /** Activity projection consumed by the daemon-owned machine status tree. */
+  activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[] } {
+    return { workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)) };
+  }
 
   applySessionStatus(cwd: string, status: SessionStatus, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const key = scopedKey(status.sessionId, scope);
@@ -101,6 +115,7 @@ export class WorkspaceActivityService {
 
   private publishCwd(cwd: string | undefined, scope: SessionEventScope): void {
     if (cwd === undefined || cwd === "") return;
+    this.onChanged?.(scope);
     this.publisher?.publishRealtime({ type: "workspace.activity", activity: this.summaryForCwd(cwd, scope) }, scope);
   }
 

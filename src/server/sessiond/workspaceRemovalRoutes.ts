@@ -24,6 +24,7 @@ export interface WorkspaceRemover {
 export interface WorkspaceRemovalRouteDependencies {
   projects: WorkspaceRemovalProjectReader;
   removals: WorkspaceRemover;
+  onWorkspacesMutated?: () => void;
 }
 
 /** Internal sessiond endpoint for host-orchestrated provider workspace removal. */
@@ -53,12 +54,14 @@ export function registerWorkspaceRemovalRoutes(
 
       const cancellation = requestCancellation(request, reply);
       try {
-        return await dependencies.removals.remove(
+        const result = await dependencies.removals.remove(
           project,
           request.params.workspaceId,
           precondition,
           cancellation.signal,
         );
+        dependencies.onWorkspacesMutated?.();
+        return result;
       } catch (error) {
         return await removalRequestFailed(reply, error);
       } finally {

@@ -1113,6 +1113,8 @@ export interface PiSessionServiceDependencies {
   unreadStore?: SessionUnreadStore;
   /** Initial retry delay for durable unread publication failures. */
   unreadPublicationRetryDelayMs?: number;
+  /** Notify the machine status projection when unread state changes. */
+  onUnreadChanged?: (scope: string) => void;
   /**
    * Lets session startup report that provider model lists are refreshing while
    * a session is being constructed. Omit to report the startup phase alone.
@@ -1186,6 +1188,7 @@ export class PiSessionService {
   private readonly dialogWaiters = new ExtensionDialogWaiters();
   private readonly catalogRefreshStatus: CatalogRefreshStatus | undefined;
   private readonly unreadPublicationRetryInitialMs: number;
+  private readonly onUnreadChanged: ((scope: string) => void) | undefined;
   private readonly pendingUnreadMutations: SessionUnreadMutation[] = [];
   private unreadPublication: Promise<void> | undefined;
   private unreadPublicationFailure: unknown;
@@ -1224,6 +1227,7 @@ export class PiSessionService {
     this.now = deps.now ?? (() => new Date());
     this.notificationStore = deps.notificationStore ?? new SessionNotificationStore();
     this.unreadStore = deps.unreadStore ?? new SessionUnreadStore();
+    this.onUnreadChanged = deps.onUnreadChanged;
     this.pendingAskStore = deps.pendingAskStore ?? new PendingAskStore();
     this.pendingExtensionDialogStore = deps.pendingExtensionDialogStore ?? new PendingExtensionDialogStore();
     this.extensionDialogsTimeoutMs = deps.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS;
@@ -3840,6 +3844,16 @@ async unreadCatalog(): Promise<SessionUnreadCatalogSnapshot> {
     return this.unreadStore.durableCatalogSnapshot();
   }
 
+  /** Scope-filtered unread view used only by the daemon-owned status tree. */
+  async unreadCatalogForScope(eventScope: string): Promise<SessionUnreadCatalogSnapshot> {
+    const catalog = await this.unreadCatalog();
+    if (eventScope === NORMAL_SESSION_EVENT_SCOPE) return catalog;
+    const visible = new Set([...this.active.values()]
+      .filter((active) => active.eventScope === eventScope)
+      .map((active) => active.runtime.session.sessionId));
+    return { ...catalog, sessions: catalog.sessions.filter((session) => visible.has(session.sessionId)) };
+  }
+
 async acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest): Promise<SessionUnreadCatalogSnapshot> {
     const result = this.unreadStore.acknowledge(sessionId, {
       ...request,
@@ -4208,6 +4222,15 @@ private observeUnreadActivityState(session: PiAgentSession): void {
   }
 
 private publishUnreadMutations(mutations: readonly SessionUnreadMutation[]): Promise<void> {
+    if (mutations.length > 0) {
+      const scopes = new Set<string>();
+      for (const mutation of mutations) {
+        const activeScopes = this.activeSessionsForId(mutation.event.sessionId).map((active) => active.eventScope);
+        if (activeScopes.length === 0) scopes.add(NORMAL_SESSION_EVENT_SCOPE);
+        else activeScopes.forEach((scope) => scopes.add(scope));
+      }
+      scopes.forEach((scope) => this.onUnreadChanged?.(scope));
+    }
     this.enqueueUnreadMutations(mutations);
     this.unreadPublicationFlushRequested = true;
     if (this.unreadPublication === undefined && this.unreadPublicationRetryTimer !== undefined) {

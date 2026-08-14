@@ -1,5 +1,6 @@
 import { realtimeEvents, sessionEvents } from "./api";
 import { parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
+import { parseMachineStatusSnapshot } from "../../shared/machineStatus";
 import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 import type { SocketScope } from "./api/sockets";
 
@@ -172,6 +173,11 @@ export function parseSessionSocketEvent(event: unknown): SessionUiEvent | undefi
 }
 
 export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent | undefined {
+  if (eventType(event) === "machine.status") {
+    if (typeof event !== "object" || event === null || !("status" in event)) return undefined;
+    const status = parseMachineStatusSnapshot(event.status);
+    return status === undefined ? undefined : { type: "machine.status", status };
+  }
   if (eventType(event) === "sessions.unread") return safelyParseValidatedEvent(() => parseSessionUnreadEvent(event));
   if (eventType(event) === "session.startup") return safelyParseValidatedEvent(() => parseSessionStartupProgressEvent(event));
   if (isLegacyGlobalSessionEvent(event) || isLegacyRealtimeEvent(event)) return event;

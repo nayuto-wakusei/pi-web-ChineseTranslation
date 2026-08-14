@@ -1,6 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
+import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import type { WorkspaceLabelItem } from "../../plugins/types";
 import type { NavigationSection } from "../../appShell/navigationState";
 import { NAVIGATION_SECTION_ORDER } from "../../appShell/navigationState";
@@ -21,6 +22,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) selectedMachine?: Machine;
   @property({ attribute: false }) machineStatuses: Record<string, MachineHealth> = {};
   @property({ attribute: false }) machineActivities: Record<string, Record<string, WorkspaceActivity>> = {};
+  @property({ attribute: false }) machineStatusSnapshots: Record<string, MachineStatusSnapshot> = {};
   @property({ attribute: false }) projects: Project[] = [];
   @property({ attribute: false }) selectedProject?: Project;
   @property({ attribute: false }) workspaces: Workspace[] = [];
@@ -114,6 +116,7 @@ export class AppNavigationPanel extends LitElement {
             .statuses=${this.machineStatuses}
             .activities=${this.machineActivities}
             .unreadMachineIds=${this.unreadPresence.machines}
+            .statusSnapshots=${this.machineStatusSnapshots}
             .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
             .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}
             .onFocusNextSection=${() => { this.focusNextFrom("machines"); }}
@@ -132,6 +135,7 @@ export class AppNavigationPanel extends LitElement {
           .statuses=${this.machineStatuses}
           .activities=${this.machineActivities}
           .unreadMachineIds=${this.unreadPresence.machines}
+          .statusSnapshots=${this.machineStatusSnapshots}
           .collapsible=${this.collapsible}
           .collapsed=${this.machinesCollapsed}
           .onToggleCollapsed=${() => { this.onToggleMachines?.(); }}
@@ -147,6 +151,7 @@ export class AppNavigationPanel extends LitElement {
         .activities=${this.workspaceActivities}
         .workspacesByProjectId=${this.workspacesByProjectId}
         .unreadProjectIds=${this.unreadPresence.projects}
+        .statusSnapshot=${this.selectedMachineStatusSnapshot()}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
         .onToggleCollapsed=${() => { this.onToggleProjects?.(); }}
@@ -162,6 +167,7 @@ export class AppNavigationPanel extends LitElement {
         .activities=${this.workspaceActivities}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .unreadWorkspaceIds=${this.unreadPresence.workspaces}
+        .statusSnapshot=${this.selectedMachineStatusSnapshot()}
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}
         .workspaceLabelItems=${this.workspaceLabelItems}
@@ -217,6 +223,10 @@ export class AppNavigationPanel extends LitElement {
         .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></session-list>
     `;
+  }
+
+  private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
+    return this.machineStatusSnapshots[this.selectedMachine?.id ?? "local"];
   }
 
   private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {

@@ -4,6 +4,7 @@ import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionCont
 import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
+import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -1319,6 +1320,12 @@ export function parseWorkspaceActivity(value: unknown): WorkspaceActivity {
 export function parseWorkspaceActivityResponse(value: unknown): WorkspaceActivityResponse {
   const record = requireRecord(value);
   return { workspaces: arrayOf(parseWorkspaceActivity)(record["workspaces"]), generatedAt: requireString(record, "generatedAt") };
+}
+
+export function requireMachineStatusSnapshot(value: unknown): MachineStatusSnapshot {
+  const snapshot = parseMachineStatusSnapshot(value);
+  if (snapshot === undefined) throw new Error("Expected machine status snapshot");
+  return snapshot;
 }
 
 export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {

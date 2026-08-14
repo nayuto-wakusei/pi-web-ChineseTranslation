@@ -32,6 +32,7 @@ export interface PluginBackendDispatcher {
 export interface PluginBackendRouteDependencies {
   projects: PluginBackendProjectReader;
   backends: PluginBackendDispatcher;
+  onWorkspacesMutated?: () => void;
 }
 
 /** JSON-only sessiond boundary for the active owner of one current workspace. */
@@ -86,6 +87,7 @@ export function registerPluginBackendRoutes(
           `Server plugin ${pluginId} operation ${operation} result`,
           PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
         );
+        dependencies.onWorkspacesMutated?.();
         return await reply.type("application/json; charset=utf-8").send(serialized);
       } catch (error) {
         return pluginBackendRequestFailed(reply, error, pluginId, operation);

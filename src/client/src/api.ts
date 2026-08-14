@@ -1,4 +1,4 @@
-export { activityApi, api, configApi, filesApi, gitApi, machinesApi, normalAuthApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./api/clients";
+export { activityApi, api, configApi, filesApi, gitApi, machinesApi, machineStatusApi, normalAuthApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./api/clients";
 export { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./api/sockets";
 export { setApiScope } from "./api/http";
 export type { ApiScope } from "./api/managementEmbed";

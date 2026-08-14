@@ -3,6 +3,7 @@ import type { ChatLine } from "./components/shared";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
 import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
+import type { MachineStatusSnapshot } from "../../shared/machineStatus";
 
 export interface AppState {
   machines: Machine[];
@@ -10,6 +11,7 @@ export interface AppState {
   isLoadingMachines: boolean;
   machineStatuses: Record<string, MachineHealth>;
   machineRuntimes: Record<string, MachineRuntime>;
+  machineStatusSnapshots: Record<string, MachineStatusSnapshot>;
   projects: Project[];
   workspaces: Workspace[];
   sessions: SessionInfo[];
@@ -185,6 +187,7 @@ export function initialAppState(): AppState {
     isLoadingMachines: false,
     machineStatuses: {},
     machineRuntimes: {},
+    machineStatusSnapshots: {},
     projects: [],
     workspaces: [],
     sessions: [],

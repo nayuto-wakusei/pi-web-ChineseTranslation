@@ -15,6 +15,7 @@ export class SessionEventHub {
   private readonly socketsBySession = new Map<string, Set<RealtimeSocket>>();
   private readonly globalSocketsByScope = new Map<SessionEventScope, Set<RealtimeSocket>>();
   private readonly seqBySessionScope = new Map<string, number>();
+  private globalJoinFrame: ((scope: SessionEventScope) => RealtimeEvent) | undefined;
 
   add(sessionId: string, socket: RealtimeSocket, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const key = sessionScopeKey(sessionId, scope);
@@ -37,6 +38,15 @@ export class SessionEventHub {
     }
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
+    const joinFrame = this.globalJoinFrame?.(scope);
+    if (joinFrame !== undefined && socket.readyState === socket.OPEN) {
+      try { socket.send(JSON.stringify(joinFrame)); }
+      catch { sockets.delete(socket); socket.terminate(); }
+    }
+  }
+
+  setGlobalJoinFrame(frame: (scope: SessionEventScope) => RealtimeEvent): void {
+    this.globalJoinFrame = frame;
   }
 
   publish(sessionId: string, event: SessionUiEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {

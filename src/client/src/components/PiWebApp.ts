@@ -10,6 +10,7 @@ import { AuthController } from "../controllers/authController";
 import { FileExplorerController } from "../controllers/fileExplorerController";
 import { GitController } from "../controllers/gitController";
 import { MachineController } from "../controllers/machineController";
+import { MachineStatusController } from "../controllers/machineStatusController";
 import { ProjectController } from "../controllers/projectController";
 import { ProjectActivityOwnershipCoordinator } from "../controllers/projectActivityOwnershipCoordinator";
 import { PiWebStatusController } from "../controllers/piWebStatusController";
@@ -268,6 +269,10 @@ export class PiWebApp extends LitElement {
     (patch) => { this.setState(patch); },
     { onActivityApplied: (machineId) => { void this.projectActivityOwnership.handleActivityApplied(machineId); } },
   );
+  private readonly machineStatus = new MachineStatusController(
+    () => this.state,
+    (patch) => { this.setState(patch); },
+  );
   private readonly auth = new AuthController(
     () => this.state,
     (patch) => { this.setState(patch); },
@@ -497,6 +502,7 @@ export class PiWebApp extends LitElement {
     void this.renegotiateUnreadMachines();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
     void this.refreshWorkspaceActivity();
+    void this.refreshMachineStatusSnapshots();
     void this.loadClientConfig();
     void this.ensureGatewayPluginsLoaded();
     void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
@@ -600,6 +606,7 @@ export class PiWebApp extends LitElement {
     await Promise.all([
       this.sessions.refreshSelectedSession(),
       this.refreshMachineActivities(),
+      this.refreshMachineStatusSnapshots(),
       this.refreshWorkspaceDeletionRuns(),
       this.workspaces.refreshSelectedProjectTopology(),
     ]);
@@ -634,6 +641,16 @@ export class PiWebApp extends LitElement {
         .filter((machine) => shouldRefreshMachineActivity(machine, this.state.machineStatuses[machine.id]))
         .map((machine) => machine.id);
     await Promise.all(machineIds.map((machineId) => this.refreshWorkspaceActivity(machineId)));
+  }
+
+  private async refreshMachineStatusSnapshots(): Promise<void> {
+    const machineIds = this.state.machines.length === 0
+      ? [selectedMachineId(this.state)]
+      : this.state.machines.filter((machine) => shouldRefreshMachineActivity(machine, this.state.machineStatuses[machine.id])).map((machine) => machine.id);
+    await Promise.all(machineIds.map(async (machineId) => {
+      try { await this.machineStatus.refresh(machineId); }
+      catch (error) { console.warn(`Failed to refresh machine status for ${machineId}`, error); }
+    }));
   }
 
   private async loadClientConfig(): Promise<void> {
@@ -1182,6 +1199,7 @@ export class PiWebApp extends LitElement {
         const workspace = this.state.selectedWorkspace;
         if (workspace !== undefined) void this.refreshActiveTerminals(workspace);
         void this.refreshWorkspaceActivity(machineId);
+        void this.machineStatus.refresh(machineId).catch((error: unknown) => { console.warn(`Failed to refresh machine status for ${machineId}`, error); });
       },
       machineId,
     );
@@ -1202,6 +1220,7 @@ export class PiWebApp extends LitElement {
         () => {
           void this.renegotiateUnreadMachine(machineId);
           void this.refreshWorkspaceActivity(machineId);
+          void this.machineStatus.refresh(machineId).catch((error: unknown) => { console.warn(`Failed to refresh machine status for ${machineId}`, error); });
         },
         machineId,
       );
@@ -1225,11 +1244,13 @@ export class PiWebApp extends LitElement {
   private handleMachineActivityEvent(machineId: string, event: BrowserRealtimeEvent): void {
     if (event.type === "sessions.unread") this.sessionUnread.applyEvent(machineId, event);
     else if (event.type === "workspace.activity") this.activity.applyWorkspaceActivity(event.activity, machineId);
+    else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
   }
 
   private handleRealtimeEvent(machineId: string, event: BrowserRealtimeEvent): void {
     if (event.type === "sessions.unread") this.sessionUnread.applyEvent(machineId, event);
     else if (event.type === "workspace.activity") this.activity.applyWorkspaceActivity(event.activity);
+    else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
     else if (isTerminalEvent(event)) {
       this.applyTerminalEvent(event);
       if (event.type === "terminal.exited") void this.refreshWorkspaceDeletionRuns();
@@ -1538,6 +1559,7 @@ export class PiWebApp extends LitElement {
         .machines=${this.state.machines}
         .selectedMachine=${this.state.selectedMachine}
         .machineStatuses=${this.state.machineStatuses}
+        .machineStatusSnapshots=${this.state.machineStatusSnapshots}
         .machineActivities=${this.state.machineActivities}
         .machinesCollapsed=${this.navigationSections.isCollapsed("machines")}
         .onToggleMachines=${() => { this.navigationSections.toggle("machines"); }}
