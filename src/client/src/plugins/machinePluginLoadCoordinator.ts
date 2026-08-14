@@ -15,7 +15,7 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", () => loadExternalPlugins());
+    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => (await loadExternalPlugins()).registrations);
     return this.gatewayLoad;
   }
 
@@ -27,10 +27,10 @@ export class MachinePluginLoadCoordinator {
 
     const load = this.registerPlugins(
       `来自 ${machine.name} 的 PI WEB 插件`,
-      () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
+      async () => (await loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
-      }),
+      })).registrations,
     )
       .then((loaded) => { if (loaded) this.loadedMachineIds.add(machine.id); })
       .finally(() => { this.machineLoads.delete(machine.id); });

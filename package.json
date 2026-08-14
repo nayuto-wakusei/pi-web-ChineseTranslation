@@ -5,6 +5,24 @@
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
   "type": "module",
+  "exports": {
+    "./plugin-api": {
+      "types": "./dist/plugin-api.d.ts"
+    },
+    "./server-plugin-api": {
+      "types": "./dist/server-plugin-api.d.ts"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "plugin-api": [
+        "dist/plugin-api.d.ts"
+      ],
+      "server-plugin-api": [
+        "dist/server-plugin-api.d.ts"
+      ]
+    }
+  },
   "bin": {
     "pi-web": "dist/cli.js",
     "pi-web-server": "dist/server/index.js",
@@ -22,7 +40,7 @@
     "docs/config.md",
     "docs/assets",
     "plugin-api.d.ts",
-    "plugin-api/unstable.d.ts"
+    "server-plugin-api.d.ts"
   ],
   "scripts": {
     "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:sessiond & npm run dev:web & npm run dev:client & wait'",

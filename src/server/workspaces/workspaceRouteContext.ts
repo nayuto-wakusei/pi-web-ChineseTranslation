@@ -8,7 +8,7 @@ import {
 } from "../managementEmbed.js";
 import type { ProjectService } from "../projects/projectService.js";
 import { resolveProjectWorkspaceContext, resolveWorkspaceContext, type WorkspaceContext } from "./workspaceContext.js";
-import type { WorkspaceService } from "./workspaceService.js";
+import { asWorkspaceCatalog, type WorkspaceCatalogInput } from "./workspaceCatalog.js";
 
 interface RouteWorkspaceContextOptions {
   createManagedProject: boolean;
@@ -16,7 +16,7 @@ interface RouteWorkspaceContextOptions {
 
 export async function resolveRouteWorkspaceContext(
   projects: ProjectService,
-  workspaces: WorkspaceService,
+  workspaces: WorkspaceCatalogInput,
   managementEmbed: ManagementEmbedRuntime | undefined,
   request: Parameters<typeof managementContextForRequest>[0],
   reply: FastifyReply,
@@ -30,7 +30,7 @@ export async function resolveRouteWorkspaceContext(
 }
 
 export async function resolveManagedWorkspaceContext(
-  workspaces: WorkspaceService,
+  workspaces: WorkspaceCatalogInput,
   managementEmbed: ManagementEmbedRuntime | undefined,
   managementContext: ManagementEmbedContext,
   projectId: string,
@@ -38,5 +38,5 @@ export async function resolveManagedWorkspaceContext(
   options: RouteWorkspaceContextOptions,
 ): Promise<WorkspaceContext> {
   const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), managementContext, projectId, { create: options.createManagedProject });
-  return resolveProjectWorkspaceContext(workspaces, project, workspaceId);
+  return resolveProjectWorkspaceContext(asWorkspaceCatalog({ requireProject: () => Promise.resolve(project) }, workspaces), project, workspaceId);
 }

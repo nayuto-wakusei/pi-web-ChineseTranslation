@@ -10,14 +10,14 @@ import { readWorkspaceImagePreview } from "./workspaces/imagePreviewService.js";
 import { resolveRouteWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
 import { pathAccessForWorkspaceContext } from "./workspaces/effectivePathAccess.js";
 import type { ManagementEmbedRuntime } from "./managementEmbed.js";
-import type { WorkspaceService } from "./workspaces/workspaceService.js";
+import type { WorkspaceCatalogInput } from "./workspaces/workspaceCatalog.js";
 
 export interface WorkspaceExplorerRouteOptions {
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
-export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix = "/api", options: WorkspaceExplorerRouteOptions = {}): void {
+export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix = "/api", options: WorkspaceExplorerRouteOptions = {}): void {
   const managementEmbed = options.managementEmbed;
   registerWorkspaceFileContentParsers(app);
 

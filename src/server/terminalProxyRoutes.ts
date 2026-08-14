@@ -4,7 +4,7 @@ import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { resolveWorkspaceContext } from "./workspaces/workspaceContext.js";
 import { resolveManagedWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
-import type { WorkspaceService } from "./workspaces/workspaceService.js";
+import type { WorkspaceCatalogInput } from "./workspaces/workspaceCatalog.js";
 import { terminalSizeQuery } from "./terminals/terminalSize.js";
 import { bridgeSockets } from "./webSocketBridge.js";
 import {
@@ -16,7 +16,7 @@ import {
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
 
-export function registerTerminalProxyRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
+export function registerTerminalProxyRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
   app.get<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
     try {
       if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return [];
@@ -194,4 +194,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requestFailed(reply: FastifyReply, error: unknown): void {
   reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
 }
-

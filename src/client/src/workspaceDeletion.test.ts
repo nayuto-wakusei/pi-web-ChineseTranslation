@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalCommandRun, Workspace } from "./api";
-import { isWorkspaceDeletionPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, workspaceDeleteOperation, workspaceDeletionMetadata } from "./workspaceDeletion";
+import { canDeleteWorkspace, isWorkspaceDeletionPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, workspaceDeleteOperation, workspaceDeletionMetadata, workspaceRemovalConfirmation } from "./workspaceDeletion";
 
 const workspace: Workspace = {
   id: "w1",
@@ -10,6 +10,11 @@ const workspace: Workspace = {
   isMain: false,
   isGitRepo: true,
   isGitWorktree: true,
+  removal: {
+    actionLabel: "移除工作区",
+    confirmation: "确认移除该工作区？",
+    precondition: "removal-v1",
+  },
 };
 
 function run(id: string, workspaceId: string, createdAt: string, status: TerminalCommandRun["status"]): TerminalCommandRun {
@@ -28,6 +33,15 @@ function run(id: string, workspaceId: string, createdAt: string, status: Termina
 }
 
 describe("workspace deletion state", () => {
+  it("derives removal eligibility and confirmation from provider metadata", () => {
+    expect(canDeleteWorkspace(workspace)).toBe(true);
+    expect(workspaceRemovalConfirmation(workspace)).toBe("确认移除该工作区？");
+    expect(canDeleteWorkspace({ ...workspace, isMain: true })).toBe(false);
+    const withoutRemoval = { ...workspace };
+    delete withoutRemoval.removal;
+    expect(canDeleteWorkspace(withoutRemoval)).toBe(false);
+  });
+
   it("builds command-run metadata for workspace deletion", () => {
     expect(workspaceDeletionMetadata(workspace)).toEqual({
       "pi.operation": "workspace.delete",

@@ -10,14 +10,14 @@ describe("updates plugin Chinese display text", () => {
   });
 
   it("exposes a Chinese panel title", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg });
 
     expect(plugin.name).toBe("更新");
     expect(activation.contributions.workspacePanels?.[0]?.title).toBe("更新");
   });
 
   it("renders Chinese loading and status copy", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
     expect(serializeTemplate(panel?.render(createWorkspacePanelContext()))).toContain("正在检查 PI WEB 更新状态");
@@ -58,7 +58,7 @@ describe("updates plugin Chinese display text", () => {
 
   it("keeps run buttons available in management embed mode", () => {
     vi.stubGlobal("location", { search: "?embed=management&token=launch-token" });
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
     const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
@@ -73,7 +73,7 @@ describe("updates plugin Chinese display text", () => {
 
   it("does not throw when the clipboard API is unavailable", () => {
     vi.stubGlobal("navigator", {});
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
     const panelContext = createWorkspacePanelContext({ state: { piWebStatus: statusWithCommands() } });
     Reflect.set(panelContext, "terminal", undefined);
@@ -86,7 +86,7 @@ describe("updates plugin Chinese display text", () => {
 
 describe("updates plugin actions", () => {
   it("forces an update check through the host runtime context", async () => {
-    const action = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
+    const action = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
     if (action === undefined) throw new Error("Expected update check action");
     const checkForPiWebUpdates = vi.fn(() => Promise.resolve());
     const context = runtimeContext({ checkForPiWebUpdates });
@@ -99,7 +99,7 @@ describe("updates plugin actions", () => {
   });
 
   it("disables the action on older hosts without the update-check helper", () => {
-    const action = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
+    const action = plugin.activate({ apiVersion: 2, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
     if (action === undefined) throw new Error("Expected update check action");
     const context = runtimeContext();
 
@@ -117,7 +117,6 @@ function copyButtonHandler(value: unknown): CopyButtonHandler {
   if (handler === undefined) throw new Error("Expected a 复制 button handler");
   return handler;
 }
-
 function findCopyButtonHandler(value: unknown): CopyButtonHandler | undefined {
   if (Array.isArray(value)) {
     for (const entry of value) {
@@ -167,7 +166,6 @@ function statusWithCommands(): PiWebStatusResponse {
     },
   };
 }
-
 function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
   const noop = () => undefined;
   return {

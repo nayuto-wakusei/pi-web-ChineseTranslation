@@ -71,7 +71,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "example",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Example",
         activate: ({ html, svg }) => ({
           contributions: {
@@ -99,7 +99,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "example",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Example",
         activate: () => ({
           contributions: {
@@ -132,7 +132,7 @@ describe("PluginRegistry", () => {
       registry.register({
         id: "example",
         plugin: {
-          apiVersion: 1,
+          apiVersion: 2,
           name: "Example",
           activate: () => ({
             contributions: {
@@ -401,7 +401,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "example",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Example",
         activate: () => ({
           contributions: {
@@ -432,7 +432,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "example",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Example",
         activate: () => ({
           contributions: {
@@ -468,7 +468,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "example",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Example",
         activate: () => ({
           contributions: {
@@ -494,7 +494,7 @@ describe("PluginRegistry", () => {
       machineId: "remote-1",
       sourcePluginId: "project-tools",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Project Tools",
         activate: () => ({
           contributions: {
@@ -528,7 +528,7 @@ describe("PluginRegistry", () => {
       machineId: "remote-1",
       sourcePluginId: "shared-tools",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Remote Shared Tools",
         activate: () => ({
           contributions: {
@@ -545,7 +545,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "shared-tools",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Gateway Shared Tools",
         activate: () => ({
           contributions: {
@@ -577,7 +577,7 @@ describe("PluginRegistry", () => {
       id: "updates",
       machineSpecific: true,
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Gateway Updates",
         activate: () => ({
           contributions: {
@@ -598,7 +598,7 @@ describe("PluginRegistry", () => {
       machineId: "remote-1",
       sourcePluginId: "updates",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Remote Updates",
         activate: () => ({
           contributions: {
@@ -628,7 +628,7 @@ describe("PluginRegistry", () => {
     registry.register({
       id: "status-tools",
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Gateway Status Tools",
         activate: () => ({ contributions: { actions: [{ id: "open", title: "Open Gateway Status", run: () => undefined }] } }),
       },
@@ -642,7 +642,7 @@ describe("PluginRegistry", () => {
       sourcePluginId: "status-tools",
       machineSpecific: true,
       plugin: {
-        apiVersion: 1,
+        apiVersion: 2,
         name: "Remote Status Tools",
         activate: () => ({ contributions: { actions: [{ id: "open", title: "Open Remote Status", run: () => undefined }] } }),
       },
@@ -655,13 +655,13 @@ describe("PluginRegistry", () => {
   it("does not activate remote duplicates when the gateway plugin is already registered", () => {
     const registry = new PluginRegistry();
     const remoteActivate = vi.fn(() => ({ contributions: { actions: [{ id: "remote-action", title: "Remote Action", run: () => undefined }] } }));
-    registry.register({ id: "shared-tools", plugin: { apiVersion: 1, name: "Gateway Shared Tools", activate: () => ({ contributions: {} }) } });
+    registry.register({ id: "shared-tools", plugin: { apiVersion: 2, name: "Gateway Shared Tools", activate: () => ({ contributions: {} }) } });
 
     registry.register({
       id: machineScopedPluginId("remote-1", "shared-tools"),
       machineId: "remote-1",
       sourcePluginId: "shared-tools",
-      plugin: { apiVersion: 1, name: "Remote Shared Tools", activate: remoteActivate },
+      plugin: { apiVersion: 2, name: "Remote Shared Tools", activate: remoteActivate },
     });
 
     expect(remoteActivate).not.toHaveBeenCalled();

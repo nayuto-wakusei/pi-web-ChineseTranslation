@@ -493,12 +493,13 @@ describe("machine-scoped terminal command-run API", () => {
   it("deletes workspaces through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
 
-    await workspacesApi.deleteWorkspace("p 1", "w/1", "remote a");
+    await workspacesApi.deleteWorkspace("p 1", "w/1", "removal-v1", "remote a");
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchCall(fetchMock, 0);
     expect(url).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1");
     expect(init?.method).toBe("DELETE");
+    expect(JSON.parse(requestBody(init))).toEqual({ precondition: "removal-v1" });
   });
 
   it("creates command runs through the selected machine scope", async () => {

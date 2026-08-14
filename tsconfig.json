@@ -27,7 +27,7 @@
     ],
     "paths": {
       "@chainingintention/pi-web-cn/plugin-api": ["./src/plugin-api.ts"],
-      "@chainingintention/pi-web-cn/plugin-api/unstable": ["./src/plugin-api/unstable.ts"]
+      "@chainingintention/pi-web-cn/server-plugin-api": ["./src/server-plugin-api.ts"]
     }
   },
   "include": [

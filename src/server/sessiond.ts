@@ -35,8 +35,19 @@ import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
 import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
 import { managementProjectIdForCwd } from "./managementEmbed.js";
+import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
+import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
+import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
+import { createServerPluginRuntime } from "./plugins/serverPluginRuntime.js";
+import { eligibleWorkspaceProviderContributions, WorkspaceProviderRegistry } from "./workspaces/workspaceProviderRegistry.js";
+import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
+import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
+import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
+import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
+import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
+const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config } = effectivePiWebConfig({ env: daemonEnvironment });
 const activeAgentProfile = createActiveAgentProfileDescriptor({
   command: config.agent.command,
@@ -44,6 +55,12 @@ const activeAgentProfile = createActiveAgentProfileDescriptor({
   sessionDirEnvKeys: agentSessionDirEnvKeys(config.agent.command),
 });
 const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(daemonEnvironment, config) });
+const serverPluginCatalog = new PiWebPluginCatalog({
+  cwd: process.cwd(),
+  agentDir: activeAgentProfile.dir,
+  configProvider: () => config,
+  warningSink: (message) => { app.log.warn({ component: "server-plugins" }, message); },
+});
 await app.register(fastifyWebsocket);
 
 await runSessionDaemonStartup({
@@ -53,6 +70,23 @@ await runSessionDaemonStartup({
     const workspaceActivity = new WorkspaceActivityService(eventHub);
     const projects = new ProjectService(new ProjectStore());
     const workspaces = new WorkspaceService();
+    const serverPlugins = await createServerPluginRuntime({
+      catalog: serverPluginCatalog,
+      ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
+      logger: app.log,
+      execFile: createServerPluginExecFile({ env: daemonEnvironment }),
+    });
+    const providerHealth = await serverPlugins.inspectHealth();
+    const workspaceProviders = new WorkspaceProviderRegistry({
+      contributions: eligibleWorkspaceProviderContributions(serverPlugins.providerContributions(), providerHealth),
+      logger: app.log,
+    });
+    const workspaceProviderRuntime = createWorkspaceProviderRuntimeSnapshot(
+      serverPlugins.healthRecords(),
+      providerHealth,
+      serverPlugins.safeStartLevel(),
+      serverPlugins.catalogDiagnostics(),
+    );
     const projectAuth = new ProjectAuthService({ projects, workspaces });
     const managementAuth = new AuthService({
       modelRuntime: await ModelRuntime.create({
@@ -154,18 +188,22 @@ await runSessionDaemonStartup({
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     const terminals = new TerminalService(eventHub, workspaceActivity);
+    const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals);
     const runtimeComponent = Object.freeze({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
-    return { eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent };
+    return { eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
   },
-  registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent }) {
+  registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerSessionRoutes(app, sessions, eventHub);
     registerTerminalRoutes(app, terminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
+    registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime });
+    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders });
+    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals });
 
     app.get("/health", () => ({
       ok: true,
@@ -182,13 +220,14 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ projectAuth, managementAuth, sessions, terminals, normalToolAudit, managementAudit }) {
+  async listen({ projectAuth, managementAuth, sessions, terminals, normalToolAudit, managementAudit, serverPlugins }) {
     let shuttingDown = false;
     async function shutdown(signal: NodeJS.Signals): Promise<void> {
       if (shuttingDown) return;
       shuttingDown = true;
       app.log.info({ signal }, "shutting down session daemon");
       terminals.dispose();
+      await serverPlugins.stop();
       await projectAuth.dispose();
       managementAuth.dispose();
       await sessions.dispose();

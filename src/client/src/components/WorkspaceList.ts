@@ -4,6 +4,7 @@ import type { Workspace, WorkspaceActivity } from "../api";
 import { writeClipboardText } from "../clipboard";
 import type { WorkspaceLabelItem } from "../plugins/types";
 import { workspaceActivityFor, workspaceActivityIndicator } from "../workspaceActivity";
+import { canDeleteWorkspace } from "../workspaceDeletion";
 import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
@@ -153,9 +154,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   private renderWorkspaceActions(workspace: Workspace): TemplateResult | undefined {
     if (!canDeleteWorkspace(workspace)) return undefined;
     const deleting = this.isDeleting(workspace);
+    const actionLabel = workspace.removal?.actionLabel ?? "删除工作区";
     return html`
       <div class="workspace-menu-actions">
-        <button class="danger" title=${deleting ? "正在删除工作区" : "删除工作区"} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "正在删除…" : "删除工作区"}</button>
+        <button class="danger" title=${deleting ? "正在处理工作区" : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "正在处理…" : actionLabel}</button>
       </div>
     `;
   }
@@ -244,10 +246,6 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
 function workspacePrimaryLabel(workspace: Workspace): string {
   return `${workspace.branch ?? workspace.label}${workspace.isMain ? " · main" : ""}`;
-}
-
-function canDeleteWorkspace(workspace: Workspace): boolean {
-  return workspace.isGitWorktree && !workspace.isMain;
 }
 
 function workspaceMenuId(workspaceId: string): string {

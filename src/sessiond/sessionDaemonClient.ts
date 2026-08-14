@@ -11,7 +11,7 @@ export type SessionDaemonAgentProfileResult =
   | { status: "invalid"; error: string };
 
 export interface SessionDaemonRequestClient {
-  request(method: string, path: string, body?: unknown): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
 }
 
 export class SessionDaemonClient {

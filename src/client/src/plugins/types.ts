@@ -1,6 +1,6 @@
 import type { TemplateResult } from "lit";
 import type { AppAction } from "../actions";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitStatusResponse, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitStatusResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { AppState } from "../appState";
 import type { SettingsSection } from "../settingsRoute";
 import type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
@@ -14,20 +14,30 @@ export interface PiWebPluginRegistration {
   plugin: PiWebPlugin;
   machineId?: string;
   sourcePluginId?: PluginId;
+  backendRevision?: string;
   machineSpecific?: boolean;
 }
 
+export interface WorkspacePluginBinding {
+  registrationPluginId: PluginId;
+  sourcePluginId: PluginId;
+  backendRevision?: string;
+}
+
 export interface PiWebPlugin {
-  apiVersion: 1;
+  apiVersion: 2;
   name: string;
   activate: (context: PluginActivationContext) => PluginActivationResult;
 }
 
 export interface PluginActivationContext {
-  apiVersion: 1;
-  pluginId: PluginId;
-  html: HtmlTemplateTag;
-  svg: SvgTemplateTag;
+  readonly apiVersion: 2;
+  /** Stable package/source identity, including on federated machines. */
+  readonly pluginId: PluginId;
+  /** Host-unique identity for qualified contribution references in this runtime. */
+  readonly runtimePluginId: PluginId;
+  readonly html: HtmlTemplateTag;
+  readonly svg: SvgTemplateTag;
 }
 
 export interface PluginActivationResult {
@@ -57,6 +67,10 @@ export interface WorkspaceFiles {
   moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
 }
 
+export interface WorkspaceBackend {
+  request(operation: string, input: JsonValue): Promise<JsonValue>;
+}
+
 export interface WorkspaceHost {
   requestRender(): void;
 }
@@ -66,6 +80,7 @@ export interface WorkspaceContext {
   workspace: Workspace;
   state: AppState;
   files: WorkspaceFiles;
+  backend?: WorkspaceBackend;
   host: WorkspaceHost;
 }
 
@@ -115,6 +130,8 @@ export interface PluginRuntimeContext {
   openTerminal: (options?: { terminalId?: string | undefined }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
+  /** Invalidate plugin workspace-panel data for the selected workspace. */
+  refreshWorkspacePanels?: (panelId?: QualifiedContributionId) => void | Promise<void>;
   refreshAppData: () => void | Promise<void>;
   checkForPiWebUpdates?: () => void | Promise<void>;
   reloadPage: () => void;
@@ -131,6 +148,8 @@ export interface PluginAction {
   title: string;
   description?: string;
   shortcut?: string;
+  /** Former qualified action ids whose saved shortcut preference should still apply. */
+  shortcutAliases?: QualifiedContributionId[];
   group?: string;
   enabled?: (context: PluginRuntimeContext) => boolean;
   /** Explain why a disabled action is visible but unavailable. */
@@ -142,6 +161,7 @@ export interface QualifiedPluginAction extends AppAction {
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
+  shortcutAliases?: QualifiedContributionId[];
 }
 
 export interface WorkspacePanelContext extends WorkspaceContext {
@@ -157,23 +177,24 @@ export interface WorkspacePanelContext extends WorkspaceContext {
   expandedDirs: Record<string, FileTreeEntry[]>;
   selectedFilePath: string | undefined;
   selectedFileContent: FileContentResponse | undefined;
-  fileTreeStale: boolean;
   gitStatus: GitStatusResponse | undefined;
   selectedDiffPath: string | undefined;
   selectedDiff: GitDiffResponse | undefined;
   selectedStagedDiff: GitDiffResponse | undefined;
   gitStale: boolean;
+  selectedFileLoadError?: string | undefined;
+  fileTreeStale: boolean;
   activeTerminalCount: number;
   selectedTerminalId: string | undefined;
   terminalAutoStart: boolean;
   workspaceUploadDefaultFolder: string;
   onRefreshFiles: () => void;
+  onExpandDir: (path: string) => void;
   onCreateFile: (path: string) => void;
   onCreateDirectory: (path: string) => void;
   onMoveSelectedPath: (path: string) => void;
   onDeleteSelectedPath: () => void;
   onDownloadSelectedFile: () => void;
-  onExpandDir: (path: string) => void;
   onSelectDirectory: (path: string) => void;
   onSelectFile: (path: string) => void;
   onStartWorkspaceUpload: (files: readonly File[], options: { destinationFolder: string; createDirs?: boolean; overwrite?: boolean; selectUploadedFile?: boolean }) => { batchId: string; done: Promise<void> } | undefined;
@@ -191,8 +212,11 @@ export interface WorkspacePanelContribution {
   title: string;
   icon?: WorkspacePanelIcon;
   order?: number;
+  /** Former URL tool/view values that should resolve to this panel. */
+  routeAliases?: string[];
   visible?: (context: WorkspacePanelContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
+  onInvalidate?: (context: WorkspacePanelContext) => void | Promise<void>;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 
@@ -201,6 +225,7 @@ export interface QualifiedWorkspacePanelContribution extends WorkspacePanelContr
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
+  sourcePluginId?: PluginId;
 }
 
 export interface WorkspaceLabelContext extends WorkspaceContext {

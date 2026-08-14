@@ -3,7 +3,7 @@ import { TASKS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const plugin: PiWebPlugin = {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "工作区任务",
   activate: ({ pluginId, html, svg }) => {
     defineTasksPanelElement();

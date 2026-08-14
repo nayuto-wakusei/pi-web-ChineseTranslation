@@ -16,6 +16,7 @@ export const PI_WEB_CAPABILITIES = {
   piPackagesManage: "piPackages.manage",
   selectedMachineSettings: "settings.selectedMachine",
   agentProfileConfig: "settings.agentProfile",
+  pluginLifecycle: "plugins.lifecycle",
 } as const;
 
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
@@ -168,17 +169,67 @@ export interface PiWebManagementEmbedConfig {
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
 
+export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 1;
+export type PiWebPluginServerState = "active" | "failed" | "incompatible" | "disabled" | "missing" | "unknown";
+export type PiWebPluginLifecyclePhase = "import" | "activate" | "validate" | "start" | "health" | "stop";
+export type PiWebPluginHealthStatus = "healthy" | "degraded" | "unhealthy";
+export type PiWebPluginRuntimeStatus = "available" | "unavailable" | "incompatible";
+export type PiWebPluginSafeStart = "bundled-only" | "none";
+
+export interface PiWebPluginServerInfo {
+  state: PiWebPluginServerState;
+  desiredRevision?: string;
+  activeRevision?: string;
+  phase?: PiWebPluginLifecyclePhase;
+  message?: string;
+  health?: { status: PiWebPluginHealthStatus; message?: string };
+  staleRevision: boolean;
+  restartRequired: boolean;
+  disableCommand: string;
+}
+
+export interface PiWebPluginDiagnostic {
+  kind: "conflict" | "discovery";
+  snapshot: "desired" | "active";
+  source: string;
+  message: string;
+  pluginId?: string;
+}
+
+export interface PiWebPluginRecoveryCommands {
+  showSafeStart: string;
+  bundledOnly: string;
+  noServerPlugins: string;
+  clearSafeStart: string;
+}
+
+export interface PiWebPluginRuntimeInfo {
+  status: PiWebPluginRuntimeStatus;
+  safeStart?: PiWebPluginSafeStart;
+  desiredSafeStart?: PiWebPluginSafeStart | "off";
+  restartRequired: boolean;
+  message?: string;
+  recovery: PiWebPluginRecoveryCommands;
+}
+
 export interface PiWebPluginInfo {
   id: string;
-  module: string;
+  module?: string;
+  backendRevision?: string;
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
   enabled: boolean;
+  discovered?: boolean;
+  conflict?: boolean;
+  server?: PiWebPluginServerInfo;
 }
 
 export interface PiWebPluginsResponse {
+  lifecycleVersion?: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
   plugins: PiWebPluginInfo[];
+  diagnostics?: PiWebPluginDiagnostic[];
+  serverRuntime?: PiWebPluginRuntimeInfo;
 }
 
 export type PiPackageScope = "user" | "project";
@@ -258,6 +309,39 @@ export interface WorkspaceEffectiveConfig {
   uploads?: PiWebUploadsConfig;
 }
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export interface JsonObject { [key: string]: JsonValue }
+export interface WorkspaceProviderCapabilities { request: boolean; remove: boolean }
+export interface WorkspaceProviderMetadata {
+  pluginId: string;
+  capabilities: WorkspaceProviderCapabilities;
+  metadata?: JsonObject;
+}
+export interface WorkspaceRemovalPresentation {
+  actionLabel: string;
+  confirmation: string;
+  precondition: string;
+}
+export interface WorkspaceRemovalRequest { precondition: string }
+export type WorkspaceProviderResolutionStatus = "provider" | "folder" | "degraded";
+export type WorkspaceProviderTier = "primary" | "fallback";
+export type WorkspaceProviderDiagnosticCode = "probe-failed" | "claim-conflict" | "list-failed";
+export interface WorkspaceProviderDiagnostic {
+  code: WorkspaceProviderDiagnosticCode;
+  message: string;
+  tier: WorkspaceProviderTier;
+  pluginId?: string;
+  pluginIds?: readonly string[];
+}
+export interface WorkspaceProviderResolution {
+  status: WorkspaceProviderResolutionStatus;
+  projectId: string;
+  ownerPluginId?: string;
+  workspaces: readonly Workspace[];
+  diagnostics: readonly WorkspaceProviderDiagnostic[];
+}
+
 export interface Workspace {
   id: string;
   projectId: string;
@@ -267,9 +351,16 @@ export interface Workspace {
   isMain: boolean;
   isGitRepo: boolean;
   isGitWorktree: boolean;
+  provider?: WorkspaceProviderMetadata;
+  removal?: WorkspaceRemovalPresentation;
   /** Workspace-effective project/global settings needed by workspace UI features. */
   effectiveConfig?: WorkspaceEffectiveConfig;
 }
+
+export type WorkspaceListing = Omit<Workspace, "effectiveConfig" | "isGitRepo" | "isGitWorktree">;
+export type WorkspaceProviderAuthorityResolution = Omit<WorkspaceProviderResolution, "workspaces"> & {
+  workspaces: readonly WorkspaceListing[];
+};
 
 export interface SessionRef {
   id: string;

@@ -9,7 +9,7 @@ import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
 
 const plugin: PiWebPlugin = {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "信息插件",
   activate: ({ html, svg }) => ({
     contributions: {
@@ -26,7 +26,7 @@ const plugin: PiWebPlugin = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.isGitRepo ? "Git" : "文件夹", title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.isGitRepo === true ? "Git" : "文件夹", title: context.workspace.path }],
         },
       ],
       workspacePanels: [

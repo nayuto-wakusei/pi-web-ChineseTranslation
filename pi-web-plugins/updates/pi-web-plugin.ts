@@ -214,7 +214,7 @@ function severityLabel(severity: string): string {
 }
 
 const plugin: PiWebPlugin = {
-  apiVersion: 1,
+  apiVersion: 2,
   name: "更新",
   activate: ({ html, svg }) => ({
     contributions: {

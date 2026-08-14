@@ -4,18 +4,28 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { loadPiWebConfig, piWebDataDir, type PiWebConfig } from "../config.js";
-import type { PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope } from "../shared/apiTypes.js";
+import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, type PiWebPluginInfo, type PiWebPluginSafeStart, type PiWebPluginsResponse, type PiWebPluginScope } from "../shared/apiTypes.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
+import {
+  computePiWebPluginPackageRevision,
+  PiWebPluginCatalog,
+  type PiWebPluginCatalogEntry,
+  type PiWebPluginCatalogOptions,
+} from "./piWebPluginCatalog.js";
+import { reconcilePiWebPluginLifecycle, type ProviderRuntimeLoadResult } from "./piWebPluginLifecycle.js";
+import type { WorkspaceProviderRuntimeReader } from "./workspaces/workspaceCatalog.js";
 
 export type { PiWebPluginInfo, PiWebPluginsResponse, PiWebPluginScope } from "../shared/apiTypes.js";
 
 export interface PiWebPluginManifest {
+  lifecycleVersion?: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
   plugins: PiWebPluginManifestEntry[];
 }
 
 export interface PiWebPluginManifestEntry {
   id: string;
   module: string;
+  backendRevision?: string;
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
@@ -40,15 +50,19 @@ interface PluginRecord {
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
+  backendRevision?: string;
 }
 
-interface PiWebPluginServiceOptions {
+interface PiWebPluginServiceOptions extends PiWebPluginCatalogOptions {
+  catalog?: PiWebPluginCatalog;
   roots?: LocalPluginRoot[];
   cwd?: string;
   agentDir?: string;
   agentDirProvider?: () => string | Promise<string>;
   packageProvider?: PiPackageProvider | false;
   configProvider?: () => PiWebConfig | Promise<PiWebConfig>;
+  runtimeProvider?: WorkspaceProviderRuntimeReader;
+  recoveryProvider?: () => { safeStart?: PiWebPluginSafeStart } | Promise<{ safeStart?: PiWebPluginSafeStart }>;
 }
 
 interface LocalPluginRoot {
@@ -65,6 +79,7 @@ interface PiWebPluginEntry {
   id: string;
   module: string;
   machineSpecific: boolean;
+  backendRevision?: string;
 }
 
 type ArraylessPluginRecord = Omit<PluginRecord, "source" | "scope">;
@@ -93,6 +108,9 @@ export class DefaultPiPackageProvider implements PiPackageProvider {
 }
 
 export class PiWebPluginService {
+  private readonly catalog: PiWebPluginCatalog;
+  private readonly runtimeProvider: WorkspaceProviderRuntimeReader | undefined;
+  private readonly recoveryProvider: PiWebPluginServiceOptions["recoveryProvider"];
   private readonly roots: LocalPluginRoot[];
   private readonly agentDir: string | undefined;
   private readonly agentDirProvider: (() => string | Promise<string>) | undefined;
@@ -102,6 +120,9 @@ export class PiWebPluginService {
 
   constructor(options: PiWebPluginServiceOptions = {}) {
     const cwd = options.cwd ?? process.cwd();
+    this.catalog = options.catalog ?? new PiWebPluginCatalog(options);
+    this.runtimeProvider = options.runtimeProvider;
+    this.recoveryProvider = options.recoveryProvider;
     this.roots = options.roots ?? defaultPluginRoots(cwd);
     this.agentDir = options.agentDir;
     this.agentDirProvider = options.agentDirProvider;
@@ -114,17 +135,32 @@ export class PiWebPluginService {
   }
 
   async manifest(): Promise<PiWebPluginManifest> {
+    if (this.runtimeProvider !== undefined) {
+      const lifecycle = await this.lifecycle();
+      return {
+        lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION,
+        plugins: lifecycle.browserPlugins.map(({ plugin, backendRevision }) => ({
+          id: plugin.id,
+          module: browserModuleUrl(plugin),
+          ...(backendRevision === undefined ? {} : { backendRevision }),
+          source: plugin.source,
+          scope: plugin.scope,
+          machineSpecific: plugin.machineSpecific,
+        })),
+      };
+    }
     return {
       plugins: (await this.plugins()).plugins
-        .filter((plugin) => plugin.enabled)
-        .map((plugin) => ({ id: plugin.id, module: plugin.module, source: plugin.source, scope: plugin.scope, machineSpecific: plugin.machineSpecific })),
+        .filter((plugin): plugin is typeof plugin & { module: string } => plugin.enabled && typeof plugin.module === "string")
+        .map((plugin) => ({ id: plugin.id, module: plugin.module, source: plugin.source, scope: plugin.scope, machineSpecific: plugin.machineSpecific, ...(plugin.backendRevision === undefined ? {} : { backendRevision: plugin.backendRevision }) })),
     };
   }
 
   async plugins(): Promise<PiWebPluginsResponse> {
+    if (this.runtimeProvider !== undefined) return (await this.lifecycle()).response;
     const config = await this.configProvider();
     const plugins = await this.discoverPlugins();
-    return { plugins: plugins.map((plugin) => this.pluginInfo(plugin, config)) };
+    return { plugins: await Promise.all(plugins.map((plugin) => this.pluginInfo(plugin, config))) };
   }
 
   async readAsset(pluginId: string, assetPath: string): Promise<{ content: Buffer; contentType: string } | undefined> {
@@ -145,13 +181,34 @@ export class PiWebPluginService {
     return { content: await readFile(realAsset), contentType: contentTypeFor(realAsset) };
   }
 
-  private pluginInfo(plugin: PluginRecord, config: PiWebConfig): PiWebPluginInfo {
+  private async lifecycle() {
+    const desired = await this.catalog.snapshot();
+    let runtime: ProviderRuntimeLoadResult;
+    const runtimeProvider = this.runtimeProvider;
+    if (runtimeProvider === undefined) throw new Error("Plugin lifecycle runtime is unavailable");
+    try {
+      runtime = { status: "available", snapshot: await runtimeProvider.providerRuntime() };
+    } catch (error) {
+      runtime = { status: "unavailable", message: error instanceof Error ? error.message : String(error) };
+    }
+    const recovery = this.recoveryProvider === undefined ? undefined : await this.recoveryProvider();
+    return reconcilePiWebPluginLifecycle(
+      desired,
+      runtime,
+      browserModuleUrl,
+      recovery?.safeStart,
+    );
+  }
+
+  private async pluginInfo(plugin: PluginRecord, config: PiWebConfig): Promise<PiWebPluginInfo> {
+    const backendRevision = plugin.backendRevision ?? await computePiWebPluginPackageRevision(plugin.root).catch(() => undefined);
     return {
       id: plugin.id,
       module: `/pi-web-plugins/${encodeURIComponent(plugin.id)}/${plugin.entryFile}?${pluginModuleQuery(plugin)}`,
       source: plugin.source,
       scope: plugin.scope,
       machineSpecific: plugin.machineSpecific,
+      ...(backendRevision === undefined ? {} : { backendRevision }),
       enabled: config.plugins?.[plugin.id]?.enabled !== false,
     };
   }
@@ -220,6 +277,12 @@ function defaultPluginRoots(cwd: string): LocalPluginRoot[] {
   ];
 }
 
+function browserModuleUrl(plugin: PiWebPluginCatalogEntry): string {
+  const module = plugin.browserModule;
+  if (module === undefined) throw new Error(`PI WEB plugin ${plugin.id} has no browser module`);
+  return `/pi-web-plugins/${encodeURIComponent(plugin.id)}/${module.path}?v=${encodeURIComponent(module.revision)}`;
+}
+
 function bundledPluginRoot(packageRoot: string): string {
   return join(packageRoot, "dist", "pi-web-plugins");
 }
@@ -254,7 +317,7 @@ function isTruthyEnv(key: string): boolean {
 }
 
 function sourceCheckoutPluginRoots(cwd: string): LocalPluginRoot[] {
-  const pluginsRoot = join(cwd, "plugins");
+  const pluginsRoot = existsSync(join(cwd, "plugins")) ? join(cwd, "plugins") : join(cwd, "pi-web-plugins");
   if (!existsSync(join(cwd, "src", "server", "index.ts")) || !existsSync(pluginsRoot)) return [];
   return [{ path: pluginsRoot, source: "dev", scope: "local" }];
 }
@@ -298,7 +361,7 @@ async function discoverPluginEntries(root: string, config: PiWebPackageConfig): 
     const entryPath = join(root, entry.module);
     const entryStat = await stat(entryPath).catch(() => undefined);
     if (entryStat?.isFile() !== true) throw new Error(`PI WEB plugin module not found for ${entry.id}: ${entry.module}`);
-    plugins.push({ id: entry.id, root, entryFile: entry.module, version: String(Math.floor(entryStat.mtimeMs)), machineSpecific: entry.machineSpecific });
+    plugins.push({ id: entry.id, root, entryFile: entry.module, version: String(Math.floor(entryStat.mtimeMs)), machineSpecific: entry.machineSpecific, ...(entry.backendRevision === undefined ? {} : { backendRevision: entry.backendRevision }) });
   }
   return plugins;
 }
@@ -329,7 +392,9 @@ function parsePluginEntries(piWeb: Record<string, unknown>, packagePath: string)
     const module = entry["module"];
     if (typeof id !== "string" || !isPiWebPluginId(id)) throw new Error(`Invalid PI WEB plugin id in ${packagePath}: ${String(id)}`);
     if (typeof module !== "string" || module === "") throw new Error(`Invalid PI WEB plugin module for ${id} in ${packagePath}`);
-    return { id, module, machineSpecific: parseMachineSpecific(entry["machineSpecific"], packagePath, id) };
+    const backendRevision = entry["backendRevision"];
+    if (backendRevision !== undefined && (typeof backendRevision !== "string" || backendRevision === "")) throw new Error(`Invalid PI WEB plugin backend revision for ${id} in ${packagePath}`);
+    return { id, module, machineSpecific: parseMachineSpecific(entry["machineSpecific"], packagePath, id), ...(backendRevision === undefined ? {} : { backendRevision }) };
   });
 }
 

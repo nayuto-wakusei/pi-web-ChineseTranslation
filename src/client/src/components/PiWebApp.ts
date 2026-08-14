@@ -15,7 +15,7 @@ import { ProjectActivityOwnershipCoordinator } from "../controllers/projectActiv
 import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { SessionController } from "../controllers/sessionController";
 import { SessionNotificationController } from "../controllers/sessionNotificationController";
-import { WorkspaceController, canDeleteWorkspace } from "../controllers/workspaceController";
+import { WorkspaceController } from "../controllers/workspaceController";
 import { emptyMachineNavigationSnapshot, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
 import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSelection";
 import { SessionStorageTerminalSelectionMemory } from "../controllers/terminalSelection";
@@ -32,11 +32,12 @@ import { initialSessionWarningVisibilityState, reconcileSessionWarningVisibility
 import { RealtimeSocket, SessionSocket, type BrowserRealtimeEvent } from "../sessionSocket";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
-import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
+import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePluginBinding } from "../plugins/types";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
-import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope } from "../plugins/registry";
+import { PluginRegistry, installPluginRuntimeScope, installWorkspaceLabelScope, installWorkspacePanelScope } from "../plugins/registry";
+import { createPluginWorkspaceBackend } from "../plugins/workspaceBackend";
 import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
@@ -48,7 +49,7 @@ import { readRoute, writeRoute, type AppRoute } from "../route";
 import { readSettingsSection, writeSettingsSection, type SettingsSection } from "../settingsRoute";
 import { applyActiveShortcutPreferences } from "../shortcutPreferences";
 import { createTerminalCommandRunsRuntime } from "../runtime/terminalRuntime";
-import { isWorkspaceDeletionPending, isWorkspaceDeletionRunPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, targetWorkspaceIdForRun, workspaceDeletionRunFilter } from "../workspaceDeletion";
+import { canDeleteWorkspace, isWorkspaceDeletionPending, isWorkspaceDeletionRunPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, targetWorkspaceIdForRun, workspaceDeletionRunFilter, workspaceRemovalConfirmation } from "../workspaceDeletion";
 import "./MachineList";
 import "./ProjectList";
 import "./WorkspaceList";
@@ -698,6 +699,7 @@ export class PiWebApp extends LitElement {
     if (tool === "core:workspace.files") await this.files.refreshFiles();
     else if (tool === "core:workspace.git") await this.git.refreshGit();
     else if (tool === "core:workspace.terminal" && workspace !== undefined) await this.refreshActiveTerminals(workspace);
+    else await this.invalidateWorkspacePanels(tool);
   }
 
   private hardReloadApp(): void {
@@ -912,9 +914,11 @@ export class PiWebApp extends LitElement {
   }
 
   private async refreshRestoredWorkspaceTool(tool: QualifiedContributionId | undefined, selectedFilePath: string | undefined): Promise<void> {
-    if (tool === "core:workspace.files") await this.files.refreshFiles();
-    if (tool === "core:workspace.files" && selectedFilePath !== undefined) await this.files.restoreFile(selectedFilePath);
-    if (tool === "core:workspace.git") await this.git.refreshGit();
+    if (tool === "core:workspace.files") {
+      await this.files.refreshFiles();
+      if (selectedFilePath !== undefined) await this.files.restoreFile(selectedFilePath);
+    } else if (tool === "core:workspace.git") await this.git.refreshGit();
+    else if (tool !== undefined && tool !== "core:workspace.terminal") await this.invalidateWorkspacePanels(tool);
   }
 
   private async withChatScrollTransition(action: () => Promise<void>, shouldComplete: () => boolean = () => true) {
@@ -1289,7 +1293,8 @@ export class PiWebApp extends LitElement {
 
   private refreshSelectedWorkspaceTool(tool: QualifiedContributionId): void {
     if (tool === "core:workspace.files") void this.files.refreshFiles();
-    if (tool === "core:workspace.git") void this.git.refreshGit();
+    else if (tool === "core:workspace.git") void this.git.refreshGit();
+    else if (tool !== "core:workspace.terminal") void this.invalidateWorkspacePanels(tool);
   }
 
   private renderWorkspacePanel() {
@@ -1798,13 +1803,18 @@ export class PiWebApp extends LitElement {
 
   private createWorkspaceLabelContext(workspace: Workspace): WorkspaceLabelContext {
     const machine = pluginMachineFromState(this.state);
-    return {
-      machine,
-      workspace,
-      state: this.state,
-      files: this.createWorkspaceFiles(workspace, machine.id),
-      host: this.createWorkspaceHost(),
+    const createContext = (binding: WorkspacePluginBinding): WorkspaceLabelContext => {
+      const backend = createPluginWorkspaceBackend(binding, workspace, machine.id);
+      return installWorkspaceLabelScope({
+        machine,
+        workspace,
+        state: this.state,
+        files: this.createWorkspaceFiles(workspace, machine.id),
+        ...(backend === undefined ? {} : { backend }),
+        host: this.createWorkspaceHost(),
+      }, createContext);
     };
+    return createContext(coreWorkspacePluginBinding());
   }
 
   private createWorkspaceFiles(workspace: Workspace, machineId: string): WorkspaceFiles {
@@ -1839,11 +1849,13 @@ export class PiWebApp extends LitElement {
   private createWorkspacePanelContext(workspace: Workspace): WorkspacePanelContext {
     const machine = pluginMachineFromState(this.state);
     const machineId = machine.id;
-    const createContext = (origin: string): WorkspacePanelContext => {
-      const terminalCommandRuns = this.terminalCommandRunsForOrigin(origin, machineId);
+    const createContext = (binding: WorkspacePluginBinding): WorkspacePanelContext => {
+      const terminalCommandRuns = this.terminalCommandRunsForOrigin(binding.registrationPluginId, machineId);
+      const backend = createPluginWorkspaceBackend(binding, workspace, machineId);
       return installWorkspacePanelScope({
         machine,
         workspace,
+        ...(backend === undefined ? {} : { backend }),
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machineId),
         prompt: this.createPromptEditor(),
@@ -1885,7 +1897,13 @@ export class PiWebApp extends LitElement {
         onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => { this.selectTerminal(terminalId, options); },
       }, createContext);
     };
-    return createContext("core");
+    return createContext({ registrationPluginId: "core", sourcePluginId: "core" });
+  }
+
+  private invalidateWorkspacePanels(panelId?: QualifiedContributionId): Promise<void> {
+    const workspace = this.state.selectedWorkspace;
+    if (workspace === undefined) return Promise.resolve();
+    return this.plugins.invalidateWorkspacePanels(this.createWorkspacePanelContext(workspace), panelId);
   }
 
   private getActions(): AppAction[] {
@@ -2072,6 +2090,7 @@ export class PiWebApp extends LitElement {
       openTerminal: (options) => { this.openTerminal(options); },
       refreshFiles: () => this.files.refreshFiles(),
       refreshGit: () => this.git.refreshGit(),
+      refreshWorkspacePanels: (panelId) => this.invalidateWorkspacePanels(panelId),
       refreshAppData: () => this.refreshAppData(),
       checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates(),
       reloadPage: () => { this.hardReloadApp(); },
@@ -2088,17 +2107,17 @@ export class PiWebApp extends LitElement {
   private async deleteWorkspace(workspace = this.state.selectedWorkspace): Promise<void> {
     if (workspace === undefined) return;
     if (!canDeleteWorkspace(workspace)) {
-      this.setState({ error: "只能删除辅助 Git 工作树" });
+      this.setState({ error: "当前工作区不支持移除" });
       return;
     }
     if (isWorkspaceDeletionPending(this.state, workspace)) return;
-    const label = workspace.branch ?? workspace.label;
-    const confirmed = confirm(`删除工作区 ${label}？\n\n此操作将运行 git worktree remove 并删除：\n${workspace.path}\n\n不会删除 Git 分支。`);
-    if (!confirmed) return;
+    const removal = workspace.removal;
+    const confirmation = workspaceRemovalConfirmation(workspace);
+    if (removal === undefined || confirmation === undefined || !confirm(confirmation)) return;
 
     const machineId = selectedMachineId(this.state);
     try {
-      const run = await workspacesApi.deleteWorkspace(workspace.projectId, workspace.id, machineId);
+      const run = await workspacesApi.deleteWorkspace(workspace.projectId, workspace.id, removal.precondition, machineId);
       if (selectedMachineId(this.state) !== machineId) return;
       this.recordWorkspaceDeletionRun(run, machineId);
       const commandWorkspace = await this.workspaceForCommandRun(run);
@@ -2549,6 +2568,10 @@ function pluginMachineFromState(state: Pick<AppState, "selectedMachine">): Plugi
   const machine = state.selectedMachine;
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
   return { id: "local", name: "本机", kind: "local" };
+}
+
+function coreWorkspacePluginBinding(): WorkspacePluginBinding {
+  return { registrationPluginId: "core", sourcePluginId: "core" };
 }
 
 function unreadChatIdentity(machineId: string, session: Pick<SessionInfo, "id" | "cwd">): string {

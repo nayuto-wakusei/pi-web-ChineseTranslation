@@ -4,7 +4,6 @@ import { loadExternalPlugins, resolvePluginModuleUrl } from "./external";
 beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
 });
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -14,7 +13,7 @@ describe("external plugin manifests", () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 404 })));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(loadExternalPlugins()).resolves.toEqual([]);
+    await expect(loadExternalPlugins()).resolves.toEqual({ registrations: [], failures: [] });
 
     expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", { cache: "no-store" });
   });
@@ -25,7 +24,7 @@ describe("external plugin manifests", () => {
       plugins: [{ id: "info", module: "./info/pi-web-plugin.js?v=1", machineSpecific: false }],
     }))));
     const moduleLoader = vi.fn(() => Promise.resolve({
-      default: { apiVersion: 1, name: "Info", activate: () => ({ contributions: {} }) },
+      default: { apiVersion: 2, name: "Info", activate: () => ({ contributions: {} }) },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -33,7 +32,7 @@ describe("external plugin manifests", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(manifestUrl, { cache: "no-store" });
     expect(moduleLoader).toHaveBeenCalledWith("https://pi.example.test/test/ai/pi-web-plugins/info/pi-web-plugin.js?v=1");
-    expect(registrations).toMatchObject([{ id: "info", machineSpecific: false, plugin: { apiVersion: 1, name: "Info" } }]);
+    expect(registrations.registrations).toMatchObject([{ id: "info", machineSpecific: false, plugin: { apiVersion: 2, name: "Info" } }]);
   });
 
   it("treats root-style modules from existing manifests as application-root paths", () => {

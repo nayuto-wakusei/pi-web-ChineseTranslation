@@ -1,6 +1,7 @@
 import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitDiffResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
 import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionPinResponse, SessionPinnedIdsResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
+import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 
@@ -135,6 +136,8 @@ export function parseProject(value: unknown): Project {
 export function parseWorkspace(value: unknown): Workspace {
   const record = requireRecord(value);
   const branch = optionalString(record, "branch");
+  const provider = optionalWorkspaceProvider(record["provider"]);
+  const removal = optionalWorkspaceRemoval(record["removal"]);
   return {
     id: requireString(record, "id"),
     projectId: requireString(record, "projectId"),
@@ -144,8 +147,49 @@ export function parseWorkspace(value: unknown): Workspace {
     isMain: requireBoolean(record, "isMain"),
     isGitRepo: requireBoolean(record, "isGitRepo"),
     isGitWorktree: requireBoolean(record, "isGitWorktree"),
+    ...(provider === undefined ? {} : { provider }),
+    ...(removal === undefined ? {} : { removal }),
     ...optionalField("effectiveConfig", optionalWorkspaceEffectiveConfig(record["effectiveConfig"])),
   };
+}
+
+function optionalWorkspaceProvider(value: unknown): Workspace["provider"] {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  const capabilities = requireRecord(record["capabilities"]);
+  const metadata = record["metadata"] === undefined ? undefined : parseJsonObject(record["metadata"], "workspace provider metadata");
+  return {
+    pluginId: requireString(record, "pluginId"),
+    capabilities: {
+      request: requireBoolean(capabilities, "request"),
+      remove: requireBoolean(capabilities, "remove"),
+    },
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}
+
+function optionalWorkspaceRemoval(value: unknown): Workspace["removal"] {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return {
+    actionLabel: requireString(record, "actionLabel"),
+    confirmation: requireString(record, "confirmation"),
+    precondition: requireString(record, "precondition"),
+  };
+}
+
+function parseJsonObject(value: unknown, label: string): JsonObject {
+  const parsed = parseJsonValue(value, label);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`Expected JSON object: ${label}`);
+  return parsed;
+}
+
+function parseJsonValue(value: unknown, label: string): JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map((item) => parseJsonValue(item, label));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, parseJsonValue(item, label)]));
+  throw new Error(`Expected JSON value: ${label}`);
 }
 
 function optionalWorkspaceEffectiveConfig(value: unknown): Workspace["effectiveConfig"] | undefined {
@@ -1445,9 +1489,12 @@ export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse 
 
 function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
   const record = requireRecord(value);
+  const module = optionalString(record, "module");
+  const backendRevision = optionalString(record, "backendRevision");
   return {
     id: requireString(record, "id"),
-    module: requireString(record, "module"),
+    ...(module === undefined ? {} : { module }),
+    ...(backendRevision === undefined ? {} : { backendRevision }),
     source: requireString(record, "source"),
     scope: parsePiWebPluginScope(record["scope"]),
     machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,

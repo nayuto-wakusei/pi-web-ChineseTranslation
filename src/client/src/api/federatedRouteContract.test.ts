@@ -90,7 +90,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(projectsApi.closeProject("p 1", machineId)),
       ignoreParseFailure(projectsApi.projectDirectories("/r", machineId)),
       ignoreParseFailure(workspacesApi.workspaces("p 1", machineId)),
-      ignoreParseFailure(workspacesApi.deleteWorkspace("p 1", "w 1", machineId)),
+      ignoreParseFailure(workspacesApi.deleteWorkspace("p 1", "w 1", "removal-v1", machineId)),
       ignoreParseFailure(workspacesApi.workspaceTree("p 1", "w 1", "src", machineId)),
       ignoreParseFailure(workspacesApi.workspaceFile("p 1", "w 1", "README.md", machineId)),
       ignoreParseFailure(workspacesApi.createWorkspaceFile("p 1", "w 1", "new.txt", machineId)),

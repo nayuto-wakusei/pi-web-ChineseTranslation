@@ -2,6 +2,7 @@ export { activityApi, api, configApi, filesApi, gitApi, machinesApi, normalAuthA
 export { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./api/sockets";
 export { setApiScope } from "./api/http";
 export type { ApiScope } from "./api/managementEmbed";
+export type { JsonValue } from "../../shared/apiTypes";
 export type { AuthRequestTarget } from "./api/clients";
 export { DEFAULT_WORKSPACE_UPLOADS_FOLDER, effectiveWorkspaceUploadFolder, uploadWorkspaceFile, uploadWorkspaceFiles, workspaceEffectiveUploadFolder, workspaceUploadPath, WorkspaceUploadBatchError, WorkspaceUploadCancelledError } from "./api/workspaceUploads";
 export type { UploadWorkspaceFileOptions, UploadWorkspaceFilesOptions, WorkspaceFileUploadProgress, WorkspaceUploadBatchFileProgress, WorkspaceUploadBatchProgress, WorkspaceUploadFileFailure, WorkspaceUploadFileInput, WorkspaceUploadFolderConfig, WorkspaceUploadTask, WorkspaceUploadXhr, WorkspaceUploadXhrFactory } from "./api/workspaceUploads";

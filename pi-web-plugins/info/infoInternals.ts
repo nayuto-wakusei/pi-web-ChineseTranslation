@@ -79,7 +79,7 @@ export function componentDetails(component: PiWebComponentStatus): string {
 export function workspaceFlags(workspace: Workspace): string[] {
   return [
     workspace.branch === undefined || workspace.branch === "" ? undefined : `分支 ${workspace.branch}`,
-    workspace.isGitWorktree ? "Git 工作树" : workspace.isGitRepo ? "Git 仓库" : "非 Git 仓库",
+    workspace.isGitWorktree === true ? "Git 工作树" : workspace.isGitRepo === true ? "Git 仓库" : "非 Git 仓库",
     workspace.isMain ? "主工作区" : undefined,
   ].filter((flag): flag is string => flag !== undefined);
 }

@@ -40,11 +40,10 @@ describe("Info plugin copy-diagnostics action", () => {
 });
 
 function findCopyDiagnosticsAction() {
-  const action = plugin.activate({ apiVersion: 1, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
+  const action = plugin.activate({ apiVersion: 2, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;
 }
-
 function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
   const noop = () => undefined;
   return {
