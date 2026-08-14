@@ -24,6 +24,25 @@ describe("shouldShowMachinesSection", () => {
   });
 });
 
+describe("brand visibility", () => {
+  it("shows the PI WEB brand by default", async () => {
+    const panel = new AppNavigationPanel();
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    expect(panel.shadowRoot?.querySelector("header strong")?.textContent).toBe("PI WEB");
+  });
+
+  it("hides the PI WEB brand when disabled", async () => {
+    const panel = new AppNavigationPanel();
+    panel.showBrand = false;
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    expect(panel.shadowRoot?.querySelector("header strong")).toBeNull();
+  });
+});
+
 describe("unread presence wiring", () => {
   it("feeds each unread presence slice to the matching navigation section", async () => {
     const unreadPresence: UnreadPresence = {

@@ -40,6 +40,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) refreshControl: unknown;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) compact = false;
+  @property({ type: Boolean }) showBrand = true;
   @property({ type: Boolean }) machinesCollapsed = false;
   @property({ type: Boolean }) projectsCollapsed = false;
   @property({ type: Boolean }) workspacesCollapsed = false;
@@ -105,7 +106,7 @@ export class AppNavigationPanel extends LitElement {
   override render() {
     return html`
       <header>
-        <strong>PI WEB</strong>
+        ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
         ${shouldShowMachinesSection(this.machines) ? html`
           <machine-switcher
             .machines=${this.machines}
