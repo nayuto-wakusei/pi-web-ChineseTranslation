@@ -238,9 +238,12 @@ await runSessionDaemonStartup({
     registerSessionRoutes(app, sessions, eventHub);
     registerTerminalRoutes(app, terminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
-    registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime });
-    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
-    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
+    const managementProjectRoot = config.managementEmbed?.enabled === true
+      ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
+      : undefined;
+    registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot });
+    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
+    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: () => { statusAttribution.invalidate(); machineStatus.notifyChanged(); } });
 
     app.get("/health", () => ({
       ok: true,

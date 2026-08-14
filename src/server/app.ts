@@ -9,7 +9,7 @@ import { effectivePiWebConfig } from "../config.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
-import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput } from "./workspaces/workspaceCatalog.js";
+import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
 import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
@@ -124,7 +124,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
         const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
-        return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined);
+        return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined, { managementContext: context });
       }
       const project = await projects.requireProject(request.params.projectId);
       return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined);
@@ -134,9 +134,9 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   });
 }
 
-async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, legacyWorkspaces?: WorkspaceService): Promise<Workspace[]> {
+async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, legacyWorkspaces?: WorkspaceService, options: WorkspaceCatalogRequestOptions = {}): Promise<Workspace[]> {
   const [workspaceList, effectiveConfig] = await Promise.all([
-    legacyWorkspaces === undefined ? workspaces.list(project.id) : legacyWorkspaces.list(project),
+    legacyWorkspaces === undefined ? workspaces.list(project.id, options) : legacyWorkspaces.list(project),
     workspaceEffectiveConfig(project.path, config),
   ]);
   return workspaceList.map((workspace) => ({
@@ -218,8 +218,11 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
+  const runtimeConfig = effectivePiWebConfig().config;
+  const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
+  const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
   const workspaces: WorkspaceCatalog = deps.workspaceCatalog ?? (deps.workspaces === undefined
-    ? new SessionDaemonWorkspaceCatalog(sessionDaemon)
+    ? new SessionDaemonWorkspaceCatalog(sessionDaemon, managementEmbed)
     : asWorkspaceCatalog(projects, legacyWorkspaces));
   const workspaceInput: WorkspaceCatalogInput = deps.workspaceCatalog ?? (deps.workspaces === undefined ? workspaces : legacyWorkspaces);
   const providerRuntime = workspaces.providerRuntime === undefined
@@ -246,12 +249,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const machines = deps.machines ?? new MachineService(undefined, {
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
-  const runtimeConfig = effectivePiWebConfig().config;
-  const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
-  const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
   const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
     const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, projectId, { create: false });
-    const listed = isLegacyWorkspaceService(workspaceInput) ? await workspaceInput.list(project) : await workspaces.list(project.id);
+    const listed = isLegacyWorkspaceService(workspaceInput) ? await workspaceInput.list(project) : await workspaces.list(project.id, { managementContext: context });
     return listed.map((workspace) => workspace.path);
   };
   const normalAuth = new NormalModeAuthService(configService);

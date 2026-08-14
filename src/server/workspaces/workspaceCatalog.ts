@@ -6,6 +6,7 @@ import type {
 } from "../plugins/serverPluginRuntime.js";
 import type { PiWebPluginCatalogDiagnostic } from "../piWebPluginCatalog.js";
 import type { WorkspaceService } from "./workspaceService.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export interface WorkspaceCatalogProjectReader {
   requireProject(projectId: string): Promise<import("../types.js").Project>;
@@ -13,13 +14,17 @@ export interface WorkspaceCatalogProjectReader {
 
 export const WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION = 1;
 
+export interface WorkspaceCatalogRequestOptions {
+  managementContext?: ManagementEmbedContext;
+}
+
 /** Web-side port for sessiond's authoritative, live workspace catalog. */
 export interface WorkspaceCatalog {
   /** Preserve the daemon authority's provider-neutral ownership and diagnostics. */
-  resolveProject(projectId: string): Promise<WorkspaceProviderAuthorityResolution>;
+  resolveProject(projectId: string, options?: WorkspaceCatalogRequestOptions): Promise<WorkspaceProviderAuthorityResolution>;
   /** Explicit workspace-only adapter for filesystem/session consumers. */
-  list(projectId: string): Promise<WorkspaceListing[]>;
-  resolve(projectId: string, workspaceId: string): Promise<WorkspaceListing>;
+  list(projectId: string, options?: WorkspaceCatalogRequestOptions): Promise<WorkspaceListing[]>;
+  resolve(projectId: string, workspaceId: string, options?: WorkspaceCatalogRequestOptions): Promise<WorkspaceListing>;
   providerRuntime?(): Promise<WorkspaceProviderRuntimeSnapshot>;
 }
 

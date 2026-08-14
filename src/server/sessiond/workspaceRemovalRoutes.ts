@@ -7,10 +7,7 @@ import {
 import { requestCancellation } from "../requestCancellation.js";
 import type { Project } from "../types.js";
 import { workspaceRemovalHttpStatus } from "../workspaces/workspaceRemovalService.js";
-
-export interface WorkspaceRemovalProjectReader {
-  requireProject(projectId: string): Promise<Project>;
-}
+import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 
 export interface WorkspaceRemover {
   remove(
@@ -22,8 +19,9 @@ export interface WorkspaceRemover {
 }
 
 export interface WorkspaceRemovalRouteDependencies {
-  projects: WorkspaceRemovalProjectReader;
+  projects: SessiondProjectReader;
   removals: WorkspaceRemover;
+  managementProjectRoot?: string | undefined;
   onWorkspacesMutated?: () => void;
 }
 
@@ -46,10 +44,10 @@ export function registerWorkspaceRemovalRoutes(
 
       let project: Project;
       try {
-        project = await dependencies.projects.requireProject(request.params.projectId);
+        project = await resolveSessiondProject(request.headers, request.params.projectId, dependencies);
       } catch (error) {
         const message = errorMessage(error);
-        return reply.code(message === "Project not found" ? 404 : 500).send({ error: message });
+        return reply.code(projectErrorStatus(message)).send({ error: message });
       }
 
       const cancellation = requestCancellation(request, reply);
@@ -77,4 +75,10 @@ function removalRequestFailed(reply: FastifyReply, error: unknown): FastifyReply
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function projectErrorStatus(message: string): number {
+  if (message === "Project not found") return 404;
+  if (message === "Project is not authorized for this management session") return 403;
+  return 500;
 }

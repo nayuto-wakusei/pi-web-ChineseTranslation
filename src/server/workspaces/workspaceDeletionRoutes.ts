@@ -9,7 +9,7 @@ import { requestCancellation } from "../requestCancellation.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ProjectService } from "../projects/projectService.js";
 import type { WorkspaceService } from "./workspaceService.js";
-import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 /** Browser-facing adapter; sessiond owns all workspace removal decisions and effects. */
 export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
@@ -51,7 +51,7 @@ export function registerWorkspaceDeletionRoutes(
           "DELETE",
           `/workspace-removals/projects/${encodeURIComponent(request.params.projectId)}/workspaces/${encodeURIComponent(request.params.workspaceId)}`,
           body,
-          managementHeaders(managementContext),
+          managementHeaders(managementContext, managementEmbed),
         );
         return await proxyJsonResponse(reply, upstream);
       } catch (error) {
@@ -65,8 +65,13 @@ export function registerWorkspaceDeletionRoutes(
   );
 }
 
-function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
-  return context === undefined ? undefined : { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
+function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
+  if (context === undefined) return undefined;
+  const handle = runtime?.resourceHandle?.(context);
+  return {
+    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
+    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
+  };
 }
 
 function proxyJsonResponse(
@@ -121,7 +126,7 @@ function registerLegacyWorkspaceDeletionRoutes(
       if (!target.isGitWorktree || target.isMain) throw new Error("Only secondary Git worktrees can be deleted");
       const commandWorkspace = listed.find((workspace) => workspace.isMain) ?? listed.find((workspace) => workspace.id !== target.id);
       if (commandWorkspace === undefined) throw new Error("Project main workspace not found");
-      const closed = await daemon.request("DELETE", `/terminals?cwd=${encodeURIComponent(target.path)}`, undefined, managementHeaders(context));
+      const closed = await daemon.request("DELETE", `/terminals?cwd=${encodeURIComponent(target.path)}`, undefined, managementHeaders(context, managementEmbed));
       if (closed.statusCode < 200 || closed.statusCode >= 300) throw new Error(`Failed to close workspace terminals: ${responseError(closed.body, closed.statusCode)}`);
       const started = await daemon.request("POST", "/terminal-command-runs", {
         origin: "core",
@@ -131,7 +136,7 @@ function registerLegacyWorkspaceDeletionRoutes(
         title: `Delete workspace: ${target.branch ?? target.label}`,
         command: `git worktree remove ${shellQuote(target.path)}`,
         metadata: workspaceDeletionMetadata(target),
-      }, managementHeaders(context));
+      }, managementHeaders(context, managementEmbed));
       if (started.statusCode < 200 || started.statusCode >= 300) throw new Error(`Failed to start workspace deletion: ${responseError(started.body, started.statusCode)}`);
       return await reply.code(started.statusCode).send(JSON.parse(started.body));
     } catch (error) {

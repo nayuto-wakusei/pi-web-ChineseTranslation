@@ -26,28 +26,34 @@ import {
   WorkspaceCatalogUnavailableError,
   WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION,
   type WorkspaceCatalog,
+  type WorkspaceCatalogRequestOptions,
   type WorkspaceProviderRuntimeSnapshot,
   withBrowserV1WorkspaceCompatibility,
 } from "./workspaceCatalog.js";
+import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 const WORKSPACE_CATALOG_PATH = "/workspace-catalog";
 
 /** Narrow web adapter over sessiond's internal workspace-authority protocol. */
 export class SessionDaemonWorkspaceCatalog implements WorkspaceCatalog {
-  constructor(private readonly daemon: SessionDaemonRequestClient) {}
+  constructor(
+    private readonly daemon: SessionDaemonRequestClient,
+    private readonly managementEmbed?: ManagementEmbedRuntime,
+  ) {}
 
-  async resolveProject(projectId: string): Promise<WorkspaceProviderAuthorityResolution> {
-    const value = await this.requestJson(`${WORKSPACE_CATALOG_PATH}/projects/${encodedId(projectId, "project")}/workspaces`);
+  async resolveProject(projectId: string, options: WorkspaceCatalogRequestOptions = {}): Promise<WorkspaceProviderAuthorityResolution> {
+    const value = await this.requestJson(`${WORKSPACE_CATALOG_PATH}/projects/${encodedId(projectId, "project")}/workspaces`, options.managementContext);
     return parseWorkspaceProviderResolution(value, projectId);
   }
 
-  async list(projectId: string): Promise<WorkspaceListing[]> {
-    return [...(await this.resolveProject(projectId)).workspaces];
+  async list(projectId: string, options: WorkspaceCatalogRequestOptions = {}): Promise<WorkspaceListing[]> {
+    return [...(await this.resolveProject(projectId, options)).workspaces];
   }
 
-  async resolve(projectId: string, workspaceId: string): Promise<WorkspaceListing> {
+  async resolve(projectId: string, workspaceId: string, options: WorkspaceCatalogRequestOptions = {}): Promise<WorkspaceListing> {
     const value = await this.requestJson(
       `${WORKSPACE_CATALOG_PATH}/projects/${encodedId(projectId, "project")}/workspaces/${encodedId(workspaceId, "workspace")}`,
+      options.managementContext,
     );
     const workspace = parseWorkspace(value, "workspace resolution response");
     if (workspace.projectId !== projectId || workspace.id !== workspaceId) {
@@ -60,10 +66,10 @@ export class SessionDaemonWorkspaceCatalog implements WorkspaceCatalog {
     return parseProviderRuntimeSnapshot(await this.requestJson(`${WORKSPACE_CATALOG_PATH}/provider-runtime`));
   }
 
-  private async requestJson(path: string): Promise<unknown> {
+  private async requestJson(path: string, managementContext?: ManagementEmbedContext): Promise<unknown> {
     let response: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
     try {
-      response = await this.daemon.request("GET", path);
+      response = await this.daemon.request("GET", path, undefined, managementHeaders(managementContext, this.managementEmbed));
     } catch (error) {
       throw new WorkspaceCatalogUnavailableError(
         `Session daemon workspace authority unavailable: ${errorMessage(error)}`,
@@ -91,6 +97,18 @@ export class SessionDaemonWorkspaceCatalog implements WorkspaceCatalog {
       throw new WorkspaceCatalogProtocolError("Session daemon workspace authority returned invalid JSON", { cause: error });
     }
   }
+}
+
+function managementHeaders(
+  context: ManagementEmbedContext | undefined,
+  runtime: ManagementEmbedRuntime | undefined,
+): Record<string, string> | undefined {
+  if (context === undefined) return undefined;
+  const handle = runtime?.resourceHandle?.(context);
+  return {
+    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
+    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
+  };
 }
 
 function parseWorkspaceProviderResolution(value: unknown, expectedProjectId: string): WorkspaceProviderAuthorityResolution {

@@ -5,7 +5,7 @@ import {
   utf8ByteLength,
 } from "../../shared/pluginBackendProtocol.js";
 import type { SessionDaemonRequestClient } from "../../sessiond/sessionDaemonClient.js";
-import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 interface PluginBackendProxyParams {
   pluginId: string;
@@ -29,7 +29,7 @@ export function registerPluginBackendProxyRoutes(
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       let upstream: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
       try {
-        upstream = await daemon.request("POST", path, request.body, managementHeaders(managementContext));
+        upstream = await daemon.request("POST", path, request.body, managementHeaders(managementContext, managementEmbed));
       } catch (error) {
         return reply.code(502).send({
           error: `Session daemon unavailable: ${errorMessage(error)}`,
@@ -65,8 +65,13 @@ export function registerPluginBackendProxyRoutes(
   );
 }
 
-function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {
-  return context === undefined ? undefined : { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
+function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
+  if (context === undefined) return undefined;
+  const handle = runtime?.resourceHandle?.(context);
+  return {
+    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
+    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
+  };
 }
 
 function daemonPluginBackendPath(params: PluginBackendProxyParams): string {

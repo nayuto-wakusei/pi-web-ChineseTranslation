@@ -13,6 +13,7 @@ import {
   WorkspaceProviderRequestError,
   type WorkspaceProviderRequest,
 } from "../workspaces/workspaceProviderRegistry.js";
+import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 
 interface PluginBackendRouteParams {
   pluginId: string;
@@ -21,17 +22,14 @@ interface PluginBackendRouteParams {
   operation: string;
 }
 
-export interface PluginBackendProjectReader {
-  requireProject(projectId: string): Promise<Project>;
-}
-
 export interface PluginBackendDispatcher {
   request(request: WorkspaceProviderRequest): Promise<unknown>;
 }
 
 export interface PluginBackendRouteDependencies {
-  projects: PluginBackendProjectReader;
+  projects: SessiondProjectReader;
   backends: PluginBackendDispatcher;
+  managementProjectRoot?: string | undefined;
   onWorkspacesMutated?: () => void;
 }
 
@@ -60,14 +58,14 @@ export function registerPluginBackendRoutes(
 
       let project: Project;
       try {
-        project = await dependencies.projects.requireProject(projectId);
+        project = await resolveSessiondProject(request.headers, projectId, dependencies);
       } catch (error) {
         const message = boundedErrorMessage(error);
         return attributedError(
           reply,
-          message === "Project not found" ? 404 : 500,
+          projectErrorStatus(message),
           message,
-          message === "Project not found" ? "project-not-found" : "project-resolution-failed",
+          projectErrorCode(message),
           pluginId,
           operation,
         );
@@ -129,4 +127,16 @@ function attributedError(
 function boundedErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.length <= 2_048 ? message : `${message.slice(0, 2_045)}...`;
+}
+
+function projectErrorStatus(message: string): number {
+  if (message === "Project not found") return 404;
+  if (message === "Project is not authorized for this management session") return 403;
+  return 500;
+}
+
+function projectErrorCode(message: string): string {
+  if (message === "Project not found") return "project-not-found";
+  if (message === "Project is not authorized for this management session") return "project-not-authorized";
+  return "project-resolution-failed";
 }

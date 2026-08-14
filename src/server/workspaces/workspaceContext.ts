@@ -1,7 +1,7 @@
 import type { ProjectService } from "../projects/projectService.js";
 import type { Project } from "../types.js";
 import type { WorkspaceListing } from "../../shared/apiTypes.js";
-import { asWorkspaceCatalog, type WorkspaceCatalogInput } from "./workspaceCatalog.js";
+import { asWorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaceCatalog.js";
 
 export interface WorkspaceContext {
   project: Project;
@@ -14,8 +14,8 @@ export async function resolveWorkspaceContext(projects: ProjectService, workspac
   return resolveProjectWorkspaceContext(asWorkspaceCatalog(projects, workspaces), project, workspaceId);
 }
 
-export async function resolveProjectWorkspaceContext(workspaces: WorkspaceCatalogInput, project: Project, workspaceId: string): Promise<WorkspaceContext> {
+export async function resolveProjectWorkspaceContext(workspaces: WorkspaceCatalogInput, project: Project, workspaceId: string, options: WorkspaceCatalogRequestOptions = {}): Promise<WorkspaceContext> {
   const catalog = asWorkspaceCatalog({ requireProject: () => Promise.resolve(project) }, workspaces);
-  const workspace = await catalog.resolve(project.id, workspaceId);
+  const workspace = await catalog.resolve(project.id, workspaceId, options);
   return { project, workspace, root: workspace.path };
 }

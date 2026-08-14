@@ -38,5 +38,5 @@ export async function resolveManagedWorkspaceContext(
   options: RouteWorkspaceContextOptions,
 ): Promise<WorkspaceContext> {
   const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), managementContext, projectId, { create: options.createManagedProject });
-  return resolveProjectWorkspaceContext(asWorkspaceCatalog({ requireProject: () => Promise.resolve(project) }, workspaces), project, workspaceId);
+  return resolveProjectWorkspaceContext(asWorkspaceCatalog({ requireProject: () => Promise.resolve(project) }, workspaces), project, workspaceId, { managementContext });
 }
