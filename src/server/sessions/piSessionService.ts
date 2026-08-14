@@ -21,6 +21,7 @@ import {
   SessionManager,
   type AgentSessionRuntimeDiagnostic,
   type AgentSessionServices,
+  type CreateAgentSessionServicesOptions,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
   type EditToolOptions,
@@ -469,7 +470,7 @@ export interface PiAgentSession {
 }
 
 export interface PiSessionModelRuntime {
-  refresh(): Promise<unknown>;
+  refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
   getAvailable(): Promise<readonly AgentModel[]>;
   getModel(provider: string, modelId: string): AgentModel | undefined;
   hasConfiguredAuth(provider: string): boolean;
@@ -844,6 +845,14 @@ export interface WorkbenchRuntimeDependencies {
   skills: WorkbenchSkillSynchronizer;
 }
 
+/** Append PI WEB-owned prompt sections after the operator's Pi prompt files. */
+export function piWebResourceLoaderOptions(
+  appendSystemPromptSections: readonly string[],
+): CreateAgentSessionServicesOptions["resourceLoaderOptions"] | undefined {
+  if (appendSystemPromptSections.length === 0) return undefined;
+  return { appendSystemPromptOverride: (base) => [...base, ...appendSystemPromptSections] };
+}
+
 function createDefaultRuntimeFactory(
   normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>,
   managementModelRuntime: () => Promise<ModelRuntime>,
@@ -855,6 +864,7 @@ function createDefaultRuntimeFactory(
   logger: PiSessionLogger = noopLogger,
   managementAudit?: ManagementAuditRecorder,
   managementProjectIdForCwd?: (cwd: string, context: ManagementEmbedContext) => Promise<string>,
+  appendSystemPromptSections: readonly string[] = [],
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
@@ -875,7 +885,14 @@ function createDefaultRuntimeFactory(
       scopeDirectory: await resolveSettingsScope(cwd, "normal"),
       globalAgentDir: agentDir,
     });
-    const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime: scopedModelRuntime, settingsManager });
+    const resourceLoaderOptions = piWebResourceLoaderOptions(appendSystemPromptSections);
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      modelRuntime: scopedModelRuntime,
+      settingsManager,
+      ...(resourceLoaderOptions === undefined ? {} : { resourceLoaderOptions }),
+    });
     const customTools = createPiWebCustomToolDefinitions(cwd, delegationToolsEnabled, spawn, subsessions, askUser);
     const result = await createAgentSessionFromServices({
       services,
@@ -1121,6 +1138,8 @@ export interface PiSessionServiceDependencies {
    */
   catalogRefreshStatus?: CatalogRefreshStatus;
   workbench?: WorkbenchRuntimeDependencies;
+  /** PI WEB session nesting facts appended only to ordinary-mode sessions. */
+  appendSystemPromptSections?: readonly string[];
 }
 
 export class PiSessionService {
@@ -1210,7 +1229,7 @@ export class PiSessionService {
     });
     let defaultModelRuntime: Promise<ModelRuntime> | undefined;
     const resolveDefaultModelRuntime = () => {
-      defaultModelRuntime ??= deps.modelRuntime === undefined ? ModelRuntime.create() : Promise.resolve(deps.modelRuntime);
+      defaultModelRuntime ??= deps.modelRuntime === undefined ? ModelRuntime.create({ allowModelNetwork: false }) : Promise.resolve(deps.modelRuntime);
       return defaultModelRuntime;
     };
     this.normalModelRuntimeForCwd = deps.normalModelRuntimeForCwd ?? resolveDefaultModelRuntime;
@@ -1256,6 +1275,7 @@ export class PiSessionService {
       this.logger,
       this.managementAudit,
       this.managementProjectIdForCwd,
+      deps.appendSystemPromptSections ?? [],
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
@@ -1674,7 +1694,9 @@ export class PiSessionService {
    * first so callers see newly configured providers and models.
    */
   private async sessionModelCandidates(session: PiAgentSession): Promise<readonly AgentModel[]> {
-    await session.modelRuntime.refresh();
+    // Pi 0.84 keeps request paths local-only; the bounded catalog refresher is
+    // the only path allowed to fetch provider catalogs over the network.
+    await session.modelRuntime.refresh({ allowNetwork: false });
     return session.scopedModels.length > 0
       ? session.scopedModels.map((scoped) => scoped.model)
       : await session.modelRuntime.getAvailable();

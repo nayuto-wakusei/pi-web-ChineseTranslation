@@ -15,11 +15,12 @@ export interface LoadedPiWebConfig {
   config: PiWebConfig;
 }
 
-export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "spawnSessions" | "subsessions" | "askUser" | "agent" | "extensionDialogsTimeoutMs"> {
+export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "spawnSessions" | "subsessions" | "askUser" | "environmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
   uploads: NonNullable<PiWebConfig["uploads"]>;
   spawnSessions: boolean;
   subsessions: boolean;
   askUser: boolean;
+  environmentFacts: boolean;
   extensionDialogsTimeoutMs: number;
   agent: Required<NonNullable<PiWebConfig["agent"]>>;
 }
@@ -83,7 +84,9 @@ export interface EffectivePiWebAgentConfig {
 
 export function effectiveAgentConfig(env: NodeJS.ProcessEnv = process.env, config: Pick<PiWebConfig, "agent"> = {}): EffectivePiWebAgentConfig {
   const command = parseAgentCommand(envValue(env, PI_WEB_AGENT_COMMAND_ENV) ?? config.agent?.command ?? DEFAULT_AGENT_COMMAND, "agent.command", "environment", "current");
-  const configuredDir = envValue(env, PI_WEB_AGENT_DIR_ENV) ?? (usesPiCodingAgentStateCompatibility(command) ? envValue(env, PI_CODING_AGENT_DIR_ENV) : undefined) ?? config.agent?.dir ?? defaultAgentDirForCommand(command, env);
+  // Keep the deprecated PI WEB alias first for compatibility, then the
+  // canonical Pi SDK variable, then the project config alias and SDK default.
+  const configuredDir = envValue(env, PI_WEB_AGENT_DIR_ENV) ?? envValue(env, PI_CODING_AGENT_DIR_ENV) ?? config.agent?.dir ?? defaultAgentDirForCommand(command, env);
   return {
     command,
     dir: resolveAgentDirPath(configuredDir, env, "agent.dir", "environment"),
@@ -92,10 +95,17 @@ export function effectiveAgentConfig(env: NodeJS.ProcessEnv = process.env, confi
 }
 
 export function agentSessionDirEnvKeys(command = DEFAULT_AGENT_COMMAND): string[] {
-  return uniqueStrings([
-    PI_WEB_AGENT_SESSION_DIR_ENV,
-    ...(usesPiCodingAgentStateCompatibility(command) ? [PI_CODING_AGENT_SESSION_DIR_ENV] : []),
-  ]);
+  void command;
+  return [PI_WEB_AGENT_SESSION_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV];
+}
+
+/** Resolve the session store override using the same old-alias-first policy. */
+export function agentSessionDirEnvOverride(env: Readonly<NodeJS.ProcessEnv>, command = DEFAULT_AGENT_COMMAND): string | undefined {
+  for (const key of agentSessionDirEnvKeys(command)) {
+    const value = env[key];
+    if (value !== undefined && value !== "") return value;
+  }
+  return undefined;
 }
 
 export function agentDirEnvSource(env: NodeJS.ProcessEnv): PiWebAgentDirEnvSource | undefined {
@@ -104,9 +114,9 @@ export function agentDirEnvSource(env: NodeJS.ProcessEnv): PiWebAgentDirEnvSourc
   return undefined;
 }
 
-export function hasAgentDirEnvOverride(env: NodeJS.ProcessEnv, command = DEFAULT_AGENT_COMMAND): boolean {
+export function hasAgentDirEnvOverride(env: NodeJS.ProcessEnv): boolean {
   const source = agentDirEnvSource(env);
-  return source === "pi-web" || (source === "pi-compatibility" && usesPiCodingAgentStateCompatibility(command));
+  return source !== undefined;
 }
 
 export function hasAgentSessionDirEnvOverride(env: NodeJS.ProcessEnv, command = DEFAULT_AGENT_COMMAND): boolean {
@@ -181,6 +191,7 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       subsessions: subsessionsEnabled(env, loaded.config),
       // Always resolved (on by default); the user is present for every ask.
       askUser: askUserEnabled(env, loaded.config),
+      environmentFacts: environmentFactsEnabled(env, loaded.config),
       // Always resolved; the unattended-dialog safety valve, not a gate.
       extensionDialogsTimeoutMs: loaded.config.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS,
       agent: { command: agent.command, dir: agent.dir },
@@ -263,6 +274,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["spawnSessions"];
   delete existing["subsessions"];
   delete existing["askUser"];
+  delete existing["environmentFacts"];
   delete existing["agent"];
   delete existing["workbenchIntegration"];
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
@@ -282,6 +294,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
   return {
     ...basePiWebConfigRecord(config),
     ...(config.askUser === undefined ? {} : { askUser: config.askUser }),
+    ...(config.environmentFacts === undefined ? {} : { environmentFacts: config.environmentFacts }),
     ...(config.extensionDialogsTimeoutMs === undefined ? {} : { extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs }),
     ...(config.agent !== undefined ? { agent: config.agent } : {}),
   };
@@ -291,6 +304,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
   return {
     ...parseBasePiWebConfig(value, path),
     ...(value["askUser"] === undefined ? {} : { askUser: parseAskUser(value["askUser"], path) }),
+    ...(value["environmentFacts"] === undefined ? {} : { environmentFacts: parseBooleanKey(value["environmentFacts"], "environmentFacts", path) }),
     ...(value["extensionDialogsTimeoutMs"] !== undefined ? { extensionDialogsTimeoutMs: parseExtensionDialogsTimeoutMs(value["extensionDialogsTimeoutMs"], path) } : {}),
     ...(value["agent"] !== undefined ? { agent: parseAgentConfig(value["agent"], path) } : {}),
   };
@@ -326,6 +340,17 @@ export function subsessionsEnabled(env: NodeJS.ProcessEnv = process.env, config:
   const fromEnv = env["PI_WEB_SUBSESSIONS"];
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
   return config.subsessions ?? false;
+}
+
+export function environmentFactsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
+  const fromEnv = env["PI_WEB_ENVIRONMENT_FACTS"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  return config.environmentFacts ?? true;
+}
+
+function parseBooleanKey(value: unknown, key: string, path: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`PI WEB config ${key} must be a boolean: ${path}`);
+  return value;
 }
 
 function parseAskUser(value: unknown, path: string): boolean {
@@ -506,10 +531,6 @@ function envValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
 
 function isEnvSet(value: string | undefined): boolean {
   return value !== undefined && value !== "";
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-  return [...new Set(values)];
 }
 
 function hasControlCharacter(value: string): boolean {

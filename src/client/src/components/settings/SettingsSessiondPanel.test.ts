@@ -122,7 +122,7 @@ function activeProfile(command: string, dir: string): ActiveAgentProfileDescript
     revision: `sha256:${"a".repeat(64)}`,
     command,
     dir,
-    sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
+    sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
   };
 }
 

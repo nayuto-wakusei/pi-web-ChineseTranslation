@@ -26,8 +26,11 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, agentSessionDirEnvKeys, effectivePiWebConfig, maxUploadBytes, piWebDataDir } from "../config.js";
+import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, piWebDataDir } from "../config.js";
 import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
+import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
+import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sessiond/sessiondStateOwnership.js";
+import { PI_WEB_SESSION_ENV, sessionEnvironmentPromptSections } from "./sessions/sessionEnvironmentFacts.js";
 import { runSessionDaemonStartup } from "./sessiond/sessionDaemonStartup.js";
 import { requestLoggerOptions } from "./requestLogging.js";
 import { WorkbenchAccessStateStore } from "./workbench/accessStateStore.js";
@@ -49,9 +52,21 @@ import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 
-const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
+const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config } = effectivePiWebConfig({ env: daemonEnvironment });
+// The embedded Pi SDK and every child process use the same resolved profile.
+daemonEnvironment[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
+process.env[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
+const sessionDirOverride = agentSessionDirEnvOverride(daemonEnvironment, config.agent.command);
+if (sessionDirOverride !== undefined) {
+  daemonEnvironment[PI_CODING_AGENT_SESSION_DIR_ENV] = sessionDirOverride;
+  process.env[PI_CODING_AGENT_SESSION_DIR_ENV] = sessionDirOverride;
+}
+process.env[PI_WEB_SESSION_ENV] = "1";
+daemonEnvironment[PI_WEB_SESSION_ENV] = "1";
+scrubNonAgentVisibleEnvKeys(process.env);
+let stateOwnership: SessiondStateOwnership | undefined;
 const activeAgentProfile = createActiveAgentProfileDescriptor({
   command: config.agent.command,
   dir: config.agent.dir,
@@ -69,6 +84,7 @@ await app.register(fastifyWebsocket);
 await runSessionDaemonStartup({
   logger: app.log,
   async createRuntime() {
+    stateOwnership = await claimSessiondStateOwnership({ env: daemonEnvironment, logger: app.log });
     const eventHub = new SessionEventHub();
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore());
@@ -95,6 +111,7 @@ await runSessionDaemonStartup({
       modelRuntime: await ModelRuntime.create({
         authPath: join(piWebDataDir(), "management-embed", "auth.json"),
         modelsPath: join(activeAgentProfile.dir, "models.json"),
+        allowModelNetwork: false,
       }),
     });
     const accessStates = new WorkbenchAccessStateStore();
@@ -182,6 +199,7 @@ await runSessionDaemonStartup({
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
+      appendSystemPromptSections: sessionEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts }),
       ...(workbench === undefined ? {} : { workbench }),
       sessionManager: createPiSessionManagerGateway({
         agentDir: activeAgentProfile.dir,
@@ -260,6 +278,7 @@ await runSessionDaemonStartup({
       } catch (error) {
         app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to flush management audit Elasticsearch queue");
       }
+      await stateOwnership?.release();
       await app.close();
     }
 

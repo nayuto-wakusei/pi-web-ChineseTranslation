@@ -41,7 +41,7 @@ export function currentPiWebConfigResponse(options: LoadOptions = {}): PiWebConf
     exists: loaded.exists,
     config: loaded.config,
     effectiveConfig: effective.config,
-    envOverrides: piWebConfigEnvOverrides(env, effective.config),
+    envOverrides: piWebConfigEnvOverrides(env),
   };
 }
 
@@ -289,8 +289,7 @@ function optionalAgentDirSource(record: Record<string, unknown>, source: string)
   return { agentDirSource: value };
 }
 
-function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv, config: PiWebConfig = {}): PiWebConfigEnvOverrides {
-  const command = config.agent?.command;
+function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): PiWebConfigEnvOverrides {
   const dirEnvSource = agentDirEnvSource(env);
   return {
     host: isEnvSet(env["PI_WEB_HOST"]),
@@ -300,9 +299,9 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv, config: PiWebConfig = {
     subsessions: isEnvSet(env["PI_WEB_SUBSESSIONS"]),
     askUser: isEnvSet(env["PI_WEB_ASK_USER"]),
     agentCommand: isEnvSet(env["PI_WEB_AGENT_COMMAND"]),
-    agentDir: hasAgentDirEnvOverride(env, command),
+    agentDir: hasAgentDirEnvOverride(env),
     ...(dirEnvSource === undefined ? {} : { agentDirSource: dirEnvSource }),
-    agentSessionDir: hasAgentSessionDirEnvOverride(env, command),
+    agentSessionDir: hasAgentSessionDirEnvOverride(env),
   };
 }
 

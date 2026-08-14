@@ -169,7 +169,7 @@
                 Environment overrides include <code>PI_WEB_HOST</code>, <code>PI_WEB_PORT</code> / <code>PORT</code>,
                 <code>PI_WEB_ALLOWED_HOSTS</code>, <code>PI_WEB_MAX_UPLOAD_BYTES</code>, <code>PI_WEB_AGENT_COMMAND</code>,
                 <code>PI_WEB_AGENT_DIR</code>, <code>PI_WEB_AGENT_SESSION_DIR</code>, <code>PI_CODING_AGENT_DIR</code> /
-                <code>PI_CODING_AGENT_SESSION_DIR</code> for Pi compatibility, <code>PI_WEB_SPAWN_SESSIONS</code>,
+                <code>PI_CODING_AGENT_SESSION_DIR</code>, <code>PI_WEB_ENVIRONMENT_FACTS</code>, <code>PI_WEB_SPAWN_SESSIONS</code>,
                 <code>PI_WEB_SUBSESSIONS</code>, and <code>PI_WEB_ASK_USER</code>.
               </p>
               <ul>
@@ -398,6 +398,14 @@
                       <td>Agent can post question forms</td>
                       <td><code>askUser</code></td>
                       <td><code>PI_WEB_ASK_USER</code></td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart session daemon on that machine</td>
+                    </tr>
+                    <tr>
+                      <td>Session nesting facts</td>
+                      <td><code>environmentFacts</code></td>
+                      <td><code>PI_WEB_ENVIRONMENT_FACTS</code></td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
                       <td>Restart session daemon on that machine</td>
@@ -697,6 +705,10 @@ pi-web audit vacuum</code></pre>
             <section id="agent-runtime">
               <h2>Pi-compatible agent profile and companion CLI</h2>
               <p>
+                PI WEB embeds the Pi <code>0.84.x</code> compatible runtime. The session daemon owns its resolved
+                <code>PI_WEB_DATA_DIR</code>; use a separate data directory and session endpoint for each concurrent instance.
+              </p>
+              <p>
                 <code>agent.command</code> selects the Pi-compatible companion CLI used by <code>pi-web doctor</code> and,
                 when it can be generated safely, package-managed update commands. It defaults to <code>pi</code>. This
                 setting does <strong>not</strong> replace the embedded runtime: every session continues to use PI WEB's
@@ -726,15 +738,12 @@ pi-web audit vacuum</code></pre>
                 and returns the persisted profile.
               </p>
               <p>
-                Environment variables take precedence over the config file. <code>PI_WEB_AGENT_COMMAND</code> selects the
-                companion CLI, <code>PI_WEB_AGENT_DIR</code> sets the profile state directory, and
-                <code>PI_WEB_AGENT_SESSION_DIR</code> overrides session storage separately from <code>agent.dir</code>. The
-                legacy <code>PI_CODING_AGENT_DIR</code> and <code>PI_CODING_AGENT_SESSION_DIR</code> names apply only to a
-                canonical Pi companion command; PI WEB never derives ambient environment-variable names from an arbitrary
-                command. Use the explicit <code>PI_WEB_AGENT_*</code> names for alternate commands.
-                <code>PI_WEB_AGENT_DIR</code> is an unconditional override, while a legacy
-                <code>PI_CODING_AGENT_DIR</code> override stops applying when Settings selects an alternate command so the
-                command and directory can transition together.
+                Environment variables take precedence over the config file. State-directory precedence is
+                <code>PI_WEB_AGENT_DIR</code> &gt; <code>PI_CODING_AGENT_DIR</code> &gt; <code>agent.dir</code> &gt; the Pi default.
+                Session-directory precedence keeps <code>PI_WEB_AGENT_SESSION_DIR</code> first, followed by
+                <code>PI_CODING_AGENT_SESSION_DIR</code>. The resolved state directory is exported as
+                <code>PI_CODING_AGENT_DIR</code> to embedded Pi processes. Set <code>PI_WEB_ENVIRONMENT_FACTS=false</code>
+                to disable ordinary-session nesting guidance.
               </p>
               <p>
                 The session daemon resolves the persisted desired values plus its environment once at startup. That

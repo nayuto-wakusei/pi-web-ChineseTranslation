@@ -19,18 +19,18 @@ describe("session daemon settings config helpers", () => {
     expect(agentProfileActivationState(config, activeProfile("effective-agent", "/effective"))).toBe("active");
     expect(agentProfileActivationState(config, activeProfile("other-agent", "/effective"))).toBe("restart-required");
     expect(agentProfileActivationState(config, activeProfile("effective-agent", "/other"))).toBe("restart-required");
-    expect(agentProfileActivationState(configResponse({}, {}, { agent: { command: "pi", dir: "/effective" } }), activeProfile("pi", "/effective"))).toBe("restart-required");
+    expect(agentProfileActivationState(configResponse({}, {}, { agent: { command: "pi", dir: "/effective" } }), activeProfile("pi", "/effective", ["PI_WEB_AGENT_SESSION_DIR"]))).toBe("restart-required");
     expect(agentProfileActivationState(configResponse({}, {}, { agent: { command: "pi", dir: "/effective" } }), activeProfile("pi", "/effective", ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]))).toBe("active");
     expect(agentProfileActivationState(config, undefined)).toBe("unavailable");
     expect(agentProfileActivationState(undefined, activeProfile("effective-agent", "/effective"))).toBe("unavailable");
   });
 
-  it("releases only Pi's compatibility directory override when the draft selects an alternate command", () => {
+  it("keeps canonical directory overrides active for every command", () => {
     const baseOverrides = configResponse({}).envOverrides;
 
     expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true, agentDirSource: "pi-compatibility" }, "pi")).toBe(true);
     expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true, agentDirSource: "pi-compatibility" }, "pi.exe")).toBe(true);
-    expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true, agentDirSource: "pi-compatibility" }, "alternate-agent")).toBe(false);
+    expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true, agentDirSource: "pi-compatibility" }, "alternate-agent")).toBe(true);
     expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true, agentDirSource: "pi-web" }, "alternate-agent")).toBe(true);
     expect(agentDirFieldOverridden({ ...baseOverrides, agentDir: true }, "alternate-agent")).toBe(true);
   });
@@ -97,7 +97,7 @@ describe("session daemon settings config helpers", () => {
   });
 });
 
-function activeProfile(command: string, dir: string, sessionDirEnvKeys: readonly string[] = ["PI_WEB_AGENT_SESSION_DIR"]): ActiveAgentProfileDescriptor {
+function activeProfile(command: string, dir: string, sessionDirEnvKeys: readonly string[] = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]): ActiveAgentProfileDescriptor {
   return {
     schemaVersion: 1,
     revision: `sha256:${"a".repeat(64)}`,

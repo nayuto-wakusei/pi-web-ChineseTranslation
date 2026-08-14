@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -267,7 +267,7 @@ describe("PI WEB config persistence", () => {
     expect(effectiveAgentConfig({ HOME: join(tempDir, ".home") }, { agent: { command: "acme-agent", dir: "~/agent-profiles/acme" } })).toMatchObject({
       command: "acme-agent",
       dir: join(tempDir, ".home", "agent-profiles", "acme"),
-      sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
+      sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
     });
   });
 
@@ -285,7 +285,7 @@ describe("PI WEB config persistence", () => {
       command: "acme-agent",
       dir: join(tempDir, ".home", "agent-profiles", "acme"),
     });
-    expect(hasAgentDirEnvOverride(env, "acme-agent")).toBe(false);
+    expect(hasAgentDirEnvOverride(env)).toBe(false);
     expect(hasAgentSessionDirEnvOverride(env, "acme-agent")).toBe(false);
   });
 
@@ -302,26 +302,32 @@ describe("PI WEB config persistence", () => {
     expect(agentDirEnvSource(env)).toBe("pi-web");
   });
 
-  it("keeps legacy Pi env directory overrides scoped to the canonical Pi command", () => {
+  it("uses canonical Pi env directory overrides for every command", () => {
     const legacyDir = join(tempDir, "pi-env-agent");
     const alternateDir = join(tempDir, "alternate-agent");
     const env = { PI_CODING_AGENT_DIR: legacyDir };
     expect(effectiveAgentConfig(env, { agent: { dir: join(tempDir, "config-agent") } })).toMatchObject({ dir: legacyDir });
-    expect(effectiveAgentConfig(env, { agent: { command: "acme-agent", dir: alternateDir } })).toMatchObject({ command: "acme-agent", dir: alternateDir });
+    expect(effectiveAgentConfig(env, { agent: { command: "acme-agent", dir: alternateDir } })).toMatchObject({ command: "acme-agent", dir: legacyDir });
     expect(agentDirEnvSource(env)).toBe("pi-compatibility");
-    expect(hasAgentDirEnvOverride(env, "pi")).toBe(true);
-    expect(hasAgentDirEnvOverride(env, "acme-agent")).toBe(false);
+    expect(hasAgentDirEnvOverride(env)).toBe(true);
 
     for (const command of ["acme-agent", join(tempDir, "bin", "pi")]) {
-      expect(() => effectiveAgentConfig(env, { agent: { command } }))
-        .toThrow(`PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is ${JSON.stringify(command)}`);
+      expect(effectiveAgentConfig(env, { agent: { command } }).dir).toBe(legacyDir);
     }
   });
 
   it("uses only explicit session directory env keys", () => {
     expect(agentSessionDirEnvKeys()).toEqual(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
-    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home"), PI_WEB_AGENT_COMMAND: "acme-agent", PI_WEB_AGENT_DIR: join(tempDir, "agent") }).sessionDirEnvKeys).toEqual(["PI_WEB_AGENT_SESSION_DIR"]);
-    expect(agentSessionDirEnvKeys(join(tempDir, "bin", "pi"))).toEqual(["PI_WEB_AGENT_SESSION_DIR"]);
+    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home"), PI_WEB_AGENT_COMMAND: "acme-agent", PI_WEB_AGENT_DIR: join(tempDir, "agent") }).sessionDirEnvKeys).toEqual(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
+    expect(agentSessionDirEnvKeys(join(tempDir, "bin", "pi"))).toEqual(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
+  });
+
+  it("resolves the old session alias before the canonical Pi alias", () => {
+    expect(agentSessionDirEnvOverride({
+      PI_WEB_AGENT_SESSION_DIR: join(tempDir, "web-sessions"),
+      PI_CODING_AGENT_SESSION_DIR: join(tempDir, "pi-sessions"),
+    })).toBe(join(tempDir, "web-sessions"));
+    expect(agentSessionDirEnvOverride({ PI_CODING_AGENT_SESSION_DIR: join(tempDir, "pi-sessions") })).toBe(join(tempDir, "pi-sessions"));
   });
 
   it("rejects unknown nested agent keys instead of erasing them", async () => {

@@ -135,6 +135,8 @@ export interface PiWebConfigValues {
    * tool. On by default; set to `false` to remove the tool from the runtime.
    */
   askUser?: boolean;
+  /** Whether PI WEB appends session nesting facts to ordinary session prompts. */
+  environmentFacts?: boolean;
   /**
    * How long an extension dialog may wait for an answer before the daemon
    * auto-cancels it, in milliseconds. Applies only when the extension set no

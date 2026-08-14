@@ -40,7 +40,7 @@ defaults → global config file → environment overrides
 
 Supported project-local settings are then applied for that project's workspaces. For upload defaults, `<project>/.pi-web/config.json` overrides the global value.
 
-Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` for Pi compatibility, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
+Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR`, `PI_WEB_ENVIRONMENT_FACTS`, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
 
 Process restarts depend on the key:
 
@@ -149,6 +149,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
 | Agent can post question forms | `askUser` | `PI_WEB_ASK_USER` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
+| Session nesting facts | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | 扩展对话框自动取消超时 | `extensionDialogsTimeoutMs` | — | 全局/会话守护进程 | 不支持项目级配置 | 重启对应机器上的会话守护进程 |
 | Workbench/MCP integration | `workbenchIntegration.*` | `PI_WEB_WORKBENCH_URL`, `PI_WEB_MCP_URL`, `PI_WEB_WORKBENCH_TIMEOUT_MS`, `PI_WEB_MCP_TIMEOUT_MS`, `PI_WEB_SKILL_BUNDLE_MAX_BYTES`, `PI_WEB_SKILL_FILE_MAX_BYTES`, `PI_WEB_SKILL_FILE_COUNT_MAX` | Web/API + session daemon | Not supported locally | Restart web/API and session daemon; both must match |
 | Ordinary tool audit | `auditLog.normalMode.*` | — | Global/session daemon | Not supported locally | Restart session daemon |
@@ -264,6 +265,8 @@ The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX
 
 ### Pi-compatible agent profile and companion CLI
 
+PI WEB embeds Pi Coding Agent `0.84.x` or newer compatible runtime packages. The session daemon owns one resolved Pi state directory and refuses to start a second daemon against the same `PI_WEB_DATA_DIR`; use distinct data and endpoint variables for another instance.
+
 `agent.command` selects the Pi-compatible companion CLI used by `pi-web doctor` and, when it can be generated safely, package-managed update commands. It defaults to `pi`. This setting does **not** replace the embedded runtime: every session continues to use PI WEB's bundled Pi SDK.
 
 `agent.dir` selects the Pi-compatible state profile used for auth providers, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugin discovery. It defaults to `~/.pi/agent` only for a canonical Pi companion command. The directory must use the data layout supported by the bundled Pi SDK; PI WEB does not load or convert incompatible fork formats, migrate profile data, or repartition PI WEB-managed archives when the profile changes.
@@ -279,7 +282,7 @@ The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX
 
 An alternate command always requires an explicit state directory. The command must be a safe bare executable name such as `pi-lab` or a host-absolute executable path such as `/opt/pi/bin/pi`; relative paths, shell expressions, and launcher strings are rejected. The state directory must be host-absolute or start with `~`. In a federated save, the gateway transports Unix and Windows absolute paths without reinterpreting them, and the target machine validates and returns the persisted profile.
 
-Environment variables take precedence over the config file. `PI_WEB_AGENT_COMMAND` selects the companion CLI, `PI_WEB_AGENT_DIR` sets the profile state directory, and `PI_WEB_AGENT_SESSION_DIR` overrides session storage separately from `agent.dir`. The legacy `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` names apply only to a canonical Pi companion command; PI WEB never derives ambient environment-variable names from an arbitrary command. Use the explicit `PI_WEB_AGENT_*` names for alternate commands. `PI_WEB_AGENT_DIR` is an unconditional override, while a legacy `PI_CODING_AGENT_DIR` override stops applying when Settings selects an alternate command so the command and directory can transition together.
+Environment variables take precedence over the config file. For the state directory, precedence is `PI_WEB_AGENT_DIR` > `PI_CODING_AGENT_DIR` > `agent.dir` > the Pi default. For session storage, `PI_WEB_AGENT_SESSION_DIR` remains first for compatibility, followed by `PI_CODING_AGENT_SESSION_DIR`. The resolved directory is exported as `PI_CODING_AGENT_DIR` to embedded Pi processes. `PI_WEB_ENVIRONMENT_FACTS=false` disables the ordinary-session nesting guidance block.
 
 The session daemon resolves the persisted desired values plus its environment once at startup. That secret-free active profile stays fixed for the daemon lifetime. **Settings → Session daemon** saves command and directory together as desired configuration and shows whether the profile is active, needs a restart, or cannot be compared. Until the daemon restarts, sessions, Pi package operations, Pi-package-backed PI WEB plugin discovery, status/install detection, and update planning continue to use the daemon-owned active profile; a web/API restart recovers that same active profile instead of applying the newly saved values.
 

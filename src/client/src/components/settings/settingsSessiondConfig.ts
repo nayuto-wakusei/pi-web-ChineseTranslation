@@ -1,4 +1,3 @@
-import { usesPiCodingAgentStateCompatibility } from "../../../../shared/activeAgentProfile";
 import type { ActiveAgentProfileDescriptor, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../../api";
 
 export type AgentProfileActivationState = "active" | "restart-required" | "unavailable";
@@ -21,10 +20,7 @@ export function agentProfileActivationState(
 ): AgentProfileActivationState {
   const desiredProfile = config?.effectiveConfig.agent;
   if (desiredProfile?.command === undefined || desiredProfile.dir === undefined || activeProfile === undefined) return "unavailable";
-  const desiredSessionDirEnvKeys = [
-    "PI_WEB_AGENT_SESSION_DIR",
-    ...(usesPiCodingAgentStateCompatibility(desiredProfile.command) ? ["PI_CODING_AGENT_SESSION_DIR"] : []),
-  ];
+  const desiredSessionDirEnvKeys = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"];
   return desiredProfile.command === activeProfile.command
     && desiredProfile.dir === activeProfile.dir
     && sameStrings(activeProfile.sessionDirEnvKeys, desiredSessionDirEnvKeys)
@@ -32,9 +28,10 @@ export function agentProfileActivationState(
     : "restart-required";
 }
 
-export function agentDirFieldOverridden(envOverrides: PiWebConfigEnvOverrides | undefined, draftCommand: string): boolean {
+export function agentDirFieldOverridden(envOverrides: PiWebConfigEnvOverrides | undefined, _draftCommand: string): boolean {
+  void _draftCommand;
   if (envOverrides?.agentDirSource === "pi-web") return true;
-  if (envOverrides?.agentDirSource === "pi-compatibility") return usesPiCodingAgentStateCompatibility(draftCommand.trim() || "pi");
+  if (envOverrides?.agentDirSource === "pi-compatibility") return true;
   // Older remote responses do not identify the source. Keep their override
   // read-only rather than incorrectly treating a PI_WEB_AGENT_DIR as conditional.
   return envOverrides?.agentDir === true;

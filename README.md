@@ -9,6 +9,8 @@ This fork is a translation plan for PI WEB. Its goal is to translate the plugin'
 
 **PI WEB is a web UI for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) that keeps agent sessions running in real workspaces on your machine or server.**
 
+The bundled runtime requires Pi `0.84.x` compatible packages. The session daemon owns its `PI_WEB_DATA_DIR`; use a separate data directory and session endpoint for each concurrently running instance.
+
 Run agents where your code, tools, credentials, and build caches live. Supervise them from any browser.
 
 Website and docs: <https://pi-web.dev/>
