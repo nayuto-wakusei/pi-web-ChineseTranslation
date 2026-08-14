@@ -197,6 +197,7 @@ await runSessionDaemonStartup({
       }),
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
+      askUserEnabled: config.askUser,
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
       appendSystemPromptSections: sessionEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts }),
       ...(workbench === undefined ? {} : { workbench }),

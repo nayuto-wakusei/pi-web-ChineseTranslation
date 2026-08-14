@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { SessionNotificationStore } from "../sessions/sessionNotificationStore.js";
@@ -56,6 +57,12 @@ async function startupDetails(deps: PiSessionServiceDependencies): Promise<strin
 }
 
 describe("sessiond session service dependency assembly", () => {
+  it("wires the effective ask-user preference into the live daemon assembly", async () => {
+    const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
+
+    expect(sessiondSource).toMatch(/askUserEnabled:\s*config\.askUser/u);
+  });
+
   it("reports a concurrent provider model list refresh to a waiting user", async () => {
     // The note is only reachable in the product because the assembly hands the
     // refresher to the session service. Asserting the note rather than the
