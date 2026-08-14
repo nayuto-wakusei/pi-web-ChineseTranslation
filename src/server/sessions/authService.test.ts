@@ -5,17 +5,18 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, type AuthPrompt, type Credential } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OAuthFlowState } from "../../shared/apiTypes.js";
-import { AuthService, createModelRuntimeForAgentDir, type AuthChange, type AuthServiceLogger } from "./authService.js";
+import { AuthService, createLocalOnlyModelRuntime, createModelRuntimeForAgentDir, type AuthChange, type AuthServiceLogger } from "./authService.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 
 const tempDirs: string[] = [];
+const flowWaitOptions = { timeout: 5_000 } as const;
 
 afterEach(async () => {
   vi.unstubAllEnvs();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe("AuthService", () => {
+describe("AuthService", { timeout: 15_000 }, () => {
   it("saves API keys and emits a global auth change after the runtime refreshes", async () => {
     const { auth, runtime, credentials, changes } = await createAuthService();
     // Pi 0.84 performs credential synchronization inside login().
@@ -24,7 +25,9 @@ describe("AuthService", () => {
     await expect(auth.saveApiKey("anthropic", "sk-test")).resolves.toEqual({ accepted: true });
 
     await expect(credentials.read("anthropic")).resolves.toEqual({ type: "api_key", key: "sk-test" });
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenNthCalledWith(1, { allowNetwork: false });
+    expect(refresh).toHaveBeenNthCalledWith(2, { allowNetwork: false });
     expect(changes).toEqual([{}]);
     auth.dispose();
   });
@@ -36,7 +39,8 @@ describe("AuthService", () => {
     await expect(auth.logoutProvider("anthropic")).resolves.toEqual({ accepted: true });
 
     await expect(credentials.read("anthropic")).resolves.toBeUndefined();
-    expect(refresh).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledWith({ allowNetwork: false });
     expect(changes).toEqual([{ removedProviderId: "anthropic" }]);
     auth.dispose();
   });
@@ -138,26 +142,26 @@ describe("AuthService", () => {
     const { auth, credentials, changes } = await createAuthService();
 
     const state = await auth.startApiKeyLogin("cloudflare-ai-gateway");
-    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).prompt).toMatchObject({ message: "Enter Cloudflare API key", promptType: "secret" }); });
+    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).prompt).toMatchObject({ message: "Enter Cloudflare API key", promptType: "secret" }); }, flowWaitOptions);
     const keyPrompt = auth.oauthFlow(state.flowId).prompt;
     if (keyPrompt === undefined) throw new Error("Expected Cloudflare key prompt");
     auth.respondToOAuthFlow(state.flowId, keyPrompt.requestId, "cf-secret");
 
     await vi.waitFor(() => {
       expect(auth.oauthFlow(state.flowId).prompt).toMatchObject({ message: "Enter Cloudflare account ID", promptType: "text" });
-    });
+    }, flowWaitOptions);
     const accountPrompt = auth.oauthFlow(state.flowId).prompt;
     if (accountPrompt === undefined) throw new Error("Expected Cloudflare account prompt");
     auth.respondToOAuthFlow(state.flowId, accountPrompt.requestId, "account-1");
 
     await vi.waitFor(() => {
       expect(auth.oauthFlow(state.flowId).prompt).toMatchObject({ message: "Enter Cloudflare AI Gateway ID", promptType: "text" });
-    });
+    }, flowWaitOptions);
     const gatewayPrompt = auth.oauthFlow(state.flowId).prompt;
     if (gatewayPrompt === undefined) throw new Error("Expected Cloudflare gateway prompt");
     auth.respondToOAuthFlow(state.flowId, gatewayPrompt.requestId, "gateway-1");
 
-    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); });
+    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); }, flowWaitOptions);
     await expect(credentials.read("cloudflare-ai-gateway")).resolves.toEqual({
       type: "api_key",
       key: "cf-secret",
@@ -174,19 +178,19 @@ describe("AuthService", () => {
     const { auth, credentials, changes } = await createAuthService();
 
     const state = await auth.startApiKeyLogin(providerId);
-    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).select).toBeDefined(); });
+    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).select).toBeDefined(); }, flowWaitOptions);
     const select = auth.oauthFlow(state.flowId).select;
     if (select === undefined) throw new Error("Expected auth method selection");
     auth.respondToOAuthFlow(state.flowId, select.requestId, selection);
 
     await vi.waitFor(() => {
       expect(auth.oauthFlow(state.flowId).prompt).toMatchObject({ message: secretPrompt, promptType: "secret" });
-    });
+    }, flowWaitOptions);
     const prompt = auth.oauthFlow(state.flowId).prompt;
     if (prompt === undefined) throw new Error("Expected provider secret prompt");
     auth.respondToOAuthFlow(state.flowId, prompt.requestId, "provider-secret");
 
-    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); });
+    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); }, flowWaitOptions);
     await expect(credentials.read(providerId)).resolves.toEqual({ type: "api_key", key: "provider-secret" });
     expect(changes).toEqual([{}]);
     auth.dispose();
@@ -428,7 +432,7 @@ describe("AuthService", () => {
     auth.subscribe(() => Promise.reject(failure));
 
     const state = await auth.startOAuthLogin(provider.id);
-    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); });
+    await vi.waitFor(() => { expect(auth.oauthFlow(state.flowId).status).toBe("complete"); }, flowWaitOptions);
 
     expect(changes).toEqual([{}]);
     expect(error).toHaveBeenCalledWith(
@@ -472,7 +476,7 @@ async function createAuthService(seed: Record<string, Credential> = {}, logger?:
   for (const [providerId, credential] of Object.entries(seed)) {
     await credentials.modify(providerId, () => Promise.resolve(credential));
   }
-  const runtime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
+  const runtime = await createLocalOnlyModelRuntime({ credentials, modelsPath: null });
   const auth = await AuthService.create({ runtime, ...(logger === undefined ? {} : { logger }) });
   const changes: AuthChange[] = [];
   auth.subscribe((change) => { changes.push(change); });

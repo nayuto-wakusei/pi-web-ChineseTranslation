@@ -55,7 +55,7 @@ import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
 import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
 import { searchSessionContent } from "./sessionContentSearch.js";
 
-import { type AuthChange } from "./authService.js";
+import { createLocalOnlyModelRuntime, type AuthChange } from "./authService.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { readSessionHeaderSummary, type SessionHeaderSummary } from "./sessionFileHeader.js";
 import { countOutOfListingChildren, locateOutOfListingParents, type SessionHeaderReader } from "./parentSessionLocator.js";
@@ -1229,7 +1229,7 @@ export class PiSessionService {
     });
     let defaultModelRuntime: Promise<ModelRuntime> | undefined;
     const resolveDefaultModelRuntime = () => {
-      defaultModelRuntime ??= deps.modelRuntime === undefined ? ModelRuntime.create({ allowModelNetwork: false }) : Promise.resolve(deps.modelRuntime);
+      defaultModelRuntime ??= deps.modelRuntime === undefined ? createLocalOnlyModelRuntime() : Promise.resolve(deps.modelRuntime);
       return defaultModelRuntime;
     };
     this.normalModelRuntimeForCwd = deps.normalModelRuntimeForCwd ?? resolveDefaultModelRuntime;

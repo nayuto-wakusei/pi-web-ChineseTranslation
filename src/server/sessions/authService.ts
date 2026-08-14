@@ -36,16 +36,26 @@ const noopLogger: AuthServiceLogger = { error() { /* no-op */ } };
 /**
  * Create the shared model runtime with runtime-owned network refreshes disabled.
  *
- * Pi 0.84 makes runtime-owned refreshes explicitly local-only when created with
- * `allowModelNetwork: false`; pi-web performs its own bounded catalog refreshes
- * in the background instead (see modelCatalogRefresher.ts). Request-path
- * refreshes below pass `allowNetwork: false` for the same reason.
+ * Pi 0.84 applies `allowModelNetwork` only to the create-time refresh, while
+ * login/logout still use an internal default derived from `PI_OFFLINE`. Pin
+ * that default locally without mutating process environment; explicit bounded
+ * background refreshes can still opt in with `allowNetwork: true`.
  */
+export async function createLocalOnlyModelRuntime(
+  options: NonNullable<Parameters<typeof ModelRuntime.create>[0]> = {},
+): Promise<ModelRuntime> {
+  const runtime = await ModelRuntime.create({ ...options, allowModelNetwork: false });
+  if (typeof Reflect.get(runtime, "modelNetworkEnabled") !== "boolean"
+    || !Reflect.set(runtime, "modelNetworkEnabled", false)) {
+    throw new Error("Unsupported Pi ModelRuntime network-default contract");
+  }
+  return runtime;
+}
+
 export function createModelRuntimeForAgentDir(agentDir: string): Promise<ModelRuntime> {
-  return ModelRuntime.create({
+  return createLocalOnlyModelRuntime({
     authPath: join(agentDir, "auth.json"),
     modelsPath: join(agentDir, "models.json"),
-    allowModelNetwork: false,
   });
 }
 
@@ -66,7 +76,7 @@ export class AuthService {
   }
 
   static async create(deps: AuthServiceDependencies = {}): Promise<AuthService> {
-    const runtime = deps.runtime ?? deps.modelRuntime ?? (deps.agentDir === undefined ? await ModelRuntime.create({ allowModelNetwork: false }) : await createModelRuntimeForAgentDir(deps.agentDir));
+    const runtime = deps.runtime ?? deps.modelRuntime ?? (deps.agentDir === undefined ? await createLocalOnlyModelRuntime() : await createModelRuntimeForAgentDir(deps.agentDir));
     const logger = deps.logger ?? noopLogger;
     const authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger });
     return new AuthService({ runtime, authFlows, logger });

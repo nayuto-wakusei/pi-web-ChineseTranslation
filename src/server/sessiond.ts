@@ -2,7 +2,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
@@ -11,7 +10,7 @@ import { MachineStatusService } from "./status/machineStatusService.js";
 import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
 import { CachedWorkspaceAttribution } from "./status/workspaceAttribution.js";
 import { SessionEventHub } from "./realtime/sessionEventHub.js";
-import { AuthService } from "./sessions/authService.js";
+import { AuthService, createLocalOnlyModelRuntime } from "./sessions/authService.js";
 import { ProjectAuthService } from "./sessions/projectAuthService.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
@@ -108,10 +107,9 @@ await runSessionDaemonStartup({
     );
     const projectAuth = new ProjectAuthService({ projects, workspaces });
     const managementAuth = new AuthService({
-      modelRuntime: await ModelRuntime.create({
+      modelRuntime: await createLocalOnlyModelRuntime({
         authPath: join(piWebDataDir(), "management-embed", "auth.json"),
         modelsPath: join(activeAgentProfile.dir, "models.json"),
-        allowModelNetwork: false,
       }),
     });
     const accessStates = new WorkbenchAccessStateStore();

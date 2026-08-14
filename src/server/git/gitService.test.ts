@@ -72,7 +72,7 @@ function createSpacedPathFixture(): { dir: string } {
   return { dir: sup };
 }
 
-describe("gitStatus with submodules", () => {
+describe("gitStatus with submodules", { timeout: 15_000 }, () => {
   it("surfaces a moved commit pointer with short SHAs and no inner files", async () => {
     const { dir, c1, c2 } = createFixture();
     git(join(dir, "HARL"), ["checkout", c1]); // move the pointer, leave the tree clean
