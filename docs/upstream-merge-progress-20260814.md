@@ -142,6 +142,17 @@ git diff --check main...HEAD
 - 已重新安装并仅重启 `pi-web-sessiond.service`；daemon PID 已更新，`/health` 返回 `200`，`stale: false`，warning 以上级别日志为空。
 - 远端运行态检查确认：有效配置为 `askUser: true`，daemon 构建包含配置传递，运行时自定义工具集合包含 `ask_user`。
 
+### `ask_user` 回答摘要中文化
+
+- 现场现象：回答记录卡片直接展示 `outcome.summary`，出现 `Answered 3 of 3; none left unanswered` 等英文摘要。
+- 修复方式：客户端根据结构化的回答数量和未回答问题标识生成中文摘要，不再直接展示服务端保存的摘要文本；历史会话中的英文摘要也会按中文重新渲染。
+- 修复提交：`963788a1 fix(ui): localize ask user outcome summaries`。
+- 验证：3 个相关测试文件、29 个测试通过；提交钩子覆盖 15 个测试文件、93 个测试，并通过类型、Knip 和 ESLint 检查。
+- 部署包 SHA-256：`b03a26185643e95cb95e8b92601fd8901932b32b97583b9221da058a32d8d974`，本地与远端一致。
+- 远端旧安装副本：`/home/admin123/deploy/pi-web-ask-user-cn-963788a1-20260814/previous-package`。
+- 已重启 sessiond 和 Web 服务；两项均为 `active`，首页返回 `200`，warning 以上级别日志为空。
+- 远端客户端构建已确认包含“全部问题均已回答”和“未回答：”，且不再直接读取 `outcome.summary`。
+
 ## 当前提交序列
 
 截至 `ask_user` 热修复部署，下面列出的代码和既有部署记录基线共有 8 个提交；本段部署进度的文档回写提交另计：
