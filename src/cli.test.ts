@@ -1,16 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentCommandForChecks,
   commandWithVersionCheck,
   doctorExitCode,
+  expectedRunningComponents,
   isCliEntrypoint,
   launchdRuntimeDetails,
   nodeVersionCheck,
   regularFileExists,
   serviceBackendForPlatform,
+  sessionDaemonRestartPlan,
 } from "./cli.js";
 
 const originalShell = process.env["SHELL"];
@@ -100,10 +102,17 @@ describe("native-service doctor CLI contracts", () => {
   });
 
   it("fails doctor for general, native-plan, or node-pty failures", () => {
-    expect(doctorExitCode(true, true, true)).toBe(0);
-    expect(doctorExitCode(false, true, true)).toBe(1);
-    expect(doctorExitCode(true, false, true)).toBe(1);
-    expect(doctorExitCode(true, true, false)).toBe(1);
+    expect(doctorExitCode(true, true, true, true)).toBe(0);
+    expect(doctorExitCode(false, true, true, true)).toBe(1);
+    expect(doctorExitCode(true, false, true, true)).toBe(1);
+    expect(doctorExitCode(true, true, false, true)).toBe(1);
+    expect(doctorExitCode(true, true, true, false)).toBe(1);
+  });
+
+  it("expects installed native components and both Docker components", () => {
+    expect(expectedRunningComponents(new Set(["uiDev", "sessiond"]), {})).toEqual(["web", "sessiond"]);
+    expect(expectedRunningComponents(new Set(), {})).toEqual([]);
+    expect(expectedRunningComponents(new Set(), { PI_WEB_DOCKER_RUNTIME: "1" })).toEqual(["web", "sessiond"]);
   });
 
   it("accepts only regular files as bundled entrypoints", () => {
@@ -125,6 +134,33 @@ describe("native-service doctor CLI contracts", () => {
       detail: "exited (last exit code 127)",
       pid: undefined,
     });
+  });
+});
+
+describe("server plugin recovery restart planning", () => {
+  it("uses the Docker control command inside development containers", () => {
+    const runCommand = vi.fn();
+    const plan = sessionDaemonRestartPlan({
+      env: { PI_WEB_DOCKER_RUNTIME: "1", PI_WEB_DOCKER_MODE: "dev" },
+      platform: "linux",
+      runCommand,
+    });
+
+    expect(plan).toMatchObject({ kind: "automatic", command: "pi-web-docker --dev restart-sessiond" });
+    plan.perform?.();
+    expect(runCommand).toHaveBeenCalledWith("pi-web-docker", ["--dev", "restart-sessiond"]);
+  });
+
+  it("keeps explicit alternate config restarts manual", () => {
+    const plan = sessionDaemonRestartPlan({
+      env: { PI_WEB_DOCKER_RUNTIME: "1" },
+      platform: "linux",
+      configPath: "/tmp/alternate-pi-web.json",
+      explicitConfigPath: true,
+    });
+
+    expect(plan.kind).toBe("manual");
+    expect(plan.guidance).toContain('PI_WEB_CONFIG="/tmp/alternate-pi-web.json"');
   });
 });
 

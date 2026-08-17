@@ -18,22 +18,56 @@ interface PackageInfo {
   path: string;
 }
 
-interface RunningVersionInfo {
+export interface RunningVersionInfo {
   generatedAt?: string;
   web?: PiWebComponentStatus;
   sessiond?: PiWebComponentStatus;
   webError?: string;
+  webAuthenticationRequired?: boolean;
   sessiondError?: string;
+}
+
+export type RunningComponentId = PiWebComponentStatus["component"];
+
+export function runningComponentsReady(info: RunningVersionInfo, expected: readonly RunningComponentId[]): boolean {
+  return expected.every((id) => {
+    const status = info[id];
+    if (status !== undefined) return status.available && !status.stale;
+    return id === "web" && info.webAuthenticationRequired === true;
+  });
+}
+
+/** Authentication-required means the web service is reachable, but its version cannot be verified. */
+export async function probeRunningComponentReady(component: RunningComponentId): Promise<boolean> {
+  if (component === "sessiond") return (await collectRunningSessiondInfo()).component !== undefined;
+  const endpoint = webVersionEndpoint();
+  if (endpoint.endpoint === undefined) return false;
+  try {
+    await fetchPiWebVersionResponse(endpoint.endpoint);
+    return true;
+  } catch (error) {
+    if (isAuthenticationRequired(error)) return true;
+    const statusEndpoint = statusEndpointFor(endpoint.endpoint);
+    if (!isHttpNotFound(error) || statusEndpoint === endpoint.endpoint) return false;
+    try {
+      await fetchPiWebVersionResponse(statusEndpoint);
+      return true;
+    } catch (statusError) {
+      return isAuthenticationRequired(statusError);
+    }
+  }
 }
 
 export function packageVersion(): string {
   return readPackageInfo()?.version ?? DEFAULT_PACKAGE_VERSION;
 }
 
-export async function printPiWebVersionReport(): Promise<void> {
+export async function printPiWebVersionReport(): Promise<RunningVersionInfo> {
   console.log("PI WEB version");
   printInstalledPackageVersions();
-  printRunningVersionInfo(await collectRunningVersionInfo());
+  const runningInfo = await collectRunningVersionInfo();
+  printRunningVersionInfo(runningInfo);
+  return runningInfo;
 }
 
 function packageRootPath(): string {
@@ -93,7 +127,7 @@ async function fetchPiWebVersionResponse(endpoint: string): Promise<PiWebVersion
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(PI_WEB_VERSION_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+  if (!response.ok) throw new HttpResponseError(response.status);
   const parsed: unknown = await response.json();
   const status = parsePiWebVersionResponse(parsed);
   if (status === undefined) throw new Error("response did not include PI WEB version information");
@@ -108,12 +142,21 @@ async function collectRunningVersionInfo(): Promise<RunningVersionInfo> {
       return { generatedAt: status.generatedAt, web: status.components.web, sessiond: status.components.sessiond };
     } catch (error) {
       let webError = `${endpoint.endpoint}: ${errorMessage(error)}`;
+      if (isAuthenticationRequired(error)) {
+        return runningVersionInfoWithSessiondFallback({ webError, webAuthenticationRequired: true });
+      }
       const statusEndpoint = statusEndpointFor(endpoint.endpoint);
       if (statusEndpoint !== endpoint.endpoint && isHttpNotFound(error)) {
         try {
           const status = await fetchPiWebVersionResponse(statusEndpoint);
           return { generatedAt: status.generatedAt, web: status.components.web, sessiond: status.components.sessiond };
         } catch (statusError) {
+          if (isAuthenticationRequired(statusError)) {
+            return runningVersionInfoWithSessiondFallback({
+              webError: `${webError}; ${statusEndpoint}: ${errorMessage(statusError)}`,
+              webAuthenticationRequired: true,
+            });
+          }
           webError = `${webError}; ${statusEndpoint}: ${errorMessage(statusError)}`;
         }
       }
@@ -124,10 +167,11 @@ async function collectRunningVersionInfo(): Promise<RunningVersionInfo> {
   return runningVersionInfoWithSessiondFallback({ webError: endpoint.error ?? "web/API status endpoint unavailable" });
 }
 
-async function runningVersionInfoWithSessiondFallback(base: { webError: string }): Promise<RunningVersionInfo> {
+async function runningVersionInfoWithSessiondFallback(base: { webError: string; webAuthenticationRequired?: boolean }): Promise<RunningVersionInfo> {
   const sessiond = await collectRunningSessiondInfo();
   return {
     webError: base.webError,
+    ...(base.webAuthenticationRequired === true ? { webAuthenticationRequired: true } : {}),
     ...(sessiond.component === undefined ? {} : { sessiond: sessiond.component }),
     ...(sessiond.error === undefined ? {} : { sessiondError: sessiond.error }),
   };
@@ -168,7 +212,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
 }
 
 function isHttpNotFound(error: unknown): boolean {
-  return error instanceof Error && error.message === "HTTP 404";
+  return error instanceof HttpResponseError && error.status === 404;
+}
+
+function isAuthenticationRequired(error: unknown): boolean {
+  return error instanceof HttpResponseError && (error.status === 401 || error.status === 403);
 }
 
 function printInstalledPackageVersions(): void {
@@ -185,7 +233,9 @@ function printInstalledPackageVersions(): void {
 
 function printRunningVersionInfo(info: RunningVersionInfo): void {
   console.log("Running services:");
-  if (info.web === undefined) printUnavailableComponent("Web/UI", info.webError);
+  if (info.web === undefined && info.webAuthenticationRequired === true) {
+    console.log("? Web/UI: reachable; authentication required, version unverified");
+  } else if (info.web === undefined) printUnavailableComponent("Web/UI", info.webError);
   else printComponentVersion(info.web);
   if (info.sessiond === undefined) printUnavailableComponent("Session daemon", info.sessiondError);
   else printComponentVersion(info.sessiond);
@@ -236,6 +286,13 @@ function formatVersion(version: string | undefined): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+class HttpResponseError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${String(status)}`);
+    this.name = "HttpResponseError";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
