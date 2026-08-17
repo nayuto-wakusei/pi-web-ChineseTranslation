@@ -238,7 +238,7 @@ describe("SessionCommandService", () => {
     expect(result).toMatchObject({ type: "select", title: "从消息分叉", options: [{ value: "newest" }, { value: "middle" }, { value: "oldest" }] });
     if (result.type !== "select") throw new Error("Expected select result");
     await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({ type: "done", message: "会话已分叉", session: { id: "s1" }, promptDraft: "newest message" });
-    expect(active.runtime.fork).toHaveBeenCalledWith("newest");
+    expect(active.runtime.fork).toHaveBeenCalledWith("newest", { position: "before" });
     await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
   });
 

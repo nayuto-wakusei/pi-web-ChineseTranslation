@@ -395,6 +395,20 @@ describe("session API compatibility", () => {
     expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo with spaces", ...navigation });
   });
 
+  it("posts session tree forks through an encoded cwd-scoped machine route", async () => {
+    const session = { id: "forked", path: "/repo/forked.jsonl", cwd: "/repo with spaces", created: "2026-08-17T00:00:00.000Z", modified: "2026-08-17T00:00:00.000Z", messageCount: 2, firstMessage: "hello" };
+    const fetchMock = stubJsonFetch({ cancelled: false, session, promptDraft: "hello" });
+    const fork = { entryId: "entry /?", expectedLeafId: "leaf-1" };
+
+    await expect(sessionsApi.forkTree({ id: "s /?", cwd: "/repo with spaces" }, fork, "remote /?")).resolves.toEqual({ cancelled: false, session, promptDraft: "hello" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/tree/fork");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo with spaces", ...fork });
+  });
+
   it("keeps session tree navigation under a canonical nested deployment base", async () => {
     vi.stubEnv("BASE_URL", "./");
     vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });

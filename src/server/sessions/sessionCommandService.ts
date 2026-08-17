@@ -61,6 +61,11 @@ export interface SessionCommandNaming {
   listSessionNames?: (cwd: string) => Promise<readonly string[]>;
 }
 
+export interface ForkEntryOptions {
+  /** Rechecked inside the serialized replacement boundary when supplied by /tree. */
+  expectedLeafId: string | null;
+}
+
 type RelatedSessionKind = "fork" | "copy";
 
 interface PendingCommandSelect {
@@ -116,13 +121,22 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     if (pending?.sessionId !== sessionId || pending.eventScope !== eventScope) return { type: "unsupported", message: "命令请求已过期" };
     this.pendingSelects.delete(requestId);
 
+    return this.forkEntry(sessionId, value, eventScope);
+  }
+
+  /** Fork a tree entry into a new session file while preserving the original. */
+  async forkEntry(sessionId: string, entryId: string, eventScope?: string, options?: ForkEntryOptions): Promise<ClientCommandResult> {
     const active = await this.getActive(sessionId, eventScope);
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const relatedName = await this.nextRelatedSessionName(active, "fork");
     if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
     if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const result = await this.runSessionReplacement(active.runtime, async () => {
-      const forkResult = await active.runtime.fork(value);
+      const session = active.runtime.session;
+      if (options !== undefined && session.sessionManager.getLeafId() !== options.expectedLeafId) {
+        throw new Error("The session changed since /tree was opened. Reopen /tree and try again.");
+      }
+      const forkResult = await active.runtime.fork(entryId, { position: this.forkPosition(session, entryId) });
       if (!forkResult.cancelled) this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
       return forkResult;
     });
@@ -221,6 +235,12 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
 
   private hasActiveWork(session: TSession): boolean {
     return sessionHasActiveWork(session) || this.lifecycle.hasActiveWork?.(session) === true;
+  }
+
+  private forkPosition(session: TSession, entryId: string): "before" | "at" {
+    const treeNode = this.lifecycle.getSessionTree?.(session)?.nodes.find((node) => node.id === entryId);
+    if (treeNode !== undefined) return treeNode.kind === "user" ? "before" : "at";
+    return session.getUserMessagesForForking().some((message) => message.entryId === entryId) ? "before" : "at";
   }
 
   private runSessionReplacement<T>(runtime: CommandRuntime<TSession>, operation: () => Promise<T>): Promise<T> {

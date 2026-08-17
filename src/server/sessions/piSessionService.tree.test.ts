@@ -393,3 +393,82 @@ describe("PiSessionService session-tree behavior", () => {
     await service.dispose();
   });
 });
+
+describe("PiSessionService session-tree fork-from-entry", () => {
+  const forkRequest = (entryId = "entry-1", expectedLeafId: string | null = "leaf-1") => ({ entryId, expectedLeafId });
+
+  it("forks user entries from before and returns their text as the new session draft", async () => {
+    const fork = vi.fn(() => Promise.resolve({ cancelled: false, selectedText: "draft text" }));
+    const { service, fake, hub } = treeHarness({}, {
+      getUserMessagesForForking: () => [{ entryId: "entry-1", text: "draft text" }],
+    });
+    fake.runtime.fork = fork;
+
+    await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest())).resolves.toMatchObject({
+      cancelled: false,
+      session: { id: SESSION_ID, cwd: "/workspace" },
+      promptDraft: "draft text",
+    });
+    expect(fork).toHaveBeenCalledWith("entry-1", { position: "before" });
+    expect(hub.sessionEvents.some(({ event }) => event.type === "activity.update" && event.activity.label === "会话已分叉")).toBe(true);
+    await service.dispose();
+  });
+
+  it("uses the projected tree kind for attachment-only user entries", async () => {
+    const entryId = "attachment-only-user";
+    const roots = [treeNode({
+      type: "message",
+      id: entryId,
+      parentId: null,
+      timestamp: "2026-08-17T00:00:00.000Z",
+      message: { role: "user", content: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
+    })];
+    const navigateTree = vi.fn<NavigateTree>(() => Promise.resolve({ cancelled: false }));
+    const fork = vi.fn(() => Promise.resolve({ cancelled: false }));
+    const { service, fake } = treeHarness({ getLeafId: () => entryId, getTree: () => roots }, {
+      navigateTree,
+      getUserMessagesForForking: () => [],
+    });
+    fake.runtime.fork = fork;
+
+    await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest(entryId, entryId))).resolves.toMatchObject({ cancelled: false });
+    expect(fork).toHaveBeenCalledWith(entryId, { position: "before" });
+    await service.dispose();
+  });
+
+  it("rejects stale leaves and active sessions before invoking Pi fork", async () => {
+    const fork = vi.fn(() => Promise.resolve({ cancelled: false }));
+    const { service, fake } = treeHarness({ getLeafId: () => "new-leaf" });
+    fake.runtime.fork = fork;
+
+    await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest("entry-1", "old-leaf"))).rejects.toThrow("The session changed since /tree was opened");
+    fake.session.isStreaming = true;
+    await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest("entry-1", "new-leaf"))).rejects.toThrow("Stop current session activity before forking");
+    expect(fork).not.toHaveBeenCalled();
+    await service.dispose();
+  });
+
+  it("revalidates the expected leaf after asynchronous naming and an intervening prompt", async () => {
+    let leafId = "leaf-1";
+    const records = [sessionRecord(SESSION_ID)];
+    const names = deferred<typeof records>();
+    const gateway = sessionGateway(records);
+    const list = vi.fn(() => names.promise);
+    const fork = vi.fn(() => Promise.resolve({ cancelled: false }));
+    const { service, fake } = treeHarness({ getLeafId: () => leafId }, {
+      sessionName: "Named session",
+    }, {
+      sessionManager: { ...gateway, list },
+    });
+    fake.runtime.fork = fork;
+
+    const forking = service.forkFromTree(sessionRef(SESSION_ID), forkRequest("entry-1", "leaf-1"));
+    await vi.waitFor(() => { expect(list).toHaveBeenCalledOnce(); });
+    leafId = "leaf-2";
+    names.resolve(records);
+
+    await expect(forking).rejects.toThrow("The session changed since /tree was opened");
+    expect(fork).not.toHaveBeenCalled();
+    await service.dispose();
+  });
+});

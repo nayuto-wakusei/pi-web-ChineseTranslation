@@ -1,6 +1,6 @@
 import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SessionTreeNavigateResult, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
+import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
 // This node-environment test uses the shared, type-guarded template inspection
@@ -9,6 +9,7 @@ import { templateValueAfterMarker } from "../templateInspection.testSupport";
 import { PiWebApp } from "./PiWebApp";
 
 type NavigateHandler = (targetId: string, summaryChoice: SessionTreeSummaryChoice) => Promise<SessionTreeNavigateResult>;
+type ForkHandler = (entryId: string) => Promise<SessionTreeForkResult>;
 type AbortHandler = () => Promise<void>;
 type CancelHandler = () => void;
 type RenderSessionTreeNavigator = (this: PiWebApp, state: AppState) => TemplateResult | null;
@@ -27,6 +28,7 @@ describe("PiWebApp session tree wiring", () => {
       .mockResolvedValueOnce({ cancelled: false, editorText: "edit" })
       .mockResolvedValueOnce({ cancelled: true, aborted: true });
     const abortTreeNavigation = vi.spyOn(controller, "abortTreeNavigation").mockResolvedValue(undefined);
+    const forkFromTree = vi.spyOn(controller, "forkFromTree").mockResolvedValue({ cancelled: true });
     const closeTreeDialog = vi.spyOn(controller, "closeTreeDialog").mockReturnValue(undefined);
     const focusChatComposer = vi.fn(() => Promise.resolve());
     if (!Reflect.set(app, "focusChatComposer", focusChatComposer)) throw new Error("Could not replace prompt focus boundary");
@@ -34,6 +36,7 @@ describe("PiWebApp session tree wiring", () => {
     const rendered = renderSessionTreeNavigator(app, state);
     const onNavigate = navigatorNavigateHandler(rendered);
     const onAbort = navigatorAbortHandler(rendered);
+    const onFork = navigatorForkHandler(rendered);
     const onCancel = navigatorCancelHandler(rendered);
 
     await expect(onNavigate("side", { mode: "none" })).resolves.toEqual({ cancelled: false, editorText: "edit" });
@@ -45,6 +48,9 @@ describe("PiWebApp session tree wiring", () => {
 
     await onAbort();
     expect(abortTreeNavigation).toHaveBeenCalledOnce();
+
+    await expect(onFork("side")).resolves.toEqual({ cancelled: true });
+    expect(forkFromTree).toHaveBeenCalledWith("side");
 
     onCancel();
     expect(closeTreeDialog).toHaveBeenCalledOnce();
@@ -122,6 +128,12 @@ function navigatorAbortHandler(template: TemplateResult): AbortHandler {
   return value;
 }
 
+function navigatorForkHandler(template: TemplateResult): ForkHandler {
+  const value = templateValueAfterMarker(template, ".onFork=");
+  if (!isForkHandler(value)) throw new Error("Session tree fork callback was unavailable");
+  return value;
+}
+
 function navigatorCancelHandler(template: TemplateResult): CancelHandler {
   const value = templateValueAfterMarker(template, ".onCancel=");
   if (!isCancelHandler(value)) throw new Error("Session tree cancel callback was unavailable");
@@ -133,6 +145,10 @@ function isRenderSessionTreeNavigator(value: unknown): value is RenderSessionTre
 }
 
 function isNavigateHandler(value: unknown): value is NavigateHandler {
+  return typeof value === "function";
+}
+
+function isForkHandler(value: unknown): value is ForkHandler {
   return typeof value === "function";
 }
 

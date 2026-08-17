@@ -26,6 +26,8 @@ import type {
   ClientSessionModel,
   ClientSessionRef,
   ClientSessionStatus,
+  ClientSessionTreeForkRequest,
+  ClientSessionTreeForkResult,
   ClientSessionTreeNavigateRequest,
   ClientSessionTreeNavigateResult,
   SessionPinResponse,
@@ -85,6 +87,7 @@ export interface SessionRouteService {
   runCommand(ref: SessionRouteLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult>;
   respondToCommand(ref: SessionRouteLookup, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult>;
   navigateTree(ref: SessionRouteLookup, request: ClientSessionTreeNavigateRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeNavigateResult>;
+  forkFromTree(ref: SessionRouteLookup, request: ClientSessionTreeForkRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeForkResult>;
   abort(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<void>;
   stop(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): void | Promise<void>;
   archive(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<void>;

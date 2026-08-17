@@ -1,13 +1,14 @@
 import type { TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionTreeNavigateResult, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
+import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
 // Genuine Lit callback extraction is limited to pointer row/confirmation wiring;
 // keyboard state and hierarchy are covered through the pure sessionTreeModel.
 // A DOM harness would otherwise add a new test environment only for two clicks.
 import { templateClickHandlerForText, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
-import { SessionTreeNavigator, sessionTreeEntryReturnsToEditor, sessionTreeVisualDepth } from "./SessionTreeNavigator";
+import { SessionTreeNavigator, sessionTreeEntryReturnsToEditor, sessionTreeKindPresentation, sessionTreeVisualDepth } from "./SessionTreeNavigator";
 
 type NavigateCallback = (targetId: string, summaryChoice: SessionTreeSummaryChoice) => Promise<SessionTreeNavigateResult>;
+type ForkCallback = (entryId: string) => Promise<SessionTreeForkResult>;
 type VoidMethod = (this: SessionTreeNavigator) => void;
 type PromiseMethod = (this: SessionTreeNavigator) => Promise<void>;
 type SummaryModeMethod = (this: SessionTreeNavigator, mode: SessionTreeSummaryChoice["mode"]) => void;
@@ -102,7 +103,7 @@ describe("session-tree-navigator interactions", () => {
     clickTreeNavigate(navigator);
     await callPromiseMethod(navigator, "submitNavigation");
 
-    expect(componentProperty(navigator, "step")).toBe("confirm");
+    expect(componentProperty(navigator, "step")).toBe("action");
     expect(componentProperty(navigator, "busy")).toBe(false);
     expect(componentProperty(navigator, "error")).toBe("无法导航会话历史：The session changed since /tree was opened. Reopen /tree and try again.");
   });
@@ -140,7 +141,7 @@ describe("session-tree-navigator interactions", () => {
     callVoidMethod(navigator, "resetTree");
 
     callVoidMethod(navigator, "focusSelectedTreeItem");
-    callVoidMethod(navigator, "continueToConfirmation");
+    callVoidMethod(navigator, "continueToAction");
     await callPromiseMethod(navigator, "submitNavigation");
 
     expect(componentProperty(navigator, "selectedId")).toBeUndefined();
@@ -157,6 +158,28 @@ describe("session-tree-navigator interactions", () => {
     expect(sessionTreeVisualDepth(-1)).toBe(0);
     expect(sessionTreeVisualDepth(7)).toBe(7);
     expect(sessionTreeVisualDepth(20_000)).toBe(8);
+  });
+
+  it("forks the selected entry and keeps the action step open on cancellation", async () => {
+    const navigator = initializedNavigator();
+    const onFork = vi.fn<ForkCallback>().mockResolvedValue({ cancelled: true });
+    navigator.onFork = onFork;
+    clickTreeNavigate(navigator);
+    setComponentProperty(navigator, "operation", "fork");
+
+    await callPromiseMethod(navigator, "submitFork");
+
+    expect(onFork).toHaveBeenCalledWith("active");
+    expect(componentProperty(navigator, "step")).toBe("action");
+    expect(componentProperty(navigator, "statusMessage")).toContain("原会话保持不变");
+  });
+
+  it("assigns distinct semantic tones to session tree entry kinds", () => {
+    expect(sessionTreeKindPresentation("user")).toEqual({ label: "用户", tone: "user", bookkeeping: false });
+    expect(sessionTreeKindPresentation("tool-result").tone).toBe("tool");
+    expect(sessionTreeKindPresentation("bash").tone).toBe("shell");
+    expect(sessionTreeKindPresentation("branch-summary").tone).toBe("context");
+    expect(sessionTreeKindPresentation("thinking-level-change")).toEqual({ label: "思考级别", tone: "metadata", bookkeeping: true });
   });
 });
 
@@ -184,7 +207,7 @@ function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
 }
 
 function clickTreeNavigate(navigator: SessionTreeNavigator): void {
-  templateEventHandlerNearMarker(renderNavigator(navigator), ">导航</button>")(new Event("click"));
+  templateEventHandlerNearMarker(renderNavigator(navigator), ">下一步</button>")(new Event("click"));
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {

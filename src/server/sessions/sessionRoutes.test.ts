@@ -20,6 +20,8 @@ import type {
   SessionRef,
   SessionStatus,
   SessionStreamSnapshot,
+  SessionTreeForkRequest,
+  SessionTreeForkResult,
   SessionTreeNavigateRequest,
   SessionUnreadAcknowledgeRequest,
   SessionUnreadCatalogSnapshot,
@@ -439,6 +441,44 @@ describe("session routes", () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("parses cwd-scoped session tree fork requests and forwards management context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const managementContext: ManagementEmbedContext = {
+      user: { id: "account-1", rootUserId: "root-1", roles: [], permissions: ["runtime:write"] },
+      projects: [{ id: "project-1", name: "Project 1" }],
+    };
+
+    try {
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/fork",
+        headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) },
+        payload: { cwd: "/repo/./", entryId: "entry-2", expectedLeafId: "leaf-1" },
+      });
+      const malformed = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/fork",
+        payload: { cwd: "/repo", entryId: "   ", expectedLeafId: "leaf-1" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ cancelled: true });
+      expect(malformed.statusCode).toBe(400);
+      expect(routeService.forkFromTreeCalls).toEqual([{
+        lookup: { id: "session-1", cwd: resolve("/repo") },
+        request: { entryId: "entry-2", expectedLeafId: "leaf-1" },
+        managementContext,
+      }]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -969,6 +1009,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
   readonly navigateTreeCalls: { lookup: SessionRouteLookup; request: SessionTreeNavigateRequest }[] = [];
+  readonly forkFromTreeCalls: { lookup: SessionRouteLookup; request: SessionTreeForkRequest; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly submitAskCalls: { lookup: SessionRouteLookup; askId: string; submission: AskUserSubmission; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly cancelAskCalls: { lookup: SessionRouteLookup; askId: string; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly answerDialogCalls: { lookup: SessionRouteLookup; dialogId: string; value: ExtensionDialogAnswer }[] = [];
@@ -1169,6 +1210,10 @@ class CapturingRouteSessionService implements SessionRouteService {
   navigateTree(lookup: SessionRouteLookup, request: SessionTreeNavigateRequest): Promise<SessionTreeNavigateResult> {
     this.navigateTreeCalls.push({ lookup, request });
     return Promise.resolve({ cancelled: false, editorText: "edit this" });
+  }
+  forkFromTree(lookup: SessionRouteLookup, request: SessionTreeForkRequest, managementContext?: ManagementEmbedContext): Promise<SessionTreeForkResult> {
+    this.forkFromTreeCalls.push({ lookup, request, managementContext });
+    return Promise.resolve({ cancelled: true });
   }
   abort(): never { throw unusedRouteMethod("abort"); }
   stop(): never { throw unusedRouteMethod("stop"); }

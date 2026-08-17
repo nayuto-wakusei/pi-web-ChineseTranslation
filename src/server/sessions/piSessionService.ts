@@ -32,7 +32,7 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionStatus, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -2475,6 +2475,71 @@ export class PiSessionService {
         this.deferredSubsessionNotifications.delete(session);
       }
     }
+  }
+
+  async forkFromTree(ref: PiSessionLookup, request: ClientSessionTreeForkRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeForkResult> {
+    if (request.entryId.trim() === "") throw new Error("Session tree entry is required");
+    const requestedSessionId = sessionIdFromLookup(ref);
+    if (this.isTreeExclusiveSessionIdentityActive(requestedSessionId)) {
+      throw new Error("Stop current session activity before forking the session tree");
+    }
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref, managementContext);
+    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before forking the session tree");
+    const sourceSessionId = session.sessionId;
+    const sourceEventScope = this.eventScopeForSession(session);
+    const sourceCwd = session.sessionManager.getCwd();
+
+    this.publishActivity(session, "正在从会话树条目分叉", "active");
+    this.publishStatus(session);
+    try {
+      const result = await this.commandService.forkEntry(session.sessionId, request.entryId, sourceEventScope, {
+        expectedLeafId: request.expectedLeafId,
+      });
+      if (result.type === "unsupported") throw new Error(result.message);
+      if (result.type !== "done") throw new Error("Session fork is unavailable");
+      if (result.session === undefined) {
+        if (this.isCurrentActiveSession(session)) {
+          this.publishActivity(session, "会话分叉已取消", "idle");
+          this.publishStatus(session);
+        }
+        return { cancelled: true };
+      }
+
+      const forked = this.activeForLookup({ id: result.session.id, cwd: result.session.cwd }, managementContext)?.runtime.session;
+      if (forked !== undefined && this.isCurrentActiveSession(forked)) {
+        this.publishActivity(forked, "会话已分叉", "idle");
+        this.publishStatus(forked);
+      }
+      if (result.session.id !== sourceSessionId) this.clearSupersededSessionActivity(sourceSessionId, sourceCwd, sourceEventScope);
+      return {
+        cancelled: false,
+        session: result.session,
+        ...(result.promptDraft === undefined ? {} : { promptDraft: result.promptDraft }),
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.isCurrentActiveSession(session)) {
+        this.publishActivity(session, "会话分叉失败", "error", message);
+        this.events.publish(session.sessionId, { type: "session.error", message }, sourceEventScope);
+        this.publishStatus(session);
+      }
+      throw error;
+    }
+  }
+
+  private clearSupersededSessionActivity(sessionId: string, cwd: string, eventScope: string): void {
+    const sessionKey = activeSessionKey(sessionId, eventScope);
+    if (this.activities.get(sessionKey)?.phase === "active") {
+      const at = new Date().toISOString();
+      const stored = { phase: "idle" as const, label: "空闲", at };
+      this.activities.set(sessionKey, stored);
+      const activity = { sessionId, ...stored };
+      this.events.publish(sessionId, { type: "activity.update", activity }, eventScope);
+      this.events.publishGlobal({ type: "activity.update", activity }, eventScope);
+    }
+    this.workspaceActivity?.removeSession(sessionId, cwd, eventScope);
+    this.activities.delete(sessionKey);
   }
 
   async archive(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {

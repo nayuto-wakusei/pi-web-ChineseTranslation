@@ -558,6 +558,60 @@ describe("SessionController session tree navigation", () => {
   });
 });
 
+describe("SessionController session tree forking", () => {
+  it("stores the fork draft, discards the original transcript, and selects the new session", async () => {
+    const forked = { ...replacementSession, id: "forked-session", path: "/workspace/forked-session.jsonl" };
+    const removedKeys: string[] = [];
+    const transcripts = new ChatTranscriptStore({
+      read: () => undefined,
+      write: () => undefined,
+      remove: (key) => { removedKeys.push(key); },
+    });
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession], treeDialog: tree };
+    const forkTree = vi.fn<typeof defaultApi.forkTree>(() => Promise.resolve({ cancelled: false, session: forked, promptDraft: "edit this prompt" }));
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      forkTree,
+      messages: () => Promise.resolve(page("forked history", 1)),
+      status: () => Promise.resolve(status(forked.id)),
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket(), transcripts },
+    );
+
+    await expect(controller.forkFromTree("root")).resolves.toEqual({ cancelled: false, session: forked, promptDraft: "edit this prompt" });
+    await vi.waitFor(() => { expect(state.selectedSession?.id).toBe(forked.id); });
+
+    expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1" }, "local");
+    expect(state.treeDialog).toBeUndefined();
+    expect(state.sessions[0]?.id).toBe(forked.id);
+    expect(loadDraft(machineSessionKey("local", forked.id))).toBe("edit this prompt");
+    expect(removedKeys).toContain(machineSessionKey("local", oldSession.id));
+  });
+
+  it("keeps the original selection and dialog when forking is cancelled", async () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession], treeDialog: tree };
+    const api: typeof defaultApi = { ...defaultApi, forkTree: () => Promise.resolve({ cancelled: true }) };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    await expect(controller.forkFromTree("root")).resolves.toEqual({ cancelled: true });
+    expect(state.selectedSession?.id).toBe(oldSession.id);
+    expect(state.treeDialog).toBe(tree);
+  });
+});
+
 function page(text: string, total: number): MessagePage {
   return { messages: [{ role: "assistant", content: text }], start: 0, total };
 }

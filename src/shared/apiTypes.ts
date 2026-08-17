@@ -1396,6 +1396,22 @@ export type SessionTreeNavigateResult =
   | { cancelled: false; editorText?: string }
   | { cancelled: true; aborted?: boolean };
 
+export interface SessionTreeForkRequest {
+  entryId: string;
+  /** Leaf shown when the navigator opened; null is valid for an empty/root position. */
+  expectedLeafId: string | null;
+}
+
+/**
+ * Fork-from-entry creates a new session file up to the selected entry and
+ * switches the runtime to it, leaving the original session untouched. User
+ * entries fork from "before" so their text returns as a prompt draft; every
+ * other entry forks "at".
+ */
+export type SessionTreeForkResult =
+  | { cancelled: false; session: SessionInfo; promptDraft?: string }
+  | { cancelled: true };
+
 export interface MessagePage {
   messages: unknown[];
   start: number;
