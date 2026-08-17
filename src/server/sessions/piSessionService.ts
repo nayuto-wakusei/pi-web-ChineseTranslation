@@ -57,9 +57,7 @@ import { searchSessionContent } from "./sessionContentSearch.js";
 
 import { createLocalOnlyModelRuntime, type AuthChange } from "./authService.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
-import { readSessionHeaderSummary, type SessionHeaderSummary } from "./sessionFileHeader.js";
-import { countOutOfListingChildren, locateOutOfListingParents, type SessionHeaderReader } from "./parentSessionLocator.js";
-import { siblingWorkspaceCwds, type ProjectWorkspaceCwds } from "../workspaces/projectWorkspaceCwds.js";
+import { readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
@@ -155,6 +153,10 @@ function noop(): void {
 function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: false }>): Error {
   if (decision.reason === "not-registered") return new Error("派生会话不在已注册项目中");
   return new Error(`cwd 必须是此项目的工作区。允许的路径：${decision.allowedCwds.join(", ")}`);
+}
+
+function subsessionCwdError(spawningCwd: string, requestedCwd: string): Error {
+  return new Error(`跟踪子会话只能在父会话的工作区中运行（${spawningCwd}），不能使用 ${requestedCwd}。如需在其它工作区运行，请使用 spawn_session 创建独立会话。`);
 }
 
 function modelSpecOf(model: { provider: string; id: string }): string {
@@ -351,6 +353,12 @@ export interface PiSessionListEntry {
   parentSessionPath?: string;
 }
 
+export interface ResolvedSessionFile {
+  id: string;
+  cwd: string;
+  path: string;
+}
+
 
 interface BulkSessionLookupContext {
   sessionsByCwd: Map<string, PiSessionListEntry[]>;
@@ -387,6 +395,10 @@ export interface PiSessionManager {
 
 export interface PiSessionManagerGateway {
   list(cwd: string): Promise<PiSessionListEntry[]>;
+  /** Resolve one cwd-scoped session without building the full workspace listing. */
+  resolveSessionFile?(cwd: string, sessionId: string): Promise<ResolvedSessionFile | undefined>;
+  /** Invalidate a memoized summary after an in-place session-file rewrite. */
+  invalidateSessionFile?(sessionFile: string): void;
   create(cwd: string, options?: { parentSession?: string }): PiSessionManager;
   /**
    * Legacy id-only lookup surface for older clients. This intentionally searches
@@ -1085,13 +1097,6 @@ export interface PiSessionServiceDependencies {
    */
   spawnTargets?: SpawnTargetResolver;
   /**
-   * When provided, session listings report related sessions living in sibling
-   * workspaces of the same project: where an out-of-workspace parent is, and how
-   * many children a listed session has elsewhere. Omit to list each workspace in
-   * isolation.
-   */
-  projectWorkspaces?: ProjectWorkspaceCwds;
-  /**
    * Beta: when true (and `spawnTargets` is provided), the tracked-subsession
    * tools are available to sessions whose creation provenance permits
    * delegation. Off by default so the capability can ship in main without
@@ -1172,7 +1177,6 @@ export class PiSessionService {
   /** Parent id/file identities whose persisted links have already been loaded. */
   private readonly subsessionHydratedParents = new Set<string>();
   /** Session file path -> its parsed header. Headers are written once, so successful reads are cached. */
-  private readonly sessionHeaderCache = new Map<string, SessionHeaderSummary>();
   /**
    * Tracked subsession id -> whether a completion notification is armed.
    * Armed when the child starts working; firing on completion disarms it so a
@@ -1191,7 +1195,6 @@ export class PiSessionService {
   private readonly managementModelRuntime: () => Promise<ModelRuntime>;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
   private readonly spawnTargets: SpawnTargetResolver | undefined;
-  private readonly projectWorkspaces: ProjectWorkspaceCwds | undefined;
   private readonly logger: PiSessionLogger;
   private readonly normalToolAudit: Pick<NormalToolAuditStore, "record"> | undefined;
   private readonly managementAudit: ManagementAuditRecorder | undefined;
@@ -1238,7 +1241,6 @@ export class PiSessionService {
       ? resolveDefaultModelRuntime
       : () => Promise.resolve(managementModelRuntime);
     this.spawnTargets = deps.spawnTargets;
-    this.projectWorkspaces = deps.projectWorkspaces;
     this.logger = deps.logger ?? noopLogger;
     this.normalToolAudit = deps.normalToolAudit;
     this.managementAudit = deps.managementAudit;
@@ -1404,7 +1406,6 @@ export class PiSessionService {
     this.subsessionLinks.clear();
     this.subsessionHydratedParents.clear();
     this.subsessionNotifyArmed.clear();
-    this.sessionHeaderCache.clear();
     this.notificationStore.clearAll("service-dispose");
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
@@ -1484,80 +1485,11 @@ export class PiSessionService {
       .map((record) => clientSessionFromArchivedRecord(record, sessionsById.get(record.sessionId)))
       .filter(isDefined);
     return {
-      sessions: await this.withRelatedSessionsElsewhere([...unarchivedSessions, ...archivedSessions], cwd),
+      sessions: [...unarchivedSessions, ...archivedSessions],
       entriesById: new Map(sessions.map((session) => [session.id, session])),
       archivedById,
     };
   }
-
-  /**
-   * Annotate a listing with the session relationships that cross workspace
-   * boundaries: where an out-of-listing parent lives, and how many children a
-   * listed session has in sibling workspaces.
-   *
-   * Both directions are best-effort. An unreadable parent header or a sibling
-   * workspace that cannot be listed leaves the session unannotated rather than
-   * failing the listing, and the browser falls back to its generic states.
-   */
-  private async withRelatedSessionsElsewhere(sessions: readonly ClientSession[], cwd: string): Promise<ClientSession[]> {
-    const [parentLocations, childCounts] = await Promise.all([
-      locateOutOfListingParents(sessions, cwd, this.readCachedSessionHeader),
-      this.countChildrenInSiblingWorkspaces(sessions, cwd),
-    ]);
-    return sessions.map((session) => {
-      const parent = session.parentSessionPath === undefined ? undefined : parentLocations.get(session.parentSessionPath);
-      const childrenElsewhere = childCounts.get(session.path);
-      if (parent === undefined && childrenElsewhere === undefined) return session;
-      const annotated = { ...session };
-      if (parent !== undefined) {
-        annotated.parentSessionId = parent.parentSessionId;
-        annotated.parentSessionCwd = parent.parentSessionCwd;
-      }
-      if (childrenElsewhere !== undefined) annotated.childSessionsElsewhere = childrenElsewhere;
-      return annotated;
-    });
-  }
-
-  /**
-   * Count children of the listed sessions that live in other workspaces of the
-   * same project.
-   *
-   * Only sibling workspaces are scanned: agents may only spawn into workspaces
-   * of the spawning session's own project, so that bounds where a child can be.
-   * Listing is skipped entirely when no project-workspace locator is configured
-   * or the cwd belongs to no registered project.
-   */
-  private async countChildrenInSiblingWorkspaces(sessions: readonly ClientSession[], cwd: string): Promise<Map<string, number>> {
-    if (this.projectWorkspaces === undefined || sessions.length === 0) return new Map();
-    try {
-      const siblingCwds = await siblingWorkspaceCwds(this.projectWorkspaces, cwd);
-      if (siblingCwds.length === 0) return new Map();
-      const listings = await Promise.all(siblingCwds.map(async (siblingCwd): Promise<string[]> => {
-        const entries = await this.sessionManager.list(siblingCwd);
-        return entries.flatMap((entry) => entry.parentSessionPath === undefined ? [] : [entry.parentSessionPath]);
-      }));
-      return countOutOfListingChildren(sessions, listings.flat());
-    } catch (error: unknown) {
-      this.logger.info(
-        { cwd, error: error instanceof Error ? error.message : String(error) },
-        "failed to count child sessions in sibling workspaces",
-      );
-      return new Map();
-    }
-  }
-
-  /**
-   * Read a session file header, memoized per path. Pi writes the header once at
-   * session creation, so a successful read stays valid for the process lifetime;
-   * failures are not cached so a session file that appears later is picked up.
-   */
-  private readonly readCachedSessionHeader: SessionHeaderReader = async (sessionFile) => {
-    const cached = this.sessionHeaderCache.get(sessionFile);
-    if (cached !== undefined) return cached;
-    const header = await readSessionHeaderSummary(sessionFile);
-    if (header !== undefined) this.sessionHeaderCache.set(sessionFile, header);
-    return header;
-  };
 
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
     if (options.managementContext === undefined) await this.normalModelRuntimeForCwd(cwd);
@@ -1636,15 +1568,13 @@ export class PiSessionService {
     };
   }
 
-  /**
-   * Start a *tracked* child session on behalf of a LLM. Identical to
-   * {@link spawnSession} in how the target cwd is resolved, but the child
-   * records its parent (so it shows in the session tree) and is registered so
-   * the parent is notified when it stops working and can inspect it later.
-   */
+  /** Start a tracked child in the parent's workspace so it remains visible in the same session tree. */
   async spawnSubsession(input: ScopedSpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
     if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
-    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
+    if (input.cwd !== undefined && input.cwd !== "" && !cwdPathsEqual(input.cwd, input.spawningCwd)) {
+      throw subsessionCwdError(input.spawningCwd, input.cwd);
+    }
+    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, undefined);
     if (!decision.allowed) throw spawnTargetError(decision);
     // A model spec overrides the inherited model and is resolved against the
     // parent's model runtime; only a spec triggers that lookup.
@@ -2812,6 +2742,7 @@ export class PiSessionService {
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
     await clearParentSession(sessionFile);
+    this.sessionManager.invalidateSessionFile?.(sessionFile);
     clearParentSessionHeader(session.sessionManager);
     this.unregisterSubsession(session.sessionId);
     await this.forgetUnreadSessions([{ sessionId: session.sessionId, cwd: session.sessionManager.getCwd() }]);
@@ -3155,8 +3086,10 @@ export class PiSessionService {
     }
 
     const match = isPiSessionRef(ref)
-      ? (await this.sessionManager.list(ref.cwd)).find((s) => s.id === ref.id || s.id.startsWith(ref.id))
-      : (await this.sessionManager.listAll?.() ?? []).find((s) => s.id === ref || s.id.startsWith(ref));
+      ? this.sessionManager.resolveSessionFile === undefined
+        ? findSessionByIdOrPrefix(await this.sessionManager.list(ref.cwd), ref.id)
+        : await this.sessionManager.resolveSessionFile(ref.cwd, ref.id)
+      : findSessionByIdOrPrefix(await this.sessionManager.listAll?.() ?? [], ref);
     if (!match) throw new Error("未找到会话");
     return this.openPending(match.id, match.cwd, managementContext, () => this.sessionManager.open(match.path));
   }

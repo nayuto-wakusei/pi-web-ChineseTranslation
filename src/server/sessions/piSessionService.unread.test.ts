@@ -363,13 +363,13 @@ describe("PiSessionService daemon-owned unread state", () => {
     tempRoots.push(root);
     const parentFile = join(root, "parent.jsonl");
     const childFile = join(root, "child.jsonl");
-    await writeFile(childFile, `${JSON.stringify({ type: "session", version: 3, id: "child-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/workspace-feature", parentSession: parentFile })}\n`, "utf8");
+    await writeFile(childFile, `${JSON.stringify({ type: "session", version: 3, id: "child-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/workspace", parentSession: parentFile })}\n`, "utf8");
     const unreadStore = new SessionUnreadStore({ createCatalogId: () => "catalog-test" });
     const hub = new CapturingSessionEventHub();
     const parent = fakeRuntime("parent-1", { sessionFile: parentFile });
     const child = fakeRuntime("child-1", {
       sessionFile: childFile,
-      sessionManager: fakeSessionManager("/workspace-feature"),
+      sessionManager: fakeSessionManager("/workspace"),
     });
     child.session.prompt = () => {
       completeRuntimeWork(child);
@@ -384,7 +384,7 @@ describe("PiSessionService daemon-owned unread state", () => {
       createAgentRuntime,
       sessionManager: sessionGateway([]),
       archiveStore: emptyArchiveStore(),
-      spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+      spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace" }) },
       heartbeatIntervalMs: 60_000,
       unreadStore,
     });
@@ -396,18 +396,18 @@ describe("PiSessionService daemon-owned unread state", () => {
         parentSessionId: "parent-1",
         parentSessionFile: parentFile,
         prompt: "do the slice",
-        cwd: "/workspace-feature",
+        cwd: WORKSPACE_CWD,
       });
       completeRuntimeWork(child);
 
       expect((await service.unreadCatalog()).sessions.some((summary) => summary.sessionId === "child-1")).toBe(false);
       expect(unreadEvents(hub).some((event) => event.sessionId === "child-1" && event.unread !== null)).toBe(false);
 
-      await service.detachParent(sessionRef("child-1", "/workspace-feature"));
+      await service.detachParent(sessionRef("child-1", "/workspace"));
       completeRuntimeWork(child);
       expect((await service.unreadCatalog()).sessions).toContainEqual(expect.objectContaining({
         sessionId: "child-1",
-        cwd: FEATURE_CWD,
+        cwd: WORKSPACE_CWD,
       }));
     } finally {
       await service.dispose();

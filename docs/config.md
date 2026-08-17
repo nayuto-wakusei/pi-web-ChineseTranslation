@@ -342,6 +342,8 @@ To turn the background refresh off entirely, set `PI_WEB_OFFLINE` or `PI_OFFLINE
 
 Tracked subsessions are join-oriented. Calling `spawn_subsession` returns immediately, so the parent can continue independent work while the child runs. Work whose result the parent does not need to join belongs in the fire-and-forget `spawn_session` tool instead.
 
+A tracked subsession always runs in the spawning session's working directory, so it stays in that workspace's session tree next to its parent. `spawn_subsession` takes no `cwd`. For work in another workspace, use `spawn_session` to create an independent session there.
+
 At a join point, after finishing its independent work, the parent calls `yield_to_subsessions` alone as the final action in its tool batch. Pi ends a tool batch early only when every result in that batch is terminating. If any tracked child is still working, the action ends the current agent run so the parent becomes idle. If none are working, it does not end the run and clearly reports that there is nothing to wait for.
 
 A completion notice wakes an idle parent or queues behind in-flight work. Each notice lists any other tracked children still working, so the parent can continue work or call `yield_to_subsessions` again at the next join point. Further notices arrive automatically; do not poll. The notice includes the child's final output when it fits. If that output is too long, PI WEB omits it entirely instead of adding a truncated duplicate to the parent's context and directs the parent to retrieve it with `check_subsession`.

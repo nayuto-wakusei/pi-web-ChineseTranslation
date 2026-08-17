@@ -206,9 +206,6 @@ export function parseSessionInfo(value: unknown): SessionInfo {
   const name = optionalString(record, "name");
   const persisted = parseOptionalBoolean(record["persisted"], "persisted");
   const parentSessionPath = optionalString(record, "parentSessionPath");
-  const parentSessionCwd = optionalString(record, "parentSessionCwd");
-  const parentSessionId = optionalString(record, "parentSessionId");
-  const childSessionsElsewhere = parseOptionalCount(record["childSessionsElsewhere"], "childSessionsElsewhere");
   const archivedAt = optionalString(record, "archivedAt");
   return {
     id: requireString(record, "id"),
@@ -221,9 +218,6 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     messageCount: requireNumber(record, "messageCount"),
     firstMessage: requireString(record, "firstMessage"),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-    ...(parentSessionCwd === undefined ? {} : { parentSessionCwd }),
-    ...(parentSessionId === undefined ? {} : { parentSessionId }),
-    ...(childSessionsElsewhere === undefined ? {} : { childSessionsElsewhere }),
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
   };
@@ -1518,13 +1512,6 @@ function parseOptionalBoolean(value: unknown, key: string): boolean | undefined 
   if (value === undefined) return undefined;
   if (typeof value !== "boolean") throw new Error(`Expected optional boolean field: ${key}`);
   return value;
-}
-
-/** Optional non-negative integer count; zero is normalized away so absent and none read alike. */
-function parseOptionalCount(value: unknown, key: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new Error(`Expected optional count field: ${key}`);
-  return value === 0 ? undefined : value;
 }
 
 export function parsePiWebStatusResponse(value: unknown): PiWebStatusResponse {

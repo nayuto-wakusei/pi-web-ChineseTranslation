@@ -918,6 +918,11 @@ pi-web audit vacuum</code></pre>
                 join belongs in the fire-and-forget <code>spawn_session</code> tool instead.
               </p>
               <p>
+                A tracked subsession always runs in the spawning session's working directory, so it stays in that
+                workspace's session tree next to its parent. <code>spawn_subsession</code> takes no <code>cwd</code>. For
+                work in another workspace, use <code>spawn_session</code> to create an independent session there.
+              </p>
+              <p>
                 At a join point, after finishing its independent work, the parent calls
                 <code>yield_to_subsessions</code> alone as the final action in its tool batch. Pi ends a tool batch early
                 only when every result in that batch is terminating. If any tracked child is still working, the action

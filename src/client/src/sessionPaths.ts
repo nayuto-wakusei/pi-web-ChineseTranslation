@@ -16,8 +16,3 @@
 export function normalizeSessionPath(path: string): string {
   return path.replace(/[/\\]+$/u, "");
 }
-
-/** Whether two server-produced absolute paths refer to the same location. */
-export function sessionPathsEqual(a: string, b: string): boolean {
-  return normalizeSessionPath(a) === normalizeSessionPath(b);
-}

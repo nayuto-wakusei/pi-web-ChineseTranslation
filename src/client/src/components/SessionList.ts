@@ -4,7 +4,6 @@ import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { shortSessionId } from "../sessionLabels";
 import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceState } from "../sessionPersistence";
-import { parentSessionLocationLabel, parentSessionLocationTitle, type ParentSessionLocation } from "../parentSessionLocation";
 import { normalizeSessionPath } from "../sessionPaths";
 import { isSessionActive } from "../../../shared/activity";
 import { actionMenuPanelStyle } from "./actionMenu";
@@ -27,12 +26,13 @@ export interface SessionRow {
 type SessionSelectionScope = "current" | "archived";
 
 export const SESSION_LIST_BATCH_SIZE = 50;
+const ORPHAN_PARENT_TITLE = "当前工作区中没有可用的父会话";
 
 const NON_RENDERING_PROPERTIES = new Set([
   "onSelect", "onSearch", "onTogglePin", "onStart", "onToggleCollapsed", "onArchivedCollapsed",
   "onFocusPreviousSection", "onFocusNextSection", "onCancelKeyboardNavigation", "onArchive",
   "onArchiveWithDescendants", "onArchiveMany", "onRestore", "onDelete", "onDeleteArchived",
-  "onDeleteArchivedMany", "onRename", "onDetachParent", "parentLocation", "onGoToParent", "onMarkRead",
+  "onDeleteArchivedMany", "onRename", "onDetachParent", "onMarkRead",
   "onMarkReadMany", "onReload", "onCleanup",
 ]);
 
@@ -74,9 +74,6 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onDeleteArchivedMany?: (sessions: SessionInfo[]) => void | Promise<void>;
   @property({ attribute: false }) onRename?: (session: SessionInfo, name: string) => void | Promise<void>;
   @property({ attribute: false }) onDetachParent?: (session: SessionInfo) => void;
-  /** Resolves where a row's out-of-workspace parent lives; defaults to "unknown" so the list works standalone. */
-  @property({ attribute: false }) parentLocation: (session: SessionInfo) => ParentSessionLocation = () => ({ kind: "unknown" });
-  @property({ attribute: false }) onGoToParent?: (session: SessionInfo, location: ParentSessionLocation) => void;
   @property({ attribute: false }) onMarkRead?: (session: SessionInfo) => void;
   @property({ attribute: false }) onMarkReadMany?: (sessions: SessionInfo[]) => void | Promise<void>;
   @property({ attribute: false }) onReload?: (session: SessionInfo) => void;
@@ -350,7 +347,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       >
         <div class="action-main ${selectionActive ? "selecting" : ""}">
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${`选择 ${sessionLabel(session)}`} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
-          <span class="action-name-line"><span class="action-name" dir="auto">${this.renderRowMarker(row)}${pinned ? html`<span class="pin-indicator" title="已置顶" aria-label="已置顶">★</span>` : null}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${this.renderRelatedSessionsMeta(row)}${String(session.messageCount)} 条消息</small>
+          <span class="action-name-line"><span class="action-name" dir="auto">${this.renderRowMarker(row)}${pinned ? html`<span class="pin-indicator" title="已置顶" aria-label="已置顶">★</span>` : null}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} 条消息</small>
           ${this.renderActivity(indicatorKind, unread)}
         </div>
         <div class="action-menu">
@@ -373,7 +370,6 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
                       <button title="归档会话" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>归档</button>
                       ${descendantCount > 0 ? html`<button title="归档此会话及其后代会话" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>连同后代归档（${descendantCount}）</button>` : null}
                     ` : null}
-                    ${this.renderGoToParentMenuItem(row)}
                     ${session.parentSessionPath !== undefined ? html`<button title="从父会话分离" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>从父会话分离</button>` : null}
                     ${canReloadSession ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "请先停止当前会话活动，再从磁盘重新加载" : "从磁盘重新加载会话，但不刷新 Pi 运行时资源"} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>从磁盘重新加载</button>` : null}
                   `}
@@ -389,45 +385,19 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
    * children (a recorded parent that is not in this list) render at depth 0 and
    * would otherwise look like roots, so they keep the same child glyph, dimmed
    * to signal that the parent itself is not shown here. Where that parent lives
-   * is a separate question, answered by the badge on the other side of the row.
+   * signals that the parent is not available in this workspace.
    */
   private renderRowMarker(row: SessionRow) {
     if (row.hasMissingParent) {
-      const location = this.parentLocation(row.session);
-      return html`<span class="tree-marker orphan-marker" title=${parentSessionLocationTitle(location)} aria-label=${parentSessionLocationLabel(location)}>↳</span>`;
+      return html`<span class="tree-marker orphan-marker" title=${ORPHAN_PARENT_TITLE} aria-label=${ORPHAN_PARENT_TITLE}>↳</span>`;
     }
     return row.depth > 0 ? html`<span class="tree-marker">↳</span>` : null;
   }
 
-  /**
-   * Badges live outside `.action-name` so the clamped, ellipsizing title cannot
-   * hide them. Cross-workspace relationships are not badges: they are stated on
-   * the meta line below, where both directions read alike.
-   */
+  /** Badges live outside `.action-name` so the clamped title cannot hide them. */
   private renderRowBadges(row: SessionRow) {
     if (row.depth <= 2) return null;
     return html`<span class="row-badges"><span class="badge">depth ${row.depth}</span></span>`;
-  }
-
-  /**
-   * Cross-workspace relationships, at the start of the meta line so they survive
-   * truncation: where an out-of-workspace parent is, and how many children live
-   * in other workspaces. Both are stated plainly rather than flagged, since a
-   * session tree spanning worktrees is normal rather than a problem.
-   */
-  private renderRelatedSessionsMeta(row: SessionRow) {
-    const parts = [
-      row.hasMissingParent ? parentSessionLocationLabel(this.parentLocation(row.session)) : undefined,
-      childrenElsewhereLabel(row.session.childSessionsElsewhere),
-    ].filter((part) => part !== undefined);
-    return parts.length === 0 ? null : `${parts.join(" · ")} · `;
-  }
-
-  private renderGoToParentMenuItem(row: SessionRow) {
-    if (!row.hasMissingParent || this.onGoToParent === undefined) return null;
-    const location = this.parentLocation(row.session);
-    if (location.kind !== "workspace") return null;
-    return html`<button title=${parentSessionLocationTitle(location)} @click=${() => { this.openMenuSessionId = undefined; this.onGoToParent?.(row.session, location); }}>前往父会话</button>`;
   }
 
   private handleSessionKeydown(event: KeyboardEvent, session: SessionInfo, scope: SessionSelectionScope): void {
@@ -687,11 +657,6 @@ export function isRenamableSession(
 }
 
 /** Plain-text count of children living in other workspaces, or undefined when there are none. */
-function childrenElsewhereLabel(count: number | undefined): string | undefined {
-  if (count === undefined || count === 0) return undefined;
-  return `其他工作区有 ${String(count)} 个子会话`;
-}
-
 function sessionSelectionScope(session: SessionInfo): SessionSelectionScope {
   return session.archived === true ? "archived" : "current";
 }
@@ -738,7 +703,6 @@ function sessionInfoRenderKey(session: unknown): string {
   return JSON.stringify([
     session.id, session.path, session.cwd, session.name, session.firstMessage, session.messageCount,
     session.modified, session.archived, session.archivedAt, session.persisted, session.parentSessionPath,
-    session.childSessionsElsewhere,
   ]);
 }
 

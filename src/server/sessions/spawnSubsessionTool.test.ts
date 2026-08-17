@@ -45,21 +45,20 @@ function firstText(content: readonly (TextContent | ImageContent)[]): string {
 
 describe("createSubsessionToolDefinitions", () => {
   it("spawn_subsession forwards parent identity and params from the live context", async () => {
-    const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" }));
+    const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a" }));
     const { spawn: spawnTool } = tools({ spawn });
 
-    const result = await spawnTool.execute("call-1", { prompt: "do it", cwd: "/repos/a-feature" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel, "max"));
+    const result = await spawnTool.execute("call-1", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl", dispatchModel, "max"));
 
     expect(spawn).toHaveBeenCalledWith({
       spawningCwd: "/repos/a",
       parentSessionId: "parent-1",
       parentSessionFile: "/sessions/parent-1.jsonl",
       prompt: "do it",
-      cwd: "/repos/a-feature",
       model: dispatchModel,
       thinkingLevel: "max",
     });
-    expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a-feature" });
+    expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a" });
     expect(firstText(result.content)).toContain("启动受跟踪子会话 child-1");
   });
 
@@ -69,7 +68,7 @@ describe("createSubsessionToolDefinitions", () => {
     });
 
     expect(spawnTool.description).toBe("Start a tracked child session to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
-    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work for the current task; result available after completion");
+    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in this workspace; result available after completion");
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
