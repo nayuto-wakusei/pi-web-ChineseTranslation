@@ -177,12 +177,12 @@ export interface WorkspacePanelContext extends WorkspaceContext {
   expandedDirs: Record<string, FileTreeEntry[]>;
   selectedFilePath: string | undefined;
   selectedFileContent: FileContentResponse | undefined;
+  selectedFileLoadError?: string | undefined;
   gitStatus: GitStatusResponse | undefined;
   selectedDiffPath: string | undefined;
   selectedDiff: GitDiffResponse | undefined;
   selectedStagedDiff: GitDiffResponse | undefined;
   gitStale: boolean;
-  selectedFileLoadError?: string | undefined;
   fileTreeStale: boolean;
   activeTerminalCount: number;
   selectedTerminalId: string | undefined;

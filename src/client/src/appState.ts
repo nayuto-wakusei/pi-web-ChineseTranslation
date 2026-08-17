@@ -85,6 +85,7 @@ export interface AppState {
   expandedDirs: Record<string, FileTreeEntry[]>;
   selectedFilePath: string | undefined;
   selectedFileContent: FileContentResponse | undefined;
+  selectedFileLoadError: string | undefined;
   fileTreeStale: boolean;
   /** Manual workspace file upload batches, keyed by client-owned batch id. */
   workspaceUploadBatches: Record<string, WorkspaceUploadBatchState>;
@@ -142,6 +143,7 @@ export type WorkspaceScopedStateReset = Pick<AppState,
   | "expandedDirs"
   | "selectedFilePath"
   | "selectedFileContent"
+  | "selectedFileLoadError"
   | "fileTreeStale"
   | "gitStatus"
   | "selectedDiffPath"
@@ -169,6 +171,7 @@ export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
     expandedDirs: {},
     selectedFilePath: undefined,
     selectedFileContent: undefined,
+    selectedFileLoadError: undefined,
     fileTreeStale: false,
     gitStatus: undefined,
     selectedDiffPath: undefined,
@@ -238,6 +241,7 @@ export function initialAppState(): AppState {
     expandedDirs: {},
     selectedFilePath: undefined,
     selectedFileContent: undefined,
+    selectedFileLoadError: undefined,
     fileTreeStale: false,
     workspaceUploadBatches: {},
     gitStatus: undefined,

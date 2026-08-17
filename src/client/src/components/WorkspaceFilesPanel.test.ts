@@ -6,10 +6,9 @@ import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
 // Genuine Lit event-wiring extraction (upload input/form submit and file-tree
 // row clicks) routes through the shared, type-guarded template-inspection escape
 // hatch; see ../templateInspection.testSupport for the proportionality
-// rationale. Viewer content messaging is asserted via the public
-// workspaceFileViewerStatusLabel seam instead of scraping Lit markup.
+// rationale. The extracted viewer has its own component coverage.
 import { findOptionalTemplateEventHandlerAfterMarker, templateClickHandlerForText, templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
-import { selectedWorkspacePathKind, WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceFileViewerStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
+import { selectedWorkspacePathKind, WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -75,12 +74,6 @@ describe("workspace-files-panel file tree boundary", () => {
     expect(onSelectFile).toHaveBeenCalledWith("src/main.ts");
     expect(onSelectFile).toHaveBeenCalledWith("README.md");
 
-    // Viewer messaging (selected binary file) is a content concern; assert it
-    // through the public seam rather than the rendered template.
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({
-      selectedFilePath: "README.md",
-      selectedFileContent: binaryFileContent("README.md", 4096),
-    }))).toBe("二进制文件：README.md · 4.0 KB");
   });
 });
 
@@ -131,18 +124,6 @@ describe("workspace-files-panel file actions", () => {
     expect(onMoveSelectedPath).toHaveBeenCalledWith("docs/README.md");
     expect(confirm).toHaveBeenCalledWith("删除文件 README.md？此操作无法撤销。");
     expect(onDeleteSelectedPath).toHaveBeenCalledOnce();
-  });
-});
-
-describe("workspaceFileViewerStatusLabel", () => {
-  it("messages empty, loading, and binary viewer states while deferring to real viewers", () => {
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: undefined }))).toBe("请选择文件。");
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "" }))).toBe("请选择文件。");
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({ selectedFilePath: "notes.md", selectedFileContent: undefined }))).toBe("正在加载 notes.md…");
-    expect(workspaceFileViewerStatusLabel(workspacePanelContext({
-      selectedFilePath: "logo.png",
-      selectedFileContent: { ...binaryFileContent("logo.png", 10), mediaType: "image" },
-    }))).toBeUndefined();
   });
 });
 
@@ -308,6 +289,7 @@ function workspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): Work
     expandedDirs: patch.expandedDirs ?? {},
     selectedFilePath: patch.selectedFilePath,
     selectedFileContent: patch.selectedFileContent,
+    selectedFileLoadError: patch.selectedFileLoadError,
     fileTreeStale: patch.fileTreeStale ?? false,
     gitStatus: patch.gitStatus,
     selectedDiffPath: patch.selectedDiffPath,

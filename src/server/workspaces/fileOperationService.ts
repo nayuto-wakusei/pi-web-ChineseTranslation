@@ -1,6 +1,6 @@
-import { createReadStream, type ReadStream } from "node:fs";
-import { lstat, mkdir, rename, rmdir, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { lstat, mkdir, rename, rmdir } from "node:fs/promises";
+import type { PiWebPathAccessConfig } from "../../shared/apiTypes.js";
+import { readWorkspaceFilePreview, type WorkspaceFilePreview } from "./filePreviewService.js";
 import { resolveInsideWorkspace, resolveParentInsideWorkspace } from "./pathSafety.js";
 
 export interface WorkspacePathInput {
@@ -19,14 +19,6 @@ export interface WorkspacePathResponse {
 export interface WorkspaceDeleteResponse {
   deleted: true;
   path: string;
-}
-
-export interface WorkspaceDownload {
-  path: string;
-  filename: string;
-  size: number;
-  modifiedAt: string;
-  stream: ReadStream;
 }
 
 export async function createWorkspaceDirectory(rootPath: string, input: WorkspacePathInput): Promise<WorkspacePathResponse> {
@@ -57,18 +49,8 @@ export async function deleteWorkspaceDirectory(rootPath: string, path: string | 
   return { deleted: true, path: relativePath };
 }
 
-export async function readWorkspaceFileDownload(rootPath: string, path: string | undefined): Promise<WorkspaceDownload> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
-  const { target, relativePath } = await resolveInsideWorkspace(rootPath, path);
-  const s = await stat(target);
-  if (!s.isFile()) throw new Error("Path is not a file");
-  return {
-    path: relativePath,
-    filename: basename(relativePath),
-    size: s.size,
-    modifiedAt: s.mtime.toISOString(),
-    stream: createReadStream(target),
-  };
+export function readWorkspaceFileDownload(rootPath: string, path: string | undefined, pathAccess?: PiWebPathAccessConfig): Promise<WorkspaceFilePreview> {
+  return readWorkspaceFilePreview(rootPath, path, pathAccess, { download: true });
 }
 
 async function resolveMove(rootPath: string, input: WorkspaceMoveInput) {

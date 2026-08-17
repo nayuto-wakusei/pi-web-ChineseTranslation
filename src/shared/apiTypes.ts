@@ -1,4 +1,5 @@
 import type { MachineStatusUiEvent } from "./machineStatus.js";
+import type { WorkspaceFileMediaType } from "./workspaceFiles.js";
 
 export type MachineKind = "local" | "remote";
 export type MachineStatus = "unknown" | "online" | "offline" | "error";
@@ -1099,7 +1100,7 @@ export interface FileTreeResponse {
   truncated: boolean;
 }
 
-export type FileContentMediaType = "image";
+export type FileContentMediaType = WorkspaceFileMediaType;
 
 export interface FileContentResponse {
   path: string;

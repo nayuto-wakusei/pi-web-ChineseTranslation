@@ -1228,7 +1228,7 @@ export function parseMoveWorkspaceFileResponse(value: unknown): MoveWorkspaceFil
 
 function optionalFileMediaType(value: unknown): FileContentResponse["mediaType"] | undefined {
   if (value === undefined) return undefined;
-  if (value !== "image") throw new Error("Invalid file media type");
+  if (value !== "image" && value !== "html" && value !== "pdf" && value !== "markdown") throw new Error("Invalid file media type");
   return value;
 }
 

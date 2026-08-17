@@ -1,13 +1,13 @@
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import type { FileContentResponse, FileTreeEntry } from "../api";
-import { workspaceImagePreviewUrl } from "../api/urls";
+import type { FileTreeEntry } from "../api";
 import { workspaceUploadPath } from "../api/workspaceUploads";
 import type { WorkspaceUploadBatchState, WorkspaceUploadFileState } from "../workspaceUploadState";
-import { MAX_IMAGE_PREVIEW_BYTES, MAX_IMAGE_PREVIEW_LABEL } from "../../../shared/workspaceFiles";
 import type { WorkspacePanelContext } from "../plugins/types";
+import { formatFileSize } from "../utils/format";
 import { workspacePanelStyles } from "./shared";
 import { renderDeleteIcon, renderDownloadIcon, renderNewFileIcon, renderNewFolderIcon, renderRefreshIcon, renderRenameIcon, renderUploadIcon } from "./workspaceFileIcons";
+import "./WorkspaceFileViewer";
 
 interface PendingWorkspaceUploadReview {
   files: File[];
@@ -112,34 +112,15 @@ export class WorkspaceFilesPanel extends LitElement {
     if (selectedWorkspacePathKind(context.fileTree, context.expandedDirs, context.selectedFilePath) === "directory") {
       return html`<p class="muted">已选择文件夹：${context.selectedFilePath}</p>`;
     }
-    const status = workspaceFileViewerStatusLabel(context);
-    if (status !== undefined) return html`<p class="muted">${status}</p>`;
-    const file = context.selectedFileContent;
-    // workspaceFileViewerStatusLabel already returned for the undefined/binary
-    // cases above; this guard only narrows the type for the code viewer path.
-    if (file === undefined) return html`<p class="muted">请选择文件。</p>`;
-    if (file.mediaType === "image") return this.renderImageViewer(context, file);
-    loadCodeViewer();
     return html`
-      <div class="viewer-header"><strong>${file.path}</strong><small>${file.language ?? "文本"}${file.truncated ? " · 已截断" : ""}</small></div>
-      <code-viewer .content=${file.content} .language=${file.language}></code-viewer>
-    `;
-  }
-
-  private renderImageViewer(context: WorkspacePanelContext, file: FileContentResponse): TemplateResult {
-    const metadata = `${file.mimeType ?? "image"} · ${formatFileSize(file.size)}`;
-    if (file.size > MAX_IMAGE_PREVIEW_BYTES) {
-      return html`
-        <div class="viewer-header"><strong>${file.path}</strong><small>${metadata}</small></div>
-        <p class="muted">图片过大，无法预览：${formatFileSize(file.size)} · 上限 ${MAX_IMAGE_PREVIEW_LABEL}</p>
-      `;
-    }
-    const src = workspaceImagePreviewUrl(context.workspace.projectId, context.workspace.id, file.path, { modifiedAt: file.modifiedAt, machineId: context.machine.id });
-    return html`
-      <div class="viewer-header"><strong>${file.path}</strong><small>${metadata}</small></div>
-      <div class="image-preview">
-        <img src=${src} alt=${file.path} decoding="async" />
-      </div>
+      <workspace-file-viewer
+        .machineId=${context.machine.id}
+        .projectId=${context.workspace.projectId}
+        .workspaceId=${context.workspace.id}
+        .selectedPath=${context.selectedFilePath}
+        .file=${context.selectedFileContent}
+        .loadError=${context.selectedFileLoadError}
+      ></workspace-file-viewer>
     `;
   }
 
@@ -373,6 +354,7 @@ export class WorkspaceFilesPanel extends LitElement {
     workspacePanelStyles,
     css`
       :host { flex: 1 1 auto; }
+      workspace-file-viewer { flex: 1 1 auto; min-height: 0; }
       .files-panel { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
       .toolbar { min-width: 0; }
       .toolbar > strong { flex: 0 0 auto; white-space: nowrap; }
@@ -447,22 +429,6 @@ export function workspaceUploadReviewError(files: readonly File[], destinationFo
 
 export function workspaceUploadReviewDefaults(destinationFolder: string): { destinationFolder: string; createDirs: boolean; overwrite: boolean } {
   return { destinationFolder, createDirs: true, overwrite: false };
-}
-
-/**
- * The muted status message the file viewer shows instead of file content, or
- * `undefined` when a real image/code viewer renders. Pure seam so tests can
- * assert viewer messaging (empty/loading/binary) without scraping Lit markup.
- */
-export function workspaceFileViewerStatusLabel(
-  context: Pick<WorkspacePanelContext, "selectedFilePath" | "selectedFileContent">,
-): string | undefined {
-  const file = context.selectedFileContent;
-  if (context.selectedFilePath === undefined || context.selectedFilePath === "") return "请选择文件。";
-  if (file === undefined) return `正在加载 ${context.selectedFilePath}…`;
-  if (file.mediaType === "image") return undefined;
-  if (file.binary) return `二进制文件：${file.path} · ${formatFileSize(file.size)}`;
-  return undefined;
 }
 
 export function selectedWorkspacePathKind(
@@ -578,22 +544,4 @@ function uploadFileDetail(file: WorkspaceUploadFileState): string {
 
 function formatPercent(value: number): string {
   return `${String(Math.round(Math.max(0, Math.min(1, value)) * 100))}%`;
-}
-
-function loadCodeViewer(): void {
-  void import("./CodeViewer");
-}
-
-function formatFileSize(size: number): string {
-  if (!Number.isFinite(size) || size < 0) return "0 B";
-  if (size < 1024) return `${String(size)} B`;
-  const kib = size / 1024;
-  if (kib < 1024) return `${formatScaledFileSize(kib)} KB`;
-  const mib = kib / 1024;
-  if (mib < 1024) return `${formatScaledFileSize(mib)} MB`;
-  return `${formatScaledFileSize(mib / 1024)} GB`;
-}
-
-function formatScaledFileSize(value: number): string {
-  return value >= 10 ? String(Math.round(value)) : value.toFixed(1);
 }

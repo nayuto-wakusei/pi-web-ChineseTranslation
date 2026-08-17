@@ -4,6 +4,7 @@ import {
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
 } from "./pluginBackendProtocol.js";
 import { WORKSPACE_REMOVAL_FEDERATION_TIMEOUT_MS } from "./workspaceRemovalProtocol.js";
+import { MAX_INLINE_PREVIEW_BYTES } from "./workspaceFiles.js";
 
 export { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS } from "./pluginBackendProtocol.js";
 export { WORKSPACE_REMOVAL_FEDERATION_TIMEOUT_MS } from "./workspaceRemovalProtocol.js";
@@ -13,12 +14,14 @@ export type FederatedHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export const PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_TREE_FORK_PROXY_TIMEOUT_MS = 5 * 60_000;
+export const WORKSPACE_FILE_PREVIEW_ROUTE_PATH = "/projects/:projectId/workspaces/:workspaceId/file/preview";
 
 export interface FederatedHttpRouteSpec {
   method: FederatedHttpMethod;
   path: string;
   timeoutMs?: number;
   bodyLimit?: number;
+  /** Inline response limit; attachment downloads may explicitly bypass it. */
   responseBodyLimit?: number;
   /** Propagate an inbound disconnect through the remote request. */
   propagateCancellation?: boolean;
@@ -57,7 +60,12 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/file" },
   { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/file/move" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/download" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/preview" },
+  {
+    method: "GET",
+    path: WORKSPACE_FILE_PREVIEW_ROUTE_PATH,
+    responseBodyLimit: MAX_INLINE_PREVIEW_BYTES,
+    propagateCancellation: true,
+  },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/files" },
   { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
   { method: "PATCH", path: "/projects/:projectId/workspaces/:workspaceId/directory" },

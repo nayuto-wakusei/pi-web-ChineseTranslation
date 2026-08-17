@@ -18,7 +18,7 @@ import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
 import { PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS } from "../shared/federatedRoutes.js";
 import { machineScopedPluginId } from "../shared/machinePluginIds.js";
-import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
+import { MAX_INLINE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
 import type { PiPackageInfo, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import type { Project, Workspace } from "./types.js";
 import type { ManagementEmbedRuntime } from "./managementEmbed.js";
@@ -312,7 +312,7 @@ describe("buildApp", () => {
   it("preserves remote file preview security headers while proxying safe response metadata", async () => {
     const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();
-    const request = vi.fn(() => Promise.resolve({
+    const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
       statusCode: 200,
       headers: {
         "content-type": "image/svg+xml",
@@ -332,7 +332,8 @@ describe("buildApp", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["set-cookie"]).toBeUndefined();
     expect(response.body).toBe("<svg xmlns=\"http://www.w3.org/2000/svg\" />");
-    expect(request).toHaveBeenCalledWith("GET", "/api/projects/p1/workspaces/w1/file/preview?path=diagram.svg", undefined);
+    expect(request.mock.calls[0]?.slice(0, 3)).toEqual(["GET", "/api/projects/p1/workspaces/w1/file/preview?path=diagram.svg", undefined]);
+    expect(request.mock.calls[0]?.[3]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("proxies remote workspace file writes as raw request bodies", async () => {
@@ -853,7 +854,7 @@ describe("buildApp", () => {
     await writeFile(join(projectDir, "diagram.svg"), svg);
     await writeFile(join(projectDir, "note.txt"), "hello");
     await writeFile(join(projectDir, "huge.png"), "");
-    await truncate(join(projectDir, "huge.png"), MAX_IMAGE_PREVIEW_BYTES + 1);
+    await truncate(join(projectDir, "huge.png"), MAX_INLINE_PREVIEW_BYTES + 1);
 
     const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
     const workspace = workspacesResponse.json<Workspace[]>()[0];
@@ -870,11 +871,11 @@ describe("buildApp", () => {
 
     const rejectedResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("note.txt")}` });
     expect(rejectedResponse.statusCode).toBe(400);
-    expect(rejectedResponse.json()).toEqual({ error: "Image preview is not supported for this file type" });
+    expect(rejectedResponse.json()).toEqual({ error: "Inline preview is not supported for this file type" });
 
     const tooLargeResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("huge.png")}` });
     expect(tooLargeResponse.statusCode).toBe(400);
-    expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
+    expect(tooLargeResponse.json()).toEqual({ error: "File is too large to preview (limit 10 MB)" });
   });
 
   it("keeps normal file suggestions workspace-local when path access config is invalid", async () => {

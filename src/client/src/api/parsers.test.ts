@@ -582,6 +582,9 @@ describe("API parsers", () => {
 
     expect(parseFileContentResponse(textFile)).toMatchObject({ path: "README.md", language: "markdown", content: "text" });
     expect(parseFileContentResponse({ ...textFile, path: "logo.png", mediaType: "image", mimeType: "image/png", content: "", binary: true })).toMatchObject({ path: "logo.png", mediaType: "image", mimeType: "image/png" });
+    expect(parseFileContentResponse({ ...textFile, path: "report.html", mediaType: "html", mimeType: "text/html; charset=utf-8", content: "<h1>literal</h1>", binary: false })).toMatchObject({ path: "report.html", mediaType: "html", content: "<h1>literal</h1>" });
+    expect(parseFileContentResponse({ ...textFile, path: "spec.pdf", mediaType: "pdf", mimeType: "application/pdf", content: "", binary: true })).toMatchObject({ path: "spec.pdf", mediaType: "pdf" });
+    expect(parseFileContentResponse({ ...textFile, mediaType: "markdown" })).toMatchObject({ path: "README.md", mediaType: "markdown", content: "text" });
 
     expect(() => parseFileContentResponse({ encoding: "base64" })).toThrow("Invalid file encoding");
     expect(() => parseFileContentResponse({ ...textFile, mediaType: "video" })).toThrow("Invalid file media type");

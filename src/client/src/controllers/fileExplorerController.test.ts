@@ -170,6 +170,54 @@ describe("FileExplorerController", () => {
   });
 });
 
+describe("FileExplorerController file request lifecycle", () => {
+  it("does not let a deferred response overwrite a newer file selection", async () => {
+    const requests = deferredWorkspaceFiles();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceFile: requests.fn } });
+
+    const loadA = harness.controller.restoreFile("a.txt");
+    const loadB = harness.controller.restoreFile("b.txt");
+    requests.request(1).resolve(fileResponse("b.txt", "current B"));
+    await loadB;
+    requests.request(0).resolve(fileResponse("a.txt", "stale A"));
+    await loadA;
+
+    expect(harness.state.selectedFilePath).toBe("b.txt");
+    expect(harness.state.selectedFileContent?.content).toBe("current B");
+  });
+
+  it("rejects stale responses in an A to B to A sequence", async () => {
+    const requests = deferredWorkspaceFiles();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceFile: requests.fn } });
+
+    const firstA = harness.controller.restoreFile("a.txt");
+    const loadB = harness.controller.restoreFile("b.txt");
+    const latestA = harness.controller.restoreFile("a.txt");
+    requests.request(0).resolve(fileResponse("a.txt", "first A"));
+    requests.request(1).resolve(fileResponse("b.txt", "stale B"));
+    await Promise.all([firstA, loadB]);
+    expect(harness.state.selectedFileContent).toBeUndefined();
+
+    requests.request(2).resolve(fileResponse("a.txt", "latest A"));
+    await latestA;
+    expect(harness.state.selectedFileContent?.content).toBe("latest A");
+  });
+
+  it("keeps a current unavailable file selected with a viewer load error", async () => {
+    const requests = deferredWorkspaceFiles();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceFile: requests.fn } });
+
+    const load = harness.controller.selectFile("missing.txt");
+    requests.request(0).reject(new Error("Path does not exist: missing.txt"));
+    await load;
+
+    expect(harness.state.selectedFilePath).toBe("missing.txt");
+    expect(harness.state.selectedFileContent).toBeUndefined();
+    expect(harness.state.selectedFileLoadError).toBe("Path does not exist: missing.txt");
+    expect(harness.state.error).toBe("");
+  });
+});
+
 describe("FileExplorerController workspace uploads", () => {
   it("tracks upload progress, completes from final responses, refreshes files, and selects the first uploaded file", async () => {
     const upload = controllableUpload();
@@ -388,7 +436,37 @@ function createHarness(deps: FileExplorerControllerDependencies = {}, statePatch
     controller,
     api,
     updateUrl,
+    patchState: (patch: Partial<AppState>) => { state = { ...state, ...patch }; },
     get state(): AppState { return state; },
+  };
+}
+
+function createTestApi(): NonNullable<FileExplorerControllerDependencies["api"]> {
+  return {
+    workspaceTree: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceTree"]>((_projectId, _workspaceId, path = "") => Promise.resolve(treeResponse(path))),
+    workspaceFile: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceFile"]>((_projectId, _workspaceId, path) => Promise.resolve(fileResponse(path))),
+    createWorkspaceFile: vi.fn(() => Promise.reject(new Error("not used"))),
+    createWorkspaceDirectory: vi.fn(() => Promise.reject(new Error("not used"))),
+    moveWorkspaceFile: vi.fn(() => Promise.reject(new Error("not used"))),
+    moveWorkspaceDirectory: vi.fn(() => Promise.reject(new Error("not used"))),
+    deleteWorkspaceFile: vi.fn(() => Promise.reject(new Error("not used"))),
+    deleteWorkspaceDirectory: vi.fn(() => Promise.reject(new Error("not used"))),
+    downloadWorkspaceFile: vi.fn(() => Promise.reject(new Error("not used"))),
+  };
+}
+
+function deferredWorkspaceFiles() {
+  const requests: { resolve: (response: FileContentResponse) => void; reject: (error: unknown) => void }[] = [];
+  const fn = vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceFile"]>(() => new Promise<FileContentResponse>((resolve, reject) => {
+    requests.push({ resolve, reject });
+  }));
+  return {
+    fn,
+    request: (index: number) => {
+      const request = requests[index];
+      if (request === undefined) throw new Error(`Missing deferred workspace file request ${String(index)}`);
+      return request;
+    },
   };
 }
 
@@ -442,8 +520,8 @@ function treeResponse(path: string, entries: FileTreeEntry[] = []): FileTreeResp
   return { path, entries, scannedAt: "2026-06-25T00:00:00.000Z", truncated: false };
 }
 
-function fileResponse(path: string): FileContentResponse {
-  return { path, encoding: "utf8", size: 2, modifiedAt: "2026-06-25T00:00:00.000Z", content: "aa", truncated: false, binary: false };
+function fileResponse(path: string, content = "aa"): FileContentResponse {
+  return { path, encoding: "utf8", size: content.length, modifiedAt: "2026-06-25T00:00:00.000Z", content, truncated: false, binary: false };
 }
 
 function writeResponse(path: string, size: number): WriteWorkspaceFileResponse {

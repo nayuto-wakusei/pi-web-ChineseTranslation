@@ -1,7 +1,7 @@
 import { mkdir, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MAX_IMAGE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
+import { MAX_INLINE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
 import type { Project, Workspace } from "./types.js";
 import { appTestContext, registerAppTestHooks } from "./app.testSupport.js";
 
@@ -19,7 +19,7 @@ describe("buildApp workspace file routes", () => {
     await writeFile(join(appTestContext.projectDir, "diagram.svg"), svg);
     await writeFile(join(appTestContext.projectDir, "note.txt"), "hello");
     await writeFile(join(appTestContext.projectDir, "huge.png"), "");
-    await truncate(join(appTestContext.projectDir, "huge.png"), MAX_IMAGE_PREVIEW_BYTES + 1);
+    await truncate(join(appTestContext.projectDir, "huge.png"), MAX_INLINE_PREVIEW_BYTES + 1);
 
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
     const workspace = workspacesResponse.json<Workspace[]>()[0];
@@ -36,11 +36,11 @@ describe("buildApp workspace file routes", () => {
 
     const rejectedResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("note.txt")}` });
     expect(rejectedResponse.statusCode).toBe(400);
-    expect(rejectedResponse.json()).toEqual({ error: "Image preview is not supported for this file type" });
+    expect(rejectedResponse.json()).toEqual({ error: "Inline preview is not supported for this file type" });
 
     const tooLargeResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("huge.png")}` });
     expect(tooLargeResponse.statusCode).toBe(400);
-    expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
+    expect(tooLargeResponse.json()).toEqual({ error: "File is too large to preview (limit 10 MB)" });
   });
 
   it("keeps normal file suggestions workspace-local when path access config is invalid", async () => {

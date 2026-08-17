@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../../shared/apiTypes";
-import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
+import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
+import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
 import { activityApi, configApi, filesApi, gitApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./sockets";
 import { workspaceFileDownloadUrl, workspaceImagePreviewUrl } from "./urls";
@@ -74,6 +75,16 @@ describe("federated route contract", () => {
     });
     expect(SESSION_TREE_FORK_PROXY_TIMEOUT_MS).toBe(5 * 60_000);
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("tree"))).toBe(false);
+  });
+
+  it("bounds inline workspace previews and propagates cancellation", () => {
+    expect(FEDERATED_HTTP_ROUTES.find((route) => route.path === WORKSPACE_FILE_PREVIEW_ROUTE_PATH)).toEqual({
+      method: "GET",
+      path: WORKSPACE_FILE_PREVIEW_ROUTE_PATH,
+      responseBodyLimit: MAX_INLINE_PREVIEW_BYTES,
+      propagateCancellation: true,
+    });
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("preview"))).toBe(false);
   });
 
   it("covers machine-scoped client HTTP calls with remote proxy routes", async () => {

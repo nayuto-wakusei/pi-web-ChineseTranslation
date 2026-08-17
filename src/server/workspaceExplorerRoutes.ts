@@ -6,7 +6,9 @@ import { deleteWorkspaceFile, moveWorkspaceFile, readWorkspaceFile, writeWorkspa
 import { createWorkspaceDirectory, deleteWorkspaceDirectory, moveWorkspaceDirectory, readWorkspaceFileDownload, type WorkspaceMoveInput, type WorkspacePathInput } from "./workspaces/fileOperationService.js";
 import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { listWorkspaceTree } from "./workspaces/fileTreeService.js";
-import { readWorkspaceImagePreview } from "./workspaces/imagePreviewService.js";
+import { readWorkspaceFilePreview } from "./workspaces/filePreviewService.js";
+import { applyWorkspaceFilePreviewErrorResponsePolicy, applyWorkspaceFilePreviewResponsePolicy } from "./workspaces/filePreviewResponseHeaders.js";
+import { workspaceFilePreviewResponsePolicy } from "./workspaces/filePreviewResponsePolicy.js";
 import { resolveRouteWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
 import { pathAccessForWorkspaceContext } from "./workspaces/effectivePathAccess.js";
 import type { ManagementEmbedRuntime } from "./managementEmbed.js";
@@ -80,15 +82,14 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/download`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
-      const download = await readWorkspaceFileDownload(context.root, request.query.path);
+      const download = await readWorkspaceFileDownload(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
+      applyWorkspaceFilePreviewResponsePolicy(reply, workspaceFilePreviewResponsePolicy(download.path, { download: true }));
       return await reply
-        .type("application/octet-stream")
         .header("Content-Length", String(download.size))
-        .header("Content-Disposition", contentDispositionAttachment(download.filename))
         .header("Last-Modified", new Date(download.modifiedAt).toUTCString())
-        .header("X-Content-Type-Options", "nosniff")
-        .send(download.stream);
+        .send(download.body);
     } catch (error) {
+      applyWorkspaceFilePreviewErrorResponsePolicy(reply);
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -120,19 +121,19 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
     }
   });
 
-  app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/preview`, async (request, reply) => {
+  app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string; download?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/preview`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
-      const preview = await readWorkspaceImagePreview(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
+      const download = request.query.download === "1" || request.query.download === "true";
+      const preview = await readWorkspaceFilePreview(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config), { download });
+      applyWorkspaceFilePreviewResponsePolicy(reply, workspaceFilePreviewResponsePolicy(preview.path, { download }));
       return await reply
-        .type(preview.mimeType)
         .header("Cache-Control", "private, max-age=3600")
         .header("Content-Length", String(preview.size))
-        .header("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'")
         .header("Last-Modified", new Date(preview.modifiedAt).toUTCString())
-        .header("X-Content-Type-Options", "nosniff")
-        .send(preview.stream);
+        .send(preview.body);
     } catch (error) {
+      applyWorkspaceFilePreviewErrorResponsePolicy(reply);
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -157,22 +158,6 @@ function registerWorkspaceFileContentParsers(app: FastifyInstance): void {
   try { app.addContentTypeParser("text/plain", { parseAs: "string" }, (_request, body, done) => { done(null, Buffer.from(body)); }); } catch { /* already registered */ }
   try { app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_request, body, done) => { done(null, body); }); } catch { /* already registered */ }
   try { app.addContentTypeParser(/^([a-z]+\/[a-z0-9.+-]+)$/u, { parseAs: "buffer" }, (_request, body, done) => { done(null, body); }); } catch { /* already registered */ }
-}
-
-function contentDispositionAttachment(filename: string): string {
-  const fallback = filename
-    .replace(/[^\x20-\x7E]/gu, "_")
-    .replaceAll("\\", "_")
-    .replaceAll("\"", "_");
-  return `attachment; filename="${fallback === "" ? "download" : fallback}"; filename*=UTF-8''${encodeRFC5987Value(filename)}`;
-}
-
-function encodeRFC5987Value(value: string): string {
-  return encodeURIComponent(value)
-    .replaceAll("'", "%27")
-    .replaceAll("(", "%28")
-    .replaceAll(")", "%29")
-    .replaceAll("*", "%2A");
 }
 
 function isMissingPathError(error: unknown): error is Error {
