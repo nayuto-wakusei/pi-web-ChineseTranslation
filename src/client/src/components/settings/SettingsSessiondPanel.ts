@@ -45,7 +45,7 @@ export class SettingsSessiondPanel extends LitElement {
     // state, so an unset config file still shows the feature as enabled.
     const effectiveSpawn = config?.effectiveConfig.spawnSessions !== false;
     const subsessionsOverridden = config?.envOverrides.subsessions === true;
-    // Beta, off by default; also requires spawn to be enabled.
+    // On by default; also requires spawn to be enabled.
     const effectiveSubsessions = config?.effectiveConfig.subsessions === true && effectiveSpawn;
     // Current servers always resolve this on-by-default setting. Absence means
     // an older selected machine cannot persist it yet.
@@ -132,7 +132,6 @@ export class SettingsSessiondPanel extends LitElement {
           <div class="field">
             <span class="field-heading">
               <span>允许代理启动受跟踪的子会话</span>
-              <span class="beta-badge">测试版</span>
               ${subsessionsOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
             </span>
             <label class="toggle">
@@ -144,7 +143,7 @@ export class SettingsSessiondPanel extends LitElement {
               >
               <span>启用 <code>spawn_subsession</code> 工具</span>
             </label>
-            <small>测试版：代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认关闭。</small>
+            <small>代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认启用。</small>
           </div>
           <div class="field">
             <span class="field-heading">
@@ -269,7 +268,6 @@ export class SettingsSessiondPanel extends LitElement {
     .text-input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
     .text-input:disabled { opacity: .55; cursor: not-allowed; }
     .toggle input:disabled { cursor: not-allowed; }
-    .beta-badge { border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); background: var(--pi-bg); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
     .effective-card { display: grid; gap: 10px; }
     .effective-card dl { display: grid; gap: 8px; margin: 0; }
     .effective-card dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }

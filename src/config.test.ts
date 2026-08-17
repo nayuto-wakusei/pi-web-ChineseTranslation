@@ -412,12 +412,12 @@ describe("spawnSessionsEnabled", () => {
 });
 
 describe("subsessionsEnabled", () => {
-  it("is off by default while the capability is in beta", () => {
-    expect(subsessionsEnabled({}, {})).toBe(false);
+  it("is on by default", () => {
+    expect(subsessionsEnabled({}, {})).toBe(true);
   });
 
-  it("honors an explicit config opt-in", () => {
-    expect(subsessionsEnabled({}, { subsessions: true })).toBe(true);
+  it("honors an explicit config opt-out", () => {
+    expect(subsessionsEnabled({}, { subsessions: false })).toBe(false);
   });
 
   it("lets the env var override the config in both directions", () => {

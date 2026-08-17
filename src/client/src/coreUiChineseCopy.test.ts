@@ -81,12 +81,12 @@ const copyCases: readonly CopyCase[] = [
       "components/SettingsDialog.ts", "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "components/UnifiedDiffViewer.ts",
       "components/settings/SettingsGeneralPanel.ts", "components/settings/SettingsSessiondPanel.ts",
     ],
-    expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "用户范围", "机器专属", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "代理配置档案", "配置档案状态", "测试版"],
+    expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "用户范围", "机器专属", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "代理配置档案", "配置档案状态", "允许代理启动受跟踪的子会话"],
     forbidden: [
       "Trusted code warning", "Pi package source", "Configured Pi packages", "No Pi packages configured",
       "(local gateway)", "(remote machine)", "Settings notices", "No default shortcut",
       "Machine actions", ">Remove<", "No diff.", "Unified diff", "\"Command\" | \"File\" | \"Input\"",
-      ">Host<", ">Port<", "允许的 hosts", "Companion CLI", "Agent Profile", "Profile 状态", ">beta<", " · machine-specific",
+      ">Host<", ">Port<", "允许的 hosts", "Companion CLI", "Agent Profile", "Profile 状态", ">beta<", "测试版", " · machine-specific",
     ],
   },
   {
@@ -155,8 +155,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes shortcut guidance, status copy, and core session actions",
     paths: ["components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsSessiondPanel.ts", "components/StatusBar.ts", "plugins/core/actions.ts", "terminalKeys.ts", "formatting/markdown.ts"],
-    expected: ["正在录制", "需要重启", "测试版：", "~/.pi/agent 或 ~/agent-profiles/work", "尚无会话状态", "选择模型", "选择思考级别", "ariaLabel: \"删除键\"", "setAttribute(\"aria-label\", \"表格\")"],
-    forbidden: ["Recording:", "Beta：", "~/.pi/agent or ~/agent-profiles/work", "Pi-compatible agent profile restart required", "No session status yet", "Select Model", "Select Thinking Level", "ariaLabel: \"Delete\"", "setAttribute(\"aria-label\", \"Table\")"],
+    expected: ["正在录制", "需要重启", "代理可以启动自己持续关联的子会话", "~/.pi/agent 或 ~/agent-profiles/work", "尚无会话状态", "选择模型", "选择思考级别", "ariaLabel: \"删除键\"", "setAttribute(\"aria-label\", \"表格\")"],
+    forbidden: ["Recording:", "Beta：", "测试版：", "~/.pi/agent or ~/agent-profiles/work", "Pi-compatible agent profile restart required", "No session status yet", "Select Model", "Select Thinking Level", "ariaLabel: \"Delete\"", "setAttribute(\"aria-label\", \"Table\")"],
   },
   {
     name: "keeps the file upload control as one visible Chinese button",

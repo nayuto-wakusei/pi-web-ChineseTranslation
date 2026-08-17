@@ -124,10 +124,10 @@ export interface PiWebConfigValues {
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /**
-   * Beta: when true, LLMs can start tracked child sessions via the
+   * When true, LLMs can start tracked child sessions via the
    * spawn_subsession / list_subsessions / check_subsession / read_subsession
-   * tools. Off by default
-   * while the capability stabilizes. Requires spawnSessions to be enabled.
+   * tools. On by default; set to `false` to disable. Requires spawnSessions
+   * to be enabled.
    */
   subsessions?: boolean;
   /**
