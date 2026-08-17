@@ -17,7 +17,6 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) workspacesByProjectId: Record<string, Workspace[]> = {};
   @property({ attribute: false }) unreadProjectIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
-  @property({ type: Boolean }) showUnreadWhenIdle = true;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
@@ -97,7 +96,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     const flags = this.statusSnapshot?.projects[project.id];
     const kind = this.statusSnapshot === undefined ? projectActivityIndicator(project, this.workspacesByProjectId[project.id] ?? [], this.activities) : statusActivityKind(flags);
     const hasUnread = this.statusSnapshot === undefined ? this.unreadProjectIds.has(project.id) : hasStatusUnread(flags);
-    const unreadLabel = hasUnread && (this.showUnreadWhenIdle || kind !== undefined) ? "此项目中有未读会话" : undefined;
+    const unreadLabel = hasUnread && kind !== undefined ? "此项目中有未读会话" : undefined;
     return renderActionActivityIndicator(kind, kind === "terminal" ? "项目终端活动中" : "项目活动中", unreadLabel);
   }
 

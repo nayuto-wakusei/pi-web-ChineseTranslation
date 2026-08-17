@@ -42,7 +42,6 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) compact = false;
   @property({ type: Boolean }) showBrand = true;
-  @property({ type: Boolean }) showUnreadWhenIdle = true;
   @property({ type: Boolean }) machinesCollapsed = false;
   @property({ type: Boolean }) projectsCollapsed = false;
   @property({ type: Boolean }) workspacesCollapsed = false;
@@ -155,7 +154,6 @@ export class AppNavigationPanel extends LitElement {
         .workspacesByProjectId=${this.workspacesByProjectId}
         .unreadProjectIds=${this.unreadPresence.projects}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
-        .showUnreadWhenIdle=${this.showUnreadWhenIdle}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
         .onToggleCollapsed=${() => { this.onToggleProjects?.(); }}
@@ -172,7 +170,6 @@ export class AppNavigationPanel extends LitElement {
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .unreadWorkspaceIds=${this.unreadPresence.workspaces}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
-        .showUnreadWhenIdle=${this.showUnreadWhenIdle}
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}
         .workspaceLabelItems=${this.workspaceLabelItems}

@@ -1581,7 +1581,6 @@ export class PiWebApp extends LitElement {
         .collapsible=${true}
         .compact=${this.appShell.isMobileNavigationLayout}
         .showBrand=${this.apiScope !== "management"}
-        .showUnreadWhenIdle=${this.apiScope !== "management"}
         .projectsCollapsed=${this.navigationSections.isCollapsed("projects")}
         .workspacesCollapsed=${this.navigationSections.isCollapsed("workspaces")}
         .sessionsCollapsed=${this.navigationSections.isCollapsed("sessions")}

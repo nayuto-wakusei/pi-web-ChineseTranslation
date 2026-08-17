@@ -10,32 +10,32 @@ afterEach(() => {
 });
 
 describe("project unread indicator", () => {
-  it("shows an unread dot only on projects tracked as unread", async () => {
+  it("does not show unread-only dots on idle projects", async () => {
     const list = await mountProjectList([project("project-a"), project("project-b")], new Set(["project-b"]));
 
     expect(unreadDot(rowFor(list, "project-a"))).toBeNull();
-    const dot = unreadDot(rowFor(list, "project-b"));
-    expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此项目中有未读会话");
+    expect(unreadDot(rowFor(list, "project-b"))).toBeNull();
   });
 
-  it("clears the dot once the project is no longer tracked as unread", async () => {
+  it("does not show an unread-only project from the status tree", async () => {
+    const list = await mountProjectList([project("project-a")], new Set());
+    list.statusSnapshot = statusSnapshot({ projects: { "project-a": { [CORE_STATUS_FLAGS.unread]: true } } });
+    await list.updateComplete;
+
+    expect(rowFor(list, "project-a").querySelector(".activity-indicator, .unread-ring")).toBeNull();
+  });
+
+  it("removes the unread ring without hiding real project activity", async () => {
     const list = await mountProjectList([project("project-a")], new Set(["project-a"]));
-    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).not.toBeNull();
+    list.activities = { "/repo/project-a": workspaceActivity("/repo/project-a", true, false) };
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".unread-ring .activity-indicator.session")).not.toBeNull();
 
     list.unreadProjectIds = new Set();
     await list.updateComplete;
 
-    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
-  });
-
-  it("hides an unread-only dot when idle unread indicators are disabled", async () => {
-    const list = await mountProjectList([project("project-a")], new Set(["project-a"]));
-    list.statusSnapshot = statusSnapshot({ projects: { "project-a": { [CORE_STATUS_FLAGS.unread]: true } } });
-    list.showUnreadWhenIdle = false;
-    await list.updateComplete;
-
-    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
+    expect(list.shadowRoot?.querySelector(".unread-ring")).toBeNull();
+    expect(list.shadowRoot?.querySelector(".activity-indicator.session")).not.toBeNull();
   });
 
   it("wraps the work dot in an unread ring when the project is busy and unread", async () => {
@@ -50,9 +50,8 @@ describe("project unread indicator", () => {
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 
-  it("keeps real project activity visible when idle unread indicators are disabled", async () => {
+  it("keeps real project activity visible from the status tree", async () => {
     const list = await mountProjectList([project("project-a")], new Set(["project-a"]));
-    list.showUnreadWhenIdle = false;
     list.statusSnapshot = statusSnapshot({ projects: { "project-a": { [CORE_STATUS_FLAGS.working]: true, [CORE_STATUS_FLAGS.unread]: true } } });
     await list.updateComplete;
 
