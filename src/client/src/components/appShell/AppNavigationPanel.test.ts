@@ -87,7 +87,6 @@ describe("unread presence wiring", () => {
     expect(projectList.unreadProjectIds).toBe(unreadPresence.projects);
     expect(workspaceList.unreadWorkspaceIds).toBe(unreadPresence.workspaces);
   });
-
 });
 
 function machine(id: string): Machine {

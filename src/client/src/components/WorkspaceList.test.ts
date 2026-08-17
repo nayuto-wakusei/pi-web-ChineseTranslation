@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
-import { CORE_STATUS_FLAGS, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 import type { Workspace, WorkspaceActivity } from "../api";
 import { WorkspaceList } from "./WorkspaceList";
 
@@ -14,32 +13,23 @@ afterEach(() => {
 });
 
 describe("workspace unread indicator", () => {
-  it("does not show unread-only dots on idle workspaces", async () => {
+  it("shows an unread dot only on workspaces tracked as unread", async () => {
     const list = await mountWorkspaceList([workspace("ws-a"), workspace("ws-b")], new Set(["ws-b"]));
 
     expect(unreadDot(rowFor(list, "ws-a"))).toBeNull();
-    expect(unreadDot(rowFor(list, "ws-b"))).toBeNull();
+    const dot = unreadDot(rowFor(list, "ws-b"));
+    expect(dot).not.toBeNull();
+    expect(dot?.getAttribute("title")).toBe("此工作区中有未读会话");
   });
 
-  it("does not show an unread-only workspace from the status tree", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
-    list.statusSnapshot = statusSnapshot({ workspaces: { "ws-a": { [CORE_STATUS_FLAGS.unread]: true } } });
-    await list.updateComplete;
-
-    expect(rowFor(list, "ws-a").querySelector(".activity-indicator, .unread-ring")).toBeNull();
-  });
-
-  it("removes the unread ring without hiding real workspace activity", async () => {
+  it("clears the dot once the workspace is no longer tracked as unread", async () => {
     const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
-    list.activities = { "/repo/ws-a": workspaceActivity("/repo/ws-a", true, false) };
-    await list.updateComplete;
-    expect(list.shadowRoot?.querySelector(".unread-ring .activity-indicator.session")).not.toBeNull();
+    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).not.toBeNull();
 
     list.unreadWorkspaceIds = new Set();
     await list.updateComplete;
 
-    expect(list.shadowRoot?.querySelector(".unread-ring")).toBeNull();
-    expect(list.shadowRoot?.querySelector(".activity-indicator.session")).not.toBeNull();
+    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
   });
 
   it("wraps the work dot in an unread ring when the workspace is busy and unread", async () => {
@@ -52,14 +42,6 @@ describe("workspace unread indicator", () => {
     expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
     expect(ring?.getAttribute("title")).toBe("此工作区中有未读会话 · 工作区终端活动中");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
-  });
-
-  it("keeps real workspace activity visible from the status tree", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
-    list.statusSnapshot = statusSnapshot({ workspaces: { "ws-a": { [CORE_STATUS_FLAGS.working]: true, [CORE_STATUS_FLAGS.unread]: true } } });
-    await list.updateComplete;
-
-    expect(rowFor(list, "ws-a").querySelector(".unread-ring .activity-indicator.session")).not.toBeNull();
   });
 });
 
@@ -173,16 +155,4 @@ function workspaceActivity(cwd: string, hasSessionActivity: boolean, hasTerminal
 
 function workspace(id: string): Workspace {
   return { id, projectId: "project-1", path: `/repo/${id}`, label: id, isMain: true, isGitRepo: true, isGitWorktree: false };
-}
-
-function statusSnapshot(patch: Partial<Pick<MachineStatusSnapshot, "projects" | "workspaces">>): MachineStatusSnapshot {
-  return {
-    epochId: "epoch",
-    revision: 1,
-    machine: {},
-    projects: patch.projects ?? {},
-    workspaces: patch.workspaces ?? {},
-    unattributed: {},
-    generatedAt: "2026-06-04T00:00:00.000Z",
-  };
 }
