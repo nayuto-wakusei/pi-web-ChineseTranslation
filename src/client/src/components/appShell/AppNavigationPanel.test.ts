@@ -87,6 +87,21 @@ describe("unread presence wiring", () => {
     expect(projectList.unreadProjectIds).toBe(unreadPresence.projects);
     expect(workspaceList.unreadWorkspaceIds).toBe(unreadPresence.workspaces);
   });
+
+  it("disables idle project and workspace unread marks when requested", async () => {
+    const panel = new AppNavigationPanel();
+    panel.showUnreadWhenIdle = false;
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    const projectList = panel.shadowRoot?.querySelector("project-list");
+    const workspaceList = panel.shadowRoot?.querySelector("workspace-list");
+    if (!(projectList instanceof ProjectList)) throw new Error("Expected project-list section");
+    if (!(workspaceList instanceof WorkspaceList)) throw new Error("Expected workspace-list section");
+
+    expect(projectList.showUnreadWhenIdle).toBe(false);
+    expect(workspaceList.showUnreadWhenIdle).toBe(false);
+  });
 });
 
 function machine(id: string): Machine {

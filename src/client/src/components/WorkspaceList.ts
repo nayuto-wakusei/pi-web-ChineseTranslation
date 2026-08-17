@@ -24,6 +24,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) unreadWorkspaceIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
+  @property({ type: Boolean }) showUnreadWhenIdle = true;
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
@@ -112,7 +113,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   private renderActivity(workspace: Workspace): TemplateResult | undefined {
     const flags = this.statusSnapshot?.workspaces[workspace.id];
     const kind = this.statusSnapshot === undefined ? workspaceActivityIndicator(workspaceActivityFor(workspace, this.activities)) : statusActivityKind(flags);
-    const unreadLabel = this.statusSnapshot === undefined ? (this.unreadWorkspaceIds.has(workspace.id) ? "此工作区中有未读会话" : undefined) : (hasStatusUnread(flags) ? "此工作区中有未读会话" : undefined);
+    const hasUnread = this.statusSnapshot === undefined ? this.unreadWorkspaceIds.has(workspace.id) : hasStatusUnread(flags);
+    const unreadLabel = hasUnread && (this.showUnreadWhenIdle || kind !== undefined) ? "此工作区中有未读会话" : undefined;
     return renderActionActivityIndicator(kind, kind === "terminal" ? "工作区终端活动中" : "工作区活动中", unreadLabel);
   }
 

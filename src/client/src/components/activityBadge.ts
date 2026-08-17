@@ -38,8 +38,7 @@ export function statusActivityKind(flags: StatusFlags | undefined): ActivityIndi
   if (flags === undefined) return undefined;
   if (flags[CORE_STATUS_FLAGS.working] === true) return "session";
   if (flags[CORE_STATUS_FLAGS.terminal] === true) return "terminal";
-  const other = Object.entries(flags).some(([id, set]) => set && id !== CORE_STATUS_FLAGS.unread);
-  return other ? "session" : undefined;
+  return undefined;
 }
 
 export function hasStatusUnread(flags: StatusFlags | undefined): boolean {

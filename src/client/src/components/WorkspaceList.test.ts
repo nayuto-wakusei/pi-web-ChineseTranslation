@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { CORE_STATUS_FLAGS, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 import type { Workspace, WorkspaceActivity } from "../api";
 import { WorkspaceList } from "./WorkspaceList";
 
@@ -32,6 +33,15 @@ describe("workspace unread indicator", () => {
     expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
   });
 
+  it("hides an unread-only dot when idle unread indicators are disabled", async () => {
+    const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
+    list.statusSnapshot = statusSnapshot({ workspaces: { "ws-a": { [CORE_STATUS_FLAGS.unread]: true } } });
+    list.showUnreadWhenIdle = false;
+    await list.updateComplete;
+
+    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
+  });
+
   it("wraps the work dot in an unread ring when the workspace is busy and unread", async () => {
     const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
     list.activities = { "/repo/ws-a": workspaceActivity("/repo/ws-a", false, true) };
@@ -42,6 +52,15 @@ describe("workspace unread indicator", () => {
     expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
     expect(ring?.getAttribute("title")).toBe("此工作区中有未读会话 · 工作区终端活动中");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
+  });
+
+  it("keeps real workspace activity visible when idle unread indicators are disabled", async () => {
+    const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
+    list.showUnreadWhenIdle = false;
+    list.statusSnapshot = statusSnapshot({ workspaces: { "ws-a": { [CORE_STATUS_FLAGS.working]: true, [CORE_STATUS_FLAGS.unread]: true } } });
+    await list.updateComplete;
+
+    expect(rowFor(list, "ws-a").querySelector(".unread-ring .activity-indicator.session")).not.toBeNull();
   });
 });
 
@@ -155,4 +174,16 @@ function workspaceActivity(cwd: string, hasSessionActivity: boolean, hasTerminal
 
 function workspace(id: string): Workspace {
   return { id, projectId: "project-1", path: `/repo/${id}`, label: id, isMain: true, isGitRepo: true, isGitWorktree: false };
+}
+
+function statusSnapshot(patch: Partial<Pick<MachineStatusSnapshot, "projects" | "workspaces">>): MachineStatusSnapshot {
+  return {
+    epochId: "epoch",
+    revision: 1,
+    machine: {},
+    projects: patch.projects ?? {},
+    workspaces: patch.workspaces ?? {},
+    unattributed: {},
+    generatedAt: "2026-06-04T00:00:00.000Z",
+  };
 }

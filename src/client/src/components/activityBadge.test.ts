@@ -2,7 +2,8 @@
 
 import { render, type TemplateResult } from "lit";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderActionActivityIndicator, renderActivityIndicator } from "./activityBadge";
+import { CORE_STATUS_FLAGS } from "../../../shared/machineStatus";
+import { hasStatusUnread, renderActionActivityIndicator, renderActivityIndicator, statusActivityKind } from "./activityBadge";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -56,6 +57,21 @@ describe("renderActionActivityIndicator", () => {
     const container = renderInto(renderActionActivityIndicator(undefined));
 
     expect(container.querySelector(".action-activity")).toBeNull();
+  });
+});
+
+describe("status indicator semantics", () => {
+  it("keeps unread state separate from real session activity", () => {
+    const unreadOnly = { [CORE_STATUS_FLAGS.unread]: true };
+
+    expect(statusActivityKind(unreadOnly)).toBeUndefined();
+    expect(hasStatusUnread(unreadOnly)).toBe(true);
+  });
+
+  it("maps only real working and terminal flags to their activity indicators", () => {
+    expect(statusActivityKind({ [CORE_STATUS_FLAGS.working]: true })).toBe("session");
+    expect(statusActivityKind({ [CORE_STATUS_FLAGS.terminal]: true })).toBe("terminal");
+    expect(statusActivityKind({ "newer:flag": true })).toBeUndefined();
   });
 });
 
