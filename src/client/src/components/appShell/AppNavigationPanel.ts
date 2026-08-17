@@ -42,6 +42,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) compact = false;
   @property({ type: Boolean }) showBrand = true;
+  @property({ type: Boolean }) managementMode = false;
   @property({ type: Boolean }) machinesCollapsed = false;
   @property({ type: Boolean }) projectsCollapsed = false;
   @property({ type: Boolean }) workspacesCollapsed = false;
@@ -156,6 +157,7 @@ export class AppNavigationPanel extends LitElement {
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
+        .managementMode=${this.managementMode}
         .onToggleCollapsed=${() => { this.onToggleProjects?.(); }}
         .onSelect=${(project: Project) => this.onSelectProject?.(project)}
         .onClose=${(project: Project) => this.onCloseProject?.(project)}

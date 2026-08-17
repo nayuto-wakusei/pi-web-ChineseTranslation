@@ -19,6 +19,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
+  @property({ type: Boolean }) managementMode = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
   @property({ attribute: false }) onClose?: (project: Project) => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
@@ -45,8 +46,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
           <div class="list-body">
             ${this.projects.length === 0 ? html`
               <div class="empty-list" role="status">
-                <strong>暂无可访问项目</strong>
-                <small>请先在 AI 平台手动创建项目，然后刷新此页面。</small>
+                <strong>${this.managementMode ? "暂无可访问项目" : "暂无项目"}</strong>
+                <small>${this.managementMode ? "请先在 AI 平台手动创建项目，然后刷新此页面。" : "请从“操作”菜单添加项目。"}</small>
               </div>
             ` : this.projects.map((project) => html`
               <div

@@ -41,6 +41,26 @@ describe("project unread indicator", () => {
   });
 });
 
+describe("project empty state", () => {
+  it("points ordinary mode users to the local project action", async () => {
+    const list = await mountProjectList([], new Set());
+
+    expect(list.shadowRoot?.querySelector(".empty-list")?.textContent).toContain("暂无项目");
+    expect(list.shadowRoot?.querySelector(".empty-list")?.textContent).toContain("请从“操作”菜单添加项目。");
+    expect(list.shadowRoot?.querySelector(".empty-list")?.textContent).not.toContain("AI 平台");
+  });
+
+  it("keeps externally managed project guidance in management embed mode", async () => {
+    const list = new ProjectList();
+    list.managementMode = true;
+    document.body.append(list);
+    await list.updateComplete;
+
+    expect(list.shadowRoot?.querySelector(".empty-list")?.textContent).toContain("暂无可访问项目");
+    expect(list.shadowRoot?.querySelector(".empty-list")?.textContent).toContain("请先在 AI 平台手动创建项目，然后刷新此页面。");
+  });
+});
+
 async function mountProjectList(projects: Project[], unreadProjectIds: ReadonlySet<string>): Promise<ProjectList> {
   const list = new ProjectList();
   list.projects = projects;

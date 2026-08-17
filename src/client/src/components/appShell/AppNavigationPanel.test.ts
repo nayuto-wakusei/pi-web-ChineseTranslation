@@ -65,6 +65,7 @@ describe("unread presence wiring", () => {
     };
     const panel = new AppNavigationPanel();
     panel.compact = true;
+    panel.managementMode = true;
     panel.machines = [machine("local"), machine("remote-a")];
     panel.selectedMachine = machine("local");
     panel.projects = [project("project-1")];
@@ -85,6 +86,7 @@ describe("unread presence wiring", () => {
     expect(switcher.unreadMachineIds).toBe(unreadPresence.machines);
     expect(machineList.unreadMachineIds).toBe(unreadPresence.machines);
     expect(projectList.unreadProjectIds).toBe(unreadPresence.projects);
+    expect(projectList.managementMode).toBe(panel.managementMode);
     expect(workspaceList.unreadWorkspaceIds).toBe(unreadPresence.workspaces);
   });
 });
