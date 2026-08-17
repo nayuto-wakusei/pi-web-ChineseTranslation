@@ -63,6 +63,14 @@ describe("sessiond session service dependency assembly", () => {
     expect(sessiondSource).toMatch(/askUserEnabled:\s*config\.askUser/u);
   });
 
+  it("combines session and Docker environment facts in the live daemon assembly", async () => {
+    const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
+
+    expect(sessiondSource).toMatch(/sessionEnvironmentPromptSections/u);
+    expect(sessiondSource).toMatch(/dockerEnvironmentPromptSections/u);
+    expect(sessiondSource).toMatch(/enabled:\s*config\.environmentFacts/gu);
+  });
+
   it("reports a concurrent provider model list refresh to a waiting user", async () => {
     // The note is only reachable in the product because the assembly hands the
     // refresher to the session service. Asserting the note rather than the

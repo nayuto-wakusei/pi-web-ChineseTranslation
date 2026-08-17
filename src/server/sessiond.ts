@@ -29,6 +29,7 @@ import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTI
 import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
 import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sessiond/sessiondStateOwnership.js";
+import { dockerEnvironmentPromptSections } from "./sessions/dockerEnvironmentFacts.js";
 import { PI_WEB_SESSION_ENV, sessionEnvironmentPromptSections } from "./sessions/sessionEnvironmentFacts.js";
 import { runSessionDaemonStartup } from "./sessiond/sessionDaemonStartup.js";
 import { requestLoggerOptions } from "./requestLogging.js";
@@ -208,7 +209,10 @@ await runSessionDaemonStartup({
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
       askUserEnabled: config.askUser,
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
-      appendSystemPromptSections: sessionEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts }),
+      appendSystemPromptSections: [
+        ...sessionEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts }),
+        ...dockerEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts, logger: app.log }),
+      ],
       ...(workbench === undefined ? {} : { workbench }),
       sessionManager: createPiSessionManagerGateway({
         agentDir: activeAgentProfile.dir,
