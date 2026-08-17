@@ -98,6 +98,68 @@ pi_web_docker_host_detect_docker_gid() {
   printf '0\n'
 }
 
+pi_web_docker_host_in_container() {
+  case "${PI_WEB_DOCKER_RUNTIME:-}" in
+    ""|0|false|FALSE|False) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Read the Docker socket bind source back out of a generated Compose override,
+# so installs made before the socket source was persisted stay refreshable.
+pi_web_docker_host_socket_source_from_override() {
+  pi_web_socket_override_file=$1
+  [ -f "$pi_web_socket_override_file" ] || return 1
+  awk '
+    {
+      line = $0
+      if (line ~ /^[ \t]*source:[ \t]*/) {
+        sub(/^[ \t]*source:[ \t]*/, "", line)
+        gsub("\047", "", line)
+        candidate = line
+        next
+      }
+      if (line ~ /^[ \t]*target:[ \t]*/) {
+        sub(/^[ \t]*target:[ \t]*/, "", line)
+        gsub("\047", "", line)
+        if (line == "/var/run/docker.sock" && candidate != "") {
+          print candidate
+          found = 1
+          exit
+        }
+      }
+    }
+    END { if (!found) exit 1 }
+  ' "$pi_web_socket_override_file"
+}
+
+# Containers cannot reliably detect whether their Docker daemon belongs to a
+# native Linux host or Docker Desktop. Reuse facts recorded by the host run;
+# otherwise perform the normal host-side detection.
+pi_web_docker_host_resolve_profile() {
+  pi_web_persisted_profile=${1:-}
+  pi_web_persisted_hostexec=${2:-}
+  pi_web_persisted_socket=${3:-}
+
+  if pi_web_docker_host_in_container && [ -n "$pi_web_persisted_profile" ]; then
+    PI_WEB_DETECTED_DOCKER_HOST_PROFILE=$pi_web_persisted_profile
+    if [ -n "$pi_web_persisted_hostexec" ]; then
+      PI_WEB_DETECTED_HOSTEXEC_MODE=$pi_web_persisted_hostexec
+    else
+      case "$pi_web_persisted_profile" in
+        linux-native-docker) PI_WEB_DETECTED_HOSTEXEC_MODE=nsenter ;;
+        *) PI_WEB_DETECTED_HOSTEXEC_MODE=disabled ;;
+      esac
+    fi
+    PI_WEB_DETECTED_DOCKER_SOCKET_SOURCE=${pi_web_persisted_socket:-/var/run/docker.sock}
+    PI_WEB_DOCKER_HOST_PROFILE_REUSED=1
+    return 0
+  fi
+
+  PI_WEB_DOCKER_HOST_PROFILE_REUSED=0
+  pi_web_docker_host_detect_profile
+}
+
 pi_web_docker_host_detect_profile() {
   PI_WEB_DETECTED_HOST_OS=$(uname -s 2>/dev/null || printf 'unknown')
   PI_WEB_DETECTED_DOCKER_CONTEXT=
@@ -257,6 +319,44 @@ pi_web_docker_host_write_extra_volumes() {
 
     pi_web_docker_host_write_volume "$extra_path" "$extra_path" false
   done
+}
+
+# Create the user-owned container environment file once. Runtime and
+# development mode share it through the persistent /data mount.
+pi_web_docker_write_container_env_template() {
+  pi_web_container_env_target=$1
+  [ ! -e "$pi_web_container_env_target" ] || return 0
+  pi_web_container_env_dir=$(dirname "$pi_web_container_env_target")
+  mkdir -p "$pi_web_container_env_dir" || return 1
+  pi_web_container_env_temp=$pi_web_container_env_target.$$
+  pi_web_container_env_umask=$(umask)
+  umask 077
+  cat >"$pi_web_container_env_temp" <<'EOF'
+# PI WEB Docker container environment. Safe to edit.
+#
+# Every KEY=value line here is added to the environment of the PI WEB
+# sessiond and web containers, in both runtime and development mode, and is
+# inherited by agent sessions, terminals, and the processes they start.
+#
+# This file is created once and is never rewritten. Generated Compose env files
+# configure interpolation only and do not enter container process environments.
+#
+# Apply changes by recreating the containers:
+#   pi-web-docker start                (development: pi-web-docker --dev start)
+# Restart commands reuse existing containers and do not re-read this file.
+#
+# PI WEB-managed values stay authoritative, including HOME, XDG_CONFIG_HOME,
+# PI_WEB_DATA_DIR, PI_WEB_SESSIOND_SOCKET, PI_CODING_AGENT_DIR,
+# PI_WEB_MAX_UPLOAD_BYTES, HOSTEXEC_MODE, HOSTEXEC_IMAGE, PI_WEB_DOCKER_* keys,
+# and the web server's PI_WEB_HOST and PI_WEB_PORT.
+#
+# Examples:
+# HTTPS_PROXY=http://proxy.example.internal:3128
+# NO_PROXY=localhost,127.0.0.1
+# PI_WEB_OFFLINE=1
+EOF
+  umask "$pi_web_container_env_umask"
+  mv "$pi_web_container_env_temp" "$pi_web_container_env_target" || return 1
 }
 
 pi_web_docker_host_write_compose_override() {

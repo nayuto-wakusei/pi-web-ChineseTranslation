@@ -99,6 +99,24 @@ describe("Docker command assets", () => {
     expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
   });
 
+  it("shares one user-owned container environment file across runtime and development services", async () => {
+    const [runtimeCompose, devCompose, installer, devWrapper, hostProfile] = await Promise.all([
+      readRepoFile("docker/compose.yml"),
+      readRepoFile("docker/compose.dev.yml"),
+      readRepoFile("docker/install.sh"),
+      readRepoFile("docker/internal/dev/compose"),
+      readRepoFile("docker/internal/host-profile.sh"),
+    ]);
+
+    expect(runtimeCompose).toContain("- ${PI_WEB_DOCKER_DATA_DIR:-./data}/container.env");
+    expect(devCompose).toContain("- ${PI_WEB_DOCKER_DATA_DIR:-${HOME}/.local/share/pi-web-docker/data}/container.env");
+    expect(runtimeCompose.match(/env_file: \*pi-web-env-file/g)).toHaveLength(2);
+    expect(devCompose.match(/env_file: \*pi-web-dev-env-file/g)).toHaveLength(2);
+    expect(installer).toContain("container_env_file=$data_dir/container.env");
+    expect(devWrapper).toContain("container_env_file=$pi_web_data_dir/container.env");
+    expect(hostProfile).toContain("pi_web_docker_write_container_env_template() {");
+  });
+
   dockerCommandIt("fetches remote installer assets without clobbering the write target", async () => {
     const installDir = join(tempDir, "remote-runtime");
     const fakeDocker = await installFakeDocker();
@@ -128,6 +146,49 @@ describe("Docker command assets", () => {
     const env = await readFile(join(installDir, ".env"), "utf8");
     expect(env).toContain(`PI_WEB_DOCKER_INSTALL_DIR=${installDir}`);
     expect(env).toContain("PI_WEB_DOCKER_REF=test-assets");
+  });
+
+  dockerCommandIt("creates container.env once and preserves operator edits", async () => {
+    const installDir = join(tempDir, "container-env-runtime");
+    const dataDir = join(installDir, "data");
+    const containerEnvFile = join(dataDir, "container.env");
+    const fakeDocker = await installFakeDocker();
+    await installFakeUname(fakeDocker.binDir, "Darwin");
+    const home = join(tempDir, "container-env-home");
+    const socketPath = join(home, ".docker", "run", "docker.sock");
+    const env = {
+      ...cleanProcessEnv(),
+      PATH: `${fakeDocker.binDir}:${process.env["PATH"] ?? ""}`,
+      HOME: home,
+      FAKE_DOCKER_LOG: fakeDocker.logPath,
+    };
+    const args = [
+      join(repoRoot, "docker", "install.sh"),
+      "--install-dir", installDir,
+      "--data-dir", dataDir,
+      "--asset-dir", join(repoRoot, "docker"),
+      "--skip-compose",
+    ];
+
+    await withUnixSocket(socketPath, async () => {
+      await execUtf8("sh", args, env);
+      const template = await readFile(containerEnvFile, "utf8");
+      expect(template).toContain("# PI WEB Docker container environment. Safe to edit.");
+      await writeFile(containerEnvFile, `${template}HTTPS_PROXY=http://proxy.example.test:3128\n`, "utf8");
+      await execUtf8("sh", args, env);
+    });
+
+    expect(await readFile(containerEnvFile, "utf8")).toContain("HTTPS_PROXY=http://proxy.example.test:3128");
+  });
+
+  dockerCommandIt("recreates a missing container.env before runtime Compose", async () => {
+    const installDir = await createRuntimeInstall();
+    const containerEnvFile = join(installDir, "data", "container.env");
+    const fakeDocker = await installFakeDocker();
+
+    await runDockerCommand(["start"], runtimeHostEnv(fakeDocker, installDir));
+
+    expect(await readFile(containerEnvFile, "utf8")).toContain("# PI WEB Docker container environment. Safe to edit.");
   });
 
   dockerCommandIt("runs status through Docker Compose in the foreground", async () => {
@@ -320,6 +381,33 @@ describe("Docker command assets", () => {
     await expect(readFile(helperLog, "utf8")).rejects.toThrow();
   });
 
+  dockerCommandIt("allows development updates with a stale REBASE_HEAD", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    await writeFile(join(devRoot, ".git", "REBASE_HEAD"), `${await gitHead(devRoot)}\n`, "utf8");
+
+    await runDockerCommand(["--dev", "update"], devHostEnv(fakeDocker, devRoot, join(tempDir, "home")));
+
+    expect(await readFile(helperLog, "utf8")).toContain("args=build --pull");
+  });
+
+  dockerCommandIt("fast-forwards the development checkout before rebuilding", async () => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const upstreamCommit = await addTrackedUpstreamCommit(devRoot, "pulled.txt");
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+
+    const result = await runDockerCommand(["--dev", "update"], devHostEnv(fakeDocker, devRoot, join(tempDir, "home")));
+
+    expect(result.stderr).toContain("Fast-forwarding");
+    expect(await gitHead(devRoot)).toBe(upstreamCommit);
+    expect(await readFile(join(devRoot, "pulled.txt"), "utf8")).toBe("from upstream\n");
+    expect(await readFile(helperLog, "utf8")).toContain("args=build --pull");
+  });
+
   dockerCommandIt("allows clean development updates and dirty development starts", async () => {
     const helperLog = join(tempDir, "dev-helper.log");
     const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
@@ -439,16 +527,38 @@ describe("Docker command assets", () => {
     expect(log).not.toContain("run -d");
   });
 
-  dockerCommandIt("executes the detached runtime update action through Compose without nesting helpers", async () => {
+  dockerCommandIt("executes the detached runtime update by rerunning the installer without nesting helpers", async () => {
     const installDir = await createRuntimeInstall();
     const fakeDocker = await installFakeDocker();
 
     await runDockerCommand(["__run-detached", "update"], runtimeEnv(fakeDocker, installDir));
 
-    const log = await readFile(fakeDocker.logPath, "utf8");
-    expect(log).toContain("compose --project-name pi-web-test --env-file .env -f compose.yml -f compose.override.yml build --pull --no-cache");
-    expect(log).toContain("compose --project-name pi-web-test --env-file .env -f compose.yml -f compose.override.yml up -d --force-recreate --remove-orphans");
+    expect(await readFile(join(installDir, "installer-calls.log"), "utf8")).toContain(`install.sh --install-dir ${installDir}`);
+    const log = await readFile(fakeDocker.logPath, "utf8").catch(() => "");
     expect(log).not.toContain("run -d");
+  });
+
+  dockerCommandIt("recovers legacy recorded Docker socket facts during an in-container installer rerun", async () => {
+    const installDir = await createRecordedHostInstall([
+      "PI_WEB_DOCKER_HOST_PROFILE=mac-docker-desktop",
+      "HOSTEXEC_MODE=disabled",
+    ], [
+      "x-pi-web-host-volumes: &pi-web-host-volumes",
+      "  - type: bind",
+      "    source: '/Users/dev/.docker/run/docker.sock'",
+      "    target: '/var/run/docker.sock'",
+      "services: {}",
+      "",
+    ].join("\n"));
+
+    await execUtf8("sh", [
+      join(repoRoot, "docker", "install.sh"),
+      "--install-dir", installDir,
+      "--asset-dir", join(repoRoot, "docker"),
+      "--skip-compose",
+    ], { ...cleanProcessEnv(), PI_WEB_DOCKER_RUNTIME: "1" });
+
+    expect(await readFile(join(installDir, ".env"), "utf8")).toContain("PI_WEB_DOCKER_SOCKET_SOURCE=/Users/dev/.docker/run/docker.sock");
   });
 });
 
@@ -513,6 +623,34 @@ async function createRuntimeInstall(): Promise<string> {
   ].join("\n"), "utf8");
   await writeFile(join(installDir, "compose.yml"), "name: pi-web\nservices: {}\n", "utf8");
   await writeFile(join(installDir, "compose.override.yml"), "services: {}\n", "utf8");
+  await mkdir(join(installDir, "internal"), { recursive: true });
+  await copyFile(join(repoRoot, "docker", "internal", "host-profile.sh"), join(installDir, "internal", "host-profile.sh"));
+  const installerPath = join(installDir, "install.sh");
+  await writeFile(installerPath, `#!/usr/bin/env sh
+set -eu
+printf 'install.sh %s\n' "$*" >>${shellSingleQuote(join(installDir, "installer-calls.log"))}
+`, "utf8");
+  await chmod(installerPath, 0o755);
+  return installDir;
+}
+
+async function createRecordedHostInstall(envLines: string[], overrideContents: string): Promise<string> {
+  const installDir = join(tempDir, "recorded-host-install");
+  await mkdir(installDir, { recursive: true });
+  await writeFile(join(installDir, ".env"), [
+    "PI_WEB_UID=1234",
+    "PI_WEB_GID=2345",
+    "DOCKER_GID=3456",
+    `PI_WEB_DOCKER_DATA_DIR=${join(installDir, "data")}`,
+    `PI_WEB_DOCKER_INSTALL_DIR=${installDir}`,
+    "PI_WEB_BIND_ADDR=127.0.0.1",
+    "PI_WEB_PORT=12345",
+    "PI_WEB_IMAGE=pi-web:test",
+    "COMPOSE_PROJECT_NAME=pi-web-test",
+    ...envLines,
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(installDir, "compose.override.yml"), overrideContents, "utf8");
   return installDir;
 }
 
@@ -555,6 +693,39 @@ async function createCleanDevGitRepoWithFakeHelper(logPath: string): Promise<str
     "commit", "--quiet", "--no-gpg-sign", "-m", "test fixture",
   ], env);
   return devRoot;
+}
+
+async function commitFixtureFile(repoRootPath: string, relativePath: string, contents: string): Promise<string> {
+  const env = cleanProcessEnv();
+  await writeFile(join(repoRootPath, relativePath), contents, "utf8");
+  await execUtf8("git", ["-C", repoRootPath, "add", relativePath], env);
+  await execUtf8("git", [
+    "-C", repoRootPath,
+    "-c", "user.name=PI WEB Test",
+    "-c", "user.email=pi-web-test@example.invalid",
+    "-c", "core.hooksPath=/dev/null",
+    "commit", "--quiet", "--no-gpg-sign", "-m", `test fixture ${relativePath}`,
+  ], env);
+  return await gitHead(repoRootPath);
+}
+
+async function gitHead(repoRootPath: string): Promise<string> {
+  return (await execUtf8("git", ["-C", repoRootPath, "rev-parse", "HEAD"], cleanProcessEnv())).stdout.trim();
+}
+
+async function addTrackedUpstreamCommit(devRoot: string, relativePath: string): Promise<string> {
+  const env = cleanProcessEnv();
+  const originDir = join(tempDir, "dev-origin.git");
+  const upstreamWork = join(tempDir, "dev-upstream-work");
+  await execUtf8("git", ["clone", "--quiet", "--bare", devRoot, originDir], env);
+  await execUtf8("git", ["clone", "--quiet", originDir, upstreamWork], env);
+  const upstreamCommit = await commitFixtureFile(upstreamWork, relativePath, "from upstream\n");
+  await execUtf8("git", ["-C", upstreamWork, "push", "--quiet", "origin", "HEAD"], env);
+  const branch = (await execUtf8("git", ["-C", devRoot, "symbolic-ref", "--short", "HEAD"], env)).stdout.trim();
+  await execUtf8("git", ["-C", devRoot, "remote", "add", "origin", originDir], env);
+  await execUtf8("git", ["-C", devRoot, "fetch", "--quiet", "origin"], env);
+  await execUtf8("git", ["-C", devRoot, "branch", `--set-upstream-to=origin/${branch}`, branch], env);
+  return upstreamCommit;
 }
 
 async function createDevGeneratedEnv(ids: { uid: number; gid: number; dockerGid: number }): Promise<string> {

@@ -403,12 +403,12 @@
                       <td>Restart session daemon on that machine</td>
                     </tr>
                     <tr>
-                      <td>Session nesting facts</td>
+                      <td>Ordinary-session environment facts</td>
                       <td><code>environmentFacts</code></td>
                       <td><code>PI_WEB_ENVIRONMENT_FACTS</code></td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine</td>
+                      <td>Restart session daemon on that machine; affects newly started sessions</td>
                     </tr>
                     <tr>
                       <td>扩展对话框自动取消超时</td>
@@ -742,8 +742,16 @@ pi-web audit vacuum</code></pre>
                 <code>PI_WEB_AGENT_DIR</code> &gt; <code>PI_CODING_AGENT_DIR</code> &gt; <code>agent.dir</code> &gt; the Pi default.
                 Session-directory precedence keeps <code>PI_WEB_AGENT_SESSION_DIR</code> first, followed by
                 <code>PI_CODING_AGENT_SESSION_DIR</code>. The resolved state directory is exported as
-                <code>PI_CODING_AGENT_DIR</code> to embedded Pi processes. Set <code>PI_WEB_ENVIRONMENT_FACTS=false</code>
-                to disable ordinary-session nesting guidance.
+                <code>PI_CODING_AGENT_DIR</code> to embedded Pi processes.
+              </p>
+              <p>
+                <code>environmentFacts</code> controls factual system-prompt sections appended only to ordinary
+                sessions. These describe PI WEB session nesting and, when the daemon runs in Docker, the observed
+                container filesystem, persistent mounts, host access, and development mount shape.
+                <code>PI_WEB_ENVIRONMENT_FACTS</code> takes precedence and accepts <code>0|1|true|false</code>; the
+                default is enabled. Set it to <code>false</code>, restart the session daemon, and start a new session to
+                disable all such sections. Existing sessions retain the prompt they started with. Management-embed
+                sessions do not receive these ordinary-session facts.
               </p>
               <p>
                 The session daemon resolves the persisted desired values plus its environment once at startup. That
