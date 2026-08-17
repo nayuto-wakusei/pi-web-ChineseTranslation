@@ -263,7 +263,7 @@
               <ul>
                 <li>Use NetBird, Tailscale, WireGuard, private LAN, SSH tunnel, or an authenticated reverse proxy.</li>
                 <li>Remote Pi auth, OAuth state, sessions, terminals, repositories, and plugins stay on the target machine.</li>
-                <li>API-key provider configuration can be proxied, but OAuth login should be completed by opening the remote PI WEB directly.</li>
+                <li>API-key provider configuration and subscription (OAuth) login can both be proxied. When a remote flow asks for a redirect URL, paste the full browser URL back into the login dialog.</li>
                 <li>Remote plugins are trusted browser code and only appear while that machine is selected.</li>
                 <li>If the remote reports offline, check that the gateway server can reach the remote URL and try <strong>Actions → Refresh Selected Machine</strong>.</li>
               </ul>

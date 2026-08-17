@@ -108,8 +108,8 @@ export class AuthController {
       const { providers } = await this.api.authProviders({ mode: "logout", ...authRequestTarget(target) });
       if (providerId !== undefined && providerId !== "") {
         const provider = providers.find((candidate) => candidate.id === providerId);
-        if (provider !== undefined && !this.rejectRemoteOAuth("logout", provider, target)) await this.logoutProviderForTarget(provider.id, target);
-        else if (provider === undefined) this.setState({ error: `没有 ${providerId} 的已保存凭据` });
+        if (provider !== undefined) await this.logoutProviderForTarget(provider.id, target);
+        else this.setState({ error: `没有 ${providerId} 的已保存凭据` });
         return;
       }
       this.setState({ authDialog: { step: "logout", providers, target } });
@@ -122,7 +122,7 @@ export class AuthController {
     const dialog = this.getState().authDialog;
     if (dialog?.step !== "logout") return;
     const provider = dialog.providers.find((candidate) => candidate.id === providerId);
-    if (provider === undefined || this.rejectRemoteOAuth("logout", provider, dialog.target)) return;
+    if (provider === undefined) return;
     await this.logoutProviderForTarget(providerId, dialog.target);
   }
 
@@ -146,7 +146,7 @@ export class AuthController {
 
   async respondOAuth(value?: string): Promise<void> {
     const dialog = this.getState().authDialog;
-    if (dialog?.step !== "oauth") return;
+    if (dialog?.step !== "oauth" || dialog.responding === true) return;
     const request = dialog.flow.prompt ?? dialog.flow.select;
     if (request === undefined) return;
     const operationGeneration = this.oauthOperationGeneration;
@@ -210,7 +210,6 @@ export class AuthController {
   }
 
   private async startOAuth(provider: AuthProviderOption, target: AuthDialogTarget): Promise<void> {
-    if (this.rejectRemoteOAuth("login", provider, target)) return;
     const operationGeneration = ++this.oauthOperationGeneration;
     this.stopPolling();
     try {
@@ -232,15 +231,6 @@ export class AuthController {
     } catch (error) {
       if (operationGeneration === this.oauthOperationGeneration) this.setState({ error: String(error) });
     }
-  }
-
-  private rejectRemoteOAuth(action: "login" | "logout", provider: AuthProviderOption, target: AuthDialogTarget): boolean {
-    const machine = this.getState().selectedMachine;
-    if (provider.authType !== "oauth" || target.machineKind !== "remote") return false;
-    const where = machine?.baseUrl ?? "对应的远程 PI WEB 实例";
-    const actionLabel = action === "login" ? "登录" : "退出";
-    this.setState({ error: `远程机器的 OAuth ${actionLabel}必须直接在 ${where} 上配置。` });
-    return true;
   }
 
   private updateOAuthFlow(flow: OAuthFlowState, target: AuthDialogTarget): void {

@@ -1,8 +1,20 @@
-import { LitElement, css, html } from "lit";
-import { customElement, property, query } from "lit/decorators.js";
+import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { customElement, property, query, state as litState } from "lit/decorators.js";
 import type { AuthDialogState } from "../appState";
 import type { AuthProviderOption, OAuthFlowState } from "../api";
+import { LOCAL_MACHINE_ID } from "../machineKeys";
+import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEventTarget";
 import { commandPickerStyles } from "./styles/commandPickerStyles";
+import "./ModalSurface";
+import type { ModalSurface } from "./ModalSurface";
+import { scrollWhenSelected } from "./scrollWhenSelected";
+
+interface AuthDialogOption {
+  key: string;
+  title: TemplateResult | string;
+  detail: string;
+  run: () => void;
+}
 
 @customElement("auth-dialog")
 export class AuthDialog extends LitElement {
@@ -16,26 +28,32 @@ export class AuthDialog extends LitElement {
   @property({ attribute: false }) onOAuthRespond?: (value?: string) => void;
   @property({ attribute: false }) onOAuthCancel?: () => void;
   @property({ attribute: false }) onCancel?: () => void;
-  @query("input") private input?: HTMLInputElement;
+  @query("modal-surface") private modalSurface?: ModalSurface;
+  @litState() private selectedIndex = 0;
   private lastFocusedInputKey: string | undefined;
+  private lastStep: AuthDialogState["step"] | undefined;
 
   override render() {
     const state = this.state;
     if (state === undefined) return null;
+    const busy = state.step === "apiKey" ? state.saving === true : state.step === "oauth" && state.responding === true;
     return html`
-      <div class="backdrop" @mousedown=${() => { this.cancel(); }}>
-        <section @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => { this.cancel(); }} .onBusyEscape=${state.step === "oauth" ? () => this.onOAuthCancel?.() : undefined} .busy=${busy} .initialFocus=${this.initialFocus(state)} .label=${this.dialogTitle(state)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.dialogTitle(state)}</strong>
             <button title="关闭" @click=${() => { this.cancel(); }}>×</button>
           </header>
           ${this.renderBody(state)}
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
   protected override updated(): void {
+    const step = this.state?.step;
+    if (step !== this.lastStep) this.selectedIndex = 0;
+    this.lastStep = step;
+    const options = this.state === undefined ? undefined : this.optionsFor(this.state);
+    if (options !== undefined && this.selectedIndex >= options.length) this.selectedIndex = Math.max(0, options.length - 1);
     this.focusInputIfNeeded();
   }
 
@@ -53,13 +71,9 @@ export class AuthDialog extends LitElement {
   private renderBody(state: AuthDialogState) {
     const credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目";
     switch (state.step) {
-      case "method": return html`
-        <div class="options">
-          <button @click=${() => { this.onChooseMethod?.("oauth"); }}><span>使用订阅</span><small>ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot</small></button>
-          <button @click=${() => { this.onChooseMethod?.("api_key"); }}><span>使用 API key</span><small>将 API key 存入${credentialScope}的 auth.json</small></button>
-        </div>
-      `;
-      case "providers": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有可用提供商。</div>` : state.providers.map((provider) => this.renderProviderButton(provider))}</div>`;
+      case "method":
+      case "providers":
+      case "logout": return this.renderOptionList(state, credentialScope);
       case "apiKey": return html`
         <div class="form">
           <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会保存到${credentialScope}的凭据文件。</p>
@@ -69,19 +83,45 @@ export class AuthDialog extends LitElement {
         </div>
       `;
       case "oauth": return this.renderOAuth(state);
-      case "logout": return html`<div class="options">${state.providers.length === 0 ? html`<div class="empty">没有已保存的凭据。环境变量和 models.json 设置不会变化。</div>` : state.providers.map((provider) => html`
-        <button @click=${() => { this.onLogoutProvider?.(provider.id); }}><span>${provider.name}</span><small>${provider.id} · ${authTypeLabel(provider.authType)}</small></button>
-      `)}</div>`;
     }
   }
 
-  private renderProviderButton(provider: AuthProviderOption) {
+  private renderOptionList(state: Exclude<AuthDialogState, { step: "apiKey" | "oauth" }>, credentialScope: string): TemplateResult {
+    const options = this.optionsFor(state, credentialScope) ?? [];
+    const empty = state.step === "logout" ? "没有已保存的凭据。环境变量和 models.json 设置不会变化。" : "没有可用提供商。";
     return html`
-      <button @click=${() => { this.onSelectProvider?.(provider.id, provider.authType); }}>
-        <span>${provider.name}${provider.status.source !== undefined ? html` <em>${statusLabel(provider)}</em>` : null}</span>
-        <small>${provider.id} · ${authTypeLabel(provider.authType)}</small>
-      </button>
+      <div class="options">
+        ${options.length === 0 ? html`<div class="empty">${empty}</div>` : options.map((option, index) => html`
+          <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.key)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { option.run(); }}>
+            <span>${option.title}</span>
+            <small>${option.detail}</small>
+          </button>
+        `)}
+      </div>
     `;
+  }
+
+  private optionsFor(state: AuthDialogState, credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目"): AuthDialogOption[] | undefined {
+    switch (state.step) {
+      case "method": return [
+        { key: "oauth", title: "使用订阅", detail: "ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot", run: () => { this.onChooseMethod?.("oauth"); } },
+        { key: "api_key", title: "使用 API key", detail: `将 API key 存入${credentialScope}的 auth.json`, run: () => { this.onChooseMethod?.("api_key"); } },
+      ];
+      case "providers": return state.providers.map((provider) => ({
+        key: `${provider.id}:${provider.authType}`,
+        title: html`${provider.name}${provider.status.source !== undefined ? html` <em>${statusLabel(provider)}</em>` : null}`,
+        detail: `${provider.id} · ${authTypeLabel(provider.authType)}`,
+        run: () => { this.onSelectProvider?.(provider.id, provider.authType); },
+      }));
+      case "logout": return state.providers.map((provider) => ({
+        key: `${provider.id}:${provider.authType}`,
+        title: provider.name,
+        detail: `${provider.id} · ${authTypeLabel(provider.authType)}`,
+        run: () => { this.onLogoutProvider?.(provider.id); },
+      }));
+      case "apiKey":
+      case "oauth": return undefined;
+    }
   }
 
   private renderOAuth(state: Extract<AuthDialogState, { step: "oauth" }>) {
@@ -89,6 +129,7 @@ export class AuthDialog extends LitElement {
     const prompt = flow.prompt;
     const select = flow.select;
     const promptInputType = oauthPromptInputType(prompt?.promptType);
+    const showPasteNote = shouldShowRemoteOAuthPasteNote(state, window.location.hostname);
     return html`
       <div class="form">
           ${flow.auth !== undefined ? html`
@@ -98,6 +139,7 @@ export class AuthDialog extends LitElement {
               <p class="warning">输入代码：<code>${flow.auth.deviceCode.userCode}</code></p>
             ` : flow.auth.instructions !== undefined ? html`<p class="warning">${flow.auth.instructions}</p>` : null}
         ` : html`<p>正在启动登录流程…</p>`}
+        ${showPasteNote ? html`<p class="warning">授权完成后，重定向页面可能无法打开，这是正常现象。请复制浏览器地址栏中的完整 URL，并粘贴到下方输入框。</p>` : null}
         ${flow.progress.length > 0 ? html`<ul class="progress">${flow.progress.map((line) => html`<li>${line}</li>`)}</ul>` : null}
         ${flow.info?.map((item) => item.links === undefined || item.links.length === 0 ? null : html`
           <div class="info-links" aria-label="相关信息">
@@ -133,23 +175,32 @@ export class AuthDialog extends LitElement {
     }
     if (key === this.lastFocusedInputKey) return;
     this.lastFocusedInputKey = key;
-    this.input?.focus();
+    this.modalSurface?.focusDialog();
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
+    const state = this.state;
+    if (state === undefined || keyboardEventOriginatesFromNativeActivationControl(event)) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const options = this.optionsFor(state);
+      if (options === undefined || options.length === 0) return;
       event.preventDefault();
-      this.cancel();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      this.selectedIndex = (this.selectedIndex + delta + options.length) % options.length;
       return;
     }
     if (event.key !== "Enter") return;
-    const state = this.state;
-    if (state?.step === "apiKey") {
+    if (state.step === "apiKey") {
       event.preventDefault();
       this.onSaveApiKey?.();
-    } else if (state?.step === "oauth" && state.flow.prompt !== undefined) {
+    } else if (state.step === "oauth" && state.flow.prompt !== undefined) {
       event.preventDefault();
       this.onOAuthRespond?.();
+    } else {
+      const option = this.optionsFor(state)?.[this.selectedIndex];
+      if (option === undefined) return;
+      event.preventDefault();
+      option.run();
     }
   }
 
@@ -159,7 +210,12 @@ export class AuthDialog extends LitElement {
     else this.onCancel?.();
   }
 
+  private initialFocus(state: AuthDialogState): string {
+    return state.step === "apiKey" || (state.step === "oauth" && state.flow.prompt !== undefined) ? "input" : "button";
+  }
+
   static override styles = [commandPickerStyles, css`
+    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100vh - 40px)); }
     .form { display: grid; gap: 12px; padding: 14px; overflow: auto; }
     .form p { margin: 0; color: var(--pi-text-secondary); overflow-wrap: anywhere; }
     .form a { color: var(--pi-accent); overflow-wrap: anywhere; }
@@ -182,6 +238,22 @@ export class AuthDialog extends LitElement {
 
 export function oauthPromptInputType(promptType: NonNullable<OAuthFlowState["prompt"]>["promptType"]): "text" | "password" {
   return promptType === "secret" ? "password" : "text";
+}
+
+const loopbackHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
+
+export function isLoopbackHostname(hostname: string): boolean {
+  return loopbackHostnames.has(hostname.trim().replace(/^\[|\]$/gu, "").toLowerCase());
+}
+
+export function isBrowserRemoteOAuthMachine(machineId: string, hostname: string): boolean {
+  return machineId !== LOCAL_MACHINE_ID || !isLoopbackHostname(hostname);
+}
+
+export function shouldShowRemoteOAuthPasteNote(state: Extract<AuthDialogState, { step: "oauth" }>, hostname: string): boolean {
+  return isBrowserRemoteOAuthMachine(state.target.machineId, hostname)
+    && state.flow.status === "running"
+    && state.flow.prompt?.promptType === "manual_code";
 }
 
 function authTypeLabel(authType: "oauth" | "api_key"): string {

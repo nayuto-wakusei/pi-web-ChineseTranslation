@@ -68,23 +68,53 @@ describe("AuthController", () => {
     expect(getState().authDialog).toMatchObject({ step: "apiKey", provider: { id: "anthropic", authType: "api_key" } });
   });
 
-  it("shows remote OAuth guidance entirely in Chinese", async () => {
+  it("starts remote OAuth with the captured machine and project target", async () => {
     const provider = authProvider("openai", "oauth");
     const target = remoteTarget("remote-1");
-    const { controller, getState } = createController({
-      selectedMachine: remoteMachine("remote-1"),
-      authDialog: { step: "providers", mode: "login", providers: [provider], target },
-    });
+    const calls: Parameters<typeof defaultApi.startOAuthLogin>[] = [];
+    const { controller, getState } = createController(
+      {
+        selectedMachine: remoteMachine("remote-1"),
+        authDialog: { step: "providers", mode: "login", providers: [provider], target },
+      },
+      {
+        startOAuthLogin: (providerId, requestTarget) => {
+          calls.push([providerId, requestTarget]);
+          return Promise.resolve(oauthFlow({ status: "complete" }));
+        },
+      },
+    );
 
     await controller.selectLoginProvider(provider.id, provider.authType);
 
-    expect(getState().error).toBe("远程机器的 OAuth 登录必须直接在 https://remote.example 上配置。");
+    expect(calls).toEqual([[provider.id, target]]);
+    expect(getState().error).toBe("");
+  });
+
+  it("logs an OAuth provider out through its captured remote target", async () => {
+    const provider = authProvider("openai", "oauth");
+    const target = remoteTarget("remote-1");
+    const calls: Parameters<typeof defaultApi.logoutProvider>[] = [];
+    const { controller, getState } = createController(
+      { authDialog: { step: "logout", providers: [provider], target } },
+      {
+        logoutProvider: (providerId, requestTarget) => {
+          calls.push([providerId, requestTarget]);
+          return Promise.resolve({ accepted: true });
+        },
+      },
+    );
+
+    await controller.logoutProvider(provider.id);
+
+    expect(calls).toEqual([[provider.id, target]]);
+    expect(getState().authDialog).toBeUndefined();
   });
 
   it("keeps OAuth prompt input and submit state across poll refreshes for the same request", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", target: normalTarget() } },
       { respondOAuthFlow: () => Promise.resolve(oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" }, progress: ["Still waiting"] })) },
     );
 
@@ -93,10 +123,28 @@ describe("AuthController", () => {
     expect(getState().authDialog).toMatchObject({ step: "oauth", inputValue: "https://callback", responding: true });
   });
 
+  it("submits one response while the same OAuth request is already in flight", async () => {
+    const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
+    let resolveResponse!: (value: OAuthFlowState) => void;
+    const response = new Promise<OAuthFlowState>((resolve) => { resolveResponse = resolve; });
+    let calls = 0;
+    const { controller } = createController(
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", target: normalTarget() } },
+      { respondOAuthFlow: () => { calls += 1; return response; } },
+    );
+
+    const first = controller.respondOAuth();
+    await controller.respondOAuth();
+    expect(calls).toBe(1);
+
+    resolveResponse(oauthFlow({ status: "complete" }));
+    await first;
+  });
+
   it("resets OAuth prompt input and submit state when the request id changes", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", target: normalTarget() } },
       {
         respondOAuthFlow: () => Promise.resolve(oauthFlow({
           select: { requestId: "request-2", message: "Choose an account", options: [{ value: "acct-1", label: "Account 1" }] },
@@ -149,7 +197,7 @@ describe("AuthController", () => {
   it("leaves the OAuth dialog ready to retry if responding fails", async () => {
     const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Paste callback", kind: "manual" } });
     const { controller, getState } = createController(
-      { authDialog: { step: "oauth", flow, inputValue: "https://callback", responding: true, target: normalTarget() } },
+      { authDialog: { step: "oauth", flow, inputValue: "https://callback", target: normalTarget() } },
       { respondOAuthFlow: () => Promise.reject(new Error("Invalid callback")) },
     );
 
