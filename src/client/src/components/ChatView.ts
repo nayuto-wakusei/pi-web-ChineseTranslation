@@ -31,6 +31,7 @@ import { chatStyles, renderSessionWarningIcon } from "./shared";
 import "./AskUserCard";
 import "./ExtensionDialogCard";
 import type { ExtensionDialogAnswerCallback, ExtensionDialogCancelCallback, ExtensionDialogDismissCallback } from "./ExtensionDialogCard";
+import { registerRenderedModal, type RenderedModalRegistration } from "./modalLayerRegistry";
 import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
@@ -234,6 +235,7 @@ export class ChatView extends LitElement {
   @query("dialog.image-zoom") private imageZoomDialog?: HTMLDialogElement;
   @state() private pinnedToBottom = true;
   @state() private zoomedImage: { src: string; alt: string } | undefined = undefined;
+  private imageZoomModalRegistration: RenderedModalRegistration | undefined;
   @state() private expandedMetaKey: string | undefined;
   @state() private copiedMessageKey: string | undefined;
   @state() private currentConversationIndex: number | undefined;
@@ -308,6 +310,7 @@ export class ChatView extends LitElement {
   override disconnectedCallback(): void {
     this.saveScrollPosition();
     this.scrollController.dispose();
+    this.releaseImageZoomModal();
     this.prependRestoreToken += 1;
     if (this.restoreScrollFrame !== undefined) cancelAnimationFrame(this.restoreScrollFrame);
     if (this.loadMoreCheckFrame !== undefined) cancelAnimationFrame(this.loadMoreCheckFrame);
@@ -406,8 +409,36 @@ export class ChatView extends LitElement {
   private syncImageZoomDialog(): void {
     const dialog = this.imageZoomDialog;
     if (dialog === undefined) return;
-    if (this.zoomedImage !== undefined && !dialog.open) dialog.showModal();
-    else if (this.zoomedImage === undefined && dialog.open) dialog.close();
+    if (this.zoomedImage !== undefined) {
+      if (this.imageZoomModalRegistration === undefined) {
+        const registration = registerRenderedModal({
+          element: dialog,
+          nativeTopLayer: true,
+          focus: () => {
+            const close = this.renderRoot.querySelector<HTMLElement>(".image-zoom-close");
+            (close ?? dialog).focus();
+          },
+        });
+        this.imageZoomModalRegistration = registration;
+        try {
+          if (!dialog.open) dialog.showModal();
+        } catch (error) {
+          this.imageZoomModalRegistration = undefined;
+          registration.unregister();
+          throw error;
+        }
+      }
+      this.imageZoomModalRegistration.focus();
+      return;
+    }
+    if (dialog.open) dialog.close();
+    this.releaseImageZoomModal();
+  }
+
+  private releaseImageZoomModal(): void {
+    const registration = this.imageZoomModalRegistration;
+    this.imageZoomModalRegistration = undefined;
+    registration?.unregister();
   }
 
   private notificationTargetChanged(previous: unknown): boolean {

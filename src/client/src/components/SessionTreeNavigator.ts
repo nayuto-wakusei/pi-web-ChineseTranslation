@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNodeKind, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
 import { SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH } from "../../../shared/apiTypes";
 import { buildSessionTreeModel, initialSessionTreeSelection, toggleSessionTreeFold, transitionSessionTreeKey, validateSessionTreeSummaryChoice, visibleSessionTreeRows, type SessionTreeModel, type SessionTreeRow } from "../sessionTreeModel";
+import "./ModalSurface";
 
 const EMPTY_TREE: SessionTreeSnapshot = { nodes: [], activeLeafId: null, activePathIds: [] };
 const MAX_SESSION_TREE_VISUAL_DEPTH = 8;
@@ -73,16 +74,7 @@ export class SessionTreeNavigator extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <div class="backdrop" @mousedown=${(event: MouseEvent) => { this.handleBackdropMouseDown(event); }}>
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="session-tree-heading"
-          aria-busy=${this.busy ? "true" : "false"}
-          tabindex="-1"
-          @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }}
-          @keydown=${(event: KeyboardEvent) => { this.handleDialogKeyDown(event); }}
-        >
+      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .label=${"浏览会话树"}>
           <header>
             <div>
               <span class="eyebrow">对话历史</span>
@@ -92,8 +84,7 @@ export class SessionTreeNavigator extends LitElement {
           </header>
           ${this.step === "tree" ? this.renderTreeStep() : this.renderActionStep()}
           ${this.renderFooter()}
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
@@ -329,14 +320,11 @@ export class SessionTreeNavigator extends LitElement {
   }
 
   private handleTreeKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") return;
     const next = transitionSessionTreeKey(this.model, { selectedId: this.selectedId, foldedIds: this.foldedIds }, event.key);
     if (!next.handled) return;
     event.preventDefault();
     event.stopPropagation();
-    if (next.action === "cancel") {
-      this.onCancel?.();
-      return;
-    }
     if (next.action === "confirm") {
       this.continueToAction();
       return;
@@ -488,40 +476,13 @@ export class SessionTreeNavigator extends LitElement {
     }
   }
 
-  private handleBackdropMouseDown(event: MouseEvent): void {
-    if (event.target === event.currentTarget && !this.busy) this.onCancel?.();
-  }
-
-  private handleDialogKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Tab") {
-      this.trapTabFocus(event);
-      return;
-    }
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (this.busy) {
-      if (this.operation === "continue" && this.summaryMode !== "none") void this.abortNavigation();
-      return;
-    }
+  private requestDismissal(): void {
     if (this.step === "action") this.returnToTree();
     else this.onCancel?.();
   }
 
-  private trapTabFocus(event: KeyboardEvent): void {
-    const focusable = [...this.renderRoot.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex='0']")];
-    if (focusable.length === 0) {
-      event.preventDefault();
-      this.renderRoot.querySelector<HTMLElement>("section[role='dialog']")?.focus();
-      return;
-    }
-    const active = this.shadowRoot?.activeElement;
-    const activeIndex = focusable.findIndex((element) => element === active);
-    const movingPastEnd = !event.shiftKey && activeIndex === focusable.length - 1;
-    const movingBeforeStart = event.shiftKey && (activeIndex <= 0);
-    if (!movingPastEnd && !movingBeforeStart) return;
-    event.preventDefault();
-    (event.shiftKey ? focusable.at(-1) : focusable[0])?.focus();
+  private requestBusyEscape(): void {
+    if (this.operation === "continue" && this.summaryMode !== "none") void this.abortNavigation();
   }
 
   private focusSelectedTreeItem(): void {
@@ -542,8 +503,7 @@ export class SessionTreeNavigator extends LitElement {
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 40; color: var(--pi-text); font: 14px system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    .backdrop { width: 100%; height: 100dvh; background: var(--pi-overlay); overflow: hidden; }
-    section[role="dialog"] { width: 100%; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--pi-bg); overflow: hidden; }
+    modal-surface { --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: 100dvh; --modal-surface-border: 0; --modal-surface-radius: 0; --modal-surface-shadow: none; }
     header, footer { display: flex; align-items: center; gap: 12px; padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 14px max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--pi-border); }
     footer { min-height: 64px; justify-content: end; padding: 12px max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); border-top: 1px solid var(--pi-border); border-bottom: 0; }
     header > div { min-width: 0; }
@@ -553,7 +513,7 @@ export class SessionTreeNavigator extends LitElement {
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     .close-button { width: 36px; height: 36px; margin-inline-start: auto; display: grid; place-items: center; border: 0; background: transparent; color: var(--pi-muted); padding: 0; font-size: 25px; }
     .close-button:not(:disabled):hover, .close-button:not(:disabled):focus-visible { color: var(--pi-text); background: var(--pi-surface-hover); }
-    .body { min-height: 0; overflow: auto; }
+    .body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     .tree-step { display: flex; flex-direction: column; gap: 10px; padding: 14px max(18px, env(safe-area-inset-right)) 16px max(18px, env(safe-area-inset-left)); }
     .tree-intro { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; color: var(--pi-muted); }
     .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; }

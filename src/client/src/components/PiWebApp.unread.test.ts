@@ -93,20 +93,21 @@ describe("PiWebApp session unread wiring", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("does not acknowledge a selected chat hidden behind a full-screen dialog", async () => {
+  it("does not acknowledge a selected chat hidden behind the rendered-modal boundary", async () => {
     const fetchMock = stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
     const app = createApp();
+    let modalOpen = true;
+    if (!Reflect.set(app, "isRenderedModalOpen", () => modalOpen)) throw new Error("Could not control the rendered-modal boundary");
     enableUnread(app);
     const selected = session("selected");
     setAppState(app, { ...initialAppState(), sessions: [selected], selectedSession: selected, mainView: "chat" });
     exposeSelectedChat(app);
-    if (!Reflect.set(app, "settingsSection", "general")) throw new Error("Could not open settings");
 
     handleRealtimeEvent(app, unreadEvent(1, unreadSummary(selected, 1)));
     expect([...navigationUnreadSessionIds(app)]).toEqual([selected.id]);
     expect(fetchMock).not.toHaveBeenCalled();
 
-    if (!Reflect.set(app, "settingsSection", undefined)) throw new Error("Could not close settings");
+    modalOpen = false;
     invokeUpdated(app);
     await vi.waitFor(() => { expect(navigationUnreadSessionIds(app).size).toBe(0); });
     expect(fetchMock).toHaveBeenCalledOnce();

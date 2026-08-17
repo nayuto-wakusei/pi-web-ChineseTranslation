@@ -2,6 +2,7 @@ import { LitElement, css, html, type PropertyValues, type TemplateResult } from 
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupRequest } from "../api";
 import { canRunSessionCleanup, confirmSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
+import "./ModalSurface";
 
 @customElement("session-cleanup-dialog")
 export class SessionCleanupDialog extends LitElement {
@@ -31,8 +32,7 @@ export class SessionCleanupDialog extends LitElement {
     const runEnabled = canRunSessionCleanup({ canCleanup: this.canCleanup, draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest, loading: this.loading, running: this.running });
     const runTitle = runEnabled ? "运行清理" : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "至少选择一个项目才能运行清理" : "运行清理前请先预览";
     return html`
-      <div class="backdrop" @mousedown=${() => { this.onClose?.(); }}>
-        <section role="dialog" aria-modal="true" aria-label="清理会话" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${"清理会话"}>
           <header>
             <div>
               <span class="eyebrow">会话</span>
@@ -52,8 +52,7 @@ export class SessionCleanupDialog extends LitElement {
             <button ?disabled=${!this.canCleanup || this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${this.loading ? "正在预览…" : "预览"}</button>
             <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${this.running ? "正在运行…" : "运行清理"}</button>
           </footer>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
@@ -211,20 +210,12 @@ export class SessionCleanupDialog extends LitElement {
     void this.onRun?.({ ...validation.request, projectCwds: selectedProjectCwds });
   }
 
-  private handleKeyDown(event: KeyboardEvent): void {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    this.onClose?.();
-  }
-
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    .backdrop { box-sizing: border-box; width: 100%; height: 100dvh; display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); background: var(--pi-overlay); overflow: hidden; }
-    section[role="dialog"] { width: min(760px, 100%); max-height: min(760px, 100%); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--pi-border); border-radius: 14px; background: var(--pi-bg); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
+    modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(760px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-radius: 14px; }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--pi-border); }
     footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
-    .body { min-height: 0; overflow: auto; display: grid; gap: 14px; padding: 16px; }
+    .body { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 14px; padding: 16px; }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     h1, h2, p { margin: 0; }
     h1 { font-size: 20px; line-height: 1.2; }
@@ -260,8 +251,7 @@ export class SessionCleanupDialog extends LitElement {
     .close-button:hover, .close-button:focus { color: var(--pi-text); background: var(--pi-surface-hover); }
 
     @media (max-width: 680px) {
-      .backdrop { padding: 0; place-items: stretch; }
-      section[role="dialog"] { width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+      modal-surface { --modal-surface-place-items: stretch; --modal-surface-backdrop-padding: 0; --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: none; --modal-surface-border: 0; --modal-surface-radius: 0; }
       .toggle-row { grid-template-columns: auto minmax(0, 1fr); }
       .toggle-row input.days { grid-column: 2; }
       .toggle-row span:last-child { grid-column: 2; }

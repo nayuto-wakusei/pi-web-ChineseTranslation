@@ -1,5 +1,6 @@
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./ModalSurface";
 
 export type NormalAuthDialogMode = "setup" | "login" | "change";
 
@@ -23,8 +24,7 @@ export class NormalAuthDialog extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <div class="backdrop">
-          <section role="dialog" aria-modal="true" aria-label=${normalAuthDialogTitle(this.mode)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${this.mode === "change" ? () => this.onCancel?.() : undefined} .busy=${this.loading} .initialFocus=${"input"} .label=${normalAuthDialogTitle(this.mode)}>
           <header>
             <div>
               <span class="eyebrow">普通模式</span>
@@ -55,8 +55,7 @@ export class NormalAuthDialog extends LitElement {
               <button class="primary" ?disabled=${this.loading}>${this.loading ? "正在处理..." : this.submitLabel()}</button>
             </footer>
           </form>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
@@ -82,17 +81,9 @@ export class NormalAuthDialog extends LitElement {
     await this.onSubmit?.(form);
   }
 
-  private handleKeyDown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || this.mode !== "change") return;
-    event.preventDefault();
-    event.stopPropagation();
-    this.onCancel?.();
-  }
-
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 40; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    .backdrop { box-sizing: border-box; width: 100%; height: 100dvh; display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); background: var(--pi-bg); }
-    section { width: min(420px, 100%); border: 1px solid var(--pi-border); border-radius: 12px; background: var(--pi-surface); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
+    modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-backdrop-background: var(--pi-bg); --modal-surface-width: min(420px, 100%); }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--pi-border); }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     h1 { margin: 0; font-size: 20px; line-height: 1.2; }

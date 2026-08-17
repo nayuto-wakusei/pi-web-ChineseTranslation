@@ -1,5 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import "./ModalSurface";
 
 export interface MachineDialogSubmit {
   name: string;
@@ -17,15 +18,10 @@ export class MachineDialog extends LitElement {
   @state() private name = "";
   @state() private token = "";
   @state() private submitting = false;
-  @query("input[name='baseUrl']") private urlInput?: HTMLInputElement;
   @query("input[name='name']") private nameInput?: HTMLInputElement;
 
   private nameEdited = false;
   private previousSuggestedName = "";
-
-  override firstUpdated(): void {
-    this.urlInput?.focus();
-  }
 
   private handleUrlInput(event: InputEvent): void {
     if (!(event.target instanceof HTMLInputElement)) return;
@@ -48,11 +44,6 @@ export class MachineDialog extends LitElement {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      this.onCancel?.();
-      return;
-    }
     if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.name === "baseUrl" && machineBaseUrlValidationMessage(this.url) === undefined) {
       event.preventDefault();
       void this.updateComplete.then(() => {
@@ -91,9 +82,8 @@ export class MachineDialog extends LitElement {
     const urlError = hasUrl ? machineBaseUrlValidationMessage(this.url) : undefined;
     const canSubmit = this.validInput() !== undefined && !this.submitting;
     return html`
-      <div class="backdrop" @click=${() => this.onCancel?.()}>
-        <section @click=${(event: Event) => { event.stopPropagation(); }}>
-          <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${"添加机器"} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+          <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
             <header>
               <strong>添加机器</strong>
               <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
@@ -102,7 +92,7 @@ export class MachineDialog extends LitElement {
               ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
               <label>
                 远程 PI WEB URL
-                <input name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" autofocus />
+                <input name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
               </label>
               <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? "先输入可访问的基础 URL，包含 http:// 或 https://。"}</small>
               ${hasUrl ? html`
@@ -123,16 +113,14 @@ export class MachineDialog extends LitElement {
               <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? "正在添加…" : "添加机器"}</button>
             </footer>
           </form>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    .backdrop { display: grid; place-items: start center; width: 100%; height: 100%; padding-top: min(12vh, 90px); box-sizing: border-box; background: var(--pi-overlay); }
-    section { width: min(560px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); border: 1px solid var(--pi-border); border-radius: 12px; background: var(--pi-bg); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
-    form { display: flex; flex-direction: column; max-height: inherit; min-height: 0; }
+    modal-surface { --modal-surface-place-items: start center; --modal-surface-backdrop-padding: min(12vh, 90px) 0 0; --modal-surface-width: min(560px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100vh - 40px)); }
+    form { display: flex; flex-direction: column; min-height: 0; }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
     footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
     .body { display: grid; gap: 8px; padding: 12px; min-height: 0; overflow: auto; }

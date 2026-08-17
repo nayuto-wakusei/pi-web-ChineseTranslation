@@ -1,6 +1,8 @@
-import { LitElement, html } from "lit";
+import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { CommandOption } from "../api";
+import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEventTarget";
+import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
 import { commandPickerStyles } from "./styles/commandPickerStyles";
 
@@ -18,30 +20,27 @@ export class CommandPicker extends LitElement {
   override render() {
     const options = this.filteredOptions();
     return html`
-      <div class="backdrop" @mousedown=${() => this.onCancel?.()}>
-        <section @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${this.searchable ? "input" : ".options"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.title}</strong>
             <button @click=${() => this.onCancel?.()}>×</button>
           </header>
-          ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>` : null}
-          <div class="options" @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }} tabindex="0">
+          ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
+          <div class="options" tabindex="0">
             ${options.map((option, index) => html`
-              <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @click=${() => this.onPick?.(option.value)}>
+              <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @focus=${() => { this.selectedIndex = index; }} @click=${() => this.onPick?.(option.value)}>
                 <span>${option.label}</span>
                 ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
               </button>
             `)}
             ${options.length === 0 ? html`<div class="empty">没有匹配选项</div>` : null}
           </div>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
   override firstUpdated() {
     this.selectInitialValue();
-    this.renderRoot.querySelector<HTMLElement>(this.searchable ? "input" : ".options")?.focus();
   }
 
   private selectInitialValue(): void {
@@ -64,11 +63,9 @@ export class CommandPicker extends LitElement {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
+    if (keyboardEventOriginatesFromNativeActivationControl(event)) return;
     const options = this.filteredOptions();
-    if (event.key === "Escape") {
-      event.preventDefault();
-      this.onCancel?.();
-    } else if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       if (options.length > 0) this.selectedIndex = (this.selectedIndex + 1) % options.length;
     } else if (event.key === "ArrowUp") {
@@ -81,5 +78,8 @@ export class CommandPicker extends LitElement {
     }
   }
 
-  static override styles = commandPickerStyles;
+  static override styles = [commandPickerStyles, css`
+    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100vh - 40px)); }
+    modal-surface > header, modal-surface > .options, modal-surface > input { position: relative; }
+  `];
 }

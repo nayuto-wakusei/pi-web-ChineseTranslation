@@ -2,6 +2,7 @@ import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { api, type FileSuggestion } from "../api";
 import { css } from "lit";
+import "./ModalSurface";
 
 @customElement("project-dialog")
 export class ProjectDialog extends LitElement {
@@ -20,10 +21,6 @@ export class ProjectDialog extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     void this.loadSuggestions();
-  }
-
-  override firstUpdated(): void {
-    this.pathInput?.focus();
   }
 
   private async loadSuggestions() {
@@ -67,10 +64,8 @@ export class ProjectDialog extends LitElement {
   }
 
   private onKeyDown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      this.onCancel?.();
-    } else if (event.key === "Enter") {
+    if (event.target !== this.pathInput) return;
+    if (event.key === "Enter") {
       event.preventDefault();
       this.submit();
     } else if (event.key === "ArrowDown") {
@@ -89,8 +84,7 @@ export class ProjectDialog extends LitElement {
 
   override render() {
     return html`
-      <div class="backdrop" @click=${() => this.onCancel?.()}>
-        <section @click=${(event: Event) => { event.stopPropagation(); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${"添加项目"} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }}>
           <header>
             <strong>添加项目</strong>
             <button @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
@@ -98,7 +92,7 @@ export class ProjectDialog extends LitElement {
           <div class="body">
             <label>
               项目文件夹
-              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }} placeholder="/path/to/project 或 ~/code/project" autofocus />
+              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} placeholder="/path/to/project 或 ~/code/project" />
             </label>
             <div class="suggestions">
               ${this.loading ? html`<div class="hint">正在加载文件夹…</div>` : null}
@@ -118,15 +112,13 @@ export class ProjectDialog extends LitElement {
             <button @click=${() => { this.onCancel?.(); }}>取消</button>
             <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>添加项目</button>
           </footer>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    .backdrop { display: grid; place-items: start center; width: 100%; height: 100%; padding-top: min(12vh, 90px); box-sizing: border-box; background: var(--pi-overlay); }
-    section { width: min(720px, calc(100vw - 40px)); max-height: min(700px, calc(100vh - 40px)); display: flex; flex-direction: column; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--pi-bg); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
+    modal-surface { --modal-surface-place-items: start center; --modal-surface-backdrop-padding: min(12vh, 90px) 0 0; --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(700px, calc(100vh - 40px)); }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
     footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
     .body { display: grid; gap: 12px; padding: 12px; min-height: 0; }

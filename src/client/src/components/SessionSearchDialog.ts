@@ -1,7 +1,8 @@
 import { LitElement, css, html, type TemplateResult } from "lit";
-import { customElement, property, query } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
 import type { SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionInfo } from "../api";
 import { shortSessionId } from "../sessionLabels";
+import "./ModalSurface";
 
 @customElement("session-search-dialog")
 export class SessionSearchDialog extends LitElement {
@@ -12,17 +13,11 @@ export class SessionSearchDialog extends LitElement {
   @property({ attribute: false }) onSearch?: (query: string) => void;
   @property({ attribute: false }) onSelect?: (session: SessionInfo, match: SessionContentSearchMatch) => void | Promise<void>;
   @property({ attribute: false }) onClose?: () => void;
-  @query("input") private searchInput?: HTMLInputElement;
-
-  override firstUpdated(): void {
-    this.searchInput?.focus();
-  }
 
   override render(): TemplateResult {
     const hasQuery = this.query.trim() !== "";
     return html`
-      <div class="backdrop" @mousedown=${() => { this.onClose?.(); }}>
-        <section role="dialog" aria-modal="true" aria-label="搜索会话内容" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .initialFocus=${"input"} .label=${"搜索会话内容"}>
           <header>
             <div>
               <span class="eyebrow">会话</span>
@@ -43,8 +38,7 @@ export class SessionSearchDialog extends LitElement {
             <span>${this.resultSummary()}</span>
             <button @click=${() => { this.onClose?.(); }}>关闭</button>
           </footer>
-        </section>
-      </div>
+      </modal-surface>
     `;
   }
 
@@ -92,22 +86,14 @@ export class SessionSearchDialog extends LitElement {
     return `${String(response.matchCount)} 条消息匹配${response.truncated ? "，仅显示前 200 条" : ""}`;
   }
 
-  private handleKeyDown(event: KeyboardEvent): void {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    this.onClose?.();
-  }
-
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    .backdrop { box-sizing: border-box; width: 100%; height: 100dvh; display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); background: var(--pi-overlay); overflow: hidden; }
-    section[role="dialog"] { width: min(780px, 100%); max-height: min(760px, 100%); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
+    modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(780px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-radius: 8px; }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
     header { border-bottom: 1px solid var(--pi-border); }
     footer { min-height: 34px; border-top: 1px solid var(--pi-border); color: var(--pi-muted); }
     footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .body { min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; padding: 16px; overflow: hidden; }
+    .body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; padding: 16px; overflow: hidden; }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     h1 { margin: 0; font-size: 20px; line-height: 1.2; }
     .search-field { box-sizing: border-box; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 0 11px; }
@@ -137,8 +123,7 @@ export class SessionSearchDialog extends LitElement {
     @keyframes spin { to { transform: rotate(360deg); } }
 
     @media (max-width: 680px) {
-      .backdrop { padding: 0; place-items: stretch; }
-      section[role="dialog"] { width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+      modal-surface { --modal-surface-place-items: stretch; --modal-surface-backdrop-padding: 0; --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: none; --modal-surface-border: 0; --modal-surface-radius: 0; }
       .body { padding: 12px; }
       .match-row { padding-left: 10px; }
     }

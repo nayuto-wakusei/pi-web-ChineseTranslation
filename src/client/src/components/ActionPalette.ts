@@ -1,13 +1,14 @@
-import { css, LitElement, html, type PropertyValues } from "lit";
-import { customElement, property, query, state } from "lit/decorators.js";
+import { css, LitElement, html, nothing, type PropertyValues } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../actions";
 import { formatShortcut } from "../keyboardShortcuts";
+import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEventTarget";
+import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
 
 const actionPaletteStyles = css`
   :host { position: fixed; inset: 0; z-index: 20; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-  .backdrop { --palette-top: min(12dvh, 90px); --palette-bottom: max(20px, env(safe-area-inset-bottom)); display: grid; align-items: start; justify-items: center; width: 100%; height: 100dvh; background: var(--pi-overlay); padding: var(--palette-top) 20px var(--palette-bottom); box-sizing: border-box; overflow: hidden; }
-  section { width: min(720px, 100%); max-height: min(640px, calc(100dvh - var(--palette-top) - var(--palette-bottom))); display: flex; flex-direction: column; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--pi-bg); box-shadow: 0 20px 60px var(--pi-shadow-strong); overflow: hidden; }
+  modal-surface { --palette-top: min(12dvh, 90px); --palette-bottom: max(20px, env(safe-area-inset-bottom)); --modal-surface-place-items: start center; --modal-surface-backdrop-padding: var(--palette-top) 20px var(--palette-bottom); --modal-surface-max-height: min(640px, calc(100dvh - var(--palette-top) - var(--palette-bottom))); }
   header { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-bottom: 1px solid var(--pi-border); }
   input { min-width: 0; border: 0; outline: none; background: transparent; color: var(--pi-text); font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); padding: 8px; }
   input::placeholder { color: var(--pi-dim); }
@@ -29,15 +30,13 @@ export class ActionPalette extends LitElement {
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) onRun?: (action: AppAction) => void;
   @property({ attribute: false }) onCancel?: () => void;
-  @query("input") private input?: HTMLInputElement;
   @state() private queryText = "";
   @state() private selectedIndex = 0;
 
   override render() {
     const actions = this.filteredActions();
     return html`
-      <div class="backdrop" @mousedown=${() => this.onCancel?.()}>
-        <section @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${"操作面板"} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <input
               .value=${this.queryText}
@@ -53,7 +52,7 @@ export class ActionPalette extends LitElement {
           </header>
           <div class="options">
             ${actions.length === 0 ? html`<div class="empty">未找到操作。</div>` : actions.map((action, index) => html`
-              <button class=${`${index === this.selectedIndex ? "selected" : ""} ${action.enabled === false ? "disabled" : ""}`} ?disabled=${action.enabled === false} title=${action.disabledReason ?? action.title} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @click=${() => { this.run(action); }}>
+              <button class=${`${index === this.selectedIndex ? "selected" : ""} ${action.enabled === false ? "disabled" : ""}`} ?disabled=${action.enabled === false} title=${action.disabledReason ?? action.title} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.run(action); }}>
                 <span class="main">
                   <strong>${action.title}</strong>
                   ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
@@ -64,13 +63,8 @@ export class ActionPalette extends LitElement {
               </button>
             `)}
           </div>
-        </section>
-      </div>
+      </modal-surface>
     `;
-  }
-
-  override firstUpdated() {
-    this.input?.focus();
   }
 
   protected override updated(changed: PropertyValues) {
@@ -84,11 +78,9 @@ export class ActionPalette extends LitElement {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
+    if (keyboardEventOriginatesFromNativeActivationControl(event)) return;
     const actions = this.filteredActions();
-    if (event.key === "Escape") {
-      event.preventDefault();
-      this.onCancel?.();
-    } else if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       if (actions.length > 0) this.selectedIndex = (this.selectedIndex + 1) % actions.length;
     } else if (event.key === "ArrowUp") {

@@ -5,6 +5,7 @@ import { workspaceUploadPath } from "../api/workspaceUploads";
 import type { WorkspaceUploadBatchState, WorkspaceUploadFileState } from "../workspaceUploadState";
 import type { WorkspacePanelContext } from "../plugins/types";
 import { formatFileSize } from "../utils/format";
+import { registerRenderedModal, type RenderedModalRegistration } from "./modalLayerRegistry";
 import { workspacePanelStyles } from "./shared";
 import { renderDeleteIcon, renderDownloadIcon, renderNewFileIcon, renderNewFolderIcon, renderRefreshIcon, renderRenameIcon, renderUploadIcon } from "./workspaceFileIcons";
 import "./WorkspaceFileViewer";
@@ -23,6 +24,8 @@ export interface WorkspaceUploadScope {
 export class WorkspaceFilesPanel extends LitElement {
   @property({ attribute: false }) context: WorkspacePanelContext | undefined;
   @query("#workspace-upload-input") private uploadInput?: HTMLInputElement;
+  @query(".dialog-backdrop") private uploadDialogBackdrop?: HTMLElement | null;
+  @query(".upload-dialog") private uploadDialog?: HTMLElement | null;
   @state() private pendingUpload: PendingWorkspaceUploadReview | undefined;
   @state() private destinationFolder = "";
   @state() private overwrite = false;
@@ -30,6 +33,7 @@ export class WorkspaceFilesPanel extends LitElement {
   @state() private formError = "";
   @state() private dragActive = false;
   private dragDepth = 0;
+  private uploadModalRegistration: RenderedModalRegistration | undefined;
 
   protected override willUpdate(changedProperties: PropertyValues<this>): void {
     if (!changedProperties.has("context")) return;
@@ -108,6 +112,15 @@ export class WorkspaceFilesPanel extends LitElement {
     context.onSelectFile(entry.path);
   }
 
+  protected override updated(): void {
+    this.syncUploadModal();
+  }
+
+  override disconnectedCallback(): void {
+    this.releaseUploadModal();
+    super.disconnectedCallback();
+  }
+
   private renderFileViewer(context: WorkspacePanelContext): TemplateResult {
     if (selectedWorkspacePathKind(context.fileTree, context.expandedDirs, context.selectedFilePath) === "directory") {
       return html`<p class="muted">已选择文件夹：${context.selectedFilePath}</p>`;
@@ -180,7 +193,7 @@ export class WorkspaceFilesPanel extends LitElement {
     const fileCount = review.files.length;
     return html`
       <div class="dialog-backdrop" @mousedown=${() => { this.closeUploadDialog(); }}>
-        <section class="upload-dialog" role="dialog" aria-modal="true" aria-label="检查文件上传" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${this.handleDialogKeyDown}>
+        <section class="upload-dialog" role="dialog" aria-modal="true" aria-label="检查文件上传" tabindex="-1" @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }} @keydown=${this.handleDialogKeyDown}>
           <header>
             <div>
               <span class="eyebrow">上传</span>
@@ -191,7 +204,7 @@ export class WorkspaceFilesPanel extends LitElement {
           <form @submit=${(event: SubmitEvent) => { this.submitUploadReview(event, context, review); }}>
             <label>
               <span>目标文件夹</span>
-              <input .value=${this.destinationFolder} placeholder=${context.workspaceUploadDefaultFolder} @input=${this.handleDestinationInput} />
+              <input id="workspace-upload-destination" .value=${this.destinationFolder} placeholder=${context.workspaceUploadDefaultFolder} @input=${this.handleDestinationInput} />
               <small>相对于工作区。留空将上传到工作区根目录。</small>
             </label>
             <div class="dialog-options">
@@ -342,6 +355,42 @@ export class WorkspaceFilesPanel extends LitElement {
   private closeUploadDialog(): void {
     this.pendingUpload = undefined;
     this.formError = "";
+  }
+
+  private syncUploadModal(): void {
+    const backdrop = this.uploadDialogBackdrop;
+    const dialog = this.uploadDialog;
+    if (!(backdrop instanceof HTMLElement) || !(dialog instanceof HTMLElement)) {
+      this.releaseUploadModal();
+      return;
+    }
+    if (this.uploadModalRegistration !== undefined) {
+      this.applyUploadModalAccessibility(dialog, this.uploadModalRegistration.isTop);
+      return;
+    }
+    const registration = registerRenderedModal({
+      element: backdrop,
+      paintElement: workspaceModalLayerHost(this),
+      focus: () => {
+        const destination = this.renderRoot.querySelector<HTMLElement>("#workspace-upload-destination");
+        (destination ?? dialog).focus();
+      },
+      onTopChange: (isTop) => { this.applyUploadModalAccessibility(dialog, isTop); },
+    });
+    this.uploadModalRegistration = registration;
+    registration.focus();
+  }
+
+  private applyUploadModalAccessibility(dialog: HTMLElement, isTop: boolean): void {
+    dialog.setAttribute("aria-modal", isTop ? "true" : "false");
+    if (isTop) dialog.removeAttribute("aria-hidden");
+    else dialog.setAttribute("aria-hidden", "true");
+  }
+
+  private releaseUploadModal(): void {
+    const registration = this.uploadModalRegistration;
+    this.uploadModalRegistration = undefined;
+    registration?.unregister();
   }
 
   private resetPendingUpload(): void {
@@ -544,4 +593,9 @@ function uploadFileDetail(file: WorkspaceUploadFileState): string {
 
 function formatPercent(value: number): string {
   return `${String(Math.round(Math.max(0, Math.min(1, value)) * 100))}%`;
+}
+
+function workspaceModalLayerHost(panel: WorkspaceFilesPanel): HTMLElement {
+  const root = panel.getRootNode();
+  return root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : panel;
 }
