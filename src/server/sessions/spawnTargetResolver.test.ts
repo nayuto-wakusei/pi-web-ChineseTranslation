@@ -54,4 +54,23 @@ describe("ProjectScopedSpawnTargetResolver", () => {
 
     await expect(resolver.resolveSpawnTarget("/elsewhere", undefined)).resolves.toEqual({ allowed: false, reason: "not-registered" });
   });
+
+  it("resolves projects from the caller's management scope", async () => {
+    const scopes: (string | undefined)[] = [];
+    const resolver = new ProjectScopedSpawnTargetResolver({
+      projects: {
+        list: (scope) => {
+          scopes.push(scope);
+          return Promise.resolve(scope === "management:tenant" ? [project("managed", "/managed/project")] : []);
+        },
+      },
+      workspaces: { list: (p) => Promise.resolve([workspace(p.id, p.path)]) },
+    });
+
+    await expect(resolver.resolveSpawnTarget("/managed/project", undefined, "management:tenant")).resolves.toEqual({
+      allowed: true,
+      cwd: "/managed/project",
+    });
+    expect(scopes).toEqual(["management:tenant"]);
+  });
 });

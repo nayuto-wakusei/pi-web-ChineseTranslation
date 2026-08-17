@@ -2,6 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
 import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
@@ -66,6 +68,11 @@ describe("PiSessionService", () => {
 
     it("resolves tracked children against the parent's workspace", async () => {
       const requestedTargets: (string | undefined)[] = [];
+      const requestedScopes: (string | undefined)[] = [];
+      const managementContext: ManagementEmbedContext = {
+        user: { id: "user-1", rootUserId: "root-1", roles: [], permissions: [] },
+        projects: [{ id: "project-1", name: "Managed project" }],
+      };
       const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
       const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace") });
       const runtimes = [parent.runtime, child.runtime];
@@ -77,18 +84,20 @@ describe("PiSessionService", () => {
         sessionManager: sessionGateway([]),
         archiveStore: emptyArchiveStore(),
         spawnTargets: {
-          resolveSpawnTarget: (_spawningCwd, requestedCwd) => {
+          resolveSpawnTarget: (_spawningCwd, requestedCwd, scope) => {
             requestedTargets.push(requestedCwd);
+            requestedScopes.push(scope);
             return Promise.resolve({ allowed: true, cwd: "/workspace" });
           },
         },
         heartbeatIntervalMs: 60_000,
       });
 
-      await service.start("/workspace");
-      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice" });
+      await service.start("/workspace", { managementContext });
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", managementContext });
 
       expect(requestedTargets).toEqual([undefined]);
+      expect(requestedScopes).toEqual([eventScopeFromManagementContext(managementContext)]);
       expect(result.cwd).toBe("/workspace");
       await service.dispose();
     });

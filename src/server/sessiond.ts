@@ -40,7 +40,7 @@ import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
 import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
 import { managementProjectIdForCwd, projectsFromManagedEmbedContext } from "./managementEmbed.js";
-import { managementContextFromEventScope } from "./realtime/sessionEventScope.js";
+import { managementContextFromEventScope, NORMAL_SESSION_EVENT_SCOPE } from "./realtime/sessionEventScope.js";
 import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
@@ -169,8 +169,17 @@ await runSessionDaemonStartup({
         skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log),
       };
     })();
+    const projectsForScope = (scope = NORMAL_SESSION_EVENT_SCOPE) => {
+      const managementContext = managementContextFromEventScope(scope);
+      if (managementContext === undefined) return projects.list();
+      if (config.managementEmbed?.enabled !== true) throw new Error("Management embed mode is not configured");
+      return projectsFromManagedEmbedContext(
+        config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb"),
+        managementContext,
+      );
+    };
     const spawnTargets = config.spawnSessions
-      ? new ProjectScopedSpawnTargetResolver({ projects, workspaces })
+      ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces })
       : undefined;
     const sessions = new PiSessionService(eventHub, {
       modelRuntime: managementAuth.modelRuntime,
@@ -208,17 +217,7 @@ await runSessionDaemonStartup({
       }),
     });
     const statusAttribution = new CachedWorkspaceAttribution({
-      projects: {
-        list: (scope) => {
-          const managementContext = managementContextFromEventScope(scope ?? "normal");
-          if (managementContext === undefined) return projects.list();
-          if (config.managementEmbed?.enabled !== true) throw new Error("Management embed mode is not configured");
-          return projectsFromManagedEmbedContext(
-            config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb"),
-            managementContext,
-          );
-        },
-      },
+      projects: { list: projectsForScope },
       workspaces: { list: (project) => workspaceProviders.list(project) },
       logger: app.log,
     });

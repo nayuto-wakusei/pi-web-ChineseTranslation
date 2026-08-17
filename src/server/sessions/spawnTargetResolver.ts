@@ -30,7 +30,7 @@ export interface SpawnTargetResolver {
    * `requestedCwd` (defaulting to `spawningCwd` when omitted), returning the
    * canonical target cwd when allowed.
    */
-  resolveSpawnTarget(spawningCwd: string, requestedCwd: string | undefined): Promise<SpawnTargetDecision>;
+  resolveSpawnTarget(spawningCwd: string, requestedCwd: string | undefined, scope?: string): Promise<SpawnTargetDecision>;
 }
 
 export type ProjectScopedSpawnTargetResolverDeps = ProjectWorkspaceCwdsDeps;
@@ -47,8 +47,8 @@ export class ProjectScopedSpawnTargetResolver implements SpawnTargetResolver {
     this.projectWorkspaces = new RegisteredProjectWorkspaceCwds(deps);
   }
 
-  async resolveSpawnTarget(spawningCwd: string, requestedCwd: string | undefined): Promise<SpawnTargetDecision> {
-    const allowedCwds = await this.projectWorkspaces.forCwd(spawningCwd);
+  async resolveSpawnTarget(spawningCwd: string, requestedCwd: string | undefined, scope?: string): Promise<SpawnTargetDecision> {
+    const allowedCwds = await this.projectWorkspaces.forCwd(spawningCwd, scope);
     if (allowedCwds === undefined) return { allowed: false, reason: "not-registered" };
     const target = requestedCwd === undefined || requestedCwd === "" ? spawningCwd : requestedCwd;
     const match = allowedCwds.find((path) => cwdPathsEqual(path, target));

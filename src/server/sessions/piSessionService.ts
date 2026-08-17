@@ -1535,7 +1535,11 @@ export class PiSessionService {
    */
   async spawnSession(input: ScopedSpawnSessionInvocation): Promise<SpawnSessionResult> {
     if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
-    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
+    const decision = await this.spawnTargets.resolveSpawnTarget(
+      input.spawningCwd,
+      input.cwd,
+      eventScopeFromManagementContext(input.managementContext),
+    );
     if (!decision.allowed) throw spawnTargetError(decision);
     // A model spec overrides the inherited model. Only a spec triggers a
     // spawning-session lookup; the default path must not depend on it.
@@ -1573,7 +1577,11 @@ export class PiSessionService {
     if (input.cwd !== undefined && input.cwd !== "" && !cwdPathsEqual(input.cwd, input.spawningCwd)) {
       throw subsessionCwdError(input.spawningCwd, input.cwd);
     }
-    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, undefined);
+    const decision = await this.spawnTargets.resolveSpawnTarget(
+      input.spawningCwd,
+      undefined,
+      eventScopeFromManagementContext(input.managementContext),
+    );
     if (!decision.allowed) throw spawnTargetError(decision);
     // A model spec overrides the inherited model and is resolved against the
     // parent's model runtime; only a spec triggers that lookup.

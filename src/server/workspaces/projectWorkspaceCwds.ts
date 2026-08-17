@@ -2,7 +2,7 @@ import type { Project, Workspace } from "../types.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 
 interface ProjectLister {
-  list(): Promise<Project[]>;
+  list(scope?: string): Promise<Project[]>;
 }
 
 interface WorkspaceLister {
@@ -28,14 +28,14 @@ export interface ProjectWorkspaceCwds {
    * Workspace paths of the registered project containing `cwd`, or undefined
    * when no registered project contains it. The result includes `cwd` itself.
    */
-  forCwd(cwd: string): Promise<string[] | undefined>;
+  forCwd(cwd: string, scope?: string): Promise<string[] | undefined>;
 }
 
 export class RegisteredProjectWorkspaceCwds implements ProjectWorkspaceCwds {
   constructor(private readonly deps: ProjectWorkspaceCwdsDeps) {}
 
-  async forCwd(cwd: string): Promise<string[] | undefined> {
-    const projects = await this.deps.projects.list();
+  async forCwd(cwd: string, scope?: string): Promise<string[] | undefined> {
+    const projects = await this.deps.projects.list(scope);
     for (const project of projects) {
       const workspaces = await this.deps.workspaces.list(project);
       const paths = workspaces.map((workspace) => workspace.path);
