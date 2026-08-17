@@ -1,16 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FileContentResponse, FileTreeEntry, FileTreeResponse } from "@chainingintention/pi-web-cn/plugin-api";
 import {
+  ancestorDirectoryPaths,
+  collectDirectoryPaths,
   defaultRelayDocument,
-  listRelayDocuments,
+  flattenRelayTree,
+  listRelayDocumentTree,
   listWorkspaceRelays,
-  orderRelayDocuments,
+  MAX_RELAY_TREE_DEPTH,
   readRelayDocument,
   RELAYS_ROOT,
   sortRelaysByRecency,
   type RelayDiscoveryFiles,
-  type RelayDocumentEntry,
   type RelaySummary,
+  type RelayTreeNode,
 } from "./relayDiscovery";
 
 describe("listWorkspaceRelays", () => {
@@ -85,84 +88,73 @@ describe("sortRelaysByRecency", () => {
   });
 });
 
-describe("listRelayDocuments", () => {
-  it("lists relay files with anchor documents first, then alphabetical", async () => {
+describe("listRelayDocumentTree", () => {
+  it("orders root anchors before files and recursively lists sorted directories", async () => {
     const relayPath = `${RELAYS_ROOT}/my-relay`;
     const relayFile = (name: string): FileTreeEntry => ({ name, path: `${relayPath}/${name}`, type: "file" });
-    const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>(() => Promise.resolve(tree([
-      relayFile("notes.md"),
-      relayFile("log.md"),
-      directoryEntry("subdir"),
-      relayFile("status.md"),
-      relayFile("charter.md"),
-      relayFile("data.json"),
-    ])));
+    const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>((path) => Promise.resolve(path === relayPath
+      ? treeFor(path, [relayFile("notes.md"), relayFile("log.md"), directoryAt(relayPath, "subdir"), relayFile("status.md")])
+      : treeFor(path, [fileAt(path, "zeta.md"), fileAt(path, "alpha.md")])));
     const files = filesWith({ listFiles });
 
-    const result = await listRelayDocuments(files, relayPath);
+    const result = await listRelayDocumentTree(files, relayPath);
 
-    expect(listFiles).toHaveBeenCalledWith(relayPath);
-    expect(result).toEqual({
-      kind: "loaded",
-      documents: [
-        { name: "status.md", path: `${relayPath}/status.md`, modifiedAt: undefined },
-        { name: "charter.md", path: `${relayPath}/charter.md`, modifiedAt: undefined },
-        { name: "log.md", path: `${relayPath}/log.md`, modifiedAt: undefined },
-        { name: "data.json", path: `${relayPath}/data.json`, modifiedAt: undefined },
-        { name: "notes.md", path: `${relayPath}/notes.md`, modifiedAt: undefined },
-      ],
+    expect(listFiles).toHaveBeenCalledWith(`${relayPath}/subdir`);
+    expect(result.kind).toBe("loaded");
+    if (result.kind !== "loaded") throw new Error("relay tree did not load");
+    expect(flattenRelayTree(result.tree).map((file) => file.relativePath)).toEqual([
+      "status.md", "log.md", "notes.md", "subdir/alpha.md", "subdir/zeta.md",
+    ]);
+    expect(result).toMatchObject({ documentCount: 5, partial: false });
+  });
+
+  it("does not follow symlinks and marks unreadable subdirectories partial", async () => {
+    const relayPath = `${RELAYS_ROOT}/relay`;
+    const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>((path) => {
+      if (path === relayPath) return Promise.resolve(treeFor(path, [symlinkAt(path, "linked"), directoryAt(path, "locked")]));
+      return Promise.reject(new Error("permission denied"));
     });
+
+    const result = await listRelayDocumentTree(filesWith({ listFiles }), relayPath);
+
+    expect(listFiles).not.toHaveBeenCalledWith(`${relayPath}/linked`);
+    expect(result).toMatchObject({ kind: "loaded", documentCount: 0, partial: true });
   });
 
-  it("treats a vanished relay directory as missing", async () => {
-    const files = filesWith({ listFiles: () => Promise.reject(new Error("Path does not exist")) });
+  it("bounds deep directory trees and reports a partial result", async () => {
+    const relayPath = `${RELAYS_ROOT}/relay`;
+    const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>((path) => {
+      const depth = path === relayPath ? 0 : path.split("/").length - relayPath.split("/").length;
+      return Promise.resolve(treeFor(path, [fileAt(path, `level-${String(depth)}.md`), directoryAt(path, "next")]));
+    });
 
-    await expect(listRelayDocuments(files, `${RELAYS_ROOT}/gone`)).resolves.toEqual({ kind: "missing" });
+    const result = await listRelayDocumentTree(filesWith({ listFiles }), relayPath);
+
+    expect(result.kind).toBe("loaded");
+    if (result.kind !== "loaded") throw new Error("relay tree did not load");
+    expect(result.partial).toBe(true);
+    expect(flattenRelayTree(result.tree)).toHaveLength(MAX_RELAY_TREE_DEPTH + 1);
   });
 
-  it("surfaces other listing failures as unavailable", async () => {
-    const files = filesWith({ listFiles: () => Promise.reject(new Error("boom")) });
-
-    await expect(listRelayDocuments(files, `${RELAYS_ROOT}/x`)).resolves.toEqual({ kind: "unavailable", detail: "boom" });
+  it("preserves missing and unavailable root failures", async () => {
+    await expect(listRelayDocumentTree(filesWith({ listFiles: () => Promise.reject(new Error("Path does not exist")) }), "gone"))
+      .resolves.toEqual({ kind: "missing" });
+    await expect(listRelayDocumentTree(filesWith({ listFiles: () => Promise.reject(new Error("boom")) }), "broken"))
+      .resolves.toEqual({ kind: "unavailable", detail: "boom" });
   });
 });
 
-describe("orderRelayDocuments", () => {
-  it("puts anchor documents first in fixed order without mutating the input", () => {
-    const documents: RelayDocumentEntry[] = [
-      { name: "zebra.md", path: "zebra.md" },
-      { name: "log.md", path: "log.md" },
-      { name: "status.md", path: "status.md" },
-    ];
+describe("relay tree helpers", () => {
+  const tree: RelayTreeNode[] = [{
+    kind: "directory", name: "notes", path: "relay/notes", relativePath: "notes", depth: 0,
+    children: [{ kind: "file", name: "topic.md", path: "relay/notes/topic.md", relativePath: "notes/topic.md", depth: 1 }],
+  }];
 
-    const ordered = orderRelayDocuments(documents);
-
-    expect(ordered.map((document) => document.name)).toEqual(["status.md", "log.md", "zebra.md"]);
-    expect(documents.map((document) => document.name)).toEqual(["zebra.md", "log.md", "status.md"]);
-  });
-});
-
-describe("defaultRelayDocument", () => {
-  it("picks status.md when present", () => {
-    const documents: RelayDocumentEntry[] = [
-      { name: "charter.md", path: "charter.md" },
-      { name: "status.md", path: "status.md" },
-    ];
-
-    expect(defaultRelayDocument(documents)?.name).toBe("status.md");
-  });
-
-  it("falls back to the first ordered document when status.md is absent", () => {
-    const documents: RelayDocumentEntry[] = [
-      { name: "alpha.md", path: "alpha.md" },
-      { name: "charter.md", path: "charter.md" },
-    ];
-
-    expect(defaultRelayDocument(documents)?.name).toBe("charter.md");
-  });
-
-  it("returns undefined for a relay without documents", () => {
-    expect(defaultRelayDocument([])).toBeUndefined();
+  it("finds the default document, directories, and selected-file ancestors", () => {
+    expect(defaultRelayDocument(tree)?.path).toBe("relay/notes/topic.md");
+    expect([...collectDirectoryPaths(tree)]).toEqual(["relay/notes"]);
+    expect(ancestorDirectoryPaths(tree, "relay/notes/topic.md")).toEqual(["relay/notes"]);
+    expect(ancestorDirectoryPaths(tree, "relay/missing.md")).toEqual([]);
   });
 });
 
@@ -203,6 +195,22 @@ function filesWith(overrides: Partial<RelayDiscoveryFiles>): RelayDiscoveryFiles
 
 function tree(entries: FileTreeEntry[]): FileTreeResponse {
   return { path: RELAYS_ROOT, entries, scannedAt: "2026-01-01T00:00:00.000Z", truncated: false };
+}
+
+function treeFor(path: string, entries: FileTreeEntry[]): FileTreeResponse {
+  return { path, entries, scannedAt: "2026-01-01T00:00:00.000Z", truncated: false };
+}
+
+function directoryAt(path: string, name: string): FileTreeEntry {
+  return { name, path: `${path}/${name}`, type: "directory" };
+}
+
+function fileAt(path: string, name: string): FileTreeEntry {
+  return { name, path: `${path}/${name}`, type: "file" };
+}
+
+function symlinkAt(path: string, name: string): FileTreeEntry {
+  return { name, path: `${path}/${name}`, type: "symlink" };
 }
 
 function directoryEntry(name: string, modifiedAt?: string): FileTreeEntry {

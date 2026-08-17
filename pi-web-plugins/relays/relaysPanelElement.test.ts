@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { FileContentResponse, FileTreeEntry, WorkspaceFiles, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
-import { RELAYS_ROOT, type RelayDiscoveryFiles } from "./relayDiscovery";
-import { defineRelaysPanelElement, relaysPanelTagName } from "./relaysPanelElement";
+import type { FileContentResponse, FileTreeEntry, FileTreeResponse, WorkspaceFiles, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import { RELAYS_ROOT, type RelayDiscoveryFiles, type RelayTreeNode } from "./relayDiscovery";
+import { collapsedAncestorOfSelectedFile, defineRelaysPanelElement, relaysPanelTagName } from "./relaysPanelElement";
 
 interface RelaysPanelTestElement extends HTMLElement {
   context: WorkspacePanelContext | undefined;
@@ -17,6 +17,7 @@ declare global {
 
 afterEach(() => {
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 describe("workspace states", () => {
@@ -284,6 +285,68 @@ describe("document tabs", () => {
   });
 });
 
+describe("nested documents", () => {
+  it("renders folders collapsed, expands them inline, and opens nested documents", async () => {
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    const fake = relayWithNotesFolder();
+    const panel = await mountPanel(panelContext(fake));
+
+    expect(stripEntryNames(panel)).toEqual(["status.md", "notes"]);
+    expect(directoryChip(panel, "notes").getAttribute("aria-expanded")).toBe("false");
+
+    directoryChip(panel, "notes").click();
+    await flushAsync();
+    expect(stripEntryNames(panel)).toEqual(["status.md", "notes", "topic.md"]);
+    expect(directoryChip(panel, "notes").closest(".directory-group")).toBe(tabNamed(panel, "topic.md").closest(".directory-group"));
+
+    tabNamed(panel, "topic.md").click();
+    await flushAsync();
+    expect(documentText(panel)).toBe("topic body");
+  });
+
+  it("keeps a nested document selected when its folder collapses", async () => {
+    const fake = relayWithNotesFolder();
+    const panel = await mountPanel(panelContext(fake));
+    directoryChip(panel, "notes").click();
+    await flushAsync();
+    tabNamed(panel, "topic.md").click();
+    await flushAsync();
+
+    directoryChip(panel, "notes").click();
+    await flushAsync();
+
+    expect(documentText(panel)).toBe("topic body");
+    expect(activeTab(panel)).toBeNull();
+    expect(directoryChip(panel, "notes").classList.contains("contains-active")).toBe(true);
+    expect(directoryChip(panel, "notes").getAttribute("title")).toBe("包含当前打开的文档");
+  });
+
+  it("shows a bounded-listing notice for a truncated relay tree", async () => {
+    const fake = workspaceFilesFake();
+    fake.addDirectory(RELAYS_ROOT, [relayDirectory("relay")]);
+    fake.addDirectory(`${RELAYS_ROOT}/relay`, [relayDocument("relay", "status.md")], { truncated: true });
+    fake.addDocument(`${RELAYS_ROOT}/relay/status.md`, "status body");
+
+    const panel = await mountPanel(panelContext(fake));
+
+    expect(viewerText(panel)).toContain("部分嵌套内容未列出");
+    expect(documentText(panel)).toBe("status body");
+  });
+});
+
+describe("collapsed ancestor highlight", () => {
+  const tree: RelayTreeNode[] = [{
+    kind: "directory", name: "notes", path: "relay/notes", relativePath: "notes", depth: 0,
+    children: [{ kind: "file", name: "topic.md", path: "relay/notes/topic.md", relativePath: "notes/topic.md", depth: 1 }],
+  }];
+
+  it("returns the first collapsed ancestor of the selected file", () => {
+    expect(collapsedAncestorOfSelectedFile(tree, "relay/notes/topic.md", new Set())).toBe("relay/notes");
+    expect(collapsedAncestorOfSelectedFile(tree, "relay/notes/topic.md", new Set(["relay/notes"]))).toBeUndefined();
+    expect(collapsedAncestorOfSelectedFile(tree, "relay/missing.md", new Set())).toBeUndefined();
+  });
+});
+
 describe("markdown rendering", () => {
   it("renders .md documents as sanitized markdown HTML", async () => {
     const fake = workspaceFilesFake();
@@ -421,22 +484,22 @@ interface WorkspaceFilesFake {
   files: WorkspaceFiles;
   listFiles: Mock<RelayDiscoveryFiles["listFiles"]>;
   readFile: Mock<RelayDiscoveryFiles["readFile"]>;
-  addDirectory(path: string, entries: FileTreeEntry[]): void;
+  addDirectory(path: string, entries: FileTreeEntry[], overrides?: Partial<Pick<FileTreeResponse, "truncated">>): void;
   addDocument(path: string, content: string, overrides?: Partial<FileContentResponse>): void;
   failWith(path: string, error: Error): void;
 }
 
 /** In-memory WorkspaceFiles fake: unknown paths reject with "Path does not exist", like the real helper. */
 function workspaceFilesFake(): WorkspaceFilesFake {
-  const directories = new Map<string, FileTreeEntry[]>();
+  const directories = new Map<string, { entries: FileTreeEntry[]; truncated: boolean }>();
   const documents = new Map<string, FileContentResponse>();
   const failures = new Map<string, Error>();
   const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>((path) => {
     const failure = failures.get(path);
     if (failure !== undefined) return Promise.reject(failure);
-    const entries = directories.get(path);
-    if (entries === undefined) return Promise.reject(new Error("Path does not exist"));
-    return Promise.resolve({ path, entries, scannedAt: "2026-01-01T00:00:00.000Z", truncated: false });
+    const directory = directories.get(path);
+    if (directory === undefined) return Promise.reject(new Error("Path does not exist"));
+    return Promise.resolve({ path, entries: directory.entries, scannedAt: "2026-01-01T00:00:00.000Z", truncated: directory.truncated });
   });
   const readFile = vi.fn<RelayDiscoveryFiles["readFile"]>((path) => {
     const failure = failures.get(path);
@@ -456,7 +519,7 @@ function workspaceFilesFake(): WorkspaceFilesFake {
     },
     listFiles,
     readFile,
-    addDirectory: (path, entries) => { directories.set(path, entries); },
+    addDirectory: (path, entries, overrides = {}) => { directories.set(path, { entries, truncated: overrides.truncated ?? false }); },
     addDocument: (path, content, overrides = {}) => {
       documents.set(path, {
         path,
@@ -540,6 +603,28 @@ function tabStrip(panel: RelaysPanelTestElement): HTMLElement {
   return strip;
 }
 
+function relayFolder(relayName: string, relativePath: string): FileTreeEntry {
+  return { name: baseName(relativePath), path: `${RELAYS_ROOT}/${relayName}/${relativePath}`, type: "directory" };
+}
+
+function nestedDocument(relayName: string, relativePath: string): FileTreeEntry {
+  return { name: baseName(relativePath), path: `${RELAYS_ROOT}/${relayName}/${relativePath}`, type: "file" };
+}
+
+function baseName(relativePath: string): string {
+  return relativePath.slice(relativePath.lastIndexOf("/") + 1);
+}
+
+function relayWithNotesFolder(): WorkspaceFilesFake {
+  const fake = workspaceFilesFake();
+  fake.addDirectory(RELAYS_ROOT, [relayDirectory("relay")]);
+  fake.addDirectory(`${RELAYS_ROOT}/relay`, [relayDocument("relay", "status.md"), relayFolder("relay", "notes")]);
+  fake.addDirectory(`${RELAYS_ROOT}/relay/notes`, [nestedDocument("relay", "notes/topic.md")]);
+  fake.addDocument(`${RELAYS_ROOT}/relay/status.md`, "status body");
+  fake.addDocument(`${RELAYS_ROOT}/relay/notes/topic.md`, "topic body");
+  return fake;
+}
+
 function tabNames(panel: RelaysPanelTestElement): string[] {
   return [...shadow(panel).querySelectorAll("button[data-document-path]")].map((tab) => tab.textContent);
 }
@@ -552,4 +637,14 @@ function tabNamed(panel: RelaysPanelTestElement, name: string): HTMLElement {
   const tab = [...shadow(panel).querySelectorAll("button[data-document-path]")].find((candidate) => candidate.textContent === name);
   if (!(tab instanceof HTMLElement)) throw new Error(`tab "${name}" not found`);
   return tab;
+}
+
+function stripEntryNames(panel: RelaysPanelTestElement): string[] {
+  return [...tabStrip(panel).querySelectorAll("button")].map((button) => button.textContent);
+}
+
+function directoryChip(panel: RelaysPanelTestElement, name: string): HTMLElement {
+  const chip = [...shadow(panel).querySelectorAll("button[data-directory-path]")].find((candidate) => candidate.textContent === name);
+  if (!(chip instanceof HTMLElement)) throw new Error(`folder chip "${name}" not found`);
+  return chip;
 }
