@@ -92,8 +92,6 @@ const appStyles = css`
   aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
   .header-actions { display: flex; align-items: center; gap: 8px; }
-  project-list, workspace-list { flex: 0 0 auto; max-height: 26%; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
-  session-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
   main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
   .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: none; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
   .context-bar::before, .context-bar::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
@@ -166,12 +164,6 @@ const appStyles = css`
     main.navigation-view .empty { display: none; }
     main.navigation-view .mobile-navigation-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
     main.navigation-view .mobile-navigation-panel app-navigation-panel { flex: 1 1 auto; min-height: 0; }
-    main.navigation-view .mobile-navigation-panel project-list,
-    main.navigation-view .mobile-navigation-panel workspace-list,
-    main.navigation-view .mobile-navigation-panel session-list { flex: 1 1 auto; max-height: none; min-height: 0; overflow: hidden; }
-    main.navigation-view .mobile-navigation-panel project-list[collapsed],
-    main.navigation-view .mobile-navigation-panel workspace-list[collapsed],
-    main.navigation-view .mobile-navigation-panel session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
   }
   status-bar { flex: 0 0 auto; }
   chat-view { flex: 1 1 0; min-height: 0; max-height: 100%; overflow: hidden; contain: size layout; }

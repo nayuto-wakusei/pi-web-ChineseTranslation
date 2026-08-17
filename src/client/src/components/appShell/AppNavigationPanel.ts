@@ -257,20 +257,11 @@ export class AppNavigationPanel extends LitElement {
     machine-switcher { flex: 1 1 auto; min-width: 0; }
     :host([compact]) header { display: none; }
     .header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-    machine-list, project-list, workspace-list { flex: 0 0 auto; max-height: 26%; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
-    session-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+    machine-list, project-list, workspace-list, session-list { flex: 1 1 0px; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
     machine-list[collapsed],
     project-list[collapsed],
     workspace-list[collapsed],
     session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
-    :host([compact]) machine-list,
-    :host([compact]) project-list,
-    :host([compact]) workspace-list,
-    :host([compact]) session-list { flex: 1 1 auto; max-height: none; min-height: 0; overflow: hidden; }
-    :host([compact]) machine-list[collapsed],
-    :host([compact]) project-list[collapsed],
-    :host([compact]) workspace-list[collapsed],
-    :host([compact]) session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   `;
 }
