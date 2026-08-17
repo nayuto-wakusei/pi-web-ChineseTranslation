@@ -337,7 +337,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const body = requireRecord(request.body);
       const askId = requireBoundedId(body["askId"], "askId");
-      return await sessions.submitAsk(sessionLookupFromBody(request.params.sessionId, body), askId, askUserSubmissionFromBody(body));
+      return await sessions.submitAsk(
+        sessionLookupFromBody(request.params.sessionId, body),
+        askId,
+        askUserSubmissionFromBody(body),
+        managementContextFromHeaders(request.headers),
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -346,7 +351,11 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; askId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/ask/cancel`, async (request, reply) => {
     try {
       const body = requireRecord(request.body);
-      return await sessions.cancelAsk(sessionLookupFromBody(request.params.sessionId, body), requireBoundedId(body["askId"], "askId"));
+      return await sessions.cancelAsk(
+        sessionLookupFromBody(request.params.sessionId, body),
+        requireBoundedId(body["askId"], "askId"),
+        managementContextFromHeaders(request.headers),
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }

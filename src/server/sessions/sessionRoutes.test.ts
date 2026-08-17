@@ -349,11 +349,17 @@ describe("session routes", () => {
     const eventHub = new SessionEventHub();
     const routeService = new CapturingRouteSessionService();
     registerSessionRoutes(routeApp, routeService, eventHub);
+    const managementContext: ManagementEmbedContext = {
+      user: { id: "account-1", rootUserId: "root-1", roles: [], permissions: ["runtime:write"] },
+      projects: [{ id: "project-1", name: "Project 1" }],
+    };
+    const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) };
 
     try {
       const submitted = await routeApp.inject({
         method: "POST",
         url: "/sessions/session-1/ask/submit",
+        headers,
         payload: {
           cwd: "/repo/./",
           askId: "ask-1",
@@ -363,6 +369,7 @@ describe("session routes", () => {
       const cancelled = await routeApp.inject({
         method: "POST",
         url: "/sessions/session-1/ask/cancel",
+        headers,
         payload: { cwd: "/repo/./", askId: "ask-2" },
       });
 
@@ -372,10 +379,11 @@ describe("session routes", () => {
         lookup: { id: "session-1", cwd: resolve("/repo") },
         askId: "ask-1",
         submission: { answers: [{ id: "db", values: ["pg"] }, { id: "cache", values: [], otherText: "redis" }] },
+        managementContext,
       }]);
       expect(cancelled.statusCode).toBe(200);
       expect(cancelled.json()).toMatchObject({ result: "stale" });
-      expect(routeService.cancelAskCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, askId: "ask-2" }]);
+      expect(routeService.cancelAskCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, askId: "ask-2", managementContext }]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -961,8 +969,8 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly bulkArchiveCalls: SessionBulkMutationRef[][] = [];
   readonly bulkDeleteCalls: SessionBulkMutationRef[][] = [];
   readonly navigateTreeCalls: { lookup: SessionRouteLookup; request: SessionTreeNavigateRequest }[] = [];
-  readonly submitAskCalls: { lookup: SessionRouteLookup; askId: string; submission: AskUserSubmission }[] = [];
-  readonly cancelAskCalls: { lookup: SessionRouteLookup; askId: string }[] = [];
+  readonly submitAskCalls: { lookup: SessionRouteLookup; askId: string; submission: AskUserSubmission; managementContext: ManagementEmbedContext | undefined }[] = [];
+  readonly cancelAskCalls: { lookup: SessionRouteLookup; askId: string; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly answerDialogCalls: { lookup: SessionRouteLookup; dialogId: string; value: ExtensionDialogAnswer }[] = [];
   readonly cancelDialogCalls: { lookup: SessionRouteLookup; dialogId: string }[] = [];
   readonly startCalls: { cwd: string; startupToken: string | undefined; managementContext: ManagementEmbedContext | undefined }[] = [];
@@ -987,15 +995,15 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve({ sessionId: typeof lookup === "string" ? lookup : lookup.id, pinned });
   }
 
-  submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission): Promise<AskUserCloseResponse> {
+  submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
     if (this.askError !== undefined) return Promise.reject(this.askError);
-    this.submitAskCalls.push({ lookup, askId, submission });
+    this.submitAskCalls.push({ lookup, askId, submission, managementContext });
     return Promise.resolve({ result: "closed", sessionStatus: idleStatus(lookup) });
   }
 
-  cancelAsk(lookup: SessionRouteLookup, askId: string): Promise<AskUserCloseResponse> {
+  cancelAsk(lookup: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
     if (this.askError !== undefined) return Promise.reject(this.askError);
-    this.cancelAskCalls.push({ lookup, askId });
+    this.cancelAskCalls.push({ lookup, askId, managementContext });
     return Promise.resolve({ result: "stale", sessionStatus: idleStatus(lookup) });
   }
 

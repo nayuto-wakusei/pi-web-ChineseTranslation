@@ -3,6 +3,7 @@ import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes.js";
 import { createPiWebCustomToolDefinitions, PiSessionService } from "./piSessionService.js";
 import { PendingAskStore, PendingAskValidationError } from "./pendingAskStore.js";
 import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 const ACTIVE_SESSION_ID = "session-1";
@@ -164,6 +165,37 @@ describe("PiSessionService ask status projection", () => {
 });
 
 describe("PiSessionService.submitAsk", () => {
+  it("delivers answers through the originating management embed scope", async () => {
+    const managementContext: ManagementEmbedContext = {
+      user: { id: "account-1", rootUserId: "root-1", roles: [], permissions: ["runtime:write"] },
+      projects: [{ id: "project-1", name: "Project 1" }],
+    };
+    const normalModelRuntimeForCwd = vi.fn(() => Promise.reject(new Error("cwd 必须属于一个已注册项目")));
+    const fake = fakeRuntime(ACTIVE_SESSION_ID);
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      normalModelRuntimeForCwd,
+      managementModelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord(ACTIVE_SESSION_ID)]),
+      askUserEnabled: true,
+      heartbeatIntervalMs: 60_000,
+    });
+    await service.start("/workspace", { managementContext });
+    const opened = await service.openAsk({ sessionId: ACTIVE_SESSION_ID, questions });
+
+    const response = await service.submitAsk(
+      sessionRef(ACTIVE_SESSION_ID),
+      opened.ask.askId,
+      { answers: [{ id: "db", values: ["pg"] }] },
+      managementContext,
+    );
+
+    expect(response).toMatchObject({ result: "closed", outcome: { reason: "submitted" } });
+    expect(normalModelRuntimeForCwd).not.toHaveBeenCalled();
+    expect(fake.calls.sendCustomMessage).toHaveLength(1);
+    await service.dispose();
+  });
+
   it("delivers a custom answer as a follow-up message that wakes the session", async () => {
     const { service, store, events, fake } = askService({ withActiveSession: true });
     await service.openAsk({

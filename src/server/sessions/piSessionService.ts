@@ -1752,9 +1752,9 @@ export class PiSessionService {
    * work (`deliverAs: "followUp"`), which is how the run that `ask_user`
    * terminated continues.
    */
-  async submitAsk(ref: PiSessionLookup, askId: string, submission: AskUserSubmission): Promise<AskUserCloseResponse> {
+  async submitAsk(ref: PiSessionLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     // Checked before the store closes the ask so a refused delivery cannot
     // discard answers the user already submitted.
     this.assertTreeNavigationInactive(session, "answer questions");
@@ -1766,9 +1766,9 @@ export class PiSessionService {
    * question as unanswered: it was promised a follow-up message and would
    * otherwise wait for one that never comes.
    */
-  async cancelAsk(ref: PiSessionLookup, askId: string): Promise<AskUserCloseResponse> {
+  async cancelAsk(ref: PiSessionLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
     await this.assertWritable(ref);
-    const session = await this.getOrOpen(ref);
+    const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, "dismiss questions");
     return this.closeAsk(session, this.pendingAskStore.cancel(session.sessionId, askId));
   }
