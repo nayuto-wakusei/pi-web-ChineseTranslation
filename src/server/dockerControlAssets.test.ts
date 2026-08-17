@@ -91,10 +91,14 @@ describe("Docker command assets", () => {
     expect(runtimeCompose).toContain("PI_WEB_DOCKER_INSTALL_DIR: ${PI_WEB_DOCKER_INSTALL_DIR:?set by docker/install.sh}");
     expect(runtimeCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_IMAGE:-pi-web:local}");
     expect(runtimeCompose).not.toContain("COMPOSE_PROJECT_NAME:");
+    expect(runtimeCompose).toContain("curl -fsS http://127.0.0.1:8504/api/normal-auth/status");
+    expect(runtimeCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
     expect(devCompose).toContain("PI_WEB_DOCKER_MODE: dev");
     expect(devCompose).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}");
     expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
     expect(devCompose).not.toContain("COMPOSE_PROJECT_NAME:");
+    expect(devCompose).toContain("curl -fsS http://127.0.0.1:8504/api/normal-auth/status");
+    expect(devCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
   });
