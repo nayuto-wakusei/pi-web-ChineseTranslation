@@ -1,5 +1,35 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.0.0
+
+### Major Changes
+
+- d7d8fd7: 新增工作区 Provider 插件后端、Git 插件化支持和稳定版浏览器插件 API v2，同时保留项目级认证、管理嵌入和审计边界。浏览器插件需要迁移到 API v2；旧版 `plugin-api/unstable` 类型入口不再提供。
+
+### Patch Changes
+
+- 6286ef2: 导航栏中所有展开的机器、项目、工作区和会话区块现在平均共享可用高度。
+- 963788a: 将 `ask_user` 回答记录中的完成摘要改为中文，并兼容历史会话中保存的英文摘要。
+- c8ce6af: 修复管理嵌入模式提交或取消 `ask_user` 问题时错误回退到普通项目认证的问题。
+- 085b6e6: Show mode-appropriate project setup guidance when no projects are available.
+- 0f24d25: 增强 `pi-web doctor`、`start` 和 `restart` 的服务就绪性检查，修复 macOS LaunchAgent 重启竞态，并让 Docker 内的会话守护进程恢复操作使用对应的 Docker 控制命令。启用普通模式登录保护时，CLI 会把认证响应识别为 Web 服务在线，但不会把无法读取的运行版本误报为已验证。
+- 445ff08: 让 Docker 中的普通模式会话识别容器、持久化目录、宿主机挂载和镜像扩展点，同时继续隔离管理嵌入模式的宿主环境信息。
+- 096a232: 为工作区文件增加安全的图片、HTML、PDF 和 Markdown 预览，并以严格类型白名单、沙箱响应策略和流式下载保护本地及远端文件访问。
+- e838507: Keep Docker web health checks healthy when ordinary-mode password authentication is enabled.
+- e3613e6: Hide the PI WEB brand in the upper-left corner of management embed mode.
+- 36cefc6: 新增由 sessiond 按机器、项目和工作区归属计算的实时状态树，保留普通模式与管理嵌入模式的状态隔离，并兼容旧版活动接口。
+- b9ade31: 修复嵌入模式创建跟踪子会话时错误使用普通项目注册表的问题。
+- b5143ae: Relay 面板现在可以安全浏览嵌套目录中的文档，并通过可折叠目录保留当前文档选择。
+- 5251311: 升级内置 Pi 运行时至 0.84，统一项目会话的凭据刷新策略，并保护会话守护进程状态目录不被重复实例同时占用。
+- 6328216: 在管理嵌入模式中隐藏 PI WEB 品牌和操作入口，普通模式保持不变。
+- 98d7104: 支持从会话树中的任意历史条目分叉为新会话，并以不同色调区分条目类型。
+- 1e70579: Unify dialog focus, keyboard, layering, and dismissal behavior, and allow subscription OAuth login and logout for federated remote machines from the gateway UI.
+- 5f4c652: 修复加载 bundled Git 插件后工作区工具栏重复显示两个 Git 面板的问题。
+- 2802991: 修复项目列表的未读会话标记样式，避免在会话空闲时误显示为正在活动。
+- 045b4ad: 默认启用受跟踪的子会话工具；仍可将 `subsessions` 配置项或 `PI_WEB_SUBSESSIONS` 环境变量设为 `false` 来关闭，并继续要求 `spawnSessions` 已启用。升级后需要重启会话守护进程才能应用新的默认值。
+- eef9dd9: 修复 session daemon 未将已启用的 `askUser` 配置传入会话运行时，导致 `ask_user` 工具不会注册的问题。
+- 4ea9224: 将会话树限定在当前工作区，并让 `spawn_subsession` 始终在父会话工作区创建受跟踪子会话；同时缓存会话列表摘要，避免重复读取未变化的完整会话记录。需要在其它工作区运行时，请改用 `spawn_session` 创建独立会话。
+
 ## 1.202608.9
 
 ### Patch Changes

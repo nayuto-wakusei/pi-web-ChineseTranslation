@@ -1,6 +1,6 @@
 {
   "name": "@chainingintention/pi-web-cn",
-  "version": "1.202608.9",
+  "version": "2.0.0",
   "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
