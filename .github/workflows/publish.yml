@@ -49,6 +49,9 @@ jobs:
         run: npm run smoke:package-install
 
       - name: Publish
+        env:
+          # Force npm to use Trusted Publishing OIDC instead of the legacy token.
+          NODE_AUTH_TOKEN: ""
         run: npm publish --access public --provenance
 
   deprecate:
