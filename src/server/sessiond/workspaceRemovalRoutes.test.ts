@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,7 +18,7 @@ const normalProject: Project = { id: "normal", name: "Normal", path: "/normal", 
 
 beforeEach(async () => {
   app = Fastify({ logger: false });
-  projectRoot = await mkdtemp(join(process.env["TEMP"] ?? process.env["TMP"] ?? ".", "pi-web-managed-removal-"));
+  projectRoot = await mkdtemp(join(tmpdir(), "pi-web-managed-removal-"));
   removedProject = undefined;
   removedManagementContext = undefined;
   mutatedScope = undefined;

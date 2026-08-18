@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,7 +15,7 @@ const normalProject: Project = { id: "normal", name: "Normal", path: "/normal", 
 
 beforeEach(async () => {
   app = Fastify({ logger: false });
-  projectRoot = await mkdtemp(join(process.env["TEMP"] ?? process.env["TMP"] ?? ".", "pi-web-managed-catalog-"));
+  projectRoot = await mkdtemp(join(tmpdir(), "pi-web-managed-catalog-"));
   resolvedProject = undefined;
   registerWorkspaceCatalogRoutes(app, {
     projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },
