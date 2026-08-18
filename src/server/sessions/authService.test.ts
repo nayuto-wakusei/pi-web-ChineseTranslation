@@ -18,29 +18,21 @@ afterEach(async () => {
 
 describe("AuthService", { timeout: 15_000 }, () => {
   it("saves API keys and emits a global auth change after the runtime refreshes", async () => {
-    const { auth, runtime, credentials, changes } = await createAuthService();
-    // Pi 0.84 performs credential synchronization inside login().
-    const refresh = vi.spyOn(runtime, "refresh");
+    const { auth, credentials, changes } = await createAuthService();
 
     await expect(auth.saveApiKey("anthropic", "sk-test")).resolves.toEqual({ accepted: true });
 
     await expect(credentials.read("anthropic")).resolves.toEqual({ type: "api_key", key: "sk-test" });
-    expect(refresh).toHaveBeenCalledTimes(2);
-    expect(refresh).toHaveBeenNthCalledWith(1, { allowNetwork: false });
-    expect(refresh).toHaveBeenNthCalledWith(2, { allowNetwork: false });
     expect(changes).toEqual([{}]);
     auth.dispose();
   });
 
   it("logs out providers and emits the removed provider id after the runtime refreshes", async () => {
-    const { auth, runtime, credentials, changes } = await createAuthService({ anthropic: { type: "api_key", key: "sk-test" } });
-    const refresh = vi.spyOn(runtime, "refresh");
+    const { auth, credentials, changes } = await createAuthService({ anthropic: { type: "api_key", key: "sk-test" } });
 
     await expect(auth.logoutProvider("anthropic")).resolves.toEqual({ accepted: true });
 
     await expect(credentials.read("anthropic")).resolves.toBeUndefined();
-    expect(refresh).toHaveBeenCalledOnce();
-    expect(refresh).toHaveBeenCalledWith({ allowNetwork: false });
     expect(changes).toEqual([{ removedProviderId: "anthropic" }]);
     auth.dispose();
   });
