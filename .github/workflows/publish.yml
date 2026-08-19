@@ -52,7 +52,7 @@ jobs:
         env:
           # Force npm to use Trusted Publishing OIDC instead of the legacy token.
           NODE_AUTH_TOKEN: ""
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag latest
 
   deprecate:
     name: Deprecate npm version
