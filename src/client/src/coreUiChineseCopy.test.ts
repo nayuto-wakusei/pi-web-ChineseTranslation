@@ -104,8 +104,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "labels provider auth as project-scoped",
     paths: ["components/AuthDialog.ts", "plugins/core/actions.ts"],
-    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证"],
-    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout"],
+    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证", "搜索提供商", "没有匹配的提供商"],
+    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout", "Search providers", "No matching providers"],
   },
   {
     name: "localizes session cleanup actions and dialog copy",
