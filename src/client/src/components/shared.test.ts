@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatStyles } from "./shared";
+import { chatStyles, promptEditorStyles } from "./shared";
 
 describe("chatStyles", () => {
   it("bounds the chat scroller to its flex-allocated wrapper", () => {
@@ -24,5 +24,13 @@ describe("chatStyles", () => {
     expect(chatStyles.cssText).toContain(".chat-image { display: block");
     expect(chatStyles.cssText).toContain("max-width: 100%");
     expect(chatStyles.cssText).toContain("max-height: 320px");
+  });
+});
+
+describe("promptEditorStyles", () => {
+  it("themes CodeMirror's drawn caret and selection for every app theme", () => {
+    expect(promptEditorStyles.cssText).toContain(".markdown-editor .cm-cursor { border-left-color: var(--pi-text);");
+    expect(promptEditorStyles.cssText).toContain("var(--pi-text) 18%");
+    expect(promptEditorStyles.cssText).toContain("var(--pi-accent) 32%");
   });
 });
