@@ -10,7 +10,7 @@ import { MachineStatusService } from "./status/machineStatusService.js";
 import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
 import { CachedWorkspaceAttribution } from "./status/workspaceAttribution.js";
 import { SessionEventHub } from "./realtime/sessionEventHub.js";
-import { AuthService, createLocalOnlyModelRuntime } from "./sessions/authService.js";
+import { AuthService } from "./sessions/authService.js";
 import { ProjectAuthService } from "./sessions/projectAuthService.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
@@ -108,11 +108,8 @@ await runSessionDaemonStartup({
       serverPlugins.catalogDiagnostics(),
     );
     const projectAuth = new ProjectAuthService({ projects, workspaces });
-    const managementAuth = new AuthService({
-      modelRuntime: await createLocalOnlyModelRuntime({
-        authPath: join(piWebDataDir(), "management-embed", "auth.json"),
-        modelsPath: join(activeAgentProfile.dir, "models.json"),
-      }),
+    const managementAuth = await AuthService.create({
+      agentDir: join(piWebDataDir(), "management-embed"),
     });
     const accessStates = new WorkbenchAccessStateStore();
     const normalAuditConfig = config.auditLog?.normalMode;

@@ -351,14 +351,19 @@ describe("AuthService", { timeout: 15_000 }, () => {
     auth.dispose();
   });
 
-  it("stores credentials in the configured agent directory", async () => {
+  it("loads models and stores credentials in the configured agent directory", async () => {
     const agentDir = await tempAgentDir();
+    await writeFile(join(agentDir, "models.json"), radiusModelsConfig("Managed Radius"));
     const runtime = await createModelRuntimeForAgentDir(agentDir);
     const auth = await AuthService.create({ runtime });
 
     await auth.saveApiKey("anthropic", "sk-test");
 
     await expect(readFile(join(agentDir, "auth.json"), "utf8")).resolves.toContain("sk-test");
+    const response = await auth.authProviders("login", "oauth");
+    expect(response.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "test-radius", name: "Managed Radius" }),
+    ]));
     auth.dispose();
   });
 

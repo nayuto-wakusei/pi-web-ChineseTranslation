@@ -57,6 +57,14 @@ async function startupDetails(deps: PiSessionServiceDependencies): Promise<strin
 }
 
 describe("sessiond session service dependency assembly", () => {
+  it("keeps management auth and models in one shared management store", async () => {
+    const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
+
+    expect(sessiondSource).toMatch(
+      /AuthService\.create\(\{\s*agentDir:\s*join\(piWebDataDir\(\),\s*"management-embed"\)/u,
+    );
+  });
+
   it("wires the effective ask-user preference into the live daemon assembly", async () => {
     const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
 
