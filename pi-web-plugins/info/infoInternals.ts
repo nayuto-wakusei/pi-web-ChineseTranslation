@@ -68,12 +68,19 @@ export function componentDetails(component: PiWebComponentStatus): string {
   const parts = [
     `运行版本 ${formatVersion(component.runtimeVersion)}`,
     `安装版本 ${formatVersion(component.installedVersion)}`,
+    `Pi ${formatVersion(component.piVersion)}`,
     componentHealthLabel(componentHealth(component)),
     installationLabel(component.installation),
   ];
   if (component.installation?.path !== undefined && component.installation.path !== "") parts.push(component.installation.path);
   if (component.error !== undefined && component.error !== "") parts.push(`错误：${component.error}`);
   return parts.join(" · ");
+}
+
+/** Notes when the daemon has not yet reloaded the Pi version used by the web process. */
+export function piVersionDriftNote(web: PiWebComponentStatus, sessiond: PiWebComponentStatus): string | undefined {
+  if (!sessiond.available || web.piVersion === undefined || sessiond.piVersion === undefined) return undefined;
+  return web.piVersion === sessiond.piVersion ? undefined : `会话守护进程正在运行 ${formatVersion(sessiond.piVersion)}`;
 }
 
 export function workspaceFlags(workspace: Workspace): string[] {
@@ -143,6 +150,7 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
     `;
   }
   const web = status.components.web;
+  const driftNote = piVersionDriftNote(web, status.components.sessiond);
   const messageCount = status.messages.length;
   return html`
     <section>
@@ -151,6 +159,11 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
         <span>版本</span>
         <span>${formatVersion(web.runtimeVersion)}</span>
         ${web.installedVersion === undefined || web.installedVersion === web.runtimeVersion ? null : html`<small>已安装 ${formatVersion(web.installedVersion)}</small>`}
+      </div>
+      <div class="info-row">
+        <span>Pi</span>
+        <span>${formatVersion(web.piVersion)}</span>
+        ${driftNote === undefined ? null : html`<small>${driftNote}</small>`}
       </div>
       <div class="info-row">
         <span>包</span>

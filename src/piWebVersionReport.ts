@@ -249,6 +249,7 @@ function printComponentVersion(component: PiWebComponentStatus): void {
   if (component.available || component.runtimeVersion !== undefined || component.installedVersion !== undefined) {
     console.log(`  running: ${formatVersion(component.runtimeVersion)}; installed: ${formatVersion(component.installedVersion)}`);
   }
+  if (component.piVersion !== undefined) console.log(`  pi: ${component.piVersion}`);
   const installation = installationLabel(component.installation);
   if (installation !== undefined) console.log(`  installation: ${installation}`);
   if (component.error !== undefined) console.log(`  ${component.error}`);

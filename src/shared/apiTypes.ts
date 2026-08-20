@@ -1257,6 +1257,8 @@ export interface PiWebComponentStatus {
   label: string;
   runtimeVersion?: string;
   installedVersion?: string;
+  /** Version of the Pi coding agent library loaded by this component's process. */
+  piVersion?: string;
   stale: boolean;
   available: boolean;
   installation?: PiWebInstallationInfo;
@@ -1276,6 +1278,8 @@ export interface PiWebRuntimeComponent {
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;
+  /** Version of the Pi coding agent library loaded by this component's process. */
+  piVersion?: string;
   available: boolean;
   capabilities: PiWebCapability[];
   /** Present only for a session daemon that supports active-profile reporting. */

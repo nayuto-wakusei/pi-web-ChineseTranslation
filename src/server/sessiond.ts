@@ -263,6 +263,7 @@ await runSessionDaemonStartup({
         component: runtimeComponent.component,
         label: runtimeComponent.label,
         ...(runtimeComponent.runtimeVersion === undefined ? {} : { runtimeVersion: runtimeComponent.runtimeVersion }),
+        ...(runtimeComponent.piVersion === undefined ? {} : { piVersion: runtimeComponent.piVersion }),
         stale: false,
         available: runtimeComponent.available,
       },

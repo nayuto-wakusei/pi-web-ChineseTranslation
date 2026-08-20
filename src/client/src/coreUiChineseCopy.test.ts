@@ -122,8 +122,8 @@ const copyCases: readonly CopyCase[] = [
       "../../../pi-web-plugins/relays/relaysPanelElement.ts",
       "../../../pi-web-plugins/relays/markdownDocument.ts",
     ],
-    expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
-    forbidden: ["title: \"Info\"", "<strong>Info</strong>", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
+    expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "会话守护进程正在运行", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
+    forbidden: ["title: \"Info\"", "<strong>Info</strong>", "session daemon running", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
   },
   {
     name: "localizes the bundled Git plugin surfaces",

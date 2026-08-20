@@ -169,8 +169,8 @@ describe("API parsers", () => {
       packageName: "@jmfederico/pi-web",
       generatedAt: "now",
       components: {
-        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" } },
-        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", dockerMode: "dev" } },
+        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", piVersion: "0.84.1", available: true, stale: false, installation: { kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" } },
+        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", piVersion: "0.83.0", available: true, stale: false, installation: { kind: "docker", dockerMode: "dev" } },
       },
       release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
       commands: { restart: "pi-web-docker restart", status: "pi-web-docker status" },
@@ -181,6 +181,8 @@ describe("API parsers", () => {
 
     expect(parsed.components.web.installation).toEqual({ kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" });
     expect(parsed.components.sessiond.installation).toEqual({ kind: "docker", dockerMode: "dev" });
+    expect(parsed.components.web.piVersion).toBe("0.84.1");
+    expect(parsed.components.sessiond.piVersion).toBe("0.83.0");
     expect(parsed.commands).toEqual({ restart: "pi-web-docker restart", status: "pi-web-docker status" });
     expect(() => parsePiWebStatusResponse({
       ...response,

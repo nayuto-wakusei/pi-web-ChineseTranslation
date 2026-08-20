@@ -127,8 +127,8 @@ describe("MachineService", () => {
       packageName: "@chainingintention/pi-web-cn",
       generatedAt: "2026-05-25T00:00:00.000Z",
       components: {
-        web: { component: "web" as const, label: "Web/UI", runtimeVersion: "1.0.0", available: true, capabilities: [] },
-        sessiond: { component: "sessiond" as const, label: "Session daemon", runtimeVersion: "1.0.0", available: true, capabilities: [] },
+        web: { component: "web" as const, label: "Web/UI", runtimeVersion: "1.0.0", piVersion: "0.84.1", available: true, capabilities: [] },
+        sessiond: { component: "sessiond" as const, label: "Session daemon", runtimeVersion: "1.0.0", piVersion: "0.83.0", available: true, capabilities: [] },
       },
       capabilities: [],
     }));
@@ -145,8 +145,8 @@ describe("MachineService", () => {
       ok: true,
       checkedAt: "2026-05-25T00:00:00.000Z",
       status: "online",
-      web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", stale: false, available: true },
-      sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", stale: false, available: true },
+      web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", piVersion: "0.84.1", stale: false, available: true },
+      sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", piVersion: "0.83.0", stale: false, available: true },
     });
   });
 
