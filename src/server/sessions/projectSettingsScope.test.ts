@@ -75,21 +75,26 @@ describe("projectSettingsScope", () => {
       cwd: projectA,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "normal"),
       globalAgentDir,
+      mode: "normal",
     });
     const managementA = await createScopedSettingsManager({
       cwd: projectA,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "management"),
       globalAgentDir,
+      mode: "management",
     });
     const normalB = await createScopedSettingsManager({
       cwd: projectB,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectB, "normal"),
       globalAgentDir,
+      mode: "normal",
     });
 
-    // Shared configuration remains visible through the scoped manager.
+    // Shared resources remain visible, while management cannot see ordinary model scope.
     expect(normalA.getPackages()).toEqual(["./pkg-a"]);
     expect(normalA.getEnabledModels()).toEqual(["anthropic/*"]);
+    expect(managementA.getPackages()).toEqual(["./pkg-a"]);
+    expect(managementA.getEnabledModels()).toBeUndefined();
 
     normalA.setDefaultThinkingLevel("high");
     normalA.setDefaultModelAndProvider("openai", "gpt-test");
@@ -115,16 +120,19 @@ describe("projectSettingsScope", () => {
       cwd: projectA,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "normal"),
       globalAgentDir,
+      mode: "normal",
     });
     const managementAReload = await createScopedSettingsManager({
       cwd: projectA,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectA, "management"),
       globalAgentDir,
+      mode: "management",
     });
     const normalBReload = await createScopedSettingsManager({
       cwd: projectB,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectB, "normal"),
       globalAgentDir,
+      mode: "normal",
     });
     const globalReload = SettingsManager.create(projectA, globalAgentDir);
 
@@ -139,6 +147,9 @@ describe("projectSettingsScope", () => {
     expect(normalAReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
     expect(normalAReload.getEnabledModels()).toEqual(["anthropic/*", "openai/*"]);
     expect(normalAReload.getExtensionPaths()).toEqual(["./ext-new"]);
+    expect(managementAReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
+    expect(managementAReload.getEnabledModels()).toBeUndefined();
+    expect(managementAReload.getExtensionPaths()).toEqual(["./ext-new"]);
 
     // Preference overrides stay out of the shared agent settings file.
     expect(globalReload.getDefaultThinkingLevel()).toBe("off");
@@ -150,6 +161,49 @@ describe("projectSettingsScope", () => {
       defaultThinkingLevel: "high",
       defaultProvider: "openai",
       defaultModel: "gpt-test",
+    });
+  });
+
+  it("hides ordinary enabled models from management without changing stored settings", async () => {
+    const root = await tempRoot();
+    const globalAgentDir = join(root, "global-agent");
+    const projectPath = join(root, "project");
+    const projectSettingsDir = join(projectPath, ".pi");
+    const scopeDirectory = join(root, "management-scope");
+    const globalSettingsPath = join(globalAgentDir, "settings.json");
+    const projectSettingsPath = join(projectSettingsDir, "settings.json");
+    await mkdir(globalAgentDir, { recursive: true });
+    await mkdir(projectSettingsDir, { recursive: true });
+    await writeFile(globalSettingsPath, `${JSON.stringify({
+      packages: ["./global-package"],
+      enabledModels: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "scnet/GLM-5.2"],
+    }, null, 2)}\n`);
+    await writeFile(projectSettingsPath, `${JSON.stringify({
+      packages: ["./project-package"],
+      enabledModels: ["project/private-model"],
+    }, null, 2)}\n`);
+
+    const settings = await createScopedSettingsManager({
+      cwd: projectPath,
+      scopeDirectory,
+      globalAgentDir,
+      mode: "management",
+    });
+
+    expect(settings.getPackages()).toEqual(["./project-package"]);
+    expect(settings.getEnabledModels()).toBeUndefined();
+
+    settings.setRetryEnabled(false);
+    settings.setProjectPackages([{ source: "./updated-project-package" }]);
+    await settings.flush();
+
+    expect(JSON.parse(await readFile(globalSettingsPath, "utf8"))).toMatchObject({
+      enabledModels: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "scnet/GLM-5.2"],
+      retry: { enabled: false },
+    });
+    expect(JSON.parse(await readFile(projectSettingsPath, "utf8"))).toMatchObject({
+      enabledModels: ["project/private-model"],
+      packages: [{ source: "./updated-project-package" }],
     });
   });
 
@@ -169,7 +223,7 @@ describe("projectSettingsScope", () => {
       }, null, 2)}\n`,
     );
 
-    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir });
+    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir, mode: "normal" });
     settings.setDefaultThinkingLevel("high");
     settings.setCompactionEnabled(false);
     settings.setRetryEnabled(false);
@@ -216,7 +270,7 @@ describe("projectSettingsScope", () => {
       }, null, 2)}\n`,
     );
 
-    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir });
+    const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir, mode: "normal" });
     expect(settings.getDefaultThinkingLevel()).toBe("high");
     expect(settings.getDefaultProvider()).toBe("openai");
     expect(settings.getDefaultModel()).toBe("gpt-legacy");

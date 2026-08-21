@@ -8,8 +8,9 @@ import { projectAuthStoragePaths } from "./projectAuthService.js";
 /**
  * Session preference scope for a small set of Pi global defaults (thinking level
  * and default model selection). Auth/models stay on their own stores. Packages,
- * extensions, enabledModels, proxy, and other shared agent settings keep reading
- * and writing the real agentDir settings.json.
+ * extensions, proxy, and other shared agent settings keep reading and writing the
+ * real agentDir settings.json. Management mode hides enabledModels because its
+ * model registry is separate from ordinary mode.
  */
 export type SessionSettingsMode = "normal" | "management";
 
@@ -21,6 +22,7 @@ export const SESSION_PREFERENCE_KEYS = [
 ] as const;
 
 const SESSION_PREFERENCE_KEY_SET = new Set<string>(SESSION_PREFERENCE_KEYS);
+const MANAGEMENT_HIDDEN_SETTING_KEYS = new Set<string>(["enabledModels"]);
 
 /**
  * Directory that owns preference overrides for a registered project.
@@ -65,6 +67,7 @@ export async function createScopedSettingsManager(options: {
   cwd: string;
   scopeDirectory: string;
   globalAgentDir: string;
+  mode: SessionSettingsMode;
 }): Promise<SettingsManager> {
   await mkdir(options.scopeDirectory, { recursive: true, mode: 0o700 });
   migrateLegacyPreferenceOverrides(options.scopeDirectory);
@@ -72,6 +75,7 @@ export async function createScopedSettingsManager(options: {
     cwd: options.cwd,
     globalAgentDir: options.globalAgentDir,
     scopeDirectory: options.scopeDirectory,
+    mode: options.mode,
   }));
 }
 
@@ -112,17 +116,23 @@ class PreferenceOverrideSettingsStorage {
   private readonly agentSettingsPath: string;
   private readonly preferencesPath: string;
   private readonly scopeDirectory: string;
+  private readonly mode: SessionSettingsMode;
 
-  constructor(options: { cwd: string; globalAgentDir: string; scopeDirectory: string }) {
+  constructor(options: { cwd: string; globalAgentDir: string; scopeDirectory: string; mode: SessionSettingsMode }) {
     this.projectSettingsPath = join(resolve(options.cwd), CONFIG_DIR_NAME, "settings.json");
     this.agentSettingsPath = join(resolve(options.globalAgentDir), "settings.json");
     this.scopeDirectory = resolve(options.scopeDirectory);
     this.preferencesPath = preferencesFilePath(this.scopeDirectory);
+    this.mode = options.mode;
   }
 
   withLock(scope: "global" | "project", fn: (current: string | undefined) => string | undefined): void {
     if (scope === "project") {
-      this.withFileLock(this.projectSettingsPath, fn);
+      if (this.mode === "management") {
+        this.withManagementFileLock(this.projectSettingsPath, fn);
+      } else {
+        this.withFileLock(this.projectSettingsPath, fn);
+      }
       return;
     }
 
@@ -134,7 +144,7 @@ class PreferenceOverrideSettingsStorage {
     } else {
       try {
         const agentSettings = agentRaw === undefined ? {} : parseSettingsObject(agentRaw);
-        current = `${JSON.stringify({ ...agentSettings, ...preferences }, null, 2)}\n`;
+        current = `${JSON.stringify({ ...settingsVisibleToMode(agentSettings, this.mode), ...preferences }, null, 2)}\n`;
       } catch {
         // Preserve parse errors for SettingsManager when the real agent file is invalid.
         current = agentRaw;
@@ -168,17 +178,40 @@ class PreferenceOverrideSettingsStorage {
       writeJsonFile(this.preferencesPath, nextPreferences);
     }
 
-    const nextSharedSettings = omitPreferenceKeys(nextSettings);
+    const nextSharedSettings = settingsVisibleToMode(omitPreferenceKeys(nextSettings), this.mode);
     // Invalid agent settings are left for SettingsManager diagnostics on read.
     // Avoid clobbering a corrupt file during a preference-only write.
     if (agentSettingsParseFailed && Object.keys(nextSharedSettings).length === 0) return;
 
-    const existingSharedSettings = omitPreferenceKeys(agentSettings);
+    const existingSharedSettings = settingsVisibleToMode(omitPreferenceKeys(agentSettings), this.mode);
     // Only rewrite the shared agent file when a non-preference key actually changed.
     if (stableJsonEqual(existingSharedSettings, nextSharedSettings)) return;
     writeJsonFile(this.agentSettingsPath, {
       ...pickPreferenceOverrides(agentSettings),
+      ...hiddenSettingsForMode(agentSettings, this.mode),
       ...nextSharedSettings,
+    });
+  }
+
+  private withManagementFileLock(path: string, fn: (current: string | undefined) => string | undefined): void {
+    const storedRaw = readTextFileIfExists(path);
+    let storedSettings: Record<string, unknown> = {};
+    let current = storedRaw;
+    if (storedRaw !== undefined) {
+      try {
+        storedSettings = parseSettingsObject(storedRaw);
+        current = `${JSON.stringify(settingsVisibleToMode(storedSettings, this.mode), null, 2)}\n`;
+      } catch {
+        // Preserve parse errors for SettingsManager instead of masking an invalid file.
+      }
+    }
+
+    const next = fn(current);
+    if (next === undefined) return;
+    const nextSettings = parseSettingsObject(next);
+    writeJsonFile(path, {
+      ...hiddenSettingsForMode(storedSettings, this.mode),
+      ...settingsVisibleToMode(nextSettings, this.mode),
     });
   }
 
@@ -270,6 +303,26 @@ function omitPreferenceKeys(settings: Record<string, unknown>): Record<string, u
     omitted[key] = value;
   }
   return omitted;
+}
+
+function settingsVisibleToMode(settings: Record<string, unknown>, mode: SessionSettingsMode): Record<string, unknown> {
+  if (mode === "normal") return settings;
+  const visible: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (!MANAGEMENT_HIDDEN_SETTING_KEYS.has(key)) visible[key] = value;
+  }
+  return visible;
+}
+
+function hiddenSettingsForMode(settings: Record<string, unknown>, mode: SessionSettingsMode): Record<string, unknown> {
+  if (mode === "normal") return {};
+  const hidden: Record<string, unknown> = {};
+  for (const key of MANAGEMENT_HIDDEN_SETTING_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(settings, key) && settings[key] !== undefined) {
+      hidden[key] = settings[key];
+    }
+  }
+  return hidden;
 }
 
 function parseSettingsObject(raw: string): Record<string, unknown> {

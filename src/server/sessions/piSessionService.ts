@@ -901,6 +901,7 @@ function createDefaultRuntimeFactory(
       cwd,
       scopeDirectory: await resolveSettingsScope(cwd, "normal"),
       globalAgentDir: agentDir,
+      mode: "normal",
     });
     const resourceLoaderOptions = piWebResourceLoaderOptions(appendSystemPromptSections);
     const services = await createAgentSessionServices({
@@ -995,6 +996,7 @@ function createManagementRuntimeFactory(
         cwd,
         scopeDirectory: await resolveSettingsScope(cwd, "management"),
         globalAgentDir: agentDir,
+        mode: "management",
       });
       const services = await createAgentSessionServices({
         cwd,

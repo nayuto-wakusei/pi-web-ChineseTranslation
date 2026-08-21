@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { requireAuthorizedL0Capability, searchAuthorizedCapabilities } from "./capabilitySearch.js";
-import { McpHttpError, WorkbenchMcpClient } from "./mcpClient.js";
+import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
 import type { WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder, ManagementAuditStatus } from "../audit/managementAuditStore.js";
@@ -95,6 +95,7 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
             traceId,
             capabilityName: params.capability_name,
             statusCode: errorStatus(error),
+            errorCode: errorCode(error),
             durationMs: Date.now() - startedAt,
           }, "Workbench capability call rejected or failed");
           recordCapabilityAudit(deps, {
@@ -165,6 +166,7 @@ async function callWithOneTransientRetry(
         deps.invalidate();
         throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
       }
+      if (attempt === 0 && error instanceof McpTransportError) continue;
       if (attempt === 0 && error instanceof McpHttpError && [502, 503, 504].includes(error.status)) continue;
       throw error;
     }
@@ -174,5 +176,13 @@ async function callWithOneTransientRetry(
 
 function errorStatus(error: unknown): number | string {
   if (error instanceof WorkbenchHttpError || error instanceof McpHttpError) return error.status;
+  if (error instanceof McpTransportError) return `mcp_transport_${error.code}`;
   return "local_error";
+}
+
+function errorCode(error: unknown): string {
+  if (error instanceof McpTransportError) return error.code;
+  if (error instanceof WorkbenchHttpError) return `workbench_http_${String(error.status)}`;
+  if (error instanceof McpHttpError) return `mcp_http_${String(error.status)}`;
+  return error instanceof Error ? error.name : "unknown";
 }

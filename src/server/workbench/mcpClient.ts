@@ -7,6 +7,13 @@ export class McpHttpError extends Error {
   }
 }
 
+export class McpTransportError extends Error {
+  constructor(readonly code: string, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "McpTransportError";
+  }
+}
+
 export interface WorkbenchMcpClientOptions {
   mcpUrl: string;
   timeoutMs: number;
@@ -53,13 +60,20 @@ export class WorkbenchMcpClient {
       "content-type": "application/json",
       ...(sessionId === undefined ? {} : { "mcp-session-id": sessionId }),
     };
-    const response = await this.fetchImpl(this.options.mcpUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.options.timeoutMs),
-    });
-    const text = await response.text();
+    let response: Response;
+    let text: string;
+    try {
+      response = await this.fetchImpl(this.options.mcpUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.options.timeoutMs),
+      });
+      text = await response.text();
+    } catch (error) {
+      const code = transportErrorCode(error);
+      throw new McpTransportError(code, transportErrorMessage(code), { cause: error });
+    }
     if (!response.ok) throw new McpHttpError(response.status, mcpErrorMessage(text, response.status));
     return { headers: response.headers, value: expectBody ? parseMcpPayload(text, response.headers.get("content-type")) : undefined };
   }
@@ -150,4 +164,20 @@ function booleanField(value: Record<string, unknown>, key: string): boolean {
   const field = value[key];
   if (typeof field !== "boolean") throw new Error(`${key} must be a boolean`);
   return field;
+}
+
+function transportErrorCode(error: unknown): string {
+  let current = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    if (current.name === "TimeoutError" || current.name === "AbortError") return "timeout";
+    const code = "code" in current ? current.code : undefined;
+    if (typeof code === "string" && /^[A-Z0-9_]{1,64}$/u.test(code)) return code;
+    current = current.cause;
+  }
+  return "transport_error";
+}
+
+function transportErrorMessage(code: string): string {
+  if (code === "timeout") return "MCP 通道请求超时";
+  return code === "transport_error" ? "MCP 通道连接失败" : `MCP 通道连接失败（${code}）`;
 }

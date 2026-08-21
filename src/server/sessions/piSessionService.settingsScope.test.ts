@@ -13,6 +13,7 @@ import {
   preferencesFilePath,
   projectSettingsScopeDirectory,
 } from "./projectSettingsScope.js";
+import { resolveSessionModelOptions } from "./sessionModelScope.js";
 
 const tempRoots: string[] = [];
 
@@ -51,11 +52,13 @@ describe("PiSessionService settings scope wiring", () => {
       cwd: projectPath,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectPath, "normal"),
       globalAgentDir,
+      mode: "normal",
     });
     const managementSettings = await createScopedSettingsManager({
       cwd: projectPath,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectPath, "management"),
       globalAgentDir,
+      mode: "management",
     });
 
     const normalServices = await createAgentSessionServices({
@@ -86,7 +89,7 @@ describe("PiSessionService settings scope wiring", () => {
       `${JSON.stringify({
         defaultThinkingLevel: "off",
         packages: ["./pkg-a", "./pkg-b"],
-        enabledModels: ["openai/*"],
+        enabledModels: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "scnet/GLM-5.2"],
       }, null, 2)}\n`,
     );
 
@@ -117,14 +120,41 @@ describe("PiSessionService settings scope wiring", () => {
     expect(session.settingsManager.getDefaultModel()).toBe("gpt-normal");
 
     // Reload after the global package install to prove the freeze regression is gone.
+    const normalReload = await createScopedSettingsManager({
+      cwd: projectPath,
+      scopeDirectory: projectSettingsScopeDirectory(dataDir, projectPath, "normal"),
+      globalAgentDir,
+      mode: "normal",
+    });
     const managementReload = await createScopedSettingsManager({
       cwd: projectPath,
       scopeDirectory: projectSettingsScopeDirectory(dataDir, projectPath, "management"),
       globalAgentDir,
+      mode: "management",
     });
     expect(managementReload.getDefaultThinkingLevel()).toBe("medium");
     expect(managementReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
-    expect(managementReload.getEnabledModels()).toEqual(["openai/*"]);
+    expect(normalReload.getEnabledModels()).toEqual([
+      "deepseek/deepseek-v4-flash",
+      "deepseek/deepseek-v4-pro",
+      "scnet/GLM-5.2",
+    ]);
+    expect(managementReload.getEnabledModels()).toBeUndefined();
+
+    const normalResolution = await resolveSessionModelOptions({
+      services: { settingsManager: normalReload, modelRuntime },
+      hasExistingSession: false,
+    });
+    const managementResolution = await resolveSessionModelOptions({
+      services: { settingsManager: managementReload, modelRuntime },
+      hasExistingSession: false,
+    });
+    expect(normalResolution.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'No models match pattern "deepseek/deepseek-v4-flash"',
+      'No models match pattern "deepseek/deepseek-v4-pro"',
+      'No models match pattern "scnet/GLM-5.2"',
+    ]);
+    expect(managementResolution.diagnostics).toEqual([]);
   });
 });
 
