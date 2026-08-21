@@ -24,6 +24,7 @@ import type {
   ClientSessionCleanupExecuteResponse,
   ClientSessionCleanupPreviewResponse,
   ClientSessionModel,
+  ClientSessionModelCatalogEntry,
   ClientSessionRef,
   ClientSessionStatus,
   ClientSessionTreeForkRequest,
@@ -71,7 +72,9 @@ export interface SessionRouteService {
   cancelDialog(ref: SessionRouteLookup, dialogId: string, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   dismissWarning(ref: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
+  modelCatalog(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  setModelEnabled(ref: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
   cycleModel(ref: SessionRouteLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableThinkingLevels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientThinkingLevel[]>;
   setThinkingLevel(ref: SessionRouteLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

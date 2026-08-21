@@ -32,7 +32,7 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionModelCatalogEntry, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -96,6 +96,7 @@ import { createWorkbenchToolDefinitions } from "../workbench/workbenchTools.js";
 import type { WorkbenchSkillReceiptFile } from "../workbench/types.js";
 import type { NormalToolAuditEvent, NormalToolAuditStore } from "../audit/normalToolAuditStore.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder } from "../audit/managementAuditStore.js";
+import { applyEnabledModelToggle, catalogWithEnabledFirst, liveScopedModelIds, modelScopeId, persistedEnabledModelPatterns, resolveEnabledModelIds, resolveSessionModelOptions, type EnabledModelCatalogEntry } from "./sessionModelScope.js";
 
 /**
  * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
@@ -427,9 +428,12 @@ export interface PiAgentSession {
   settingsManager: {
     getWarnings(): { anthropicExtraUsage?: boolean };
     setWarnings(warnings: { anthropicExtraUsage?: boolean }): void;
+    getEnabledModels(): string[] | undefined;
+    setEnabledModels(patterns: string[] | undefined): void;
   };
   sessionManager: PiSessionManager;
   scopedModels: readonly { model: AgentModel; thinkingLevel?: ClientThinkingLevel }[];
+  setScopedModels(models: { model: AgentModel; thinkingLevel?: ClientThinkingLevel }[]): void;
   sessionId: string;
   sessionFile: string | undefined;
   sessionName: string | undefined;
@@ -484,6 +488,7 @@ export interface PiAgentSession {
 export interface PiSessionModelRuntime {
   refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
   getAvailable(): Promise<readonly AgentModel[]>;
+  getAvailableSnapshot(): readonly AgentModel[];
   getModel(provider: string, modelId: string): AgentModel | undefined;
   hasConfiguredAuth(provider: string): boolean;
 }
@@ -905,14 +910,22 @@ function createDefaultRuntimeFactory(
       settingsManager,
       ...(resourceLoaderOptions === undefined ? {} : { resourceLoaderOptions }),
     });
+    const modelOptions = await resolveSessionModelOptions({
+      services,
+      hasExistingSession: sessionManager.buildSessionContext().messages.length > 0,
+      ...(initialModel === undefined ? {} : { initialModel }),
+      ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
+    });
+    services.diagnostics.push(...modelOptions.diagnostics);
     const customTools = createPiWebCustomToolDefinitions(cwd, delegationToolsEnabled, spawn, subsessions, askUser);
     const result = await createAgentSessionFromServices({
       services,
       sessionManager,
       customTools,
       ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
-      ...(initialModel === undefined ? {} : { model: initialModel }),
-      ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
+      ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
+      ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
+      ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
     });
     return { ...result, services, diagnostics: services.diagnostics };
   };
@@ -993,6 +1006,13 @@ function createManagementRuntimeFactory(
           skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
         },
       });
+      const modelOptions = await resolveSessionModelOptions({
+        services,
+        hasExistingSession: sessionManager.buildSessionContext().messages.length > 0,
+        ...(initialModel === undefined ? {} : { initialModel }),
+        ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
+      });
+      services.diagnostics.push(...modelOptions.diagnostics);
       const managedToolOptions = createManagedAgentToolOptions(cwd);
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
@@ -1005,8 +1025,9 @@ function createManagementRuntimeFactory(
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
         tools: managementAgentToolNames(managementContext, controlledManagementToolNames),
-        ...(initialModel === undefined ? {} : { model: initialModel }),
-        ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
+        ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
+        ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
+        ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
       };
       const result = await createAgentSessionFromServices(options);
       return { ...result, services, diagnostics: services.diagnostics };
@@ -1639,6 +1660,13 @@ export class PiSessionService {
       : await session.modelRuntime.getAvailable();
   }
 
+  private async enabledModelCatalog(runtime: PiSessionRuntime): Promise<EnabledModelCatalogEntry<AgentModel>[]> {
+    const session = runtime.session;
+    await session.modelRuntime.refresh({ allowNetwork: false });
+    const enabledIds = await resolveEnabledModelIds(sessionScopeSource(runtime));
+    return catalogWithEnabledFirst(session.modelRuntime.getAvailableSnapshot(), enabledIds);
+  }
+
   /**
    * Resolve a strict `provider/model-id` spec from a spawn tool against the
    * *spawning* session's model runtime, using the same candidates
@@ -2248,6 +2276,40 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     const models = await this.sessionModelCandidates(session);
     return models.map(modelToClientModel);
+  }
+
+  async modelCatalog(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
+    const runtime = (await this.getActive(ref, managementContext)).runtime;
+    return (await this.enabledModelCatalog(runtime)).map(catalogEntryToClientModel);
+  }
+
+  async setModelEnabled(ref: PiSessionLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
+    if (managementContext !== undefined) throw new Error("管理嵌入模式不允许修改已启用模型范围");
+    await this.assertWritable(ref);
+    const runtime = (await this.getActive(ref)).runtime;
+    const session = runtime.session;
+    this.assertTreeNavigationInactive(session, "change enabled models");
+    await session.modelRuntime.refresh({ allowNetwork: false });
+    const currentIds = await resolveEnabledModelIds(sessionScopeSource(runtime));
+    const available = session.modelRuntime.getAvailableSnapshot();
+    const availableIds = available.map(modelScopeId);
+    const targetId = `${provider}/${modelId}`;
+    if (!availableIds.includes(targetId)) throw new Error(`未找到模型：${targetId}`);
+    const nextIds = applyEnabledModelToggle(currentIds, availableIds, targetId, enabled);
+    this.assertTreeNavigationInactive(session, "change enabled models");
+    if (nextIds !== currentIds) {
+      const liveIds = liveScopedModelIds(nextIds, availableIds);
+      const modelsById = new Map(available.map((model) => [modelScopeId(model), model]));
+      const scoped = liveIds === null
+        ? []
+        : liveIds.flatMap((id) => {
+          const model = modelsById.get(id);
+          return model === undefined ? [] : [{ model }];
+        });
+      session.settingsManager.setEnabledModels(persistedEnabledModelPatterns(nextIds, availableIds));
+      session.setScopedModels(scoped);
+    }
+    return (await this.enabledModelCatalog(runtime)).map(catalogEntryToClientModel);
   }
 
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
@@ -4429,6 +4491,20 @@ function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel 
     contextWindow: model.contextWindow,
     ...(reasoning === undefined ? {} : { reasoning }),
   };
+}
+
+function sessionScopeSource(runtime: PiSessionRuntime): {
+  settingsManager: PiAgentSession["settingsManager"];
+  modelRuntime: ModelRuntime;
+  scopedModels: PiAgentSession["scopedModels"];
+} {
+  const modelRuntime = runtime.services?.modelRuntime;
+  if (modelRuntime === undefined) throw new Error("会话模型目录不可用");
+  return { settingsManager: runtime.session.settingsManager, modelRuntime, scopedModels: runtime.session.scopedModels };
+}
+
+function catalogEntryToClientModel(entry: EnabledModelCatalogEntry<AgentModel>): ClientSessionModelCatalogEntry {
+  return { ...modelToClientModel(entry.model), provider: entry.model.provider, id: entry.model.id, enabled: entry.enabled };
 }
 
 function notificationIdentityForSession(session: PiAgentSession): { sessionId: string; cwd: string } {

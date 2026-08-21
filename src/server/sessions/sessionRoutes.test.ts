@@ -14,6 +14,7 @@ import type {
   SessionBulkMutationRef,
   SessionCleanupExecuteResponse,
   SessionCleanupPreviewResponse,
+  SessionModelCatalogEntry,
   SessionNotificationDismissAllRequest,
   SessionNotificationDismissRequest,
   SessionNotificationInboxSnapshot,
@@ -58,6 +59,66 @@ afterEach(async () => {
 });
 
 describe("session routes", () => {
+  it("serves model catalog reads and forwards normal enabled-scope edits", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const cwd = resolve("/repo");
+      const catalog = await routeApp.inject({ method: "GET", url: `/sessions/session-1/models/catalog?cwd=${encodeURIComponent(cwd)}` });
+      const updated = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd, provider: "anthropic", modelId: "claude-opus", enabled: false },
+      });
+      const invalid = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd, provider: "anthropic", modelId: "claude-opus", enabled: "no" },
+      });
+
+      expect(catalog.statusCode).toBe(200);
+      expect(catalog.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: true }] });
+      expect(updated.statusCode).toBe(200);
+      expect(updated.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: false }] });
+      expect(invalid.statusCode).toBe(400);
+      expect(routeService.modelCatalogCalls).toEqual([{ lookup: { id: "session-1", cwd }, managementContext: undefined }]);
+      expect(routeService.setModelEnabledCalls).toEqual([{ lookup: { id: "session-1", cwd }, provider: "anthropic", modelId: "claude-opus", enabled: false, managementContext: undefined }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("forwards management context to model catalog boundaries", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const cwd = resolve("/repo");
+      const managementContext: ManagementEmbedContext = {
+        user: { id: "account-1", rootUserId: "root-1", roles: [], permissions: [] },
+        projects: [{ id: "project-1", name: "Project 1" }],
+      };
+      const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) };
+
+      await routeApp.inject({ method: "GET", url: `/sessions/session-1/models/catalog?cwd=${encodeURIComponent(cwd)}`, headers });
+      await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/enabled", headers, payload: { cwd, provider: "anthropic", modelId: "claude-opus", enabled: true } });
+
+      expect(routeService.modelCatalogCalls[0]?.managementContext).toEqual(managementContext);
+      expect(routeService.setModelEnabledCalls[0]?.managementContext).toEqual(managementContext);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("returns notification catalog and selected-inbox snapshots with required cwd context", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -1015,6 +1076,8 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly answerDialogCalls: { lookup: SessionRouteLookup; dialogId: string; value: ExtensionDialogAnswer }[] = [];
   readonly cancelDialogCalls: { lookup: SessionRouteLookup; dialogId: string }[] = [];
   readonly startCalls: { cwd: string; startupToken: string | undefined; managementContext: ManagementEmbedContext | undefined }[] = [];
+  readonly modelCatalogCalls: { lookup: SessionRouteLookup; managementContext: ManagementEmbedContext | undefined }[] = [];
+  readonly setModelEnabledCalls: { lookup: SessionRouteLookup; provider: string; modelId: string; enabled: boolean; managementContext: ManagementEmbedContext | undefined }[] = [];
   askError: Error | undefined;
   dialogError: Error | undefined;
   reloadError: Error | undefined;
@@ -1183,6 +1246,14 @@ class CapturingRouteSessionService implements SessionRouteService {
   }
 
   availableModels(): Promise<[]> { return Promise.resolve([]); }
+  modelCatalog(lookup: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
+    this.modelCatalogCalls.push({ lookup, managementContext });
+    return Promise.resolve([{ provider: "anthropic", id: "claude-opus", enabled: true }]);
+  }
+  setModelEnabled(lookup: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
+    this.setModelEnabledCalls.push({ lookup, provider, modelId, enabled, managementContext });
+    return Promise.resolve([{ provider, id: modelId, enabled }]);
+  }
   setModel(): never { throw unusedRouteMethod("setModel"); }
   cycleModel(): never { throw unusedRouteMethod("cycleModel"); }
   availableThinkingLevels(): Promise<[]> { return Promise.resolve([]); }

@@ -943,6 +943,20 @@ export interface SessionModel {
   reasoning?: unknown;
 }
 
+/** One model in the full runtime catalog and its `enabledModels` membership. */
+export interface SessionModelCatalogEntry {
+  provider: string;
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  reasoning?: unknown;
+  enabled: boolean;
+}
+
+export interface SessionModelCatalogResponse {
+  models: SessionModelCatalogEntry[];
+}
+
 // Domain type is owned by pi and re-exported from the shared thinking-levels
 // module. Wire/data fields below intentionally use `string` so an unknown level
 // from a newer pi runtime parses and renders gracefully instead of failing.
