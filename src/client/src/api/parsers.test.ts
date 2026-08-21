@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
-import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it("parses model catalog enabled state and rejects malformed rows", () => {
+    expect(parseSessionModelCatalogResponse({
+      models: [
+        { provider: "anthropic", id: "claude-opus", name: "Claude Opus", contextWindow: 200_000, reasoning: true, enabled: true },
+        { provider: "openai", id: "gpt", enabled: false },
+      ],
+    })).toEqual({
+      models: [
+        { provider: "anthropic", id: "claude-opus", name: "Claude Opus", contextWindow: 200_000, reasoning: true, enabled: true },
+        { provider: "openai", id: "gpt", enabled: false },
+      ],
+    });
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "openai", id: "gpt", enabled: "yes" }] }))
+      .toThrow("Expected boolean field: enabled");
+  });
+
   it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
     const base = { id: "openai", name: "OpenAI", authType: "api_key", status: { configured: false } };
 
@@ -169,8 +185,8 @@ describe("API parsers", () => {
       packageName: "@jmfederico/pi-web",
       generatedAt: "now",
       components: {
-        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" } },
-        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", dockerMode: "dev" } },
+        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", piVersion: "0.84.1", available: true, stale: false, installation: { kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" } },
+        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", piVersion: "0.83.0", available: true, stale: false, installation: { kind: "docker", dockerMode: "dev" } },
       },
       release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
       commands: { restart: "pi-web-docker restart", status: "pi-web-docker status" },
@@ -181,6 +197,8 @@ describe("API parsers", () => {
 
     expect(parsed.components.web.installation).toEqual({ kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" });
     expect(parsed.components.sessiond.installation).toEqual({ kind: "docker", dockerMode: "dev" });
+    expect(parsed.components.web.piVersion).toBe("0.84.1");
+    expect(parsed.components.sessiond.piVersion).toBe("0.83.0");
     expect(parsed.commands).toEqual({ restart: "pi-web-docker restart", status: "pi-web-docker status" });
     expect(() => parsePiWebStatusResponse({
       ...response,

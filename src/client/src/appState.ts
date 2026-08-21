@@ -1,4 +1,4 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./components/shared";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
@@ -72,7 +72,7 @@ export interface AppState {
   workspaceDeletionRuns: Record<string, TerminalCommandRun>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   treeDialog: SessionTreeSnapshot | undefined;
-  modelDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
+  modelDialog: { title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; selectedValue?: string } | undefined;
   thinkingDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   authDialog: AuthDialogState | undefined;

@@ -11,7 +11,7 @@ export class ProjectService {
   }
 
   async add(input: { name?: string; path: string; create?: boolean }): Promise<Project> {
-    const requestedPath = expandUserPath(input.path);
+    const requestedPath = expandUserPath(input.path.trim());
     if (input.create === true) await mkdir(requestedPath, { recursive: true });
     const resolved = await realpath(requestedPath);
     const s = await stat(resolved);

@@ -176,7 +176,10 @@ class PreferenceOverrideSettingsStorage {
     const existingSharedSettings = omitPreferenceKeys(agentSettings);
     // Only rewrite the shared agent file when a non-preference key actually changed.
     if (stableJsonEqual(existingSharedSettings, nextSharedSettings)) return;
-    writeJsonFile(this.agentSettingsPath, { ...agentSettings, ...nextSharedSettings });
+    writeJsonFile(this.agentSettingsPath, {
+      ...pickPreferenceOverrides(agentSettings),
+      ...nextSharedSettings,
+    });
   }
 
   private withFileLock(path: string, fn: (current: string | undefined) => string | undefined): void {

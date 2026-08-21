@@ -13,6 +13,7 @@ interface AuthDialogOption {
   key: string;
   title: TemplateResult | string;
   detail: string;
+  searchText: string;
   run: () => void;
 }
 
@@ -30,6 +31,7 @@ export class AuthDialog extends LitElement {
   @property({ attribute: false }) onCancel?: () => void;
   @query("modal-surface") private modalSurface?: ModalSurface;
   @litState() private selectedIndex = 0;
+  @litState() private query = "";
   private lastFocusedInputKey: string | undefined;
   private lastStep: AuthDialogState["step"] | undefined;
 
@@ -50,9 +52,12 @@ export class AuthDialog extends LitElement {
 
   protected override updated(): void {
     const step = this.state?.step;
-    if (step !== this.lastStep) this.selectedIndex = 0;
+    if (step !== this.lastStep) {
+      this.selectedIndex = 0;
+      this.query = "";
+    }
     this.lastStep = step;
-    const options = this.state === undefined ? undefined : this.optionsFor(this.state);
+    const options = this.state === undefined ? undefined : this.visibleOptions(this.state);
     if (options !== undefined && this.selectedIndex >= options.length) this.selectedIndex = Math.max(0, options.length - 1);
     this.focusInputIfNeeded();
   }
@@ -88,10 +93,16 @@ export class AuthDialog extends LitElement {
 
   private renderOptionList(state: Exclude<AuthDialogState, { step: "apiKey" | "oauth" }>, credentialScope: string): TemplateResult {
     const options = this.optionsFor(state, credentialScope) ?? [];
+    const visible = this.filteredOptions(options);
     const empty = state.step === "logout" ? "没有已保存的凭据。环境变量和 models.json 设置不会变化。" : "没有可用提供商。";
     return html`
+      ${this.stepHasSearch(state) && options.length > 0 ? html`
+        <input aria-label="搜索提供商" placeholder="搜索提供商" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
+      ` : null}
       <div class="options">
-        ${options.length === 0 ? html`<div class="empty">${empty}</div>` : options.map((option, index) => html`
+        ${options.length === 0 ? html`<div class="empty">${empty}</div>`
+        : visible.length === 0 ? html`<div class="empty">没有匹配的提供商</div>`
+        : visible.map((option, index) => html`
           <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.key)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { option.run(); }}>
             <span>${option.title}</span>
             <small>${option.detail}</small>
@@ -104,24 +115,46 @@ export class AuthDialog extends LitElement {
   private optionsFor(state: AuthDialogState, credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目"): AuthDialogOption[] | undefined {
     switch (state.step) {
       case "method": return [
-        { key: "oauth", title: "使用订阅", detail: "ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot", run: () => { this.onChooseMethod?.("oauth"); } },
-        { key: "api_key", title: "使用 API key", detail: `将 API key 存入${credentialScope}的 auth.json`, run: () => { this.onChooseMethod?.("api_key"); } },
+        { key: "oauth", title: "使用订阅", detail: "ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot", searchText: "使用订阅", run: () => { this.onChooseMethod?.("oauth"); } },
+        { key: "api_key", title: "使用 API key", detail: `将 API key 存入${credentialScope}的 auth.json`, searchText: "使用 API key", run: () => { this.onChooseMethod?.("api_key"); } },
       ];
       case "providers": return state.providers.map((provider) => ({
         key: `${provider.id}:${provider.authType}`,
         title: html`${provider.name}${provider.status.source !== undefined ? html` <em>${statusLabel(provider)}</em>` : null}`,
         detail: `${provider.id} · ${authTypeLabel(provider.authType)}`,
+        searchText: provider.name,
         run: () => { this.onSelectProvider?.(provider.id, provider.authType); },
       }));
       case "logout": return state.providers.map((provider) => ({
         key: `${provider.id}:${provider.authType}`,
         title: provider.name,
         detail: `${provider.id} · ${authTypeLabel(provider.authType)}`,
+        searchText: provider.name,
         run: () => { this.onLogoutProvider?.(provider.id); },
       }));
       case "apiKey":
       case "oauth": return undefined;
     }
+  }
+
+  private stepHasSearch(state: AuthDialogState): boolean {
+    return state.step === "providers" || state.step === "logout";
+  }
+
+  private handleSearchInput(event: Event): void {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    this.query = event.target.value;
+    this.selectedIndex = 0;
+  }
+
+  private filteredOptions(options: AuthDialogOption[]): AuthDialogOption[] {
+    const query = this.query.trim().toLowerCase();
+    if (query === "") return options;
+    return options.filter((option) => `${option.searchText} ${option.detail} ${option.key}`.toLowerCase().includes(query));
+  }
+
+  private visibleOptions(state: AuthDialogState): AuthDialogOption[] {
+    return this.filteredOptions(this.optionsFor(state) ?? []);
   }
 
   private renderOAuth(state: Extract<AuthDialogState, { step: "oauth" }>) {
@@ -182,8 +215,8 @@ export class AuthDialog extends LitElement {
     const state = this.state;
     if (state === undefined || keyboardEventOriginatesFromNativeActivationControl(event)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      const options = this.optionsFor(state);
-      if (options === undefined || options.length === 0) return;
+      const options = this.visibleOptions(state);
+      if (options.length === 0) return;
       event.preventDefault();
       const delta = event.key === "ArrowDown" ? 1 : -1;
       this.selectedIndex = (this.selectedIndex + delta + options.length) % options.length;
@@ -197,7 +230,7 @@ export class AuthDialog extends LitElement {
       event.preventDefault();
       this.onOAuthRespond?.();
     } else {
-      const option = this.optionsFor(state)?.[this.selectedIndex];
+      const option = this.visibleOptions(state)[this.selectedIndex];
       if (option === undefined) return;
       event.preventDefault();
       option.run();
@@ -211,7 +244,11 @@ export class AuthDialog extends LitElement {
   }
 
   private initialFocus(state: AuthDialogState): string {
-    return state.step === "apiKey" || (state.step === "oauth" && state.flow.prompt !== undefined) ? "input" : "button";
+    return state.step === "apiKey"
+      || (state.step === "oauth" && state.flow.prompt !== undefined)
+      || ((state.step === "providers" || state.step === "logout") && state.providers.length > 0)
+      ? "input"
+      : "button";
   }
 
   static override styles = [commandPickerStyles, css`
@@ -261,6 +298,7 @@ function authTypeLabel(authType: "oauth" | "api_key"): string {
 }
 
 function focusKey(state: AuthDialogState | undefined): string | undefined {
+  if ((state?.step === "providers" || state?.step === "logout") && state.providers.length > 0) return `provider-search:${state.step}`;
   if (state?.step === "apiKey") return `api-key:${state.provider.authType}:${state.provider.id}`;
   if (state?.step === "oauth" && state.flow.prompt !== undefined) return `oauth:${state.flow.flowId}:${state.flow.prompt.requestId}`;
   return undefined;

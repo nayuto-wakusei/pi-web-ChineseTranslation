@@ -91,9 +91,9 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes model picker and session bulk action copy",
-    paths: ["components/PiWebApp.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
-    forbidden: ["Select Model", "✓ current", "Select visible", "Clear selected", "} selected", "Archive selected", "Delete selected", ">Done<", ">Archive<"],
+    paths: ["components/PiWebApp.ts", "components/ModelPicker.ts", "components/SessionList.ts"],
+    expected: ["选择模型", "已启用", "全部模型", "其他模型", "没有匹配选项", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
+    forbidden: ["Select Model", "All models", "Other models", "No matching options", "✓ current", "Select visible", "Clear selected", "} selected", "Archive selected", "Delete selected", ">Done<", ">Archive<"],
   },
   {
     name: "localizes session content search dialog copy",
@@ -104,8 +104,8 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "labels provider auth as project-scoped",
     paths: ["components/AuthDialog.ts", "plugins/core/actions.ts"],
-    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证"],
-    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout"],
+    expected: ["credentialScope", "配置当前项目的提供商认证", "移除当前项目的提供商认证", "搜索提供商", "没有匹配的提供商"],
+    forbidden: ["pi auth.json", "运行 /login，但不将认证绑定到某个会话", "针对已保存的 pi 凭据运行 /logout", "Search providers", "No matching providers"],
   },
   {
     name: "localizes session cleanup actions and dialog copy",
@@ -122,8 +122,8 @@ const copyCases: readonly CopyCase[] = [
       "../../../pi-web-plugins/relays/relaysPanelElement.ts",
       "../../../pi-web-plugins/relays/markdownDocument.ts",
     ],
-    expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
-    forbidden: ["title: \"Info\"", "<strong>Info</strong>", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
+    expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "会话守护进程正在运行", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
+    forbidden: ["title: \"Info\"", "<strong>Info</strong>", "session daemon running", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],
   },
   {
     name: "localizes the bundled Git plugin surfaces",

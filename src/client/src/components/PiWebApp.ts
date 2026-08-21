@@ -1,6 +1,6 @@
 import { css, LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionModel, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
@@ -62,6 +62,7 @@ import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
 import "./CommandPicker";
+import "./ModelPicker";
 import "./ActionPalette";
 import "./AuthDialog";
 import "./NormalAuthDialog";
@@ -2222,20 +2223,34 @@ export class PiWebApp extends LitElement {
   }
 
   private async openModelDialog() {
-    const models = await this.sessions.listModels();
-    const currentProvider = this.state.status?.model?.provider;
-    const currentId = this.state.status?.model?.id;
+    const [models, catalog] = await Promise.all([
+      this.sessions.listModels(),
+      this.apiScope === "normal" ? this.sessions.listModelCatalog() : Promise.resolve(undefined),
+    ]);
+    const selectedValue = this.currentModelValue();
     this.setState({
       modelDialog: {
         title: "选择模型",
-        ...(currentProvider !== undefined && currentId !== undefined ? { selectedValue: `${currentProvider}/${currentId}` } : {}),
-        options: models.map((model) => {
-          const provider = model.provider ?? "";
-          const id = model.id ?? "";
-          const isCurrent = provider === currentProvider && id === currentId;
-          return { value: `${provider}/${id}`, label: `${id}${isCurrent ? " ✓ 当前" : ""}`, description: provider };
-        }),
+        ...(selectedValue === undefined ? {} : { selectedValue }),
+        options: this.modelDialogOptions(models),
+        ...(catalog === undefined ? {} : { catalog }),
       },
+    });
+  }
+
+  private currentModelValue(): string | undefined {
+    const provider = this.state.status?.model?.provider;
+    const id = this.state.status?.model?.id;
+    return provider !== undefined && id !== undefined ? `${provider}/${id}` : undefined;
+  }
+
+  private modelDialogOptions(models: readonly Pick<SessionModel, "provider" | "id">[]): CommandOption[] {
+    const selectedValue = this.currentModelValue();
+    return models.map((model) => {
+      const provider = model.provider ?? "";
+      const id = model.id ?? "";
+      const value = `${provider}/${id}`;
+      return { value, label: `${id}${value === selectedValue ? " ✓ 当前" : ""}`, description: provider };
     });
   }
 
@@ -2406,6 +2421,20 @@ export class PiWebApp extends LitElement {
     void this.openModelDialog();
   };
 
+  private readonly handleToggleModelEnabled = async (provider: string, modelId: string, enabled: boolean): Promise<void> => {
+    if (this.apiScope !== "normal") return;
+    const catalog = await this.sessions.setModelEnabled(provider, modelId, enabled);
+    const dialog = this.state.modelDialog;
+    if (catalog === undefined || dialog?.catalog === undefined) return;
+    this.setState({
+      modelDialog: {
+        ...dialog,
+        catalog,
+        options: this.modelDialogOptions(catalog.filter((entry) => entry.enabled)),
+      },
+    });
+  };
+
   private readonly handleSelectThinking = (): void => {
     void this.openThinkingDialog();
   };
@@ -2496,7 +2525,9 @@ export class PiWebApp extends LitElement {
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
             ${this.renderStatusBar(state)}
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
-            ${state.modelDialog !== undefined ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>` : null}
+            ${state.modelDialog === undefined ? null : state.modelDialog.catalog === undefined
+              ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>`
+              : html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onToggleEnabled=${this.handleToggleModelEnabled} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>`}
             ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .selectedValue=${state.thinkingDialog.selectedValue} .onPick=${(value: string) => { void this.pickThinking(value); }} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
           ` : html`<div class="empty">${this.sessionEmptyMessage()}</div>`}
         </main>
@@ -2507,7 +2538,7 @@ export class PiWebApp extends LitElement {
         ${this.renderSessionTreeNavigator(state)}
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
-        ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
+        ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}

@@ -162,24 +162,31 @@ describe("projectSettingsScope", () => {
     await mkdir(projectPath, { recursive: true });
     await writeFile(
       join(globalAgentDir, "settings.json"),
-      `${JSON.stringify({ defaultThinkingLevel: "off", packages: ["./pkg"] }, null, 2)}\n`,
+      `${JSON.stringify({
+        defaultThinkingLevel: "off",
+        packages: ["./pkg"],
+        enabledModels: ["anthropic/*"],
+      }, null, 2)}\n`,
     );
 
     const settings = await createScopedSettingsManager({ cwd: projectPath, scopeDirectory, globalAgentDir });
     settings.setDefaultThinkingLevel("high");
     settings.setCompactionEnabled(false);
     settings.setRetryEnabled(false);
+    settings.setEnabledModels(undefined);
     await settings.flush();
 
     expect(JSON.parse(await readFile(preferencesFilePath(scopeDirectory), "utf8"))).toEqual({
       defaultThinkingLevel: "high",
     });
-    expect(JSON.parse(await readFile(join(globalAgentDir, "settings.json"), "utf8"))).toMatchObject({
+    const globalSettings: unknown = JSON.parse(await readFile(join(globalAgentDir, "settings.json"), "utf8"));
+    expect(globalSettings).toMatchObject({
       defaultThinkingLevel: "off",
       packages: ["./pkg"],
       compaction: { enabled: false },
       retry: { enabled: false },
     });
+    expect(globalSettings).not.toHaveProperty("enabledModels");
   });
 
   it("migrates only preference keys from a legacy whole-file scoped settings snapshot", async () => {

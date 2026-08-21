@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, SettingsManager, VERSION as PI_CODING_AGENT_VERSION } from "@earendil-works/pi-coding-agent";
 import type { ActiveAgentProfileDescriptor, PiWebCapability, PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebVersionResponse } from "../shared/apiTypes.js";
 import { effectivePiWebCapabilities, WEB_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 import { piWebDockerCommand } from "../docker/piWebDockerCommandPlan.js";
@@ -90,6 +90,7 @@ export function getPiWebRuntimeComponent(component: PiWebServiceComponent, capab
     component,
     label: component === "web" ? "Web/UI" : "Session daemon",
     runtimeVersion: runtimePackageInfo?.version ?? DEFAULT_VERSION,
+    piVersion: PI_CODING_AGENT_VERSION,
     available: true,
     capabilities: [...capabilities],
   };
@@ -118,6 +119,7 @@ export async function getPiWebComponentStatus(component: PiWebServiceComponent, 
     label: component === "web" ? "Web/UI" : "Session daemon",
     runtimeVersion,
     ...(installedVersion === undefined ? {} : { installedVersion }),
+    piVersion: PI_CODING_AGENT_VERSION,
     stale: isInstalledVersionNewer(installedVersion, runtimeVersion),
     available: true,
     installation,
@@ -337,6 +339,7 @@ async function getSessiondComponentStatus(daemon: PiWebStatusDaemon, options: Pi
     return {
       ...status,
       ...(runtimeVersion === undefined ? {} : { runtimeVersion }),
+      ...(runtime.piVersion === undefined ? {} : { piVersion: runtime.piVersion }),
       stale: isInstalledVersionNewer(status.installedVersion, runtimeVersion),
       available: true,
     };
@@ -366,6 +369,7 @@ function runtimeComponentFromStatus(status: PiWebComponentStatus): PiWebRuntimeC
     component: status.component,
     label: status.label,
     ...(status.runtimeVersion === undefined ? {} : { runtimeVersion: status.runtimeVersion }),
+    ...(status.piVersion === undefined ? {} : { piVersion: status.piVersion }),
     available: status.available,
     capabilities: [],
     ...(status.error === undefined ? {} : { error: status.error }),

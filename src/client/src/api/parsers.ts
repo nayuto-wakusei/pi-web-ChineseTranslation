@@ -1,4 +1,4 @@
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitDiffResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitDiffResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
 import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionPinResponse, SessionPinnedIdsResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
 import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
@@ -1025,6 +1025,23 @@ export function parseModelSelectionResponse(value: unknown): ModelSelectionRespo
   return { models: arrayOf(parseSessionModel)(record["models"]) };
 }
 
+function parseSessionModelCatalogEntry(value: unknown): SessionModelCatalogEntry {
+  const record = requireRecord(value);
+  return {
+    provider: requireString(record, "provider"),
+    id: requireString(record, "id"),
+    ...optionalField("name", optionalString(record, "name")),
+    ...optionalField("contextWindow", optionalNumber(record, "contextWindow")),
+    ...optionalField("reasoning", record["reasoning"]),
+    enabled: requireBoolean(record, "enabled"),
+  };
+}
+
+export function parseSessionModelCatalogResponse(value: unknown): SessionModelCatalogResponse {
+  const record = requireRecord(value);
+  return { models: arrayOf(parseSessionModelCatalogEntry)(record["models"]) };
+}
+
 function parseThinkingLevel(value: unknown): string {
   // pi owns the level set; accept any string so a newer pi runtime reporting an
   // unknown level degrades gracefully instead of failing the whole response.
@@ -1556,6 +1573,7 @@ function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
     component,
     label: requireString(record, "label"),
     ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
+    ...optionalField("piVersion", optionalString(record, "piVersion")),
     available: requireBoolean(record, "available"),
     capabilities: parsePiWebCapabilities(record["capabilities"]),
     ...optionalField("activeAgentProfile", activeAgentProfile),
@@ -1570,6 +1588,7 @@ function parsePiWebComponentStatus(value: unknown): PiWebComponentStatus {
     label: requireString(record, "label"),
     ...optionalField("runtimeVersion", optionalString(record, "runtimeVersion")),
     ...optionalField("installedVersion", optionalString(record, "installedVersion")),
+    ...optionalField("piVersion", optionalString(record, "piVersion")),
     stale: requireBoolean(record, "stale"),
     available: requireBoolean(record, "available"),
     ...optionalField("installation", optionalPiWebInstallationInfo(record["installation"])),

@@ -1,7 +1,7 @@
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupRequest } from "../api";
-import { canRunSessionCleanup, confirmSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
+import { canRunSessionCleanup, confirmSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupPreviewMatchesDraft, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
 import "./ModalSurface";
 
 @customElement("session-cleanup-dialog")
@@ -9,7 +9,6 @@ export class SessionCleanupDialog extends LitElement {
   @property({ type: Boolean }) canCleanup = true;
   @property({ type: String }) unavailableMessage = "请更新并重启此机器上的 Pi-Web 后再清理会话。";
   @property({ attribute: false }) preview?: SessionCleanupPreviewResponse;
-  @property({ attribute: false }) previewRequest?: SessionCleanupRequest;
   @property({ attribute: false }) result?: SessionCleanupExecuteResponse;
   @property({ type: Boolean }) loading = false;
   @property({ type: Boolean }) running = false;
@@ -29,7 +28,7 @@ export class SessionCleanupDialog extends LitElement {
   override render(): TemplateResult {
     const validation = validateSessionCleanupDraft(this.draft);
     const selectedPreview = this.selectedPreview();
-    const runEnabled = canRunSessionCleanup({ canCleanup: this.canCleanup, draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest, loading: this.loading, running: this.running });
+    const runEnabled = canRunSessionCleanup({ canCleanup: this.canCleanup, draft: this.draft, preview: selectedPreview, loading: this.loading, running: this.running });
     const runTitle = runEnabled ? "运行清理" : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "至少选择一个项目才能运行清理" : "运行清理前请先预览";
     return html`
       <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${"清理会话"}>
@@ -59,7 +58,7 @@ export class SessionCleanupDialog extends LitElement {
   private renderForm(validationError: string): TemplateResult {
     const disabled = this.loading || this.running;
     const validation = validateSessionCleanupDraft(this.draft);
-    const previewOutOfDate = this.preview !== undefined && validation.ok && sessionCleanupRequestKey(validation.request) !== sessionCleanupRequestKey(this.previewRequest) && sessionCleanupPreviewHasTargets(this.preview);
+    const previewOutOfDate = this.preview !== undefined && validation.ok && !sessionCleanupPreviewMatchesDraft(this.draft, this.preview) && sessionCleanupPreviewHasTargets(this.preview);
     return html`
       <fieldset ?disabled=${disabled}>
         <label class="toggle-row">
@@ -201,7 +200,7 @@ export class SessionCleanupDialog extends LitElement {
     }
     const selectedPreview = this.selectedPreview();
     const selectedProjectCwds = this.selectedProjectCwdsForPreview();
-    if (!canRunSessionCleanup({ canCleanup: this.canCleanup, draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest })) {
+    if (!canRunSessionCleanup({ canCleanup: this.canCleanup, draft: this.draft, preview: selectedPreview })) {
       this.formError = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "至少选择一个项目才能运行清理。" : "运行清理前请先预览。";
       return;
     }

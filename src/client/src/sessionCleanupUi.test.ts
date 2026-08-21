@@ -35,13 +35,10 @@ describe("session cleanup UI helpers", () => {
   });
 
   it("requires a current preview before cleanup can run", () => {
-    const validation = validateSessionCleanupDraft(draft);
-    if (!validation.ok) throw new Error(validation.error);
-
-    expect(canRunSessionCleanup({ canCleanup: true, draft, preview, previewRequest: validation.request })).toBe(true);
-    expect(canRunSessionCleanup({ canCleanup: true, draft: { ...draft, archiveIdleDays: "31" }, preview, previewRequest: validation.request })).toBe(false);
-    expect(canRunSessionCleanup({ canCleanup: true, draft, preview: { ...preview, totals: { archiveCount: 0, deleteCount: 0 } }, previewRequest: validation.request })).toBe(false);
-    expect(canRunSessionCleanup({ canCleanup: false, draft, preview, previewRequest: validation.request })).toBe(false);
+    expect(canRunSessionCleanup({ canCleanup: true, draft, preview })).toBe(true);
+    expect(canRunSessionCleanup({ canCleanup: true, draft: { ...draft, archiveIdleDays: "31" }, preview })).toBe(false);
+    expect(canRunSessionCleanup({ canCleanup: true, draft, preview: { ...preview, totals: { archiveCount: 0, deleteCount: 0 } } })).toBe(false);
+    expect(canRunSessionCleanup({ canCleanup: false, draft, preview })).toBe(false);
   });
 
   it("normalizes request keys for null, omitted disabled actions, and selected projects", () => {

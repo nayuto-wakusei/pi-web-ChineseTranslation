@@ -593,6 +593,10 @@ export const promptEditorStyles = css`
   .markdown-editor .cm-line { padding: 0; unicode-bidi: plaintext; }
   .markdown-editor .cm-placeholder { color: var(--pi-dim); }
   .markdown-editor .cm-focused { outline: none; }
+  /* CodeMirror draws these elements itself, so native caret styling does not apply. */
+  .markdown-editor .cm-cursor { border-left-color: var(--pi-text); }
+  .markdown-editor .cm-editor .cm-selectionBackground { background: color-mix(in srgb, var(--pi-text) 18%, transparent); }
+  .markdown-editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: color-mix(in srgb, var(--pi-accent) 32%, transparent); }
   .shell-mode textarea, .shell-mode .markdown-editor .cm-editor { border-color: var(--pi-success); box-shadow: 0 0 0 1px var(--pi-success-ring); }
   .mode-hint { position: absolute; right: 46px; bottom: 8px; max-width: calc(100% - 54px); border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
   .attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }

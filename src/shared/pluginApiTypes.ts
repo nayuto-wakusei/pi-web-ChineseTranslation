@@ -136,6 +136,8 @@ export interface PiWebComponentStatus {
   label: string;
   runtimeVersion?: string;
   installedVersion?: string;
+  /** Version of the Pi coding agent library loaded by this component's process. */
+  piVersion?: string;
   stale: boolean;
   available: boolean;
   installation?: PiWebInstallationInfo;

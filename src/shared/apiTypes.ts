@@ -943,6 +943,20 @@ export interface SessionModel {
   reasoning?: unknown;
 }
 
+/** One model in the full runtime catalog and its `enabledModels` membership. */
+export interface SessionModelCatalogEntry {
+  provider: string;
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  reasoning?: unknown;
+  enabled: boolean;
+}
+
+export interface SessionModelCatalogResponse {
+  models: SessionModelCatalogEntry[];
+}
+
 // Domain type is owned by pi and re-exported from the shared thinking-levels
 // module. Wire/data fields below intentionally use `string` so an unknown level
 // from a newer pi runtime parses and renders gracefully instead of failing.
@@ -1257,6 +1271,8 @@ export interface PiWebComponentStatus {
   label: string;
   runtimeVersion?: string;
   installedVersion?: string;
+  /** Version of the Pi coding agent library loaded by this component's process. */
+  piVersion?: string;
   stale: boolean;
   available: boolean;
   installation?: PiWebInstallationInfo;
@@ -1276,6 +1292,8 @@ export interface PiWebRuntimeComponent {
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;
+  /** Version of the Pi coding agent library loaded by this component's process. */
+  piVersion?: string;
   available: boolean;
   capabilities: PiWebCapability[];
   /** Present only for a session daemon that supports active-profile reporting. */

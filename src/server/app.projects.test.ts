@@ -31,6 +31,17 @@ describe("buildApp project routes", () => {
     expect(emptyListResponse.json<Project[]>()).toEqual([]);
   });
 
+  it("trims surrounding whitespace from the submitted project path", async () => {
+    const addResponse = await appTestContext.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Padded", path: `  ${appTestContext.projectDir}  `, create: true },
+    });
+
+    expect(addResponse.statusCode).toBe(200);
+    expect(addResponse.json<Project>().path).toBe(appTestContext.projectDir);
+  });
+
   it("returns stable errors for invalid project requests", async () => {
     const addResponse = await appTestContext.app.inject({
       method: "POST",

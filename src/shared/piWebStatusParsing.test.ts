@@ -86,6 +86,37 @@ describe("PI WEB status parsing", () => {
     expect(parsePiWebRuntimeResponse(responseFor(profile, undefined))).toBeUndefined();
   });
 
+  it("carries reported Pi versions through component and runtime parsing", () => {
+    expect(parsePiWebComponentStatus({
+      component: "web",
+      label: "Web/UI",
+      runtimeVersion: "1.0.0",
+      piVersion: "0.84.1",
+      stale: false,
+      available: true,
+    })).toMatchObject({ runtimeVersion: "1.0.0", piVersion: "0.84.1" });
+
+    expect(parsePiWebComponentStatus({
+      component: "web",
+      label: "Web/UI",
+      stale: false,
+      available: true,
+    })).not.toHaveProperty("piVersion");
+
+    const runtime = parsePiWebRuntimeResponse({
+      packageName: "@chainingintention/pi-web-cn",
+      generatedAt: "now",
+      components: {
+        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", piVersion: "0.84.1", available: true, capabilities: [] },
+        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", piVersion: "0.83.0", available: true, capabilities: [] },
+      },
+      capabilities: [],
+    });
+
+    expect(runtime?.components.web.piVersion).toBe("0.84.1");
+    expect(runtime?.components.sessiond.piVersion).toBe("0.83.0");
+  });
+
   it("parses Docker installation metadata", () => {
     expect(parsePiWebInstallationInfo({ kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" })).toEqual({
       kind: "docker",

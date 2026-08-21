@@ -86,6 +86,7 @@ function fakeModelRuntime(configured = true): PiSessionModelRuntime {
   return {
     refresh: () => Promise.resolve(),
     getAvailable: () => Promise.resolve(configured ? [model] : []),
+    getAvailableSnapshot: () => configured ? [model] : [],
     getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
     hasConfiguredAuth: (provider: string) => configured && provider === model.provider,
   };
@@ -111,8 +112,9 @@ function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) 
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
     modelRuntime: fakeModelRuntime(),
-    settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined },
+    settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined, getEnabledModels: () => undefined, setEnabledModels: () => undefined },
     scopedModels: [],
+    setScopedModels: (models) => { session.scopedModels = models; },
     extensionRunner: { getRegisteredCommands: () => [], getUIContext: () => testExtensionUiContext, setUIContext: () => undefined },
     promptTemplates: [],
     resourceLoader: { getSkills: () => ({ skills: [] }) },
@@ -450,6 +452,7 @@ describe("PiSessionService", () => {
         return Promise.resolve();
       },
       getAvailable: () => Promise.resolve(refreshed ? [model] : []),
+      getAvailableSnapshot: () => refreshed ? [model] : [],
       getModel: () => undefined,
       hasConfiguredAuth: () => true,
     };
@@ -478,6 +481,7 @@ describe("PiSessionService", () => {
         return Promise.resolve();
       },
       getAvailable: () => Promise.resolve(refreshed ? [model] : []),
+      getAvailableSnapshot: () => refreshed ? [model] : [],
       getModel: () => undefined,
       hasConfiguredAuth: () => true,
     };
