@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.13
+
+### Patch Changes
+
+- Retry transient Workbench MCP transport failures once and report actionable connection categories without exposing capability credentials.
+- Prevent ordinary-mode enabled model selections from appearing as runtime warnings in management-embed sessions.
+
 ## 1.202608.12
 
 ### Patch Changes
