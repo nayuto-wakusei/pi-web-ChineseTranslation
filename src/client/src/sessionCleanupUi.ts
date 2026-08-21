@@ -42,8 +42,8 @@ export function validateSessionCleanupDraft(draft: SessionCleanupDraft): Session
 }
 
 export function sessionCleanupRequestKey(request: SessionCleanupRequest | undefined): string {
-  // The preview freshness key is threshold-only: project selection is applied
-  // to the already-previewed project list and sent separately when running.
+  // Execution freshness includes the management project identity. Workspace
+  // selection is applied to the previewed project list and sent separately.
   return JSON.stringify({
     archiveIdleDays: request?.archiveIdleDays ?? null,
     deleteArchivedDays: request?.deleteArchivedDays ?? null,
@@ -55,15 +55,18 @@ export function canRunSessionCleanup(input: {
   canCleanup: boolean;
   draft: SessionCleanupDraft;
   preview: SessionCleanupPreviewResponse | undefined;
-  previewRequest: SessionCleanupRequest | undefined;
   loading?: boolean;
   running?: boolean;
 }): boolean {
   if (!input.canCleanup || input.loading === true || input.running === true || input.preview === undefined) return false;
-  const validation = validateSessionCleanupDraft(input.draft);
-  if (!validation.ok) return false;
-  if (sessionCleanupRequestKey(validation.request) !== sessionCleanupRequestKey(input.previewRequest)) return false;
+  if (!sessionCleanupPreviewMatchesDraft(input.draft, input.preview)) return false;
   return sessionCleanupPreviewHasTargets(input.preview);
+}
+
+export function sessionCleanupPreviewMatchesDraft(draft: SessionCleanupDraft, preview: Pick<SessionCleanupPreviewResponse, "thresholds">): boolean {
+  const validation = validateSessionCleanupDraft(draft);
+  if (!validation.ok) return false;
+  return sessionCleanupThresholdKey(validation.request) === sessionCleanupThresholdKey(preview.thresholds);
 }
 
 export function sessionCleanupPreviewHasTargets(preview: Pick<SessionCleanupPreviewResponse, "totals">): boolean {
@@ -114,4 +117,11 @@ function parseDayThreshold(value: string, label: string): number | string {
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < 0) return `${label}必须是非负整数天数。`;
   return parsed;
+}
+
+function sessionCleanupThresholdKey(thresholds: { archiveIdleDays?: number | null; deleteArchivedDays?: number | null }): string {
+  return JSON.stringify({
+    archiveIdleDays: thresholds.archiveIdleDays ?? null,
+    deleteArchivedDays: thresholds.deleteArchivedDays ?? null,
+  });
 }
