@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.11
+
+### Patch Changes
+
+- 27a893c: Store the shared management-embed model configuration alongside its credentials under `$PI_WEB_DATA_DIR/management-embed`.
+
 ## 1.202608.10
 
 ### Major Changes
