@@ -51,7 +51,7 @@ describe("projectSettingsScope", () => {
     );
   });
 
-  it("isolates thinking and default model overrides without freezing shared agent settings", async () => {
+  it("isolates model preferences without freezing shared non-model agent settings", async () => {
     const root = await tempRoot();
     const dataDir = join(root, "data");
     const globalAgentDir = join(root, "global-agent");
@@ -90,9 +90,9 @@ describe("projectSettingsScope", () => {
       mode: "normal",
     });
 
-    // Shared resources remain visible, while management cannot see ordinary model scope.
+    // Shared resources remain visible, while global model scope is not injected into either mode.
     expect(normalA.getPackages()).toEqual(["./pkg-a"]);
-    expect(normalA.getEnabledModels()).toEqual(["anthropic/*"]);
+    expect(normalA.getEnabledModels()).toBeUndefined();
     expect(managementA.getPackages()).toEqual(["./pkg-a"]);
     expect(managementA.getEnabledModels()).toBeUndefined();
 
@@ -145,7 +145,7 @@ describe("projectSettingsScope", () => {
     expect(normalBReload.getDefaultThinkingLevel()).toBe("low");
 
     expect(normalAReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
-    expect(normalAReload.getEnabledModels()).toEqual(["anthropic/*", "openai/*"]);
+    expect(normalAReload.getEnabledModels()).toBeUndefined();
     expect(normalAReload.getExtensionPaths()).toEqual(["./ext-new"]);
     expect(managementAReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
     expect(managementAReload.getEnabledModels()).toBeUndefined();
@@ -161,6 +161,38 @@ describe("projectSettingsScope", () => {
       defaultThinkingLevel: "high",
       defaultProvider: "openai",
       defaultModel: "gpt-test",
+    });
+  });
+
+  it("keeps enabled model edits isolated between normal projects", async () => {
+    const root = await tempRoot();
+    const dataDir = join(root, "data");
+    const globalAgentDir = join(root, "global-agent");
+    const projectA = join(root, "project-a");
+    const projectB = join(root, "project-b");
+    await Promise.all([mkdir(globalAgentDir, { recursive: true }), mkdir(projectA, { recursive: true }), mkdir(projectB, { recursive: true })]);
+    await writeFile(join(globalAgentDir, "settings.json"), `${JSON.stringify({
+      packages: ["./shared-package"],
+      enabledModels: ["leaked/project-a-model"],
+    }, null, 2)}\n`);
+    const scopeA = projectSettingsScopeDirectory(dataDir, projectA, "normal");
+    const scopeB = projectSettingsScopeDirectory(dataDir, projectB, "normal");
+    const settingsA = await createScopedSettingsManager({ cwd: projectA, scopeDirectory: scopeA, globalAgentDir, mode: "normal" });
+    const settingsB = await createScopedSettingsManager({ cwd: projectB, scopeDirectory: scopeB, globalAgentDir, mode: "normal" });
+
+    expect(settingsA.getEnabledModels()).toBeUndefined();
+    expect(settingsB.getEnabledModels()).toBeUndefined();
+    settingsA.setEnabledModels(["provider-a/model-a"]);
+    await settingsA.flush();
+
+    const settingsAReload = await createScopedSettingsManager({ cwd: projectA, scopeDirectory: scopeA, globalAgentDir, mode: "normal" });
+    const settingsBReload = await createScopedSettingsManager({ cwd: projectB, scopeDirectory: scopeB, globalAgentDir, mode: "normal" });
+    expect(settingsAReload.getEnabledModels()).toEqual(["provider-a/model-a"]);
+    expect(settingsBReload.getEnabledModels()).toBeUndefined();
+    expect(JSON.parse(await readFile(preferencesFilePath(scopeA), "utf8"))).toEqual({ enabledModels: ["provider-a/model-a"] });
+    expect(JSON.parse(await readFile(join(globalAgentDir, "settings.json"), "utf8"))).toEqual({
+      packages: ["./shared-package"],
+      enabledModels: ["leaked/project-a-model"],
     });
   });
 
@@ -240,7 +272,7 @@ describe("projectSettingsScope", () => {
       compaction: { enabled: false },
       retry: { enabled: false },
     });
-    expect(globalSettings).not.toHaveProperty("enabledModels");
+    expect(globalSettings).toHaveProperty("enabledModels", ["anthropic/*"]);
   });
 
   it("migrates only preference keys from a legacy whole-file scoped settings snapshot", async () => {
@@ -275,11 +307,12 @@ describe("projectSettingsScope", () => {
     expect(settings.getDefaultProvider()).toBe("openai");
     expect(settings.getDefaultModel()).toBe("gpt-legacy");
     expect(settings.getPackages()).toEqual(["./fresh-pkg"]);
-    expect(settings.getEnabledModels()).toEqual(["fresh/*"]);
+    expect(settings.getEnabledModels()).toEqual(["stale/*"]);
     expect(JSON.parse(await readFile(preferencesFilePath(scopeDirectory), "utf8"))).toEqual({
       defaultThinkingLevel: "high",
       defaultProvider: "openai",
       defaultModel: "gpt-legacy",
+      enabledModels: ["stale/*"],
     });
   });
 });

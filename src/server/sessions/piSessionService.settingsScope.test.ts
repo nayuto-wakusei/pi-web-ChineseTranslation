@@ -23,9 +23,8 @@ afterEach(async () => {
 
 /**
  * Behavioral coverage for the runtime wiring contract: agentDir stays shared
- * for resources, preference overrides (defaultThinkingLevel / default model)
- * are mode x project scoped, and shared settings such as packages keep tracking
- * the real agentDir settings.json.
+ * for resources, model settings are mode x project scoped, and shared settings
+ * such as packages keep tracking the real agentDir settings.json.
  */
 describe("PiSessionService settings scope wiring", () => {
   it("keeps preference overrides isolated while packages follow the real agent dir", async () => {
@@ -134,11 +133,7 @@ describe("PiSessionService settings scope wiring", () => {
     });
     expect(managementReload.getDefaultThinkingLevel()).toBe("medium");
     expect(managementReload.getPackages()).toEqual(["./pkg-a", "./pkg-b"]);
-    expect(normalReload.getEnabledModels()).toEqual([
-      "deepseek/deepseek-v4-flash",
-      "deepseek/deepseek-v4-pro",
-      "scnet/GLM-5.2",
-    ]);
+    expect(normalReload.getEnabledModels()).toBeUndefined();
     expect(managementReload.getEnabledModels()).toBeUndefined();
 
     const normalResolution = await resolveSessionModelOptions({
@@ -149,11 +144,7 @@ describe("PiSessionService settings scope wiring", () => {
       services: { settingsManager: managementReload, modelRuntime },
       hasExistingSession: false,
     });
-    expect(normalResolution.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-      'No models match pattern "deepseek/deepseek-v4-flash"',
-      'No models match pattern "deepseek/deepseek-v4-pro"',
-      'No models match pattern "scnet/GLM-5.2"',
-    ]);
+    expect(normalResolution.diagnostics).toEqual([]);
     expect(managementResolution.diagnostics).toEqual([]);
   });
 });

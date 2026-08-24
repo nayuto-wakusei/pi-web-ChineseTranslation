@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
@@ -185,6 +185,19 @@ describe("management embed local token authentication", () => {
     const context = await managementContextForRequest(requestFor({ cookie }, { embed: "management", token: expiredToken }), runtime, replyFor());
 
     expect(context?.projects).toEqual([]);
+  });
+
+  it("prepares a cached management context before reusing its session cookie", async () => {
+    const runtime = runtimeFor("secret-1");
+    const prepareContext = vi.fn(() => Promise.resolve());
+    runtime.prepareContext = prepareContext;
+    const entryReply = replyFor();
+    const token = signToken(tokenPayload(contextFor([])), "secret-1");
+    await managementContextForRequest(requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }), runtime, entryReply);
+
+    await managementContextForRequest(requestFor({ cookie: cookiePair(entryReply) }, { embed: "management" }), runtime, replyFor());
+
+    expect(prepareContext).toHaveBeenCalledTimes(2);
   });
 
   it("lets a fresh entry token replace a valid session from another user", async () => {

@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, sessionGateway } from "./piSessionService.testSupport.js";
+import { preferencesFilePath, resolveSettingsScopeDirectory } from "./projectSettingsScope.js";
 
 const PROVIDER = "anthropic";
 const FIRST_MODEL = "claude-opus-4-6";
@@ -32,7 +33,12 @@ async function startSessionWithSettings(settings?: Record<string, unknown>) {
   const dataDir = join(root, "data");
   const workspace = join(root, "workspace");
   await Promise.all([mkdir(agentDir, { recursive: true }), mkdir(dataDir, { recursive: true }), mkdir(workspace, { recursive: true })]);
-  if (settings !== undefined) await writeFile(join(agentDir, "settings.json"), JSON.stringify(settings));
+  const settingsScope = resolveSettingsScopeDirectory({ dataDir, cwd: workspace, mode: "normal" });
+  const settingsPath = preferencesFilePath(settingsScope);
+  if (settings !== undefined) {
+    await mkdir(settingsScope, { recursive: true });
+    await writeFile(settingsPath, JSON.stringify(settings));
+  }
   const gateway = sessionGateway([]);
   gateway.create = (cwd) => SessionManager.inMemory(cwd);
   const service = new PiSessionService(new CapturingSessionEventHub(), {
@@ -44,7 +50,7 @@ async function startSessionWithSettings(settings?: Record<string, unknown>) {
   });
   try {
     const created = await service.start(workspace);
-    return { service, ref: { id: created.id, cwd: workspace }, agentDir };
+    return { service, ref: { id: created.id, cwd: workspace }, settingsPath };
   } catch (error) {
     await service.dispose();
     throw error;
@@ -53,9 +59,9 @@ async function startSessionWithSettings(settings?: Record<string, unknown>) {
 
 const catalogIds = (catalog: readonly { provider: string; id: string }[]): string[] => catalog.map((entry) => `${entry.provider}/${entry.id}`);
 
-async function persistedEnabledModels(agentDir: string): Promise<{ found: boolean; value?: unknown }> {
+async function persistedEnabledModels(settingsPath: string): Promise<{ found: boolean; value?: unknown }> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
+    const parsed: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
     if (!isJsonObject(parsed) || !Object.hasOwn(parsed, "enabledModels")) return { found: false };
     return { found: true, value: parsed["enabledModels"] };
   } catch {
@@ -67,9 +73,9 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function expectPersistedEnabledModels(agentDir: string, expected: string[] | undefined): Promise<void> {
+async function expectPersistedEnabledModels(settingsPath: string, expected: string[] | undefined): Promise<void> {
   await vi.waitFor(async () => {
-    const persisted = await persistedEnabledModels(agentDir);
+    const persisted = await persistedEnabledModels(settingsPath);
     expect(persisted).toEqual(expected === undefined ? { found: false } : { found: true, value: expected });
   }, { timeout: 5_000 });
 }
@@ -112,7 +118,7 @@ describe("PiSessionService model catalog", () => {
   });
 
   it("persists a disable edit, narrows cycling, and still permits explicit model selection", async () => {
-    const { service, ref, agentDir } = await startSessionWithSettings();
+    const { service, ref, settingsPath } = await startSessionWithSettings();
     try {
       const catalog = await service.modelCatalog(ref);
       const target = catalog[0];
@@ -124,7 +130,7 @@ describe("PiSessionService model catalog", () => {
 
       expect(updated.find((entry) => `${entry.provider}/${entry.id}` === targetId)?.enabled).toBe(false);
       expect(catalogIds((await service.availableModels(ref)).map((model) => ({ provider: model.provider ?? "", id: model.id ?? "" })))).toEqual(remainingIds);
-      await expectPersistedEnabledModels(agentDir, remainingIds);
+      await expectPersistedEnabledModels(settingsPath, remainingIds);
 
       const selected = await service.setModel(ref, target.provider, target.id);
       expect(selected.model).toMatchObject({ provider: target.provider, id: target.id });
@@ -134,7 +140,7 @@ describe("PiSessionService model catalog", () => {
   });
 
   it("normalizes re-enabling every model back to no stored scope", async () => {
-    const { service, ref, agentDir } = await startSessionWithSettings();
+    const { service, ref, settingsPath } = await startSessionWithSettings();
     try {
       const catalog = await service.modelCatalog(ref);
       const target = catalog[0];
@@ -145,18 +151,18 @@ describe("PiSessionService model catalog", () => {
 
       expect(restored.every((entry) => entry.enabled)).toBe(true);
       expect(catalogIds(restored)).toEqual(catalogIds(catalog));
-      await expectPersistedEnabledModels(agentDir, undefined);
+      await expectPersistedEnabledModels(settingsPath, undefined);
     } finally {
       await service.dispose();
     }
   });
 
   it("rejects enabled-model mutations from management embed", async () => {
-    const { service, ref, agentDir } = await startSessionWithSettings({ enabledModels: [`${PROVIDER}/${FIRST_MODEL}`] });
+    const { service, ref, settingsPath } = await startSessionWithSettings({ enabledModels: [`${PROVIDER}/${FIRST_MODEL}`] });
     try {
       await expect(service.setModelEnabled(ref, PROVIDER, DEFAULT_MODEL, true, managementContext()))
         .rejects.toThrow("管理嵌入模式不允许修改已启用模型范围");
-      await expectPersistedEnabledModels(agentDir, [`${PROVIDER}/${FIRST_MODEL}`]);
+      await expectPersistedEnabledModels(settingsPath, [`${PROVIDER}/${FIRST_MODEL}`]);
     } finally {
       await service.dispose();
     }

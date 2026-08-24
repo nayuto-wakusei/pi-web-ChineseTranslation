@@ -2,12 +2,17 @@ import { createHash, randomBytes } from "node:crypto";
 import type { PiWebWorkbenchIntegrationConfig } from "../../shared/apiTypes.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ManagementEmbedContext, ManagementEmbedRuntime } from "../managementEmbed.js";
+import type { WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient } from "./workbenchClient.js";
 import { WORKBENCH_ACCESS_STATE_ROUTE } from "./accessStateRoutes.js";
 
 interface WorkbenchBinding {
   handle: string;
-  expiresAt: number;
+  bootstrapToken: string;
+  projectId: string;
+  entryExpiresAt: number;
+  state: WorkbenchAgentAccessState;
+  refresh?: Promise<void>;
 }
 
 interface CachedWorkbenchBinding {
@@ -21,7 +26,7 @@ export function createWorkbenchManagementRuntime(
   daemon: SessionProxyDaemon,
 ): ManagementEmbedRuntime | undefined {
   if (base === undefined || config === undefined) return base;
-  const handles = new WeakMap<ManagementEmbedContext, string>();
+  const contextBindings = new WeakMap<ManagementEmbedContext, WorkbenchBinding>();
   const bindings = new Map<string, CachedWorkbenchBinding>();
   const client = new WorkbenchClient({ baseUrl: config.baseUrl, requestTimeoutMs: config.requestTimeoutMs ?? 10_000 });
   return {
@@ -41,16 +46,20 @@ export function createWorkbenchManagementRuntime(
         cached = created;
         bindings.set(key, created);
         void pending.then(
-          (binding) => { created.expiresAt = Math.min(created.expiresAt, binding.expiresAt); },
+          () => undefined,
           () => { if (bindings.get(key) === created) bindings.delete(key); },
         );
       }
       const binding = await cached.pending;
-      handles.set(context, binding.handle);
+      contextBindings.set(context, binding);
       return context;
     },
+    async prepareContext(context) {
+      const binding = contextBindings.get(context);
+      if (binding !== undefined) await refreshExpiredWorkbenchBinding(client, daemon, binding);
+    },
     resourceHandle(context) {
-      return handles.get(context);
+      return contextBindings.get(context)?.handle;
     },
   };
 }
@@ -64,15 +73,45 @@ async function createWorkbenchBinding(
 ): Promise<WorkbenchBinding> {
   const state = await client.createAgentAccessState(token, projectId);
   const handle = randomBytes(32).toString("base64url");
-  const response = await daemon.request("PUT", `${WORKBENCH_ACCESS_STATE_ROUTE}/${encodeURIComponent(handle)}`, state);
-  if (response.statusCode !== 204) {
-    await client.revoke(state).catch(() => undefined);
-    throw new Error("Session daemon rejected the workbench resource state");
-  }
+  await storeWorkbenchState(client, daemon, handle, state);
   return {
     handle,
-    expiresAt: Math.min(expiryTime(entryExpiresAt), expiryTime(state.expiresAt)),
+    bootstrapToken: token,
+    projectId,
+    entryExpiresAt: expiryTime(entryExpiresAt),
+    state,
   };
+}
+
+async function refreshExpiredWorkbenchBinding(client: WorkbenchClient, daemon: SessionProxyDaemon, binding: WorkbenchBinding): Promise<void> {
+  const now = Date.now();
+  if (expiryTime(binding.state.expiresAt) > now) return;
+  if (binding.entryExpiresAt <= now) throw new Error("当前资源授权已过期，请返回工作台重新进入桂小智。");
+  if (binding.refresh === undefined) {
+    const pending = refreshWorkbenchBinding(client, daemon, binding).finally(() => {
+      if (binding.refresh === pending) delete binding.refresh;
+    });
+    binding.refresh = pending;
+  }
+  await binding.refresh;
+}
+
+async function refreshWorkbenchBinding(client: WorkbenchClient, daemon: SessionProxyDaemon, binding: WorkbenchBinding): Promise<void> {
+  const state = await client.createAgentAccessState(binding.bootstrapToken, binding.projectId);
+  await storeWorkbenchState(client, daemon, binding.handle, state);
+  binding.state = state;
+}
+
+async function storeWorkbenchState(
+  client: WorkbenchClient,
+  daemon: SessionProxyDaemon,
+  handle: string,
+  state: WorkbenchAgentAccessState,
+): Promise<void> {
+  const response = await daemon.request("PUT", `${WORKBENCH_ACCESS_STATE_ROUTE}/${encodeURIComponent(handle)}`, state);
+  if (response.statusCode === 204) return;
+  await client.revoke(state).catch(() => undefined);
+  throw new Error("Session daemon rejected the workbench resource state");
 }
 
 function expiryTime(value: string | undefined): number {

@@ -37,6 +37,7 @@ export interface ManagementEmbedRuntime {
   enabled: boolean;
   projectRoot: string;
   authenticate(token: string): Promise<ManagementEmbedContext>;
+  prepareContext?(context: ManagementEmbedContext): Promise<void>;
   createSession?(context: ManagementEmbedContext): ManagementEmbedSession;
   readSession?(id: string): ManagementEmbedContext | undefined;
   sessionCookieName?: string;
@@ -100,7 +101,7 @@ export async function managementContextForRequest(request: ManagementEmbedReques
   if (runtime?.enabled !== true) throw new Error("Management embed mode is not configured");
   const sessionContext = sessionId === undefined || runtime.readSession === undefined ? undefined : runtime.readSession(sessionId);
   if (embed.token === undefined || embed.token === "") {
-    if (sessionContext !== undefined) return sessionContext;
+    if (sessionContext !== undefined) return prepareManagementContext(runtime, sessionContext);
     if (sessionId !== undefined) throw new Error("Management embed session is invalid or expired");
     throw new Error("Management embed token is required");
   }
@@ -109,13 +110,19 @@ export async function managementContextForRequest(request: ManagementEmbedReques
   try {
     context = await runtime.authenticate(embed.token);
   } catch (error) {
-    if (sessionContext !== undefined && isExpiredManagementTokenError(error)) return sessionContext;
+    if (sessionContext !== undefined && isExpiredManagementTokenError(error)) return prepareManagementContext(runtime, sessionContext);
     throw error;
   }
+  await runtime.prepareContext?.(context);
   if (reply !== undefined && runtime.createSession !== undefined) {
     const session = runtime.createSession(context);
     writeSessionCookie(reply, runtime.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE, session, isSecureRequest(request));
   }
+  return context;
+}
+
+async function prepareManagementContext(runtime: ManagementEmbedRuntime, context: ManagementEmbedContext): Promise<ManagementEmbedContext> {
+  await runtime.prepareContext?.(context);
   return context;
 }
 
