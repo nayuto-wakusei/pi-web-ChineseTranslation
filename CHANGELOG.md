@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.14
+
+### Patch Changes
+
+- 5065cd5: 按普通模式项目分别保存已启用模型范围，避免一个项目的模型开关在其他项目产生错误警告。
+- 5065cd5: 自动续期管理嵌入模式中过期的 Workbench Agent Session，使新建会话和后续能力调用不再复用失效的资源授权。
+
 ## 1.202608.13
 
 ### Patch Changes
