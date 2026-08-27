@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import {
 
 let root: string;
 let nowMs: number;
+const agentsInstructions = "# Managed instructions\n\nUse approved read-only capabilities.\n";
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-")));
@@ -64,6 +65,41 @@ describe("management embed sandbox policy", () => {
       name: "Project 1",
       path: join(root, "root-user", "p1"),
     });
+  });
+
+  it("creates project AGENTS.md from trusted management instructions", async () => {
+    const context = contextFor([{ id: "p1", name: "Project 1", agentsInstructions }]);
+    const project = await projectFromManagedEmbedContext(root, context, "p1");
+
+    await expect(readFile(join(project.path, "AGENTS.md"), "utf8")).resolves.toBe(agentsInstructions);
+  });
+
+  it("preserves an existing project AGENTS.md", async () => {
+    const context = contextFor([{ id: "p1", name: "Project 1", agentsInstructions }]);
+    const projectPath = await managedProjectPath(root, "root-user", "p1");
+    await writeFile(join(projectPath, "AGENTS.md"), "# Existing project instructions\n", "utf8");
+
+    await projectFromManagedEmbedContext(root, context, "p1");
+
+    await expect(readFile(join(projectPath, "AGENTS.md"), "utf8")).resolves.toBe("# Existing project instructions\n");
+  });
+
+  it("does not create AGENTS.md when trusted instructions are absent", async () => {
+    const project = await projectFromManagedEmbedContext(root, contextFor([{ id: "p1", name: "Project 1" }]), "p1");
+
+    await expect(pathExists(join(project.path, "AGENTS.md"))).resolves.toBe(false);
+  });
+
+  it("handles concurrent project instruction provisioning without overwriting", async () => {
+    const context = contextFor([{ id: "p1", name: "Project 1", agentsInstructions }]);
+
+    const [first, second] = await Promise.all([
+      projectFromManagedEmbedContext(root, context, "p1"),
+      projectFromManagedEmbedContext(root, context, "p1"),
+    ]);
+
+    expect(first.path).toBe(second.path);
+    await expect(readFile(join(first.path, "AGENTS.md"), "utf8")).resolves.toBe(agentsInstructions);
   });
 
   it("synthesizes a default project when the embed context has no projects", async () => {
@@ -158,6 +194,19 @@ describe("management embed sandbox policy", () => {
 });
 
 describe("management embed local token authentication", () => {
+  it("preserves optional project instructions from a signed entry token", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1", agentsInstructions }])), "secret-1");
+
+    const context = await managementContextForRequest(
+      requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }),
+      runtime,
+      replyFor(),
+    );
+
+    expect(context?.projects).toEqual([{ id: "p1", name: "Project 1", agentsInstructions }]);
+  });
+
   it("verifies signed entry tokens and creates an HttpOnly management session", async () => {
     const runtime = runtimeFor("secret-1");
     const reply = replyFor();
