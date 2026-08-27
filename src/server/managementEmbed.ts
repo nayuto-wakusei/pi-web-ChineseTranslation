@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
 import type { Project } from "./types.js";
 import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
@@ -27,7 +27,7 @@ export interface ManagementEmbedContext {
     roles: string[];
     permissions: string[];
   };
-  projects: { id: string; name: string; role?: string; root?: string }[];
+  projects: { id: string; name: string; role?: string; root?: string; agentsInstructions?: string }[];
   tools?: { allow?: string[]; deny?: string[]; permissions?: Record<string, boolean> };
   sandbox?: { pythonExecutable?: string; env?: Record<string, string> };
   expiresAt?: string;
@@ -188,6 +188,7 @@ export async function projectFromManagedEmbedContext(projectRoot: string, contex
   const path = context.projects.length === 0 && entry.id === DEFAULT_MANAGED_PROJECT_ID
     ? await defaultManagedProjectPath(projectRoot, context.user.id, options)
     : await pathForManagedProjectEntry(projectRoot, context, entry, options);
+  if (options.create !== false) await ensureManagedProjectAgentsFile(path, entry.agentsInstructions);
   return { id: entry.id, name: entry.name !== "" ? entry.name : entry.id, path, createdAt: new Date(0).toISOString() };
 }
 
@@ -339,12 +340,24 @@ function parseSandbox(value: Record<string, unknown>): NonNullable<ManagementEmb
 
 function parseProjectEntry(value: unknown): ManagementEmbedContext["projects"][number] {
   if (!isRecord(value)) throw new Error("Management embed project entry is invalid");
+  const agentsInstructions = optionalContentField(value, "agentsInstructions");
   return {
     id: stringField(value, "id"),
     name: stringField(value, "name"),
     ...(typeof value["role"] === "string" ? { role: value["role"] } : {}),
     ...(typeof value["root"] === "string" ? { root: value["root"] } : {}),
+    ...(agentsInstructions === undefined ? {} : { agentsInstructions }),
   };
+}
+
+async function ensureManagedProjectAgentsFile(projectPath: string, instructions: string | undefined): Promise<void> {
+  if (instructions === undefined || instructions.trim() === "") return;
+  try {
+    await writeFile(join(projectPath, "AGENTS.md"), instructions, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "EEXIST")) return;
+    throw error;
+  }
 }
 
 async function ensureRealDirectory(path: string): Promise<string> {
@@ -436,6 +449,11 @@ function stringField(value: Record<string, unknown>, key: string): string {
 function optionalStringField(value: Record<string, unknown>, key: string): string | undefined {
   const field = value[key];
   return typeof field === "string" && field.trim() !== "" ? field.trim() : undefined;
+}
+
+function optionalContentField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim() !== "" ? field : undefined;
 }
 
 function numberField(value: Record<string, unknown>, key: string): number {
