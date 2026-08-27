@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.15
+
+### Patch Changes
+
+- 95305e3: Initialize missing management-embed project instructions from the trusted launch token without overwriting existing `AGENTS.md` files.
+- f039fdd: Update the bundled Pi runtime packages to 0.84.3.
+
 ## 1.202608.14
 
 ### Patch Changes
