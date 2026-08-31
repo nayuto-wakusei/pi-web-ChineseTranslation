@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202608.16
+
+### Patch Changes
+
+- Add Workbench-controlled RAGFlow knowledge retrieval tools for management-embed sessions without exposing RAGFlow credentials or dataset identifiers to PI WEB.
+
 ## 1.202608.15
 
 ### Patch Changes

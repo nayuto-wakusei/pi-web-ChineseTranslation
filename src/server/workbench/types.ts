@@ -42,6 +42,13 @@ export interface SkillTicketRequest {
   approvalCount: 0;
 }
 
+export interface KnowledgeTokenRequest {
+  resourceName: string;
+  resourceVersion: string;
+  runId: string;
+  traceId: string;
+}
+
 export interface StableCapabilityResult {
   ok: boolean;
   capability_name: string;
@@ -49,6 +56,32 @@ export interface StableCapabilityResult {
   data: unknown;
   error: null | { code: string; message: string; retryable: boolean };
   meta: { trace_id: string; duration_ms: number; truncated: boolean };
+}
+
+export interface KnowledgeRetrievalRequest {
+  question: string;
+  resourceName: string;
+  topK?: number;
+  filters?: Record<string, unknown>;
+}
+
+export interface KnowledgeRetrievalChunk {
+  id: string;
+  documentId: string;
+  documentName: string;
+  content: string;
+  similarity: number;
+  position: unknown[];
+  version: string;
+  source: string;
+  citation: string;
+}
+
+export interface KnowledgeRetrievalResult {
+  total: number;
+  resourceName: string;
+  resourceVersion: string;
+  chunks: KnowledgeRetrievalChunk[];
 }
 
 export interface WorkbenchSkillManifestFile {

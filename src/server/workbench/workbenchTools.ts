@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { requireAuthorizedL0Capability, searchAuthorizedCapabilities } from "./capabilitySearch.js";
+import { requireAuthorizedRagflowKnowledge, searchAuthorizedKnowledge } from "./knowledgeSearch.js";
 import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
-import type { WorkbenchAgentAccessState } from "./types.js";
+import type { KnowledgeRetrievalResult, WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder, ManagementAuditStatus } from "../audit/managementAuditStore.js";
 
@@ -18,6 +19,22 @@ const CallCapabilityParams = Type.Object({
   capability_name: Type.String(),
   arguments: Type.Record(Type.String(), Type.Unknown()),
   idempotency_key: Type.Optional(Type.String()),
+}, { additionalProperties: false });
+
+const SearchKnowledgeParams = Type.Object({
+  keyword: Type.Optional(Type.String()),
+  spaceCode: Type.Optional(Type.String()),
+  domain: Type.Optional(Type.String()),
+  classification: Type.Optional(Type.String()),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+}, { additionalProperties: false });
+
+const RetrieveKnowledgeParams = Type.Object({
+  resource_name: Type.String(),
+  question: Type.String(),
+  resource_version: Type.Optional(Type.String()),
+  top_k: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+  filters: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 }, { additionalProperties: false });
 
 export interface WorkbenchToolDependencies {
@@ -42,6 +59,98 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
       execute(_toolCallId, params) {
         const result = searchAuthorizedCapabilities(deps.getState().resources, params);
         return Promise.resolve({ content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined });
+      },
+    }),
+    defineTool<typeof SearchKnowledgeParams, undefined>({
+      name: "workbench_search_knowledge",
+      label: "检索授权知识",
+      description: "仅检索当前工作台会话已授权、已发布的L0 RAGFlow知识资源。",
+      promptSnippet: "检索当前账号已授权的知识资源",
+      promptGuidelines: ["检索知识前先按问题搜索；只能使用返回的精确resourceName。"],
+      parameters: SearchKnowledgeParams,
+      execute(_toolCallId, params) {
+        const result = searchAuthorizedKnowledge(deps.getState().resources, params);
+        return Promise.resolve({ content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined });
+      },
+    }),
+    defineTool<typeof RetrieveKnowledgeParams, undefined>({
+      name: "workbench_retrieve_knowledge",
+      label: "检索授权知识内容",
+      description: "通过工作台授权的短时一次性凭证检索RAGFlow知识资源。",
+      promptSnippet: "检索一个已授权知识资源的内容",
+      promptGuidelines: [
+        "只能检索workbench_search_knowledge返回的resourceName。",
+        "不要传入RAGFlow URL、dataset ID、租户ID或API Key。",
+        "回答时优先引用返回的knowledge://citation。",
+      ],
+      parameters: RetrieveKnowledgeParams,
+      async execute(_toolCallId, params) {
+        const runId = `run-${randomUUID()}`;
+        const traceId = `trace-${randomUUID()}`;
+        const startedAt = Date.now();
+        const state = deps.getState();
+        try {
+          const question = params.question.trim();
+          if (question === "") throw new Error("知识检索问题不能为空");
+          const resource = requireAuthorizedRagflowKnowledge(state.resources, params.resource_name, params.resource_version);
+          const result = await retrieveKnowledgeOnce(deps, state.bearerToken, {
+            resourceName: resource.resourceName,
+            resourceVersion: resource.resourceVersion,
+            question,
+            ...(params.top_k === undefined ? {} : { topK: params.top_k }),
+            ...(params.filters === undefined ? {} : { filters: params.filters }),
+            runId,
+            traceId,
+          });
+          deps.logger?.info({
+            ...deps.auditContext,
+            agentSessionId: state.sessionId,
+            authorizationRevision: state.authorizationRevision,
+            runId,
+            traceId,
+            knowledgeName: resource.resourceName,
+            knowledgeVersion: resource.resourceVersion,
+            statusCode: 200,
+            durationMs: Date.now() - startedAt,
+            resultCount: result.chunks.length,
+          }, "Workbench knowledge retrieval completed");
+          recordKnowledgeAudit(deps, {
+            status: "completed",
+            agentSessionId: state.sessionId,
+            authorizationRevision: state.authorizationRevision,
+            runId,
+            traceId,
+            knowledgeName: resource.resourceName,
+            knowledgeVersion: resource.resourceVersion,
+            statusCode: 200,
+            durationMs: Date.now() - startedAt,
+            resultCount: result.chunks.length,
+          });
+          return { content: [{ type: "text", text: JSON.stringify(result) }], details: undefined };
+        } catch (error) {
+          deps.logger?.info({
+            ...deps.auditContext,
+            agentSessionId: state.sessionId,
+            authorizationRevision: state.authorizationRevision,
+            runId,
+            traceId,
+            knowledgeName: params.resource_name,
+            statusCode: errorStatus(error),
+            errorCode: errorCode(error),
+            durationMs: Date.now() - startedAt,
+          }, "Workbench knowledge retrieval rejected or failed");
+          recordKnowledgeAudit(deps, {
+            status: "failed",
+            agentSessionId: state.sessionId,
+            authorizationRevision: state.authorizationRevision,
+            runId,
+            traceId,
+            knowledgeName: params.resource_name,
+            statusCode: errorStatus(error),
+            durationMs: Date.now() - startedAt,
+          });
+          throw error;
+        }
       },
     }),
     defineTool<typeof CallCapabilityParams, undefined>({
@@ -115,6 +224,34 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
   ];
 }
 
+function recordKnowledgeAudit(
+  deps: WorkbenchToolDependencies,
+  details: {
+    status: ManagementAuditStatus;
+    agentSessionId: string;
+    authorizationRevision: number;
+    runId: string;
+    traceId: string;
+    knowledgeName: string;
+    knowledgeVersion?: string;
+    statusCode: number | string;
+    durationMs: number;
+    resultCount?: number;
+  },
+): void {
+  if (deps.audit === undefined || deps.auditContext === undefined) return;
+  try {
+    deps.audit.record({ action: "workbench_knowledge_retrieval", ...deps.auditContext, ...details });
+  } catch (error) {
+    deps.logger?.info({
+      userId: deps.auditContext.userId,
+      sessionId: deps.auditContext.sessionId,
+      traceId: details.traceId,
+      error: error instanceof Error ? error.message : String(error),
+    }, "failed to enqueue Workbench knowledge retrieval audit");
+  }
+}
+
 function recordCapabilityAudit(
   deps: WorkbenchToolDependencies,
   details: {
@@ -172,6 +309,41 @@ async function callWithOneTransientRetry(
     }
   }
   throw new Error("能力调用失败");
+}
+
+async function retrieveKnowledgeOnce(
+  deps: WorkbenchToolDependencies,
+  bearerToken: string,
+  input: {
+    resourceName: string;
+    resourceVersion: string;
+    question: string;
+    topK?: number;
+    filters?: Record<string, unknown>;
+    runId: string;
+    traceId: string;
+  },
+): Promise<KnowledgeRetrievalResult> {
+  try {
+    const token = await deps.workbench.issueKnowledgeToken(bearerToken, {
+      resourceName: input.resourceName,
+      resourceVersion: input.resourceVersion,
+      runId: input.runId,
+      traceId: input.traceId,
+    });
+    return await deps.workbench.retrieveKnowledge(token, {
+      question: input.question,
+      resourceName: input.resourceName,
+      ...(input.topK === undefined ? {} : { topK: input.topK }),
+      ...(input.filters === undefined ? {} : { filters: input.filters }),
+    });
+  } catch (error) {
+    if (error instanceof WorkbenchHttpError && error.status === 401) {
+      deps.invalidate();
+      throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
+    }
+    throw error;
+  }
 }
 
 function errorStatus(error: unknown): number | string {

@@ -77,6 +77,63 @@ describe("ManagementAuditStore", () => {
     await store.close();
   });
 
+  it("indexes Workbench knowledge retrieval metadata without retrieval content", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ acknowledged: true }))
+      .mockResolvedValueOnce(jsonResponse({ deleted: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ errors: false, items: [] }));
+    const store = new ManagementAuditStore({
+      baseUrl: "http://elasticsearch:9200",
+      indexPrefix: "pi-web-management-audit",
+      retentionDays: 365,
+      fetch: fetchImpl,
+      now: () => new Date("2026-08-06T01:02:03.000Z"),
+      flushIntervalMs: 0,
+      maintenanceIntervalMs: 0,
+    });
+
+    await store.initialize();
+    store.record({
+      action: "workbench_knowledge_retrieval",
+      status: "completed",
+      userId: "user-1",
+      rootUserId: "root-1",
+      projectId: "project-1",
+      sessionId: "session-1",
+      cwd: "/workspace",
+      agentSessionId: "agent-session-1",
+      authorizationRevision: 12,
+      knowledgeName: "knowledge.nanning.optical",
+      knowledgeVersion: "r3",
+      runId: "run-1",
+      traceId: "trace-1",
+      statusCode: 200,
+      durationMs: 34,
+      resultCount: 2,
+    });
+    await store.flush();
+
+    const body = requestBody(fetchImpl.mock.calls[2]?.[1]?.body);
+    const lines = body.trim().split("\n").map((line): unknown => JSON.parse(line));
+    expect(lines[1]).toMatchObject({
+      event: { action: "workbench_knowledge_retrieval", status: "completed", duration_ms: 34 },
+      workbench: {
+        authorization_revision: 12,
+        knowledge_name: "knowledge.nanning.optical",
+        knowledge_version: "r3",
+        run_id: "run-1",
+        trace_id: "trace-1",
+        status_code: "200",
+        result_count: 2,
+      },
+    });
+    expect(body).not.toContain("private-knowledge-token");
+    expect(body).not.toContain("sensitive original query");
+    expect(body).not.toContain("private chunk body");
+
+    await store.close();
+  });
+
   it("retries an idempotent batch after a transport failure", async () => {
     const onError = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>()

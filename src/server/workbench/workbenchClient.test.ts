@@ -27,6 +27,62 @@ describe("WorkbenchClient", () => {
     expect(resourcesUrl).toEqual(new URL("http://backend:8787/api/agent-access/resources"));
     expect(new Headers(resourcesInit?.headers).get("authorization")).toBe("Bearer agent-secret");
   });
+
+  it("issues knowledge tokens and retrieves through the workbench backend", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(200, { token: "knowledge-secret" }))
+      .mockResolvedValueOnce(jsonResponse(200, {
+        total: 1,
+        resourceName: "knowledge.nanning.asset-1",
+        resourceVersion: "r3",
+        chunks: [{
+          id: "chunk-1",
+          documentId: "doc-1",
+          documentName: "手册.pdf",
+          content: "处理步骤",
+          similarity: 0.91,
+          position: [[1, 2, 3]],
+          version: "r3",
+          source: "网操中心",
+          citation: "knowledge://knowledge.nanning.asset-1@r3/doc-1/chunk-1",
+        }],
+      }));
+    const client = new WorkbenchClient({ baseUrl: "http://backend:8787", requestTimeoutMs: 10_000, fetch: fetchImpl });
+
+    const token = await client.issueKnowledgeToken("agent-secret", {
+      resourceName: "knowledge.nanning.asset-1",
+      resourceVersion: "r3",
+      runId: "run-1",
+      traceId: "trace-1",
+    });
+    const result = await client.retrieveKnowledge(token, {
+      question: "光衰如何处理",
+      resourceName: "knowledge.nanning.asset-1",
+      topK: 8,
+      filters: { document_type: "manual" },
+    });
+
+    expect(token).toBe("knowledge-secret");
+    expect(result.chunks[0]?.citation).toBe("knowledge://knowledge.nanning.asset-1@r3/doc-1/chunk-1");
+    const [tokenUrl, tokenInit] = fetchImpl.mock.calls[0] ?? [];
+    const [retrievalUrl, retrievalInit] = fetchImpl.mock.calls[1] ?? [];
+    expect(tokenUrl).toEqual(new URL("http://backend:8787/api/agent-access/knowledge-token"));
+    expect(new Headers(tokenInit?.headers).get("authorization")).toBe("Bearer agent-secret");
+    expect(tokenInit?.body).toBe(JSON.stringify({
+      resourceName: "knowledge.nanning.asset-1",
+      resourceVersion: "r3",
+      runId: "run-1",
+      traceId: "trace-1",
+    }));
+    expect(retrievalUrl).toEqual(new URL("http://backend:8787/api/knowledge-access/retrieval"));
+    expect(new Headers(retrievalInit?.headers).get("authorization")).toBe("Bearer knowledge-secret");
+    expect(retrievalInit?.body).toBe(JSON.stringify({
+      question: "光衰如何处理",
+      resourceName: "knowledge.nanning.asset-1",
+      topK: 8,
+      filters: { document_type: "manual" },
+    }));
+  });
 });
 
 function jsonResponse(status: number, value: unknown): Response {

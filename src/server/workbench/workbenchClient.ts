@@ -1,4 +1,13 @@
-import type { AuthorizedResource, CapabilityTokenRequest, SkillTicketRequest, WorkbenchAgentAccessState } from "./types.js";
+import type {
+  AuthorizedResource,
+  CapabilityTokenRequest,
+  KnowledgeRetrievalChunk,
+  KnowledgeRetrievalRequest,
+  KnowledgeRetrievalResult,
+  KnowledgeTokenRequest,
+  SkillTicketRequest,
+  WorkbenchAgentAccessState,
+} from "./types.js";
 
 export class WorkbenchHttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -51,6 +60,18 @@ export class WorkbenchClient {
     return stringField(record(await this.json("/api/agent-access/skill-ticket", {
       method: "POST", token: bearerToken, expectedStatus: 200, body: request,
     }), "Skill ticket response"), "token");
+  }
+
+  async issueKnowledgeToken(bearerToken: string, request: KnowledgeTokenRequest): Promise<string> {
+    return stringField(record(await this.json("/api/agent-access/knowledge-token", {
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+    }), "knowledge token response"), "token");
+  }
+
+  async retrieveKnowledge(knowledgeToken: string, request: KnowledgeRetrievalRequest): Promise<KnowledgeRetrievalResult> {
+    return parseKnowledgeRetrievalResult(await this.json("/api/knowledge-access/retrieval", {
+      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request,
+    }));
   }
 
   async revoke(state: Pick<WorkbenchAgentAccessState, "sessionId" | "bearerToken">): Promise<void> {
@@ -108,6 +129,33 @@ export function parseAuthorizedResources(value: unknown): AuthorizedResource[] {
   });
 }
 
+function parseKnowledgeRetrievalResult(value: unknown): KnowledgeRetrievalResult {
+  const result = record(value, "knowledge retrieval response");
+  const chunksValue = result["chunks"];
+  if (!Array.isArray(chunksValue)) throw new Error("knowledge retrieval chunks must be an array");
+  return {
+    total: finiteNumberField(result, "total"),
+    resourceName: stringField(result, "resourceName"),
+    resourceVersion: stringField(result, "resourceVersion"),
+    chunks: chunksValue.map(parseKnowledgeRetrievalChunk),
+  };
+}
+
+function parseKnowledgeRetrievalChunk(value: unknown): KnowledgeRetrievalChunk {
+  const chunk = record(value, "knowledge retrieval chunk");
+  return {
+    id: stringValueField(chunk, "id"),
+    documentId: stringValueField(chunk, "documentId"),
+    documentName: stringValueField(chunk, "documentName"),
+    content: stringValueField(chunk, "content"),
+    similarity: finiteNumberField(chunk, "similarity"),
+    position: Array.isArray(chunk["position"]) ? chunk["position"] : [],
+    version: stringValueField(chunk, "version"),
+    source: stringValueField(chunk, "source"),
+    citation: stringValueField(chunk, "citation"),
+  };
+}
+
 function responseMessage(text: string, status: number): string {
   try {
     const value: unknown = JSON.parse(text);
@@ -138,6 +186,18 @@ export function stringField(value: Record<string, unknown>, key: string): string
 function integerField(value: Record<string, unknown>, key: string): number {
   const field = value[key];
   if (typeof field !== "number" || !Number.isInteger(field)) throw new Error(`${key} must be an integer`);
+  return field;
+}
+
+function finiteNumberField(value: Record<string, unknown>, key: string): number {
+  const field = value[key];
+  if (typeof field !== "number" || !Number.isFinite(field)) throw new Error(`${key} must be a finite number`);
+  return field;
+}
+
+function stringValueField(value: Record<string, unknown>, key: string): string {
+  const field = value[key];
+  if (typeof field !== "string") throw new Error(`${key} must be a string`);
   return field;
 }
 

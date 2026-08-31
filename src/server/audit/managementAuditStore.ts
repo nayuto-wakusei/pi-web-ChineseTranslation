@@ -10,7 +10,7 @@ export interface ManagementAuditIdentity {
 }
 
 export interface ManagementAuditEvent extends ManagementAuditIdentity {
-  action: "tool_execution" | "workbench_capability_call" | "workbench_skill_sync" | "user_prompt" | "assistant_response";
+  action: "tool_execution" | "workbench_capability_call" | "workbench_knowledge_retrieval" | "workbench_skill_sync" | "user_prompt" | "assistant_response";
   status: ManagementAuditStatus;
   sessionId: string;
   cwd: string;
@@ -20,6 +20,8 @@ export interface ManagementAuditEvent extends ManagementAuditIdentity {
   authorizationRevision?: number;
   capabilityName?: string;
   capabilityVersion?: string;
+  knowledgeName?: string;
+  knowledgeVersion?: string;
   skillName?: string;
   skillVersion?: string;
   runId?: string;
@@ -28,6 +30,7 @@ export interface ManagementAuditEvent extends ManagementAuditIdentity {
   statusCode?: number | string;
   durationMs?: number;
   retryCount?: number;
+  resultCount?: number;
   content?: unknown;
 }
 
@@ -60,7 +63,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = DAY_MS;
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
-const TEMPLATE_VERSION = 2;
+const TEMPLATE_VERSION = 3;
 
 export class ManagementAuditStore implements ManagementAuditRecorder {
   private readonly fetchImpl: typeof fetch;
@@ -195,8 +198,10 @@ export class ManagementAuditStore implements ManagementAuditRecorder {
               content: { enabled: false },
               workbench: { properties: {
                 authorization_revision: { type: "integer" }, capability_name: { type: "keyword" }, capability_version: { type: "keyword" },
+                knowledge_name: { type: "keyword" }, knowledge_version: { type: "keyword" },
                 skill_name: { type: "keyword" }, skill_version: { type: "keyword" }, run_id: { type: "keyword" }, trace_id: { type: "keyword" },
                 mcp_trace_id: { type: "keyword" }, status_code: { type: "keyword" }, retry_count: { type: "integer" },
+                result_count: { type: "integer" },
               } },
             },
           },
@@ -247,6 +252,8 @@ function managementAuditDocument(id: string, timestamp: Date, event: ManagementA
       authorization_revision: event.authorizationRevision,
       capability_name: event.capabilityName,
       capability_version: event.capabilityVersion,
+      knowledge_name: event.knowledgeName,
+      knowledge_version: event.knowledgeVersion,
       skill_name: event.skillName,
       skill_version: event.skillVersion,
       run_id: event.runId,
@@ -254,6 +261,7 @@ function managementAuditDocument(id: string, timestamp: Date, event: ManagementA
       mcp_trace_id: event.mcpTraceId,
       status_code: event.statusCode === undefined ? undefined : String(event.statusCode),
       retry_count: event.retryCount,
+      result_count: event.resultCount,
     }),
   };
 }

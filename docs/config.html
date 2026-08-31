@@ -631,9 +631,13 @@ pi-web audit vacuum</code></pre>
                 sessions keep PI WEB's existing behavior.
               </p>
               <p>
-                The adapter keeps Agent Session tokens and short-lived capability and Skill credentials server-side. It
-                loads only the fixed authorized snapshot and exposes <code>icnoc_search_capabilities</code> and
-                <code>icnoc_call_capability</code> alongside the managed file tools and sandboxed <code>python</code> tool.
+                The adapter keeps Agent Session tokens and short-lived capability, knowledge, and Skill credentials
+                server-side. It loads only the fixed authorized snapshot and exposes
+                <code>icnoc_search_capabilities</code>, <code>icnoc_call_capability</code>,
+                <code>workbench_search_knowledge</code>, and <code>workbench_retrieve_knowledge</code> alongside the
+                managed file tools and sandboxed <code>python</code> tool. Knowledge retrieval goes through the
+                Workbench backend's one-time knowledge tokens; PI WEB does not accept or store RAGFlow URLs, API keys,
+                tenant IDs, or dataset IDs.
                 When their global feature switches are enabled, management sessions also receive
                 <code>spawn_session</code>, the tracked-subsession tool set headed by <code>spawn_subsession</code>, and
                 <code>ask_user</code>; spawned sessions inherit the same management context.
@@ -645,6 +649,8 @@ pi-web audit vacuum</code></pre>
                 The session daemon emits metadata-only tool execution audit entries for normal and management sessions.
                 Logs include the mode, session, workspace, tool name, call id, and status, but never tool arguments or
                 results. Workbench capability calls additionally include their business and MCP trace identifiers.
+                Workbench knowledge retrieval events include the stable resource name, revision, run/trace identifiers,
+                and result count without the retrieval question, filters, returned chunks, or token.
               </p>
               <p>Configure the web/API and session daemon with the same endpoints and limits, then restart both services.</p>
             </section>
