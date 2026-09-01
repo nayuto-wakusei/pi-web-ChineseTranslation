@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.0
+
+### Patch Changes
+
+- 2d95363: Allow management embed launch tokens to update platform-managed AGENTS.md instructions, preserve unmarked project files, and append a backup before each managed overwrite.
+
 ## 1.202608.16
 
 ### Patch Changes
