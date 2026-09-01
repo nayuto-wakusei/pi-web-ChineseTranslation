@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -82,6 +82,107 @@ describe("management embed sandbox policy", () => {
     await projectFromManagedEmbedContext(root, context, "p1");
 
     await expect(readFile(join(projectPath, "AGENTS.md"), "utf8")).resolves.toBe("# Existing project instructions\n");
+  });
+
+  it("does not replace unmarked project instructions even when the signed project is platform managed", async () => {
+    const projectPath = await managedProjectPath(root, "root-user", "p1");
+    await writeFile(join(projectPath, "AGENTS.md"), "# Existing project instructions\n", "utf8");
+    const firstContext = contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r1",
+    }]);
+
+    await projectFromManagedEmbedContext(root, firstContext, "p1");
+
+    await expect(readFile(join(projectPath, "AGENTS.md"), "utf8")).resolves.toBe("# Existing project instructions\n");
+  });
+
+  it("replaces unmarked project instructions when they match a signed migration baseline", async () => {
+    const projectPath = await managedProjectPath(root, "root-user", "p1");
+    await writeFile(join(projectPath, "AGENTS.md"), agentsInstructions, "utf8");
+    const nextInstructions = "# Organization managed instructions\n";
+    const context = contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions: nextInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r2",
+      agentsInstructionsReplaceIfMatches: [agentsInstructions],
+    }]);
+
+    await projectFromManagedEmbedContext(root, context, "p1");
+
+    await expect(readFile(join(projectPath, "AGENTS.md"), "utf8")).resolves.toBe(
+      `<!-- pi-web-managed-agents:{"source":"management-embed","revision":"org-r2"} -->\n${nextInstructions}`,
+    );
+    const backups = await readdir(join(projectPath, ".pi-web", "agents-backups"));
+    expect(backups).toHaveLength(1);
+    expect(backups[0]).toMatch(/^AGENTS\.\d{8}T\d{6}Z\.[a-f0-9]{12}\.md$/);
+    await expect(readFile(join(projectPath, ".pi-web", "agents-backups", backups[0] ?? ""), "utf8")).resolves.toBe(agentsInstructions);
+  });
+
+  it("creates and updates AGENTS.md when the signed project marks it as platform managed", async () => {
+    const firstContext = contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r1",
+    }]);
+
+    const project = await projectFromManagedEmbedContext(root, firstContext, "p1");
+    await expect(readFile(join(project.path, "AGENTS.md"), "utf8")).resolves.toBe(
+      `<!-- pi-web-managed-agents:{"source":"management-embed","revision":"org-r1"} -->\n${agentsInstructions}`,
+    );
+
+    const secondInstructions = "# Updated managed instructions\n\nUse the organization template.\n";
+    const secondContext = contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions: secondInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r2",
+    }]);
+    await projectFromManagedEmbedContext(root, secondContext, "p1");
+
+    await expect(readFile(join(project.path, "AGENTS.md"), "utf8")).resolves.toBe(
+      `<!-- pi-web-managed-agents:{"source":"management-embed","revision":"org-r2"} -->\n${secondInstructions}`,
+    );
+    const backups = await readdir(join(project.path, ".pi-web", "agents-backups"));
+    expect(backups).toHaveLength(1);
+    await expect(readFile(join(project.path, ".pi-web", "agents-backups", backups[0] ?? ""), "utf8")).resolves.toBe(
+      `<!-- pi-web-managed-agents:{"source":"management-embed","revision":"org-r1"} -->\n${agentsInstructions}`,
+    );
+  });
+
+  it("appends AGENTS.md backups without replacing historical backups", async () => {
+    const firstContext = contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r1",
+    }]);
+    const project = await projectFromManagedEmbedContext(root, firstContext, "p1");
+    const backupDir = join(project.path, ".pi-web", "agents-backups");
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, "AGENTS.20260101T000000Z.previous.md"), "# historical backup\n", "utf8");
+
+    await projectFromManagedEmbedContext(root, contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions: "# Updated managed instructions\n",
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r2",
+    }]), "p1");
+
+    const backups = await readdir(backupDir);
+    expect(backups).toHaveLength(2);
+    await expect(readFile(join(backupDir, "AGENTS.20260101T000000Z.previous.md"), "utf8")).resolves.toBe("# historical backup\n");
+    expect(backups.some((file) => /^AGENTS\.\d{8}T\d{6}Z\.[a-f0-9]{12}\.md$/.test(file))).toBe(true);
   });
 
   it("does not create AGENTS.md when trusted instructions are absent", async () => {
@@ -196,7 +297,14 @@ describe("management embed sandbox policy", () => {
 describe("management embed local token authentication", () => {
   it("preserves optional project instructions from a signed entry token", async () => {
     const runtime = runtimeFor("secret-1");
-    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1", agentsInstructions }])), "secret-1");
+    const token = signToken(tokenPayload(contextFor([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r1",
+      agentsInstructionsReplaceIfMatches: ["# Old default\n"],
+    }])), "secret-1");
 
     const context = await managementContextForRequest(
       requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }),
@@ -204,7 +312,14 @@ describe("management embed local token authentication", () => {
       replyFor(),
     );
 
-    expect(context?.projects).toEqual([{ id: "p1", name: "Project 1", agentsInstructions }]);
+    expect(context?.projects).toEqual([{
+      id: "p1",
+      name: "Project 1",
+      agentsInstructions,
+      agentsInstructionsPolicy: "replace-managed",
+      agentsInstructionsRevision: "org-r1",
+      agentsInstructionsReplaceIfMatches: ["# Old default\n"],
+    }]);
   });
 
   it("verifies signed entry tokens and creates an HttpOnly management session", async () => {

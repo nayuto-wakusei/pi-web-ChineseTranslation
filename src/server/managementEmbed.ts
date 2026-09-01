@@ -1,6 +1,6 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
 import type { Project } from "./types.js";
 import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
@@ -18,6 +18,10 @@ const DEFAULT_MANAGEMENT_TOKEN_ISSUER = "telecom-portal";
 const DEFAULT_MANAGEMENT_TOKEN_AUDIENCE = "dify-external-portal";
 const MANAGEMENT_SESSION_COOKIE = "pi_web_management_session";
 const MANAGEMENT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const MANAGED_AGENTS_MARKER_PREFIX = "<!-- pi-web-managed-agents:";
+const MANAGED_AGENTS_MARKER_SUFFIX = " -->";
+
+type ManagedAgentsInstructionsPolicy = "create-if-missing" | "replace-managed";
 
 export interface ManagementEmbedContext {
   user: {
@@ -27,7 +31,16 @@ export interface ManagementEmbedContext {
     roles: string[];
     permissions: string[];
   };
-  projects: { id: string; name: string; role?: string; root?: string; agentsInstructions?: string }[];
+  projects: {
+    id: string;
+    name: string;
+    role?: string;
+    root?: string;
+    agentsInstructions?: string;
+    agentsInstructionsPolicy?: ManagedAgentsInstructionsPolicy;
+    agentsInstructionsRevision?: string;
+    agentsInstructionsReplaceIfMatches?: string[];
+  }[];
   tools?: { allow?: string[]; deny?: string[]; permissions?: Record<string, boolean> };
   sandbox?: { pythonExecutable?: string; env?: Record<string, string> };
   expiresAt?: string;
@@ -188,7 +201,7 @@ export async function projectFromManagedEmbedContext(projectRoot: string, contex
   const path = context.projects.length === 0 && entry.id === DEFAULT_MANAGED_PROJECT_ID
     ? await defaultManagedProjectPath(projectRoot, context.user.id, options)
     : await pathForManagedProjectEntry(projectRoot, context, entry, options);
-  if (options.create !== false) await ensureManagedProjectAgentsFile(path, entry.agentsInstructions);
+  if (options.create !== false) await ensureManagedProjectAgentsFile(path, entry);
   return { id: entry.id, name: entry.name !== "" ? entry.name : entry.id, path, createdAt: new Date(0).toISOString() };
 }
 
@@ -341,23 +354,105 @@ function parseSandbox(value: Record<string, unknown>): NonNullable<ManagementEmb
 function parseProjectEntry(value: unknown): ManagementEmbedContext["projects"][number] {
   if (!isRecord(value)) throw new Error("Management embed project entry is invalid");
   const agentsInstructions = optionalContentField(value, "agentsInstructions");
+  const agentsInstructionsPolicy = parseAgentsInstructionsPolicy(value["agentsInstructionsPolicy"]);
+  const agentsInstructionsRevision = optionalStringField(value, "agentsInstructionsRevision");
+  const agentsInstructionsReplaceIfMatches = Array.isArray(value["agentsInstructionsReplaceIfMatches"])
+    ? contentArray(value["agentsInstructionsReplaceIfMatches"])
+    : undefined;
   return {
     id: stringField(value, "id"),
     name: stringField(value, "name"),
     ...(typeof value["role"] === "string" ? { role: value["role"] } : {}),
     ...(typeof value["root"] === "string" ? { root: value["root"] } : {}),
     ...(agentsInstructions === undefined ? {} : { agentsInstructions }),
+    ...(agentsInstructionsPolicy === undefined ? {} : { agentsInstructionsPolicy }),
+    ...(agentsInstructionsRevision === undefined ? {} : { agentsInstructionsRevision }),
+    ...(agentsInstructionsReplaceIfMatches === undefined ? {} : { agentsInstructionsReplaceIfMatches }),
   };
 }
 
-async function ensureManagedProjectAgentsFile(projectPath: string, instructions: string | undefined): Promise<void> {
+function parseAgentsInstructionsPolicy(value: unknown): ManagedAgentsInstructionsPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (value === "create-if-missing" || value === "replace-managed") return value;
+  throw new Error("Management embed project entry is invalid");
+}
+
+async function ensureManagedProjectAgentsFile(projectPath: string, project: ManagementEmbedContext["projects"][number]): Promise<void> {
+  const instructions = project.agentsInstructions;
   if (instructions === undefined || instructions.trim() === "") return;
+  if (project.agentsInstructionsPolicy === "replace-managed") {
+    await replaceManagedProjectAgentsFile(
+      projectPath,
+      instructions,
+      project.agentsInstructionsRevision,
+      project.agentsInstructionsReplaceIfMatches ?? [],
+    );
+    return;
+  }
   try {
     await writeFile(join(projectPath, "AGENTS.md"), instructions, { encoding: "utf8", flag: "wx" });
   } catch (error) {
     if (isNodeErrorWithCode(error, "EEXIST")) return;
     throw error;
   }
+}
+
+async function replaceManagedProjectAgentsFile(
+  projectPath: string,
+  instructions: string,
+  revision: string | undefined,
+  replaceIfMatches: string[],
+): Promise<void> {
+  const target = join(projectPath, "AGENTS.md");
+  const content = managedAgentsFileContent(instructions, revision);
+  try {
+    await writeFile(target, content, { encoding: "utf8", flag: "wx" });
+    return;
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
+  }
+
+  const existing = await readFile(target, "utf8");
+  if (!isManagedAgentsFile(existing) && !replaceIfMatches.some((baseline) => normalizeAgentsInstructions(baseline) === normalizeAgentsInstructions(existing))) return;
+  if (existing === content) return;
+  await backupManagedAgentsFile(projectPath, existing);
+  await writeFile(target, content, "utf8");
+}
+
+async function backupManagedAgentsFile(projectPath: string, content: string): Promise<void> {
+  const backupDir = join(projectPath, ".pi-web", "agents-backups");
+  await mkdir(backupDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const fingerprint = createHash("sha256").update(content).digest("hex").slice(0, 12);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const suffix = attempt === 0 ? "" : `-${String(attempt)}`;
+    try {
+      await writeFile(join(backupDir, `AGENTS.${timestamp}.${fingerprint}${suffix}.md`), content, { encoding: "utf8", flag: "wx" });
+      return;
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
+    }
+  }
+  await writeFile(
+    join(backupDir, `AGENTS.${timestamp}.${fingerprint}-${randomBytes(4).toString("hex")}.md`),
+    content,
+    { encoding: "utf8", flag: "wx" },
+  );
+}
+
+function managedAgentsFileContent(instructions: string, revision: string | undefined): string {
+  const normalizedInstructions = normalizeAgentsInstructions(instructions);
+  const resolvedRevision = revision ?? createHash("sha256").update(normalizedInstructions).digest("hex").slice(0, 16);
+  return `${MANAGED_AGENTS_MARKER_PREFIX}${JSON.stringify({ source: "management-embed", revision: resolvedRevision })}${MANAGED_AGENTS_MARKER_SUFFIX}\n${normalizedInstructions}`;
+}
+
+function normalizeAgentsInstructions(instructions: string): string {
+  return instructions.endsWith("\n") ? instructions : `${instructions}\n`;
+}
+
+function isManagedAgentsFile(content: string): boolean {
+  const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return firstLine.startsWith(MANAGED_AGENTS_MARKER_PREFIX) && firstLine.endsWith(MANAGED_AGENTS_MARKER_SUFFIX);
 }
 
 async function ensureRealDirectory(path: string): Promise<string> {
@@ -464,6 +559,10 @@ function numberField(value: Record<string, unknown>, key: string): number {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim()) : [];
+}
+
+function contentArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : [];
 }
 
 function stringRecord(value: Record<string, unknown>): Record<string, string> {
