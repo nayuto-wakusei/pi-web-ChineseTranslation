@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureManagedRelaySkill, filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills } from "./piSessionService.js";
+import { filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills } from "./piSessionService.js";
+import { ensureManagedRelaySkill } from "./relaySkill.js";
 
 describe("filterManagedGlobalContextFiles", () => {
   it("removes global agent context files while keeping project context files", () => {
@@ -109,7 +110,7 @@ describe("ensureManagedRelaySkill", () => {
     }
   });
 
-  it("preserves an existing project relay skill", async () => {
+  it("replaces an existing project relay skill with the current bundled version", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
     const cwd = join(root, "project");
     const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
@@ -124,7 +125,7 @@ describe("ensureManagedRelaySkill", () => {
 
       await ensureManagedRelaySkill(cwd, bundledSkillPath);
 
-      await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("project relay");
+      await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("bundled relay");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

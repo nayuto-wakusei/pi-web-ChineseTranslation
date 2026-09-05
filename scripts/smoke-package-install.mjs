@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { smokeInstalledServices } from "./smoke-installed-services.mjs";
 
 const NPM_VERSION = "12.0.1";
 const MARKER = "pi-web-package-pty-ok";
@@ -62,8 +63,9 @@ try {
   ], root);
 
   const packageRoot = join(globalPrefix, "lib", "node_modules", ...packageManifest.name.split("/"));
+  await smokeInstalledServices(packageRoot);
   await smokeInstalledTerminalService(packageRoot);
-  console.log(`Installed-package PTY smoke test passed with npm ${NPM_VERSION}.`);
+  console.log(`Installed-package web, daemon, and PTY smoke tests passed with npm ${NPM_VERSION}.`);
 } finally {
   await rm(root, { recursive: true, force: true });
 }

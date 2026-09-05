@@ -19,5 +19,8 @@
   "ignore": [
     "src/client/src/components/shared.ts"
   ],
+  "ignoreDependencies": [
+    "@earendil-works/pi-server"
+  ],
   "ignoreExportsUsedInFile": true
 }

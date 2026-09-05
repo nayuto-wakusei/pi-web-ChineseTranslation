@@ -1,7 +1,6 @@
-import { constants, realpathSync, statSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { realpathSync, statSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
@@ -77,6 +76,7 @@ import { createManagedAgentToolOptions, createManagedPythonToolDefinition } from
 import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 import { SessionNotificationStore, type SessionNotificationGeneration, type SessionNotificationMutation } from "./sessionNotificationStore.js";
 import { plainTextTheme } from "./plainTextTheme.js";
+import { deduplicateBundledRelaySkill, ensureManagedRelaySkill, MANAGED_RELAY_SKILL_DIRECTORY } from "./relaySkill.js";
 import { SessionUnreadStore, type SessionUnreadMutation } from "./sessionUnreadStore.js";
 import {
   archiveCandidateFromActiveSession,
@@ -552,8 +552,6 @@ interface SkillCollectionResult {
 }
 
 const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
-const MANAGED_RELAY_SKILL_DIRECTORY = join(".pi", "skills", "relay");
-const BUNDLED_RELAY_SKILL_PATH = fileURLToPath(new URL("../../../skills/relay/SKILL.md", import.meta.url));
 
 export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
   return {
@@ -575,25 +573,6 @@ export function filterManagedProjectSkills(cwd: string, base: SkillCollectionRes
     skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
     diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
   };
-}
-
-export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BUNDLED_RELAY_SKILL_PATH): Promise<string> {
-  const projectRoot = realpathSync(cwd);
-  const piDirectory = resolve(projectRoot, ".pi");
-  const skillsDirectory = join(piDirectory, "skills");
-  const skillDirectory = resolve(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY);
-  const skillPath = join(skillDirectory, "SKILL.md");
-  for (const directory of [piDirectory, skillsDirectory, skillDirectory]) {
-    await ensureManagedSkillDirectory(projectRoot, directory);
-  }
-
-  try {
-    await copyFile(bundledSkillPath, skillPath, constants.COPYFILE_EXCL);
-  } catch (error) {
-    if (!isNodeError(error, "EEXIST")) throw error;
-  }
-  assertManagedSkillPath(projectRoot, skillPath, "file");
-  return skillPath;
 }
 
 export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
@@ -620,28 +599,6 @@ function pathInsideRealDirectory(directory: string, path: string): boolean {
   } catch {
     return false;
   }
-}
-
-async function ensureManagedSkillDirectory(projectRoot: string, path: string): Promise<void> {
-  try {
-    await mkdir(path);
-  } catch (error) {
-    if (!isNodeError(error, "EEXIST")) throw error;
-  }
-  assertManagedSkillPath(projectRoot, path, "directory");
-}
-
-function assertManagedSkillPath(projectRoot: string, path: string, expectedType: "directory" | "file"): void {
-  const realPath = realpathSync(path);
-  const stats = statSync(realPath);
-  const hasExpectedType = expectedType === "directory" ? stats.isDirectory() : stats.isFile();
-  if (!pathInsideOrEqual(projectRoot, realPath) || !hasExpectedType) {
-    throw new Error(`Managed skill path is invalid: ${path}`);
-  }
-}
-
-function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function pathInsideOrEqual(parent: string, child: string): boolean {
@@ -927,13 +884,16 @@ function createDefaultRuntimeFactory(
       globalAgentDir: agentDir,
       mode: "normal",
     });
-    const resourceLoaderOptions = piWebResourceLoaderOptions(appendSystemPromptSections);
+    const resourceLoaderOptions = {
+      ...piWebResourceLoaderOptions(appendSystemPromptSections),
+      skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkill(cwd, base),
+    };
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
       modelRuntime: scopedModelRuntime,
       settingsManager,
-      ...(resourceLoaderOptions === undefined ? {} : { resourceLoaderOptions }),
+      resourceLoaderOptions,
     });
     const modelOptions = await resolveSessionModelOptions({
       services,
