@@ -50,7 +50,8 @@ describe("Docker command assets", () => {
     const installer = await readRepoFile("docker/internal/image/install-opensuse-base");
     expect(installer).toMatch(/^#!\/usr\/bin\/env bash\n/);
     expect(installer).not.toContain("\r");
-    await execUtf8(shellExecutable, ["-n", join(repoRoot, "docker", "internal", "image", "install-opensuse-base")], process.env);
+    const bashExecutable = process.platform === "win32" ? join(dirname(shellExecutable), "bash.exe") : "bash";
+    await execUtf8(bashExecutable, ["-n", join(repoRoot, "docker", "internal", "image", "install-opensuse-base")], process.env);
   });
 
   it("packages the canonical Docker command and internal support assets", async () => {

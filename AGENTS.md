@@ -100,7 +100,7 @@ Run the narrowest meaningful test first. Also run `npm run typecheck` for source
 
 For project-auth changes, cover first-use bootstrap/isolation, client target propagation, and the federated route contract. For session rename changes, cover menu eligibility/input and controller behavior when the renamed row is not the active conversation. Keep the chat layout assertion in `src/client/src/components/shared.test.ts` when changing transcript scrolling styles.
 
-POSIX shell assets executed by Docker must retain LF line endings, including the shebang. Check bytes as well as shell syntax; Windows checkout must honor the installer's `.gitattributes` rule.
+POSIX shell assets executed by Docker must retain LF line endings, including the shebang. Check bytes as well as shell syntax with the declared interpreter: Bash scripts must use `bash -n`, not a host's potentially Dash-backed `sh`. Windows checkout must honor the installer's `.gitattributes` rule.
 
 ## Changes and releases
 
