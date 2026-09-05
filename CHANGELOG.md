@@ -1,5 +1,14 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.1
+
+### Patch Changes
+
+- 35ced85: Add prompt attachments, atomic model visibility controls, resilient transcript refresh, server notices, and scoped browser error reporting to session workflows.
+- 35ced85: Ship Relays as an automatically installed Pi package and distinguish development deployments with dedicated browser and PWA identity assets.
+- 35ced85: Prevent management-embed access to normal-mode server notices. Preserve selected session-tree branches and unsent attachments during refresh and session startup, and stop transcript polling when its browser connection ends.
+- 35ced85: Make service diagnostics tolerate harmless package-owned systemd drop-ins, improve update command guidance, and keep the OpenSUSE container PATH aligned with other images.
+
 ## 1.202609.0
 
 ### Patch Changes
