@@ -13,7 +13,7 @@ afterEach(() => {
 describe("ask-user-card live form", () => {
   it("uses native labelled groups and updates progress for a keyboard-focusable single select", async () => {
     const card = await mountOpenAsk(openAsk([
-      question("editor", "Choose an editor", [option("vim", "Vim"), option("code", "VS Code")], { detail: "Used for examples." }),
+      question("editor", "Choose an editor", [option("vim", "Vim", "Fast\n  and familiar."), option("code", "VS Code")], { detail: "Used for examples.\n  Keep the indentation." }),
       question("platforms", "Target platforms", [option("web", "Web"), option("desktop", "Desktop")], { multiple: true }),
     ]));
     const root = renderRoot(card);
@@ -28,7 +28,11 @@ describe("ask-user-card live form", () => {
     expect(fieldsets).toHaveLength(2);
     expect(legends[0]?.textContent).toContain("Choose an editor");
     expect(fieldsets[0]?.getAttribute("aria-describedby")).toBe("ask-user-question-detail-0");
-    expect(root.querySelector("#ask-user-question-detail-0")?.textContent).toBe("Used for examples.");
+    expect(root.querySelector("#ask-user-question-detail-0")?.textContent).toBe("Used for examples.\n  Keep the indentation.");
+    expect(getComputedStyle(requiredElement(root.querySelector("#ask-user-question-detail-0"), "question detail")).whiteSpace).toBe("pre-wrap");
+    const optionDetail = requiredElement(root.querySelector(".option-detail"), "option detail");
+    expect(optionDetail.textContent).toBe("Fast\n  and familiar.");
+    expect(getComputedStyle(optionDetail).whiteSpace).toBe("pre-wrap");
     expect(vim.type).toBe("radio");
     expect(code.name).toBe(vim.name);
     expect(web.type).toBe("checkbox");
@@ -258,8 +262,8 @@ function question(
   };
 }
 
-function option(value: string, label: string): AskUserQuestion["options"][number] {
-  return { value, label };
+function option(value: string, label: string, detail?: string): AskUserQuestion["options"][number] {
+  return { value, label, ...(detail === undefined ? {} : { detail }) };
 }
 
 function unansweredRecord(questionValue: AskUserQuestion): AskUserOutcome["questions"][number] {

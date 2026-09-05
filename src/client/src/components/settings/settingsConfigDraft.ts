@@ -10,6 +10,7 @@ export interface GatewayServerConfigDraft {
 export interface MachineAccessConfigDraft {
   allowedPathsText: string;
   uploadDefaultFolder: string;
+  attachmentDefaultFolder: string;
 }
 
 export interface AgentProfileConfigDraft {
@@ -22,7 +23,7 @@ export function emptyGatewayServerConfigDraft(): GatewayServerConfigDraft {
 }
 
 export function emptyMachineAccessConfigDraft(): MachineAccessConfigDraft {
-  return { allowedPathsText: "", uploadDefaultFolder: "" };
+  return { allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" };
 }
 
 export function emptyAgentProfileConfigDraft(): AgentProfileConfigDraft {
@@ -42,6 +43,7 @@ export function machineAccessDraftFromConfig(config: PiWebConfigValues): Machine
   return {
     allowedPathsText: config.pathAccess?.allowedPaths?.join("\n") ?? "",
     uploadDefaultFolder: config.uploads?.defaultFolder ?? "",
+    attachmentDefaultFolder: config.attachments?.defaultFolder ?? "",
   };
 }
 
@@ -85,10 +87,12 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
 
 export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraft): PiWebConfigValues {
   const allowedPaths = parseAllowedPathsText(draft.allowedPathsText);
-  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder);
+  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, "上传默认文件夹");
+  const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, "附件默认文件夹");
   return {
     pathAccess: { allowedPaths },
     uploads: uploadDefaultFolder === "" ? {} : { defaultFolder: uploadDefaultFolder },
+    attachments: attachmentDefaultFolder === "" ? {} : { defaultFolder: attachmentDefaultFolder },
   };
 }
 
@@ -99,6 +103,7 @@ function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebCo
     ...(baseConfig.normalAuth === undefined ? {} : { normalAuth: baseConfig.normalAuth }),
     ...(baseConfig.pathAccess === undefined ? {} : { pathAccess: baseConfig.pathAccess }),
     ...(baseConfig.uploads === undefined ? {} : { uploads: baseConfig.uploads }),
+    ...(baseConfig.attachments === undefined ? {} : { attachments: baseConfig.attachments }),
     ...(baseConfig.maxUploadBytes === undefined ? {} : { maxUploadBytes: baseConfig.maxUploadBytes }),
     ...(baseConfig.spawnSessions === undefined ? {} : { spawnSessions: baseConfig.spawnSessions }),
     ...(baseConfig.subsessions === undefined ? {} : { subsessions: baseConfig.subsessions }),
@@ -118,13 +123,13 @@ function parseAllowedPathsText(value: string): string[] {
   return paths;
 }
 
-function normalizeWorkspaceRelativeFolder(value: string): string {
+function normalizeWorkspaceRelativeFolder(value: string, label: string): string {
   const trimmed = value.trim();
   if (trimmed === "") return "";
-  if (isAbsoluteLike(trimmed)) throw new Error("上传默认文件夹必须是工作区相对路径。");
+  if (isAbsoluteLike(trimmed)) throw new Error(`${label}必须是工作区相对路径。`);
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) return "";
-  if (parts.some((part) => part === "..")) throw new Error("上传默认文件夹不能包含路径穿越。");
+  if (parts.some((part) => part === "..")) throw new Error(`${label}不能包含路径穿越。`);
   return parts.join("/");
 }
 

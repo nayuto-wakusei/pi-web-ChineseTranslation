@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-const allTests = ["src/**/*.test.ts", "pi-web-plugins/**/*.test.ts", "scripts/**/*.test.mjs"];
+const allTests = ["src/**/*.test.ts", "pi-web-plugins/**/*.test.ts", "pi-packages/**/*.test.ts", "scripts/**/*.test.mjs"];
 const piSessionServiceTests = ["src/server/sessions/piSessionService*.test.ts"];
 
 export default defineConfig({

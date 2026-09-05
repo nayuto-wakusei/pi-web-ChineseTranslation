@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe("machine-switcher unread indicator", () => {
   it("shows an unread dot on the switcher button while the selected machine has unread sessions", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], new Set(["local"]));
+    const switcher = await mountSwitcher([machine("local", "local"), machine("remote-a", "remote")], new Set(["local"]));
     const button = switcherButton(switcher);
     const dot = button.querySelector(".activity-indicator.unread");
     expect(dot).not.toBeNull();
@@ -37,7 +37,7 @@ describe("machine-switcher unread indicator", () => {
   });
 
   it("wraps the work dot in an unread ring when the machine is busy and unread", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], new Set(["local"]));
+    const switcher = await mountSwitcher([machine("local", "local"), machine("remote-a", "remote")], new Set(["local"]));
     switcher.activities = { local: { "/repo": workspaceActivity("/repo", true, false) } };
     await switcher.updateComplete;
 
@@ -50,13 +50,48 @@ describe("machine-switcher unread indicator", () => {
   });
 });
 
-async function mountSwitcher(machines: Machine[], unreadMachineIds: ReadonlySet<string>): Promise<MachineSwitcher> {
+describe("machine identity", () => {
+  it("renders nothing for one machine in browser mode", async () => {
+    const switcher = await mountSwitcher([machine("local", "local")], new Set());
+
+    expect(switcher.shadowRoot?.querySelector(".machine-info")).toBeNull();
+    expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
+  });
+
+  it("shows a static local gateway bubble for one machine in PWA mode", async () => {
+    const switcher = await mountSwitcher([machine("local", "local")], new Set(), true);
+
+    const info = switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info");
+    expect(info?.querySelector<HTMLImageElement>(".machine-icon")?.getAttribute("src")).toBe(`${document.baseURI}favicon.svg`);
+    expect(info?.querySelector(".machine-info-url")?.textContent).toBe(document.location.host);
+    expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
+    expect(await switcher.focusSelectedOrFirst()).toBe(false);
+  });
+
+  it("uses each machine deployment icon and the local gateway URL in the picker", async () => {
+    const remote = { ...machine("remote-a", "remote"), baseUrl: "https://fleet-a.example.com/pi-web/" };
+    const switcher = await mountSwitcher([machine("local", "local"), remote], new Set());
+
+    switcherButton(switcher).click();
+    await switcher.updateComplete;
+
+    const options = [...(switcher.shadowRoot?.querySelectorAll(".machine-option") ?? [])];
+    expect(options[0]?.querySelector("small")?.textContent).toContain(document.location.host);
+    expect(options.map((option) => option.querySelector("img")?.getAttribute("src"))).toEqual([
+      `${document.baseURI}favicon.svg`,
+      "https://fleet-a.example.com/pi-web/favicon.svg",
+    ]);
+  });
+});
+
+async function mountSwitcher(machines: Machine[], unreadMachineIds: ReadonlySet<string>, locationIndicator = false): Promise<MachineSwitcher> {
   const switcher = new MachineSwitcher();
   switcher.machines = machines;
   const selected = machines[0];
   if (selected === undefined) throw new Error("Expected at least one machine");
   switcher.selected = selected;
   switcher.unreadMachineIds = unreadMachineIds;
+  switcher.locationIndicator = locationIndicator;
   document.body.append(switcher);
   await switcher.updateComplete;
   return switcher;

@@ -78,6 +78,40 @@ describe("machine-scoped session proxy routes", () => {
     expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
   });
 
+  it.each(["/api", "/api/machines/local"])("forwards management context and notice access denials through %s", async (prefix) => {
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Project 1", root: process.cwd() }],
+    };
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    registerSessionProxyRoutes(app, daemon, prefix, {
+      enabled: true,
+      projectRoot: process.cwd(),
+      authenticate: () => Promise.resolve(managementContext),
+    });
+    const error = { error: "Server notices are unavailable in management embed mode" };
+    const query = "?embed=management&token=launch-token";
+    const dismissal = { daemonInstanceId: "daemon-a", noticeId: "notice-1" };
+    for (const method of ["GET", "POST"] as const) {
+      daemon.respondWith({ statusCode: 403, headers: { "content-type": "application/json" }, body: JSON.stringify(error) });
+      const response = await app.inject({
+        method,
+        url: `${prefix}/notices${method === "POST" ? "/dismiss" : ""}${query}`,
+        ...(method === "POST" ? { payload: dismissal } : {}),
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual(error);
+    }
+    expect(daemon.requests).toEqual([
+      { method: "GET", path: `/notices${query}`, body: undefined },
+      { method: "POST", path: `/notices/dismiss${query}`, body: dismissal },
+    ]);
+    expect(daemon.requestHeaders.map((headers) => decodeManagementContext(headers?.[MANAGEMENT_EMBED_CONTEXT_HEADER])))
+      .toEqual([managementContext, managementContext]);
+  });
+
   it("limits management cleanup to the selected project's workspace paths", async () => {
     const cwd = process.cwd();
     const outsideCwd = dirname(cwd);

@@ -2,7 +2,8 @@ import { ModelRuntime, type ExtensionUIContext } from "@earendil-works/pi-coding
 import { InMemoryCredentialStore, type Credential, type CredentialStore } from "@earendil-works/pi-ai";
 import type { GlobalSessionEvent, SessionNotificationSummaryEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
-import type { PiAgentSession, PiSessionManager, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
+import type { PiAgentSession, PiSessionManager, PiSessionModelRuntime, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
 
 export class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -26,6 +27,26 @@ export class CapturingSessionEventHub extends SessionEventHub {
 
   override currentSeq(sessionId: string): number {
     return this.seqBySessionOverride.get(sessionId) ?? 0;
+  }
+}
+
+/**
+ * Scope-aware event capture for tests that exercise normal/management
+ * routing. Unlike the ordinary recorder above, this hub deliberately keeps
+ * SessionEventHub's per-session broadcast and sequence behavior active;
+ * global events are recorded without broadcasting, as in the original fixture.
+ */
+export class ScopeCapturingSessionEventHub extends SessionEventHub {
+  readonly sessionEvents: { sessionId: string; event: SessionUiEvent; scope?: string }[] = [];
+  readonly globalEvents: { event: GlobalSessionEvent; scope?: string }[] = [];
+
+  override publish(sessionId: string, event: SessionUiEvent, scope?: string): void {
+    super.publish(sessionId, event, scope);
+    this.sessionEvents.push({ sessionId, event, ...(scope === undefined ? {} : { scope }) });
+  }
+
+  override publishGlobal(event: GlobalSessionEvent, scope?: string): void {
+    this.globalEvents.push({ event, ...(scope === undefined ? {} : { scope }) });
   }
 }
 
@@ -64,6 +85,13 @@ export function sessionRef(id: string, cwd = "/workspace") {
   return { id, cwd };
 }
 
+export function testManagementContext(): ManagementEmbedContext {
+  return {
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["runtime:read", "runtime:write", "tools:execute"] },
+    projects: [{ id: "project-1", name: "Project 1" }],
+  };
+}
+
 export const TEST_MODEL_PROVIDER = "anthropic";
 export const TEST_MODEL_ID = "claude-sonnet-4-5-20250929";
 
@@ -87,11 +115,35 @@ export function createTestModelRuntime(credentials: CredentialStore = new InMemo
 }
 
 /**
- * Shared runtime for the common case where a test only needs model catalog
- * reads and no configured auth. Built once so the many `fakeRuntime` sessions
- * and `PiSessionService` constructions can inject it synchronously.
+ * Shared real runtime retained for read-only catalog fixtures and the
+ * session-routes consumer; orchestration fakes use `fakeModelRuntime` below.
  */
 export const testModelRuntime = await createTestModelRuntime();
+
+const orchestrationModel: NonNullable<PiAgentSession["model"]> = {
+  id: "claude-sonnet-4-5-20250929",
+  name: "Claude Sonnet 4.5",
+  api: "anthropic-messages",
+  provider: "anthropic",
+  baseUrl: "https://api.anthropic.com",
+  reasoning: true,
+  input: ["text", "image"],
+  cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  contextWindow: 200_000,
+  maxTokens: 64_000,
+};
+
+/** Lightweight model seam for orchestration-only runtime fakes. */
+function fakeModelRuntime(): PiSessionModelRuntime {
+  const model = structuredClone(orchestrationModel);
+  return {
+    refresh: () => Promise.resolve(),
+    getAvailable: () => Promise.resolve([]),
+    getAvailableSnapshot: () => [],
+    getModel: (provider: string, modelId: string) => provider === model.provider && modelId === model.id ? model : undefined,
+    hasConfiguredAuth: () => false,
+  };
+}
 
 export const testExtensionUiContext: ExtensionUIContext = {
   select: () => Promise.resolve(undefined),
@@ -127,7 +179,7 @@ export const testExtensionUiContext: ExtensionUIContext = {
 export function testModel(): NonNullable<PiAgentSession["model"]> {
   const model = testModelRuntime.getModel(TEST_MODEL_PROVIDER, TEST_MODEL_ID);
   if (model === undefined) throw new Error("test model not found");
-  return model;
+  return structuredClone(model);
 }
 
 export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
@@ -136,6 +188,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
   const bindExtensionCalls: TestExtensionBindings[] = [];
   const listeners: ((event: unknown) => void)[] = [];
   let extensionUiContext = testExtensionUiContext;
+  const modelRuntime: PiSessionModelRuntime = fakeModelRuntime();
   const calls = { abort: 0, bindExtensions: bindExtensionCalls, clearQueue: 0, dispose: 0, prompt: promptCalls, reload: 0, sendCustomMessage: customMessageCalls };
   const session: TestSession = {
     sessionId,
@@ -151,7 +204,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
     settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined, getEnabledModels: () => undefined, setEnabledModels: () => undefined },
-    modelRuntime: testModelRuntime,
+    modelRuntime,
     scopedModels: [],
     setScopedModels: (models) => { session.scopedModels = models; },
     extensionRunner: {

@@ -74,6 +74,10 @@ export interface PiWebUploadsConfig {
   defaultFolder?: string;
 }
 
+export interface PiWebAttachmentsConfig {
+  defaultFolder?: string;
+}
+
 export interface PiWebAgentConfig {
   /** Pi-compatible companion CLI used for diagnostics and safe package-managed updates. */
   command?: string;
@@ -120,6 +124,8 @@ export interface PiWebConfigValues {
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
   uploads?: PiWebUploadsConfig;
+  /** Workspace-relative defaults for prompt attachments saved into the workspace. */
+  attachments?: PiWebAttachmentsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
   /** When true, LLMs can start new sessions via the spawn_session tool. */
@@ -248,6 +254,14 @@ export interface PiPackageInfo {
 
 export interface PiPackagesResponse {
   packages: PiPackageInfo[];
+  installableKnownPackages?: PiPackageInstallableSuggestion[];
+}
+
+export interface PiPackageInstallableSuggestion {
+  id: string;
+  label: string;
+  description: string;
+  source: string;
 }
 
 export interface PiPackageInstallRequest {
@@ -312,6 +326,7 @@ export interface NormalAuthStatusResponse {
 
 export interface WorkspaceEffectiveConfig {
   uploads?: PiWebUploadsConfig;
+  attachments?: PiWebAttachmentsConfig;
 }
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -370,6 +385,33 @@ export type WorkspaceProviderAuthorityResolution = Omit<WorkspaceProviderResolut
 export interface SessionRef {
   id: string;
   cwd: string;
+}
+
+export type ServerNoticeSeverity = "info" | "warning" | "error";
+
+export interface ServerNotice {
+  id: string;
+  severity: ServerNoticeSeverity;
+  message: string;
+  createdAt: string;
+  source?: string;
+  context?: JsonObject;
+}
+
+export interface ServerNoticeSnapshot {
+  daemonInstanceId: string;
+  revision: number;
+  notices: ServerNotice[];
+}
+
+export interface ServerNoticeDismissRequest {
+  daemonInstanceId: string;
+  noticeId: string;
+}
+
+export interface ServerNoticeEvent {
+  type: "notices.updated";
+  snapshot: ServerNoticeSnapshot;
 }
 
 export const SESSION_UNREAD_LIMIT = 1_000;
@@ -951,11 +993,18 @@ export interface SessionModelCatalogEntry {
   contextWindow?: number;
   reasoning?: unknown;
   enabled: boolean;
+  /** False when a workspace `.pi/settings.json` override controls membership and the global picker is read-only. */
+  editable?: boolean;
+  /** Stable zero-based position in the machine's unscoped catalog. Optional for compatibility with older servers. */
+  catalogIndex?: number;
 }
 
 export interface SessionModelCatalogResponse {
   models: SessionModelCatalogEntry[];
 }
+
+/** Canonical model-scope presets exposed by the model picker's bulk toggle. */
+export type SessionModelScopeMode = "all" | "current";
 
 // Domain type is owned by pi and re-exported from the shared thinking-levels
 // module. Wire/data fields below intentionally use `string` so an unknown level
@@ -1491,9 +1540,17 @@ type SessionUiEventBody =
   | { type: "session.created"; session: SessionInfo }
   | { type: "pi.event"; eventType: string };
 
+/** Global invalidation for the daemon-owned enabled-model scope. */
+export interface ModelScopeChangedEvent {
+  type: "models.changed";
+  revision: number;
+}
+
 export type GlobalSessionEvent =
   | Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>
   | SessionNotificationSummaryEvent
   | SessionUnreadEvent
-  | SessionStartupProgressEvent;
+  | SessionStartupProgressEvent
+  | ModelScopeChangedEvent
+  | ServerNoticeEvent;
 export type RealtimeEvent = GlobalSessionEvent | TerminalUiEvent | WorkspaceActivityUiEvent | MachineStatusUiEvent;

@@ -1,4 +1,5 @@
-import { api as defaultApi } from "../api";
+import { api as defaultApi, type Project } from "../api";
+import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScope } from "../browserErrors";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
 
@@ -10,6 +11,7 @@ export interface ProjectControllerDependencies {
 export class ProjectController {
   private readonly api: Pick<typeof defaultApi, "projects" | "addProject" | "closeProject">;
   private readonly onProjectsApplied: ((machineId: string) => void) | undefined;
+  private readonly browserErrors: BrowserErrorReporter;
 
   constructor(
     private readonly getState: GetState,
@@ -19,11 +21,12 @@ export class ProjectController {
   ) {
     this.api = deps.api ?? defaultApi;
     this.onProjectsApplied = deps.onProjectsApplied;
+    this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
 
   async loadProjects() {
     const machineId = selectedMachineId(this.getState());
-    this.setState({ error: "", isLoadingProjects: true });
+    this.setState({ isLoadingProjects: true });
     try {
       const projects = await this.api.projects(machineId);
       if (selectedMachineId(this.getState()) !== machineId) return;
@@ -32,7 +35,7 @@ export class ProjectController {
       this.setState({ projects, workspacesByProjectId });
       this.onProjectsApplied?.(machineId);
     } catch (error) {
-      if (selectedMachineId(this.getState()) === machineId) this.setState({ error: String(error) });
+      this.browserErrors.report(machineBrowserErrorScope(machineId), String(error));
     } finally {
       if (selectedMachineId(this.getState()) === machineId) this.setState({ isLoadingProjects: false });
     }
@@ -41,15 +44,21 @@ export class ProjectController {
   async addProject(path: string, create?: boolean) {
     if (path.trim() === "") return;
     const machineId = selectedMachineId(this.getState());
+    let project: Project;
     try {
-      const project = await this.api.addProject(path.trim(), undefined, create, machineId);
-      if (selectedMachineId(this.getState()) !== machineId) return;
+      project = await this.api.addProject(path.trim(), undefined, create, machineId);
+    } catch (error) {
+      this.browserErrors.report(machineBrowserErrorScope(machineId), String(error));
+      return;
+    }
+    if (selectedMachineId(this.getState()) !== machineId) return;
+    try {
       const projects = this.getState().projects;
       this.setState({ projects: [...projects.filter((p) => p.id !== project.id), project], projectDialogOpen: false });
       this.onProjectsApplied?.(machineId);
       await this.workspaces.selectProject(project);
     } catch (error) {
-      if (selectedMachineId(this.getState()) === machineId) this.setState({ error: String(error) });
+      this.browserErrors.report(projectBrowserErrorScope(machineId, project.id), String(error));
     }
   }
 
@@ -64,7 +73,7 @@ export class ProjectController {
       this.onProjectsApplied?.(machineId);
       if (state.selectedProject?.id === projectId) this.workspaces.clearSelection();
     } catch (error) {
-      if (selectedMachineId(this.getState()) === machineId) this.setState({ error: String(error) });
+      this.browserErrors.report(projectBrowserErrorScope(machineId, projectId), String(error));
     }
   }
 }

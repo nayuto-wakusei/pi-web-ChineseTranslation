@@ -1,5 +1,6 @@
 import { api as defaultApi, type ApiScope, type AuthProviderOption, type AuthRequestTarget, type AuthType, type OAuthFlowState, type SessionStatus } from "../api";
 import type { AuthDialogState, AuthDialogTarget } from "../appState";
+import { BrowserErrorReporter, machineBrowserErrorScope } from "../browserErrors";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 
 type OAuthDialogState = Extract<AuthDialogState, { step: "oauth" }>;
@@ -17,6 +18,7 @@ export class AuthController {
   private oauthOperationGeneration = 0;
   private pollGeneration = 0;
   private pollTimer: number | undefined;
+  private readonly browserErrors: BrowserErrorReporter;
 
   constructor(
     private readonly getState: GetState,
@@ -27,6 +29,7 @@ export class AuthController {
     this.api = deps.api ?? defaultApi;
     this.pollIntervalMs = deps.pollIntervalMs ?? 1000;
     this.scope = deps.scope;
+    this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
 
   dispose(): void {
@@ -59,7 +62,7 @@ export class AuthController {
       const { providers } = await this.api.authProviders({ mode: "login", authType, ...authRequestTarget(dialog.target) });
       this.setState({ authDialog: { step: "providers", mode: "login", authType, providers, target: dialog.target } });
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.browserErrors.report(machineBrowserErrorScope(dialog.target.machineId), String(error));
     }
   }
 
@@ -109,12 +112,12 @@ export class AuthController {
       if (providerId !== undefined && providerId !== "") {
         const provider = providers.find((candidate) => candidate.id === providerId);
         if (provider !== undefined) await this.logoutProviderForTarget(provider.id, target);
-        else this.setState({ error: `没有 ${providerId} 的已保存凭据` });
+        else this.browserErrors.report(machineBrowserErrorScope(target.machineId), `没有 ${providerId} 的已保存凭据`);
         return;
       }
       this.setState({ authDialog: { step: "logout", providers, target } });
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
     }
   }
 
@@ -132,7 +135,7 @@ export class AuthController {
       this.closeDialog();
       void this.refreshStatus(target);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
     }
   }
 
@@ -193,7 +196,7 @@ export class AuthController {
       const { providers } = await this.api.authProviders({ mode: "login", ...authRequestTarget(target) });
       const exact = providers.filter((provider) => provider.id === providerId);
       if (exact.length === 0) {
-        this.setState({ error: `找不到认证提供商：${providerId}` });
+        this.browserErrors.report(machineBrowserErrorScope(target.machineId), `找不到认证提供商：${providerId}`);
         return;
       }
       if (exact.length > 1) {
@@ -205,7 +208,7 @@ export class AuthController {
       if (provider.authType === "oauth" || provider.loginFlow === "interactive") await this.startOAuth(provider, target);
       else this.setState({ authDialog: { step: "apiKey", provider, value: "", target } });
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
     }
   }
 
@@ -229,7 +232,7 @@ export class AuthController {
       this.updateOAuthFlow(flow, target);
       if (flow.status === "running") this.startPolling(flow.flowId, target);
     } catch (error) {
-      if (operationGeneration === this.oauthOperationGeneration) this.setState({ error: String(error) });
+      if (operationGeneration === this.oauthOperationGeneration) this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
     }
   }
 
@@ -321,7 +324,7 @@ export class AuthController {
     if (this.scope === "management") return target;
     const project = state.selectedProject;
     if (project === undefined) {
-      this.setState({ error: "请先选择项目，再配置提供商认证。" });
+      this.browserErrors.report(machineBrowserErrorScope(target.machineId), "请先选择项目，再配置提供商认证。");
       return undefined;
     }
     return { ...target, projectId: project.id, projectName: project.name };

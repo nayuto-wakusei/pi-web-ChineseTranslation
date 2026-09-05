@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import type { ActiveAgentProfileDescriptor, PiWebConfigResponse } from "../../api";
 import { SettingsSessiondPanel, sessiondDescription, sessiondPanelNotices, type SessiondPanelNoticeContext } from "./SettingsSessiondPanel";
+import { configResponse } from "../SettingsDialog.testSupport";
 
 // This suite asserts the session-daemon panel's dynamic behavior through public
 // seams rather than by inspecting rendered Lit `TemplateResult` internals:
@@ -145,14 +146,4 @@ function callPanelMethod(panel: SettingsSessiondPanel, methodName: string, ...ar
   const method: unknown = Reflect.get(panel, methodName);
   if (typeof method !== "function") throw new Error(`SettingsSessiondPanel.${methodName} is not callable`);
   return Reflect.apply(method, panel, args);
-}
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
-  };
 }

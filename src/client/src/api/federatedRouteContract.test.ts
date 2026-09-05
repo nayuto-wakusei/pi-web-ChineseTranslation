@@ -58,6 +58,7 @@ describe("federated route contract", () => {
       { method: "GET", path: "/sessions/:sessionId/models" },
       { method: "GET", path: "/sessions/:sessionId/models/catalog" },
       { method: "POST", path: "/sessions/:sessionId/models/enabled" },
+      { method: "POST", path: "/sessions/:sessionId/models/scope" },
     ]);
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("models"))).toBe(false);
   });

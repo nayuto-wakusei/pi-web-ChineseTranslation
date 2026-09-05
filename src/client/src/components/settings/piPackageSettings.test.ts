@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../../shared/capabilities";
 import type { MachineRuntime, PiPackageInfo } from "../../api";
-import { canUpdateAllPiPackages, friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, isPiPackageOperationPending, normalizePiPackageSource, piPackageFilteredLabel, piPackageManagementSupport, piPackageMutationFollowUpMessage, piPackageScopeLabel, piPackageSourceValidationMessage, piPackageTargetContext, piPackageTargetLabel, piPackageUpdateDisabledReason, shouldRefreshGatewayPluginsAfterPiPackageMutation, updateAllPiPackagesDisabledReason, type PiPackageTargetContext } from "./piPackageSettings";
+import { canUpdateAllPiPackages, friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, isPiPackageOperationPending, normalizePiPackageSource, piPackageFilteredLabel, piPackageManagementSupport, piPackageMutationFollowUpMessage, piPackagesResponseAfterMutation, piPackageScopeLabel, piPackageSourceValidationMessage, piPackageTargetContext, piPackageTargetLabel, piPackageUpdateDisabledReason, shouldRefreshGatewayPluginsAfterPiPackageMutation, updateAllPiPackagesDisabledReason, type PiPackageTargetContext } from "./piPackageSettings";
 
 const userPackage: PiPackageInfo = { source: "npm:@acme/tools", scope: "user", filtered: false, installedPath: "/home/test/.pi/packages/tools" };
 const projectPackage: PiPackageInfo = { source: "../project-tools", scope: "project", filtered: true };
@@ -76,6 +76,16 @@ describe("Pi package settings helpers", () => {
     expect(message).toContain("Pi 包已更新（Lab Mac）");
     expect(message).toContain("Lab Mac 上每个空闲的 PI WEB 会话");
     expect(message).toContain("Lab Mac 提供的 PI WEB 浏览器插件变更");
+  });
+
+  it("carries refreshed installable-known-package suggestions through mutations", () => {
+    const suggestion = { id: "@jmfederico/pi-relay", label: "中继", description: "Relay 方法提示词和技能。", source: "/pi-web/dist/pi-packages/relays" };
+
+    expect(piPackagesResponseAfterMutation({ packages: [userPackage], installableKnownPackages: [suggestion] })).toEqual({
+      packages: [userPackage],
+      installableKnownPackages: [suggestion],
+    });
+    expect(piPackagesResponseAfterMutation({ packages: [userPackage] })).toEqual({ packages: [userPackage] });
   });
 
   it("turns older remote route failures into package-management compatibility guidance", () => {

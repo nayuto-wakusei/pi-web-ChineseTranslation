@@ -277,9 +277,9 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
             <section id="built-in-plugins">
               <h2>Built-in plugins</h2>
               <p>
-                PI WEB ships core, discoverable plugins in the main <code>@chainingintention/pi-web-cn</code> npm package. No
-                separate <code>pi install</code> step is required: update PI WEB, reload the browser tab, and the bundled
-                plugins appear in <code>/pi-web-plugins/manifest.json</code>.
+                PI WEB ships core, discoverable plugins in the main <code>@chainingintention/pi-web-cn</code> npm package.
+                Updates and Workspace Tasks load directly from PI WEB. Relays ships as a real Pi package and is installed
+                automatically for the active agent profile, so it also requires no manual <code>pi install</code> step.
               </p>
               <p>
                 Built-in plugins can be managed from <strong>Settings → PI WEB plugins</strong> or with the top-level
@@ -363,6 +363,30 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
                 Review task configs before running them, especially in shared projects. Workspace Tasks runs trusted
                 shell commands from your repositories.
               </p>
+
+              <h3>Relays</h3>
+              <p>
+                <strong>Relays</strong> adds a read-only workspace tab for browsing relay documents under
+                <code>.pi-web/relays/&lt;name&gt;/</code>, plus an action that opens the same tab. It renders Markdown,
+                lists nested relay documents, and never creates, edits, or deletes relay files.
+              </p>
+              <ul>
+                <li>Plugin id: <code>relays</code></li>
+                <li>Pi package: <code>@jmfederico/pi-relay</code></li>
+                <li>The session daemon installs the shipped package for the active profile when it is absent and has not been removed intentionally.</li>
+                <li>Removing it through <strong>Settings → Pi packages</strong> prevents automatic reinstallation for that profile; the same panel can install it again.</li>
+              </ul>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Hide the Relays browser UI</strong>
+                  <button class="copy-button" data-copy="#relays-disable">Copy</button>
+                </div>
+                <pre id="relays-disable"><code>{
+  "plugins": {
+    "relays": { "enabled": false }
+  }
+}</code></pre>
+              </div>
             </section>
 
             <section id="manage-plugins">

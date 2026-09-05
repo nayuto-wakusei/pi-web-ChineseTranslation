@@ -217,7 +217,7 @@ describe("SessionController session tree navigation", () => {
     await expect(controller.navigateTree("root", { mode: "none" })).rejects.toThrow("authoritative history refresh failed");
 
     expect(state.treeDialog).toBe(tree);
-    expect(state.error).toContain("authoritative history refresh failed");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("authoritative history refresh failed");
     expect(loadDraft(cacheKey)).toBe("recovered draft");
     expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft" });
   });
@@ -251,7 +251,7 @@ describe("SessionController session tree navigation", () => {
 
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "authoritative branch" }], transcriptIndex: 0 }]);
     expect(state.treeDialog).toBe(tree);
-    expect(state.error).toContain("prompt editor replacement failed");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("prompt editor replacement failed");
   });
 
   it("explicitly clears the editor draft when navigating to a non-user entry", async () => {
@@ -300,7 +300,7 @@ describe("SessionController session tree navigation", () => {
 
     await expect(controller.navigateTree("root", { mode: "none" })).rejects.toThrow("reopen /tree");
     expect(state.treeDialog).toBe(tree);
-    expect(state.error).toContain("reopen /tree");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("reopen /tree");
 
     await controller.abortTreeNavigation();
     expect(abort).toHaveBeenCalledWith(oldSession, "local");
@@ -329,7 +329,7 @@ describe("SessionController session tree navigation", () => {
     await controller.selectSession(oldSession, { updateUrl: false });
     socket.emit({ type: "message.append", message: { role: "assistant", content: "live after failed refresh" }, seq: 1 });
 
-    expect(state.error).toContain("history refresh failed");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("history refresh failed");
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "live after failed refresh" }] }]);
   });
 
@@ -526,7 +526,7 @@ describe("SessionController session tree navigation", () => {
     await run;
 
     expect(state.treeDialog).toBeUndefined();
-    expect(state.error).toContain("需要输入；请打开会话并重新运行");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("需要输入；请打开会话并重新运行");
   });
 
   it("requires a delayed interactive tree command to be rerun after its session is no longer selected", async () => {
@@ -554,7 +554,7 @@ describe("SessionController session tree navigation", () => {
     await run;
 
     expect(state.treeDialog).toBeUndefined();
-    expect(state.error).toContain("需要输入；请打开会话并重新运行");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("需要输入；请打开会话并重新运行");
   });
 });
 

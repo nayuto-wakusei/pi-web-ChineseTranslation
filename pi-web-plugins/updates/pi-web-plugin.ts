@@ -1,6 +1,6 @@
 import type { TemplateResult } from "lit";
-import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusResponse, PluginRuntimeState, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
-import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor, type UpdatesRuntimeHint } from "./updatesLogic.js";
+import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusMessage, PluginRuntimeState, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
+import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor, type CommandEntry, type UpdatesRuntimeHint } from "./updatesLogic.js";
 
 function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, command: string): void {
   void terminal.runCommand({
@@ -116,25 +116,37 @@ function updatesRuntimeHintFromModuleUrl(moduleUrl: string): UpdatesRuntimeHint 
 
 const runtimeHint = updatesRuntimeHintFromModuleUrl(import.meta.url);
 
-function renderCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, status: PiWebStatusResponse): TemplateResult | undefined {
-  const recommended = recommendedCommand(status);
-  const additional = additionalCommands(status, recommended);
-  if (recommended === undefined && additional.length === 0) return undefined;
+function renderNotice(html: HtmlTemplateTag, message: PiWebStatusMessage): TemplateResult {
   return html`
-    ${recommended === undefined ? null : html`
-      <section class="updates-recommended">
-        <strong>推荐</strong>
-        <p class="muted">运行这一条命令即可将当前安装更新到最新状态。不需要其他操作。</p>
-        ${renderCommand(html, terminal, recommended.label, recommended.command)}
-      </section>
-    `}
-    ${additional.length === 0 ? null : html`
-      <section>
-        <strong>建议命令</strong>
-        ${recommended === undefined ? null : html`<p class="muted">仅在需要更细粒度控制时使用，例如只重启某个服务。</p>`}
-        ${additional.map((entry) => renderCommand(html, terminal, entry.label, entry.command))}
-      </section>
-    `}
+    <article class=${`updates-message ${message.severity}`}>
+      <div class="updates-message-title"><strong>${message.title}</strong><span>${severityLabel(message.severity)}</span></div>
+      <p>${message.body}</p>
+    </article>
+  `;
+}
+
+function renderNotices(html: HtmlTemplateTag, messages: readonly PiWebStatusMessage[]): TemplateResult {
+  return html`<section>${messages.length === 0 ? html`<p class="muted">没有 PI WEB 更新或重启消息。</p>` : messages.map((message) => renderNotice(html, message))}</section>`;
+}
+
+function renderRecommended(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, recommended: CommandEntry, messages: readonly PiWebStatusMessage[]): TemplateResult {
+  return html`
+    <section class="updates-recommended">
+      <strong>推荐</strong>
+      ${messages.length === 0 ? html`<p class="muted">运行这一条命令即可将当前安装更新到最新状态。不需要其他操作。</p>` : messages.map((message) => renderNotice(html, message))}
+      ${renderCommand(html, terminal, recommended.label, recommended.command)}
+    </section>
+  `;
+}
+
+function renderAdditionalCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, additional: readonly CommandEntry[], hasRecommended: boolean): TemplateResult | undefined {
+  if (additional.length === 0) return undefined;
+  return html`
+    <section>
+      <strong>${hasRecommended ? "其他命令（可选）" : "建议命令"}</strong>
+      ${hasRecommended ? html`<p class="muted">仅在需要更细粒度控制时使用，例如只重启某个服务。</p>` : null}
+      ${additional.map((entry) => renderCommand(html, terminal, entry.label, entry.command))}
+    </section>
   `;
 }
 
@@ -148,6 +160,8 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
   }
 
   const messages = status.messages;
+  const recommended = recommendedCommand(status);
+  const additional = additionalCommands(status, recommended);
   return html`
     <style>
       .viewer.updates-status { flex: 1 1 auto; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 12px; overflow-y: auto; overflow-x: hidden; }
@@ -161,11 +175,11 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
       .updates-version-row small { grid-column: 1 / -1; color: var(--pi-muted); }
       .updates-command { min-width: 0; display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
       .updates-command code { overflow: auto; border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-bg); padding: 5px 7px; white-space: nowrap; }
-      .updates-command-inline { grid-template-columns: minmax(0, 1fr) auto; }
       .updates-command-actions { display: inline-flex; gap: 6px; }
       .updates-command-actions button.primary { border-color: var(--pi-accent-border); color: var(--pi-text-bright); }
       .updates-recommended { border: 1px solid var(--pi-accent-border); border-radius: 8px; padding: 10px; background: var(--pi-surface); }
       .updates-recommended > strong { color: var(--pi-text-bright); }
+      .updates-recommended .updates-message { border: none; background: none; padding: 0; }
       .updates-meta { display: grid; gap: 2px; color: var(--pi-muted); font-size: 12px; }
       @media (max-width: 520px) {
         .updates-command { grid-template-columns: minmax(0, 1fr) auto; }
@@ -174,20 +188,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
     </style>
     <section class="toolbar"><strong>更新</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
     <section class="viewer updates-status">
-      <section>
-        ${messages.length === 0 ? html`<p class="muted">没有 PI WEB 更新或重启消息。</p>` : messages.map((message) => html`
-          <article class=${`updates-message ${message.severity}`}>
-            <div class="updates-message-title"><strong>${message.title}</strong><span>${severityLabel(message.severity)}</span></div>
-            <p>${message.body}</p>
-            ${message.command === undefined ? null : html`
-              <div class="updates-command updates-command-inline">
-                <code>${message.command}</code>
-                ${renderCommandActions(html, terminal, message.title, message.command)}
-              </div>
-            `}
-          </article>
-        `)}
-      </section>
+      ${recommended === undefined ? renderNotices(html, messages) : renderRecommended(html, terminal, recommended, messages)}
 
       <section>
         <strong>已安装服务</strong>
@@ -195,7 +196,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
         ${renderComponent(html, status.components.sessiond)}
       </section>
 
-      ${renderCommands(html, terminal, status)}
+      ${renderAdditionalCommands(html, terminal, additional, recommended !== undefined)}
 
       <section class="updates-meta">
         <span>生成时间 ${status.generatedAt}</span>

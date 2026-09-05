@@ -1,6 +1,6 @@
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { DEFAULT_WORKSPACE_UPLOADS_FOLDER, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues } from "../../api";
+import { DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER, DEFAULT_WORKSPACE_UPLOADS_FOLDER, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues } from "../../api";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import {
@@ -156,6 +156,14 @@ export class SettingsGeneralPanel extends LitElement {
               <small>${this.targetLabel} 上手动上传文件使用的工作区相对目录。留空则使用 PI WEB 默认值 <code>${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</code>。</small>
             </label>
 
+            <label class="field">
+              <span class="field-heading">
+                <span>默认附件文件夹</span>
+              </span>
+              <input .value=${this.machineDraft.attachmentDefaultFolder} placeholder=${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER} autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateMachineDraft({ attachmentDefaultFolder: inputValue(event) }); }}>
+              <small>${this.targetLabel} 上保存提示附件使用的工作区相对目录。留空则使用 PI WEB 默认值 <code>${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</code>。</small>
+            </label>
+
             ${this.renderMachineEffectiveConfig()}
 
             <footer class="form-actions">
@@ -208,6 +216,7 @@ export class SettingsGeneralPanel extends LitElement {
         <dl>
           <div><dt>外部根目录</dt><dd>${formatAllowedPaths(effective.pathAccess?.allowedPaths)}</dd></div>
           <div><dt>上传文件夹</dt><dd>${effective.uploads?.defaultFolder ?? html`<span class="muted">默认 ${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</span>`}</dd></div>
+          <div><dt>附件文件夹</dt><dd>${effective.attachments?.defaultFolder ?? html`<span class="muted">默认 ${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</span>`}</dd></div>
         </dl>
       </section>
     `;

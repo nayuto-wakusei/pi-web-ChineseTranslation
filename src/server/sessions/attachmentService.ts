@@ -4,13 +4,10 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
 import type { PromptAttachment, PromptImageAttachment, SavedPromptAttachment } from "../../shared/apiTypes.js";
 import { extensionForImageMimeType } from "../../shared/promptAttachments.js";
+import { DEFAULT_ATTACHMENT_FOLDER } from "../../config.js";
 import { ensureInside, isNodeErrorWithCode, resolveParentInsideWorkspace } from "../workspaces/pathSafety.js";
 
-/**
- * Default workspace-relative folder used when saving pasted/dropped
- * attachments for the agent to read with its own tools.
- */
-export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/attachments";
+export { DEFAULT_ATTACHMENT_FOLDER } from "../../config.js";
 
 export interface InlineImage {
   image: ImageContent;

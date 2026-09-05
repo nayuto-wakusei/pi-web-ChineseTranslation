@@ -20,6 +20,7 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.auditLog !== undefined ? { auditLog: config.auditLog } : {}),
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
+    ...(config.attachments !== undefined ? { attachments: config.attachments } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
@@ -64,6 +65,7 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["auditLog"] !== undefined ? { auditLog: parseAuditLog(value["auditLog"], context) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
+    ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.format === "file" ? context.path : "request") } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseBoolean(value["subsessions"], "subsessions", context) } : {}),
@@ -335,6 +337,14 @@ export function parseUploadsConfig(value: unknown, path: string): NonNullable<Pi
   const defaultFolder = value["defaultFolder"];
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "uploads.defaultFolder", path) } : {}),
+  };
+}
+
+export function parseAttachmentsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["attachments"]> {
+  if (!isRecord(value)) throw new Error(`PI WEB config attachments must be an object: ${path}`);
+  const defaultFolder = value["defaultFolder"];
+  return {
+    ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "attachments.defaultFolder", path) } : {}),
   };
 }
 

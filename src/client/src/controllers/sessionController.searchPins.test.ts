@@ -88,7 +88,7 @@ describe("SessionController session search and pins", () => {
     await Promise.resolve();
     expect(unpin).toHaveBeenCalledWith(session, "local");
     expect(state.pinnedSessionIds).toEqual(["session-1"]);
-    expect(state.error).toContain("pin unavailable");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("pin unavailable");
     expect(pin).not.toHaveBeenCalled();
     controller.dispose();
   });

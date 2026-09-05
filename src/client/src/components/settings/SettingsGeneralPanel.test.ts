@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TemplateResult } from "lit";
-import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { collectTemplateStrings, collectTemplateValues, configResponse } from "../SettingsDialog.testSupport";
 import { SettingsGeneralPanel } from "./SettingsGeneralPanel";
 import type { GatewayServerConfigDraft, MachineAccessConfigDraft } from "./settingsConfigDraft";
-import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-general-panel copy", () => {
   it("uses factual scope copy for gateway and selected-machine settings", () => {
@@ -20,7 +18,7 @@ describe("settings-general-panel copy", () => {
     expect(strings).toContain("网关服务器字段用于编辑当前本地网关；文件访问和上传默认值用于编辑 ");
     expect(strings).toContain("主机地址、端口和允许的主机名会保存到网关配置中。");
     expect(strings).toContain("外部文件系统根目录和上传默认值会保存到 ");
-    expect(values.filter((value) => value === "Lab Mac (remote machine)")).toHaveLength(4);
+    expect(values.filter((value) => value === "Lab Mac (remote machine)")).toHaveLength(5);
   });
 
   it("shows reload copy when selected-machine access config is unavailable", () => {
@@ -109,6 +107,7 @@ describe("settings-general-panel save payloads", () => {
     setPanelProperty(panel, "machineDraft", {
       allowedPathsText: "/tmp\n~/SDKs\n",
       uploadDefaultFolder: " manual\\uploads/. ",
+      attachmentDefaultFolder: " saved\\attachments/. ",
     } satisfies MachineAccessConfigDraft);
 
     await callPanelPromise(panel, "saveMachineAccessConfig", event);
@@ -118,6 +117,7 @@ describe("settings-general-panel save payloads", () => {
       {
         pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
         uploads: { defaultFolder: "manual/uploads" },
+        attachments: { defaultFolder: "saved/attachments" },
       },
     ]]);
     expect(onSave).not.toHaveBeenCalled();
@@ -131,6 +131,7 @@ describe("settings-general-panel save payloads", () => {
     setPanelProperty(panel, "machineDraft", {
       allowedPathsText: "",
       uploadDefaultFolder: "/tmp/uploads",
+      attachmentDefaultFolder: "",
     } satisfies MachineAccessConfigDraft);
 
     await callPanelPromise(panel, "saveMachineAccessConfig", new Event("submit", { cancelable: true }));
@@ -139,44 +140,6 @@ describe("settings-general-panel save payloads", () => {
     expect(getPanelProperty(panel, "machineLocalError")).toBe("上传默认文件夹必须是工作区相对路径。");
   });
 });
-
-function collectTemplateStrings(template: TemplateResult): string[] {
-  const strings: string[] = [];
-  visitTemplate(template);
-  return strings;
-
-  function visitTemplate(current: TemplateResult): void {
-    strings.push(...templateStrings(current));
-    for (const value of templateValues(current)) {
-      if (Array.isArray(value)) {
-        for (const item of value) if (isTemplateResult(item)) visitTemplate(item);
-      } else if (isTemplateResult(value)) {
-        visitTemplate(value);
-      }
-    }
-  }
-}
-
-function collectTemplateValues(template: TemplateResult): unknown[] {
-  const values: unknown[] = [];
-  visit(template);
-  return values;
-
-  function visit(current: unknown): void {
-    if (Array.isArray(current)) {
-      for (const item of current) visit(item);
-      return;
-    }
-    if (!isTemplateResult(current)) return;
-    for (const value of templateValues(current)) {
-      values.push(value);
-      visit(value);
-    }
-  }
-}
-
-
-
 
 function isSettingsNoticeArray(value: unknown): value is readonly { type: string; content: unknown; title?: string }[] {
   return Array.isArray(value)
@@ -207,14 +170,4 @@ function callPanelMethod(panel: SettingsGeneralPanel, methodName: string, ...arg
 
 function isPanelMethod(value: unknown): value is (this: SettingsGeneralPanel, ...args: readonly unknown[]) => unknown {
   return typeof value === "function";
-}
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
-  };
 }

@@ -1,4 +1,4 @@
-import type { Machine, MachineKind, MachineRuntime, PiPackageInfo, PiPackageMutationAction } from "../../api";
+import type { Machine, MachineKind, MachineRuntime, PiPackageInfo, PiPackageMutationAction, PiPackageMutationResponse, PiPackagesResponse } from "../../api";
 
 export type PiPackageOperationKind = PiPackageMutationAction | "update-all";
 
@@ -70,6 +70,13 @@ export function piPackageFilteredLabel(packageInfo: Pick<PiPackageInfo, "filtere
 
 export function piPackageInstalledPathLabel(packageInfo: Pick<PiPackageInfo, "installedPath">): string {
   return packageInfo.installedPath ?? "Pi 未报告安装路径";
+}
+
+export function piPackagesResponseAfterMutation(response: Pick<PiPackageMutationResponse, "packages" | "installableKnownPackages">): PiPackagesResponse {
+  return {
+    packages: response.packages,
+    ...(response.installableKnownPackages === undefined ? {} : { installableKnownPackages: response.installableKnownPackages }),
+  };
 }
 
 export function canUpdatePiPackage(packageInfo: Pick<PiPackageInfo, "scope">): boolean {

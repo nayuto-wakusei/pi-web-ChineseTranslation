@@ -13,7 +13,7 @@ import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, 
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
 import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
-import { loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
+import { loadEffectiveProjectAttachmentsConfig, loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
 import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
@@ -29,7 +29,9 @@ import { PiWebPluginService } from "./piWebPluginService.js";
 import { createActiveProfilePiPackageService, type PiPackageService } from "./piPackageService.js";
 import { registerPiPackageRoutes } from "./piPackageRoutes.js";
 import { createPiWebStatusCache, type PiWebStatusCache } from "./piWebStatusCache.js";
-import { getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
+import { detectPiWebInstallation, getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
+import { createDeploymentFlavorResolver, type PiWebDeploymentFlavor } from "./deploymentIdentity.js";
+import { registerDeploymentIdentityAssetRoutes } from "./deploymentIdentityRoutes.js";
 import {
   ActiveAgentProfileAccessError,
   requireActiveAgentProfile,
@@ -67,6 +69,8 @@ export interface AppDependencies {
   config?: PiWebConfigService;
   managementEmbed?: ManagementEmbedRuntime;
   clientDist?: string | false;
+  /** Overrides deployment-flavor detection (dev/stable asset identity) in tests. */
+  deploymentFlavor?: () => Promise<PiWebDeploymentFlavor>;
   logger?: FastifyServerOptions["logger"];
   /** Maximum accepted HTTP request body size in bytes. */
   bodyLimit?: number;
@@ -153,7 +157,11 @@ function isLegacyWorkspaceService(workspaces: WorkspaceCatalogInput): workspaces
 
 async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<NonNullable<Workspace["effectiveConfig"]>> {
   const globalConfig = config === undefined ? {} : (await config.read()).effectiveConfig;
-  return { uploads: await loadEffectiveProjectUploadsConfig(projectPath, globalConfig) };
+  const [uploads, attachments] = await Promise.all([
+    loadEffectiveProjectUploadsConfig(projectPath, globalConfig),
+    loadEffectiveProjectAttachmentsConfig(projectPath, globalConfig),
+  ]);
+  return { uploads, attachments };
 }
 
 interface LocalFileSuggestionRouteOptions {
@@ -314,6 +322,14 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const clientDist = deps.clientDist ?? (existsSync(packagedClientDist) ? packagedClientDist : join(process.cwd(), "dist", "client"));
   if (clientDist !== false && existsSync(clientDist)) {
     await app.register(fastifyStatic, { root: clientDist });
+    const deploymentFlavor = deps.deploymentFlavor ?? createDeploymentFlavorResolver(
+      async () => {
+        const activeAgentProfile = await agentProfileProvider.getActiveAgentProfile();
+        return detectPiWebInstallation(activeAgentProfile.status === "available" ? activeAgentProfile.profile.dir : undefined);
+      },
+      (error) => { app.log.warn({ err: error }, "failed to detect PI WEB deployment flavor"); },
+    );
+    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor });
     app.setNotFoundHandler((request, reply) => {
       const pathname = new URL(request.url, "http://pi-web.local").pathname;
       const acceptsHtml = request.headers.accept?.split(",").some((value) => value.trim().split(";", 1)[0] === "text/html") ?? false;

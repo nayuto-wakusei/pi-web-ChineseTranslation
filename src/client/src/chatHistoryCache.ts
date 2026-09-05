@@ -58,6 +58,14 @@ export function mergeChatHistory(existing: RawMessagePage | undefined, incoming:
   return { start, total: Math.max(existing.total, incoming.total), messages };
 }
 
+export function isHistoryTailSlice(history: RawMessagePage | undefined, page: RawMessagePage): boolean {
+  if (history === undefined || !isValidMessagePage(page)) return false;
+  if (page.total !== history.total) return false;
+  const offset = page.start - history.start;
+  if (offset < 0 || offset + page.messages.length !== history.messages.length) return false;
+  return JSON.stringify(page.messages) === JSON.stringify(history.messages.slice(offset));
+}
+
 function isCompleteReplacement(existing: RawMessagePage, incoming: RawMessagePage): boolean {
   return existing.total > incoming.total && existing.start === 0 && incoming.start === 0 && incoming.messages.length === incoming.total;
 }

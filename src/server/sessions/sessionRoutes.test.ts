@@ -15,6 +15,7 @@ import type {
   SessionCleanupExecuteResponse,
   SessionCleanupPreviewResponse,
   SessionModelCatalogEntry,
+  SessionModelScopeMode,
   SessionNotificationDismissAllRequest,
   SessionNotificationDismissRequest,
   SessionNotificationInboxSnapshot,
@@ -87,6 +88,29 @@ describe("session routes", () => {
       expect(invalid.statusCode).toBe(400);
       expect(routeService.modelCatalogCalls).toEqual([{ lookup: { id: "session-1", cwd }, managementContext: undefined }]);
       expect(routeService.setModelEnabledCalls).toEqual([{ lookup: { id: "session-1", cwd }, provider: "anthropic", modelId: "claude-opus", enabled: false, managementContext: undefined }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("forwards atomic model-scope presets and rejects malformed modes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const cwd = resolve("/repo");
+      const updated = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd, mode: "current" } });
+      const invalid = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd, mode: "none" } });
+
+      expect(updated.statusCode).toBe(200);
+      expect(updated.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: false }] });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: "mode 字段必须是 all 或 current" });
+      expect(routeService.setModelScopeCalls).toEqual([{ lookup: { id: "session-1", cwd }, mode: "current", managementContext: undefined }]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -1078,6 +1102,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly startCalls: { cwd: string; startupToken: string | undefined; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly modelCatalogCalls: { lookup: SessionRouteLookup; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly setModelEnabledCalls: { lookup: SessionRouteLookup; provider: string; modelId: string; enabled: boolean; managementContext: ManagementEmbedContext | undefined }[] = [];
+  readonly setModelScopeCalls: { lookup: SessionRouteLookup; mode: SessionModelScopeMode; managementContext: ManagementEmbedContext | undefined }[] = [];
   askError: Error | undefined;
   dialogError: Error | undefined;
   reloadError: Error | undefined;
@@ -1253,6 +1278,10 @@ class CapturingRouteSessionService implements SessionRouteService {
   setModelEnabled(lookup: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
     this.setModelEnabledCalls.push({ lookup, provider, modelId, enabled, managementContext });
     return Promise.resolve([{ provider, id: modelId, enabled }]);
+  }
+  setModelScope(lookup: SessionRouteLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
+    this.setModelScopeCalls.push({ lookup, mode, managementContext });
+    return Promise.resolve([{ provider: "anthropic", id: "claude-opus", enabled: mode === "all" }]);
   }
   setModel(): never { throw unusedRouteMethod("setModel"); }
   cycleModel(): never { throw unusedRouteMethod("cycleModel"); }

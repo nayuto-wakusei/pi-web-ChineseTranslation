@@ -352,7 +352,7 @@ describe("SessionController session_start dialog startup reachability", () => {
     harness.startRequest.reject(new Error("create exploded"));
     await start;
 
-    expect(harness.state.current.error).toBe("启动会话失败：create exploded");
+    expect(Object.values(harness.state.current.browserErrors).map((error) => error.message)).toContain("启动会话失败：create exploded");
     expect(harness.state.current.pendingDialogs).toEqual([]);
     expect(closeSpy).toHaveBeenCalled();
 

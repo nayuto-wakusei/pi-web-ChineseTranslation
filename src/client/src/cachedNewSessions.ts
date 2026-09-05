@@ -1,18 +1,11 @@
 import type { SessionInfo } from "./api";
+import { browserStorage } from "./browserStorage";
 
 const storageKey = "pi-web:cached-new-sessions:v1";
 const markerProperty = "browserCachedNew";
 const defaultMachineId = "local";
 
 export type CachedNewSessionInfo = SessionInfo & { browserCachedNew: true; machineId: string };
-
-function browserStorage(): Storage | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 export function rememberCachedNewSession(session: SessionInfo, machineId = defaultMachineId, storage = browserStorage()): void {
   if (session.messageCount !== 0 || session.archived === true) return;

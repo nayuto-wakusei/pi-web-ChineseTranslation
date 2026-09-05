@@ -19,6 +19,8 @@ export type NavigationFocusTarget = NavigationSection | "chat";
 export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) selectedMachine?: Machine;
+  /** PWA display mode: surfaces the single-machine identity bubble in the header. */
+  @property({ type: Boolean }) locationIndicator = false;
   @property({ attribute: false }) machineStatuses: Record<string, MachineHealth> = {};
   @property({ attribute: false }) machineActivities: Record<string, Record<string, WorkspaceActivity>> = {};
   @property({ attribute: false }) machineStatusSnapshots: Record<string, MachineStatusSnapshot> = {};
@@ -105,15 +107,17 @@ export class AppNavigationPanel extends LitElement {
 
   override render() {
     const showMachines = shouldShowMachinesSection(this.machines);
+    const showMachineSwitcher = showMachines || this.locationIndicator;
     const showHeaderActions = this.refreshControl !== undefined || this.onShowActions !== undefined;
-    const showHeader = this.showBrand || showMachines || showHeaderActions;
+    const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions;
     return html`
       ${showHeader ? html`<header>
         ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
-        ${showMachines ? html`
+        ${showMachineSwitcher ? html`
           <machine-switcher
             .machines=${this.machines}
             .selected=${this.selectedMachine}
+            .locationIndicator=${this.locationIndicator}
             .statuses=${this.machineStatuses}
             .activities=${this.machineActivities}
             .unreadMachineIds=${this.unreadPresence.machines}

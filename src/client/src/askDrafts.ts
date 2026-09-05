@@ -1,4 +1,5 @@
 import { ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserAnswer, type AskUserQuestion, type AskUserSubmission } from "../../shared/apiTypes";
+import { browserStorage } from "./browserStorage";
 
 /**
  * What the user has entered for one question but has not submitted yet. Kept in
@@ -17,14 +18,6 @@ const draftStoragePrefix = "pi-web:ask-draft:";
 
 function draftStorageKey(sessionId: string, askId: string): string {
   return `${draftStoragePrefix}${sessionId}:${askId}`;
-}
-
-function browserStorage(): Storage | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

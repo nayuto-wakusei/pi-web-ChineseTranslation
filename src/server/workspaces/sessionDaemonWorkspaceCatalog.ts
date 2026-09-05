@@ -30,7 +30,7 @@ import {
   type WorkspaceProviderRuntimeSnapshot,
   withBrowserV1WorkspaceCompatibility,
 } from "./workspaceCatalog.js";
-import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { managementHeaders, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 const WORKSPACE_CATALOG_PATH = "/workspace-catalog";
 
@@ -97,18 +97,6 @@ export class SessionDaemonWorkspaceCatalog implements WorkspaceCatalog {
       throw new WorkspaceCatalogProtocolError("Session daemon workspace authority returned invalid JSON", { cause: error });
     }
   }
-}
-
-function managementHeaders(
-  context: ManagementEmbedContext | undefined,
-  runtime: ManagementEmbedRuntime | undefined,
-): Record<string, string> | undefined {
-  if (context === undefined) return undefined;
-  const handle = runtime?.resourceHandle?.(context);
-  return {
-    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
-    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
-  };
 }
 
 function parseWorkspaceProviderResolution(value: unknown, expectedProjectId: string): WorkspaceProviderAuthorityResolution {

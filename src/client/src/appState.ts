@@ -4,6 +4,7 @@ import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
 import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
 import type { MachineStatusSnapshot } from "../../shared/machineStatus";
+import type { BrowserErrorMap } from "./browserErrors";
 
 export interface AppState {
   machines: Machine[];
@@ -72,7 +73,7 @@ export interface AppState {
   workspaceDeletionRuns: Record<string, TerminalCommandRun>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   treeDialog: SessionTreeSnapshot | undefined;
-  modelDialog: { title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; selectedValue?: string } | undefined;
+  modelDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; selectedValue?: string } | undefined;
   thinkingDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   authDialog: AuthDialogState | undefined;
@@ -97,7 +98,15 @@ export interface AppState {
   activeTerminalCount: number;
   selectedTerminalId: string | undefined;
   piWebStatus: PiWebStatusResponse | undefined;
+  /** Browser-local failures retained by their machine/project/workspace/session owner. */
+  browserErrors: BrowserErrorMap;
   error: string;
+}
+
+export interface ModelDialogOrigin {
+  machineId: string;
+  sessionId: string;
+  cwd: string;
 }
 
 /** A closed extension dialog paired with the record the browser rendered while it was open. */
@@ -252,6 +261,7 @@ export function initialAppState(): AppState {
     activeTerminalCount: 0,
     selectedTerminalId: undefined,
     piWebStatus: undefined,
+    browserErrors: {},
     error: "",
   };
 }

@@ -54,6 +54,20 @@ describe("brand visibility", () => {
     button?.click();
     expect(onShowActions).toHaveBeenCalledOnce();
   });
+
+  it("shows and configures the single-machine identity only in PWA mode", async () => {
+    const panel = new AppNavigationPanel();
+    panel.showBrand = false;
+    panel.locationIndicator = true;
+    panel.machines = [machine("local")];
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    const switcher = panel.shadowRoot?.querySelector("machine-switcher");
+    expect(switcher).toBeInstanceOf(MachineSwitcher);
+    if (!(switcher instanceof MachineSwitcher)) throw new Error("expected machine switcher");
+    expect(switcher.locationIndicator).toBe(true);
+  });
 });
 
 describe("section sizing", () => {

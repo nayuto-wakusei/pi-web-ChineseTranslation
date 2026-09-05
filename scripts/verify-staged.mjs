@@ -21,12 +21,14 @@ const LINTABLE_ROOT_FILES = new Set([
 const LINTABLE_DIRECTORIES = [
   "extensions/",
   "pi-web-plugins/",
+  "pi-packages/",
   "src/",
 ];
 
 const RELATED_SOURCE_DIRECTORIES = [
   "extensions/",
   "pi-web-plugins/",
+  "pi-packages/",
   "plugin-api/",
   "scripts/",
   "src/",
@@ -132,7 +134,7 @@ function relatedTestInputs(paths) {
       inputs.add(DOCKER_DOCS_TEST);
     }
 
-    if (path.startsWith("pi-web-plugins/")) inputs.add(PLUGIN_PUBLIC_API_TEST);
+    if (path.startsWith("pi-web-plugins/") || path.startsWith("pi-packages/")) inputs.add(PLUGIN_PUBLIC_API_TEST);
   }
 
   return [...inputs].sort();

@@ -9,7 +9,7 @@ import { requestCancellation } from "../requestCancellation.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ProjectService } from "../projects/projectService.js";
 import type { WorkspaceService } from "./workspaceService.js";
-import { encodeManagementContext, managementContextForRequest, managementToolAllowed, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { managementContextForRequest, managementHeaders, managementToolAllowed, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 /** Browser-facing adapter; sessiond owns all workspace removal decisions and effects. */
 export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
@@ -67,15 +67,6 @@ export function registerWorkspaceDeletionRoutes(
       }
     },
   );
-}
-
-function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
-  if (context === undefined) return undefined;
-  const handle = runtime?.resourceHandle?.(context);
-  return {
-    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
-    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
-  };
 }
 
 function proxyJsonResponse(

@@ -46,6 +46,13 @@ describe("Docker command assets", () => {
     ]);
   });
 
+  it("keeps the image base installer executable with LF line endings", async () => {
+    const installer = await readRepoFile("docker/internal/image/install-opensuse-base");
+    expect(installer).toMatch(/^#!\/usr\/bin\/env bash\n/);
+    expect(installer).not.toContain("\r");
+    await execUtf8(shellExecutable, ["-n", join(repoRoot, "docker", "internal", "image", "install-opensuse-base")], process.env);
+  });
+
   it("packages the canonical Docker command and internal support assets", async () => {
     const [dockerfile, devDockerfile, runtimeCompose, devCompose, installer, devWrapper, dependencySync, dockerignore] = await Promise.all([
       readRepoFile("docker/Dockerfile"),

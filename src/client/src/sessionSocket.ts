@@ -1,5 +1,5 @@
 import { realtimeEvents, sessionEvents } from "./api";
-import { parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
+import { parseModelScopeChangedEvent, parseServerNoticeEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
 import { parseMachineStatusSnapshot } from "../../shared/machineStatus";
 import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 import type { SocketScope } from "./api/sockets";
@@ -179,6 +179,8 @@ export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent |
     return status === undefined ? undefined : { type: "machine.status", status };
   }
   if (eventType(event) === "sessions.unread") return safelyParseValidatedEvent(() => parseSessionUnreadEvent(event));
+  if (eventType(event) === "notices.updated") return safelyParseValidatedEvent(() => parseServerNoticeEvent(event));
+  if (eventType(event) === "models.changed") return safelyParseValidatedEvent(() => parseModelScopeChangedEvent(event));
   if (eventType(event) === "session.startup") return safelyParseValidatedEvent(() => parseSessionStartupProgressEvent(event));
   if (isLegacyGlobalSessionEvent(event) || isLegacyRealtimeEvent(event)) return event;
   return undefined;

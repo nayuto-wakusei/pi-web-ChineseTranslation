@@ -111,9 +111,9 @@ describe("enabled model scope helpers", () => {
     ];
 
     expect(catalogWithEnabledFirst(available, ["openai/c", "anthropic/a"])).toEqual([
-      { model: available[2], enabled: true },
-      { model: available[0], enabled: true },
-      { model: available[1], enabled: false },
+      { model: available[2], enabled: true, catalogIndex: 2 },
+      { model: available[0], enabled: true, catalogIndex: 0 },
+      { model: available[1], enabled: false, catalogIndex: 1 },
     ]);
   });
 });

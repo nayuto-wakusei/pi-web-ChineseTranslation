@@ -65,20 +65,28 @@ export function legacyScopedSettingsFilePath(scopeDirectory: string): string {
  * agentDir, overlays mode x project preference keys, and splits writes the same
  * way. Project-local .pi/settings.json keeps upstream semantics.
  */
+export type ScopedSettingsManager = SettingsManager & {
+  readonly piWebScopeKey: string;
+  readonly piWebModelScopeEditable: boolean;
+};
+
 export async function createScopedSettingsManager(options: {
   cwd: string;
   scopeDirectory: string;
   globalAgentDir: string;
   mode: SessionSettingsMode;
-}): Promise<SettingsManager> {
+}): Promise<ScopedSettingsManager> {
   await mkdir(options.scopeDirectory, { recursive: true, mode: 0o700 });
   migrateLegacyPreferenceOverrides(options.scopeDirectory, options.mode);
-  return SettingsManager.fromStorage(new PreferenceOverrideSettingsStorage({
+  return Object.assign(SettingsManager.fromStorage(new PreferenceOverrideSettingsStorage({
     cwd: options.cwd,
     globalAgentDir: options.globalAgentDir,
     scopeDirectory: options.scopeDirectory,
     mode: options.mode,
-  }));
+  })), {
+    piWebScopeKey: resolve(options.scopeDirectory),
+    piWebModelScopeEditable: options.mode === "normal",
+  });
 }
 
 export function projectPathKey(projectPath: string): string {
@@ -173,7 +181,7 @@ class PreferenceOverrideSettingsStorage {
     // writes cannot pin shared defaults into the override file.
     const nextPreferences = preferenceOverridesAgainstBaseline(
       pickScopedOverrides(nextSettings, this.mode),
-      pickPreferenceOverrides(agentSettings),
+      pickSettings(agentSettings, SESSION_PREFERENCE_KEYS),
       this.mode,
     );
     const existingPreferences = readPreferenceOverrides(this.scopeDirectory, this.mode);
@@ -190,8 +198,8 @@ class PreferenceOverrideSettingsStorage {
     // Only rewrite the shared agent file when a non-preference key actually changed.
     if (stableJsonEqual(existingSharedSettings, nextSharedSettings)) return;
     writeJsonFile(this.agentSettingsPath, {
-      ...pickPreferenceOverrides(agentSettings),
-      ...hiddenSharedSettings(agentSettings),
+      ...pickSettings(agentSettings, SESSION_PREFERENCE_KEYS),
+      ...pickSettings(agentSettings, SHARED_HIDDEN_SETTING_KEYS),
       ...nextSharedSettings,
     });
   }
@@ -213,7 +221,7 @@ class PreferenceOverrideSettingsStorage {
     if (next === undefined) return;
     const nextSettings = parseSettingsObject(next);
     writeJsonFile(path, {
-      ...hiddenSharedSettings(storedSettings),
+      ...pickSettings(storedSettings, SHARED_HIDDEN_SETTING_KEYS),
       ...settingsVisibleToSession(nextSettings),
     });
   }
@@ -268,9 +276,9 @@ function readPreferenceOverridesFromPath(preferencesPath: string, mode: SessionS
   }
 }
 
-function pickPreferenceOverrides(settings: Record<string, unknown>): Record<string, unknown> {
+function pickSettings(settings: Record<string, unknown>, keys: Iterable<string>): Record<string, unknown> {
   const picked: Record<string, unknown> = {};
-  for (const key of SESSION_PREFERENCE_KEYS) {
+  for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(settings, key) && settings[key] !== undefined) {
       picked[key] = settings[key];
     }
@@ -278,17 +286,8 @@ function pickPreferenceOverrides(settings: Record<string, unknown>): Record<stri
   return picked;
 }
 
-
-
 function pickScopedOverrides(settings: Record<string, unknown>, mode: SessionSettingsMode): Record<string, unknown> {
-  if (mode === "management") return pickPreferenceOverrides(settings);
-  const picked: Record<string, unknown> = {};
-  for (const key of NORMAL_PROJECT_SETTING_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(settings, key) && settings[key] !== undefined) {
-      picked[key] = settings[key];
-    }
-  }
-  return picked;
+  return pickSettings(settings, mode === "management" ? SESSION_PREFERENCE_KEYS : NORMAL_PROJECT_SETTING_KEYS);
 }
 
 function preferenceOverridesAgainstBaseline(
@@ -328,16 +327,6 @@ function settingsVisibleToSession(settings: Record<string, unknown>): Record<str
     if (!SHARED_HIDDEN_SETTING_KEYS.has(key)) visible[key] = value;
   }
   return visible;
-}
-
-function hiddenSharedSettings(settings: Record<string, unknown>): Record<string, unknown> {
-  const hidden: Record<string, unknown> = {};
-  for (const key of SHARED_HIDDEN_SETTING_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(settings, key) && settings[key] !== undefined) {
-      hidden[key] = settings[key];
-    }
-  }
-  return hidden;
 }
 
 function parseSettingsObject(raw: string): Record<string, unknown> {

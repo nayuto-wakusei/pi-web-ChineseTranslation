@@ -1,15 +1,19 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { effectivePiWebConfig } from "./src/config";
+import { DEPLOYMENT_MANIFEST_CONTENT_TYPE, DEPLOYMENT_MANIFEST_PATH, createDeploymentFlavorResolver, deploymentIdentityAssetForPath, deploymentManifestForFlavor, isDeploymentIdentityAssetPath } from "./src/server/deploymentIdentity";
+import { detectPiWebInstallation } from "./src/server/piWebStatus";
 
 const { config } = effectivePiWebConfig();
 const apiPort = config.port ?? 8504;
 const docsRoot = resolve("docs");
 const docsPrefix = "/site";
+const clientPublicRoot = resolve("src/client/public");
+const deploymentFlavor = createDeploymentFlavorResolver(() => detectPiWebInstallation());
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -90,8 +94,66 @@ function devDocsPlugin(): Plugin {
   };
 }
 
+async function serveDevDeploymentIdentity(request: IncomingMessage, response: ServerResponse, next: MiddlewareNext): Promise<void> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    next();
+    return;
+  }
+  const requestUrl = request.url;
+  if (requestUrl === undefined) {
+    next();
+    return;
+  }
+  const { pathname } = new URL(requestUrl, "http://localhost");
+  const isManifest = pathname === DEPLOYMENT_MANIFEST_PATH;
+  if (!isManifest && !isDeploymentIdentityAssetPath(pathname)) {
+    next();
+    return;
+  }
+  if ((await deploymentFlavor()) !== "dev") {
+    next();
+    return;
+  }
+
+  try {
+    if (isManifest) {
+      const manifest = await readFile(join(clientPublicRoot, DEPLOYMENT_MANIFEST_PATH.slice(1)), "utf8");
+      response.statusCode = 200;
+      response.setHeader("Content-Type", DEPLOYMENT_MANIFEST_CONTENT_TYPE);
+      response.setHeader("Cache-Control", "no-store");
+      response.end(deploymentManifestForFlavor(manifest, "dev"));
+      return;
+    }
+    const asset = deploymentIdentityAssetForPath(pathname, "dev");
+    if (asset === undefined) {
+      next();
+      return;
+    }
+    response.statusCode = 200;
+    response.setHeader("Content-Type", asset.contentType);
+    response.setHeader("Cache-Control", "no-store");
+    createReadStream(join(clientPublicRoot, asset.fileName)).pipe(response);
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") next();
+    else next(error);
+  }
+}
+
+function devDeploymentIdentityPlugin(): Plugin {
+  return {
+    name: "pi-web-dev-deployment-identity",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        void serveDevDeploymentIdentity(request, response, next);
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [devDocsPlugin()],
+  plugins: [devDocsPlugin(), devDeploymentIdentityPlugin()],
   root: "src/client",
   base: "./",
   build: {

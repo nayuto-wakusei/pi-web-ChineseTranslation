@@ -1,4 +1,5 @@
 import { posix as posixPath } from "node:path";
+import { TextDecoder, TextEncoder } from "node:util";
 import {
   createDevelopmentNativeServicePlan,
   nativeServicePrerequisiteNeedsPathAdvice,
@@ -265,6 +266,14 @@ function scopeHeading(scope: NativeServiceDoctorScope): string {
   return `Prospective production native-service plan (${scope.reason ?? "installed strategy is unknown"}):`;
 }
 
+export function inspectInstalledNativeServiceDefinitionEnvironment(
+  backend: NativeServiceBackend,
+  definition: InstalledNativeServiceDefinition,
+): InstalledNativeServiceInspection<Readonly<Record<string, string>>> {
+  const parsed = backend.kind === "systemd" ? parseSystemdDefinition(definition) : parseLaunchdDefinition(definition);
+  return parsed.ok ? { ok: true, value: parsed.value.environment } : parsed;
+}
+
 function parseConsistentDefinitions(
   backend: NativeServiceBackend,
   definitions: readonly InstalledNativeServiceDefinition[],
@@ -347,7 +356,7 @@ function parseSystemdDefinition(
     return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized shell command.` };
   }
 
-  const environment: Record<string, string> = {};
+  const environmentEntries = new Map<string, string>();
   for (const directive of directives.filter((item) => item.name === "Environment")) {
     const rawValue = directive.value;
     if (!/^"(?:\\.|[^"])*"$/u.test(rawValue)) {
@@ -356,11 +365,12 @@ function parseSystemdDefinition(
     const assignment = parseSystemdDirectiveValue(rawValue);
     const separator = assignment?.indexOf("=") ?? -1;
     const key = assignment?.slice(0, separator) ?? "";
-    if (separator <= 0 || Object.hasOwn(environment, key)) {
+    if (separator <= 0 || environmentEntries.has(key)) {
       return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed environment entry.` };
     }
-    environment[key] = assignment?.slice(separator + 1) ?? "";
+    environmentEntries.set(key, assignment?.slice(separator + 1) ?? "");
   }
+  const environment = Object.fromEntries(environmentEntries);
 
   const workingDirectories = directives.filter((directive) => directive.name === "WorkingDirectory");
   if (workingDirectories.length > 1) {
@@ -459,15 +469,19 @@ function parseSystemdDirectiveValue(value: string): string | undefined {
 function parseSystemdEscapedValue(value: string): string | undefined {
   const quoted = value.startsWith('"') || value.endsWith('"');
   if (quoted && (!value.startsWith('"') || !value.endsWith('"'))) return undefined;
-  return systemdUnescape(quoted ? value.slice(1, -1) : value);
+  return decodeSystemdEscapes(quoted ? value.slice(1, -1) : value);
 }
 
-function systemdUnescape(value: string): string | undefined {
-  let result = "";
+export function decodeSystemdEscapes(value: string): string | undefined {
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
     if (character !== "\\") {
-      result += character ?? "";
+      const codePoint = value.codePointAt(index);
+      if (codePoint === undefined || codePoint === 0 || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return undefined;
+      bytes.push(...encoder.encode(String.fromCodePoint(codePoint)));
+      if (codePoint > 0xffff) index += 1;
       continue;
     }
 
@@ -489,8 +503,18 @@ function systemdUnescape(value: string): string | undefined {
     };
     const simple = simpleEscapes[escape];
     if (simple !== undefined) {
-      result += simple;
+      bytes.push(...encoder.encode(simple));
       index += 1;
+      continue;
+    }
+
+    if (/^[0-7]$/u.test(escape)) {
+      const encoded = value.slice(index + 1, index + 4);
+      if (!/^[0-7]{3}$/u.test(encoded)) return undefined;
+      const decoded = Number.parseInt(encoded, 8);
+      if (decoded === 0 || decoded > 0xff) return undefined;
+      bytes.push(decoded);
+      index += 3;
       continue;
     }
 
@@ -498,12 +522,18 @@ function systemdUnescape(value: string): string | undefined {
     if (length === 0) return undefined;
     const encoded = value.slice(index + 2, index + 2 + length);
     if (encoded.length !== length || !new RegExp(`^[0-9a-fA-F]{${String(length)}}$`, "u").test(encoded)) return undefined;
-    const codePoint = Number.parseInt(encoded, 16);
-    if (codePoint === 0 || codePoint > 0x10ffff) return undefined;
-    result += String.fromCodePoint(codePoint);
+    const decoded = Number.parseInt(encoded, 16);
+    if (decoded === 0 || decoded > 0x10ffff || (decoded >= 0xd800 && decoded <= 0xdfff)) return undefined;
+    if (escape === "x") bytes.push(decoded);
+    else bytes.push(...encoder.encode(String.fromCodePoint(decoded)));
     index += length + 1;
   }
-  return result;
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(bytes));
+  } catch {
+    return undefined;
+  }
 }
 
 function decodeSystemdSubstitutions(value: string, decodeDollars: boolean): string | undefined {
@@ -557,17 +587,17 @@ function parseXmlStringSequence(contents: string): string[] | undefined {
 }
 
 function parseXmlStringDictionary(contents: string): Record<string, string> | undefined {
-  const values: Record<string, string> = {};
+  const entries = new Map<string, string>();
   let cursor = 0;
   for (const match of contents.matchAll(/<key>([\s\S]*?)<\/key>\s*<string>([\s\S]*?)<\/string>/gu)) {
     if (contents.slice(cursor, match.index).trim() !== "") return undefined;
     const key = xmlUnescapeStrict(match[1] ?? "");
     const value = xmlUnescapeStrict(match[2] ?? "");
-    if (key === undefined || value === undefined || Object.hasOwn(values, key)) return undefined;
-    values[key] = value;
+    if (key === undefined || value === undefined || entries.has(key)) return undefined;
+    entries.set(key, value);
     cursor = match.index + match[0].length;
   }
-  return contents.slice(cursor).trim() === "" ? values : undefined;
+  return contents.slice(cursor).trim() === "" ? Object.fromEntries(entries) : undefined;
 }
 
 function xmlUnescapeStrict(value: string): string | undefined {

@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const pluginRoot = "pi-web-plugins";
+const pluginRoots = ["pi-web-plugins", "pi-packages"];
 const forbiddenPatterns = [
   { pattern: /\bfetch\s*\(/u, message: "direct browser fetch" },
   { pattern: /["'`][^"'`]*\/api\//u, message: "direct PI WEB /api URL" },
@@ -10,16 +10,18 @@ const forbiddenPatterns = [
   { pattern: /(?:\.\.\/)+src\//u, message: "imports from PI WEB source internals" },
 ];
 
-describe("bundled PI WEB plugins", () => {
+describe("PI WEB plugin packages", () => {
   it("use public plugin APIs instead of direct PI WEB internals", async () => {
     const violations: string[] = [];
-    for (const file of await pluginSourceFiles(pluginRoot)) {
-      const content = await readFile(file, "utf8");
-      for (const { pattern, message } of forbiddenPatterns) {
-        if (pattern.test(content)) violations.push(`${file}: ${message}`);
-      }
-      if (content.includes("piWebUnstable") && !content.includes("@chainingintention/pi-web-cn/plugin-api/unstable")) {
-        violations.push(`${file}: piWebUnstable use without explicit unstable type import`);
+    for (const root of pluginRoots) {
+      for (const file of await pluginSourceFiles(root)) {
+        const content = await readFile(file, "utf8");
+        for (const { pattern, message } of forbiddenPatterns) {
+          if (pattern.test(content)) violations.push(`${file}: ${message}`);
+        }
+        if (content.includes("piWebUnstable") && !content.includes("@chainingintention/pi-web-cn/plugin-api/unstable")) {
+          violations.push(`${file}: piWebUnstable use without explicit unstable type import`);
+        }
       }
     }
 

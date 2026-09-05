@@ -10,6 +10,9 @@ import { MachineStatusService } from "./status/machineStatusService.js";
 import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
 import { CachedWorkspaceAttribution } from "./status/workspaceAttribution.js";
 import { SessionEventHub } from "./realtime/sessionEventHub.js";
+import { ServerNoticeStore } from "./notices/serverNoticeStore.js";
+import { ServerNoticeService } from "./notices/serverNoticeService.js";
+import { registerServerNoticeRoutes } from "./notices/serverNoticeRoutes.js";
 import { AuthService } from "./sessions/authService.js";
 import { ProjectAuthService } from "./sessions/projectAuthService.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
@@ -42,7 +45,10 @@ import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/norma
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
 import { managementProjectIdForCwd, projectsFromManagedEmbedContext } from "./managementEmbed.js";
 import { managementContextFromEventScope, NORMAL_SESSION_EVENT_SCOPE } from "./realtime/sessionEventScope.js";
-import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
+import { DefaultPiPackageProvider, PiWebPluginCatalog } from "./piWebPluginCatalog.js";
+import { createDefaultPiPackageService } from "./piPackageService.js";
+import { PiPackageDismissalStore, piPackageDismissalStorePath } from "./storage/piPackageDismissalStore.js";
+import { reconcileAutoInstallablePiPackages } from "./sessiond/autoInstallPiPackages.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
 import { createServerPluginRuntime } from "./plugins/serverPluginRuntime.js";
@@ -52,10 +58,13 @@ import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
+import { createFilePiWebConfigService } from "./configRoutes.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config } = effectivePiWebConfig({ env: daemonEnvironment });
+// Request-time defaults must observe Settings edits without restarting sessiond.
+const configService = createFilePiWebConfigService({ env: daemonEnvironment });
 // The embedded Pi SDK and every child process use the same resolved profile.
 daemonEnvironment[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
 process.env[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
@@ -86,7 +95,17 @@ await runSessionDaemonStartup({
   logger: app.log,
   async createRuntime() {
     stateOwnership = await claimSessiondStateOwnership({ env: daemonEnvironment, logger: app.log });
+    void reconcileAutoInstallablePiPackages({
+      profileDir: activeAgentProfile.dir,
+      packageProvider: new DefaultPiPackageProvider(process.cwd(), activeAgentProfile.dir),
+      installer: createDefaultPiPackageService(process.cwd(), activeAgentProfile.dir),
+      dismissalChecker: new PiPackageDismissalStore(piPackageDismissalStorePath(daemonEnvironment)),
+      logger: app.log,
+    }).catch((error: unknown) => {
+      app.log.warn({ err: error }, "Pi package auto-install reconciliation failed unexpectedly; continuing without it");
+    });
     const eventHub = new SessionEventHub();
+    const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore());
     const workspaces = new WorkspaceService();
@@ -206,6 +225,7 @@ await runSessionDaemonStartup({
       subsessionsEnabled: spawnTargets !== undefined && config.subsessions,
       askUserEnabled: config.askUser,
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
+      config: configService,
       appendSystemPromptSections: [
         ...sessionEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts }),
         ...dockerEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts, logger: app.log }),
@@ -233,17 +253,18 @@ await runSessionDaemonStartup({
     machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
-    const terminals = new TerminalService(eventHub, workspaceActivity);
-    const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals);
+    const terminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices);
+    const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals, { notices: serverNotices });
     const runtimeComponent = Object.freeze({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
-    return { eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
+    return { eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
   },
-  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
+  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
+    registerServerNoticeRoutes(app, serverNotices);
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerSessionRoutes(app, sessions, eventHub);
     registerTerminalRoutes(app, terminals);

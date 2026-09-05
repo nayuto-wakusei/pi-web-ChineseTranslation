@@ -165,5 +165,33 @@ fi
 
 chown -R "$runtime_uid:$runtime_gid" /data /workspace
 
+# openSUSE login shells reset PATH before sourcing profile.d. Restore inherited
+# entries so web terminals resolve the same commands as daemon-owned agent tools.
+cat > /etc/profile.d/pi-web-path-parity.sh <<'PI_WEB_PROFILE_HOOK'
+# shellcheck shell=sh
+if [ -n "${ORIG_PATH:-}" ]; then
+    _pi_web_prefix=
+    _pi_web_old_ifs=$IFS
+    IFS=:
+    # shellcheck disable=SC2086
+    for _pi_web_dir in $ORIG_PATH; do
+        if [ -z "$_pi_web_dir" ]; then
+            continue
+        fi
+        case ":$PATH:$_pi_web_prefix:" in
+            *:"$_pi_web_dir":*) ;;
+            *) _pi_web_prefix=${_pi_web_prefix:+$_pi_web_prefix:}$_pi_web_dir ;;
+        esac
+    done
+    IFS=$_pi_web_old_ifs
+    if [ -n "$_pi_web_prefix" ]; then
+        PATH=$_pi_web_prefix:$PATH
+        export PATH
+    fi
+    unset _pi_web_prefix _pi_web_dir _pi_web_old_ifs
+fi
+PI_WEB_PROFILE_HOOK
+chmod 0644 /etc/profile.d/pi-web-path-parity.sh
+
 zypper clean --all
 rm -rf /var/cache/zypp/*

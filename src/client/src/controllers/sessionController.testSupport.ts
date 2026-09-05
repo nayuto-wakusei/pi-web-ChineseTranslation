@@ -1,40 +1,58 @@
 import { afterEach, beforeEach, vi } from "vitest";
+import { api as defaultApi } from "../api";
 import type { MessagePage, SessionInfo, SessionRef, SessionStatus, Workspace } from "../api";
+import { initialAppState, type AppState } from "../appState";
 import { machineSessionKey } from "../machineKeys";
 import type { SessionUiEvent } from "../sessionSocket";
-import type { SessionEventSocket } from "./sessionController";
+import { SessionController, type SessionControllerDependencies, type SessionEventSocket } from "./sessionController";
 
-export { api as defaultApi } from "../api";
+export { defaultApi };
 export type { MessagePage, PromptAttachment, SessionActivity, SessionInfo, SessionRef, SessionStatus, SessionStreamSnapshot, Workspace } from "../api";
-export type { AppState } from "../appState";
+export type { AppState };
 
-export class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
-  }
-
-  clear(): void {
-    this.values.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.values.keys())[index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
+export interface SessionControllerTestFixtureOptions {
+  initialState?: AppState;
+  api?: Partial<typeof defaultApi>;
+  socket?: SessionEventSocket;
+  dependencies?: Omit<SessionControllerDependencies, "api" | "socket">;
 }
+
+export interface SessionControllerTestFixture {
+  readonly controller: SessionController;
+  readonly api: typeof defaultApi;
+  readonly socket: SessionEventSocket;
+  readonly stateWrites: Partial<AppState>[];
+  readonly state: AppState;
+  readonly replaceState: (state: AppState) => void;
+}
+
+export function createSessionControllerTestFixture(options: SessionControllerTestFixtureOptions = {}): SessionControllerTestFixture {
+  let state = options.initialState ?? initialAppState();
+  const stateWrites: Partial<AppState>[] = [];
+  const replaceState = (nextState: AppState): void => { state = nextState; };
+  const api = { ...defaultApi, ...options.api };
+  const socket = options.socket ?? new FakeSocket();
+  const controller = new SessionController(
+    () => state,
+    (patch) => {
+      stateWrites.push(patch);
+      state = { ...state, ...patch };
+    },
+    () => undefined,
+    undefined,
+    { ...options.dependencies, api, socket },
+  );
+  return {
+    controller,
+    api,
+    socket,
+    stateWrites,
+    replaceState,
+    get state() { return state; },
+  };
+}
+
+export { MemoryStorage } from "../browserStorage.testSupport";
 
 export class FakeSocket implements SessionEventSocket {
   readonly connectedSessionIds: string[] = [];

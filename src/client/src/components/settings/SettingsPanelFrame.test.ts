@@ -2,6 +2,7 @@ import { html, type TemplateResult } from "lit";
 import { describe, expect, it } from "vitest";
 import { SettingsPanelFrame, settingsNoticeTone, type SettingsNotice } from "./SettingsPanelFrame";
 import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
+import { collectTemplateValues, expectTextOrder } from "../SettingsDialog.testSupport";
 
 describe("settings-panel-frame", () => {
   it("renders header, ordered notices, and settings content in the shared order", () => {
@@ -97,34 +98,6 @@ function flattenTemplateContent(template: TemplateResult): string {
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       chunks.push(String(value));
     }
-  }
-}
-
-function collectTemplateValues(template: TemplateResult): unknown[] {
-  const values: unknown[] = [];
-  visit(template);
-  return values;
-
-  function visit(current: unknown): void {
-    if (Array.isArray(current)) {
-      for (const item of current) visit(item);
-      return;
-    }
-    if (!isTemplateResult(current)) return;
-    for (const value of templateValues(current)) {
-      values.push(value);
-      visit(value);
-    }
-  }
-}
-
-function expectTextOrder(content: string, labels: readonly string[]): void {
-  let previousIndex = -1;
-  for (const label of labels) {
-    const currentIndex = content.indexOf(label, previousIndex + 1);
-    if (currentIndex === -1) throw new Error(`Expected rendered content to include ${label}`);
-    expect(currentIndex).toBeGreaterThan(previousIndex);
-    previousIndex = currentIndex;
   }
 }
 

@@ -1,4 +1,4 @@
-import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionBulkMutationRef, SessionCleanupRequest, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import { request, requestOptional } from "./http";
 import {
   arrayOf,
@@ -38,6 +38,7 @@ import {
   parseReloaded,
   parseRestored,
   parseSavedAttachments,
+  parseServerNoticeSnapshot,
   parseSessionBulkArchiveResponse,
   parseSessionBulkDeleteArchivedResponse,
   parseSessionCleanupExecuteResponse,
@@ -187,6 +188,14 @@ export const machineStatusApi = {
   machineStatus: (machineId = "local") => request(`${machinePrefix(machineId)}/status`, requireMachineStatusSnapshot),
 };
 
+export const noticesApi = {
+  snapshot: (machineId = "local") => request(`${machinePrefix(machineId)}/notices`, parseServerNoticeSnapshot, { cache: "no-store" }),
+  dismiss: (machineId: string, daemonInstanceId: string, noticeId: string) => {
+    const body: ServerNoticeDismissRequest = { daemonInstanceId, noticeId };
+    return request(`${machinePrefix(machineId)}/notices/dismiss`, parseServerNoticeSnapshot, { method: "POST", body: JSON.stringify(body) });
+  },
+};
+
 export const projectsApi = {
   projects: (machineId = "local") => request(`${machinePrefix(machineId)}/projects`, arrayOf(parseProject)),
   addProject: (path: string, name?: string, create?: boolean, machineId = "local") => request(`${machinePrefix(machineId)}/projects`, parseProject, { method: "POST", body: JSON.stringify({ path, name, create }) }),
@@ -261,6 +270,7 @@ export const sessionsApi = {
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
   modelCatalog: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models/catalog", machineId), parseSessionModelCatalogResponse),
   setModelEnabled: (session: SessionLookup, provider: string, modelId: string, enabled: boolean, machineId = "local") => request(sessionPath(session, "models/enabled", machineId), parseSessionModelCatalogResponse, { method: "POST", body: sessionBody(session, { provider, modelId, enabled }) }),
+  setModelScope: (session: SessionLookup, mode: SessionModelScopeMode, machineId = "local") => request(sessionPath(session, "models/scope", machineId), parseSessionModelCatalogResponse, { method: "POST", body: sessionBody(session, { mode }) }),
   setModel: (session: SessionLookup, provider: string, modelId: string, machineId = "local") => request(sessionPath(session, "model", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { provider, modelId }) }),
   cycleModel: (session: SessionLookup, direction: "forward" | "backward", machineId = "local") => request(sessionPath(session, "model/cycle", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { direction }) }),
   thinkingLevels: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "thinking-levels", machineId), parseThinkingLevelsResponse),
@@ -405,6 +415,7 @@ export const api = {
   ...piPackagesApi,
   ...activityApi,
   ...machineStatusApi,
+  ...noticesApi,
   ...projectsApi,
   ...workspacesApi,
   ...sessionsApi,

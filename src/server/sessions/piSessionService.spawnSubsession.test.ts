@@ -6,7 +6,7 @@ import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
-import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -42,7 +42,7 @@ describe("PiSessionService", () => {
       };
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime,
         sessionManager: sessionGateway([]),
         archiveStore,
@@ -132,7 +132,7 @@ describe("PiSessionService", () => {
       };
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime,
         sessionManager: sessionGateway([]),
         archiveStore: emptyArchiveStore(),
@@ -150,8 +150,10 @@ describe("PiSessionService", () => {
     });
 
     it("resolves a model spec against the parent's models and names it in the result", async () => {
-      const scoped = testModel();
-      const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl", scopedModels: [{ model: scoped }] });
+      const modelRuntime = await createTestModelRuntime();
+      const scoped = modelRuntime.getModel("anthropic", "claude-sonnet-4-5-20250929");
+      if (scoped === undefined) throw new Error("test model not found");
+      const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl", modelRuntime, scopedModels: [{ model: scoped }] });
       const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace"), model: scoped });
       const initialModels: PiAgentSession["model"][] = [];
       const runtimes = [parent.runtime, child.runtime];
@@ -165,7 +167,7 @@ describe("PiSessionService", () => {
       };
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime,
         sessionManager: sessionGateway([]),
         archiveStore: emptyArchiveStore(),
@@ -206,7 +208,7 @@ describe("PiSessionService", () => {
       let index = 0;
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: () => {
           const runtime = runtimes[index] ?? child.runtime;
           index += 1;
@@ -259,7 +261,7 @@ describe("PiSessionService", () => {
         const open = vi.fn(() => childManager);
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: () => {
             const runtime = runtimes[index] ?? child.runtime;
             index += 1;
@@ -302,7 +304,7 @@ describe("PiSessionService", () => {
         });
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: runtimeCreator(parent.runtime),
           sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
           archiveStore: emptyArchiveStore(),
@@ -328,7 +330,7 @@ describe("PiSessionService", () => {
       });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
         sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
@@ -351,7 +353,7 @@ describe("PiSessionService", () => {
       });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
         sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
@@ -373,7 +375,7 @@ describe("PiSessionService", () => {
       });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
         sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([childRecord]), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
@@ -395,7 +397,7 @@ describe("PiSessionService", () => {
       });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(forkedParent.runtime),
         sessionManager: { create: () => forkedParent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
@@ -435,7 +437,7 @@ describe("PiSessionService", () => {
         const open = vi.fn((path: string) => path === parentFile ? parentManager : childManager);
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: (_createRuntime, options) => {
             delegationCapabilities.push(options.delegationToolsEnabled);
             const runtime = runtimes[index] ?? parent.runtime;
@@ -502,7 +504,7 @@ describe("PiSessionService", () => {
         });
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: () => {
             const runtime = runtimes[index] ?? parent.runtime;
             index += 1;
@@ -564,7 +566,7 @@ describe("PiSessionService", () => {
         const open = vi.fn((path: string) => path === parentFile ? parentManager : childManager);
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: () => {
             const runtime = runtimes[index] ?? parent.runtime;
             index += 1;
@@ -632,7 +634,7 @@ describe("PiSessionService", () => {
         });
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime,
           sessionManager: {
             create: () => parentManager,
@@ -711,7 +713,7 @@ describe("PiSessionService", () => {
         });
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime,
           sessionManager: {
             create: () => copiedParentManager,
@@ -773,7 +775,7 @@ describe("PiSessionService", () => {
         const open = vi.fn((path: string) => path === parentFile ? parentManager : childManager);
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: () => {
             const runtime = runtimes[index] ?? parent.runtime;
             index += 1;
@@ -828,7 +830,7 @@ describe("PiSessionService", () => {
         const open = vi.fn((path: string) => path === actualParentFile ? parent.session.sessionManager : childManager);
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+          modelRuntime: testModelRuntime,
           createAgentRuntime: () => {
             const runtime = runtimes[index] ?? parent.runtime;
             index += 1;
@@ -871,7 +873,7 @@ describe("PiSessionService", () => {
       const open = vi.fn(() => childManager);
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(child.runtime),
         sessionManager: {
           create: () => childManager,
@@ -1061,7 +1063,7 @@ describe("PiSessionService", () => {
       const fake = fakeRuntime("nope");
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(fake.runtime),
         sessionManager: sessionGateway([]),
         heartbeatIntervalMs: 60_000,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { mergeSelectedMachineAccessConfig } from "./settingsMachineAccessConfig";
+import { configResponse } from "../SettingsDialog.testSupport";
 
 describe("selected-machine access config helpers", () => {
   it("merges local selected-machine file/upload config into gateway config without dropping gateway-only values", () => {
@@ -13,11 +13,13 @@ describe("selected-machine access config helpers", () => {
       spawnSessions: false,
       pathAccess: { allowedPaths: ["/old"] },
       uploads: { defaultFolder: "old/uploads" },
+      attachments: { defaultFolder: "old/attachments" },
       maxUploadBytes: 1234,
     });
     const selectedMachine = configResponse({
       pathAccess: { allowedPaths: ["~/SDKs"] },
       uploads: { defaultFolder: "manual/uploads" },
+      attachments: { defaultFolder: "manual/attachments" },
       maxUploadBytes: 5678,
     });
 
@@ -32,6 +34,7 @@ describe("selected-machine access config helpers", () => {
         spawnSessions: false,
         pathAccess: { allowedPaths: ["~/SDKs"] },
         uploads: { defaultFolder: "manual/uploads" },
+        attachments: { defaultFolder: "manual/attachments" },
         maxUploadBytes: 5678,
       },
       effectiveConfig: {
@@ -43,6 +46,7 @@ describe("selected-machine access config helpers", () => {
         spawnSessions: false,
         pathAccess: { allowedPaths: ["~/SDKs"] },
         uploads: { defaultFolder: "manual/uploads" },
+        attachments: { defaultFolder: "manual/attachments" },
         maxUploadBytes: 5678,
       },
     });
@@ -54,8 +58,9 @@ describe("selected-machine access config helpers", () => {
       shortcuts: { "core:view.chat": "mod+1" },
       pathAccess: { allowedPaths: ["/old"] },
       uploads: { defaultFolder: "old/uploads" },
+      attachments: { defaultFolder: "old/attachments" },
     });
-    const selectedMachine = configResponse({ pathAccess: { allowedPaths: [] }, uploads: {} });
+    const selectedMachine = configResponse({ pathAccess: { allowedPaths: [] }, uploads: {}, attachments: {} });
 
     expect(mergeSelectedMachineAccessConfig(gateway, selectedMachine)).toEqual({
       ...gateway,
@@ -64,23 +69,15 @@ describe("selected-machine access config helpers", () => {
         shortcuts: { "core:view.chat": "mod+1" },
         pathAccess: { allowedPaths: [] },
         uploads: {},
+        attachments: {},
       },
       effectiveConfig: {
         host: "127.0.0.1",
         shortcuts: { "core:view.chat": "mod+1" },
         pathAccess: { allowedPaths: [] },
         uploads: {},
+        attachments: {},
       },
     });
   });
 });
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
-  };
-}

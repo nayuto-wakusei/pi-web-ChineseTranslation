@@ -3,7 +3,7 @@ import type { FileContentResponse, FileTreeEntry, FileTreeResponse } from "@chai
 export const RELAYS_ROOT = ".pi-web/relays";
 
 /** Documents that anchor a relay packet, in display order. Any other files follow alphabetically. */
-export const RELAY_ANCHOR_DOCUMENTS: readonly string[] = ["status.md", "charter.md", "log.md"];
+export const RELAY_ANCHOR_DOCUMENTS: readonly string[] = ["status.md", "charter.md", "operations.md", "log.md"];
 
 /** Deepest node depth listed below the relay root; direct children are depth 0. */
 export const MAX_RELAY_TREE_DEPTH = 5;

@@ -375,7 +375,7 @@ class PiWebRelaysPanel extends HTMLElement {
       return `${partialNotice}
         <div class="empty-state">
           <strong>此中继还没有文档。</strong>
-          <p>中继包通常包含 <code>status.md</code>、<code>charter.md</code> 和 <code>log.md</code>。</p>
+          <p>Relay Runner 包通常包含 <code>status.md</code>、<code>charter.md</code>、<code>operations.md</code> 和 <code>log.md</code>。</p>
         </div>
       `;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeChatHistory, type RawMessagePage } from "./chatHistoryCache";
+import { isHistoryTailSlice, mergeChatHistory, type RawMessagePage } from "./chatHistoryCache";
 
 function page(start: number, total: number, messages: unknown[]): RawMessagePage {
   return { start, total, messages };
@@ -49,5 +49,18 @@ describe("mergeChatHistory", () => {
     const incoming = page(0, 2, ["fresh-a", "fresh-b"]);
 
     expect(mergeChatHistory(page(0, 2, ["stale-a", "stale-b", "stale-c"]), incoming)).toEqual(incoming);
+  });
+});
+
+describe("isHistoryTailSlice", () => {
+  it("matches an unchanged full page and a held tail", () => {
+    expect(isHistoryTailSlice(page(0, 2, ["a", "b"]), page(0, 2, ["a", "b"]))).toBe(true);
+    expect(isHistoryTailSlice(page(0, 4, ["a", "b", "c", "d"]), page(2, 4, ["c", "d"]))).toBe(true);
+  });
+
+  it("rejects growth, edits, and pages reaching before held history", () => {
+    expect(isHistoryTailSlice(page(0, 2, ["a", "b"]), page(0, 3, ["a", "b", "c"]))).toBe(false);
+    expect(isHistoryTailSlice(page(0, 2, ["a", "b"]), page(0, 2, ["a", "edited"]))).toBe(false);
+    expect(isHistoryTailSlice(page(2, 5, ["c", "d", "e"]), page(0, 5, ["a", "b"]))).toBe(false);
   });
 });

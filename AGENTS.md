@@ -28,6 +28,8 @@ Normal-mode session runtimes resolve their credential and model registry from th
 
 Browser disconnects and UI/API restarts must not stop active Pi sessions. Keep daemon-owned state and side effects out of the autoreloading web process.
 
+Idle transcript refresh must preserve the SDK's selected leaf: unsummarized tree navigation and reset-to-root can change only in-memory state. Do not replace that branch with the disk tail, including when navigation finishes during an asynchronous read; retain external-append refresh when the runtime is at its latest entry.
+
 Changes affecting `src/server/sessiond.ts`, the daemon protocol/transport, or transitive daemon-only code under `src/server/sessions/`, `src/server/terminals/`, `src/server/activity/`, or `src/server/realtime/` require a manual `pi-web-sessiond.service` restart. Tell the user when this is required. Web/API/client/plugin-only changes normally need only the `pi-web-ui-dev.service` autoreload path.
 
 The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead use the configured sessiond HTTP transport. If the protocol, socket/data-dir, or transport environment changes, keep both services aligned and restart both.
@@ -39,6 +41,7 @@ The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead
 - Keep shared request/response types in `src/shared/apiTypes.ts`. Treat network responses as untrusted: validate them in `src/client/src/api/parsers.ts` or its parser modules instead of casting in components or controllers.
 - Centralize browser transport in `src/client/src/api/`: endpoint families in `clients.ts`, URL construction in `urls.ts`, HTTP/auth scoping in `http.ts`, and sockets in `sockets.ts`.
 - Management embed is a cross-process security boundary. The web gateway authenticates and constrains the request; the daemon consumes the forwarded management context and uses the separate management provider-auth store. Preserve that context on every applicable HTTP mutation and WebSocket route.
+- Current server notices belong to normal-mode daemon state. Reject management-context reads and dismissals in the daemon, and do not request those notices from management-embed clients; browser-only errors remain available there.
 - Normal-mode browser access auth and Pi model-provider auth are unrelated. Do not conflate `normalAuth.passwordHash` with provider API keys or auth files.
 - Normal-mode provider-auth endpoints require a `projectId` and must resolve it to a registered project. Carry the typed `AuthRequestTarget` through provider lookup, API-key save/logout, and every OAuth lifecycle request; management-embed requests instead derive their store from the forwarded management context.
 - Normal-mode session operations must resolve their `cwd` to exactly one registered project's workspace before listing, starting, or opening a runtime. That resolution selects the model registry; never fall back to ambient global Pi credentials. Process auth changes by exact model-registry identity so credentials changed for one project cannot refresh or warn sessions belonging to another.
@@ -56,12 +59,14 @@ The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead
 ## Client and plugins
 
 - `src/client/src/components/PiWebApp.ts` is the client composition root, not the default home for new domain logic. Put state orchestration in controllers, responsive shell behavior in `appShell/`, transport in `api/`, and keep Lit components focused on rendering and event wiring.
+- Recurring asynchronous browser work must check connection lifetime before rescheduling. Clearing a timer on disconnect is insufficient once its callback is awaiting a request; an old connection's completion must not restart or replace the new connection's timer.
 - Browser PI WEB plugins are trusted code and are separate from Pi packages. Bundled plugins live under `pi-web-plugins/<id>/` and build into `dist/pi-web-plugins/`.
 - `src/plugin-api.ts` is the source of the stable public plugin API. `src/plugin-api/unstable.ts` is explicitly unstable. Do not hand-edit generated `plugin-api.d.ts`; run `npm run build:plugin-api`.
 - Plugins should prefer documented context helpers over direct private `/api/...` calls. Keep activation cheap and declarative, and preserve machine scoping for remote plugin contributions and assets.
 - When changing Chinese UI copy, update the owning component/plugin and relevant copy assertions, including `src/client/src/coreUiChineseCopy.test.ts` where applicable.
 - `AuthController` snapshots the machine and, in normal mode, selected project into `AuthDialogTarget` when an auth flow starts. Keep that target through asynchronous OAuth polling and only refresh the session status while it remains selected; do not retarget an in-flight flow from mutable current UI state.
 - Session-list components render menu interaction only; route rename mutations through `SessionController` and the existing `/name` command path. Rename only persisted, unarchived sessions, trim/reject blank names, preserve the currently selected conversation when renaming another row, and keep list/selection metadata synchronized through `session.name` events.
+- Keep attachment staging synchronized on add, remove, and composer reset, not only on session switches. Temporary-to-persisted session ID migration must preserve unsent attachments without recreating the abandoned temporary key; test the controller migration before the editor's next update.
 - Preserve the chat scroll layout invariant: `.chat-wrap` owns the constrained flex area and `.chat` is the absolute `inset: 0` scrolling element. Do not replace it with `height: 100%`, or long transcripts can no longer reach their bottom.
 
 ## Client application URL convention
@@ -94,6 +99,8 @@ Use `.agents/skills/testing-guide/SKILL.md` whenever writing, modifying, reviewi
 Run the narrowest meaningful test first. Also run `npm run typecheck` for source or exported-type changes. Use `npm run verify` (`typecheck`, `lint`, `knip`, and Vitest) for cross-cutting work and before final merge review.
 
 For project-auth changes, cover first-use bootstrap/isolation, client target propagation, and the federated route contract. For session rename changes, cover menu eligibility/input and controller behavior when the renamed row is not the active conversation. Keep the chat layout assertion in `src/client/src/components/shared.test.ts` when changing transcript scrolling styles.
+
+POSIX shell assets executed by Docker must retain LF line endings, including the shebang. Check bytes as well as shell syntax; Windows checkout must honor the installer's `.gitattributes` rule.
 
 ## Changes and releases
 

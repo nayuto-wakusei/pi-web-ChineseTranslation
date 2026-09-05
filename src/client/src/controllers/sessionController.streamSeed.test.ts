@@ -83,6 +83,65 @@ describe("SessionController stream seed + watermark reconciliation", () => {
     expect(controller).toBeDefined();
   });
 
+  it("applies live tool results while catching up to an already-running session", async () => {
+    const socket = new EmitSocket();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => Promise.resolve({
+        messages: [{ role: "user", content: "Inspect the repository" }],
+        start: 0,
+        total: 1,
+      }),
+      status: () => Promise.resolve({ ...status(oldSession.id), isStreaming: true }),
+      streamSnapshot: () => Promise.resolve({
+        seq: 10,
+        partial: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "src/app.ts" } }],
+        },
+      }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket },
+    );
+
+    await controller.selectSession(oldSession, { updateUrl: false });
+
+    socket.emit({ type: "tool.update", toolName: "read", toolCallId: "read-1", text: "stale output", seq: 10 });
+    socket.emit({ type: "tool.update", toolName: "read", toolCallId: "read-1", text: "partial output", seq: 11 });
+    runPendingAnimationFrames();
+
+    expect(state.messages).toEqual([
+      { role: "user", parts: [{ type: "text", text: "Inspect the repository" }], transcriptIndex: 0 },
+      {
+        role: "tool",
+        parts: [expect.objectContaining({
+          type: "toolExecution",
+          toolName: "read",
+          toolCallId: "read-1",
+          status: "running",
+          resultText: "partial output",
+        })],
+      },
+    ]);
+
+    socket.emit({ type: "tool.end", toolName: "read", toolCallId: "read-1", text: "complete output", isError: false, seq: 12 });
+    runPendingAnimationFrames();
+
+    expect(state.messages[1]?.parts[0]).toMatchObject({
+      type: "toolExecution",
+      toolName: "read",
+      toolCallId: "read-1",
+      status: "success",
+      resultText: "complete output",
+    });
+  });
+
   it("drops live events at or below the watermark and applies later events exactly once", async () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };

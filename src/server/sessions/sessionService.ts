@@ -11,6 +11,7 @@ import type {
   SessionNotificationDismissAllRequest,
   SessionNotificationDismissRequest,
   SessionNotificationInboxSnapshot,
+  SessionModelScopeMode,
   SessionUnreadAcknowledgeRequest,
   SessionUnreadCatalogSnapshot,
 } from "../../shared/apiTypes.js";
@@ -75,6 +76,7 @@ export interface SessionRouteService {
   modelCatalog(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   setModelEnabled(ref: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
+  setModelScope(ref: SessionRouteLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
   cycleModel(ref: SessionRouteLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableThinkingLevels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientThinkingLevel[]>;
   setThinkingLevel(ref: SessionRouteLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

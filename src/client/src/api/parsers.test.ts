@@ -5,19 +5,18 @@ import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResu
 
 describe("API parsers", () => {
   it("parses model catalog enabled state and rejects malformed rows", () => {
-    expect(parseSessionModelCatalogResponse({
+    const expected = {
       models: [
-        { provider: "anthropic", id: "claude-opus", name: "Claude Opus", contextWindow: 200_000, reasoning: true, enabled: true },
+        { provider: "anthropic", id: "claude-opus", name: "Claude Opus", contextWindow: 200_000, reasoning: true, enabled: true, editable: false, catalogIndex: 3 },
         { provider: "openai", id: "gpt", enabled: false },
       ],
-    })).toEqual({
-      models: [
-        { provider: "anthropic", id: "claude-opus", name: "Claude Opus", contextWindow: 200_000, reasoning: true, enabled: true },
-        { provider: "openai", id: "gpt", enabled: false },
-      ],
-    });
+    };
+
+    expect(parseSessionModelCatalogResponse(structuredClone(expected))).toEqual(expected);
     expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "openai", id: "gpt", enabled: "yes" }] }))
       .toThrow("Expected boolean field: enabled");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "openai", id: "gpt", enabled: true, catalogIndex: -1 }] }))
+      .toThrow("Expected non-negative safe integer field: catalogIndex");
   });
 
   it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
@@ -72,19 +71,15 @@ describe("API parsers", () => {
   });
 
   it("parses PI WEB config responses", () => {
-    expect(parsePiWebConfigResponse({
+    const expected = {
       path: "/tmp/config.json",
       exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234, agent: { command: "agent-lab", dir: "~/agent-profiles/lab" } },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" }, agent: { command: "agent-lab", dir: "/Users/dev/agent-profiles/lab" } },
+      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, attachments: { defaultFolder: "manual/attachments" }, maxUploadBytes: 1234, agent: { command: "agent-lab", dir: "~/agent-profiles/lab" } },
+      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" }, attachments: { defaultFolder: ".pi-web/attachments" }, agent: { command: "agent-lab", dir: "/Users/dev/agent-profiles/lab" } },
       envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: true, agentDirSource: "pi-compatibility", agentSessionDir: false },
-    })).toEqual({
-      path: "/tmp/config.json",
-      exists: true,
-      config: { host: "0.0.0.0", port: 8504, allowedHosts: ["example.local"], shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null }, plugins: { info: { enabled: false, settings: { compact: true } } }, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: "manual/uploads" }, maxUploadBytes: 1234, agent: { command: "agent-lab", dir: "~/agent-profiles/lab" } },
-      effectiveConfig: { host: "127.0.0.1", port: 8504, allowedHosts: true, pathAccess: { allowedPaths: ["/tmp"] }, uploads: { defaultFolder: ".pi-web/uploads" }, agent: { command: "agent-lab", dir: "/Users/dev/agent-profiles/lab" } },
-      envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: true, agentDirSource: "pi-compatibility", agentSessionDir: false },
-    });
+    };
+
+    expect(parsePiWebConfigResponse(structuredClone(expected))).toEqual(expected);
   });
 
   it("parses PI WEB runtime responses including the daemon-owned active profile", () => {
@@ -178,6 +173,22 @@ describe("API parsers", () => {
     expect(() => parsePiPackagesResponse({ packages: [{ source: "npm:@acme/tools", scope: "global", filtered: false }] })).toThrow("Invalid Pi package scope");
     expect(() => parsePiPackageMutationResponse({ action: "sync", packages: [] })).toThrow("Invalid Pi package mutation action");
     expect(() => parsePiPackagesResponse({ packages: [{ source: "npm:@acme/tools", scope: "user", filtered: "no" }] })).toThrow("Expected boolean field: filtered");
+  });
+
+  it("parses installable known package suggestions when present and omits them when absent", () => {
+    const installableKnownPackages = [{ id: "@jmfederico/pi-relay", label: "中继", description: "Relay 方法提示词和技能。", source: "/pi-web/dist/pi-packages/relays" }];
+
+    expect(parsePiPackagesResponse({ packages: [], installableKnownPackages })).toEqual({ packages: [], installableKnownPackages });
+    expect(parsePiPackagesResponse({ packages: [] })).toEqual({ packages: [] });
+    expect(parsePiPackageMutationResponse({ action: "install", packages: [], installableKnownPackages })).toEqual({
+      action: "install",
+      packages: [],
+      installableKnownPackages,
+    });
+  });
+
+  it("rejects malformed installable known package suggestions", () => {
+    expect(() => parsePiPackagesResponse({ packages: [], installableKnownPackages: [{ id: "@acme/known", label: "Known", description: "desc" }] })).toThrow("Expected string field: source");
   });
 
   it("parses Docker PI WEB installation metadata", () => {
@@ -395,7 +406,7 @@ describe("API parsers", () => {
   });
 
   it("parses session info including optional persistence signals", () => {
-    expect(parseSessionInfo({
+    const expected = {
       id: "s1",
       path: "/sessions/s1.jsonl",
       cwd: "/repo",
@@ -405,22 +416,14 @@ describe("API parsers", () => {
       modified: "2026-01-01T00:01:00.000Z",
       messageCount: 0,
       firstMessage: "",
-    })).toEqual({
-      id: "s1",
-      path: "/sessions/s1.jsonl",
-      cwd: "/repo",
-      persisted: false,
-      name: "Draft session",
-      created: "2026-01-01T00:00:00.000Z",
-      modified: "2026-01-01T00:01:00.000Z",
-      messageCount: 0,
-      firstMessage: "",
-    });
+    };
+
+    expect(parseSessionInfo(structuredClone(expected))).toEqual(expected);
     expect(() => parseSessionInfo({ id: "s1", path: "", cwd: "/repo", persisted: "yes", created: "now", modified: "now", messageCount: 0, firstMessage: "" })).toThrow("Expected optional boolean field: persisted");
   });
 
   it("validates session status including optional model and nullable context usage", () => {
-    expect(parseSessionStatus({
+    const expected = {
       sessionId: "s1",
       persisted: true,
       isStreaming: false,
@@ -434,21 +437,9 @@ describe("API parsers", () => {
       model: { provider: "p", id: "m", contextWindow: 100, reasoning: { effort: "low" } },
       contextUsage: { tokens: null, contextWindow: 100, percent: 0.5 },
       thinkingLevel: "medium",
-    })).toEqual({
-      sessionId: "s1",
-      persisted: true,
-      isStreaming: false,
-      isCompacting: true,
-      isBashRunning: false,
-      pendingMessageCount: 2,
-      queuedMessages: [{ kind: "steer", text: "adjust this" }, { kind: "followUp", text: "then do that" }],
-      messageCount: 7,
-      tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
-      cost: 0.12,
-      model: { provider: "p", id: "m", contextWindow: 100, reasoning: { effort: "low" } },
-      contextUsage: { tokens: null, contextWindow: 100, percent: 0.5 },
-      thinkingLevel: "medium",
-    });
+    };
+
+    expect(parseSessionStatus(structuredClone(expected))).toEqual(expected);
   });
 
   it("parses live session warnings including optional source and path", () => {
@@ -504,8 +495,8 @@ describe("API parsers", () => {
     })).toThrow("Invalid session warning severity");
   });
 
-  it("parses workspace effective upload config when present", () => {
-    expect(parseWorkspace({
+  it("parses workspace effective upload and attachment config when present", () => {
+    const expected = {
       id: "w1",
       projectId: "p1",
       path: "/repo",
@@ -514,22 +505,14 @@ describe("API parsers", () => {
       isMain: true,
       isGitRepo: true,
       isGitWorktree: false,
-      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" } },
-    })).toEqual({
-      id: "w1",
-      projectId: "p1",
-      path: "/repo",
-      label: "main",
-      branch: "main",
-      isMain: true,
-      isGitRepo: true,
-      isGitWorktree: false,
-      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" } },
-    });
+      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" }, attachments: { defaultFolder: "manual/attachments" } },
+    };
+
+    expect(parseWorkspace(structuredClone(expected))).toEqual(expected);
   });
 
   it("accepts legacy workspace responses without effective config", () => {
-    expect(parseWorkspace({
+    const expected = {
       id: "w1",
       projectId: "p1",
       path: "/repo",
@@ -537,15 +520,9 @@ describe("API parsers", () => {
       isMain: true,
       isGitRepo: false,
       isGitWorktree: false,
-    })).toEqual({
-      id: "w1",
-      projectId: "p1",
-      path: "/repo",
-      label: "main",
-      isMain: true,
-      isGitRepo: false,
-      isGitWorktree: false,
-    });
+    };
+
+    expect(parseWorkspace(structuredClone(expected))).toEqual(expected);
   });
 
   it("parses workspace activity snapshots", () => {
@@ -620,7 +597,7 @@ describe("API parsers", () => {
   });
 
   it("parses terminal command runs", () => {
-    expect(parseTerminalCommandRun({
+    const expected = {
       id: "run1",
       origin: "core",
       projectId: "p1",
@@ -634,21 +611,9 @@ describe("API parsers", () => {
       startedAt: "then",
       completedAt: "later",
       metadata: { "pi.operation": "test" },
-    })).toEqual({
-      id: "run1",
-      origin: "core",
-      projectId: "p1",
-      workspaceId: "w1",
-      terminalId: "t1",
-      title: "Build",
-      command: "npm run build",
-      status: "succeeded",
-      exitCode: 0,
-      createdAt: "now",
-      startedAt: "then",
-      completedAt: "later",
-      metadata: { "pi.operation": "test" },
-    });
+    };
+
+    expect(parseTerminalCommandRun(structuredClone(expected))).toEqual(expected);
     expect(() => parseTerminalCommandRun({
       id: "run1",
       origin: "core",

@@ -6,7 +6,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
-import { CapturingSessionEventHub, createTestModelRuntime, fakeRuntime, runtimeCreator, seedCredential, sessionGateway, sessionRecord, sessionRef, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, fakeRuntime, runtimeCreator, seedCredential, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -451,6 +451,48 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
     await modelRuntime.refresh();
     service.applyAuthChange({ modelRuntime, removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
+
+    await service.dispose();
+  });
+
+  it("applies auth changes only to runtimes using the changed model registry", async () => {
+    const hub = new ScopeCapturingSessionEventHub();
+    const normalCredentials = new InMemoryCredentialStore();
+    await seedCredential(normalCredentials, "anthropic", { type: "api_key", key: "sk-normal" });
+    const normalModelRuntime = await createTestModelRuntime(normalCredentials);
+    const managementModelRuntime = await createTestModelRuntime();
+    const model = normalModelRuntime.getModel("anthropic", "claude-haiku-4-5");
+    if (model === undefined) throw new Error("Expected Anthropic model fixture");
+    const normalRuntime = fakeRuntime("auth-scope-session", { model, modelRuntime: normalModelRuntime });
+    const managedRuntime = fakeRuntime("auth-scope-session", { model, modelRuntime: managementModelRuntime });
+    let createCalls = 0;
+
+    const service = new PiSessionService(hub, {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: normalModelRuntime,
+      managementModelRuntime,
+      createAgentRuntime: async () => {
+        createCalls += 1;
+        return await Promise.resolve(createCalls === 1 ? normalRuntime.runtime : managedRuntime.runtime);
+      },
+      sessionManager: sessionGateway([sessionRecord("auth-scope-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("auth-scope-session"));
+    await service.status(sessionRef("auth-scope-session"), testManagementContext());
+    hub.sessionEvents.length = 0;
+
+    await normalCredentials.delete("anthropic");
+    await normalModelRuntime.refresh({ allowNetwork: false });
+    service.applyAuthChange({ modelRuntime: normalModelRuntime, removedProviderId: "anthropic" });
+
+    expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && scope === "normal")).toHaveLength(1);
+    expect(hub.sessionEvents.some(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toBe(false);
+
+    service.applyAuthChange({ modelRuntime: managementModelRuntime, removedProviderId: "anthropic" });
+
+    expect(hub.sessionEvents.filter(({ event, scope }) => event.type === "command.output" && (scope?.includes("account-1") ?? false))).toHaveLength(1);
 
     await service.dispose();
   });

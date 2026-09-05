@@ -90,6 +90,12 @@ describe("notification socket guards", () => {
     })).toBeUndefined();
   });
 
+  it("accepts validated model-scope invalidations", () => {
+    expect(parseRealtimeSocketEvent({ type: "models.changed", revision: 2 })).toEqual({ type: "models.changed", revision: 2 });
+    expect(parseRealtimeSocketEvent({ type: "models.changed", revision: -1 })).toBeUndefined();
+    expect(parseRealtimeSocketEvent({ type: "models.changed", revision: "2" })).toBeUndefined();
+  });
+
   it("carries the startup marker through the socket boundary, marker and all", () => {
     const activity = { sessionId: "session-1", phase: "active", label: "Opening session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z", startup: true };
 

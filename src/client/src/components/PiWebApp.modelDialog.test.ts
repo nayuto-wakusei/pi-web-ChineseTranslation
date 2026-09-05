@@ -38,6 +38,8 @@ describe("PiWebApp model dialog", () => {
 
     expect(listModelCatalog).toHaveBeenCalledOnce();
     expect(appModelDialog(app)).toEqual({
+      instanceId: 1,
+      origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
       title: "选择模型",
       selectedValue: "openai/gpt-5",
       options: [
@@ -63,6 +65,8 @@ describe("PiWebApp model dialog", () => {
     expect(listModelCatalog).not.toHaveBeenCalled();
     expect(setModelEnabled).not.toHaveBeenCalled();
     expect(appModelDialog(app)).toEqual({
+      instanceId: 1,
+      origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
       title: "选择模型",
       options: [{ value: "openai/gpt-5", label: "gpt-5", description: "openai" }],
     });
@@ -76,6 +80,8 @@ describe("PiWebApp model dialog", () => {
       sessions: [selectedSession],
       status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
       modelDialog: {
+        instanceId: 1,
+        origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
         title: "选择模型",
         selectedValue: "openai/gpt-5",
         options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
@@ -97,6 +103,34 @@ describe("PiWebApp model dialog", () => {
       { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
     ]);
   });
+
+  it("applies an atomic model-scope preset to the originating dialog", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      sessions: [selectedSession],
+      status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
+      modelDialog: {
+        instanceId: 1,
+        origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
+        title: "选择模型",
+        selectedValue: "openai/gpt-5",
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+        catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
+      },
+    });
+    const freshCatalog = [
+      { provider: "openai", id: "gpt-5", enabled: true },
+      { provider: "openai", id: "gpt-4o", enabled: false },
+    ];
+    const setModelScope = vi.spyOn(SessionController.prototype, "setModelScope").mockResolvedValue(freshCatalog);
+
+    await callScopeHandler(app, "current");
+
+    expect(setModelScope).toHaveBeenCalledWith("current");
+    expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
+  });
 });
 
 async function callOpenModelDialog(app: PiWebApp): Promise<void> {
@@ -109,6 +143,12 @@ async function callToggleHandler(app: PiWebApp, provider: string, modelId: strin
   const handler: unknown = Reflect.get(app, "handleToggleModelEnabled");
   if (typeof handler !== "function") throw new Error("PiWebApp model toggle handler was unavailable");
   await Reflect.apply(handler, app, [provider, modelId, enabled]);
+}
+
+async function callScopeHandler(app: PiWebApp, mode: "all" | "current"): Promise<void> {
+  const handler: unknown = Reflect.get(app, "handleSetModelScope");
+  if (typeof handler !== "function") throw new Error("PiWebApp model scope handler was unavailable");
+  await Reflect.apply(handler, app, [mode]);
 }
 
 function appModelDialog(app: PiWebApp): AppState["modelDialog"] {

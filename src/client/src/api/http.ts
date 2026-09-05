@@ -1,6 +1,15 @@
 import { currentApiScope, removeManagementEntryToken, type ApiScope, withManagementEmbed } from "./managementEmbed";
 import { resolveAppUrl } from "../appUrl";
 
+/** A response-backed API failure, retaining the status needed at an ownership boundary. */
+export class HttpRequestError extends Error {
+  override name = "HttpRequestError";
+
+  constructor(message: string, readonly status: number, options: ErrorOptions = {}) {
+    super(message, options);
+  }
+}
+
 let apiScope = currentApiScope();
 
 export function setApiScope(scope: ApiScope): void {
@@ -17,7 +26,7 @@ export async function request<T>(url: string, parse: (value: unknown) => T, init
   const response = await fetch(scopedApiUrl(url), { ...init, headers });
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(errorMessage(body) ?? response.statusText);
+    throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
   }
   removeManagementEntryToken(apiScope);
   const body: unknown = await response.json();

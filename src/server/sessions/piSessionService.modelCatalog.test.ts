@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, sessionGateway } from "./piSessionService.testSupport.js";
@@ -13,14 +13,7 @@ const PROVIDER = "anthropic";
 const FIRST_MODEL = "claude-opus-4-6";
 const DEFAULT_MODEL = "claude-sonnet-4-5";
 
-let modelRuntime: ModelRuntime;
 const tempDirs: string[] = [];
-
-beforeAll(async () => {
-  const credentials = new InMemoryCredentialStore();
-  await credentials.modify(PROVIDER, () => Promise.resolve({ type: "api_key", key: "sk-test" }));
-  modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
-});
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -35,13 +28,17 @@ async function startSessionWithSettings(settings?: Record<string, unknown>) {
   await Promise.all([mkdir(agentDir, { recursive: true }), mkdir(dataDir, { recursive: true }), mkdir(workspace, { recursive: true })]);
   const settingsScope = resolveSettingsScopeDirectory({ dataDir, cwd: workspace, mode: "normal" });
   const settingsPath = preferencesFilePath(settingsScope);
+  const credentials = new InMemoryCredentialStore();
+  await credentials.modify(PROVIDER, () => Promise.resolve({ type: "api_key", key: "sk-test" }));
+  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
   if (settings !== undefined) {
     await mkdir(settingsScope, { recursive: true });
     await writeFile(settingsPath, JSON.stringify(settings));
   }
   const gateway = sessionGateway([]);
   gateway.create = (cwd) => SessionManager.inMemory(cwd);
-  const service = new PiSessionService(new CapturingSessionEventHub(), {
+  const events = new CapturingSessionEventHub();
+  const service = new PiSessionService(events, {
     agentDir,
     dataDir,
     modelRuntime,
@@ -50,7 +47,7 @@ async function startSessionWithSettings(settings?: Record<string, unknown>) {
   });
   try {
     const created = await service.start(workspace);
-    return { service, ref: { id: created.id, cwd: workspace }, settingsPath };
+    return { service, events, modelRuntime, ref: { id: created.id, cwd: workspace }, settingsPath, workspace };
   } catch (error) {
     await service.dispose();
     throw error;
@@ -89,7 +86,7 @@ function managementContext(): ManagementEmbedContext {
 
 describe("PiSessionService model catalog", () => {
   it("marks every available model enabled in catalog order when no scope is configured", async () => {
-    const { service, ref } = await startSessionWithSettings();
+    const { service, ref, modelRuntime } = await startSessionWithSettings();
     try {
       const catalog = await service.modelCatalog(ref);
       const snapshotIds = catalogIds(modelRuntime.getAvailableSnapshot());
@@ -162,7 +159,32 @@ describe("PiSessionService model catalog", () => {
     try {
       await expect(service.setModelEnabled(ref, PROVIDER, DEFAULT_MODEL, true, managementContext()))
         .rejects.toThrow("管理嵌入模式不允许修改已启用模型范围");
+      await expect(service.setModelScope(ref, "all", managementContext()))
+        .rejects.toThrow("管理嵌入模式不允许修改已启用模型范围");
       await expectPersistedEnabledModels(settingsPath, [`${PROVIDER}/${FIRST_MODEL}`]);
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("applies atomic scope presets and synchronizes another session in the same project scope", async () => {
+    const { service, events, ref, settingsPath, workspace } = await startSessionWithSettings();
+    try {
+      const second = await service.start(workspace);
+      const secondRef = { id: second.id, cwd: workspace };
+      const current = (await service.status(ref)).model;
+      if (current?.provider === undefined || current.id === undefined) throw new Error("expected a current model");
+      const currentScopeId = `${current.provider}/${current.id}`;
+
+      const narrowed = await service.setModelScope(ref, "current");
+      expect(narrowed.filter((entry) => entry.enabled).map((entry) => `${entry.provider}/${entry.id}`)).toEqual([currentScopeId]);
+      expect(catalogIds((await service.availableModels(secondRef)).map((model) => ({ provider: model.provider ?? "", id: model.id ?? "" })))).toEqual([currentScopeId]);
+      expect(events.globalEvents.some((event) => event.type === "models.changed")).toBe(true);
+      await expectPersistedEnabledModels(settingsPath, [currentScopeId]);
+
+      const restored = await service.setModelScope(ref, "all");
+      expect(restored.every((entry) => entry.enabled)).toBe(true);
+      await expectPersistedEnabledModels(settingsPath, undefined);
     } finally {
       await service.dispose();
     }

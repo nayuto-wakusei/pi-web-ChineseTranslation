@@ -1,6 +1,6 @@
 import { html, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
+import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
 import plugin from "./pi-web-plugin.js";
 
 describe("Info plugin copy-diagnostics action", () => {
@@ -43,28 +43,4 @@ function findCopyDiagnosticsAction() {
   const action = plugin.activate({ apiVersion: 2, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;
-}
-function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
-  const noop = () => undefined;
-  return {
-    state: {},
-    prompt: { insertText: noop, getText: () => "", getSelection: () => null },
-    openActionPalette: noop,
-    focusPrompt: noop,
-    addProject: noop,
-    configureAuth: noop,
-    logoutAuth: noop,
-    openThemePicker: noop,
-    selectMainView: noop,
-    selectWorkspaceTool: noop,
-    openTerminal: noop,
-    refreshFiles: noop,
-    refreshGit: noop,
-    refreshAppData: noop,
-    reloadPage: noop,
-    startSession: noop,
-    archiveSession: noop,
-    stopActiveWork: noop,
-    ...patch,
-  };
 }

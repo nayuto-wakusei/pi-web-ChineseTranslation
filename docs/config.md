@@ -38,7 +38,7 @@ Machine-global runtime values are resolved as:
 defaults → global config file → environment overrides
 ```
 
-Supported project-local settings are then applied for that project's workspaces. For upload defaults, `<project>/.pi-web/config.json` overrides the global value.
+Supported project-local settings are then applied for that project's workspaces. For upload and prompt-attachment defaults, `<project>/.pi-web/config.json` overrides the global value.
 
 Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR`, `PI_WEB_ENVIRONMENT_FACTS`, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
 
@@ -50,6 +50,7 @@ Process restarts depend on the key:
 - `workbenchIntegration`: restart both the web/API process and session daemon; both processes must use the same endpoints and limits.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
+- `attachments.defaultFolder`: applies to prompt attachments saved as workspace files after config/workspace refresh.
 - `plugins`: reload the browser tab after changing PI WEB plugin enablement.
 - Pi package install/remove/update: not a PI WEB config key; after a mutation, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for PI WEB browser plugin changes. If a global Pi extension adds or removes a provider, or changes a provider's connection settings, manually restart `pi-web-sessiond.service`; `/reload` cannot change the startup provider baseline. A known provider refreshing only its own model list is applied without a restart. See [Pi extension provider baseline](#pi-extension-provider-baseline).
 - `shortcuts`: saved settings apply in the browser after config refresh/save.
@@ -65,6 +66,9 @@ Process restarts depend on the key:
   },
   "uploads": {
     "defaultFolder": ".pi-web/uploads"
+  },
+  "attachments": {
+    "defaultFolder": ".pi-web/attachments"
   },
   "maxUploadBytes": 67108864,
   "agent": {
@@ -121,6 +125,9 @@ Project-local config lives at `<project>/.pi-web/config.json`. Use it for settin
   },
   "uploads": {
     "defaultFolder": "manual/uploads"
+  },
+  "attachments": {
+    "defaultFolder": "prompt-assets"
   }
 }
 ```
@@ -129,11 +136,13 @@ Project-local `pathAccess.allowedPaths` entries are merged after the global list
 
 Project-local `uploads.defaultFolder` overrides the global upload destination for workspaces in that project. Current PI WEB servers include this workspace-effective value on the existing workspace responses used locally and through machine federation. Older remote servers may omit the optional field; the browser falls back to the global/default upload folder.
 
+Project-local `attachments.defaultFolder` likewise overrides where the prompt editor saves attachments when you choose folder delivery. The built-in default is `.pi-web/attachments`; inline image delivery does not write a workspace file.
+
 Plugins may own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
 
 ## Configuration matrix
 
-Rows with JSON key `—` are runtime-only environment variables, not config-file keys. `Global` means machine-global. In Settings, selected-machine-safe global keys (`pathAccess`, `uploads`, `maxUploadBytes`, `agent`, `spawnSessions`, `subsessions`, `askUser`, and `plugins`) are edited for the selected machine; gateway host/port/allowed-hosts, keyboard shortcuts, and machine registry/tokens stay local.
+Rows with JSON key `—` are runtime-only environment variables, not config-file keys. `Global` means machine-global. In Settings, selected-machine-safe global keys (`pathAccess`, `uploads`, `attachments`, `maxUploadBytes`, `agent`, `spawnSessions`, `subsessions`, `askUser`, and `plugins`) are edited for the selected machine; gateway host/port/allowed-hosts, keyboard shortcuts, and machine registry/tokens stay local.
 
 | Config | JSON key | Env var | Scope | Project-local behavior | Applies / restart |
 | --- | --- | --- | --- | --- | --- |
@@ -143,6 +152,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Dev-server allowed hosts | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | Global | Not supported locally | Restart dev web/UI |
 | External filesystem roots | `pathAccess.allowedPaths` | — | Global + project | **Merges**: global roots first, then project roots; duplicates removed | Next file request; refresh existing views if needed |
 | Manual file upload default folder | `uploads.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
+| Prompt attachment default folder | `attachments.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New folder-delivery prompts after config/workspace refresh |
 | Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
 | Companion CLI command | `agent.command` | `PI_WEB_AGENT_COMMAND` | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects doctor/status/update checks |
 | Agent profile state directory | `agent.dir` | `PI_WEB_AGENT_DIR` (`PI_CODING_AGENT_DIR` for Pi compatibility) | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects auth, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugins |
@@ -264,6 +274,20 @@ Manual uploads use the workspace file-write path: paths stay workspace-relative,
 For machine federation, Settings saves the global upload default on the selected machine. Current remote PI WEB servers also return `workspace.effectiveConfig.uploads.defaultFolder` on the existing workspace-list response. Older remote servers can omit that optional field without breaking clients; the Files panel falls back to the global/default upload folder.
 
 The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX_UPLOAD_BYTES` on the machine serving the upload.
+
+### Prompt attachments
+
+The prompt editor accepts files from its attachment button, paste, or drag/drop. Images can be sent inline to a multimodal model; any attachment can instead be saved into the workspace and referenced from the prompt. Folder delivery uses the workspace-effective `attachments.defaultFolder`, which defaults to `.pi-web/attachments` and can be overridden globally or in `<project>/.pi-web/config.json`.
+
+```json
+{
+  "attachments": {
+    "defaultFolder": "prompt-assets"
+  }
+}
+```
+
+The folder must be a non-empty workspace-relative path and follows the same normalization and traversal protections as `uploads.defaultFolder`. Prompt attachments use the same `maxUploadBytes` request-body limit.
 
 ### Pi-compatible agent profile and companion CLI
 

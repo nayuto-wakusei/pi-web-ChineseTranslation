@@ -28,7 +28,7 @@ describe("AuthController", () => {
     await controller.openLogin();
 
     expect(getState().authDialog).toBeUndefined();
-    expect(getState().error).toBe("请先选择项目，再配置提供商认证。");
+    expect(Object.values(getState().browserErrors).map((error) => error.message)).toContain("请先选择项目，再配置提供商认证。");
   });
 
   it("allows management auth without a selected project", async () => {

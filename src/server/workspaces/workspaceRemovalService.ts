@@ -1,6 +1,7 @@
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 import type { TerminalCommandRun, WorkspaceListing } from "../../shared/apiTypes.js";
-import { workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
+import { workspaceDeleteOperation, workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
+import type { ServerNoticeCreator } from "../notices/serverNoticeService.js";
 import {
   requireWorkspaceRemovalPrecondition,
   WORKSPACE_REMOVAL_OPERATION_TIMEOUT_MS,
@@ -36,6 +37,7 @@ export interface WorkspaceRemovalTerminalHost {
 export interface WorkspaceRemovalServiceOptions {
   timeoutMs?: number;
   preRemoveHook?: WorktreePreRemoveHookProbe;
+  notices?: Pick<ServerNoticeCreator, "record">;
 }
 
 interface WorkspaceRemovalFlight {
@@ -62,6 +64,7 @@ export class WorkspaceRemovalError extends Error {
 export class WorkspaceRemovalService {
   private readonly timeoutMs: number;
   private readonly preRemoveHook: WorktreePreRemoveHookProbe;
+  private readonly notices: Pick<ServerNoticeCreator, "record"> | undefined;
   private readonly flights = new Map<string, WorkspaceRemovalFlight>();
 
   constructor(
@@ -71,6 +74,7 @@ export class WorkspaceRemovalService {
   ) {
     this.timeoutMs = positiveInteger(options.timeoutMs ?? WORKSPACE_REMOVAL_OPERATION_TIMEOUT_MS, "timeoutMs");
     this.preRemoveHook = options.preRemoveHook ?? realWorktreePreRemoveHookProbe;
+    this.notices = options.notices;
   }
 
   async remove(
@@ -181,10 +185,16 @@ export class WorkspaceRemovalService {
         }
       });
     } catch (error) {
-      if (error instanceof WorkspaceRemovalDeadlineError) {
-        throw new WorkspaceRemovalError(error.message, 504, { cause: error });
-      }
-      throw error;
+      const failure = error instanceof WorkspaceRemovalDeadlineError
+        ? new WorkspaceRemovalError(error.message, 504, { cause: error })
+        : error;
+      if (!isAbortError(failure)) this.notices?.record({
+        severity: "error",
+        message: `工作区移除失败：${errorMessage(failure)}`,
+        source: workspaceDeleteOperation,
+        context: { projectId: project.id, workspaceId },
+      });
+      throw failure;
     }
   }
 
@@ -344,6 +354,10 @@ function isSameOrAncestor(ancestor: string, descendant: string): boolean {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw abortError(signal);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function abortError(signal: AbortSignal | undefined): Error {

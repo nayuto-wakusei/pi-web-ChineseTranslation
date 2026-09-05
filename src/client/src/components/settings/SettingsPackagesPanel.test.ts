@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { TemplateResult } from "lit";
 import type { PiPackageInfo } from "../../api";
 import { SettingsPackagesPanel } from "./SettingsPackagesPanel";
-import type { SettingsNotice } from "./SettingsPanelFrame";
 import type { PiPackageManagementSupport, PiPackageTargetContext } from "./piPackageSettings";
-import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
+import { expectTextOrder, flattenTemplateContent } from "../SettingsDialog.testSupport";
 
 const remoteTarget: PiPackageTargetContext = { id: "lab-mac", name: "Lab Mac", kind: "remote" };
 const unsupportedMessage = "Lab Mac 不支持 Pi 包管理。请更新并重启该机器上的 PI WEB，然后重试。";
@@ -77,61 +75,6 @@ describe("settings-packages-panel layout", () => {
     ]);
   });
 });
-
-function flattenTemplateContent(template: TemplateResult): string {
-  const chunks: string[] = [];
-  visitTemplate(template);
-  return chunks.join("");
-
-  function visitTemplate(current: TemplateResult): void {
-    const strings = templateStrings(current);
-    const values = templateValues(current);
-    for (let index = 0; index < values.length; index += 1) {
-      const staticChunk = strings[index];
-      if (staticChunk !== undefined) chunks.push(staticChunk);
-      visitValue(values[index]);
-    }
-    const finalChunk = strings[values.length];
-    if (finalChunk !== undefined) chunks.push(finalChunk);
-  }
-
-  function visitValue(value: unknown): void {
-    if (Array.isArray(value)) {
-      for (const item of value) visitValue(item);
-      return;
-    }
-    if (isSettingsNotice(value)) {
-      visitValue(value.title);
-      visitValue(value.content);
-      return;
-    }
-    if (isTemplateResult(value)) {
-      visitTemplate(value);
-      return;
-    }
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      chunks.push(String(value));
-    }
-  }
-}
-
-function expectTextOrder(content: string, labels: readonly string[]): void {
-  let previousIndex = -1;
-  for (const label of labels) {
-    const currentIndex = content.indexOf(label, previousIndex + 1);
-    if (currentIndex === -1) throw new Error(`Expected rendered content to include ${label}`);
-    expect(currentIndex).toBeGreaterThan(previousIndex);
-    previousIndex = currentIndex;
-  }
-}
-
-
-
-
-function isSettingsNotice(value: unknown): value is SettingsNotice {
-  return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
-}
-
 
 function unsupportedPackageManagement(): PiPackageManagementSupport {
   return { state: "unsupported", message: unsupportedMessage };

@@ -94,7 +94,10 @@ describe("buildApp project routes", () => {
     expect(workspacesResponse.json<Workspace[]>()).toEqual([
       expect.objectContaining({
         projectId: project.id,
-        effectiveConfig: { uploads: { defaultFolder: ".pi-web/uploads" } },
+        effectiveConfig: {
+          uploads: { defaultFolder: ".pi-web/uploads" },
+          attachments: { defaultFolder: ".pi-web/attachments" },
+        },
       }),
     ]);
   });
@@ -116,7 +119,10 @@ describe("buildApp project routes", () => {
     expect(workspacesResponse.json<Workspace[]>()).toEqual([
       expect.objectContaining({
         projectId: project.id,
-        effectiveConfig: { uploads: { defaultFolder: "project-uploads" } },
+        effectiveConfig: {
+          uploads: { defaultFolder: "project-uploads" },
+          attachments: { defaultFolder: ".pi-web/attachments" },
+        },
       }),
     ]);
   });

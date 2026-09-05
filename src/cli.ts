@@ -49,7 +49,6 @@ import {
   inspectInstalledDevelopmentServiceInput,
   inspectInstalledProductionServiceContext,
   runNativeServiceDoctor,
-  type InstalledNativeServiceDefinition,
   type NativeServiceDoctorReport,
   type NativeServiceDoctorTarget,
 } from "./nativeServices/serviceDoctor.js";
@@ -58,6 +57,11 @@ import {
   nativeServicePrerequisiteShellCheck,
 } from "./nativeServices/serviceProbe.js";
 import { renderLaunchdPlist, renderSystemdUnit } from "./nativeServices/serviceRendering.js";
+import {
+  inspectInstalledNativeServiceDefinitions,
+  type InstalledNativeServiceDefinitionCommandResult,
+  type InstalledNativeServiceDefinitionSource,
+} from "./nativeServices/installedServiceDefinitions.js";
 
 const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
 
@@ -159,6 +163,16 @@ function capture(command: string, args: string[]): { status: number; stdout: str
   const errorMessage = result.error instanceof Error ? result.error.message : "";
   const stderr = outputText(result.stderr);
   return { status: result.status ?? 1, stdout: outputText(result.stdout), stderr: stderr === "" ? errorMessage : stderr };
+}
+
+function captureInstalledServiceDefinitionCommand(command: string, args: string[]): InstalledNativeServiceDefinitionCommandResult {
+  const result = spawnSync(command, args);
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    spawnError: result.error instanceof Error ? result.error.message : "",
+  };
 }
 
 function runQuiet(command: string, args: string[]): number {
@@ -904,11 +918,18 @@ function printOptionalDoctorChecks(): void {
 function installedServiceDefinitions(
   backend: ServiceBackend,
   ids: readonly ServiceId[],
-): InstalledNativeServiceDefinition[] {
-  return ids.map((id) => ({
+): ReturnType<typeof inspectInstalledNativeServiceDefinitions> {
+  const sources: InstalledNativeServiceDefinitionSource[] = ids.map((id) => ({
     id,
-    contents: readFileSync(serviceFilePath(backend, serviceRefs[id]), "utf8"),
+    path: serviceFilePath(backend, serviceRefs[id]),
+    systemdName: serviceRefs[id].systemdName,
+    launchdTarget: currentLaunchdServiceTarget(serviceRefs[id]),
   }));
+  return inspectInstalledNativeServiceDefinitions(backend, sources, {
+    readFile: (path) => readFileSync(path),
+    realpath: realpathSync,
+    capture: captureInstalledServiceDefinitionCommand,
+  }, "doctor");
 }
 
 function nativeServiceDoctorTarget(backend: ServiceBackend): NativeServiceDoctorTarget {
@@ -938,27 +959,17 @@ function nativeServiceDoctorTarget(backend: ServiceBackend): NativeServiceDoctor
     };
   }
 
-  let definitions: InstalledNativeServiceDefinition[];
-  try {
-    definitions = installedServiceDefinitions(
-      backend,
-      expectedIds,
-    );
-  } catch (error: unknown) {
-    return {
-      kind: "inspection-failure",
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
+  const definitions = installedServiceDefinitions(backend, expectedIds);
+  if (!definitions.ok) return { kind: "inspection-failure", message: definitions.message };
 
   if (mode === "development") {
-    const inspection = inspectInstalledDevelopmentServiceInput(backend, definitions);
+    const inspection = inspectInstalledDevelopmentServiceInput(backend, definitions.value);
     return inspection.ok
       ? { kind: "installed-development", input: inspection.value }
       : { kind: "inspection-failure", message: inspection.message };
   }
 
-  const inspection = inspectInstalledProductionServiceContext(backend, definitions);
+  const inspection = inspectInstalledProductionServiceContext(backend, definitions.value);
   return inspection.ok
     ? {
         kind: "prospective-production",

@@ -74,7 +74,7 @@ describe("SessionController cached-new sessions", () => {
     expect(state.selectedSession?.id).toBe(nextSession.id);
   });
 
-  it("recreates missing browser-cached new sessions and moves their draft", async () => {
+  it.each(["Session not found", "未找到会话"])("recreates missing browser-cached new sessions and moves their draft (%s)", async (notFoundMessage) => {
     const storage = new MemoryStorage();
     Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
     rememberCachedNewSession(oldSession);
@@ -87,7 +87,7 @@ describe("SessionController cached-new sessions", () => {
       ...defaultApi,
       startSession: () => Promise.resolve(replacementSession),
       messages: (session) => {
-        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error("Session not found"));
+        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error(notFoundMessage));
         return Promise.resolve(emptyPage);
       },
       status: (session) => Promise.resolve(status(sessionLookupId(session))),

@@ -93,7 +93,7 @@ describe("listRelayDocumentTree", () => {
     const relayPath = `${RELAYS_ROOT}/my-relay`;
     const relayFile = (name: string): FileTreeEntry => ({ name, path: `${relayPath}/${name}`, type: "file" });
     const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>((path) => Promise.resolve(path === relayPath
-      ? treeFor(path, [relayFile("notes.md"), relayFile("log.md"), directoryAt(relayPath, "subdir"), relayFile("status.md")])
+      ? treeFor(path, [relayFile("notes.md"), relayFile("log.md"), relayFile("operations.md"), directoryAt(relayPath, "subdir"), relayFile("status.md")])
       : treeFor(path, [fileAt(path, "zeta.md"), fileAt(path, "alpha.md")])));
     const files = filesWith({ listFiles });
 
@@ -103,9 +103,9 @@ describe("listRelayDocumentTree", () => {
     expect(result.kind).toBe("loaded");
     if (result.kind !== "loaded") throw new Error("relay tree did not load");
     expect(flattenRelayTree(result.tree).map((file) => file.relativePath)).toEqual([
-      "status.md", "log.md", "notes.md", "subdir/alpha.md", "subdir/zeta.md",
+      "status.md", "operations.md", "log.md", "notes.md", "subdir/alpha.md", "subdir/zeta.md",
     ]);
-    expect(result).toMatchObject({ documentCount: 5, partial: false });
+    expect(result).toMatchObject({ documentCount: 6, partial: false });
   });
 
   it("does not follow symlinks and marks unreadable subdirectories partial", async () => {

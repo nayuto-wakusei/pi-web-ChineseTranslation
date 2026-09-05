@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalsApi, type Workspace } from "../api";
+import { HttpRequestError } from "../api/http";
+import { BrowserErrorReporter, workspaceBrowserErrorScope } from "../browserErrors";
+import { MachineStatusController } from "../controllers/machineStatusController";
+import { ServerNoticesController } from "../serverNotices";
+import { RealtimeSocket } from "../sessionSocket";
 import { PiWebApp } from "./PiWebApp";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -12,6 +18,7 @@ describe("PiWebApp connection lifecycle", () => {
     const app = createConnectedApp();
     const connectRealtime = replaceMethod(app, "connectRealtime", vi.fn());
     replaceMethod(app, "refreshWorkspaceActivity", () => Promise.resolve());
+    replaceMethod(app, "refreshMachineStatusSnapshots", () => Promise.resolve());
     replaceMethod(app, "loadClientConfig", () => Promise.resolve());
     replaceMethod(app, "ensureGatewayPluginsLoaded", () => Promise.resolve());
     replaceMethod(app, "loadProjectsAndRestoreRoute", () => Promise.resolve());
@@ -59,7 +66,86 @@ describe("PiWebApp connection lifecycle", () => {
 
     expect(terminals).not.toHaveBeenCalled();
   });
+
+  it.each(["", "?embed=management"])("refreshes server notices on reconnect only in normal mode (%s)", (search) => {
+    const app = createConnectedApp(search);
+    const refreshNotices = vi.spyOn(ServerNoticesController.prototype, "refresh").mockResolvedValue(undefined);
+    vi.spyOn(RealtimeSocket.prototype, "connect").mockImplementation((_onEvent, onOpen) => { onOpen?.(); });
+    vi.spyOn(MachineStatusController.prototype, "refresh").mockResolvedValue(undefined);
+    replaceMethod(app, "renegotiateUnreadMachine", () => Promise.resolve());
+    replaceMethod(app, "refreshWorkspaceActivity", () => Promise.resolve());
+
+    callMethod(app, "connectRealtime");
+
+    expect(refreshNotices).toHaveBeenCalledTimes(search === "" ? 1 : 0);
+  });
+
+  it("reports management workspace removal errors without fetching server notices", async () => {
+    const app = createConnectedApp("?embed=management");
+    const refreshNotices = vi.spyOn(ServerNoticesController.prototype, "refresh").mockResolvedValue(undefined);
+    const reportError = vi.spyOn(BrowserErrorReporter.prototype, "report").mockImplementation(() => undefined);
+    const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
+
+    await callAsyncMethod(app, "reportWorkspaceRemovalFailure", workspace, "local", scope, new HttpRequestError("denied", 403));
+
+    expect(refreshNotices).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledWith(scope, expect.stringContaining("denied"));
+  });
+
+  it("does not resume polling when an in-flight refresh finishes after disconnect", async () => {
+    const app = createPollingApp();
+    const refresh = deferredRefresh();
+    const refreshSelectedTranscript = replaceMethod(app, "refreshSelectedTranscript", vi.fn(() => refresh.promise));
+
+    callMethod(app, "scheduleSelectedSessionRefresh");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(refreshSelectedTranscript).toHaveBeenCalledOnce();
+
+    Object.defineProperty(app, "isConnected", { value: false, configurable: true });
+    app.disconnectedCallback();
+    refresh.resolve();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(refreshSelectedTranscript).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the new connection's poll scheduled when an obsolete refresh finishes", async () => {
+    const app = createPollingApp();
+    const refresh = deferredRefresh();
+    const refreshSelectedTranscript = replaceMethod(app, "refreshSelectedTranscript", vi.fn()
+      .mockImplementationOnce(() => refresh.promise)
+      .mockResolvedValue(undefined));
+
+    callMethod(app, "scheduleSelectedSessionRefresh");
+    await vi.advanceTimersByTimeAsync(5_000);
+    app.disconnectedCallback();
+    Reflect.set(app, "authenticatedAppRunning", true);
+    callMethod(app, "scheduleSelectedSessionRefresh");
+    await vi.advanceTimersByTimeAsync(2_000);
+    refresh.resolve();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(refreshSelectedTranscript).toHaveBeenCalledTimes(2);
+    app.disconnectedCallback();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
+
+function createPollingApp(): PiWebApp {
+  vi.useFakeTimers();
+  const app = createConnectedApp();
+  Reflect.set(window, "setTimeout", setTimeout);
+  Reflect.set(window, "clearTimeout", clearTimeout);
+  Reflect.set(app, "authenticatedAppRunning", true);
+  return app;
+}
+
+function deferredRefresh(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
 
 const workspace: Workspace = {
   id: "workspace-1",
@@ -80,6 +166,7 @@ function createConnectedApp(search = ""): PiWebApp {
     removeEventListener: vi.fn(),
     setInterval: vi.fn(() => 1),
     clearInterval: vi.fn(),
+    setTimeout: vi.fn(() => 1),
     clearTimeout: vi.fn(),
   });
   const app = new PiWebApp();

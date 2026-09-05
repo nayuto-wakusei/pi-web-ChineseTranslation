@@ -46,9 +46,11 @@ import type { ActiveSession } from "./sessionRuntimeStore.js";
 import { deterministicSessionName, fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
+import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWebConfig.js";
+import type { PiWebConfigService } from "../configRoutes.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
-import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT } from "../../shared/apiTypes.js";
-import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
+import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT, type PiWebAttachmentsConfig } from "../../shared/apiTypes.js";
+import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
 import type { SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
@@ -96,7 +98,7 @@ import { createWorkbenchToolDefinitions } from "../workbench/workbenchTools.js";
 import type { WorkbenchSkillReceiptFile } from "../workbench/types.js";
 import type { NormalToolAuditEvent, NormalToolAuditStore } from "../audit/normalToolAuditStore.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder } from "../audit/managementAuditStore.js";
-import { applyEnabledModelToggle, catalogWithEnabledFirst, liveScopedModelIds, modelScopeId, persistedEnabledModelPatterns, resolveEnabledModelIds, resolveSessionModelOptions, type EnabledModelCatalogEntry } from "./sessionModelScope.js";
+import { applyEnabledModelToggle, catalogWithEnabledFirst, modelScopeId, persistedEnabledModelPatterns, resolveEnabledModelIds, resolveSessionModelOptions, scopedModelsFromEnabledIds, type EnabledModelCatalogEntry } from "./sessionModelScope.js";
 
 /**
  * Minimal structured-logging seam, shaped like Fastify's logger so sessiond can
@@ -125,6 +127,7 @@ const STARTUP_PHASE_EXTENSIONS = "正在加载会话扩展";
 const STARTUP_CONCURRENT_CATALOG_REFRESH = "服务商模型列表正在刷新";
 const MAX_UNREAD_PUBLICATION_RETRY_MS = 30_000;
 const MAX_PENDING_UNREAD_MUTATIONS = SESSION_UNREAD_LIMIT + 1;
+const IDLE_SESSION_FILE_RESOLUTION_THROTTLE_MS = 30_000;
 
 function auditVisibleAssistantMessage(message: unknown): unknown {
   if (!isAuditRecord(message)) return message;
@@ -382,6 +385,22 @@ interface BulkDeletePlanItem {
 
 type AgentModel = NonNullable<SpawnSessionInvocation["model"]>;
 
+interface ModelScopeContext {
+  key: string;
+  editable: boolean;
+}
+
+interface ModelScopeSnapshot {
+  enabledIds: readonly string[] | null;
+  revision: number;
+}
+
+interface SessionModelScopeCache {
+  scopeKey: string;
+  revision: number;
+  catalogKey: string;
+}
+
 export interface PiSessionManager {
   getCwd(): string;
   getSessionId(): string;
@@ -400,6 +419,8 @@ export interface PiSessionManagerGateway {
   resolveSessionFile?(cwd: string, sessionId: string): Promise<ResolvedSessionFile | undefined>;
   /** Invalidate a memoized summary after an in-place session-file rewrite. */
   invalidateSessionFile?(sessionFile: string): void;
+  /** Read the active transcript branch without creating a runtime or writing the file. */
+  readBranch?(path: string): Promise<unknown[] | undefined>;
   create(cwd: string, options?: { parentSession?: string }): PiSessionManager;
   /**
    * Legacy id-only lookup surface for older clients. This intentionally searches
@@ -429,7 +450,10 @@ export interface PiAgentSession {
     getWarnings(): { anthropicExtraUsage?: boolean };
     setWarnings(warnings: { anthropicExtraUsage?: boolean }): void;
     getEnabledModels(): string[] | undefined;
+    getProjectSettings?(): object;
     setEnabledModels(patterns: string[] | undefined): void;
+    readonly piWebScopeKey?: string;
+    readonly piWebModelScopeEditable?: boolean;
   };
   sessionManager: PiSessionManager;
   scopedModels: readonly { model: AgentModel; thinkingLevel?: ClientThinkingLevel }[];
@@ -1164,6 +1188,8 @@ export interface PiSessionServiceDependencies {
    * a session is being constructed. Omit to report the startup phase alone.
    */
   catalogRefreshStatus?: CatalogRefreshStatus;
+  /** Live config reader for request-time workspace defaults. */
+  config?: Pick<PiWebConfigService, "read">;
   workbench?: WorkbenchRuntimeDependencies;
   /** PI WEB session nesting facts appended only to ordinary-mode sessions. */
   appendSystemPromptSections?: readonly string[];
@@ -1182,6 +1208,13 @@ export class PiSessionService {
   private readonly treeNavigations = new WeakSet<PiAgentSession>();
   /** Counts async operations that may append an entry before they settle. */
   private readonly sessionEntryMutationCounts = new WeakMap<PiAgentSession, number>();
+  /** Serializes enabled-model read/modify/write operations. */
+  private modelScopeMutationQueue: Promise<void> = Promise.resolve();
+  /** Effective enabled-model state keyed by the project-scoped settings store. */
+  private readonly modelScopeStates = new Map<string, ModelScopeSnapshot>();
+  private readonly modelScopeInitializations = new Map<string, Promise<ModelScopeSnapshot>>();
+  private modelScopeRevision = 0;
+  private readonly modelScopeCache = new WeakMap<PiAgentSession, SessionModelScopeCache>();
   /** Runtime/session-identity reservations for operations that must not overlap tree navigation. */
   private readonly treeExclusiveRuntimeOperationCounts = new WeakMap<PiSessionRuntime, number>();
   private readonly treeExclusiveSessionOperationCounts = new Map<string, number>();
@@ -1224,6 +1257,7 @@ export class PiSessionService {
   private readonly now: () => Date;
   private readonly notificationStore: SessionNotificationStore;
   private readonly notificationGenerationBySession = new WeakMap<PiAgentSession, SessionNotificationGeneration>();
+  private readonly idleSessionFileResolutions = new WeakMap<PiAgentSession, { at: number; path: string | undefined }>();
   private readonly unreadStore: SessionUnreadStore;
   private readonly pendingAskStore: PendingAskStore;
   private readonly pendingExtensionDialogStore: PendingExtensionDialogStore;
@@ -1231,6 +1265,7 @@ export class PiSessionService {
   /** The parked extension Promise resolvers behind the store's open dialogs. */
   private readonly dialogWaiters = new ExtensionDialogWaiters();
   private readonly catalogRefreshStatus: CatalogRefreshStatus | undefined;
+  private readonly config: Pick<PiWebConfigService, "read"> | undefined;
   private readonly unreadPublicationRetryInitialMs: number;
   private readonly onUnreadChanged: ((scope: string) => void) | undefined;
   private readonly pendingUnreadMutations: SessionUnreadMutation[] = [];
@@ -1275,6 +1310,7 @@ export class PiSessionService {
     this.pendingExtensionDialogStore = deps.pendingExtensionDialogStore ?? new PendingExtensionDialogStore();
     this.extensionDialogsTimeoutMs = deps.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS;
     this.catalogRefreshStatus = deps.catalogRefreshStatus;
+    this.config = deps.config;
     this.unreadPublicationRetryInitialMs = Math.max(
       0,
       deps.unreadPublicationRetryDelayMs ?? DEFAULT_UNREAD_PUBLICATION_RETRY_MS,
@@ -1648,25 +1684,89 @@ export class PiSessionService {
     };
   }
 
-  /**
-   * The models a session may pick from: its scoped set when model-scoped,
-   * otherwise the runtime's available snapshot. Refreshes the runtime catalog
-   * first so callers see newly configured providers and models.
-   */
-  private async sessionModelCandidates(session: PiAgentSession): Promise<readonly AgentModel[]> {
-    // Pi 0.84 keeps request paths local-only; the bounded catalog refresher is
-    // the only path allowed to fetch provider catalogs over the network.
-    await session.modelRuntime.refresh({ allowNetwork: false });
-    return session.scopedModels.length > 0
-      ? session.scopedModels.map((scoped) => scoped.model)
-      : await session.modelRuntime.getAvailable();
+  private modelScopeContext(session: PiAgentSession): ModelScopeContext {
+    const settingsKey = session.settingsManager.piWebScopeKey ?? "global";
+    const projectSettings = session.settingsManager.getProjectSettings?.() ?? {};
+    if (Object.hasOwn(projectSettings, "enabledModels")) {
+      const workspace = canonicalizeStoredCwd(session.sessionManager.getCwd());
+      return { key: `${settingsKey}:workspace:${workspace}`, editable: false };
+    }
+    return { key: settingsKey, editable: session.settingsManager.piWebModelScopeEditable !== false };
   }
 
-  private async enabledModelCatalog(runtime: PiSessionRuntime): Promise<EnabledModelCatalogEntry<AgentModel>[]> {
-    const session = runtime.session;
+  private async modelScopeSnapshot(session: PiAgentSession, context = this.modelScopeContext(session)): Promise<ModelScopeSnapshot> {
+    const existing = this.modelScopeStates.get(context.key);
+    if (existing !== undefined) return existing;
+    const pending = this.modelScopeInitializations.get(context.key);
+    if (pending !== undefined) return pending;
+    const initialization = (async () => {
+      const enabledIds = await resolveEnabledModelIds({
+        settingsManager: session.settingsManager,
+        // Runtime-backed sessions always hold the SDK ModelRuntime; PiAgentSession keeps a narrow public seam for tests.
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+        modelRuntime: session.modelRuntime as ModelRuntime,
+        scopedModels: session.scopedModels,
+      });
+      const snapshot: ModelScopeSnapshot = { enabledIds: enabledIds === null ? null : [...enabledIds], revision: 0 };
+      this.modelScopeStates.set(context.key, snapshot);
+      return snapshot;
+    })();
+    this.modelScopeInitializations.set(context.key, initialization);
+    try {
+      return await initialization;
+    } finally {
+      if (this.modelScopeInitializations.get(context.key) === initialization) this.modelScopeInitializations.delete(context.key);
+    }
+  }
+
+  private async synchronizeSessionModelScope(session: PiAgentSession, available: readonly AgentModel[]): Promise<void> {
+    const context = this.modelScopeContext(session);
+    const snapshot = await this.modelScopeSnapshot(session, context);
+    const catalogKey = available.map(modelScopeId).join("\0");
+    const cached = this.modelScopeCache.get(session);
+    if (cached?.scopeKey === context.key && cached.revision === snapshot.revision && cached.catalogKey === catalogKey) return;
+    session.setScopedModels(scopedModelsFromEnabledIds(available, snapshot.enabledIds, session.scopedModels));
+    this.modelScopeCache.set(session, { scopeKey: context.key, revision: snapshot.revision, catalogKey });
+  }
+
+  private async sessionModelCandidates(session: PiAgentSession): Promise<readonly AgentModel[]> {
     await session.modelRuntime.refresh({ allowNetwork: false });
-    const enabledIds = await resolveEnabledModelIds(sessionScopeSource(runtime));
-    return catalogWithEnabledFirst(session.modelRuntime.getAvailableSnapshot(), enabledIds);
+    const available = session.modelRuntime.getAvailableSnapshot();
+    await this.synchronizeSessionModelScope(session, available);
+    return session.scopedModels.length > 0 ? session.scopedModels.map((scoped) => scoped.model) : available;
+  }
+
+  private async enabledModelCatalog(session: PiAgentSession): Promise<EnabledModelCatalogEntry<AgentModel>[]> {
+    await session.modelRuntime.refresh({ allowNetwork: false });
+    const available = session.modelRuntime.getAvailableSnapshot();
+    await this.synchronizeSessionModelScope(session, available);
+    const context = this.modelScopeContext(session);
+    return catalogWithEnabledFirst(available, (await this.modelScopeSnapshot(session, context)).enabledIds);
+  }
+
+  private runModelScopeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const queued = this.modelScopeMutationQueue.then(operation);
+    this.modelScopeMutationQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  private applyEnabledModelScope(
+    session: PiAgentSession,
+    available: readonly AgentModel[],
+    enabledIds: readonly string[] | null,
+  ): void {
+    const context = this.modelScopeContext(session);
+    const availableIds = available.map(modelScopeId);
+    const persisted = persistedEnabledModelPatterns(enabledIds, availableIds);
+    const nextState: ModelScopeSnapshot = {
+      enabledIds: persisted === undefined ? null : enabledIds === null ? [] : [...enabledIds],
+      revision: ++this.modelScopeRevision,
+    };
+    session.settingsManager.setEnabledModels(persisted);
+    this.modelScopeStates.set(context.key, nextState);
+    session.setScopedModels(scopedModelsFromEnabledIds(available, nextState.enabledIds, session.scopedModels));
+    this.modelScopeCache.set(session, { scopeKey: context.key, revision: nextState.revision, catalogKey: available.map(modelScopeId).join("\0") });
+    this.events.publishGlobal({ type: "models.changed", revision: nextState.revision });
   }
 
   /**
@@ -2236,11 +2336,14 @@ export class PiSessionService {
 
   async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage> {
     const session = await this.getOrOpen(ref, managementContext);
-    return pageMessagesAtSafeBoundary(historyMessages(session), page);
+    return pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(session)), page);
   }
 
   async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    return this.statusFromSession(await this.sessionForStatusOrDialogClose(ref, managementContext));
+    const session = await this.sessionForStatusOrDialogClose(ref, managementContext);
+    if (this.hasActiveWork(session)) return this.statusFromSession(session);
+    const branch = await this.readableSessionBranch(session);
+    return this.statusFromSession(session, transcriptMessageCount(branch));
   }
 
   private async searchCandidates(cwd: string, normalizedQuery: string, managementContext?: ManagementEmbedContext): Promise<{ listing: WorkspaceSessionListing; sessions: ClientSession[] }> {
@@ -2281,37 +2384,54 @@ export class PiSessionService {
   }
 
   async modelCatalog(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
-    const runtime = (await this.getActive(ref, managementContext)).runtime;
-    return (await this.enabledModelCatalog(runtime)).map(catalogEntryToClientModel);
+    const session = await this.getOrOpen(ref, managementContext);
+    const scope = this.modelScopeContext(session);
+    return (await this.enabledModelCatalog(session)).map((entry) => catalogEntryToClientModel(entry, scope.editable));
   }
 
   async setModelEnabled(ref: PiSessionLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
     if (managementContext !== undefined) throw new Error("管理嵌入模式不允许修改已启用模型范围");
     await this.assertWritable(ref);
-    const runtime = (await this.getActive(ref)).runtime;
-    const session = runtime.session;
-    this.assertTreeNavigationInactive(session, "change enabled models");
-    await session.modelRuntime.refresh({ allowNetwork: false });
-    const currentIds = await resolveEnabledModelIds(sessionScopeSource(runtime));
-    const available = session.modelRuntime.getAvailableSnapshot();
-    const availableIds = available.map(modelScopeId);
-    const targetId = `${provider}/${modelId}`;
-    if (!availableIds.includes(targetId)) throw new Error(`未找到模型：${targetId}`);
-    const nextIds = applyEnabledModelToggle(currentIds, availableIds, targetId, enabled);
-    this.assertTreeNavigationInactive(session, "change enabled models");
-    if (nextIds !== currentIds) {
-      const liveIds = liveScopedModelIds(nextIds, availableIds);
-      const modelsById = new Map(available.map((model) => [modelScopeId(model), model]));
-      const scoped = liveIds === null
-        ? []
-        : liveIds.flatMap((id) => {
-          const model = modelsById.get(id);
-          return model === undefined ? [] : [{ model }];
-        });
-      session.settingsManager.setEnabledModels(persistedEnabledModelPatterns(nextIds, availableIds));
-      session.setScopedModels(scoped);
-    }
-    return (await this.enabledModelCatalog(runtime)).map(catalogEntryToClientModel);
+    const session = await this.getOrOpen(ref);
+    return this.runModelScopeMutation(async () => {
+      const scope = this.modelScopeContext(session);
+      if (!scope.editable) throw new Error("模型可用范围由此工作区的 .pi/settings.json 控制");
+      this.assertTreeNavigationInactive(session, "change enabled models");
+      await session.modelRuntime.refresh({ allowNetwork: false });
+      const currentIds = (await this.modelScopeSnapshot(session, scope)).enabledIds;
+      const available = session.modelRuntime.getAvailableSnapshot();
+      const availableIds = available.map(modelScopeId);
+      const targetId = `${provider}/${modelId}`;
+      if (!availableIds.includes(targetId)) throw new Error(`未找到模型：${targetId}`);
+      if (!enabled && session.model !== undefined && modelScopeId(session.model) === targetId) throw new Error("不能停用当前模型");
+      const nextIds = applyEnabledModelToggle(currentIds, availableIds, targetId, enabled);
+      this.assertTreeNavigationInactive(session, "change enabled models");
+      if (nextIds !== currentIds) this.applyEnabledModelScope(session, available, nextIds);
+      return (await this.enabledModelCatalog(session)).map((entry) => catalogEntryToClientModel(entry));
+    });
+  }
+
+  async setModelScope(ref: PiSessionLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
+    if (managementContext !== undefined) throw new Error("管理嵌入模式不允许修改已启用模型范围");
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
+    return this.runModelScopeMutation(async () => {
+      const scope = this.modelScopeContext(session);
+      if (!scope.editable) throw new Error("模型可用范围由此工作区的 .pi/settings.json 控制");
+      this.assertTreeNavigationInactive(session, "change enabled models");
+      await session.modelRuntime.refresh({ allowNetwork: false });
+      const available = session.modelRuntime.getAvailableSnapshot();
+      const availableIds = available.map(modelScopeId);
+      let nextIds: readonly string[] | null = null;
+      if (mode === "current") {
+        const current = session.model;
+        if (current === undefined || !availableIds.includes(modelScopeId(current))) throw new Error("当前模型不可用");
+        nextIds = [modelScopeId(current)];
+      }
+      this.assertTreeNavigationInactive(session, "change enabled models");
+      this.applyEnabledModelScope(session, available, nextIds);
+      return (await this.enabledModelCatalog(session)).map((entry) => catalogEntryToClientModel(entry));
+    });
   }
 
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
@@ -2332,7 +2452,11 @@ export class PiSessionService {
   async cycleModel(ref: PiSessionLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    const result = await this.runSessionEntryMutation(session, "change models", () => session.cycleModel(direction));
+    const result = await this.runModelScopeMutation(async () => {
+      await session.modelRuntime.refresh({ allowNetwork: false });
+      await this.synchronizeSessionModelScope(session, session.modelRuntime.getAvailableSnapshot());
+      return this.runSessionEntryMutation(session, "change models", () => session.cycleModel(direction));
+    });
     if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "作用域内只有一个模型" : "只有一个可用模型");
     this.publishActivity(session, `模型：${result.model.id}`, "idle", result.model.provider);
     this.publishStatus(session);
@@ -2448,7 +2572,14 @@ export class PiSessionService {
     if (parsed.length === 0) return [];
     await this.assertWritable(ref);
     const active = await this.getActive(ref, managementContext);
-    return saveAttachmentsToWorkspace(active.runtime.cwd, parsed, folder === undefined ? {} : { folder });
+    const cwd = active.runtime.cwd;
+    const effectiveFolder = folder ?? (await this.workspaceAttachmentsConfig(cwd)).defaultFolder;
+    return saveAttachmentsToWorkspace(cwd, parsed, effectiveFolder === undefined ? {} : { folder: effectiveFolder });
+  }
+
+  private async workspaceAttachmentsConfig(cwd: string): Promise<PiWebAttachmentsConfig> {
+    const globalConfig = this.config === undefined ? {} : (await this.config.read()).effectiveConfig;
+    return loadEffectiveProjectAttachmentsConfig(cwd, globalConfig);
   }
 
   async shell(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
@@ -3205,6 +3336,31 @@ export class PiSessionService {
     return reachable ?? this.getOrOpen(ref, managementContext);
   }
 
+  private async readableSessionBranch(session: PiAgentSession): Promise<unknown[]> {
+    if (this.hasActiveWork(session) || this.sessionManager.readBranch === undefined) return session.sessionManager.getBranch();
+    const leafId = session.sessionManager.getLeafId();
+    const latestEntry = session.sessionManager.getEntries?.().at(-1);
+    // Unsummarized tree navigation changes only the SDK's in-memory leaf.
+    if (isRecord(latestEntry) && typeof latestEntry["id"] === "string" && latestEntry["id"] !== leafId) return session.sessionManager.getBranch();
+    const sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
+    const resolvedPath = sessionFile === undefined ? await this.idleSessionFilePath(session) : undefined;
+    if (this.hasActiveWork(session)) return session.sessionManager.getBranch();
+    const path = sessionFile ?? resolvedPath;
+    if (path === undefined) return session.sessionManager.getBranch();
+    const snapshot = await this.sessionManager.readBranch(path);
+    if (snapshot === undefined) return session.sessionManager.getBranch();
+    return this.hasActiveWork(session) || session.sessionManager.getLeafId() !== leafId ? session.sessionManager.getBranch() : snapshot;
+  }
+
+  private async idleSessionFilePath(session: PiAgentSession): Promise<string | undefined> {
+    const cached = this.idleSessionFileResolutions.get(session);
+    const at = this.now().getTime();
+    if (cached !== undefined && at - cached.at < IDLE_SESSION_FILE_RESOLUTION_THROTTLE_MS) return cached.path;
+    const match = await this.sessionManager.resolveSessionFile?.(session.sessionManager.getCwd(), session.sessionId);
+    this.idleSessionFileResolutions.set(session, { at, path: match?.path });
+    return match?.path;
+  }
+
   private async getActive(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ManagedActiveSession> {
     const active = this.activeForLookup(ref, managementContext);
     if (active !== undefined) return active;
@@ -3873,7 +4029,7 @@ export class PiSessionService {
     for (const session of sessions) this.publishStatus(session);
   }
 
-  private statusFromSession(session: PiAgentSession): ClientSessionStatus {
+  private statusFromSession(session: PiAgentSession, messageCount = session.messages.length): ClientSessionStatus {
     const stats = session.getSessionStats();
     const model = session.model === undefined ? undefined : modelToClientModel(session.model);
     const contextUsage = session.getContextUsage();
@@ -3890,7 +4046,7 @@ export class PiSessionService {
       isBashRunning: session.isBashRunning,
       pendingMessageCount: this.pendingMessageCount(session),
       queuedMessages: queuedMessagesFromSession(session, this.compactionQueuedMessages(session.sessionId)),
-      messageCount: session.messages.length,
+      messageCount,
       tokens: stats.tokens,
       cost: stats.cost,
       ...(contextUsage === undefined ? {} : { contextUsage }),
@@ -4495,18 +4651,15 @@ function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel 
   };
 }
 
-function sessionScopeSource(runtime: PiSessionRuntime): {
-  settingsManager: PiAgentSession["settingsManager"];
-  modelRuntime: ModelRuntime;
-  scopedModels: PiAgentSession["scopedModels"];
-} {
-  const modelRuntime = runtime.services?.modelRuntime;
-  if (modelRuntime === undefined) throw new Error("会话模型目录不可用");
-  return { settingsManager: runtime.session.settingsManager, modelRuntime, scopedModels: runtime.session.scopedModels };
-}
-
-function catalogEntryToClientModel(entry: EnabledModelCatalogEntry<AgentModel>): ClientSessionModelCatalogEntry {
-  return { ...modelToClientModel(entry.model), provider: entry.model.provider, id: entry.model.id, enabled: entry.enabled };
+function catalogEntryToClientModel(entry: EnabledModelCatalogEntry<AgentModel>, editable = true): ClientSessionModelCatalogEntry {
+  return {
+    ...modelToClientModel(entry.model),
+    provider: entry.model.provider,
+    id: entry.model.id,
+    enabled: entry.enabled,
+    catalogIndex: entry.catalogIndex,
+    ...(editable ? {} : { editable: false }),
+  };
 }
 
 function notificationIdentityForSession(session: PiAgentSession): { sessionId: string; cwd: string } {
@@ -4809,9 +4962,13 @@ function historyMessages(session: PiAgentSession): unknown[] {
 }
 
 function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[] {
+  return historyMessagesFromEntries(sessionManager.getBranch());
+}
+
+function historyMessagesFromEntries(entries: readonly unknown[]): unknown[] {
   const messages: unknown[] = [];
   let thinkingLevel: string | undefined;
-  for (const entry of sessionManager.getBranch()) {
+  for (const entry of entries) {
     if (!isRecord(entry)) continue;
     if (entry["type"] === "message") messages.push(annotateAssistantThinkingLevel(entry["message"], thinkingLevel));
     else if (entry["type"] === "thinking_level_change") {
@@ -4823,6 +4980,14 @@ function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[]
     else if (entry["type"] === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${stringValue(entry["summary"])}` });
   }
   return messages;
+}
+
+function transcriptMessageCount(entries: readonly unknown[]): number {
+  let count = 0;
+  for (const entry of entries) {
+    if (isRecord(entry) && entry["type"] === "message") count += 1;
+  }
+  return count;
 }
 
 /** custom entry type used to persist parent -> child subsession links outside LLM context. */

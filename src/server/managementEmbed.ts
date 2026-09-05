@@ -254,6 +254,15 @@ export function encodeManagementContext(context: ManagementEmbedContext): string
   return Buffer.from(JSON.stringify(context), "utf8").toString("base64url");
 }
 
+export function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
+  if (context === undefined) return undefined;
+  const handle = runtime?.resourceHandle?.(context);
+  return {
+    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
+    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
+  };
+}
+
 export function decodeManagementContext(value: string | undefined): ManagementEmbedContext | undefined {
   if (value === undefined || value === "") return undefined;
   const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));

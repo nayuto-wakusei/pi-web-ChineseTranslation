@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
-import type { PiWebStatusResponse, PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebStatusResponse } from "@chainingintention/pi-web-cn/plugin-api";
+import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
 import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
 
@@ -49,7 +50,9 @@ describe("updates plugin Chinese display text", () => {
     expect(rendered).not.toContain("测试版");
     expect(rendered).toContain("已安装服务");
     expect(rendered).toContain("会话守护进程");
-    expect(rendered).toContain("建议命令");
+    expect(rendered).toContain("推荐");
+    expect(rendered).toContain("其他命令（可选）");
+    expect(rendered.match(/systemctl --user restart pi-web-ui-dev\.service/gu)).toHaveLength(1);
     expect(rendered).toContain("复制");
     expect(rendered).toContain("当前版本");
     expect(rendered).toContain("需要重启");
@@ -164,29 +167,5 @@ function statusWithCommands(): PiWebStatusResponse {
       web: { component: "web", label: "Web", stale: false, available: true, runtimeVersion: "1", installedVersion: "1", installation: { kind: "local", path: "/tmp/pi-web" } },
       sessiond: { component: "sessiond", label: "Session daemon", stale: true, available: true, runtimeVersion: "1", installedVersion: "2", installation: { kind: "npm-global" } },
     },
-  };
-}
-function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
-  const noop = () => undefined;
-  return {
-    state: {},
-    prompt: { insertText: noop, getText: () => "", getSelection: () => null },
-    openActionPalette: noop,
-    focusPrompt: noop,
-    addProject: noop,
-    configureAuth: noop,
-    logoutAuth: noop,
-    openThemePicker: noop,
-    selectMainView: noop,
-    selectWorkspaceTool: noop,
-    openTerminal: noop,
-    refreshFiles: noop,
-    refreshGit: noop,
-    refreshAppData: noop,
-    reloadPage: noop,
-    startSession: noop,
-    archiveSession: noop,
-    stopActiveWork: noop,
-    ...patch,
   };
 }

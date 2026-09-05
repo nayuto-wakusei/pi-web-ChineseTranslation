@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { WebSocket, type RawData } from "ws";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
-import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
@@ -79,6 +79,8 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 
   app.all(`${prefix}/activity`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/status`, (request, reply) => proxy(request, reply));
+  app.all(`${prefix}/notices`, (request, reply) => proxy(request, reply));
+  app.all(`${prefix}/notices/dismiss`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/auth`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/auth/*`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions`, (request, reply) => proxy(request, reply));
@@ -120,15 +122,6 @@ async function managementCleanupBody(body: unknown, context: ManagementEmbedCont
     if (!allowedCwdSet.has(validatedCwd)) throw new Error("Cleanup path is outside the selected managed project");
   }
   return { ...body, projectCwds: [...new Set(requestedCwds)] };
-}
-
-function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
-  if (context === undefined) return undefined;
-  const handle = runtime?.resourceHandle?.(context);
-  return {
-    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
-    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
-  };
 }
 
 function stripPrefix(url: string, prefix: string): string {

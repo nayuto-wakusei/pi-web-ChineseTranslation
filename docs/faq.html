@@ -172,6 +172,12 @@
                 that the <code>node-pty</code> native module can load, prints installed and running PI WEB versions, and reports
                 systemd lingering when relevant.
               </p>
+              <p>
+                On systemd, doctor compares the installed unit with the manager's effective environment. Package-owned
+                global drop-ins are accepted when they leave PI WEB's inspected environment unchanged. A drop-in still
+                fails the check when it changes an expected variable, adds an <code>EnvironmentFile</code>, points the
+                manager at a different fragment, or has not been loaded with <code>daemon-reload</code>.
+              </p>
             </article>
 
             <article id="nvm-fnm-asdf" class="faq-item">

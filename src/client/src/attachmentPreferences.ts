@@ -1,14 +1,7 @@
 import type { PromptAttachmentDelivery } from "../../shared/apiTypes";
+import { browserStorage } from "./browserStorage";
 
 const storageKey = "pi-web:attachment-delivery";
-
-function browserStorage(): Storage | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 export function loadAttachmentDelivery(storage = browserStorage()): PromptAttachmentDelivery {
   try {

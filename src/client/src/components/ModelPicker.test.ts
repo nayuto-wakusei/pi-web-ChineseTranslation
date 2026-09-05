@@ -20,7 +20,7 @@ describe("model-picker", () => {
     expect(selectedRow(picker).textContent).toContain("claude-sonnet-4-5");
   });
 
-  it("shows the enabled-first catalog with localized groups and controlled checkboxes", async () => {
+  it("shows the complete catalog with controlled checkboxes", async () => {
     const picker = await mountPicker();
 
     scopeToggle(picker, "全部模型").click();
@@ -33,7 +33,7 @@ describe("model-picker", () => {
       "google/gemini-2.5-pro",
     ]);
     expect(catalogRows(picker).map((row) => rowCheckbox(row).checked)).toEqual([true, true, false, false]);
-    expect(groupHeaders(picker)).toEqual(["已启用", "其他模型"]);
+    expect(groupHeaders(picker)).toEqual([]);
   });
 
   it("requests a scope edit without picking the model and waits for the fresh catalog", async () => {
@@ -76,12 +76,42 @@ describe("model-picker", () => {
     expect(catalogRows(picker).map(rowValue)).toEqual(["openai/gpt-4o"]);
     expect(groupHeaders(picker)).toEqual([]);
   });
+
+  it("keeps the current model enabled and applies the atomic scope preset", async () => {
+    const onSetScope = vi.fn<(mode: "all" | "current") => Promise<void>>().mockResolvedValue();
+    const picker = await mountPicker({ selectedValue: "openai/gpt-5", onSetScope });
+
+    scopeToggle(picker, "全部模型").click();
+    await settle(picker);
+    expect(rowCheckbox(catalogRow(picker, "openai/gpt-5")).disabled).toBe(true);
+
+    requiredElement(
+      [...(picker.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent.trim() === "除当前模型外全部取消"),
+      "scope preset",
+    ).click();
+    await settle(picker);
+    expect(onSetScope).toHaveBeenCalledWith("current");
+  });
+
+  it("renders workspace-controlled catalogs read-only", async () => {
+    const onToggleEnabled = vi.fn().mockResolvedValue(undefined);
+    const picker = await mountPicker({ onToggleEnabled });
+    picker.catalog = defaultCatalog().map((entry) => ({ ...entry, editable: false }));
+    scopeToggle(picker, "全部模型").click();
+    await settle(picker);
+
+    expect(picker.shadowRoot?.querySelector(".scope-notice")?.textContent).toContain(".pi/settings.json");
+    expect(catalogRows(picker).every((row) => rowCheckbox(row).disabled)).toBe(true);
+    rowCheckbox(catalogRows(picker)[0] ?? document.createElement("div")).click();
+    expect(onToggleEnabled).not.toHaveBeenCalled();
+  });
 });
 
 interface PickerProps {
   selectedValue?: string;
   onPick?: (value: string) => void;
   onToggleEnabled?: (provider: string, modelId: string, enabled: boolean) => Promise<void>;
+  onSetScope?: (mode: "all" | "current") => Promise<void>;
 }
 
 function entry(provider: string, id: string, enabled: boolean): SessionModelCatalogEntry {
@@ -107,6 +137,7 @@ async function mountPicker(props: PickerProps = {}): Promise<ModelPicker> {
   if (props.selectedValue !== undefined) picker.selectedValue = props.selectedValue;
   if (props.onPick !== undefined) picker.onPick = props.onPick;
   if (props.onToggleEnabled !== undefined) picker.onToggleEnabled = props.onToggleEnabled;
+  if (props.onSetScope !== undefined) picker.onSetScope = props.onSetScope;
   document.body.append(picker);
   await settle(picker);
   return picker;
@@ -140,7 +171,7 @@ function catalogRow(picker: ModelPicker, value: string): HTMLElement {
 }
 
 function rowValue(row: HTMLElement): string {
-  return (rowCheckbox(row).getAttribute("aria-label") ?? "").replace(/^(启用|禁用) /, "");
+  return row.dataset["modelValue"] ?? (rowCheckbox(row).getAttribute("aria-label") ?? "").replace(/^(启用|禁用) /, "");
 }
 
 function rowCheckbox(row: HTMLElement): HTMLInputElement {

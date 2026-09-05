@@ -1,6 +1,6 @@
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { PiPackageInfo, PiPackageScope, PiPackagesResponse } from "../../api";
+import type { PiPackageInfo, PiPackageInstallableSuggestion, PiPackageScope, PiPackagesResponse } from "../../api";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import { isPiPackageManagementUnsupported, isPiPackageOperationPending, normalizePiPackageSource, piPackageFilteredLabel, piPackageInstalledPathLabel, piPackageScopeLabel, piPackageSourceValidationMessage, piPackageTargetContext, piPackageTargetLabel, piPackageUpdateDisabledReason, updateAllPiPackagesDisabledReason, type PiPackageManagementSupport, type PiPackageOperationState, type PiPackageTargetContext } from "./piPackageSettings";
@@ -65,8 +65,36 @@ export class SettingsPackagesPanel extends LitElement {
       return html`<div class="loading-card">${this.loading ? `正在从 ${targetLabel} 加载 Pi 包…` : `${targetLabel} 的 Pi 包列表不可用，请重新加载。`}</div>`;
     }
     return html`
+      ${this.renderInstallableKnownPackages(targetLabel)}
       ${this.renderInstallForm(targetLabel)}
       ${this.renderPackageList(packages, target)}
+    `;
+  }
+
+  private renderInstallableKnownPackages(targetLabel: string): TemplateResult | null {
+    const suggestions = this.packagesResponse?.installableKnownPackages ?? [];
+    if (suggestions.length === 0) return null;
+    return html`
+      <section class="known-package-section" aria-label="可安装的已知 Pi 包">
+        <h3>可安装包</h3>
+        <p>PI WEB 随附这些包，可一键安装到 ${targetLabel}，无需手动填写路径；此前移除的包也会显示在这里。</p>
+        <div class="known-package-list">
+          ${suggestions.map((suggestion) => this.renderInstallableKnownPackage(suggestion))}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderInstallableKnownPackage(suggestion: PiPackageInstallableSuggestion): TemplateResult {
+    const installing = isPiPackageOperationPending(this.operation, "install", suggestion.source);
+    return html`
+      <article class="known-package-card">
+        <div class="package-main">
+          <strong>${suggestion.label}</strong>
+          <small>${suggestion.description}</small>
+        </div>
+        <button title=${`安装 ${suggestion.label}`} ?disabled=${this.isOperating} @click=${() => { void this.installKnownPackage(suggestion.source); }}>${installing ? "正在安装…" : "安装"}</button>
+      </article>
     `;
   }
 
@@ -172,6 +200,14 @@ export class SettingsPackagesPanel extends LitElement {
     }
   }
 
+  private async installKnownPackage(source: string): Promise<void> {
+    try {
+      await this.onInstallPackage?.(source);
+    } catch {
+      // The parent owns network error presentation so package errors are consistent across Settings.
+    }
+  }
+
   private async updatePackage(source?: string): Promise<void> {
     try {
       await this.onUpdatePackage?.(source);
@@ -215,6 +251,9 @@ export class SettingsPackagesPanel extends LitElement {
     .install-card { display: grid; gap: 8px; }
     .install-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
     .package-section { display: block; }
+    .known-package-section { display: grid; gap: 8px; margin-bottom: 14px; }
+    .known-package-list { display: grid; gap: 10px; }
+    .known-package-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 12px; }
     .loading-card, .action-note { color: var(--pi-muted); }
     .action-note { margin-bottom: 10px; font-size: 12px; }
     .package-list { display: grid; gap: 10px; }
@@ -227,7 +266,7 @@ export class SettingsPackagesPanel extends LitElement {
     @media (max-width: 760px) {
       .package-toolbar { display: grid; gap: 12px; }
       .package-toolbar .secondary { justify-self: start; }
-      .install-row, .package-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
+      .install-row, .package-card, .known-package-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
       .package-actions { justify-self: start; flex-wrap: wrap; }
       .package-main strong, .package-main small { white-space: normal; }
     }

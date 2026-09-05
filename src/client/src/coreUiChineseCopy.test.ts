@@ -92,7 +92,7 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes model picker and session bulk action copy",
     paths: ["components/PiWebApp.ts", "components/ModelPicker.ts", "components/SessionList.ts"],
-    expected: ["选择模型", "已启用", "全部模型", "其他模型", "没有匹配选项", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
+    expected: ["选择模型", "已启用", "全部模型", "全选", "除当前模型外全部取消", "没有匹配选项", "当前", "选择可见", "清除所选", "已选", ">归档<", ">删除<", "重命名", "搜索会话内容", "置顶", "取消置顶"],
     forbidden: ["Select Model", "All models", "Other models", "No matching options", "✓ current", "Select visible", "Clear selected", "} selected", "Archive selected", "Delete selected", ">Done<", ">Archive<"],
   },
   {
@@ -114,13 +114,13 @@ const copyCases: readonly CopyCase[] = [
     forbidden: ["Clean up", "Clean up sessions", "Clean Up Sessions", "Preview session cleanup", "Preview manual cleanup", "Archive non-archived sessions", "Deletion is permanent", "Run cleanup"],
   },
   {
-    name: "localizes the bundled info and relays plugin surfaces",
+    name: "localizes the bundled info and shipped relays plugin surfaces",
     paths: [
       "../../../pi-web-plugins/info/pi-web-plugin.ts",
       "../../../pi-web-plugins/info/infoInternals.ts",
-      "../../../pi-web-plugins/relays/pi-web-plugin.ts",
-      "../../../pi-web-plugins/relays/relaysPanelElement.ts",
-      "../../../pi-web-plugins/relays/markdownDocument.ts",
+      "../../../pi-packages/relays/pi-web-plugin.ts",
+      "../../../pi-packages/relays/relaysPanelElement.ts",
+      "../../../pi-packages/relays/markdownDocument.ts",
     ],
     expected: ["复制 PI WEB 诊断信息", "<strong>信息</strong>", "会话守护进程正在运行", "中继", "请选择工作区。", "无法扫描工作区中继。", "中继文档", "用户范围", "setAttribute(\"aria-label\", \"表格\")"],
     forbidden: ["title: \"Info\"", "<strong>Info</strong>", "session daemon running", "title: \"Relays\"", "<strong>Relays</strong>", "Select a workspace.", "Could not scan workspace relays.", "aria-label=\"Relay documents\"", "setAttribute(\"aria-label\", \"Table\")", " · ${installation.scope}"],

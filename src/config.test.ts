@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_ATTACHMENT_FOLDER, DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -29,10 +29,12 @@ describe("PI WEB config persistence", () => {
       normalAuth: { passwordHash: TEST_PASSWORD_HASH },
       pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
       uploads: { defaultFolder: "manual\\incoming" },
+      attachments: { defaultFolder: "dropped\\files" },
     };
     const normalizedConfig = {
       ...requestedConfig,
       uploads: { defaultFolder: "manual/incoming" },
+      attachments: { defaultFolder: "dropped/files" },
     };
 
     const saved = savePiWebConfig(requestedConfig, testOptions());
@@ -42,11 +44,11 @@ describe("PI WEB config persistence", () => {
   });
 
   it("preserves unrelated config keys while replacing managed keys", async () => {
-    await writeFile(configPath, `${JSON.stringify({ host: "old", port: 8504, allowedHosts: true, plugins: { info: { enabled: false } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "old" }, future: { enabled: true } }, null, 2)}\n`, "utf8");
+    await writeFile(configPath, `${JSON.stringify({ host: "old", port: 8504, allowedHosts: true, plugins: { info: { enabled: false } }, normalAuth: { passwordHash: TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/old"] }, uploads: { defaultFolder: "old" }, attachments: { defaultFolder: "old-attachments" }, future: { enabled: true } }, null, 2)}\n`, "utf8");
 
-    savePiWebConfig({ port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } }, testOptions());
+    savePiWebConfig({ port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" }, attachments: { defaultFolder: "new-attachments" } }, testOptions());
 
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ future: { enabled: true }, port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" } });
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ future: { enabled: true }, port: 9000, allowedHosts: [], normalAuth: { passwordHash: NEXT_TEST_PASSWORD_HASH }, pathAccess: { allowedPaths: ["/new"] }, uploads: { defaultFolder: "new" }, attachments: { defaultFolder: "new-attachments" } });
   });
 
   it("preserves normalAuth when saving settings that do not include it", async () => {
@@ -343,6 +345,15 @@ describe("PI WEB config persistence", () => {
     expect(effectivePiWebConfig(testOptions()).config.uploads).toEqual({ defaultFolder: DEFAULT_UPLOADS_FOLDER });
   });
 
+  it("round-trips and resolves the attachments default folder", () => {
+    expect(effectivePiWebConfig(testOptions()).config.attachments).toEqual({ defaultFolder: DEFAULT_ATTACHMENT_FOLDER });
+
+    savePiWebConfig({ attachments: { defaultFolder: "dropped\\files" } }, testOptions());
+
+    expect(loadPiWebConfig(testOptions()).config.attachments).toEqual({ defaultFolder: "dropped/files" });
+    expect(effectivePiWebConfig(testOptions()).config.attachments).toEqual({ defaultFolder: "dropped/files" });
+  });
+
   it("resolves askUser in the effective config so the runtime has a single source of truth", async () => {
     expect(effectivePiWebConfig(testOptions()).config.askUser).toBe(true);
 
@@ -367,6 +378,14 @@ describe("PI WEB config persistence", () => {
     await writeFile(configPath, `${JSON.stringify({ uploads: { defaultFolder: "../outside" } }, null, 2)}\n`, "utf8");
 
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config uploads.defaultFolder must not contain path traversal");
+  });
+
+  it("rejects attachment defaults that are not workspace-relative", async () => {
+    await writeFile(configPath, `${JSON.stringify({ attachments: { defaultFolder: "../outside" } }, null, 2)}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config attachments.defaultFolder must not contain path traversal");
+
+    await writeFile(configPath, `${JSON.stringify({ attachments: { defaultFolder: "/absolute" } }, null, 2)}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config attachments.defaultFolder must be workspace-relative");
   });
 });
 

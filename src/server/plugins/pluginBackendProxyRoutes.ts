@@ -5,7 +5,7 @@ import {
   utf8ByteLength,
 } from "../../shared/pluginBackendProtocol.js";
 import type { SessionDaemonRequestClient } from "../../sessiond/sessionDaemonClient.js";
-import { encodeManagementContext, managementContextForRequest, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { managementContextForRequest, managementHeaders, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 interface PluginBackendProxyParams {
   pluginId: string;
@@ -63,15 +63,6 @@ export function registerPluginBackendProxyRoutes(
         .send(upstream.body);
     },
   );
-}
-
-function managementHeaders(context: ManagementEmbedContext | undefined, runtime: ManagementEmbedRuntime | undefined): Record<string, string> | undefined {
-  if (context === undefined) return undefined;
-  const handle = runtime?.resourceHandle?.(context);
-  return {
-    [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context),
-    ...(handle === undefined ? {} : { [WORKBENCH_ACCESS_HANDLE_HEADER]: handle }),
-  };
 }
 
 function daemonPluginBackendPath(params: PluginBackendProxyParams): string {

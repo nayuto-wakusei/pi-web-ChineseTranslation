@@ -2,33 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserQuestion } from "../../shared/apiTypes";
 import { answeredCount, clearAskDraft, loadAskDraft, saveAskDraft, toSubmission, unansweredQuestions, type AskDraftAnswers } from "./askDrafts";
 
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
-  }
-
-  clear(): void {
-    this.values.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.values.keys())[index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
-}
+import { MemoryStorage } from "./browserStorage.testSupport";
 
 class ThrowingStorage extends MemoryStorage {
   override getItem(): string | null {

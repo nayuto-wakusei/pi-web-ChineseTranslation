@@ -1,11 +1,14 @@
-import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type PendingAskUser, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type Workspace } from "../api";
+import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingAskUser, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
+import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
 import { machineSessionKey } from "../machineKeys";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
+import { clearStagedAttachments, moveStagedAttachments } from "../promptAttachmentStaging";
 import { clearAskDraft } from "../askDrafts";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
+import { isHistoryTailSlice } from "../chatHistoryCache";
 import { isShellInput } from "../inputModes";
 import { fileCompletionInsertText } from "../promptCompletions";
 import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
@@ -59,6 +62,7 @@ export interface SessionControllerDependencies {
   notifications?: SessionNotificationSessionBridge;
   replacePromptEditorText?: (replacement: PromptEditorTextReplacement) => void | Promise<void>;
   onSelectedSessionReady?: (selection: SelectedSessionReady) => void;
+  onModelScopeChanged?: (revision: number) => void;
 }
 
 interface BulkSessionMutationResult {
@@ -70,7 +74,7 @@ interface BulkSessionMutationResult {
 type ClientPendingStartSessionInfo = SessionInfo & { clientPendingStart: true; machineId: string };
 
 type QueuedPendingSessionSendInput =
-  | { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp" | undefined; attachments?: PromptAttachment[] | undefined; delivery: PromptAttachmentDelivery }
+  | { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp" | undefined; attachments?: PromptAttachment[] | undefined; delivery: PromptAttachmentDelivery; folder?: string | undefined }
   | { type: "shell"; text: string }
   | { type: "command"; text: string };
 
@@ -78,6 +82,7 @@ type QueuedPendingSessionSend = QueuedPendingSessionSendInput & { id: string };
 
 interface PendingSessionStart {
   tempId: string;
+  originWorkspace: Workspace;
   workspaceId: string;
   cwd: string;
   machineId: string;
@@ -96,6 +101,7 @@ interface SelectedSessionRefreshTarget {
   session: SessionInfo;
   machineId: string;
   selectionSeq: number;
+  errorOwner: SessionBrowserErrorOwner;
 }
 
 export class SessionController {
@@ -106,9 +112,12 @@ export class SessionController {
   private readonly notifications: SessionNotificationSessionBridge | undefined;
   private readonly replacePromptEditorText: SessionControllerDependencies["replacePromptEditorText"];
   private readonly onSelectedSessionReady: SessionControllerDependencies["onSelectedSessionReady"];
+  private readonly onModelScopeChanged: SessionControllerDependencies["onModelScopeChanged"];
+  private readonly browserErrors: BrowserErrorReporter;
   private selectionSeq = 0;
   private disposed = false;
   private streamWatermark: { sessionId: string; seq: number } | undefined;
+  private lastAppliedSelectedRefresh: { selectionSeq: number; partialJson: string } | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
   private pendingStatusBySession = new Map<string, SessionStatus>();
   private pendingActivityBySession = new Map<string, SessionActivity>();
@@ -138,6 +147,8 @@ export class SessionController {
     this.notifications = deps.notifications;
     this.replacePromptEditorText = deps.replacePromptEditorText;
     this.onSelectedSessionReady = deps.onSelectedSessionReady;
+    this.onModelScopeChanged = deps.onModelScopeChanged;
+    this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
 
   applyGlobalEvent(event: GlobalSessionEvent): void {
@@ -145,6 +156,7 @@ export class SessionController {
     else if (event.type === "activity.update") this.queueActivityUpdate(event.activity);
     else if (event.type === "session.created") this.applyCreatedSession(event.session);
     else if (event.type === "session.name") this.applySessionName(event.sessionId, event.name);
+    else if (event.type === "models.changed") this.onModelScopeChanged?.(event.revision);
     else if (event.type === "session.startup") this.queueStartupProgress(event);
   }
 
@@ -240,7 +252,8 @@ export class SessionController {
       } catch (error) {
         const current = this.getState();
         if (selectedMachineId(current) !== machineId || current.selectedWorkspace?.path !== session.cwd) return;
-        this.setState({ pinnedSessionIds: wasPinned ? [...new Set([...current.pinnedSessionIds, session.id])] : current.pinnedSessionIds.filter((id) => id !== session.id), error: String(error) });
+        this.setState({ pinnedSessionIds: wasPinned ? [...new Set([...current.pinnedSessionIds, session.id])] : current.pinnedSessionIds.filter((id) => id !== session.id) });
+        this.reportSessionError(session, machineId, error);
       }
     })();
   }
@@ -286,12 +299,13 @@ export class SessionController {
       this.selectClientPendingStartSession(session, options);
       return;
     }
+    const machineId = selectedMachineId(this.getState());
+    const errorOwner = this.captureSessionErrorOwner(session);
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     const seq = ++this.selectionSeq;
     this.socket.close();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
-    const machineId = selectedMachineId(this.getState());
     this.notifications?.prepareSelectedSession(session, machineId);
     const transcriptKey = this.sessionCacheKey(session.id);
     const cached = this.transcripts.cachedView(transcriptKey);
@@ -326,8 +340,8 @@ export class SessionController {
         machineId,
         () => { void this.notifications?.refreshSelectedSession(session, machineId); },
       );
-      await this.requestSelectedSessionRefresh({ session, machineId, selectionSeq: seq });
-      if (!this.isCurrentRefreshTarget({ session, machineId, selectionSeq: seq })) return;
+      await this.requestSelectedSessionRefresh({ session, machineId, selectionSeq: seq, errorOwner });
+      if (!this.isCurrentRefreshTarget({ session, machineId, selectionSeq: seq, errorOwner })) return;
       void this.refreshAvailableThinkingLevels();
       for (const event of socketBuffer) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
@@ -335,6 +349,7 @@ export class SessionController {
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
       if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) {
+        this.reportSessionError(session, machineId, error, errorOwner);
         // Tree navigation still needs to know when a same-session reselection's
         // shared trailing refresh failed, even though this selection is stale.
         if (options?.propagateRefreshError === true && this.isSelectedSessionIdentity(session.id, machineId)) throw error;
@@ -351,7 +366,7 @@ export class SessionController {
         for (const event of buffered) this.applyEvent(event);
         this.socket.setHandler((event) => { this.applyEvent(event); });
       }
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error, errorOwner);
       if (options?.propagateRefreshError === true) throw error;
     }
   }
@@ -360,20 +375,21 @@ export class SessionController {
     const state = this.getState();
     const session = state.selectedSession;
     if (!session || state.isLoadingEarlierMessages || state.messagePageStart <= 0) return;
+    const machineId = selectedMachineId(state);
     this.setState({ isLoadingEarlierMessages: true });
     try {
-      const page = await this.api.messages(session, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
+      const page = await this.api.messages(session, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE }, machineId);
       if (this.getState().selectedSession?.id !== session.id) return;
       const history = this.transcripts.mergeHistory(this.sessionCacheKey(session.id), page);
       this.setState(history);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     } finally {
       if (this.getState().selectedSession?.id === session.id) this.setState({ isLoadingEarlierMessages: false });
     }
   }
 
-  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: PromptAttachmentDelivery = "inline") {
+  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: PromptAttachmentDelivery = "inline", folder?: string) {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
 
@@ -382,7 +398,7 @@ export class SessionController {
     if (isClientPendingStartSessionInfo(session)) {
       if (!hasAttachments && trimmed.startsWith("/")) this.enqueuePendingSessionSend(session, { type: "command", text });
       else if (!hasAttachments && isShellInput(text)) this.enqueuePendingSessionSend(session, { type: "shell", text });
-      else this.enqueuePendingSessionSend(session, { type: "prompt", text, streamingBehavior, attachments, delivery });
+      else this.enqueuePendingSessionSend(session, { type: "prompt", text, streamingBehavior, attachments, delivery, folder });
       return;
     }
     if (!hasAttachments && trimmed.startsWith("/")) return this.runCommand(text);
@@ -391,7 +407,7 @@ export class SessionController {
     // Capture the originating session/machine before any await so the request
     // and its sending indicator stay bound to the right session even if the
     // user navigates elsewhere mid-upload.
-    await this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, selectedMachineId(this.getState()), { markSending: hasAttachments });
+    await this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, folder, selectedMachineId(this.getState()), { markSending: hasAttachments });
   }
 
   private markSendingPrompt(sessionId: string, sending: boolean): void {
@@ -426,22 +442,23 @@ export class SessionController {
   async renameSession(session: SessionInfo, name: string): Promise<void> {
     const trimmed = name.trim();
     if (trimmed === "" || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      const result = await this.api.runCommand(session, `/name ${trimmed}`, selectedMachineId(this.getState()));
+      const result = await this.api.runCommand(session, `/name ${trimmed}`, machineId);
       if (result.type === "done") {
         this.applySessionName(session.id, result.session?.name ?? trimmed);
         return;
       }
-      this.setState({ error: result.type === "unsupported" ? result.message : "重命名会话失败" });
+      this.reportSessionError(session, machineId, result.type === "unsupported" ? result.message : "重命名会话失败");
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   private enqueuePendingSessionSend(session: ClientPendingStartSessionInfo, input: QueuedPendingSessionSendInput): void {
     const pending = this.pendingSessionStarts.get(session.id);
     if (pending === undefined || pending.discarded) {
-      this.setState({ error: "后端会话尚未准备好发送排队消息。丢弃此次启动失败前，请先复制你的消息。" });
+      this.reportSessionError(session, session.machineId, "后端会话尚未准备好发送排队消息。丢弃此次启动失败前，请先复制你的消息。");
       return;
     }
     const queued: QueuedPendingSessionSend = { ...input, id: `pending-send-${String(++this.pendingQueuedSendSeq)}` };
@@ -466,17 +483,17 @@ export class SessionController {
   }
 
   private async deliverQueuedPendingSend(session: SessionInfo, machineId: string, queued: QueuedPendingSessionSend): Promise<boolean> {
-    if (queued.type === "prompt") return this.deliverPromptToSession(session, queued.text, queued.streamingBehavior, queued.attachments, queued.delivery, machineId, { markSending: true });
+    if (queued.type === "prompt") return this.deliverPromptToSession(session, queued.text, queued.streamingBehavior, queued.attachments, queued.delivery, queued.folder, machineId, { markSending: true });
     if (queued.type === "shell") return this.deliverShellToSession(session, queued.text, machineId, { optimisticLine: true });
     return this.deliverCommandToSession(session, queued.text, machineId, { applyResult: true });
   }
 
-  private async deliverPromptToSession(session: SessionInfo, text: string, streamingBehavior: "steer" | "followUp" | undefined, attachments: PromptAttachment[] | undefined, delivery: PromptAttachmentDelivery, machineId: string, options: { markSending: boolean }): Promise<boolean> {
+  private async deliverPromptToSession(session: SessionInfo, text: string, streamingBehavior: "steer" | "followUp" | undefined, attachments: PromptAttachment[] | undefined, delivery: PromptAttachmentDelivery, folder: string | undefined, machineId: string, options: { markSending: boolean }): Promise<boolean> {
     const hasAttachments = attachments !== undefined && attachments.length > 0;
     if (options.markSending) this.markSendingPrompt(session.id, true);
     try {
       if (hasAttachments && delivery === "folder") {
-        const saved = await this.api.saveAttachments(session, attachments, machineId);
+        const saved = await this.api.saveAttachments(session, attachments, machineId, folder);
         const references = saved.map((file) => fileCompletionInsertText(file.path, false)).join(" ");
         const body = text === "" ? references : `${text}\n\n${references}`;
         await this.api.prompt(session, body, streamingBehavior, machineId);
@@ -486,7 +503,7 @@ export class SessionController {
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return false;
     } finally {
       if (options.markSending) this.markSendingPrompt(session.id, false);
@@ -503,7 +520,7 @@ export class SessionController {
       return true;
     } catch (error) {
       if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))] });
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return false;
     }
   }
@@ -519,12 +536,12 @@ export class SessionController {
     try {
       const result = await this.api.runCommand(session, text, machineId);
       if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
-      else if (result.type === "select" || result.type === "tree") this.setState({ error: `排队命令“${text}”需要输入；请打开会话并重新运行。` });
+      else if (result.type === "select" || result.type === "tree") this.reportSessionError(session, machineId, `排队命令“${text}”需要输入；请打开会话并重新运行。`);
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
       if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))] });
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return false;
     } finally {
       this.markSendingPrompt(session.id, false);
@@ -542,11 +559,12 @@ export class SessionController {
   async respondToCommand(requestId: string, value: string) {
     const session = this.getState().selectedSession;
     if (!session) return;
+    const machineId = selectedMachineId(this.getState());
     this.setState({ commandDialog: undefined });
     try {
-      this.applyCommandResult(await this.api.respondToCommand(session, requestId, value, selectedMachineId(this.getState())));
+      this.applyCommandResult(await this.api.respondToCommand(session, requestId, value, machineId));
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -563,13 +581,12 @@ export class SessionController {
     }
 
     const machineId = selectedMachineId(state);
-    const selectionSeq = this.selectionSeq;
     const cacheKey = machineSessionKey(machineId, session.id);
     let result: SessionTreeNavigateResult;
     try {
       result = await this.api.navigateTree(session, { targetId, expectedLeafId: tree.activeLeafId, summary }, machineId);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       throw error;
     }
 
@@ -595,11 +612,11 @@ export class SessionController {
     try {
       await this.replacePromptEditorText?.({ machineId, sessionId: session.id, text: editorText });
     } catch (error) {
-      if (this.isSelectedSessionIdentity(session.id, machineId)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       throw error;
     }
     if (authoritativeRefreshFailure !== undefined) {
-      if (this.isSelectedSessionIdentity(session.id, machineId)) this.setState({ error: String(authoritativeRefreshFailure.error) });
+      this.reportSessionError(session, machineId, authoritativeRefreshFailure.error);
       throw authoritativeRefreshFailure.error;
     }
     if (this.isSelectedSessionIdentity(session.id, machineId) && this.getState().treeDialog === tree) this.setState({ treeDialog: undefined });
@@ -615,13 +632,12 @@ export class SessionController {
     }
 
     const machineId = selectedMachineId(state);
-    const selectionSeq = this.selectionSeq;
     const originalCacheKey = machineSessionKey(machineId, session.id);
     let result: SessionTreeForkResult;
     try {
       result = await this.api.forkTree(session, { entryId, expectedLeafId: tree.activeLeafId }, machineId);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       throw error;
     }
 
@@ -642,11 +658,10 @@ export class SessionController {
     const session = state.selectedSession;
     if (session === undefined || state.treeDialog === undefined || isClientPendingStartSessionInfo(session)) return;
     const machineId = selectedMachineId(state);
-    const selectionSeq = this.selectionSeq;
     try {
       await this.api.abort(session, machineId);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       throw error;
     }
   }
@@ -668,8 +683,9 @@ export class SessionController {
       return;
     }
     if (!isArchivableSessionInfo(session, status, persistenceOptions)) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.archive(session, selectedMachineId(this.getState()));
+      await this.api.archive(session, machineId);
       const state = this.getState();
       const sessions = markSessionArchived(state.sessions, session.id, new Date().toISOString());
       const selectionChange = selectionAfterArchivingSession(sessions, state.selectedSession?.id, session.id);
@@ -678,14 +694,15 @@ export class SessionController {
       if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
       else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async archiveSessionWithDescendants(session = this.getState().selectedSession) {
     if (session === undefined || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      const response = await this.api.archiveWithDescendants(session, selectedMachineId(this.getState()));
+      const response = await this.api.archiveWithDescendants(session, machineId);
       const archivedIds = response.sessionIds !== undefined && response.sessionIds.length > 0 ? response.sessionIds : [session.id];
       const state = this.getState();
       const sessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
@@ -695,7 +712,7 @@ export class SessionController {
       if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
       else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -703,9 +720,10 @@ export class SessionController {
     const persistenceOptions = this.sessionPersistenceOptions();
     const candidates = uniqueSessionsById(sessions).filter((session) => isArchivableSessionInfo(session, this.statusForSession(session), persistenceOptions));
     if (candidates.length === 0) return;
+    const machineId = selectedMachineId(this.getState());
+    const originWorkspace = this.getState().selectedWorkspace;
 
     try {
-      const machineId = selectedMachineId(this.getState());
       const { succeededIds: archivedIds, failures, generatedAt } = await this.archiveSessionBatch(candidates, machineId);
       if (archivedIds.length > 0) {
         const state = this.getState();
@@ -716,9 +734,9 @@ export class SessionController {
         if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
         else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
       }
-      this.applyBulkSessionFailures("归档", failures);
+      this.applyBulkSessionFailures("归档", failures, machineId, originWorkspace, candidates[0]);
     } catch (error) {
-      this.setState({ error: `归档失败：${errorMessage(error)}` });
+      this.reportWorkspaceOrSessionError(originWorkspace, candidates[0], machineId, `归档失败：${errorMessage(error)}`);
     }
   }
 
@@ -727,6 +745,7 @@ export class SessionController {
     if (candidates.length === 0) return;
 
     const machineId = selectedMachineId(this.getState());
+    const originWorkspace = this.getState().selectedWorkspace;
     try {
       const { succeededIds: deletedIds, failures } = await this.deleteArchivedSessionBatch(candidates, machineId);
       if (deletedIds.length > 0) {
@@ -741,9 +760,9 @@ export class SessionController {
         }
         await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
-      this.applyBulkSessionFailures("删除", failures);
+      this.applyBulkSessionFailures("删除", failures, machineId, originWorkspace, candidates[0]);
     } catch (error) {
-      this.setState({ error: `删除失败：${errorMessage(error)}` });
+      this.reportWorkspaceOrSessionError(originWorkspace, candidates[0], machineId, `删除失败：${errorMessage(error)}`);
     }
   }
 
@@ -808,7 +827,7 @@ export class SessionController {
       if (next !== undefined) await this.selectSession(next);
       else this.deselectSession({ forgetRememberedSelection: true });
     } catch (error) {
-      if (selectedMachineId(this.getState()) === machineId && this.getState().selectedWorkspace?.id === workspace.id) this.setState({ error: String(error) });
+      this.reportWorkspaceError(workspace, machineId, error);
     }
   }
 
@@ -832,6 +851,7 @@ export class SessionController {
     }
     forgetCachedNewSession(session.id, selectedMachineId(this.getState()));
     clearDraft(this.sessionCacheKey(session.id));
+    clearStagedAttachments(this.sessionCacheKey(session.id));
     const state = this.getState();
     const sessions = state.sessions.filter((candidate) => candidate.id !== session.id);
     this.setState({
@@ -852,15 +872,16 @@ export class SessionController {
 
   async restoreSession(session = this.getState().selectedSession) {
     if (!session) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.restore(session, selectedMachineId(this.getState()));
+      await this.api.restore(session, machineId);
       const restored = { ...session };
       delete restored.archived;
       delete restored.archivedAt;
       this.replaceSession(restored);
       if (this.getState().selectedSession?.id === restored.id) await this.selectSession(restored);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -874,29 +895,31 @@ export class SessionController {
         await this.selectSession(session, { updateUrl: false });
       }
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async detachParent(session = this.getState().selectedSession) {
     if (session?.parentSessionPath === undefined) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.detachParent(session, selectedMachineId(this.getState()));
+      await this.api.detachParent(session, machineId);
       const detached = { ...session };
       delete detached.parentSessionPath;
       this.replaceSession(detached);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async listModels() {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return [];
+    const machineId = selectedMachineId(this.getState());
     try {
-      return (await this.api.models(session, selectedMachineId(this.getState()))).models;
+      return (await this.api.models(session, machineId)).models;
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return [];
     }
   }
@@ -904,10 +927,11 @@ export class SessionController {
   async listModelCatalog(): Promise<SessionModelCatalogEntry[]> {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return [];
+    const machineId = selectedMachineId(this.getState());
     try {
-      return (await this.api.modelCatalog(session, selectedMachineId(this.getState()))).models;
+      return (await this.api.modelCatalog(session, machineId)).models;
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return [];
     }
   }
@@ -915,10 +939,24 @@ export class SessionController {
   async setModelEnabled(provider: string, modelId: string, enabled: boolean): Promise<SessionModelCatalogEntry[] | undefined> {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return undefined;
+    const machineId = selectedMachineId(this.getState());
     try {
-      return (await this.api.setModelEnabled(session, provider, modelId, enabled, selectedMachineId(this.getState()))).models;
+      return (await this.api.setModelEnabled(session, provider, modelId, enabled, machineId)).models;
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
+      return undefined;
+    }
+  }
+
+  async setModelScope(mode: SessionModelScopeMode): Promise<SessionModelCatalogEntry[] | undefined> {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (!session || session.archived === true) return undefined;
+    const machineId = selectedMachineId(state);
+    try {
+      return (await this.api.setModelScope(session, mode, machineId)).models;
+    } catch (error) {
+      this.reportSessionError(session, machineId, error);
       return undefined;
     }
   }
@@ -926,32 +964,35 @@ export class SessionController {
   async setModel(provider: string, modelId: string) {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      this.applyStatus(await this.api.setModel(session, provider, modelId, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.setModel(session, provider, modelId, machineId));
       await this.refreshAvailableThinkingLevels();
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async cycleModel(direction: "forward" | "backward") {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      this.applyStatus(await this.api.cycleModel(session, direction, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.cycleModel(session, direction, machineId));
       await this.refreshAvailableThinkingLevels();
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async listThinkingLevels() {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return [];
+    const machineId = selectedMachineId(this.getState());
     try {
-      return (await this.api.thinkingLevels(session, selectedMachineId(this.getState()))).levels;
+      return (await this.api.thinkingLevels(session, machineId)).levels;
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return [];
     }
   }
@@ -971,20 +1012,22 @@ export class SessionController {
   async setThinkingLevel(level: string) {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      this.applyStatus(await this.api.setThinkingLevel(session, level, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.setThinkingLevel(session, level, machineId));
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async cycleThinkingLevel() {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      this.applyStatus(await this.api.cycleThinkingLevel(session, selectedMachineId(this.getState())));
+      this.applyStatus(await this.api.cycleThinkingLevel(session, machineId));
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -998,7 +1041,7 @@ export class SessionController {
       const status = await this.api.clearQueue(session, machineId);
       if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(status);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -1012,7 +1055,7 @@ export class SessionController {
       const status = await this.api.dismissWarning(session, dismissId, machineId);
       if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(status);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -1050,7 +1093,7 @@ export class SessionController {
       this.recordDialogOutcome(response.outcome);
       this.applyStatus(response.sessionStatus);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -1065,7 +1108,7 @@ export class SessionController {
       this.recordDialogOutcome(response.outcome);
       this.applyPendingStartStatus(pending, response.sessionStatus);
     } catch (error) {
-      if (selectionSeq === this.selectionSeq && this.getState().selectedSession?.id === session.id) this.setState({ error: String(error) });
+      this.reportSessionError(session, pending.machineId, error);
     }
   }
 
@@ -1093,30 +1136,37 @@ export class SessionController {
       // request is needed to learn what the session's open ask is now.
       if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(response.sessionStatus);
     } catch (error) {
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
   async stopActiveWork() {
     const session = this.getState().selectedSession;
     if (!session) return;
+    const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.abort(session, selectedMachineId(this.getState()));
+      await this.api.abort(session, machineId);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
-  refreshSelectedSession(sessionId = this.getState().selectedSession?.id): Promise<void> {
+  refreshSelectedSession(sessionId = this.getState().selectedSession?.id, options?: { silent?: boolean }): Promise<void> {
     const session = this.getState().selectedSession;
     if (sessionId === undefined || session?.id !== sessionId || session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
+    const machineId = selectedMachineId(this.getState());
     const target: SelectedSessionRefreshTarget = {
       session,
-      machineId: selectedMachineId(this.getState()),
+      machineId,
       selectionSeq: this.selectionSeq,
+      errorOwner: this.captureSessionErrorOwner(session),
     };
     return this.requestSelectedSessionRefresh(target).catch((error: unknown) => {
-      if (this.isCurrentRefreshTarget(target)) this.setState({ error: String(error) });
+      if (options?.silent === true) {
+        console.warn("Selected session background refresh failed", error);
+        return;
+      }
+      this.reportSessionError(target.session, target.machineId, error, target.errorOwner);
     });
   }
 
@@ -1132,6 +1182,7 @@ export class SessionController {
         this.notifications?.refreshSelectedSession(target.session, target.machineId) ?? Promise.resolve(),
       ]);
       if (!this.isCurrentRefreshTarget(target)) return;
+      if (this.isUnchangedSelectedRefresh(target, key, page, status, streamSnapshot)) return;
       // Seed the in-flight partial assistant message on top of committed history
       // and record the snapshot's sequence as the watermark. Buffered/live events
       // with `seq <= watermark` are already reflected here and are dropped by
@@ -1148,7 +1199,17 @@ export class SessionController {
         activity: this.getState().sessionActivities[target.session.id],
       });
       this.applyStatus(status);
+      this.lastAppliedSelectedRefresh = { selectionSeq: target.selectionSeq, partialJson: selectedRefreshPartialJson(streamSnapshot) };
     });
+  }
+
+  private isUnchangedSelectedRefresh(target: SelectedSessionRefreshTarget, key: string, page: MessagePage, status: SessionStatus, streamSnapshot: SessionStreamSnapshot): boolean {
+    const last = this.lastAppliedSelectedRefresh;
+    if (last?.selectionSeq !== target.selectionSeq) return false;
+    if (selectedRefreshPartialJson(streamSnapshot) !== last.partialJson) return false;
+    if (!isHistoryTailSlice(this.transcripts.rawHistoryPage(key), page)) return false;
+    if (JSON.stringify(status) !== JSON.stringify(this.getState().status)) return false;
+    return this.getState().sessionActivities[status.sessionId]?.phase !== "active" || isSessionActive(status);
   }
 
   private isCurrentRefreshTarget(target: SelectedSessionRefreshTarget): boolean {
@@ -1169,9 +1230,35 @@ export class SessionController {
       && !isClientPendingStartSessionInfo(selected);
   }
 
-  private applyBulkSessionFailures(action: string, failures: readonly string[]): void {
+  private reportSessionError(session: SessionInfo, machineId: string, error: unknown, errorOwner: SessionBrowserErrorOwner = { cwd: session.cwd }): void {
+    this.browserErrors.report(sessionBrowserErrorScope(machineId, session.id, errorOwner), String(error));
+  }
+
+  private captureSessionErrorOwner(session: SessionInfo, workspace = this.workspaceForSessionError(session)): SessionBrowserErrorOwner {
+    return {
+      cwd: session.cwd,
+      ...(workspace === undefined ? {} : { projectId: workspace.projectId, workspaceId: workspace.id }),
+    };
+  }
+
+  private workspaceForSessionError(session: SessionInfo): Workspace | undefined {
+    const state = this.getState();
+    const candidates = [state.selectedWorkspace, ...state.workspaces, ...Object.values(state.workspacesByProjectId).flat()];
+    return candidates.find((workspace): workspace is Workspace => workspace?.path === session.cwd);
+  }
+
+  private reportWorkspaceError(workspace: Workspace, machineId: string, error: unknown): void {
+    this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
+  }
+
+  private applyBulkSessionFailures(action: string, failures: readonly string[], machineId: string, workspace: Workspace | undefined, fallbackSession: SessionInfo | undefined): void {
     if (failures.length === 0) return;
-    this.setState({ error: `${action}失败，${String(failures.length)} 个会话处理失败：${failures.join("；")}` });
+    this.reportWorkspaceOrSessionError(workspace, fallbackSession, machineId, `${action}失败，${String(failures.length)} 个会话处理失败：${failures.join("；")}`);
+  }
+
+  private reportWorkspaceOrSessionError(workspace: Workspace | undefined, session: SessionInfo | undefined, machineId: string, error: unknown): void {
+    if (workspace !== undefined) this.reportWorkspaceError(workspace, machineId, error);
+    else if (session !== undefined) this.reportSessionError(session, machineId, error);
   }
 
   private sessionCacheKey(sessionId: string): string {
@@ -1218,7 +1305,7 @@ export class SessionController {
       clientPendingStart: true,
       machineId,
     };
-    return { tempId, workspaceId: workspace.id, cwd: workspace.path, machineId, session, queuedSends: [], discarded: false };
+    return { tempId, originWorkspace: workspace, workspaceId: workspace.id, cwd: workspace.path, machineId, session, queuedSends: [], discarded: false };
   }
 
   private insertAndSelectPendingSession(session: ClientPendingStartSessionInfo): void {
@@ -1268,6 +1355,7 @@ export class SessionController {
     const releasedCreatedSessions = this.takeSuppressedCreatedSessionsFor(pending.cwd, pending.machineId, session.id);
     if (pending.discarded) {
       clearDraft(machineSessionKey(pending.machineId, tempId));
+      clearStagedAttachments(machineSessionKey(pending.machineId, tempId));
       this.setState({ clientQueuedSessionMessages: omitKey(this.getState().clientQueuedSessionMessages, tempId) });
       this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
       void this.api.stop(session, pending.machineId).catch(() => {
@@ -1278,6 +1366,7 @@ export class SessionController {
 
     rememberCachedNewSession(session, pending.machineId);
     moveDraft(machineSessionKey(pending.machineId, tempId), machineSessionKey(pending.machineId, session.id));
+    moveStagedAttachments(machineSessionKey(pending.machineId, tempId), machineSessionKey(pending.machineId, session.id));
     const cachedSession = markCachedNewSessionInfo(session, pending.machineId);
     if (!this.isCurrentPendingStart(pending)) {
       this.setState({ clientQueuedSessionMessages: omitKey(this.getState().clientQueuedSessionMessages, tempId) });
@@ -1312,12 +1401,17 @@ export class SessionController {
     if (this.getState().selectedSession?.id === tempId) this.socket.close();
     const releasedCreatedSessions = this.takeSuppressedCreatedSessionsFor(pending.cwd, pending.machineId);
     const isCurrentPendingStart = this.isCurrentPendingStart(pending);
-    if (wasDiscarded || !isCurrentPendingStart) {
+    if (wasDiscarded) {
       if (isCurrentPendingStart) this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
       return;
     }
-    const state = this.getState();
     const message = errorMessage(error);
+    const failureMessage = `启动会话失败：${message}`;
+    if (!isCurrentPendingStart) {
+      this.browserErrors.report(workspaceBrowserErrorScope(pending.machineId, pending.originWorkspace.projectId, pending.originWorkspace.id), failureMessage);
+      return;
+    }
+    const state = this.getState();
     const activity = failedPendingSessionActivity(tempId, message, pending.queuedSends.length);
     const hasPendingRow = state.sessions.some((session) => session.id === tempId);
     this.setState({
@@ -1325,14 +1419,16 @@ export class SessionController {
       sessionActivities: { ...state.sessionActivities, [tempId]: activity },
       activity: state.selectedSession?.id === tempId ? activity : state.activity,
       ...(state.selectedSession?.id === tempId ? { pendingDialogs: [] } : {}),
-      error: `启动会话失败：${message}`,
     });
+    this.reportSessionError(pending.session, pending.machineId, failureMessage);
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
   }
 
   private isCurrentPendingStart(pending: PendingSessionStart): boolean {
     const state = this.getState();
-    return selectedMachineId(state) === pending.machineId && state.selectedWorkspace?.id === pending.workspaceId;
+    return selectedMachineId(state) === pending.machineId
+      && state.selectedWorkspace?.id === pending.workspaceId
+      && state.selectedWorkspace.projectId === pending.originWorkspace.projectId;
   }
 
   private hasPendingStartFor(cwd: string, machineId: string): boolean {
@@ -1374,18 +1470,19 @@ export class SessionController {
   }
 
   private async recreateCachedNewSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }): Promise<void> {
+    const machineId = selectedMachineId(this.getState());
     try {
-      const machineId = selectedMachineId(this.getState());
       const replacement = await this.api.startSession(session.cwd, machineId);
       rememberCachedNewSession(replacement, machineId);
       moveDraft(this.sessionCacheKey(session.id), this.sessionCacheKey(replacement.id));
+      moveStagedAttachments(this.sessionCacheKey(session.id), this.sessionCacheKey(replacement.id));
       forgetCachedNewSession(session.id, machineId);
       const cachedReplacement = markCachedNewSessionInfo(replacement, machineId);
       this.setState({ sessions: [cachedReplacement, ...this.getState().sessions.filter((candidate) => candidate.id !== session.id)], error: "" });
       await this.selectSession(cachedReplacement, { updateUrl: false });
       this.updateUrl(options?.updateUrl === false ? { replace: true } : undefined);
     } catch (error) {
-      this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
     }
   }
 
@@ -1728,7 +1825,7 @@ export class SessionController {
         if (history.messagePageStart >= before) break;
       }
     } catch (error) {
-      if (this.isCurrentSearchJump(session.id, machineId, selectionSeq)) this.setState({ error: String(error) });
+      this.reportSessionError(session, machineId, error);
       return;
     }
     if (!this.isCurrentSearchJump(session.id, machineId, selectionSeq)) return;
@@ -1748,6 +1845,10 @@ export class SessionController {
       && selectedMachineId(this.getState()) === machineId
       && this.getState().selectedSession?.id === sessionId;
   }
+}
+
+function selectedRefreshPartialJson(snapshot: SessionStreamSnapshot): string {
+  return JSON.stringify(snapshot.partial ?? null);
 }
 
 function omitSessionActivity(activities: Record<string, SessionActivity>, sessionId: string): Record<string, SessionActivity> {

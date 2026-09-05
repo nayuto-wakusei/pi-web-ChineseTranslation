@@ -1,15 +1,9 @@
+import { browserStorage } from "./browserStorage";
+
 const draftStoragePrefix = "pi-web:prompt-draft:";
 
 function draftStorageKey(sessionId: string): string {
   return `${draftStoragePrefix}${sessionId}`;
-}
-
-function browserStorage(): Storage | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
 }
 
 export function loadDraft(sessionId: string, storage = browserStorage()): string {

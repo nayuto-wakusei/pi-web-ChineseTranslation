@@ -1,10 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService, type PiAgentSession, type PiSessionRuntime } from "./piSessionService.js";
 import { SessionNotificationStore } from "./sessionNotificationStore.js";
-import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { testModelRuntime, CapturingSessionEventHub, ScopeCapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -45,6 +46,18 @@ function currentNotify(fake: { session: Pick<PiAgentSession, "extensionRunner"> 
 }
 
 describe("PiSessionService lifecycle, listing, and reload", () => {
+  it("rejects normal session access when the cwd has no project registry", async () => {
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      normalModelRuntimeForCwd: () => Promise.reject(new Error("cwd 必须属于一个已注册项目")),
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.list("/unregistered")).rejects.toThrow("已注册项目");
+    await expect(service.start("/unregistered")).rejects.toThrow("已注册项目");
+    await service.dispose();
+  });
+
   it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
@@ -95,7 +108,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     try {
       service = new PiSessionService(hub, {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(fake.runtime),
         sessionManager: sessionGateway([]),
         heartbeatIntervalMs: 60_000,
@@ -203,6 +216,230 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     expect(loserSubscribe).not.toHaveBeenCalled();
     expect(loserUnsubscribe).not.toHaveBeenCalled();
     expect(loser.calls.dispose).toBe(0);
+  });
+
+  it("reads externally appended transcript entries without replacing the idle runtime", async () => {
+    const sessionId = "externally-growing-session";
+    const staleBranch = [{ type: "message", message: { role: "user", content: "before" } }];
+    let diskBranch = [...staleBranch];
+    const runtimeManager = fakeSessionManager("/workspace", {
+      getSessionId: () => sessionId,
+      getSessionFile: () => `/sessions/${sessionId}.jsonl`,
+      getBranch: () => staleBranch,
+    });
+    const fake = fakeRuntime(sessionId, { sessionFile: `/sessions/${sessionId}.jsonl`, sessionManager: runtimeManager });
+    const readBranch = vi.fn(() => Promise.resolve(diskBranch));
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: {
+        create: () => fakeSessionManager(),
+        list: () => Promise.resolve([sessionRecord(sessionId)]),
+        listAll: () => Promise.resolve([sessionRecord(sessionId)]),
+        resolveSessionFile: () => Promise.resolve({ id: sessionId, cwd: "/workspace", path: `/sessions/${sessionId}.jsonl` }),
+        readBranch,
+        open: () => runtimeManager,
+      },
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([{ role: "user", content: "before" }]);
+    diskBranch = [...staleBranch, { type: "message", message: { role: "assistant", content: "after" } }];
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([
+      { role: "user", content: "before" },
+      { role: "assistant", content: "after" },
+    ]);
+
+    expect(readBranch).toHaveBeenCalledTimes(2);
+    expect(fake.calls.abort).toBe(0);
+    expect(fake.calls.dispose).toBe(0);
+    expect(service.activeCount()).toBe(1);
+    await service.dispose();
+  });
+
+  it.each(["earlier", "root", "during-read"])("preserves the selected runtime branch after %s navigation", async (navigation) => {
+    const manager = SessionManager.inMemory("/workspace");
+    const sessionId = manager.getSessionId();
+    const firstMessage = { role: "user" as const, content: "before", timestamp: 1 };
+    const firstId = manager.appendMessage(firstMessage);
+    manager.appendMessage({ role: "user", content: "later", timestamp: 2 });
+    let diskBranch: unknown[] = manager.getBranch();
+    const diskRead = deferred<unknown[]>();
+    const readStarted = deferred();
+    const readBranch = vi.fn(() => {
+      readStarted.resolve();
+      return navigation === "during-read" ? diskRead.promise : Promise.resolve(diskBranch);
+    });
+    const fake = fakeRuntime(sessionId, {
+      sessionFile: `/sessions/${sessionId}.jsonl`,
+      sessionManager: manager,
+      navigateTree: () => {
+        if (navigation === "root") manager.resetLeaf();
+        else manager.branch(firstId);
+        return Promise.resolve({ cancelled: false });
+      },
+    });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: { ...sessionGateway([]), readBranch },
+      heartbeatIntervalMs: 60_000,
+    });
+    try {
+      await service.start("/workspace");
+      const pendingRead = navigation === "during-read" ? service.messages(sessionRef(sessionId)) : undefined;
+      if (pendingRead !== undefined) await readStarted.promise;
+      await service.navigateTree(sessionRef(sessionId), { targetId: firstId, expectedLeafId: manager.getLeafId(), summary: { mode: "none" } });
+      const expected = navigation === "root" ? [] : [firstMessage];
+      if (pendingRead !== undefined) {
+        diskRead.resolve(diskBranch);
+        await expect(pendingRead).resolves.toEqual(expected);
+      }
+      await expect(service.messages(sessionRef(sessionId))).resolves.toEqual(expected);
+      await expect(service.status(sessionRef(sessionId))).resolves.toMatchObject({ messageCount: expected.length });
+
+      const nextMessage = { role: "user" as const, content: "new branch", timestamp: 3 };
+      const externalMessage = { role: "user" as const, content: "external append", timestamp: 4 };
+      manager.appendMessage(nextMessage);
+      diskBranch = [...manager.getBranch(), { type: "message", message: externalMessage }];
+      readBranch.mockImplementation(() => Promise.resolve(diskBranch));
+      await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([...expected, nextMessage, externalMessage]);
+    } finally {
+      diskRead.resolve(diskBranch);
+      await service.dispose();
+    }
+  });
+
+  it("keeps the active runtime authoritative instead of reading an external snapshot", async () => {
+    const sessionId = "active-growing-session";
+    const runtimeBranch = [{ type: "message", message: { role: "user", content: "live runtime" } }];
+    const fake = fakeRuntime(sessionId, {
+      isStreaming: true,
+      sessionManager: fakeSessionManager("/workspace", {
+        getSessionId: () => sessionId,
+        getSessionFile: () => `/sessions/${sessionId}.jsonl`,
+        getBranch: () => runtimeBranch,
+      }),
+    });
+    const readBranch = vi.fn(() => Promise.resolve([{ type: "message", message: { role: "user", content: "external disk" } }]));
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: {
+        create: () => fakeSessionManager(),
+        list: () => Promise.resolve([]),
+        listAll: () => Promise.resolve([]),
+        resolveSessionFile: () => Promise.resolve({ id: sessionId, cwd: "/workspace", path: `/sessions/${sessionId}.jsonl` }),
+        readBranch,
+        open: () => fake.session.sessionManager,
+      },
+      heartbeatIntervalMs: 60_000,
+    });
+    await service.start("/workspace");
+
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([{ role: "user", content: "live runtime" }]);
+    expect(readBranch).not.toHaveBeenCalled();
+
+    await service.dispose();
+  });
+
+  it("serves the runtime branch when its known transcript path is absent on disk", async () => {
+    const sessionId = "unpersisted-session";
+    const runtimeBranch = [{ type: "message", message: { role: "user", content: "in memory only" } }];
+    const fake = fakeRuntime(sessionId, {
+      sessionFile: `/sessions/${sessionId}.jsonl`,
+      sessionManager: fakeSessionManager("/workspace", {
+        getSessionId: () => sessionId,
+        getSessionFile: () => `/sessions/${sessionId}.jsonl`,
+        getBranch: () => runtimeBranch,
+      }),
+    });
+    const readBranch = vi.fn(() => Promise.resolve(undefined));
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: {
+        create: () => fakeSessionManager(),
+        list: () => Promise.resolve([]),
+        listAll: () => Promise.resolve([]),
+        resolveSessionFile: () => Promise.resolve(undefined),
+        readBranch,
+        open: () => fake.session.sessionManager,
+      },
+      heartbeatIntervalMs: 60_000,
+    });
+    await service.start("/workspace");
+
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([{ role: "user", content: "in memory only" }]);
+    await expect(service.status(sessionRef(sessionId))).resolves.toMatchObject({ sessionId, messageCount: 1 });
+    expect(readBranch).toHaveBeenCalledTimes(2);
+
+    await service.dispose();
+  });
+
+  it("throttles file resolution for file-less idle sessions and notices a later transcript", async () => {
+    const sessionId = "late-persisted-session";
+    const runtimeBranch = [{ type: "message", message: { role: "user", content: "in memory only" } }];
+    const diskBranch = [{ type: "message", message: { role: "user", content: "now on disk" } }];
+    const fake = fakeRuntime(sessionId, {
+      sessionFile: undefined,
+      sessionManager: fakeSessionManager("/workspace", {
+        getSessionId: () => sessionId,
+        getSessionFile: () => undefined,
+        getBranch: () => runtimeBranch,
+      }),
+    });
+    const resolution: { path: string | undefined } = { path: undefined };
+    const resolveSessionFile = vi.fn(() => Promise.resolve(
+      resolution.path === undefined ? undefined : { id: sessionId, cwd: "/workspace", path: resolution.path },
+    ));
+    const readBranch = vi.fn(() => Promise.resolve(diskBranch));
+    let nowMs = 1_000_000;
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: {
+        create: () => fakeSessionManager(),
+        list: () => Promise.resolve([]),
+        listAll: () => Promise.resolve([]),
+        resolveSessionFile,
+        readBranch,
+        open: () => fake.session.sessionManager,
+      },
+      heartbeatIntervalMs: 60_000,
+      now: () => new Date(nowMs),
+    });
+    await service.start("/workspace");
+
+    await service.messages(sessionRef(sessionId));
+    await service.status(sessionRef(sessionId));
+    await service.messages(sessionRef(sessionId));
+    await service.status(sessionRef(sessionId));
+    expect(resolveSessionFile).toHaveBeenCalledTimes(1);
+    expect(readBranch).not.toHaveBeenCalled();
+
+    resolution.path = `/sessions/${sessionId}.jsonl`;
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([{ role: "user", content: "in memory only" }]);
+    expect(resolveSessionFile).toHaveBeenCalledTimes(1);
+
+    nowMs += 30_000;
+    await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([{ role: "user", content: "now on disk" }]);
+    await service.messages(sessionRef(sessionId));
+    expect(resolveSessionFile).toHaveBeenCalledTimes(2);
+    expect(readBranch).toHaveBeenCalledTimes(2);
+    expect(readBranch).toHaveBeenCalledWith(resolution.path);
+
+    await service.dispose();
   });
 
   it("clears a failed pending open so the session can be retried", async () => {
@@ -335,7 +572,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
   });
 
   it("publishes extension errors reported while binding session extensions", async () => {
-    const hub = new CapturingSessionEventHub();
+    const hub = new ScopeCapturingSessionEventHub();
     const fake = fakeRuntime("extension-session", {
       bindExtensions: (bindings) => {
         bindings.onError?.({ extensionPath: "pi-mcp-adapter", event: "session_start", error: "MCP failed" });
@@ -355,8 +592,9 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     expect(hub.sessionEvents).toContainEqual({
       sessionId: "extension-session",
       event: { type: "session.error", message: "pi-mcp-adapter: MCP failed" },
+      scope: "normal",
     });
-    const extensionErrorActivity = hub.globalEvents.find((event) => event.type === "activity.update" && event.activity.sessionId === "extension-session");
+    const extensionErrorActivity = hub.globalEvents.find(({ event }) => event.type === "activity.update" && event.activity.sessionId === "extension-session")?.event;
     expect(extensionErrorActivity).toMatchObject({
       type: "activity.update",
       activity: { sessionId: "extension-session", phase: "error", label: "扩展错误", detail: "pi-mcp-adapter: MCP failed" },
@@ -649,7 +887,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
       });
       service = new PiSessionService(hub, {
         agentDir: TEST_AGENT_DIR,
-      modelRuntime: testModelRuntime,
+        modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(fake.runtime),
         sessionManager: sessionGateway([sessionRecord("idle-session")]),
         heartbeatIntervalMs: 1_000,
@@ -699,6 +937,55 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     expect(hub.globalEvents.filter((event) => event.type === "activity.update")).toMatchObject([
       { activity: { sessionId: "completion-session", phase: "idle", label: "工具执行完成", detail: "read" } },
     ]);
+
+    await service.dispose();
+  });
+
+  it("localizes realtime session activity events", async () => {
+    const hub = new CapturingSessionEventHub();
+    let listener: ((event: unknown) => void) | undefined;
+    const fake = fakeRuntime("response-session", {
+      subscribe: (next) => {
+        listener = next;
+        return () => undefined;
+      },
+    });
+    const service = new PiSessionService(hub, {
+      agentDir: TEST_AGENT_DIR,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("response-session")]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    await service.status(sessionRef("response-session"));
+    const cases = [
+      [{ type: "agent_start" }, "active", "代理正在运行"],
+      [{ type: "agent_end" }, "idle", "空闲"],
+      [{ type: "turn_end" }, "idle", "本轮已完成"],
+      [{ type: "message_start" }, "active", "消息开始处理"],
+      [{ type: "message_end" }, "idle", "消息处理完成"],
+      [{ type: "message_update" }, "active", "正在接收回复"],
+      [{ type: "tool_execution_start", toolName: "read" }, "active", "正在运行工具", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: false }, "idle", "工具执行完成", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: true }, "error", "工具执行失败", "read"],
+      [{ type: "bash_execution_start" }, "active", "正在运行命令"],
+      [{ type: "bash_execution_end" }, "idle", "命令执行完成"],
+    ] as const;
+
+    for (const [event, phase, label, detail] of cases) {
+      hub.globalEvents.length = 0;
+      listener?.(event);
+      const activity = hub.globalEvents.find((published) => published.type === "activity.update");
+      expect(activity).toMatchObject({
+        activity: { sessionId: "response-session", phase, label, ...(detail === undefined ? {} : { detail }) },
+      });
+    }
+
+    fake.session.isStreaming = true;
+    hub.globalEvents.length = 0;
+    listener?.({ type: "resource_update" });
+    const fallbackActivity = hub.globalEvents.find((event) => event.type === "activity.update");
+    expect(fallbackActivity).toMatchObject({ activity: { sessionId: "response-session", phase: "active", label: "正在处理" } });
 
     await service.dispose();
   });

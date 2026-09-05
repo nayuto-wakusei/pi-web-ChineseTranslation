@@ -69,6 +69,12 @@ describe("staged validation planning", () => {
     });
   });
 
+  it("adds the plugin public API test for shipped Pi packages", () => {
+    const plan = createValidationPlan(["pi-packages/relays/relayDiscovery.ts"], { pathExists: () => true });
+
+    expect(plan.tests.files).toContain("pi-web-plugins/pluginPublicApi.test.ts");
+  });
+
   it("runs only the affected full validator when its configuration changes", () => {
     const eslintPlan = createValidationPlan(["eslint.config.js"], { pathExists: () => true });
     expect(eslintPlan.lint).toEqual({ mode: "full", files: [] });

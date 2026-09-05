@@ -218,7 +218,7 @@ After changing plugin enablement, reload the PI WEB browser tab. Already-loaded 
 
 ## Built-in plugins
 
-PI WEB ships core, discoverable plugins in the main `@chainingintention/pi-web-cn` npm package. No separate `pi install` step is required: update PI WEB, reload the browser tab, and the bundled plugins appear in `/pi-web-plugins/manifest.json`.
+PI WEB ships core, discoverable plugins in the main `@chainingintention/pi-web-cn` npm package. Updates and Workspace Tasks are loaded directly from the PI WEB package. Relays is shipped as a real Pi package and installed automatically for the active agent profile, so it also requires no manual `pi install` step.
 
 Built-in plugins can be managed from **Settings → PI WEB plugins** or with the top-level `plugins` config key.
 
@@ -305,7 +305,9 @@ Documents in subfolders are listed too. Folders appear as chips in the document 
 
 With several relays, a picker pre-selects the most recently modified one; a single relay opens directly. A workspace without `.pi-web/relays/` shows an empty state explaining the convention. The tab never creates, edits, or deletes relay files.
 
-Relays is enabled by default. To hide it, disable `relays` in **Settings → PI WEB plugins** or set:
+Relays is shipped as the `@jmfederico/pi-relay` Pi package. On session-daemon startup, PI WEB installs the shipped package for the active agent profile when it is not already configured. This best-effort install never blocks daemon startup. Removing the package through **Settings → Pi packages** records that choice for the profile, so later startups do not add it back; the same panel offers a one-click install suggestion when you want it again.
+
+Once installed, the browser plugin is enabled by default. To hide its browser UI without removing the Pi package, disable `relays` in **Settings → PI WEB plugins** or set:
 
 ```json
 {
