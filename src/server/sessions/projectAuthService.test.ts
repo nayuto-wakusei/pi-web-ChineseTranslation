@@ -5,6 +5,8 @@ import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-ag
 import { afterEach, describe, expect, it } from "vitest";
 import type { Project } from "../types.js";
 import { ProjectAuthService, projectAuthStoragePaths } from "./projectAuthService.js";
+import { WorkspaceProviderRegistry } from "../workspaces/workspaceProviderRegistry.js";
+import { ProjectScopedSpawnTargetResolver } from "./spawnTargetResolver.js";
 
 const tempRoots: string[] = [];
 
@@ -13,6 +15,41 @@ afterEach(async () => {
 });
 
 describe("ProjectAuthService", () => {
+  it("resolves provider-owned workspaces consistently for auth and spawned sessions", async () => {
+    const root = await tempRoot();
+    const owner = project("provider-project", join(root, "project"));
+    const extraPath = join(root, "provider-workspace");
+    const projects = { list: () => Promise.resolve([owner]) };
+    const workspaces = new WorkspaceProviderRegistry({
+      logger: { warn() { /* no-op */ } },
+      pathInspector: () => true,
+      contributions: [{
+        pluginId: "test-provider", pluginName: "Test provider", packageRoot: root,
+        source: "test", scope: "user", moduleRevision: "test-revision",
+        provider: {
+          probe: () => Promise.resolve("claim"),
+          list: () => Promise.resolve([
+            { key: "main", path: owner.path, label: "Main", isMain: true },
+            { key: "extra", path: extraPath, label: "Extra", isMain: false },
+          ]),
+        },
+      }],
+    });
+    const auth = new ProjectAuthService({
+      projects, workspaces, dataDir: join(root, "data"), globalAgentDir: join(root, "global"),
+      createModelRuntime: offlineModelRuntime,
+    });
+    try {
+      expect((await workspaces.list(owner)).map((item) => item.path)).toContain(extraPath);
+      expect(await auth.forCwd(extraPath)).toBe(await auth.forProject(owner.id));
+      const spawn = new ProjectScopedSpawnTargetResolver({ projects, workspaces });
+      await expect(spawn.resolveSpawnTarget(owner.path, extraPath)).resolves.toEqual({ allowed: true, cwd: extraPath });
+      await expect(auth.forCwd(join(root, "outside"))).rejects.toThrow("已注册项目");
+    } finally {
+      await auth.dispose();
+    }
+  });
+
   it("copies the global files once and keeps project credentials isolated", async () => {
     const root = await tempRoot();
     const globalAgentDir = join(root, "global-agent");

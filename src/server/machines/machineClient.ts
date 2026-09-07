@@ -57,7 +57,7 @@ export class RemoteMachineClient implements MachineClient {
   constructor(private readonly machine: Pick<StoredMachine, "baseUrl" | "token" | "headers">, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async request(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineHttpResponse> {
-    const response = await this.fetchResponse(method, path, body, options);
+    const response = await this.withResponse(method, path, body, options, (response) => response);
     return {
       statusCode: response.status,
       headers: decodedResponseHeaders(response.headers),
@@ -66,14 +66,15 @@ export class RemoteMachineClient implements MachineClient {
   }
 
   async requestJson(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineJsonResponse> {
-    const response = await this.fetchResponse(method, path, body, options);
-    const text = await response.text();
-    const parsed: unknown = text === "" ? undefined : JSON.parse(text);
-    return {
-      statusCode: response.status,
-      headers: decodedResponseHeaders(response.headers),
-      body: parsed,
-    };
+    return await this.withResponse(method, path, body, options, async (response) => {
+      const text = await response.text();
+      const parsed: unknown = text === "" ? undefined : JSON.parse(text);
+      return {
+        statusCode: response.status,
+        headers: decodedResponseHeaders(response.headers),
+        body: parsed,
+      };
+    });
   }
 
   connectWebSocket(path: string): WebSocket {
@@ -82,7 +83,7 @@ export class RemoteMachineClient implements MachineClient {
     return new WebSocket(url, { headers: this.remoteHeaders() });
   }
 
-  private async fetchResponse(method: string, path: string, body: unknown, options: MachineRequestOptions): Promise<Response> {
+  private async withResponse<T>(method: string, path: string, body: unknown, options: MachineRequestOptions, consume: (response: Response) => T | Promise<T>): Promise<T> {
     const controller = new AbortController();
     const abortFromParent = (): void => {
       if (!controller.signal.aborted) controller.abort(abortReason(options.signal));
@@ -102,7 +103,8 @@ export class RemoteMachineClient implements MachineClient {
         redirect: "manual",
       };
       if (requestBody !== undefined) init.body = requestBody;
-      return await this.fetchImpl(this.remoteUrl(path), init);
+      const response = await this.fetchImpl(this.remoteUrl(path), init);
+      return await consume(response);
     } catch (error) {
       const reason: unknown = controller.signal.reason;
       if (reason instanceof RemoteMachineRequestError) throw reason;

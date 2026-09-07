@@ -18,6 +18,7 @@ export { SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES } from "
 export type SessionNotificationGeneration = symbol;
 
 export interface SessionNotificationMutation {
+  eventScope?: string;
   sessionId: string;
   inboxEvent: SessionNotificationInboxEvent;
   summaryEvent: SessionNotificationSummaryEvent;
@@ -71,6 +72,7 @@ interface GenerationBinding {
 }
 
 export interface SessionNotificationStoreOptions {
+  eventScope?: string;
   daemonInstanceId?: string;
   now?: () => Date;
 }
@@ -92,7 +94,7 @@ export class SessionNotificationStore {
   private catalogRevision = 0;
   private nextOrder = 0;
 
-  constructor(options: SessionNotificationStoreOptions = {}) {
+  constructor(private readonly options: SessionNotificationStoreOptions = {}) {
     this.daemonInstanceId = options.daemonInstanceId ?? randomUUID();
     this.now = options.now ?? (() => new Date());
   }
@@ -451,6 +453,7 @@ export class SessionNotificationStore {
     };
     return {
       sessionId: projection.sessionId,
+      ...(this.options.eventScope === undefined ? {} : { eventScope: this.options.eventScope }),
       inboxEvent: { type: "notifications.inbox", ...common, dismissThrough: dismissThrough(projection), delta },
       summaryEvent: { type: "notifications.summary", ...common },
     };

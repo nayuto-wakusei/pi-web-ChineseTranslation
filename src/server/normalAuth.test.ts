@@ -4,6 +4,7 @@ import { WebSocket, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes";
 import { NORMAL_AUTH_COOKIE, NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth";
+import type { ManagementEmbedRuntime } from "./managementEmbed";
 
 let app: FastifyInstance;
 let piWebConfig: PiWebConfigValues;
@@ -15,7 +16,7 @@ beforeEach(async () => {
   await initializeApp();
 });
 
-async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxTrackedAddresses: 100 }): Promise<void> {
+async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxTrackedAddresses: 100 }, managementEmbed?: ManagementEmbedRuntime): Promise<void> {
   app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
   const auth = new NormalModeAuthService({
@@ -26,7 +27,7 @@ async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxT
     },
   });
   const loginAttempts = registerNormalAuthRoutes(app, auth, { now: () => nowMs, rateLimit });
-  registerNormalModeAuthGate(app, auth, undefined, loginAttempts);
+  registerNormalModeAuthGate(app, auth, managementEmbed, loginAttempts);
   app.get("/api/protected", () => ({ ok: true }));
   app.get("/api/test-socket", { websocket: true }, (socket) => {
     socket.send("ready");
@@ -35,6 +36,47 @@ async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxT
 
 afterEach(async () => {
   await app.close();
+});
+
+describe("management auth route boundary", () => {
+  it("never uses management credentials or a concurrent normal login to authorize global APIs", async () => {
+    await app.close();
+    await initializeApp(undefined, {
+      enabled: true,
+      projectRoot: process.cwd(),
+      authenticate: () => Promise.resolve({ user: { id: "limited-user", rootUserId: "root", roles: [], permissions: [] }, projects: [] }),
+    });
+    app.get("/api/config", () => ({ secret: "normal configuration" }));
+    app.get("/api/machines/remote/projects", () => ({ secret: "remote projects" }));
+    app.get("/pi-web-plugins/manifest.json", () => ({ plugins: [] }));
+    expect((await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" })).statusCode).toBe(401);
+    const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "secret-pass" } });
+    const cookie = authCookie(setup);
+    for (const url of ["/api/config", "/api/machines/remote/projects", "/pi-web-plugins/manifest.json"]) {
+      expect((await app.inject({ method: "GET", url, headers: { cookie } })).statusCode).toBe(200);
+      expect((await app.inject({ method: "GET", url: `${url}?embed=management&token=launch-token`, headers: { cookie } })).statusCode).toBe(403);
+    }
+  });
+
+  it("keeps scoped management routes available through both local aliases", async () => {
+    await app.close();
+    await initializeApp(undefined, {
+      enabled: true,
+      projectRoot: process.cwd(),
+      authenticate: () => Promise.resolve({ user: { id: "limited-user", rootUserId: "root", roles: [], permissions: [] }, projects: [] }),
+    });
+    for (const prefix of ["/api", "/api/machines/local"]) {
+      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/status", "/activity"]) {
+        app.post(`${prefix}${path}`, () => ({ ok: true }));
+      }
+    }
+    for (const prefix of ["/api", "/api/machines/local"]) {
+      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/status", "/activity"]) {
+        const response = await app.inject({ method: "POST", url: `${prefix}${path}?embed=management&token=launch-token`, payload: {} });
+        expect(response.statusCode, `${prefix}${path}`).toBe(200);
+      }
+    }
+  });
 });
 
 describe("normal mode auth websocket gate", () => {

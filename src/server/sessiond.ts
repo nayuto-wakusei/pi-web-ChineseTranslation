@@ -22,7 +22,6 @@ import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
 import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
 import { ProjectService } from "./projects/projectService.js";
 import { ProjectStore } from "./storage/projectStore.js";
-import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
 import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
@@ -108,7 +107,6 @@ await runSessionDaemonStartup({
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore());
-    const workspaces = new WorkspaceService();
     const serverPlugins = await createServerPluginRuntime({
       catalog: serverPluginCatalog,
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
@@ -126,7 +124,7 @@ await runSessionDaemonStartup({
       serverPlugins.safeStartLevel(),
       serverPlugins.catalogDiagnostics(),
     );
-    const projectAuth = new ProjectAuthService({ projects, workspaces });
+    const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders });
     const managementAuth = await AuthService.create({
       agentDir: join(piWebDataDir(), "management-embed"),
     });
@@ -196,7 +194,7 @@ await runSessionDaemonStartup({
       );
     };
     const spawnTargets = config.spawnSessions
-      ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces })
+      ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders })
       : undefined;
     const sessions = new PiSessionService(eventHub, {
       modelRuntime: managementAuth.modelRuntime,

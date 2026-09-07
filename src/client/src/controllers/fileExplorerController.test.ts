@@ -218,6 +218,102 @@ describe("FileExplorerController file request lifecycle", () => {
   });
 });
 
+describe("FileExplorerController tree request lifecycle", () => {
+  const selectionChanges: [string, Partial<AppState>][] = [
+    ["machine", { selectedMachine: { ...machine, id: "remote-2" } }],
+    ["project", { selectedProject: { ...project, id: "project-2" } }],
+    ["workspace", { selectedWorkspace: { ...workspace, id: "workspace-2" } }],
+  ];
+
+  it.each(selectionChanges)("ignores old root responses after switching %s", async (_name, patch) => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const loading = harness.controller.refreshFiles();
+    harness.patchState({ ...patch, expandedDirs: { current: [] }, error: "current error", fileTreeStale: true });
+    requests.request(0).resolve(treeResponse("", [{ name: "old", path: "old", type: "file" }]));
+    await loading;
+
+    expect(requests.fn).toHaveBeenCalledTimes(1);
+    expect(harness.state.fileTree).toEqual([]);
+    expect(harness.state.expandedDirs).toEqual({ current: [] });
+    expect(harness.state.fileTreeStale).toBe(true);
+    expect(harness.state.error).toBe("current error");
+  });
+
+  it.each(selectionChanges)("ignores old directory responses after switching %s", async (_name, patch) => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const loading = harness.controller.expandDir("src");
+    harness.patchState({ ...patch, expandedDirs: { current: [] } });
+    requests.request(0).resolve(treeResponse("src"));
+    await loading;
+    expect(harness.state.expandedDirs).toEqual({ current: [] });
+  });
+
+  it.each(["root", "directory"])("ignores a stale %s error", async (kind) => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const loading = kind === "root" ? harness.controller.refreshFiles() : harness.controller.expandDir("src");
+    harness.patchState({ selectedWorkspace: { ...workspace, id: "workspace-2" }, error: "current error" });
+    requests.request(0).reject(new Error("old error"));
+    await loading;
+    expect(harness.state.error).toBe("current error");
+  });
+
+  it("checks workspace identity again after expanded directories finish", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } }, { expandedDirs: { src: [] } });
+    const loading = harness.controller.refreshFiles();
+    requests.request(0).resolve(treeResponse(""));
+    await Promise.resolve();
+    harness.patchState({ selectedWorkspace: { ...workspace, id: "workspace-2" }, expandedDirs: {} });
+    requests.request(1).resolve(treeResponse("src"));
+    await loading;
+    expect(harness.state.expandedDirs).toEqual({});
+  });
+
+  it("does not overwrite a newer refresh of the same workspace", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const first = harness.controller.refreshFiles();
+    const latest = harness.controller.refreshFiles();
+    const entries: FileTreeEntry[] = [{ name: "latest", path: "latest", type: "file" }];
+    requests.request(1).resolve(treeResponse("", entries));
+    await latest;
+    requests.request(0).resolve(treeResponse(""));
+    await first;
+    expect(harness.state.fileTree).toEqual(entries);
+  });
+
+  it("preserves directory collapses and new expansions during refresh", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } }, { expandedDirs: { src: [] } });
+    const loading = harness.controller.refreshFiles();
+    requests.request(0).resolve(treeResponse(""));
+    await Promise.resolve();
+    await harness.controller.expandDir("src");
+    const expansion = harness.controller.expandDir("new");
+    requests.request(2).resolve(treeResponse("new"));
+    await expansion;
+    requests.request(1).resolve(treeResponse("src"));
+    await loading;
+    expect(harness.state.expandedDirs).toEqual({ new: [] });
+  });
+
+  it("ignores an older pending expansion after a newer one is collapsed", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const first = harness.controller.expandDir("src");
+    const latest = harness.controller.expandDir("src");
+    requests.request(1).resolve(treeResponse("src"));
+    await latest;
+    await harness.controller.expandDir("src");
+    requests.request(0).resolve(treeResponse("src"));
+    await first;
+    expect(harness.state.expandedDirs).toEqual({});
+  });
+});
+
 describe("FileExplorerController workspace uploads", () => {
   it("tracks upload progress, completes from final responses, refreshes files, and selects the first uploaded file", async () => {
     const upload = controllableUpload();
@@ -465,6 +561,21 @@ function deferredWorkspaceFiles() {
     request: (index: number) => {
       const request = requests[index];
       if (request === undefined) throw new Error(`Missing deferred workspace file request ${String(index)}`);
+      return request;
+    },
+  };
+}
+
+function deferredWorkspaceTrees() {
+  const requests: { resolve: (response: FileTreeResponse) => void; reject: (error: unknown) => void }[] = [];
+  const fn = vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceTree"]>(() => new Promise<FileTreeResponse>((resolve, reject) => {
+    requests.push({ resolve, reject });
+  }));
+  return {
+    fn,
+    request: (index: number) => {
+      const request = requests[index];
+      if (request === undefined) throw new Error(`Missing deferred workspace tree request ${String(index)}`);
       return request;
     },
   };

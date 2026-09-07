@@ -376,16 +376,28 @@ export class SessionController {
     const session = state.selectedSession;
     if (!session || state.isLoadingEarlierMessages || state.messagePageStart <= 0) return;
     const machineId = selectedMachineId(state);
+    const selectionSeq = this.selectionSeq;
+    const transcriptKey = machineSessionKey(machineId, session.id);
+    const isCurrent = () => {
+      const current = this.getState();
+      return !this.disposed && selectionSeq === this.selectionSeq
+        && selectedMachineId(current) === machineId
+        && current.selectedSession?.id === session.id
+        && current.selectedSession.cwd === session.cwd
+        && current.selectedSession.path === session.path
+        && current.selectedSession.archived === session.archived;
+    };
     this.setState({ isLoadingEarlierMessages: true });
     try {
       const page = await this.api.messages(session, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE }, machineId);
-      if (this.getState().selectedSession?.id !== session.id) return;
-      const history = this.transcripts.mergeHistory(this.sessionCacheKey(session.id), page);
+      if (!isCurrent()) return;
+      const history = this.transcripts.mergeHistory(transcriptKey, page);
       this.setState(history);
     } catch (error) {
+      if (!isCurrent()) return;
       this.reportSessionError(session, machineId, error);
     } finally {
-      if (this.getState().selectedSession?.id === session.id) this.setState({ isLoadingEarlierMessages: false });
+      if (isCurrent()) this.setState({ isLoadingEarlierMessages: false });
     }
   }
 
@@ -562,7 +574,8 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     this.setState({ commandDialog: undefined });
     try {
-      this.applyCommandResult(await this.api.respondToCommand(session, requestId, value, machineId));
+      const result = await this.api.respondToCommand(session, requestId, value, machineId);
+      if (this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
     } catch (error) {
       this.reportSessionError(session, machineId, error);
     }

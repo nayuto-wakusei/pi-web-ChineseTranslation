@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills } from "./piSessionService.js";
-import { ensureManagedRelaySkill } from "./relaySkill.js";
+import { ensureManagedRelaySkills } from "./relaySkill.js";
 
 describe("filterManagedGlobalContextFiles", () => {
   it("removes global agent context files while keeping project context files", () => {
@@ -88,23 +88,25 @@ describe("filterManagedProjectSkills", () => {
   });
 });
 
-describe("ensureManagedRelaySkill", () => {
-  it("adds the bundled relay skill when the project does not have one", async () => {
+describe("ensureManagedRelaySkills", () => {
+  it("adds both bundled Relay skills when the project does not have them", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
     const cwd = join(root, "project");
-    const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
+    const bundledSkillsDirectory = join(root, "bundled-skills");
 
     try {
-      await Promise.all([
-        mkdir(cwd, { recursive: true }),
-        mkdir(dirname(bundledSkillPath), { recursive: true }),
-      ]);
-      await writeFile(bundledSkillPath, "bundled relay");
+      await mkdir(cwd);
+      for (const name of ["relay", "relay-runner"]) {
+        await mkdir(join(bundledSkillsDirectory, name), { recursive: true });
+        await writeFile(join(bundledSkillsDirectory, name, "SKILL.md"), `bundled ${name}`);
+      }
 
-      const skillPath = await ensureManagedRelaySkill(cwd, bundledSkillPath);
+      const skillPaths = await ensureManagedRelaySkills(cwd, bundledSkillsDirectory);
 
-      expect(skillPath).toBe(join(cwd, ".pi", "skills", "relay", "SKILL.md"));
-      await expect(readFile(skillPath, "utf8")).resolves.toBe("bundled relay");
+      expect(skillPaths).toEqual(["relay", "relay-runner"].map((name) => join(cwd, ".pi", "skills", name, "SKILL.md")));
+      for (const name of ["relay", "relay-runner"]) {
+        await expect(readFile(join(cwd, ".pi", "skills", name, "SKILL.md"), "utf8")).resolves.toBe(`bundled ${name}`);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -113,17 +115,19 @@ describe("ensureManagedRelaySkill", () => {
   it("replaces an existing project relay skill with the current bundled version", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
     const cwd = join(root, "project");
-    const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
+    const bundledSkillPath = join(root, "bundled-skills", "relay", "SKILL.md");
+    const bundledRunnerPath = join(root, "bundled-skills", "relay-runner", "SKILL.md");
     const projectSkillPath = join(cwd, ".pi", "skills", "relay", "SKILL.md");
 
     try {
-      await Promise.all([dirname(projectSkillPath), dirname(bundledSkillPath)].map((directory) => mkdir(directory, { recursive: true })));
+      await Promise.all([dirname(projectSkillPath), dirname(bundledSkillPath), dirname(bundledRunnerPath)].map((directory) => mkdir(directory, { recursive: true })));
       await Promise.all([
         writeFile(projectSkillPath, "project relay"),
         writeFile(bundledSkillPath, "bundled relay"),
+        writeFile(bundledRunnerPath, "bundled runner"),
       ]);
 
-      await ensureManagedRelaySkill(cwd, bundledSkillPath);
+      await ensureManagedRelaySkills(cwd, join(root, "bundled-skills"));
 
       await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("bundled relay");
     } finally {
@@ -144,7 +148,7 @@ describe("ensureManagedRelaySkill", () => {
         writeFile(bundledSkillPath, "bundled relay"),
       ]);
 
-      await expect(ensureManagedRelaySkill(cwd, bundledSkillPath)).rejects.toThrow("Managed skill path is invalid");
+      await expect(ensureManagedRelaySkills(cwd)).rejects.toThrow("Managed skill path is invalid");
       await expect(readFile(join(outside, "skills", "relay", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -153,24 +157,26 @@ describe("ensureManagedRelaySkill", () => {
 });
 
 describe("filterManagedWorkbenchSkills", () => {
-  it("keeps the project relay skill alongside Workbench-authorized skills", async () => {
+  it("keeps both project Relay skills alongside Workbench-authorized skills", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-workbench-skills-"));
     const cwd = join(root, "project");
     const relayPath = join(cwd, ".pi", "skills", "relay", "SKILL.md");
+    const runnerPath = join(cwd, ".pi", "skills", "relay-runner", "SKILL.md");
     const authorizedPath = join(cwd, ".pi", "skills", "workbench-approved", "SKILL.md");
     const otherPath = join(cwd, ".pi", "skills", "other", "SKILL.md");
 
     try {
-      await Promise.all([relayPath, authorizedPath, otherPath].map(async (filePath) => {
+      await Promise.all([relayPath, runnerPath, authorizedPath, otherPath].map(async (filePath) => {
         await mkdir(dirname(filePath), { recursive: true });
         await writeFile(filePath, "skill");
       }));
       const relay = testSkill("relay", relayPath, "project");
+      const runner = testSkill("relay-runner", runnerPath, "project");
       const authorized = testSkill("approved", authorizedPath, "project");
       const other = testSkill("other", otherPath, "project");
 
       const result = filterManagedWorkbenchSkills(cwd, {
-        skills: [relay, authorized, other],
+        skills: [relay, runner, authorized, other],
         diagnostics: [
           {
             type: "collision",
@@ -184,7 +190,7 @@ describe("filterManagedWorkbenchSkills", () => {
         skills: [{ name: "approved", version: "1", directory: "workbench-approved", contentSha256: "hash", files: [], degradedCapabilities: [] }],
       });
 
-      expect(result.skills).toEqual([relay, authorized]);
+      expect(result.skills).toEqual([relay, runner, authorized]);
       expect(result.diagnostics).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });

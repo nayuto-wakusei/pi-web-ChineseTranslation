@@ -380,10 +380,12 @@ describe("buildApp", () => {
         projects: [{ id: "p1", name: "Managed Project" }],
       }),
     };
+    const managedMachinesService = new MachineService(new MachineStore(join(tempDir, "managed-machines.json")));
+    await managedMachinesService.add({ name: "Private Remote", baseUrl: "https://remote.example.test" });
     app = await buildApp({
       projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json"))),
       workspaces: new WorkspaceService(),
-      machines: new MachineService(new MachineStore(join(tempDir, "managed-machines.json"))),
+      machines: managedMachinesService,
       sessionDaemon: fakeSessionDaemon(),
       config: fakeConfigService(),
       piWebPlugins: {
@@ -396,6 +398,18 @@ describe("buildApp", () => {
       logger: false,
     });
     const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token" };
+
+    for (const url of ["/api/config", "/api/machines/local/config", "/api/plugins", "/api/machines/local/plugins", "/api/pi-web/status", "/api/machines/remote/projects", "/pi-web-plugins/manifest.json", "/api/machines/remote/pi-web-plugins/manifest.json"]) {
+      expect((await app.inject({ method: "GET", url, headers })).statusCode, url).toBe(403);
+    }
+    for (const prefix of ["/api", "/api/machines/local"]) {
+      expect((await app.inject({ method: "PUT", url: `${prefix}/config`, payload: { config: {} }, headers })).statusCode).toBe(403);
+      expect((await app.inject({ method: "POST", url: `${prefix}/pi-packages/install`, payload: { source: "npm:untrusted" }, headers })).statusCode).toBe(403);
+    }
+    expect((await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "http://remote.invalid" }, headers })).statusCode).toBe(403);
+    const managedMachines = await app.inject({ method: "GET", url: "/api/machines", headers });
+    expect(managedMachines.statusCode).toBe(200);
+    expect(managedMachines.json<{ machines: { id: string }[] }>().machines.map((machine) => machine.id)).toEqual(["local"]);
 
     const ordinaryProjectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: "" } });
     const projectsResponse = await app.inject({ method: "GET", url: "/api/projects", headers });
@@ -629,7 +643,7 @@ function installDefaultAuthCookie(target: FastifyInstance, cookie: string): void
 function withDefaultAuthCookie(options: InjectOptions | string, cookie: string): InjectOptions | string {
   if (typeof options === "string") return options;
   const url = typeof options.url === "string" ? options.url : "";
-  if (!url.startsWith("/api/") || url.startsWith("/api/normal-auth/")) return options;
+  if ((!url.startsWith("/api/") && url !== "/pi-web-plugins/manifest.json") || url.startsWith("/api/normal-auth/")) return options;
   const headers = options.headers ?? {};
   if (headers.cookie !== undefined) return options;
   return { ...options, headers: { ...headers, cookie } };

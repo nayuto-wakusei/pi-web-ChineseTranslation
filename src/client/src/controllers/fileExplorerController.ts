@@ -23,11 +23,14 @@ const FILES_ROUTE_NAMESPACE = queryNamespace("core:workspace.files");
 type FileExplorerApi = Pick<typeof defaultApi, "workspaceFile" | "workspaceTree" | "createWorkspaceFile" | "createWorkspaceDirectory" | "moveWorkspaceFile" | "moveWorkspaceDirectory" | "deleteWorkspaceFile" | "deleteWorkspaceDirectory" | "downloadWorkspaceFile">;
 type UploadWorkspaceFiles = typeof defaultUploadWorkspaceFiles;
 
-interface FileRequestIdentity {
-  generation: number;
+interface WorkspaceRequestIdentity {
   machineId: string;
   projectId: string;
   workspaceId: string;
+}
+
+interface FileRequestIdentity extends WorkspaceRequestIdentity {
+  generation: number;
   path: string;
 }
 
@@ -58,6 +61,9 @@ export class FileExplorerController {
   private readonly uploadTasks = new Map<string, WorkspaceUploadTask<WriteWorkspaceFileResponse[]>>();
   private uploadBatchSequence = 0;
   private fileRequestGeneration = 0;
+  private treeRequestGeneration = 0;
+  private directoryRequestSequence = 0;
+  private readonly directoryRequestGeneration = new Map<string, number>();
 
   constructor(
     private readonly getState: GetState,
@@ -75,42 +81,73 @@ export class FileExplorerController {
   }
 
   async refreshFiles(): Promise<void> {
-    const project = this.getState().selectedProject;
-    const workspace = this.getState().selectedWorkspace;
+    const state = this.getState();
+    const project = state.selectedProject;
+    const workspace = state.selectedWorkspace;
     if (project === undefined || workspace === undefined) return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(state) };
+    const generation = ++this.treeRequestGeneration;
+    const expandedDirs = state.expandedDirs;
+    const isCurrent = () => generation === this.treeRequestGeneration && this.isCurrentWorkspace(request);
     try {
-      const machineId = selectedMachineId(this.getState());
+      const machineId = request.machineId;
       const root = await this.api.workspaceTree(project.id, workspace.id, "", machineId);
-      const expandedEntries = await Promise.all(Object.keys(this.getState().expandedDirs).map(async (path) => {
+      if (!isCurrent()) return;
+      const expandedEntries = await Promise.all(Object.keys(expandedDirs).map(async (path) => {
         try {
           const response = await this.api.workspaceTree(project.id, workspace.id, path, machineId);
           return [path, response.entries] as const;
         } catch (error) {
-          if (isUnavailableFileError(error)) return undefined;
+          if (isUnavailableFileError(error)) return [path, undefined] as const;
           throw error;
         }
       }));
-      const expanded = Object.fromEntries(expandedEntries.filter((entry) => entry !== undefined));
+      if (!isCurrent()) return;
+      let expanded = { ...this.getState().expandedDirs };
+      for (const [path, entries] of expandedEntries) {
+        // Keep expansions and collapses made while the refresh was in flight.
+        if (expanded[path] !== expandedDirs[path]) continue;
+        if (entries === undefined) expanded = omitKey(expanded, path);
+        else expanded[path] = entries;
+      }
       this.setState({ fileTree: root.entries, expandedDirs: expanded, fileTreeStale: false, error: "" });
     } catch (error) {
+      if (!isCurrent()) return;
       this.setState({ error: String(error) });
     }
   }
 
   async expandDir(path: string): Promise<void> {
-    const project = this.getState().selectedProject;
-    const workspace = this.getState().selectedWorkspace;
+    const state = this.getState();
+    const project = state.selectedProject;
+    const workspace = state.selectedWorkspace;
     if (project === undefined || workspace === undefined) return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(state) };
+    const generation = ++this.directoryRequestSequence;
+    this.directoryRequestGeneration.set(path, generation);
+    const isCurrent = () => this.directoryRequestGeneration.get(path) === generation && this.isCurrentWorkspace(request);
     if (this.getState().expandedDirs[path] !== undefined) {
+      this.directoryRequestGeneration.delete(path);
       this.setState({ expandedDirs: omitKey(this.getState().expandedDirs, path) });
       return;
     }
     try {
-      const response = await this.api.workspaceTree(project.id, workspace.id, path, selectedMachineId(this.getState()));
+      const response = await this.api.workspaceTree(project.id, workspace.id, path, request.machineId);
+      if (!isCurrent()) return;
       this.setState({ expandedDirs: { ...this.getState().expandedDirs, [path]: response.entries }, error: "" });
     } catch (error) {
+      if (!isCurrent()) return;
       this.setState({ error: String(error) });
+    } finally {
+      if (this.directoryRequestGeneration.get(path) === generation) this.directoryRequestGeneration.delete(path);
     }
+  }
+
+  private isCurrentWorkspace(request: WorkspaceRequestIdentity): boolean {
+    const state = this.getState();
+    return state.selectedProject?.id === request.projectId
+      && state.selectedWorkspace?.id === request.workspaceId
+      && selectedMachineId(state) === request.machineId;
   }
 
   async selectFile(path: string): Promise<void> {

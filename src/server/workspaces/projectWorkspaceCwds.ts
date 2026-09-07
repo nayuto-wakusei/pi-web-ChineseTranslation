@@ -1,4 +1,4 @@
-import type { Project, Workspace } from "../types.js";
+import type { Project } from "../types.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 
 interface ProjectLister {
@@ -6,7 +6,7 @@ interface ProjectLister {
 }
 
 interface WorkspaceLister {
-  list(project: Project): Promise<Workspace[]>;
+  list(project: Project): Promise<{ path: string }[]>;
 }
 
 export interface ProjectWorkspaceCwdsDeps {

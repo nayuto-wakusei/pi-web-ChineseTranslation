@@ -60,12 +60,12 @@ export interface SessionRouteService {
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   streamSnapshot(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot>;
-  notificationCatalog(): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;
-  unreadCatalog(): Promise<SessionUnreadCatalogSnapshot>;
-  acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest): Promise<SessionUnreadCatalogSnapshot>;
-  notificationInbox(ref: SessionRouteRef): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
-  dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
-  dismissAllNotifications(ref: SessionRouteRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
+  notificationCatalog(context?: ManagementEmbedContext): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;
+  unreadCatalog(context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
+  acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
+  notificationInbox(ref: SessionRouteRef, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
+  dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
+  dismissAllNotifications(ref: SessionRouteRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
   cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
@@ -85,7 +85,7 @@ export interface SessionRouteService {
   prompt(ref: SessionRouteLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, options?: { managementContext?: ManagementEmbedContext }): Promise<void>;
   saveAttachments(ref: SessionRouteLookup, attachments: unknown, folder?: string, managementContext?: ManagementEmbedContext): Promise<SavedPromptAttachment[]>;
   cleanupPreview(request: NormalizedSessionCleanupRequest): Promise<ClientSessionCleanupPreviewResponse>;
-  cleanup(request: NormalizedSessionCleanupRequest): Promise<ClientSessionCleanupExecuteResponse>;
+  cleanup(request: NormalizedSessionCleanupRequest, context?: ManagementEmbedContext): Promise<ClientSessionCleanupExecuteResponse>;
   archiveMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkArchiveResponse>;
   deleteArchivedMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkDeleteArchivedResponse>;
   shell(ref: SessionRouteLookup, text: string, managementContext?: ManagementEmbedContext): Promise<void>;

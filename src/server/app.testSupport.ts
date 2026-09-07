@@ -171,7 +171,7 @@ function installDefaultAuthCookie(target: FastifyInstance, cookie: string): void
 function withDefaultAuthCookie(options: InjectOptions | string, cookie: string): InjectOptions | string {
   if (typeof options === "string") return options;
   const url = typeof options.url === "string" ? options.url : "";
-  if (!url.startsWith("/api/") || url.startsWith("/api/normal-auth/")) return options;
+  if ((!url.startsWith("/api/") && url !== "/pi-web-plugins/manifest.json") || url.startsWith("/api/normal-auth/")) return options;
   const headers = options.headers ?? {};
   if (headers.cookie !== undefined) return options;
   return { ...options, headers: { ...headers, cookie } };

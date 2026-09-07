@@ -218,7 +218,12 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
     if (!requiresNormalAuth(request)) return;
     if (isManagementRequest(request)) {
       try {
-        if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return;
+        if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) {
+          if (!allowsManagementRequest(request)) {
+            await reply.code(403).send({ error: "管理嵌入模式不允许访问此接口" });
+          }
+          return;
+        }
       } catch (error) {
         await reply.code(401).send({ error: errorMessage(error) });
         return;
@@ -245,7 +250,20 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
 
 function requiresNormalAuth(request: FastifyRequest): boolean {
   const pathname = new URL(request.url, "http://pi-web.local").pathname;
-  return pathname.startsWith("/api/") && !pathname.startsWith("/api/normal-auth/");
+  return pathname === "/pi-web-plugins/manifest.json"
+    || (pathname.startsWith("/api/") && !pathname.startsWith("/api/normal-auth/"));
+}
+
+function allowsManagementRequest(request: FastifyRequest): boolean {
+  const pathname = new URL(request.url, "http://pi-web.local").pathname;
+  if (pathname === "/api/machines") return request.method === "GET" || request.method === "HEAD";
+  if (/^\/api\/machines\/local(?:\/(?:health|runtime))?$/u.test(pathname)) {
+    return request.method === "GET" || request.method === "HEAD";
+  }
+  const path = pathname.startsWith("/api/machines/local/") ? pathname.slice("/api/machines/local".length) : pathname.slice("/api".length);
+  // Only local APIs that preserve management context may bypass normal auth.
+  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|terminal-command-runs)(?:\/|$)/u.test(path)
+    || /^\/sessiond\/(?:health|runtime)$/u.test(path);
 }
 
 function isManagementRequest(request: FastifyRequest): boolean {

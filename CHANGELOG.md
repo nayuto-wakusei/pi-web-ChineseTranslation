@@ -1,5 +1,21 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.3
+
+### Patch Changes
+
+- Restrict management credentials to scoped APIs and validate session workspace access consistently. Prevent workspace uploads from following dangling links outside the workspace.
+
+  Preserve streamed messages when detaching a parent session, serialize concurrent Workbench Skill synchronization, avoid Windows file-lock conflicts during concurrent Relay template updates, and recognize provider-owned workspaces for project credentials and spawned sessions.
+
+  Ignore stale file-tree, Git diff, and history-page responses after navigation. Keep remote JSON request deadlines active until the response body is consumed.
+
+- Provision and refresh both Relay skills for management sessions, including relay-runner. Keep both available with Workbench authorization while leaving normal-mode project skills untouched and preserving unrelated collision warnings.
+- Isolate unread completion state and notification inboxes between normal mode and each management context, including catalog reads, acknowledgements, dismissals, runtime replacement, cleanup, and realtime events. Preserve unread state after a managed runtime closes without exposing it to other users.
+- 修复 /model 和 /scoped-models 无法打开模型选择界面，以及 /fork 的迟到响应干扰其他会话的问题。
+- 修复执行 /tree 后会话树弹窗无法显示的问题。
+- 升级静态资源服务及相关间接依赖，保持 Pi SDK 版本不变。
+
 ## 1.202609.2
 
 ### Patch Changes

@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
@@ -58,7 +58,7 @@ import { searchSessionContent } from "./sessionContentSearch.js";
 
 import { createLocalOnlyModelRuntime, type AuthChange } from "./authService.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
-import { readSessionHeaderSummary } from "./sessionFileHeader.js";
+import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
@@ -76,7 +76,7 @@ import { createManagedAgentToolOptions, createManagedPythonToolDefinition } from
 import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 import { SessionNotificationStore, type SessionNotificationGeneration, type SessionNotificationMutation } from "./sessionNotificationStore.js";
 import { plainTextTheme } from "./plainTextTheme.js";
-import { deduplicateBundledRelaySkill, ensureManagedRelaySkill, MANAGED_RELAY_SKILL_DIRECTORY } from "./relaySkill.js";
+import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, MANAGED_RELAY_SKILL_NAMES } from "./relaySkill.js";
 import { SessionUnreadStore, type SessionUnreadMutation } from "./sessionUnreadStore.js";
 import {
   archiveCandidateFromActiveSession,
@@ -578,7 +578,7 @@ export function filterManagedProjectSkills(cwd: string, base: SkillCollectionRes
 export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
   const allowedDirectories = new Set([
-    resolve(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY),
+    ...MANAGED_RELAY_SKILL_NAMES.map((name) => resolve(projectRoot, ".pi", "skills", name)),
     ...receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)),
   ]);
   const pathAllowed = (path: string) => [...allowedDirectories].some((directory) => pathInsideRealDirectory(directory, path));
@@ -886,7 +886,7 @@ function createDefaultRuntimeFactory(
     });
     const resourceLoaderOptions = {
       ...piWebResourceLoaderOptions(appendSystemPromptSections),
-      skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkill(cwd, base),
+      skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     };
     const services = await createAgentSessionServices({
       cwd,
@@ -929,7 +929,7 @@ function createManagementRuntimeFactory(
   managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
-    await ensureManagedRelaySkill(cwd);
+    await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
     const state = workbench === undefined ? undefined : workbench.accessStates.require(accessHandle);
@@ -1216,6 +1216,9 @@ export class PiSessionService {
   private readonly managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined;
   private readonly now: () => Date;
   private readonly notificationStore: SessionNotificationStore;
+  private readonly scopedNotificationStores = new Map<string, SessionNotificationStore>();
+  private readonly scopedUnreadStores = new Map<string, SessionUnreadStore>();
+  private readonly sessionEventScopes = new WeakMap<PiAgentSession, string>();
   private readonly notificationGenerationBySession = new WeakMap<PiAgentSession, SessionNotificationGeneration>();
   private readonly idleSessionFileResolutions = new WeakMap<PiAgentSession, { at: number; path: string | undefined }>();
   private readonly unreadStore: SessionUnreadStore;
@@ -1353,7 +1356,8 @@ export class PiSessionService {
     return previewResponseFromPlan(await this.cleanupPlan(request));
   }
 
-  async cleanup(request: NormalizedSessionCleanupRequest): Promise<ClientSessionCleanupExecuteResponse> {
+  async cleanup(request: NormalizedSessionCleanupRequest, context?: ManagementEmbedContext): Promise<ClientSessionCleanupExecuteResponse> {
+    const scope = eventScopeFromManagementContext(context);
     const plan = await this.cleanupPlan(request);
     if (plan.deleteRecords.length > 0 && this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
 
@@ -1368,25 +1372,25 @@ export class PiSessionService {
         skippedBusySessionIds.add(input.sessionId);
         continue;
       }
-      await this.closeActive(input.sessionId, { kind: "clear", reason: "archive" });
+      await this.closeActive(input.sessionId, { kind: "clear", reason: "archive" }, scope);
       readyArchiveInputs.push(input);
     }
     await this.archiveStoreArchiveMany(readyArchiveInputs);
     archiveInputs.push(...readyArchiveInputs);
-    await this.forgetUnreadSessions(readyArchiveInputs);
+    await this.forgetUnreadSessions(readyArchiveInputs, scope);
 
     for (const record of plan.deleteRecords) {
       if (this.activeSessionHasWork(record.sessionId)) {
         skippedBusySessionIds.add(record.sessionId);
         continue;
       }
-      await this.closeActive(record.sessionId, { kind: "clear", reason: "delete" });
+      await this.closeActive(record.sessionId, { kind: "clear", reason: "delete" }, scope);
       readyDeleteRecords.push(record);
     }
     await this.ensureArchivedRecordsMoved(readyDeleteRecords);
     const deletedSessionIds = new Set(await this.archiveStoreDeleteArchivedMany(readyDeleteRecords.map((record) => record.sessionId)));
     deleteRecords.push(...readyDeleteRecords.filter((record) => deletedSessionIds.has(record.sessionId)));
-    await this.forgetUnreadSessions(deleteRecords);
+    await this.forgetUnreadSessions(deleteRecords, scope);
 
     return summarizeSessionCleanupExecution({
       archiveInputs,
@@ -1425,6 +1429,7 @@ export class PiSessionService {
     this.subsessionHydratedParents.clear();
     this.subsessionNotifyArmed.clear();
     this.notificationStore.clearAll("service-dispose");
+    for (const store of this.scopedNotificationStores.values()) store.clearAll("service-dispose");
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
       this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd(), active.eventScope);
@@ -1490,13 +1495,13 @@ export class PiSessionService {
     );
     const archivedById = new Map(archivedForCwd.map((record) => [record.sessionId, record]));
     for (const record of archivedForCwd) {
-      this.publishNotificationMutations(this.notificationStore.clearSession(record.sessionId, "archive-reconcile"));
+      this.publishNotificationMutations(this.notificationsForScope(eventScopeFromManagementContext(managementContext)).clearSession(record.sessionId, "archive-reconcile"));
     }
     const unarchivedSessions = sessions.filter((session) => !archivedById.has(session.id)).map(clientSessionFromListEntry);
     const reconcilableSessionIds = this.reconcilableSessionIds(cwd, unarchivedSessions.map((session) => session.id), archivedById);
     this.workspaceActivity?.reconcileSessionActivity(cwd, reconcilableSessionIds, eventScopeFromManagementContext(managementContext));
     if (managementContext === undefined) {
-      await this.publishUnreadMutations(this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), reconcilableSessionIds));
+      await this.publishUnreadMutations(this.unreadForScope(eventScopeFromManagementContext(managementContext)).reconcileCwd(canonicalizeStoredCwd(cwd), reconcilableSessionIds));
     }
     const archivedSessions = archivedForCwd
       .sort(compareArchivedRecords)
@@ -1627,7 +1632,7 @@ export class PiSessionService {
       ...(parentSessionFile === undefined ? {} : { parentSessionFile }),
       cwd: decision.cwd,
     };
-    await this.registerVerifiedSubsession(link);
+    await this.registerVerifiedSubsession(link, eventScopeFromManagementContext(input.managementContext));
     this.persistSubsessionLink(link);
     this.persistSubsessionChildMarker(input.parentSessionId, created.id);
     await this.prompt(created.id, input.prompt, undefined, undefined, {
@@ -2033,7 +2038,7 @@ export class PiSessionService {
     return sessionFileMatches(session, link.childSessionFile) ? link : undefined;
   }
 
-  private async registerVerifiedSubsession(link: TrackedSubsessionLink): Promise<void> {
+  private async registerVerifiedSubsession(link: TrackedSubsessionLink, scope = NORMAL_SESSION_EVENT_SCOPE): Promise<void> {
     const { childSessionId, parentSessionId } = link;
     const previousParentId = this.subsessionParents.get(childSessionId);
     if (previousParentId !== undefined && previousParentId !== parentSessionId) {
@@ -2051,7 +2056,7 @@ export class PiSessionService {
     if (!this.subsessionNotifyArmed.has(childSessionId)) this.subsessionNotifyArmed.set(childSessionId, false);
 
     const cwd = this.cwdForVerifiedSubsession(link);
-    await this.publishUnreadMutations(this.unreadStore.excludeSession(childSessionId, cwd));
+    await this.publishUnreadMutations(this.unreadForScope(scope).excludeSession(childSessionId, cwd));
   }
 
   private cwdForVerifiedSubsession(link: TrackedSubsessionLink): string {
@@ -2120,6 +2125,7 @@ export class PiSessionService {
         parentSessionId,
         activeParent.runtime.session.sessionManager,
         activeParentFile,
+        activeParent.eventScope,
       );
       if (complete) this.subsessionHydratedParents.add(hydrationKey);
       return;
@@ -2138,7 +2144,7 @@ export class PiSessionService {
     if (complete) this.subsessionHydratedParents.add(hydrationKey);
   }
 
-  private async registerPersistedSubsessionLinks(parentSessionId: string, parentManager: PiSessionManager, parentSessionFile: string | undefined): Promise<boolean> {
+  private async registerPersistedSubsessionLinks(parentSessionId: string, parentManager: PiSessionManager, parentSessionFile: string | undefined, scope = NORMAL_SESSION_EVENT_SCOPE): Promise<boolean> {
     // Parent custom links are the authoritative recovery record: verify the
     // exact live child file/header before tracking. Do not negatively cache a
     // scan while a candidate child is temporarily unavailable.
@@ -2152,7 +2158,7 @@ export class PiSessionService {
         complete = false;
         continue;
       }
-      await this.registerVerifiedSubsession(verified);
+      await this.registerVerifiedSubsession(verified, scope);
     }
     return complete;
   }
@@ -2172,7 +2178,7 @@ export class PiSessionService {
   private async recoverSubsessionTrackingForOpenedSession(session: PiAgentSession): Promise<void> {
     const link = await this.verifiedSubsessionLinkFromOpenedChild(session);
     if (link === undefined) return;
-    await this.registerVerifiedSubsession(link);
+    await this.registerVerifiedSubsession(link, this.eventScopeForSession(session));
   }
 
   private verifiedSubsessionLinkFromOpenedChild(session: PiAgentSession): Promise<TrackedSubsessionLink | undefined> {
@@ -2715,7 +2721,7 @@ export class PiSessionService {
         const archiveInput = await this.archiveInputForSession(session);
         await this.closeActiveSession(active);
         await this.archiveStore.archive(archiveInput);
-        await this.forgetUnreadSessions([archiveInput]);
+        await this.forgetUnreadSessions([archiveInput], active.eventScope);
       },
     );
   }
@@ -2734,7 +2740,7 @@ export class PiSessionService {
     for (const ref of uniqueRefs) {
       const archived = findArchivedRecordForBulkRef(archivedRecords, ref);
       if (archived !== undefined) {
-        this.publishNotificationMutations(this.notificationStore.clearSession(archived.sessionId, "archive"));
+        this.publishNotificationMutations(this.notificationsForScope(eventScopeFromManagementContext(managementContext)).clearSession(archived.sessionId, "archive"));
         alreadyArchivedSessionIds.push(archived.sessionId);
         unreadArchivedIdentities.push(archived);
         continue;
@@ -2799,7 +2805,7 @@ export class PiSessionService {
         }
       },
     );
-    await this.forgetUnreadSessions(unreadArchivedIdentities);
+    await this.forgetUnreadSessions(unreadArchivedIdentities, eventScopeFromManagementContext(managementContext));
 
     return {
       archived: true,
@@ -2826,13 +2832,13 @@ export class PiSessionService {
       `归档 ${sessionDisplayName(session)} 前请先停止当前会话活动`,
       async () => {
         for (const target of plan.targets) {
-          if (target.archived) this.publishNotificationMutations(this.notificationStore.clearSession(target.id, "archive"));
+          if (target.archived) this.publishNotificationMutations(this.notificationsForScope(eventScopeFromManagementContext(managementContext)).clearSession(target.id, "archive"));
         }
         for (const input of archiveInputs) await this.closeActiveInScope(input.sessionId, eventScopeFromManagementContext(managementContext));
         await this.archiveStoreArchiveMany(archiveInputs);
       },
     );
-    await this.forgetUnreadSessions(plan.targets.map((target) => ({ sessionId: target.id, cwd: target.cwd })));
+    await this.forgetUnreadSessions(plan.targets.map((target) => ({ sessionId: target.id, cwd: target.cwd })), eventScopeFromManagementContext(managementContext));
 
     return {
       archived: true,
@@ -2847,7 +2853,7 @@ export class PiSessionService {
     if (archived === undefined) throw new Error("未找到会话");
     await this.closeActiveInScope(archived.sessionId, eventScopeFromManagementContext(managementContext));
     await this.archiveStore.restore(archived.sessionId);
-    await this.forgetUnreadSessions([archived]);
+    await this.forgetUnreadSessions([archived], eventScopeFromManagementContext(managementContext));
   }
 
   async deleteArchived(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
@@ -2858,7 +2864,7 @@ export class PiSessionService {
     await this.closeActiveInScope(record.sessionId, eventScopeFromManagementContext(managementContext));
     if (record.archivePath === undefined) await this.ensureArchivedRecordMoved(record);
     await this.archiveStore.deleteArchived(record.sessionId);
-    await this.forgetUnreadSessions([record]);
+    await this.forgetUnreadSessions([record], eventScopeFromManagementContext(managementContext));
   }
 
   async deleteArchivedMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkDeleteArchivedResponse> {
@@ -2908,7 +2914,7 @@ export class PiSessionService {
       for (const sessionId of deleteIds) failures.push({ sessionId, error: errorMessage(error) });
     }
     const deletedIdSet = new Set(deletedSessionIds);
-    await this.forgetUnreadSessions(readyRecords.filter((record) => deletedIdSet.has(record.sessionId)));
+    await this.forgetUnreadSessions(readyRecords.filter((record) => deletedIdSet.has(record.sessionId)), eventScopeFromManagementContext(managementContext));
 
     return {
       deleted: true,
@@ -2939,7 +2945,7 @@ export class PiSessionService {
           );
           candidateGeneration = priorGeneration === undefined
             ? undefined
-            : this.notificationStore.beginReplacement(priorGeneration, { sessionId, cwd });
+            : this.notificationsForSession(session).beginReplacement(priorGeneration, { sessionId, cwd });
           const reopened = await this.openExistingSession(
             sessionId,
             cwd,
@@ -2950,12 +2956,12 @@ export class PiSessionService {
             },
           );
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.commitReplacement(candidateGeneration));
+            this.publishNotificationMutations(this.notificationsForSession(session).commitReplacement(candidateGeneration));
           }
           return reopened.runtime.session;
         } catch (error: unknown) {
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.abortReplacement(candidateGeneration));
+            this.publishNotificationMutations(this.notificationsForSession(session).abortReplacement(candidateGeneration));
           }
           throw error;
         }
@@ -2968,11 +2974,11 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
-    await clearParentSession(sessionFile);
+    clearSessionFileParent(sessionFile);
     this.sessionManager.invalidateSessionFile?.(sessionFile);
     clearParentSessionHeader(session.sessionManager);
     this.unregisterSubsession(session.sessionId);
-    await this.forgetUnreadSessions([{ sessionId: session.sessionId, cwd: session.sessionManager.getCwd() }]);
+    await this.forgetUnreadSessions([{ sessionId: session.sessionId, cwd: session.sessionManager.getCwd() }], this.eventScopeForSession(session));
   }
 
   async abort(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
@@ -3019,7 +3025,7 @@ export class PiSessionService {
       return;
     }
     if (isPiSessionRef(ref)) {
-      this.publishNotificationMutations(this.notificationStore.clearSessionIdentity(ref.id, canonicalizeStoredCwd(ref.cwd), "runtime-close"));
+      this.publishNotificationMutations(this.notificationsForScope(eventScopeFromManagementContext(managementContext)).clearSessionIdentity(ref.id, canonicalizeStoredCwd(ref.cwd), "runtime-close"));
     }
   }
 
@@ -3194,15 +3200,15 @@ export class PiSessionService {
     return [...names];
   }
 
-  private async closeActive(sessionId: string, notificationPolicy: NotificationClosePolicy = CLEAR_RUNTIME_NOTIFICATIONS): Promise<void> {
+  private async closeActive(sessionId: string, notificationPolicy: NotificationClosePolicy = CLEAR_RUNTIME_NOTIFICATIONS, eventScope = NORMAL_SESSION_EVENT_SCOPE): Promise<void> {
     for (const startup of this.startupSessions.values()) {
-      if (startup.session.sessionId === sessionId) this.endSessionExtensionDialogs(startup.session);
+      if (startup.session.sessionId === sessionId && startup.eventScope === eventScope) this.endSessionExtensionDialogs(startup.session);
     }
     const pendingOpens = this.pendingSessionOpenPromises(sessionId);
     if (pendingOpens.length > 0) await Promise.allSettled(pendingOpens);
-    const activeSessions = this.activeSessionsForId(sessionId);
+    const activeSessions = this.activeSessionsForId(sessionId).filter((active) => active.eventScope === eventScope);
     if (activeSessions.length === 0 && notificationPolicy.kind === "clear") {
-      this.publishNotificationMutations(this.notificationStore.clearSession(sessionId, notificationPolicy.reason));
+      this.publishNotificationMutations(this.notificationsForScope(eventScope).clearSession(sessionId, notificationPolicy.reason));
       return;
     }
     await Promise.all(activeSessions.map((active) => this.closeActiveSession(active, notificationPolicy)));
@@ -3213,7 +3219,7 @@ export class PiSessionService {
     if (active !== undefined) {
       await this.closeActiveSession(active, notificationPolicy);
     } else if (notificationPolicy.kind === "clear") {
-      this.publishNotificationMutations(this.notificationStore.clearSession(sessionId, notificationPolicy.reason));
+      this.publishNotificationMutations(this.notificationsForScope(eventScope).clearSession(sessionId, notificationPolicy.reason));
     }
   }
 
@@ -3221,9 +3227,10 @@ export class PiSessionService {
     const sessionId = active.runtime.session.sessionId;
     if (notificationPolicy.kind === "clear") {
       const generation = this.notificationGenerationBySession.get(active.runtime.session);
+      const store = this.notificationsForScope(active.eventScope);
       const mutations = generation === undefined
-        ? this.notificationStore.clearSession(sessionId, notificationPolicy.reason)
-        : this.notificationStore.clearGeneration(generation, notificationPolicy.reason);
+        ? store.clearSession(sessionId, notificationPolicy.reason)
+        : store.clearGeneration(generation, notificationPolicy.reason);
       this.publishNotificationMutations(mutations);
     }
     this.forgetUnreadActivity(active.runtime.session);
@@ -3475,6 +3482,7 @@ export class PiSessionService {
   }
 
   private bindRuntime(active: ManagedActiveSession, session: PiAgentSession = active.runtime.session): void {
+    this.sessionEventScopes.set(session, active.eventScope);
     this.runtimeBySession.set(session, active.runtime);
     active.unsubscribe();
     for (const [sessionId, candidate] of this.active.entries()) {
@@ -3966,6 +3974,8 @@ export class PiSessionService {
   }
 
   private eventScopeForSession(session: PiAgentSession): string {
+    const boundScope = this.sessionEventScopes.get(session);
+    if (boundScope !== undefined) return boundScope;
     for (const active of this.active.values()) {
       if (active.runtime.session === session) return active.eventScope;
     }
@@ -4042,43 +4052,65 @@ export class PiSessionService {
     return queuedMessagesFromSession(session, this.compactionQueuedMessages(session.sessionId)).some((message) => message.text === text);
   }
 
-notificationCatalog(): SessionNotificationCatalogSnapshot {
-    return this.notificationStore.catalogSnapshot();
+  private notificationsForScope(scope: string): SessionNotificationStore {
+    if (scope === NORMAL_SESSION_EVENT_SCOPE) return this.notificationStore;
+    let store = this.scopedNotificationStores.get(scope);
+    if (store === undefined) {
+      store = new SessionNotificationStore({ eventScope: scope, now: this.now });
+      this.scopedNotificationStores.set(scope, store);
+    }
+    return store;
   }
 
-async unreadCatalog(): Promise<SessionUnreadCatalogSnapshot> {
+  private notificationsForSession(session: PiAgentSession): SessionNotificationStore {
+    return this.notificationsForScope(this.eventScopeForSession(session));
+  }
+
+  private unreadForScope(scope: string): SessionUnreadStore {
+    if (scope === NORMAL_SESSION_EVENT_SCOPE) return this.unreadStore;
+    let store = this.scopedUnreadStores.get(scope);
+    if (store === undefined) {
+      store = new SessionUnreadStore({ eventScope: scope, now: this.now });
+      this.scopedUnreadStores.set(scope, store);
+    }
+    return store;
+  }
+
+notificationCatalog(context?: ManagementEmbedContext): SessionNotificationCatalogSnapshot {
+    return this.notificationsForScope(eventScopeFromManagementContext(context)).catalogSnapshot();
+  }
+
+async unreadCatalog(context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot> {
     await this.publishUnreadMutations([]);
-    return this.unreadStore.durableCatalogSnapshot();
+    return this.unreadForScope(eventScopeFromManagementContext(context)).durableCatalogSnapshot();
   }
 
-  /** Scope-filtered unread view used only by the daemon-owned status tree. */
+  /** The status tree and HTTP catalog must read the same scoped store. */
   async unreadCatalogForScope(eventScope: string): Promise<SessionUnreadCatalogSnapshot> {
-    const catalog = await this.unreadCatalog();
-    if (eventScope === NORMAL_SESSION_EVENT_SCOPE) return catalog;
-    const visible = new Set([...this.active.values()]
-      .filter((active) => active.eventScope === eventScope)
-      .map((active) => active.runtime.session.sessionId));
-    return { ...catalog, sessions: catalog.sessions.filter((session) => visible.has(session.sessionId)) };
+    await this.publishUnreadMutations([]);
+    return this.unreadForScope(eventScope).durableCatalogSnapshot();
   }
 
-async acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest): Promise<SessionUnreadCatalogSnapshot> {
-    const result = this.unreadStore.acknowledge(sessionId, {
+async acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot> {
+    const store = this.unreadForScope(eventScopeFromManagementContext(context));
+    const result = store.acknowledge(sessionId, {
       ...request,
       cwd: canonicalizeStoredCwd(request.cwd),
     });
     await this.publishUnreadMutations(result.mutations);
-    return this.unreadStore.durableCatalogSnapshot();
+    return store.durableCatalogSnapshot();
   }
 
-notificationInbox(ref: PiSessionRef): SessionNotificationInboxSnapshot {
-    return this.notificationStore.inboxSnapshot(ref.id, canonicalizeStoredCwd(ref.cwd));
+notificationInbox(ref: PiSessionRef, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot {
+    return this.notificationsForScope(eventScopeFromManagementContext(context)).inboxSnapshot(ref.id, canonicalizeStoredCwd(ref.cwd));
   }
 
 dismissNotification(
     ref: PiSessionRef,
     request: Omit<SessionNotificationDismissRequest, "cwd">,
+    context?: ManagementEmbedContext,
   ): SessionNotificationInboxSnapshot {
-    const result = this.notificationStore.dismissNotification(
+    const result = this.notificationsForScope(eventScopeFromManagementContext(context)).dismissNotification(
       ref.id,
       canonicalizeStoredCwd(ref.cwd),
       request.daemonInstanceId,
@@ -4091,8 +4123,9 @@ dismissNotification(
 dismissAllNotifications(
     ref: PiSessionRef,
     request: Omit<SessionNotificationDismissAllRequest, "cwd">,
+    context?: ManagementEmbedContext,
   ): SessionNotificationInboxSnapshot {
-    const result = this.notificationStore.dismissAll(
+    const result = this.notificationsForScope(eventScopeFromManagementContext(context)).dismissAll(
       ref.id,
       canonicalizeStoredCwd(ref.cwd),
       request.daemonInstanceId,
@@ -4130,19 +4163,19 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
         try {
           await session.reload(priorGeneration === undefined ? undefined : {
             beforeSessionStart: () => {
-              candidateGeneration = this.notificationStore.beginReplacement(priorGeneration, notificationIdentityForSession(session));
+              candidateGeneration = this.notificationsForSession(session).beginReplacement(priorGeneration, notificationIdentityForSession(session));
               this.notificationGenerationBySession.set(session, candidateGeneration);
               this.replaceSessionNotificationContext(session, candidateGeneration);
             },
           });
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.commitReplacement(candidateGeneration));
+            this.publishNotificationMutations(this.notificationsForSession(session).commitReplacement(candidateGeneration));
           }
           this.publishActivity(session, "资源已重新加载", "idle");
           this.publishStatus(session);
         } catch (error: unknown) {
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.abortReplacement(candidateGeneration, "candidate"));
+            this.publishNotificationMutations(this.notificationsForSession(session).abortReplacement(candidateGeneration, "candidate"));
             this.notificationGenerationBySession.set(session, candidateGeneration);
           }
           const message = error instanceof Error ? error.message : String(error);
@@ -4218,6 +4251,8 @@ private async createSessionRuntime(
       }),
     };
     let boundSession = runtime.session;
+    this.sessionEventScopes.set(boundSession, active.eventScope);
+    const notificationStore = this.notificationsForScope(active.eventScope);
     let notificationGeneration = options.notificationGeneration;
     let notificationOwnership: "disabled" | "external" | "registered" | "replacement" = options.notifications === "disabled"
       ? "disabled"
@@ -4227,7 +4262,7 @@ private async createSessionRuntime(
 
     if (notificationOwnership === "registered") {
       const notificationIdentity = notificationIdentityForSession(runtime.session);
-      const existingCandidate = this.notificationStore.beginReplacementForSession(
+      const existingCandidate = notificationStore.beginReplacementForSession(
         notificationIdentity.sessionId,
         notificationIdentity.cwd,
       );
@@ -4235,7 +4270,7 @@ private async createSessionRuntime(
         notificationGeneration = existingCandidate;
         notificationOwnership = "replacement";
       } else {
-        const registration = this.notificationStore.registerSession(
+        const registration = notificationStore.registerSession(
           notificationIdentity.sessionId,
           notificationIdentity.cwd,
         );
@@ -4247,7 +4282,7 @@ private async createSessionRuntime(
 
     try {
       if (options.creationProvenance === "tracked-subsession") {
-        await this.publishUnreadMutations(this.unreadStore.excludeSession(
+        await this.publishUnreadMutations(this.unreadForScope(active.eventScope).excludeSession(
           runtime.session.sessionId,
           canonicalizeStoredCwd(runtime.session.sessionManager.getCwd()),
         ));
@@ -4258,13 +4293,14 @@ private async createSessionRuntime(
       await this.bindSessionExtensions(runtime.session, notificationGeneration, active);
       this.bindRuntime(active);
       runtime.setRebindSession(async (session) => {
+        this.sessionEventScopes.set(session, active.eventScope);
         const priorGeneration = notificationGeneration;
         let candidateGeneration: SessionNotificationGeneration | undefined;
         try {
           await this.prepareUnreadRuntimeRebind(boundSession, session);
           await this.recoverSubsessionTrackingForOpenedSession(session);
           if (priorGeneration !== undefined) {
-            candidateGeneration = this.notificationStore.beginReplacement(priorGeneration, notificationIdentityForSession(session));
+            candidateGeneration = notificationStore.beginReplacement(priorGeneration, notificationIdentityForSession(session));
             this.notificationGenerationBySession.set(session, candidateGeneration);
           }
           this.bindRuntime(active, session);
@@ -4275,12 +4311,12 @@ private async createSessionRuntime(
           boundSession = session;
           await this.bindSessionExtensions(session, candidateGeneration, active);
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.commitReplacement(candidateGeneration));
+            this.publishNotificationMutations(notificationStore.commitReplacement(candidateGeneration));
             notificationGeneration = candidateGeneration;
           }
         } catch (error: unknown) {
           if (candidateGeneration !== undefined) {
-            this.publishNotificationMutations(this.notificationStore.abortReplacement(candidateGeneration, "candidate"));
+            this.publishNotificationMutations(notificationStore.abortReplacement(candidateGeneration, "candidate"));
             notificationGeneration = candidateGeneration;
             this.notificationGenerationBySession.set(session, candidateGeneration);
           }
@@ -4289,7 +4325,7 @@ private async createSessionRuntime(
       });
       this.active.set(activeSessionKey(runtime.session.sessionId, active.eventScope), active);
       if (notificationOwnership === "replacement" && notificationGeneration !== undefined) {
-        this.publishNotificationMutations(this.notificationStore.commitReplacement(notificationGeneration));
+        this.publishNotificationMutations(notificationStore.commitReplacement(notificationGeneration));
         notificationOwnership = "external";
       }
       this.publishStatus(runtime.session);
@@ -4297,9 +4333,9 @@ private async createSessionRuntime(
     } catch (error: unknown) {
       if (notificationGeneration !== undefined) {
         if (notificationOwnership === "registered") {
-          this.publishNotificationMutations(this.notificationStore.clearSession(runtime.session.sessionId, "initialization-failed"));
+          this.publishNotificationMutations(notificationStore.clearSession(runtime.session.sessionId, "initialization-failed"));
         } else if (notificationOwnership === "replacement") {
-          this.publishNotificationMutations(this.notificationStore.abortReplacement(notificationGeneration));
+          this.publishNotificationMutations(notificationStore.abortReplacement(notificationGeneration));
         }
       }
       active.unsubscribe();
@@ -4335,16 +4371,18 @@ private sessionUiContext(
     generation: SessionNotificationGeneration | undefined,
   ): ExtensionUIContext {
     const baseUiContext = session.extensionRunner.getUIContext();
+    const eventScope = this.eventScopeForSession(session);
+    const notificationStore = this.notificationsForScope(eventScope);
     const notify: ExtensionUIContext["notify"] = (message, type) => {
       if (generation === undefined) {
         this.events.publish(session.sessionId, {
           type: "command.output",
           level: type === "error" ? "error" : "info",
           message,
-        });
+        }, eventScope);
         return;
       }
-      const added = this.notificationStore.addNotification(generation, message, type);
+      const added = notificationStore.addNotification(generation, message, type);
       this.publishNotificationMutations(added.mutations);
       if (added.notification === undefined) return;
       this.events.publish(session.sessionId, {
@@ -4352,7 +4390,7 @@ private sessionUiContext(
         level: type === "error" ? "error" : "info",
         message,
         notificationId: added.notification.id,
-      });
+      }, eventScope);
     };
     // PI WEB owns the browser-facing dialog, notification, and text-formatting
     // boundaries: the three dialog primitives park daemon-held Promises that
@@ -4383,34 +4421,32 @@ private sessionUiContext(
 
 private publishNotificationMutations(mutations: readonly SessionNotificationMutation[]): void {
     for (const mutation of mutations) {
-      const scopes = new Set(this.activeSessionsForId(mutation.sessionId).map((active) => active.eventScope));
-      if (scopes.size === 0) scopes.add(NORMAL_SESSION_EVENT_SCOPE);
-      for (const scope of scopes) {
-        this.events.publish(mutation.sessionId, mutation.inboxEvent, scope);
-        this.events.publishGlobal(mutation.summaryEvent, scope);
-      }
+      const scope = mutation.eventScope ?? NORMAL_SESSION_EVENT_SCOPE;
+      this.events.publish(mutation.sessionId, mutation.inboxEvent, scope);
+      this.events.publishGlobal(mutation.summaryEvent, scope);
     }
   }
 
 private async prepareUnreadRuntimeRebind(previous: PiAgentSession, next: PiAgentSession): Promise<void> {
     const previousCwd = canonicalizeStoredCwd(previous.sessionManager.getCwd());
-    this.unreadStore.forgetActivity(previous.sessionId, previousCwd);
+    const store = this.unreadForScope(this.eventScopeForSession(previous));
+    store.forgetActivity(previous.sessionId, previousCwd);
     const nextCwd = canonicalizeStoredCwd(next.sessionManager.getCwd());
     if (previous.sessionId === next.sessionId && cwdPathsEqual(previousCwd, nextCwd)) return;
-    await this.publishUnreadMutations(this.unreadStore.forgetSession(previous.sessionId, previousCwd));
+    await this.publishUnreadMutations(store.forgetSession(previous.sessionId, previousCwd));
   }
 
 private forgetUnreadActivity(session: PiAgentSession): void {
-    this.unreadStore.forgetActivity(
+    this.unreadForScope(this.eventScopeForSession(session)).forgetActivity(
       session.sessionId,
       canonicalizeStoredCwd(session.sessionManager.getCwd()),
     );
   }
 
-private async forgetUnreadSessions(identities: readonly { sessionId: string; cwd: string }[]): Promise<void> {
+private async forgetUnreadSessions(identities: readonly { sessionId: string; cwd: string }[], scope = NORMAL_SESSION_EVENT_SCOPE): Promise<void> {
     const mutations: SessionUnreadMutation[] = [];
     for (const identity of identities) {
-      mutations.push(...this.unreadStore.forgetSession(
+      mutations.push(...this.unreadForScope(scope).forgetSession(
         identity.sessionId,
         canonicalizeStoredCwd(identity.cwd),
       ));
@@ -4419,7 +4455,7 @@ private async forgetUnreadSessions(identities: readonly { sessionId: string; cwd
   }
 
 private observeUnreadActivityState(session: PiAgentSession): void {
-    const mutations = this.unreadStore.observeActivityState(
+    const mutations = this.unreadForScope(this.eventScopeForSession(session)).observeActivityState(
       session.sessionId,
       canonicalizeStoredCwd(session.sessionManager.getCwd()),
       this.hasActiveWork(session),
@@ -4432,9 +4468,7 @@ private publishUnreadMutations(mutations: readonly SessionUnreadMutation[]): Pro
     if (mutations.length > 0) {
       const scopes = new Set<string>();
       for (const mutation of mutations) {
-        const activeScopes = this.activeSessionsForId(mutation.event.sessionId).map((active) => active.eventScope);
-        if (activeScopes.length === 0) scopes.add(NORMAL_SESSION_EVENT_SCOPE);
-        else activeScopes.forEach((scope) => scopes.add(scope));
+        scopes.add(mutation.eventScope ?? NORMAL_SESSION_EVENT_SCOPE);
       }
       scopes.forEach((scope) => this.onUnreadChanged?.(scope));
     }
@@ -4479,8 +4513,9 @@ private async drainUnreadPublication(): Promise<void> {
       let publishedCount = 0;
       try {
         await this.unreadStore.flush();
+        for (const store of this.scopedUnreadStores.values()) await store.flush();
         for (const mutation of batch) {
-          this.events.publishGlobal(mutation.event);
+          this.events.publishGlobal(mutation.event, mutation.eventScope ?? NORMAL_SESSION_EVENT_SCOPE);
           publishedCount += 1;
         }
       } catch (error: unknown) {
@@ -4858,18 +4893,6 @@ async function sessionFileHeaderMatches(sessionFile: string, expected: { session
   if (header?.id !== expected.sessionId) return false;
   if (expected.parentSessionFile === undefined) return true;
   return header.parentSession !== undefined && sessionPathsEqual(header.parentSession, expected.parentSessionFile);
-}
-
-async function clearParentSession(sessionFile: string): Promise<void> {
-  const content = await readFile(sessionFile, "utf8");
-  const newlineIndex = content.indexOf("\n");
-  const firstLine = newlineIndex === -1 ? content : content.slice(0, newlineIndex);
-  const rest = newlineIndex === -1 ? "" : content.slice(newlineIndex);
-  const header: unknown = JSON.parse(firstLine);
-  if (!isRecord(header) || header["type"] !== "session") throw new Error("Invalid session file header");
-  if (header["parentSession"] === undefined) return;
-  delete header["parentSession"];
-  await writeFile(sessionFile, `${JSON.stringify(header)}${rest}`, "utf8");
 }
 
 function clearParentSessionHeader(sessionManager: PiSessionManager): void {

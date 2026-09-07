@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import * as yauzl from "yauzl";
 import type { PiWebWorkbenchIntegrationConfig } from "../../shared/apiTypes.js";
 import type { AuthorizedResource, WorkbenchAgentAccessState, WorkbenchSkillManifest, WorkbenchSkillManifestFile, WorkbenchSkillReceipt, WorkbenchSkillReceiptFile } from "./types.js";
@@ -27,6 +28,12 @@ export class WorkbenchSkillSynchronizer {
   }
 
   async synchronize(cwd: string, state: WorkbenchAgentAccessState, audit?: WorkbenchSkillAuditContext): Promise<WorkbenchSkillReceiptFile> {
+    const workspace = await realpath(cwd);
+    // The receipt and managed directories form one workspace-wide mutation.
+    return withFileMutationQueue(this.receiptPath(workspace), () => this.synchronizeWorkspace(workspace, state, audit));
+  }
+
+  private async synchronizeWorkspace(cwd: string, state: WorkbenchAgentAccessState, audit?: WorkbenchSkillAuditContext): Promise<WorkbenchSkillReceiptFile> {
     const previousReceipt = await this.readReceiptFile(cwd);
     const skills = state.resources.filter((item) => item.resourceType === "skill" && item.status === "published");
     const authorizedCapabilities = new Set(state.resources.filter((item) => item.resourceType === "capability" && item.status === "published" && item.riskLevel === "L0").map((item) => item.resourceName));

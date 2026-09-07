@@ -1,8 +1,14 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import * as fs from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readSessionHeaderSummary } from "./sessionFileHeader.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return { ...original, readSync: vi.fn(original.readSync) };
+});
 
 // Mirrors the private HEADER_READ_CAP_BYTES in sessionFileHeader.ts: how far
 // the reader looks for the first parseable line.
@@ -15,7 +21,53 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe("clearSessionFileParent", () => {
+  it.each(["\n", "\r\n", ""])("preserves byte offsets and line endings for %j", async (lineEnding) => {
+    const path = join(tempDir, "child.jsonl");
+    const header = JSON.stringify({ type: "session", id: "child", cwd: "/项目", parentSession: "/会话/父.jsonl" });
+    const tail = lineEnding === "" ? "" : `${JSON.stringify({ type: "message", text: "你好" })}${lineEnding}`;
+    const original = Buffer.from(`${header}${lineEnding}${tail}`);
+    await writeFile(path, original);
+
+    clearSessionFileParent(path);
+
+    const updated = await readFile(path);
+    expect(updated.length).toBe(original.length);
+    expect(updated.subarray(Buffer.byteLength(header))).toEqual(original.subarray(Buffer.byteLength(header)));
+    expect(JSON.parse(updated.subarray(0, Buffer.byteLength(header)).toString())).toEqual({ type: "session", id: "child", cwd: "/项目" });
+    await expect(readSessionHeaderSummary(path)).resolves.toEqual({ id: "child", cwd: "/项目" });
+  });
+
+  it("retains an append that arrives after reading the header", async () => {
+    const path = join(tempDir, "child.jsonl");
+    const header = `${JSON.stringify({ type: "session", id: "child", parentSession: "/parent.jsonl" })}\n`;
+    const appended = `${JSON.stringify({ type: "message", id: "new-reply" })}\n`;
+    await writeFile(path, header);
+    const read = (await vi.importActual<typeof import("node:fs")>("node:fs")).readSync;
+    const boundary = vi.spyOn(fs, "readSync").mockImplementationOnce((...args: Parameters<typeof fs.readSync>) => {
+      const count = read(...args);
+      fs.appendFileSync(path, appended);
+      return count;
+    });
+
+    clearSessionFileParent(path);
+
+    expect(boundary).toHaveBeenCalled();
+    const updated = await readFile(path, "utf8");
+    expect(updated.slice(Buffer.byteLength(header))).toBe(appended);
+    expect(JSON.parse(updated.split("\n")[0] ?? "")).toEqual({ type: "session", id: "child" });
+  });
+
+  it("does not mutate malformed headers", async () => {
+    const path = join(tempDir, "broken.jsonl");
+    await writeFile(path, "not json\n");
+    expect(() => { clearSessionFileParent(path); }).toThrow("Invalid session file header");
+    await expect(readFile(path, "utf8")).resolves.toBe("not json\n");
+  });
 });
 
 describe("readSessionHeaderSummary", () => {

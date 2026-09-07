@@ -87,17 +87,17 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     }
   });
 
-  app.get(`${prefix}/sessions/notifications`, async (_request, reply) => {
+  app.get(`${prefix}/sessions/notifications`, async (request, reply) => {
     try {
-      return await sessions.notificationCatalog();
+      return await sessions.notificationCatalog(managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
 
-  app.get(`${prefix}/sessions/unread`, async (_request, reply) => {
+  app.get(`${prefix}/sessions/unread`, async (request, reply) => {
     try {
-      return await sessions.unreadCatalog();
+      return await sessions.unreadCatalog(managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(503).send({ error: errorMessage(error) });
     }
@@ -118,7 +118,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       return reply.code(400).send({ error: errorMessage(error) });
     }
     try {
-      return await sessions.acknowledgeUnread(sessionId, acknowledgement);
+      return await sessions.acknowledgeUnread(sessionId, acknowledgement, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(503).send({ error: errorMessage(error) });
     }
@@ -134,7 +134,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
 
   app.post<{ Body: SessionCleanupRequest | undefined }>(`${prefix}/sessions/cleanup`, async (request, reply) => {
     try {
-      return await sessions.cleanup(normalizeSessionCleanupRequest(optionalRecord(request.body)));
+      return await sessions.cleanup(normalizeSessionCleanupRequest(optionalRecord(request.body)), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -175,7 +175,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/notifications`, async (request, reply) => {
     try {
-      return await sessions.notificationInbox(notificationRefFromQuery(request.params.sessionId, request.query));
+      return await sessions.notificationInbox(notificationRefFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -188,7 +188,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       return await sessions.dismissNotification(ref, {
         daemonInstanceId: requireNonEmptyBoundedString(body["daemonInstanceId"], "daemonInstanceId", MAX_NOTIFICATION_DAEMON_ID_LENGTH),
         notificationId: requireNonEmptyBoundedString(body["notificationId"], "notificationId", MAX_NOTIFICATION_ID_LENGTH),
-      });
+      }, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
     }
@@ -202,7 +202,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         daemonInstanceId: requireNonEmptyBoundedString(body["daemonInstanceId"], "daemonInstanceId", MAX_NOTIFICATION_DAEMON_ID_LENGTH),
         throughOrder: requireNonNegativeSafeInteger(body["throughOrder"], "throughOrder"),
         throughOverflowWatermark: requireNonNegativeSafeInteger(body["throughOverflowWatermark"], "throughOverflowWatermark"),
-      });
+      }, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
     }

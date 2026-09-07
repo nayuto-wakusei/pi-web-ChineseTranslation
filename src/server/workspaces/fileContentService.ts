@@ -71,7 +71,17 @@ export async function writeWorkspaceFile(rootPath: string, path: string | undefi
   const realParent = await realpath(dirname(target));
   const realTarget = join(realParent, basename(target));
   ensureInside(root, realTarget);
-  await writeFile(realTarget, content);
+  if (!exists) {
+    try {
+      // On Windows even O_EXCL may follow a dangling file symlink.
+      await lstat(realTarget);
+      throw new Error(`File already exists: ${relativePath}`);
+    } catch (error: unknown) {
+      if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
+    }
+  }
+  // Exclusive creation prevents competing uploads from replacing a newly created file.
+  await writeFile(realTarget, content, { flag: exists ? "w" : "wx" });
 
   const s = await stat(realTarget);
   return {

@@ -1,7 +1,34 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteMachineClient } from "./machineClient.js";
 
+afterEach(() => { vi.useRealTimers(); });
+
 describe("RemoteMachineClient", () => {
+  it("keeps the deadline active while consuming a JSON response body", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = stalledBodyFetch();
+    const client = new RemoteMachineClient({ baseUrl: "https://remote.example.test/" }, fetchImpl);
+    const result = client.requestJson("GET", "/api/projects", undefined, { timeoutMs: 15 });
+    const rejected = expect(result).rejects.toMatchObject({ statusCode: 504, message: "Remote machine request timed out" });
+
+    await vi.advanceTimersByTimeAsync(15);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("honors parent cancellation after receiving JSON response headers", async () => {
+    const fetchImpl = stalledBodyFetch();
+    const client = new RemoteMachineClient({ baseUrl: "https://remote.example.test/" }, fetchImpl);
+    const parent = new AbortController();
+    const result = client.requestJson("GET", "/api/projects", undefined, { signal: parent.signal });
+    const rejected = expect(result).rejects.toMatchObject({ statusCode: 502, message: "Remote machine request cancelled" });
+    await Promise.resolve();
+    parent.abort();
+
+    await rejected;
+  });
+
   it("forwards raw binary request bodies with the provided content type", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(new Response("ok", { status: 200 })));
     const client = new RemoteMachineClient({ baseUrl: "https://remote.example.test/" }, fetchImpl);
@@ -62,6 +89,18 @@ describe("RemoteMachineClient", () => {
     expect(response.headers["content-length"]).toBeUndefined();
   });
 });
+
+function stalledBodyFetch(): typeof fetch {
+  return vi.fn<typeof fetch>((_input, init) => {
+    const signal = init?.signal;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        signal?.addEventListener("abort", () => { controller.error(signal.reason); }, { once: true });
+      },
+    });
+    return Promise.resolve(new Response(body));
+  });
+}
 
 function fetchInputUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;

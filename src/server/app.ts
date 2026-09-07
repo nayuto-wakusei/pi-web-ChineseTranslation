@@ -294,7 +294,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerConfigRoutes(app, invalidatingConfigService);
   registerLocalMachineConfigRoutes(app, invalidatingConfigService);
 
-  registerMachineRoutes(app, machines);
+  registerMachineRoutes(app, machines, managementEmbed);
   registerMachinePluginProxyRoutes(app, machines);
 
   registerLocalProjectRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });

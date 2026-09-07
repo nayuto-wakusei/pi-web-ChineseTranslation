@@ -1,8 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { MachineService, type CreateMachineInput, type UpdateMachineInput } from "./machineService.js";
+import { managementContextForRequest, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
-export function registerMachineRoutes(app: FastifyInstance, machines = new MachineService()): void {
-  app.get("/api/machines", async () => ({ machines: await machines.list() }));
+export function registerMachineRoutes(app: FastifyInstance, machines = new MachineService(), managementEmbed?: ManagementEmbedRuntime): void {
+  app.get("/api/machines", async (request, reply) => {
+    if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) {
+      const local = await machines.get("local");
+      return { machines: local === undefined ? [] : [local] };
+    }
+    return { machines: await machines.list() };
+  });
 
   app.post<{ Body: CreateMachineInput }>("/api/machines", async (request, reply) => {
     try {

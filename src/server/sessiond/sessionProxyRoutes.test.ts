@@ -78,6 +78,49 @@ describe("machine-scoped session proxy routes", () => {
     expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
   });
 
+  it.each(["/api", "/api/machines/local"])("validates every session cwd before forwarding through %s", async (prefix) => {
+    const cwd = process.cwd();
+    const outsideCwd = dirname(cwd);
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    registerSessionProxyRoutes(app, daemon, prefix, {
+      enabled: true,
+      projectRoot: cwd,
+      authenticate: () => Promise.resolve({
+        user: { id: "limited-user", rootUserId: "root", roles: [], permissions: [] },
+        projects: [{ id: "p1", name: "Project", root: cwd }],
+      }),
+    });
+    const managementQuery = "embed=management&token=launch-token";
+    for (const candidateCwd of [outsideCwd, cwd]) {
+      const expectedStatus = candidateCwd === cwd ? 200 : 502;
+      for (const path of ["/sessions/search-content", "/sessions/s1/messages", "/sessions/s1/status", "/sessions/s1/models", "/sessions/s1/stream-snapshot"]) {
+        const response = await app.inject({ method: "GET", url: `${prefix}${path}?cwd=${encodeURIComponent(candidateCwd)}&q=needle&${managementQuery}` });
+        expect(response.statusCode, path).toBe(expectedStatus);
+      }
+      for (const path of ["/sessions", "/sessions/s1/pin", "/sessions/s1/prompt", "/sessions/s1/archive", "/sessions/s1/tree/navigate", "/sessions/s1/attachments"]) {
+        const response = await app.inject({ method: "POST", url: `${prefix}${path}?${managementQuery}`, payload: { cwd: candidateCwd } });
+        expect(response.statusCode, path).toBe(expectedStatus);
+      }
+      const deleted = await app.inject({ method: "DELETE", url: `${prefix}/sessions/s1?cwd=${encodeURIComponent(candidateCwd)}&${managementQuery}` });
+      expect(deleted.statusCode).toBe(expectedStatus);
+      for (const path of ["/sessions/bulk/archive", "/sessions/bulk/delete-archived"]) {
+        const response = await app.inject({ method: "POST", url: `${prefix}${path}?${managementQuery}`, payload: { sessions: [{ id: "s1", cwd }, { id: "s2", cwd: candidateCwd }] } });
+        expect(response.statusCode, path).toBe(expectedStatus);
+      }
+      if (candidateCwd === outsideCwd) expect(daemon.requests).toEqual([]);
+    }
+    expect(daemon.requests).toHaveLength(14);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}${prefix}/sessions/s1/events?cwd=${encodeURIComponent(outsideCwd)}&${managementQuery}`);
+    const errorMessage = waitForMessage(socket);
+    await waitForOpen(socket);
+    expect(await errorMessage).toContain("managed project sandbox");
+    expect(daemon.websocketPaths).toEqual([]);
+    socket.close();
+  });
+
   it.each(["/api", "/api/machines/local"])("forwards management context and notice access denials through %s", async (prefix) => {
     const managementContext = {
       user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },

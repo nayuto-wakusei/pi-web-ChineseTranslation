@@ -5,19 +5,27 @@ import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { withFileMutationQueue, type ResourceDiagnostic, type Skill } from "@earendil-works/pi-coding-agent";
 
-export const MANAGED_RELAY_SKILL_DIRECTORY = join(".pi", "skills", "relay");
-const BUNDLED_RELAY_SKILL_PATH = fileURLToPath(new URL("../../../skills/relay/SKILL.md", import.meta.url));
-const PACKAGED_RELAY_SKILL_PATH = fileURLToPath(new URL("../../../dist/pi-packages/relays/skills/relay/SKILL.md", import.meta.url));
+export const MANAGED_RELAY_SKILL_NAMES = ["relay", "relay-runner"] as const;
+const BUNDLED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../skills/", import.meta.url));
+const PACKAGED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../dist/pi-packages/relays/skills/", import.meta.url));
 
 function normalizedSkill(content: string): string {
   return content.replace(/\r\n/g, "\n");
 }
 
-export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BUNDLED_RELAY_SKILL_PATH): Promise<string> {
+export async function ensureManagedRelaySkills(cwd: string, bundledSkillsDirectory = BUNDLED_SKILLS_DIRECTORY): Promise<string[]> {
+  const paths: string[] = [];
+  for (const name of MANAGED_RELAY_SKILL_NAMES) {
+    paths.push(await synchronizeManagedSkill(cwd, name, join(bundledSkillsDirectory, name, "SKILL.md")));
+  }
+  return paths;
+}
+
+async function synchronizeManagedSkill(cwd: string, name: string, bundledSkillPath: string): Promise<string> {
   const projectRoot = realpathSync(cwd);
   const piDirectory = join(projectRoot, ".pi");
   const skillsDirectory = join(piDirectory, "skills");
-  const skillDirectory = join(skillsDirectory, "relay");
+  const skillDirectory = join(skillsDirectory, name);
   for (const directory of [piDirectory, skillsDirectory, skillDirectory]) {
     try {
       await mkdir(directory);
@@ -27,7 +35,9 @@ export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BU
     assertManagedSkillPath(projectRoot, directory, "directory");
   }
   const skillPath = join(skillDirectory, "SKILL.md");
-  return withFileMutationQueue(skillPath, async () => {
+  // Queue registration realpaths its key; use the stable directory so Windows
+  // does not open the destination file while another start is replacing it.
+  return withFileMutationQueue(skillDirectory, async () => {
     try {
       assertManagedSkillPath(projectRoot, skillPath, "file");
     } catch (error) {
@@ -52,21 +62,23 @@ export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BU
 }
 
 /** The SDK already selects one skill; omit only a proven identical bundled/project duplicate. */
-export function deduplicateBundledRelaySkill(cwd: string, base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }): typeof base {
+export function deduplicateBundledRelaySkills(cwd: string, base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }): typeof base {
   return {
     ...base,
     diagnostics: base.diagnostics.filter((diagnostic) => {
       const collision = diagnostic.collision;
-      if (diagnostic.type !== "collision" || collision?.resourceType !== "skill" || collision.name !== "relay") return true;
+      if (diagnostic.type !== "collision" || collision?.resourceType !== "skill") return true;
+      const name = MANAGED_RELAY_SKILL_NAMES.find((name) => name === collision.name);
+      if (name === undefined) return true;
       try {
         const projectRoot = realpathSync(cwd);
-        const projectSkill = join(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY, "SKILL.md");
+        const projectSkill = join(projectRoot, ".pi", "skills", name, "SKILL.md");
         assertManagedSkillPath(projectRoot, projectSkill, "file");
         const projectRealPath = realpathSync(projectSkill);
         const winner = realpathSync(collision.winnerPath);
         const loser = realpathSync(collision.loserPath);
         const otherPath = winner === projectRealPath ? loser : loser === projectRealPath ? winner : undefined;
-        if (otherPath === undefined || !isBundledRelayPath(otherPath)) return true;
+        if (otherPath === undefined || !isBundledRelayPath(otherPath, name)) return true;
         return normalizedSkill(readFileSync(projectSkill, "utf8")) !== normalizedSkill(readFileSync(otherPath, "utf8"));
       } catch {
         // Missing or unreadable resources must retain their diagnostics.
@@ -76,10 +88,10 @@ export function deduplicateBundledRelaySkill(cwd: string, base: { skills: Skill[
   };
 }
 
-function isBundledRelayPath(path: string): boolean {
-  return [BUNDLED_RELAY_SKILL_PATH, PACKAGED_RELAY_SKILL_PATH].some((candidate) => {
+function isBundledRelayPath(path: string, name: string): boolean {
+  return [BUNDLED_SKILLS_DIRECTORY, PACKAGED_SKILLS_DIRECTORY].some((directory) => {
     try {
-      return realpathSync(candidate) === path;
+      return realpathSync(join(directory, name, "SKILL.md")) === path;
     } catch {
       return false;
     }

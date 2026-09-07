@@ -31,6 +31,7 @@ export interface SessionUnreadPersistence {
 }
 
 export interface SessionUnreadStoreOptions {
+  eventScope?: string;
   now?: (() => Date) | undefined;
   persistence?: SessionUnreadPersistence | undefined;
   createCatalogId?: (() => string) | undefined;
@@ -38,6 +39,7 @@ export interface SessionUnreadStoreOptions {
 }
 
 export interface SessionUnreadMutation {
+  eventScope?: string;
   event: SessionUnreadEvent;
 }
 
@@ -82,7 +84,7 @@ export class SessionUnreadStore {
   private loadPromise: Promise<void> | undefined;
   private loaded: boolean;
 
-  constructor(options: SessionUnreadStoreOptions = {}) {
+  constructor(private readonly options: SessionUnreadStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.persistence = options.persistence;
     this.createCatalogId = options.createCatalogId ?? randomUUID;
@@ -318,6 +320,7 @@ export class SessionUnreadStore {
   private mutation(identity: SessionUnreadIdentity, unread: SessionUnreadSummary | null): SessionUnreadMutation {
     this.catalogRevision = incrementSafe(this.catalogRevision, "Session unread catalog revision exhausted");
     return {
+      ...(this.options.eventScope === undefined ? {} : { eventScope: this.options.eventScope }),
       event: {
         type: "sessions.unread",
         catalogId: this.catalogId,

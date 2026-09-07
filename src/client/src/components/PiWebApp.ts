@@ -62,6 +62,7 @@ import "./WorkspaceList";
 import { unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionSearchDialog";
+import "./SessionTreeNavigator";
 import "./ChatView";
 import type { ChatView } from "./ChatView";
 import "./PromptEditor";
@@ -510,7 +511,9 @@ export class PiWebApp extends LitElement {
     this.authenticatedAppRunning = true;
     this.connectRealtime();
     void this.renegotiateUnreadMachines();
-    this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
+    if (this.apiScope === "normal") {
+      this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
+    }
     this.scheduleSelectedSessionRefresh();
     void this.refreshWorkspaceActivity();
     void this.refreshMachineStatusSnapshots();
@@ -630,6 +633,7 @@ export class PiWebApp extends LitElement {
   }
 
   private schedulePiWebStatusRefresh(delayMs = PI_WEB_STATUS_DEFER_MS): void {
+    if (this.apiScope === "management") return;
     this.clearScheduledPiWebStatusRefresh();
     this.piWebStatusDeferredTimer = window.setTimeout(() => {
       this.piWebStatusDeferredTimer = undefined;
@@ -689,6 +693,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async loadClientConfig(): Promise<void> {
+    if (this.apiScope === "management") return;
     try {
       this.applyClientConfig((await configApi.config()).effectiveConfig);
     } catch (error) {
@@ -2053,6 +2058,7 @@ export class PiWebApp extends LitElement {
   }
 
   private ensureGatewayPluginsLoaded(): Promise<void> {
+    if (this.apiScope === "management") return Promise.resolve();
     return this.pluginLoads.ensureGatewayLoaded().then(() => undefined);
   }
 
@@ -2063,6 +2069,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async loadPluginsForMachine(machine: Machine): Promise<void> {
+    if (this.apiScope === "management") return;
     await this.pluginLoads.loadForMachine(machine);
   }
 
@@ -2483,6 +2490,10 @@ export class PiWebApp extends LitElement {
   private sendPrompt(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string): void {
     const hasAttachments = attachments !== undefined && attachments.length > 0;
     if (!hasAttachments && streamingBehavior === undefined && this.auth.handleSlashCommand(text)) return;
+    if (!hasAttachments && streamingBehavior === undefined && (text.trim() === "/model" || text.trim() === "/scoped-models")) {
+      void this.openModelDialog();
+      return;
+    }
     void this.sessions.send(text, streamingBehavior, attachments, delivery, folder);
   }
 

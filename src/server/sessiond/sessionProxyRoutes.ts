@@ -15,7 +15,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       const daemonPath = stripPrefix(request.url, prefix);
-      const body = await managementBody(daemonPath, request.body, managementContext, managementEmbed, resolveManagementProjectCwds);
+      const body = await managementBody(daemonPath, request.body, managementContext, managementEmbed, resolveManagementProjectCwds, request.method);
       const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext, managementEmbed));
       reply.code(upstream.statusCode);
       const contentType = upstream.headers["content-type"];
@@ -54,7 +54,8 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   });
 
   app.get<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
-    void managementContextForRequest(request, managementEmbed).then((context) => {
+    void managementContextForRequest(request, managementEmbed).then(async (context) => {
+      await managementBody(stripPrefix(request.url, prefix), undefined, context, managementEmbed);
       bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
       closeSocketWithError(socket, error);
@@ -87,23 +88,27 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
 }
 
-async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver): Promise<unknown> {
+async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver, method = "GET"): Promise<unknown> {
   if (context === undefined) return body;
-  const path = url;
-  const routePath = path.split("?", 1)[0] ?? path;
+  const parsed = new URL(url, "http://local");
+  const routePath = parsed.pathname;
+  if (routePath !== "/sessions" && !routePath.startsWith("/sessions/")) return body;
   if (routePath === "/sessions/cleanup/preview" || routePath === "/sessions/cleanup") {
     return await managementCleanupBody(body, context, managementEmbed, resolveManagementProjectCwds);
   }
-  if (path.startsWith("/sessions?") || path.startsWith("/sessions/search?") || path.startsWith("/sessions/pins?") || /\/sessions\/[^/]+\/pin\?/u.test(path)) {
-    const cwd = new URL(`http://local${path}`).searchParams.get("cwd");
-    if (cwd !== null) await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
-    return body;
+  for (const cwd of parsed.searchParams.getAll("cwd")) {
+    await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
   }
-  if (/\/sessions\/[^/]+\/pin$/u.test(path) && isRecord(body) && typeof body["cwd"] === "string") {
-    return { ...body, cwd: await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"], { create: false }) };
+  if (isRecord(body) && Array.isArray(body["sessions"])) {
+    for (const session of body["sessions"]) {
+      if (isRecord(session) && typeof session["cwd"] === "string") {
+        await assertManagedCwd(managementProjectRoot(managementEmbed), context, session["cwd"], { create: false });
+      }
+    }
   }
-  if (path === "/sessions" && isRecord(body) && typeof body["cwd"] === "string") {
-    return { ...body, cwd: await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"]) };
+  if (isRecord(body) && typeof body["cwd"] === "string") {
+    const cwd = await assertManagedCwd(managementProjectRoot(managementEmbed), context, body["cwd"], { create: routePath === "/sessions" && method === "POST" });
+    return { ...body, cwd };
   }
   return body;
 }

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setApiScope, type SessionInfo, type SessionModel, type SessionStatus } from "../api";
+import { setApiScope, type PromptAttachment, type SessionInfo, type SessionModel, type SessionStatus } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
 import { PiWebApp } from "./PiWebApp";
@@ -16,6 +16,49 @@ afterEach(() => {
 });
 
 describe("PiWebApp model dialog", () => {
+  it.each(["/model", "/scoped-models"])("opens the existing model dialog for %s", async (command) => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, sessions: [selectedSession] });
+    vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
+    const catalog = [{ provider: "openai", id: "gpt-5", enabled: true }];
+    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue(catalog);
+    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+
+    callSendPrompt(app, ` ${command} `);
+
+    await vi.waitFor(() => { expect(appModelDialog(app)?.catalog).toEqual(catalog); });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(["/model", "/scoped-models"])("keeps scope editing unavailable for %s in management embed", async (command) => {
+    history.replaceState({}, "", "/?embed=management");
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, sessions: [selectedSession] });
+    vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
+    const catalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue([]);
+    vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+
+    callSendPrompt(app, command);
+
+    await vi.waitFor(() => { expect(appModelDialog(app)).toBeDefined(); });
+    expect(appModelDialog(app)?.catalog).toBeUndefined();
+    expect(catalog).not.toHaveBeenCalled();
+  });
+
+  it("preserves delivery of model-like prompts and queued input", () => {
+    const app = new PiWebApp();
+    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+    callSendPrompt(app, "/model other");
+    callSendPrompt(app, "/model", "followUp");
+    const attachments: PromptAttachment[] = [{ kind: "image", mimeType: "image/png", data: "AA==" }];
+    callSendPrompt(app, "/scoped-models", undefined, attachments);
+    expect(send).toHaveBeenNthCalledWith(1, "/model other", undefined, undefined, undefined, undefined);
+    expect(send).toHaveBeenNthCalledWith(2, "/model", "followUp", undefined, undefined, undefined);
+    expect(send).toHaveBeenNthCalledWith(3, "/scoped-models", undefined, attachments, undefined, undefined);
+  });
+
   it("loads enabled options and the full catalog in normal mode", async () => {
     history.replaceState({}, "", "/");
     const app = new PiWebApp();
@@ -137,6 +180,12 @@ async function callOpenModelDialog(app: PiWebApp): Promise<void> {
   const method: unknown = Reflect.get(app, "openModelDialog");
   if (typeof method !== "function") throw new Error("PiWebApp openModelDialog was unavailable");
   await Reflect.apply(method, app, []);
+}
+
+function callSendPrompt(app: PiWebApp, text: string, streamingBehavior?: "followUp", attachments?: PromptAttachment[]): void {
+  const handler: unknown = Reflect.get(app, "handleSendPrompt");
+  if (typeof handler !== "function") throw new Error("PiWebApp send handler was unavailable");
+  Reflect.apply(handler, app, [text, streamingBehavior, attachments]);
 }
 
 async function callToggleHandler(app: PiWebApp, provider: string, modelId: string, enabled: boolean): Promise<void> {

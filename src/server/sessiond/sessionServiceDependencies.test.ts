@@ -57,6 +57,13 @@ async function startupDetails(deps: PiSessionServiceDependencies): Promise<strin
 }
 
 describe("sessiond session service dependency assembly", () => {
+  it("uses the provider catalog for both project auth and spawn ownership", async () => {
+    const source = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
+
+    expect(source).toMatch(/new ProjectAuthService\(\{ projects, workspaces: workspaceProviders \}\)/u);
+    expect(source).toMatch(/new ProjectScopedSpawnTargetResolver\(\{ projects: \{ list: projectsForScope \}, workspaces: workspaceProviders \}\)/u);
+  });
+
   it("keeps management auth and models in one shared management store", async () => {
     const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
 

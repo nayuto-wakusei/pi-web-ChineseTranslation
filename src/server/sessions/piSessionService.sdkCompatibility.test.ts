@@ -72,6 +72,7 @@ describe("Pi SDK compatibility through the production session service", () => {
       expect(hub.sessionEvents.some(({ event }) => event.type === "message.end")).toBe(true);
       expect(hub.sessionEvents.filter(({ event }) => event.type === "session.error")).toEqual([]);
       await expect(readFile(join(cwd, ".pi", "skills", "relay", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(cwd, ".pi", "skills", "relay-runner", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
 
       const sessionFile = runtime?.session.sessionFile;
       if (sessionFile === undefined) throw new Error("SDK did not persist the session");
@@ -88,15 +89,18 @@ describe("Pi SDK compatibility through the production session service", () => {
     }
   }, 20_000);
 
-  it("force-syncs management Relay and keeps global skills and generic shell tools excluded", async () => {
+  it("force-syncs both management Relay skills and keeps global skills and generic shell tools excluded", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-sdk-managed-"));
     const cwd = join(root, "project");
     const agentDir = join(root, "agent");
     const projectSkill = join(cwd, ".pi", "skills", "relay", "SKILL.md");
+    const projectRunner = join(cwd, ".pi", "skills", "relay-runner", "SKILL.md");
     await mkdir(join(cwd, ".pi", "skills", "relay"), { recursive: true });
+    await mkdir(join(cwd, ".pi", "skills", "relay-runner"), { recursive: true });
     await mkdir(join(agentDir, "skills", "global-only"), { recursive: true });
     await mkdir(join(agentDir, "skills", "relay"), { recursive: true });
     await writeFile(projectSkill, "old project relay");
+    await writeFile(projectRunner, "old project runner");
     await writeFile(join(agentDir, "skills", "global-only", "SKILL.md"), '---\nname: global-only\ndescription: Global only\n---\nPrivate global instructions\n');
     await writeFile(join(agentDir, "skills", "relay", "SKILL.md"), '---\nname: relay\ndescription: Global relay\n---\nPrivate global relay instructions\n');
     await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [fileURLToPath(new URL("../../../pi-packages/relays", import.meta.url))] }));
@@ -118,8 +122,9 @@ describe("Pi SDK compatibility through the production session service", () => {
     try {
       await service.start(cwd, { managementContext: context });
       expect(await readFile(projectSkill, "utf8")).toBe(await readFile(new URL("../../../skills/relay/SKILL.md", import.meta.url), "utf8"));
-      expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name)).toEqual(["relay"]);
-      expect(runtime?.services.resourceLoader.getSkills().skills[0]?.filePath).toBe(projectSkill);
+      expect(await readFile(projectRunner, "utf8")).toBe(await readFile(new URL("../../../skills/relay-runner/SKILL.md", import.meta.url), "utf8"));
+      expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name).sort()).toEqual(["relay", "relay-runner"]);
+      expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.filePath)).toEqual(expect.arrayContaining([projectSkill, projectRunner]));
       expect(runtime?.services.resourceLoader.getSkills().diagnostics).toEqual([]);
       expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python"]));
       expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["bash"]));

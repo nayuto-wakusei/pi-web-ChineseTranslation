@@ -1,3 +1,4 @@
+import { closeSync, openSync, readSync, writeSync } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { tryParseEntry } from "./sessionFileFormat.js";
 
@@ -32,6 +33,38 @@ export interface SessionHeaderSummary {
 
 /** Reads a session file header; injected so lookups can replace or observe their header reads. */
 export type SessionHeaderReader = (sessionFile: string) => Promise<SessionHeaderSummary | undefined>;
+
+/** Keep append offsets intact, and do not yield between the SDK's synchronous writes. */
+export function clearSessionFileParent(sessionFile: string): void {
+  const file = openSync(sessionFile, "r+");
+  try {
+    const buffer = Buffer.alloc(HEADER_READ_CAP_BYTES);
+    let length = 0;
+    let newline = -1;
+    while (length < buffer.length && newline === -1) {
+      const count = readSync(file, buffer, length, Math.min(HEADER_READ_CHUNK_BYTES, buffer.length - length), length);
+      if (count === 0) break;
+      newline = buffer.subarray(length, length + count).indexOf(NEWLINE);
+      if (newline !== -1) newline += length;
+      length += count;
+    }
+    if (newline === -1 && length === buffer.length) throw new Error("Session file header exceeds size limit");
+    let headerLength = newline === -1 ? length : newline;
+    if (buffer[headerLength - 1] === CARRIAGE_RETURN) headerLength -= 1;
+    const header = tryParseEntry(buffer.toString("utf8", 0, headerLength));
+    if (header?.["type"] !== "session") throw new Error("Invalid session file header");
+    if (header["parentSession"] === undefined) return;
+    delete header["parentSession"];
+    const replacement = Buffer.from(JSON.stringify(header), "utf8");
+    if (replacement.length > headerLength) throw new Error("Session file header cannot grow during detach");
+    const padded = Buffer.alloc(headerLength, 0x20);
+    replacement.copy(padded);
+    let written = 0;
+    while (written < padded.length) written += writeSync(file, padded, written, padded.length - written, written);
+  } finally {
+    closeSync(file);
+  }
+}
 
 /**
  * Read a Pi session file's header without loading the whole transcript.

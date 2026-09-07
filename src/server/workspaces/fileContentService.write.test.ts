@@ -90,4 +90,34 @@ describe("writeWorkspaceFile", () => {
     await expect(writeWorkspaceFile(root, "subdir/escape/evil.txt", Buffer.from("evil"))).rejects.toThrow("Path escapes workspace");
     await expect(readFile(join(outsideDir, "evil.txt"))).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it.each([true, false])("rejects dangling file symlinks with overwrite=%s", async (overwrite) => {
+    const root = await createTempWorkspace();
+    const outsideDir = await createTempWorkspace("pi-web-outside-");
+    const outsideFile = join(outsideDir, "missing.txt");
+    await symlink(outsideFile, join(root, "link.txt"), "file");
+
+    await expect(writeWorkspaceFile(root, "link.txt", Buffer.from("escaped"), { overwrite })).rejects.toThrow();
+    await expect(readFile(outsideFile)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves writes through existing workspace-local file symlinks", async () => {
+    const root = await createTempWorkspace();
+    await writeFile(join(root, "target.txt"), "old");
+    await symlink(join(root, "target.txt"), join(root, "link.txt"), "file");
+
+    await expect(writeWorkspaceFile(root, "link.txt", Buffer.from("new"))).resolves.toMatchObject({ created: false });
+    await expect(readFile(join(root, "target.txt"), "utf8")).resolves.toBe("new");
+    await expect(writeWorkspaceFile(root, "link.txt", Buffer.from("no"), { overwrite: false })).rejects.toThrow("File already exists");
+  });
+
+  it("never overwrites a competing exclusive upload", async () => {
+    const root = await createTempWorkspace();
+    const results = await Promise.allSettled([
+      writeWorkspaceFile(root, "same.txt", Buffer.from("first"), { overwrite: false }),
+      writeWorkspaceFile(root, "same.txt", Buffer.from("second"), { overwrite: false }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(["first", "second"]).toContain(await readFile(join(root, "same.txt"), "utf8"));
+  });
 });

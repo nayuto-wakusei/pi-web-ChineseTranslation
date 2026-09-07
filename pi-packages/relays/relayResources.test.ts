@@ -56,6 +56,12 @@ describe("Relay Pi package resources", () => {
     expect(shipped).toBe(canonical);
   });
 
+  it.each(skillNames)("includes the %s management template in the npm package allowlist", async (name) => {
+    const manifest: unknown = JSON.parse(await readFile(join(__dirname, "..", "..", "package.json"), "utf8"));
+    if (typeof manifest !== "object" || manifest === null || !("files" in manifest)) throw new Error("Missing package files allowlist");
+    expect(manifest.files).toContain(`skills/${name}/SKILL.md`);
+  });
+
   it("keeps the base Relay method tool agnostic", async () => {
     const content = await readFile(join(__dirname, "..", "..", "skills", "relay", "SKILL.md"), "utf8");
 
