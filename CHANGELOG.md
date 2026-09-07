@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.4
+
+### Patch Changes
+
+- Pin Pi SDK peer dependencies to the verified 0.85.0 release so fresh installations use the same SDK as the release tests.
+
 ## 1.202609.3
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@chainingintention/pi-web-cn",
-  "version": "1.202609.3",
+  "version": "1.202609.4",
   "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
@@ -140,9 +140,9 @@
   "homepage": "https://github.com/nayuto-wakusei/pi-web-ChineseTranslation#readme",
   "packageManager": "npm@11.11.0",
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "~0.85.0",
-    "@earendil-works/pi-ai": "~0.85.0",
-    "@earendil-works/pi-coding-agent": "~0.85.0"
+    "@earendil-works/pi-agent-core": "0.85.0",
+    "@earendil-works/pi-ai": "0.85.0",
+    "@earendil-works/pi-coding-agent": "0.85.0"
   },
   "keywords": [
     "pi-package",
