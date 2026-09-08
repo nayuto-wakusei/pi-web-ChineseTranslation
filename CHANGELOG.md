@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.5
+
+### Patch Changes
+
+- 自动对话标题根据用户输入的语言生成，保留原有简短标题要求。
+- 将 Pi SDK 升级至 0.85.1，获得上游模型与提示缓存修复，并移除 0.85.0 导入故障所需的临时 pi-server 依赖。
+
 ## 1.202609.4
 
 ### Patch Changes

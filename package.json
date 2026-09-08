@@ -1,6 +1,6 @@
 {
   "name": "@chainingintention/pi-web-cn",
-  "version": "1.202609.4",
+  "version": "1.202609.5",
   "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
@@ -88,7 +88,6 @@
     "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
-    "@earendil-works/pi-server": "0.85.0",
     "@fastify/compress": "^9.0.0",
     "@fastify/static": "^10.1.2",
     "@fastify/websocket": "^11.3.0",
@@ -105,9 +104,9 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@earendil-works/pi-agent-core": "0.85.0",
-    "@earendil-works/pi-ai": "0.85.0",
-    "@earendil-works/pi-coding-agent": "0.85.0",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.3",
     "@types/ws": "^8.18.1",
@@ -140,9 +139,9 @@
   "homepage": "https://github.com/nayuto-wakusei/pi-web-ChineseTranslation#readme",
   "packageManager": "npm@11.11.0",
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "0.85.0",
-    "@earendil-works/pi-ai": "0.85.0",
-    "@earendil-works/pi-coding-agent": "0.85.0"
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1"
   },
   "keywords": [
     "pi-package",

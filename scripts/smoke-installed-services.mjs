@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 // Start the published entry points outside the checkout so dev dependencies cannot mask missing runtime packages.
-// Pi 0.85.0 imports undeclared pi-server; our explicit runtime dependency (and narrow Knip exception) supplies it.
 export async function smokeInstalledServices(packageRoot) {
   const root = await mkdtemp(join(tmpdir(), "pi-web-service-smoke-"));
   const processes = [];

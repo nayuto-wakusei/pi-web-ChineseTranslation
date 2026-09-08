@@ -17,7 +17,7 @@ export async function generateShortSessionName<TApi extends Api>(streamFn: Strea
   const stream = await streamFn(
     model,
     {
-      systemPrompt: "Generate a concise title for a coding-agent chat session. Return only the title, with no quotes or punctuation wrapper.",
+      systemPrompt: "Generate a concise title for a coding-agent chat session. Use the same language as the user's request. Return only the title, with no quotes or punctuation wrapper.",
       messages: [{
         role: "user",
         content: `Create a 2-6 word title for this request:\n\n${truncateInput(firstMessage)}`,
