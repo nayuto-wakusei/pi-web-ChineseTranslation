@@ -56,6 +56,31 @@ export class WorkbenchClient {
     }), "capability token response"), "token");
   }
 
+  async refreshAgentAccessState(state: WorkbenchAgentAccessState): Promise<WorkbenchAgentAccessState> {
+    if (Date.parse(state.expiresAt) > Date.now()) {
+      try {
+        const snapshot = record(await this.json("/api/agent-access/resources", {
+          method: "GET", token: state.bearerToken, expectedStatus: 200,
+        }), "resource snapshot");
+        if (stringField(snapshot, "sessionId") !== state.sessionId) throw new Error("Workbench resource snapshot does not match the Agent Session");
+        if (Date.parse(state.expiresAt) > Date.now()) {
+          return { ...state, authorizationRevision: integerField(snapshot, "authorizationRevision"), resources: parseAuthorizedResources(snapshot["resources"]) };
+        }
+      } catch (error) {
+        if (!(error instanceof WorkbenchHttpError) || error.status !== 401) throw error;
+      }
+    }
+    const renewed = record(await this.json("/api/agent-access/sessions/renew", {
+      method: "POST", token: state.bearerToken, expectedStatus: 200,
+    }), "Agent Session renewal");
+    if (stringField(renewed, "sessionId") !== state.sessionId || stringField(renewed, "token") !== state.bearerToken) {
+      throw new Error("Workbench renewal does not match the Agent Session");
+    }
+    const expiresAt = stringField(renewed, "expiresAt");
+    if (!Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) throw new Error("Workbench renewal expiry is invalid");
+    return { ...state, expiresAt, authorizationRevision: integerField(renewed, "authorizationRevision"), resources: parseAuthorizedResources(renewed["resources"]) };
+  }
+
   async issueSkillTicket(bearerToken: string, request: SkillTicketRequest): Promise<string> {
     return stringField(record(await this.json("/api/agent-access/skill-ticket", {
       method: "POST", token: bearerToken, expectedStatus: 200, body: request,

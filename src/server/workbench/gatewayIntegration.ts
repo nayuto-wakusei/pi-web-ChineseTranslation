@@ -8,9 +8,6 @@ import { WORKBENCH_ACCESS_STATE_ROUTE } from "./accessStateRoutes.js";
 
 interface WorkbenchBinding {
   handle: string;
-  bootstrapToken: string;
-  projectId: string;
-  entryExpiresAt: number;
   state: WorkbenchAgentAccessState;
   refresh?: Promise<void>;
 }
@@ -41,7 +38,7 @@ export function createWorkbenchManagementRuntime(
       let cached = bindings.get(key);
       if (cached === undefined) {
         const projectId = context.projects[0]?.id ?? "personal-project";
-        const pending = createWorkbenchBinding(client, daemon, token, projectId, context.expiresAt);
+        const pending = createWorkbenchBinding(client, daemon, token, projectId);
         const created = { expiresAt: expiryTime(context.expiresAt), pending };
         cached = created;
         bindings.set(key, created);
@@ -56,7 +53,7 @@ export function createWorkbenchManagementRuntime(
     },
     async prepareContext(context) {
       const binding = contextBindings.get(context);
-      if (binding !== undefined) await refreshExpiredWorkbenchBinding(client, daemon, binding);
+      if (binding !== undefined) await refreshWorkbenchBindingOnce(client, daemon, binding);
     },
     resourceHandle(context) {
       return contextBindings.get(context)?.handle;
@@ -69,24 +66,17 @@ async function createWorkbenchBinding(
   daemon: SessionProxyDaemon,
   token: string,
   projectId: string,
-  entryExpiresAt: string | undefined,
 ): Promise<WorkbenchBinding> {
   const state = await client.createAgentAccessState(token, projectId);
   const handle = randomBytes(32).toString("base64url");
   await storeWorkbenchState(client, daemon, handle, state);
   return {
     handle,
-    bootstrapToken: token,
-    projectId,
-    entryExpiresAt: expiryTime(entryExpiresAt),
     state,
   };
 }
 
-async function refreshExpiredWorkbenchBinding(client: WorkbenchClient, daemon: SessionProxyDaemon, binding: WorkbenchBinding): Promise<void> {
-  const now = Date.now();
-  if (expiryTime(binding.state.expiresAt) > now) return;
-  if (binding.entryExpiresAt <= now) throw new Error("当前资源授权已过期，请返回工作台重新进入桂小智。");
+async function refreshWorkbenchBindingOnce(client: WorkbenchClient, daemon: SessionProxyDaemon, binding: WorkbenchBinding): Promise<void> {
   if (binding.refresh === undefined) {
     const pending = refreshWorkbenchBinding(client, daemon, binding).finally(() => {
       if (binding.refresh === pending) delete binding.refresh;
@@ -97,8 +87,8 @@ async function refreshExpiredWorkbenchBinding(client: WorkbenchClient, daemon: S
 }
 
 async function refreshWorkbenchBinding(client: WorkbenchClient, daemon: SessionProxyDaemon, binding: WorkbenchBinding): Promise<void> {
-  const state = await client.createAgentAccessState(binding.bootstrapToken, binding.projectId);
-  await storeWorkbenchState(client, daemon, binding.handle, state);
+  const state = await client.refreshAgentAccessState(binding.state);
+  await storeWorkbenchState(client, daemon, binding.handle, state, false);
   binding.state = state;
 }
 
@@ -107,10 +97,11 @@ async function storeWorkbenchState(
   daemon: SessionProxyDaemon,
   handle: string,
   state: WorkbenchAgentAccessState,
+  revokeOnFailure = true,
 ): Promise<void> {
   const response = await daemon.request("PUT", `${WORKBENCH_ACCESS_STATE_ROUTE}/${encodeURIComponent(handle)}`, state);
   if (response.statusCode === 204) return;
-  await client.revoke(state).catch(() => undefined);
+  if (revokeOnFailure) await client.revoke(state).catch(() => undefined);
   throw new Error("Session daemon rejected the workbench resource state");
 }
 

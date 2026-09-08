@@ -191,6 +191,23 @@ describe("Workbench controlled tools", () => {
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it("rechecks asynchronous authorization after a stale session without replaying an MCP call", async () => {
+    const state = accessState([capability("allowed.read")]);
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const issueToken = vi.spyOn(workbench, "issueCapabilityToken")
+      .mockRejectedValueOnce(new WorkbenchHttpError(401, "stale authorization"))
+      .mockResolvedValueOnce("renewed-capability-token");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    const call = vi.spyOn(mcp, "callCapability").mockResolvedValue(stableCapabilityResult("allowed.read"));
+    const getState = vi.fn(() => Promise.resolve(state));
+    const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find((definition) => definition.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("call tool was not registered");
+    await tool.execute("call-1", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
+    expect(issueToken).toHaveBeenCalledTimes(2);
+    expect(getState).toHaveBeenCalledTimes(3);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
   it("retries one MCP transport failure with a fresh capability token", async () => {
     const state = accessState([capability("allowed.read")]);
     const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });

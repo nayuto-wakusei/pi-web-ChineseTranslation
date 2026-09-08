@@ -91,7 +91,7 @@ import {
 } from "./sessionArchiveMapping.js";
 import { annotateAssistantThinkingLevel, getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
 import { WorkbenchAccessStateStore } from "../workbench/accessStateStore.js";
-import { WorkbenchClient, WorkbenchHttpError } from "../workbench/workbenchClient.js";
+import { WorkbenchClient } from "../workbench/workbenchClient.js";
 import { WorkbenchMcpClient } from "../workbench/mcpClient.js";
 import { WorkbenchSkillSynchronizer } from "../workbench/skillSync.js";
 import { createWorkbenchToolDefinitions } from "../workbench/workbenchTools.js";
@@ -932,24 +932,17 @@ function createManagementRuntimeFactory(
     await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
-    const state = workbench === undefined ? undefined : workbench.accessStates.require(accessHandle);
-    let receipt;
-    try {
-      receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
-        ...(managementAudit === undefined ? {} : { recorder: managementAudit }),
-        ...auditIdentity,
-        sessionId: sessionManager.getSessionId(),
-        cwd,
-      });
-    } catch (error) {
-      if (error instanceof WorkbenchHttpError && error.status === 401 && accessHandle !== undefined) workbench?.accessStates.delete(accessHandle);
-      throw error;
-    }
+    const state = workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
+    const receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
+      ...(managementAudit === undefined ? {} : { recorder: managementAudit }),
+      ...auditIdentity,
+      sessionId: sessionManager.getSessionId(),
+      cwd,
+    });
     const workbenchTools = state === undefined || workbench === undefined ? [] : createWorkbenchToolDefinitions({
-      getState: () => workbench.accessStates.require(accessHandle),
+      getState: () => workbench.accessStates.prepare(accessHandle, workbench.client),
       workbench: workbench.client,
       mcp: workbench.mcp,
-      invalidate: () => { if (accessHandle !== undefined) workbench.accessStates.delete(accessHandle); },
       logger,
       ...(managementAudit === undefined ? {} : { audit: managementAudit }),
       auditContext: {

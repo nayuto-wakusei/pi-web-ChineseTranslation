@@ -38,10 +38,10 @@ const RetrieveKnowledgeParams = Type.Object({
 }, { additionalProperties: false });
 
 export interface WorkbenchToolDependencies {
-  getState(): WorkbenchAgentAccessState;
+  getState(): WorkbenchAgentAccessState | Promise<WorkbenchAgentAccessState>;
   workbench: WorkbenchClient;
   mcp: WorkbenchMcpClient;
-  invalidate(): void;
+  invalidate?(): void;
   logger?: { info(details: Record<string, unknown>, message: string): void };
   audit?: ManagementAuditRecorder;
   auditContext?: ManagementAuditIdentity & { sessionId: string; cwd: string };
@@ -56,8 +56,8 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
       promptSnippet: "检索当前账号已授权的网络能力",
       promptGuidelines: ["调用能力前先按问题检索；只能使用返回的精确能力名和输入Schema。"],
       parameters: SearchCapabilitiesParams,
-      execute(_toolCallId, params) {
-        const result = searchAuthorizedCapabilities(deps.getState().resources, params);
+      async execute(_toolCallId, params) {
+        const result = searchAuthorizedCapabilities((await deps.getState()).resources, params);
         return Promise.resolve({ content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined });
       },
     }),
@@ -68,8 +68,8 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
       promptSnippet: "检索当前账号已授权的知识资源",
       promptGuidelines: ["检索知识前先按问题搜索；只能使用返回的精确resourceName。"],
       parameters: SearchKnowledgeParams,
-      execute(_toolCallId, params) {
-        const result = searchAuthorizedKnowledge(deps.getState().resources, params);
+      async execute(_toolCallId, params) {
+        const result = searchAuthorizedKnowledge((await deps.getState()).resources, params);
         return Promise.resolve({ content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined });
       },
     }),
@@ -88,7 +88,7 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
         const runId = `run-${randomUUID()}`;
         const traceId = `trace-${randomUUID()}`;
         const startedAt = Date.now();
-        const state = deps.getState();
+        const state = await deps.getState();
         try {
           const question = params.question.trim();
           if (question === "") throw new Error("知识检索问题不能为空");
@@ -164,7 +164,7 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
         const runId = `run-${randomUUID()}`;
         const traceId = `trace-${randomUUID()}`;
         const startedAt = Date.now();
-        const state = deps.getState();
+        const state = await deps.getState();
         try {
           const capability = requireAuthorizedL0Capability(state.resources, params.capability_name);
           const invocation = await callWithOneTransientRetry(deps, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId);
@@ -292,7 +292,7 @@ async function callWithOneTransientRetry(
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const token = await deps.workbench.issueCapabilityToken(deps.getState().bearerToken, {
+      const token = await deps.workbench.issueCapabilityToken((await deps.getState()).bearerToken, {
         capabilityName, capabilityVersion, runId, traceId, approvalCount: 0,
       });
       const result = await deps.mcp.callCapability(token, capabilityName, args, idempotencyKey);
@@ -300,7 +300,8 @@ async function callWithOneTransientRetry(
       return { result, retryCount: attempt };
     } catch (error) {
       if (error instanceof WorkbenchHttpError && error.status === 401) {
-        deps.invalidate();
+        if (attempt === 0) continue;
+        deps.invalidate?.();
         throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
       }
       if (attempt === 0 && error instanceof McpTransportError) continue;
@@ -325,12 +326,14 @@ async function retrieveKnowledgeOnce(
   },
 ): Promise<KnowledgeRetrievalResult> {
   try {
-    const token = await deps.workbench.issueKnowledgeToken(bearerToken, {
-      resourceName: input.resourceName,
-      resourceVersion: input.resourceVersion,
-      runId: input.runId,
-      traceId: input.traceId,
-    });
+    const request = { resourceName: input.resourceName, resourceVersion: input.resourceVersion, runId: input.runId, traceId: input.traceId };
+    let token: string;
+    try {
+      token = await deps.workbench.issueKnowledgeToken(bearerToken, request);
+    } catch (error) {
+      if (!(error instanceof WorkbenchHttpError) || error.status !== 401) throw error;
+      token = await deps.workbench.issueKnowledgeToken((await deps.getState()).bearerToken, request);
+    }
     return await deps.workbench.retrieveKnowledge(token, {
       question: input.question,
       resourceName: input.resourceName,
@@ -339,7 +342,7 @@ async function retrieveKnowledgeOnce(
     });
   } catch (error) {
     if (error instanceof WorkbenchHttpError && error.status === 401) {
-      deps.invalidate();
+      deps.invalidate?.();
       throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
     }
     throw error;
