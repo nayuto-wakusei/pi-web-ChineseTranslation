@@ -8,14 +8,32 @@ import type { ActiveAgentProfileProvider } from "./activeAgentProfileProvider.js
 import { buildApp } from "./app.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import { installTestAuth } from "./app.testSupport.js";
+import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+
+// Keep buildApp's profile wiring and real package discovery, but exclude host plugin roots.
+vi.mock("./piWebPluginService.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./piWebPluginService.js")>();
+  return {
+    ...actual,
+    PiWebPluginService: class extends actual.PiWebPluginService {
+      constructor(options: ConstructorParameters<typeof actual.PiWebPluginService>[0]) {
+        super({ ...options, roots: [] });
+      }
+    },
+  };
+});
 
 let tempDir: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "pi-web-active-profile-app-"));
+  vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+  vi.stubEnv("PI_WEB_DATA_DIR", join(tempDir, "data"));
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -36,19 +54,20 @@ describe("buildApp active profile composition", () => {
     const getActiveAgentProfile = vi.fn(() => Promise.resolve(result));
     const app = await buildApp({
       agentProfileProvider: { getActiveAgentProfile },
+      sessionDaemon: unavailableSessionDaemon(),
       config: emptyConfigService(),
       clientDist: false,
       logger: false,
     });
-    await installTestAuth(app);
-
     try {
+      await installTestAuth(app);
       const firstPackages = await app.inject({ method: "GET", url: "/api/pi-packages" });
       const firstPlugins = await app.inject({ method: "GET", url: "/api/plugins" });
       expect(firstPackages.statusCode).toBe(200);
       expect(packageSources(firstPackages.json())).toContain(firstPackageDir);
       expect(pluginIds(firstPlugins.json())).toContain("profile-first");
       expect(pluginIds(firstPlugins.json())).not.toContain("profile-second");
+      expect(pluginIds(firstPlugins.json())).toEqual(["profile-first"]);
 
       result = { status: "available", profile: activeProfile("b", "second-agent", secondAgentDir) };
 
@@ -59,6 +78,7 @@ describe("buildApp active profile composition", () => {
       expect(packageSources(secondPackages.json())).not.toContain(firstPackageDir);
       expect(pluginIds(secondPlugins.json())).toContain("profile-second");
       expect(pluginIds(secondPlugins.json())).not.toContain("profile-first");
+      expect(pluginIds(secondPlugins.json())).toEqual(["profile-second"]);
       expect(getActiveAgentProfile).toHaveBeenCalledTimes(4);
     } finally {
       await app.close();
@@ -71,13 +91,13 @@ describe("buildApp active profile composition", () => {
     };
     const app = await buildApp({
       agentProfileProvider: provider,
+      sessionDaemon: unavailableSessionDaemon(),
       config: emptyConfigService(),
       clientDist: false,
       logger: false,
     });
-    await installTestAuth(app);
-
     try {
+      await installTestAuth(app);
       const packages = await app.inject({ method: "GET", url: "/api/pi-packages" });
       const plugins = await app.inject({ method: "GET", url: "/api/plugins" });
       const manifest = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
@@ -93,6 +113,13 @@ describe("buildApp active profile composition", () => {
     }
   });
 });
+
+function unavailableSessionDaemon(): SessionProxyDaemon {
+  return {
+    request: () => Promise.resolve({ statusCode: 503, headers: {}, body: "Test daemon is unavailable" }),
+    connectWebSocket: () => { throw new Error("WebSocket is not configured for this test"); },
+  };
+}
 
 function activeProfile(revisionCharacter: string, command: string, dir: string): ActiveAgentProfileDescriptor {
   return {
