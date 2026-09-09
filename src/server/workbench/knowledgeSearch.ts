@@ -1,6 +1,7 @@
 import type { AuthorizedResource } from "./types.js";
 
 export interface SearchKnowledgeInput {
+  provider?: "ragflow" | "bookstack";
   keyword?: string;
   spaceCode?: string;
   domain?: string;
@@ -22,7 +23,7 @@ export interface KnowledgeSummary {
   source?: string;
   ownerOrganization?: string;
   effectiveDate?: string;
-  provider: "ragflow";
+  provider: "ragflow" | "bookstack";
   riskLevel: "L0";
 }
 
@@ -30,7 +31,8 @@ export function searchAuthorizedKnowledge(resources: readonly AuthorizedResource
   const keyword = input.keyword?.trim().toLocaleLowerCase() ?? "";
   const limit = Math.max(1, Math.min(input.limit ?? 8, 20));
   const candidates = resources
-    .filter(isAuthorizedRagflowKnowledge)
+    .filter(isAuthorizedKnowledge)
+    .filter((item) => input.provider === undefined || knowledgeProvider(item) === input.provider)
     .filter((item) => input.spaceCode === undefined || metadataString(item, "spaceCode") === input.spaceCode)
     .filter((item) => input.domain === undefined || metadataString(item, "domain") === input.domain)
     .filter((item) => input.classification === undefined || metadataString(item, "classification") === input.classification)
@@ -41,9 +43,17 @@ export function searchAuthorizedKnowledge(resources: readonly AuthorizedResource
 }
 
 export function requireAuthorizedRagflowKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string): AuthorizedResource {
+  return requireAuthorizedKnowledge(resources, name, "ragflow", version);
+}
+
+export function requireAuthorizedBookstackKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string): AuthorizedResource {
+  return requireAuthorizedKnowledge(resources, name, "bookstack", version);
+}
+
+function requireAuthorizedKnowledge(resources: readonly AuthorizedResource[], name: string, provider: "ragflow" | "bookstack", version?: string): AuthorizedResource {
   const resourceName = name.trim();
   const resourceVersion = version?.trim();
-  const item = resources.find((resource) => resource.resourceName === resourceName && isAuthorizedRagflowKnowledge(resource));
+  const item = resources.find((resource) => resource.resourceName === resourceName && isAuthorizedKnowledge(resource) && knowledgeProvider(resource) === provider);
   if (item === undefined) throw new Error("当前账号未获授权检索该知识资源");
   if (resourceVersion !== undefined && resourceVersion !== "" && item.resourceVersion !== resourceVersion) {
     throw new Error("知识资源版本不在当前授权快照中");
@@ -51,16 +61,17 @@ export function requireAuthorizedRagflowKnowledge(resources: readonly Authorized
   return item;
 }
 
-function isAuthorizedRagflowKnowledge(item: AuthorizedResource): boolean {
+function isAuthorizedKnowledge(item: AuthorizedResource): boolean {
   return item.resourceType === "knowledge" &&
     item.status === "published" &&
     item.riskLevel === "L0" &&
-    knowledgeProvider(item) === "ragflow";
+    (knowledgeProvider(item) === "ragflow" || (knowledgeProvider(item) === "bookstack" && item.resourceVersion === "live"));
 }
 
-function knowledgeProvider(item: AuthorizedResource): string {
-  const provider = metadataString(item, "provider");
-  return provider === undefined || provider === "ragflow" ? "ragflow" : provider;
+function knowledgeProvider(item: AuthorizedResource): "ragflow" | "bookstack" | undefined {
+  const provider = item.metadata["provider"];
+  if (provider === undefined || provider === null || provider === "ragflow") return "ragflow";
+  return provider === "bookstack" ? "bookstack" : undefined;
 }
 
 function knowledgeScore(item: AuthorizedResource, keyword: string): number {
@@ -102,7 +113,7 @@ function toKnowledgeSummary(item: AuthorizedResource): KnowledgeSummary {
     ...(source === undefined ? {} : { source }),
     ...(ownerOrganization === undefined ? {} : { ownerOrganization }),
     ...(effectiveDate === undefined ? {} : { effectiveDate }),
-    provider: "ragflow",
+    provider: knowledgeProvider(item) === "bookstack" ? "bookstack" : "ragflow",
     riskLevel: "L0",
   };
 }

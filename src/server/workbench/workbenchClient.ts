@@ -1,5 +1,8 @@
 import type {
   AuthorizedResource,
+  BookstackRetrievalPage,
+  BookstackRetrievalRequest,
+  BookstackRetrievalResult,
   CapabilityTokenRequest,
   KnowledgeRetrievalChunk,
   KnowledgeRetrievalRequest,
@@ -99,6 +102,16 @@ export class WorkbenchClient {
     }));
   }
 
+  async retrieveBookstack(knowledgeToken: string, request: BookstackRetrievalRequest): Promise<BookstackRetrievalResult> {
+    const result = parseBookstackRetrievalResult(await this.json("/api/knowledge-access/bookstack/retrieval", {
+      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request,
+    }));
+    if (result.resourceName !== request.resourceName || result.resourceVersion !== "live") {
+      throw new Error("BookStack response does not match the requested resource");
+    }
+    return result;
+  }
+
   async revoke(state: Pick<WorkbenchAgentAccessState, "sessionId" | "bearerToken">): Promise<void> {
     await this.json(`/api/agent-access/sessions/${encodeURIComponent(state.sessionId)}/revoke`, {
       method: "POST", token: state.bearerToken, expectedStatus: 200,
@@ -163,6 +176,40 @@ function parseKnowledgeRetrievalResult(value: unknown): KnowledgeRetrievalResult
     resourceName: stringField(result, "resourceName"),
     resourceVersion: stringField(result, "resourceVersion"),
     chunks: chunksValue.map(parseKnowledgeRetrievalChunk),
+  };
+}
+
+function parseBookstackRetrievalResult(value: unknown): BookstackRetrievalResult {
+  const result = record(value, "BookStack retrieval response");
+  const pages = result["pages"];
+  if (!Array.isArray(pages) || pages.length > 20) throw new Error("BookStack pages must be an array of at most 20 pages");
+  if (typeof result["truncated"] !== "boolean") throw new Error("BookStack truncated must be a boolean");
+  const parsedPages = pages.map(parseBookstackRetrievalPage);
+  if (parsedPages.reduce((total, page) => total + page.content.length, 0) > 40_000) throw new Error("BookStack content exceeds the response limit");
+  return {
+    resourceName: stringField(result, "resourceName"),
+    resourceVersion: stringField(result, "resourceVersion"),
+    pages: parsedPages,
+    truncated: result["truncated"],
+  };
+}
+
+function parseBookstackRetrievalPage(value: unknown): BookstackRetrievalPage {
+  const page = record(value, "BookStack page");
+  const revision = integerField(page, "revision");
+  const content = stringValueField(page, "content");
+  const updatedAt = stringField(page, "updatedAt");
+  const url = new URL(stringField(page, "url"));
+  if (revision < 0 || content.length > 8_000 || !Number.isFinite(Date.parse(updatedAt))) throw new Error("BookStack page metadata or content is invalid");
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("BookStack source URL is invalid");
+  return {
+    pageId: stringField(page, "pageId"),
+    title: stringField(page, "title"),
+    content,
+    updatedAt,
+    revision,
+    url: url.href,
+    citation: stringField(page, "citation"),
   };
 }
 

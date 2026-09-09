@@ -2,6 +2,48 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkbenchClient } from "./workbenchClient.js";
 
 describe("WorkbenchClient", () => {
+  it("retrieves BookStack pages from its dedicated backend route without passing credentials in the body", async () => {
+    const payload = bookstackResult();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, payload));
+    const client = new WorkbenchClient({ baseUrl: "http://backend:8787", requestTimeoutMs: 10_000, fetch: fetchImpl });
+    const request = { resourceName: "bookstack.gx.1", question: "光衰", topK: 8 };
+    expect(await client.retrieveBookstack("one-use-secret", request)).toEqual(payload);
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(url).toEqual(new URL("http://backend:8787/api/knowledge-access/bookstack/retrieval"));
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer one-use-secret");
+    expect(init?.body).toBe(JSON.stringify(request));
+  });
+
+  it.each([
+    { label: "missing pages", patch: { pages: undefined } },
+    { label: "nonboolean truncation", patch: { truncated: "false" } },
+    { label: "foreign resource", patch: { resourceName: "bookstack.gx.2" } },
+    { label: "non-live version", patch: { resourceVersion: "r1" } },
+    { label: "too many pages", patch: { pages: Array.from({ length: 21 }, () => bookstackResult().pages[0]) } },
+    { label: "oversized overall content", patch: { pages: Array.from({ length: 6 }, () => ({ ...bookstackResult().pages[0], content: "x".repeat(8_000) })) } },
+  ])("rejects $label in BookStack responses", async ({ patch }) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, { ...bookstackResult(), ...patch }));
+    const client = new WorkbenchClient({ baseUrl: "http://backend", requestTimeoutMs: 1_000, fetch: fetchImpl });
+    await expect(client.retrieveBookstack("token", { resourceName: "bookstack.gx.1", question: "query" })).rejects.toThrow();
+  });
+
+  it.each([
+    { label: "invalid content", patch: { content: 42 } },
+    { label: "oversized content", patch: { content: "x".repeat(8_001) } },
+    { label: "invalid revision", patch: { revision: -1 } },
+    { label: "fractional revision", patch: { revision: 1.5 } },
+    { label: "invalid date", patch: { updatedAt: "invalid" } },
+    { label: "missing citation", patch: { citation: undefined } },
+    { label: "active URL", patch: { url: "javascript:alert(1)" } },
+    { label: "credential URL", patch: { url: "https://user:password@example.com/bookstack" } },
+  ])("rejects $label in BookStack pages", async ({ patch }) => {
+    const payload = bookstackResult();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, { ...payload, pages: [{ ...payload.pages[0], ...patch }] }));
+    const client = new WorkbenchClient({ baseUrl: "http://backend", requestTimeoutMs: 1_000, fetch: fetchImpl });
+    await expect(client.retrieveBookstack("token", { resourceName: "bookstack.gx.1", question: "query" })).rejects.toThrow();
+  });
+
   it("creates a private Agent Session and loads its matching resource snapshot", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(201, { sessionId: "session-1", token: "agent-secret", expiresAt: "2099-01-01T00:00:00.000Z", authorizationRevision: 12 }))
@@ -87,4 +129,11 @@ describe("WorkbenchClient", () => {
 
 function jsonResponse(status: number, value: unknown): Response {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+}
+
+function bookstackResult() {
+  return {
+    resourceName: "bookstack.gx.1", resourceVersion: "live", truncated: false,
+    pages: [{ pageId: "12", title: "光衰笔记", content: "处理步骤", updatedAt: "2026-09-09T00:00:00.000Z", revision: 2, url: "https://workbench/bookstack/link/12", citation: "knowledge://bookstack.gx.1@live/12/2" }],
+  };
 }

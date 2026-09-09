@@ -943,6 +943,7 @@ function createManagementRuntimeFactory(
       getState: () => workbench.accessStates.prepare(accessHandle, workbench.client),
       workbench: workbench.client,
       mcp: workbench.mcp,
+      invalidate: () => { if (accessHandle !== undefined) workbench.accessStates.delete(accessHandle); },
       logger,
       ...(managementAudit === undefined ? {} : { audit: managementAudit }),
       auditContext: {

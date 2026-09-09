@@ -65,7 +65,7 @@ describe("management permission system", () => {
 
   it("adds controlled workbench tools without opening generic MCP or HTTP", () => {
     const context = managementContext({ tools: { allow: ["read", "python"], deny: ["python"] } });
-    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability", "workbench_search_knowledge", "workbench_retrieve_knowledge"];
+    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability", "workbench_search_knowledge", "workbench_retrieve_knowledge", "workbench_retrieve_bookstack"];
 
     expect(managementAgentToolNames(context, extraTools)).toEqual(["read", ...extraTools]);
     expect(createManagementPermissionSystemPolicy(context, extraTools).tools).toMatchObject({
@@ -73,6 +73,7 @@ describe("management permission system", () => {
       icnoc_call_capability: "allow",
       workbench_search_knowledge: "allow",
       workbench_retrieve_knowledge: "allow",
+      workbench_retrieve_bookstack: "allow",
       mcp: "deny",
       http: "deny",
       webfetch: "deny",
@@ -82,7 +83,7 @@ describe("management permission system", () => {
 
   it("keeps sandboxed Python available alongside controlled workbench tools", () => {
     const context = managementContext();
-    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability", "workbench_search_knowledge", "workbench_retrieve_knowledge"];
+    const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability", "workbench_search_knowledge", "workbench_retrieve_knowledge", "workbench_retrieve_bookstack"];
 
     expect(managementAgentToolNames(context, extraTools)).toEqual([
       "read",

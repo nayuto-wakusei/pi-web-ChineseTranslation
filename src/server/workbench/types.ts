@@ -84,6 +84,25 @@ export interface KnowledgeRetrievalResult {
   chunks: KnowledgeRetrievalChunk[];
 }
 
+export type BookstackRetrievalRequest = Omit<KnowledgeRetrievalRequest, "filters">;
+
+export interface BookstackRetrievalPage {
+  pageId: string;
+  title: string;
+  content: string;
+  updatedAt: string;
+  revision: number;
+  url: string;
+  citation: string;
+}
+
+export interface BookstackRetrievalResult {
+  resourceName: string;
+  resourceVersion: string;
+  pages: BookstackRetrievalPage[];
+  truncated: boolean;
+}
+
 export interface WorkbenchSkillManifestFile {
   path: string;
   mimeType: string;
