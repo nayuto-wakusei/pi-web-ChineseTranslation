@@ -88,6 +88,55 @@ describe("GitController request lifecycle", () => {
     expect(harness.state.gitStatus).toBeUndefined();
   });
 
+  it.each(["machine", "project", "workspace"] as const)("starts a refresh for the new %s scope while the old request is pending", async (scope) => {
+    const oldRequest = deferred<GitStatusResponse>();
+    const newRequest = deferred<GitStatusResponse>();
+    const fetchStatus = vi.spyOn(api, "gitStatus").mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+    const harness = createHarness();
+    const oldLoading = harness.controller.refreshGit();
+    harness.switchSelection(scope);
+    const newLoading = harness.controller.refreshGit();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
+    newRequest.resolve(status("new"));
+    await newLoading;
+    oldRequest.resolve(status("old"));
+    await oldLoading;
+
+    expect(harness.state.gitStatus?.hash).toBe("new");
+  });
+
+  it("keeps a trailing refresh in the scope that requested it", async () => {
+    const oldRequest = deferred<GitStatusResponse>();
+    const newRequest = deferred<GitStatusResponse>();
+    const oldTrailingRequest = deferred<GitStatusResponse>();
+    const trailingStarted = deferred<boolean>();
+    let requestCount = 0;
+    const fetchStatus = vi.spyOn(api, "gitStatus").mockImplementation(() => {
+      requestCount += 1;
+      if (requestCount === 1) return oldRequest.promise;
+      if (requestCount === 2) return newRequest.promise;
+      trailingStarted.resolve(true);
+      return oldTrailingRequest.promise;
+    });
+    const harness = createHarness();
+    const oldLoading = harness.controller.refreshGit();
+    void harness.controller.refreshGit(false);
+    harness.switchSelection("workspace");
+    const newLoading = harness.controller.refreshGit();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
+    newRequest.resolve(status("new"));
+    await newLoading;
+    oldRequest.resolve(status("old"));
+    await trailingStarted.promise;
+
+    expect(fetchStatus).toHaveBeenLastCalledWith("project", "workspace", "local", false);
+    oldTrailingRequest.resolve(status("old-trailing"));
+    await oldLoading;
+    expect(harness.state.gitStatus?.hash).toBe("new");
+  });
+
   it("coalesces overlapping status refreshes and runs one trailing refresh", async () => {
     const pending = deferred<GitStatusResponse>();
     const fetchStatus = vi.spyOn(api, "gitStatus").mockReturnValueOnce(pending.promise).mockResolvedValue(status("new"));
@@ -163,6 +212,35 @@ describe("GitController request lifecycle", () => {
     pending.resolve(status("old"));
     await loading;
     expect(harness.state.gitStatus).toBeUndefined();
+  });
+
+  it("does not resume a disposed status refresh after reconnecting", async () => {
+    const documentState = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    vi.stubGlobal("document", documentState);
+    const oldRequest = deferred<GitStatusResponse>();
+    const newRequest = deferred<GitStatusResponse>();
+    let requestCount = 0;
+    const fetchStatus = vi.spyOn(api, "gitStatus").mockImplementation(() => {
+      requestCount += 1;
+      if (requestCount === 1) return oldRequest.promise;
+      if (requestCount === 2) return newRequest.promise;
+      return Promise.resolve(status("unexpected-old-trailing"));
+    });
+    const harness = createHarness();
+    const oldLoading = harness.controller.refreshGit();
+    void harness.controller.refreshGit(false);
+    harness.controller.dispose();
+    harness.controller.connect();
+    const newLoading = harness.controller.refreshGit();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
+    oldRequest.resolve(status("old"));
+    await oldLoading;
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
+    newRequest.resolve(status("new"));
+    await newLoading;
+    expect(harness.state.gitStatus?.hash).toBe("new");
+    harness.controller.dispose();
   });
 
   it("ignores stale status errors", async () => {

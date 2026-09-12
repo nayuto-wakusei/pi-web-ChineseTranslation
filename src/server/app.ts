@@ -11,6 +11,7 @@ import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
+import { createNormalProjectCwdResolver } from "./workspaces/normalProjectCwdResolver.js";
 import { FileSuggestionCatalog, isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
 import { loadEffectiveProjectAttachmentsConfig, loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
@@ -264,16 +265,12 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     const listed = isLegacyWorkspaceService(workspaceInput) ? await workspaceInput.list(project) : await workspaces.list(project.id, { managementContext: context });
     return listed.map((workspace) => workspace.path);
   };
-  const resolveNormalProjectCwds: NormalProjectCwdResolver = async () => {
-    const registeredProjects = await projects.list();
-    const listed = await Promise.all(registeredProjects.map(async (project) => {
-      const workspacesForProject = isLegacyWorkspaceService(workspaceInput)
-        ? await workspaceInput.list(project)
-        : await workspaces.list(project.id);
-      return workspacesForProject.map((workspace) => workspace.path);
-    }));
-    return listed.flat();
-  };
+  const resolveNormalProjectCwds: NormalProjectCwdResolver = createNormalProjectCwdResolver({
+    listProjects: () => projects.list(),
+    listWorkspaces: async (project) => isLegacyWorkspaceService(workspaceInput)
+      ? await workspaceInput.list(project)
+      : await workspaces.list(project.id),
+  });
   const normalAuth = new NormalModeAuthService(configService);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);

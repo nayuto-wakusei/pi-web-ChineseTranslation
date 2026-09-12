@@ -289,6 +289,120 @@ describe("FileExplorerController tree request lifecycle", () => {
     expect(harness.state.fileTree).toEqual(entries);
   });
 
+  it.each(selectionChanges)("refreshes a new %s without waiting for the previous scope", async (_name, patch) => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
+    const first = harness.controller.refreshFiles();
+    const oldTrailing = harness.controller.refreshFiles();
+    harness.patchState(patch);
+    const current = harness.controller.refreshFiles();
+    expect(requests.fn).toHaveBeenCalledTimes(2);
+    const entries: FileTreeEntry[] = [{ name: "current", path: "current", type: "file" }];
+    requests.request(1).resolve(treeResponse("", entries));
+    await current;
+    requests.request(0).resolve(treeResponse(""));
+    await Promise.all([first, oldTrailing]);
+    expect(requests.fn).toHaveBeenCalledTimes(2);
+    expect(harness.state.fileTree).toEqual(entries);
+  });
+
+  it("serializes mutation snapshots so an older response cannot hide a newly created directory", async () => {
+    const requests = deferredWorkspaceTrees();
+    const createDirectory = vi.fn((_projectId: string, _workspaceId: string, path: string) => Promise.resolve({ path }));
+    const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn, createWorkspaceDirectory: createDirectory } });
+    const first = harness.controller.createDirectory("a");
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(1); });
+    const second = harness.controller.createDirectory("b");
+    await Promise.resolve();
+    expect(createDirectory).toHaveBeenCalledTimes(2);
+    expect(requests.fn).toHaveBeenCalledTimes(1);
+    requests.request(0).resolve(treeResponse("", [{ name: "a", path: "a", type: "directory" }]));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(2); });
+    const entries: FileTreeEntry[] = ["a", "b"].map((name) => ({ name, path: name, type: "directory" }));
+    requests.request(1).resolve(treeResponse("", entries));
+    await Promise.all([first, second]);
+    expect(harness.state.fileTree).toEqual(entries);
+  });
+
+  it("retains every dirty parent queued during a full refresh", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: {
+      ...createTestApi(), workspaceTree: requests.fn,
+      createWorkspaceDirectory: (_projectId, _workspaceId, path) => Promise.resolve({ path }),
+    } }, { expandedDirs: { src: [], docs: [] } });
+    const full = harness.controller.refreshFiles();
+    const src = harness.controller.createDirectory("src/new");
+    const docs = harness.controller.createDirectory("docs/new");
+    await Promise.resolve();
+    expect(requests.fn).toHaveBeenCalledTimes(3);
+    requests.request(0).resolve(treeResponse(""));
+    requests.request(1).resolve(treeResponse("src"));
+    requests.request(2).resolve(treeResponse("docs"));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(5); });
+    const srcEntries: FileTreeEntry[] = [{ name: "new", path: "src/new", type: "directory" }];
+    const docsEntries: FileTreeEntry[] = [{ name: "new", path: "docs/new", type: "directory" }];
+    expect(requests.fn.mock.calls.slice(3).map((call) => call[2])).toEqual(["src", "docs"]);
+    requests.request(3).resolve(treeResponse("src", srcEntries));
+    requests.request(4).resolve(treeResponse("docs", docsEntries));
+    await Promise.all([full, src, docs]);
+    expect(harness.state.expandedDirs).toEqual({ src: srcEntries, docs: docsEntries });
+  });
+
+  it("lets a queued full refresh include mutations from a pending parent refresh", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: {
+      ...createTestApi(), workspaceTree: requests.fn,
+      createWorkspaceDirectory: (_projectId, _workspaceId, path) => Promise.resolve({ path }),
+    } });
+    const mutation = harness.controller.createDirectory("new");
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(1); });
+    const full = harness.controller.refreshFiles();
+    requests.request(0).resolve(treeResponse(""));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(2); });
+    const entries: FileTreeEntry[] = [{ name: "new", path: "new", type: "directory" }];
+    requests.request(1).resolve(treeResponse("", entries));
+    await Promise.all([mutation, full]);
+    expect(harness.state.fileTree).toEqual(entries);
+  });
+
+  it("refreshes the visible ancestor when a queued parent is collapsed", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: {
+      ...createTestApi(), workspaceTree: requests.fn,
+      createWorkspaceDirectory: (_projectId, _workspaceId, path) => Promise.resolve({ path }),
+    } }, { expandedDirs: { src: [] } });
+    const full = harness.controller.refreshFiles();
+    const mutation = harness.controller.createDirectory("src/new");
+    await Promise.resolve();
+    await harness.controller.expandDir("src");
+    requests.request(0).resolve(treeResponse(""));
+    requests.request(1).resolve(treeResponse("src"));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(3); });
+    expect(requests.fn.mock.calls[2]?.[2]).toBe("");
+    requests.request(2).resolve(treeResponse("", [{ name: "src", path: "src", type: "directory" }]));
+    await Promise.all([full, mutation]);
+    expect(harness.state.expandedDirs).toEqual({});
+  });
+
+  it("runs the queued mutation refresh after an earlier refresh fails", async () => {
+    const requests = deferredWorkspaceTrees();
+    const harness = createHarness({ api: {
+      ...createTestApi(), workspaceTree: requests.fn,
+      createWorkspaceDirectory: (_projectId, _workspaceId, path) => Promise.resolve({ path }),
+    } });
+    const first = harness.controller.createDirectory("a");
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(1); });
+    const second = harness.controller.createDirectory("b");
+    await Promise.resolve();
+    requests.request(0).reject(new Error("temporary listing failure"));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(2); });
+    const entries: FileTreeEntry[] = ["a", "b"].map((name) => ({ name, path: name, type: "directory" }));
+    requests.request(1).resolve(treeResponse("", entries));
+    await Promise.all([first, second]);
+    expect(harness.state.fileTree).toEqual(entries);
+    expect(harness.state.error).toBe("");
+  });
+
   it("preserves directory collapses and new expansions during refresh", async () => {
     const requests = deferredWorkspaceTrees();
     const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } }, { expandedDirs: { src: [] } });

@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedRuntime } from "../managementEmbed";
+import { createNormalProjectCwdResolver } from "../workspaces/normalProjectCwdResolver";
 
 let app: FastifyInstance;
 let daemon: FakeSessionDaemon;
@@ -41,6 +42,71 @@ describe("machine-scoped session proxy routes", () => {
     expect((await app.inject({ method: "POST", url: `${prefix}/sessions/cleanup`, payload: { projectCwds: [outside] } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: `${prefix}/sessions/s1/archive`, payload: { cwd, scopeProjectId: "p1" } })).statusCode).toBe(400);
     expect(daemon.requests).toHaveLength(1);
+  });
+
+  it("passes prevalidated normal targets to the resolver and does not turn invalid input into a global lookup", async () => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const requestedCwds: (readonly string[] | undefined)[] = [];
+    const cwd = process.cwd();
+    registerSessionProxyRoutes(app, daemon, "/api", undefined, undefined, (requested) => {
+      requestedCwds.push(requested);
+      return Promise.resolve([cwd]);
+    });
+
+    const archive = await app.inject({ method: "POST", url: "/api/sessions/s1/archive", payload: { cwd } });
+    const bulk = await app.inject({ method: "POST", url: "/api/sessions/bulk/archive", payload: { sessions: [{ id: "s1", cwd }] } });
+    const cleanup = await app.inject({ method: "POST", url: "/api/sessions/cleanup", payload: { projectCwds: [cwd] } });
+    const deleteArchived = await app.inject({ method: "DELETE", url: `/api/sessions/s1?cwd=${encodeURIComponent(cwd)}` });
+    const emptyCleanup = await app.inject({ method: "POST", url: "/api/sessions/cleanup", payload: { projectCwds: [] } });
+    const malformedArchive = await app.inject({ method: "POST", url: "/api/sessions/s1/archive", payload: { cwd: "relative/path" } });
+    const malformedCleanup = await app.inject({ method: "POST", url: "/api/sessions/cleanup", payload: { projectCwds: null } });
+
+    expect(archive.statusCode).toBe(200);
+    expect(bulk.statusCode).toBe(200);
+    expect(cleanup.statusCode).toBe(200);
+    expect(deleteArchived.statusCode).toBe(200);
+    expect(emptyCleanup.statusCode).toBe(200);
+    expect(malformedArchive.statusCode).toBe(400);
+    expect(malformedCleanup.statusCode).toBe(400);
+    expect(requestedCwds).toEqual([[cwd], [cwd], [cwd], [cwd], []]);
+    expect(daemon.requests[3]?.body).toBeUndefined();
+    expect(daemon.requests[4]?.body).toEqual({ projectCwds: [] });
+  });
+
+  it("forwards a targeted normal mutation despite an unrelated listing failure and blocks global cleanup", async () => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const healthyCwd = process.cwd();
+    const resolveNormalProjectCwds = createNormalProjectCwdResolver({
+      listProjects: () => Promise.resolve([{ id: "healthy" }, { id: "broken" }]),
+      listWorkspaces: (project) => project.id === "healthy"
+        ? Promise.resolve([{ path: healthyCwd }])
+        : Promise.reject(new Error("broken project cannot be listed")),
+    });
+    registerSessionProxyRoutes(app, daemon, "/api", undefined, undefined, resolveNormalProjectCwds);
+
+    const archive = await app.inject({ method: "POST", url: "/api/sessions/s1/archive", payload: { cwd: healthyCwd } });
+    const cleanup = await app.inject({ method: "POST", url: "/api/sessions/cleanup", payload: { archiveIdleDays: 30 } });
+
+    expect(archive.statusCode).toBe(200);
+    expect(cleanup.statusCode).toBe(502);
+    expect(daemon.requests).toEqual([{ method: "POST", path: "/sessions/s1/archive", body: { cwd: healthyCwd } }]);
+  });
+
+  it("fails closed for normal global cleanup when the resolver cannot enumerate every project", async () => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    registerSessionProxyRoutes(app, daemon, "/api", undefined, undefined, () => Promise.reject(new Error("project workspace listing failed")));
+
+    const response = await app.inject({ method: "POST", url: "/api/sessions/cleanup", payload: { archiveIdleDays: 30 } });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({ error: "Session daemon unavailable: project workspace listing failed" });
+    expect(daemon.requests).toHaveLength(0);
   });
 
   it("requires an unambiguous managed project and strips gateway scope metadata", async () => {

@@ -7,14 +7,28 @@ const GIT_POLL_INTERVAL_MS = 8_000;
 const LARGE_GIT_POLL_INTERVAL_MS = 30_000;
 const LARGE_GIT_FILE_COUNT = 1_000;
 
+interface GitStatusRefreshTarget {
+  machineId: string;
+  projectId: string;
+  workspaceId: string;
+}
+
+interface PendingGitStatusRefresh {
+  promise: Promise<void>;
+  refreshPending: boolean;
+  forceRefreshPending: boolean;
+}
+
+function gitStatusRefreshKey(target: GitStatusRefreshTarget): string {
+  return JSON.stringify([target.machineId, target.projectId, target.workspaceId]);
+}
+
 export class GitController {
   private pollTimer: number | undefined;
   private pollDelay: number | undefined;
-  private statusRequestGeneration = 0;
   private diffRequestGeneration = 0;
-  private statusRequest: Promise<void> | undefined;
-  private statusRefreshPending = false;
-  private forceRefreshPending = false;
+  private readonly statusRefreshes = new Map<string, PendingGitStatusRefresh>();
+  private statusLifecycleGeneration = 0;
   private disposed = false;
   private visibilityDocument: Document | undefined;
 
@@ -28,7 +42,8 @@ export class GitController {
 
   dispose(): void {
     this.disposed = true;
-    this.statusRequestGeneration += 1;
+    this.statusLifecycleGeneration += 1;
+    this.statusRefreshes.clear();
     this.diffRequestGeneration += 1;
     this.stopPolling();
     this.visibilityDocument?.removeEventListener("visibilitychange", this.onVisibilityChange);
@@ -43,39 +58,49 @@ export class GitController {
 
   refreshGit(force = true): Promise<void> {
     if (this.disposed) return Promise.resolve();
-    this.statusRefreshPending = true;
-    this.forceRefreshPending ||= force;
-    if (this.statusRequest !== undefined) return this.statusRequest;
-    const request = this.runStatusRefreshLoop().finally(() => {
-      if (this.statusRequest === request) this.statusRequest = undefined;
+    const target = this.getGitStatusRefreshTarget();
+    if (target === undefined) return Promise.resolve();
+    const key = gitStatusRefreshKey(target);
+    const existing = this.statusRefreshes.get(key);
+    if (existing !== undefined) {
+      existing.refreshPending = true;
+      existing.forceRefreshPending ||= force;
+      return existing.promise;
+    }
+
+    const pending: PendingGitStatusRefresh = {
+      promise: Promise.resolve(),
+      refreshPending: true,
+      forceRefreshPending: force,
+    };
+    const lifecycleGeneration = this.statusLifecycleGeneration;
+    this.statusRefreshes.set(key, pending);
+    const request = this.runStatusRefreshLoop(target, key, pending, lifecycleGeneration).finally(() => {
+      if (this.statusRefreshes.get(key) === pending) this.statusRefreshes.delete(key);
     });
-    this.statusRequest = request;
+    pending.promise = request;
     return request;
   }
 
-  private async runStatusRefreshLoop(): Promise<void> {
-    while (!this.disposed && this.consumeRefresh()) {
-      const force = this.forceRefreshPending;
-      this.forceRefreshPending = false;
-      await this.refreshGitOnce(force);
+  private async runStatusRefreshLoop(target: GitStatusRefreshTarget, key: string, pending: PendingGitStatusRefresh, lifecycleGeneration: number): Promise<void> {
+    while (this.isStatusRefreshActive(key, pending, lifecycleGeneration) && this.consumeRefresh(pending)) {
+      const force = pending.forceRefreshPending;
+      pending.forceRefreshPending = false;
+      await this.refreshGitOnce(target, force, lifecycleGeneration);
     }
   }
 
-  private consumeRefresh(): boolean {
-    const pending = this.statusRefreshPending;
-    this.statusRefreshPending = false;
-    return pending;
+  private consumeRefresh(pending: PendingGitStatusRefresh): boolean {
+    const refreshPending = pending.refreshPending;
+    pending.refreshPending = false;
+    return refreshPending;
   }
 
-  private async refreshGitOnce(force: boolean): Promise<void> {
-    const project = this.getState().selectedProject;
-    const workspace = this.getState().selectedWorkspace;
-    if (project === undefined || workspace === undefined) return;
-    const machineId = selectedMachineId(this.getState());
-    const generation = ++this.statusRequestGeneration;
-    const isCurrent = () => generation === this.statusRequestGeneration && this.isCurrentWorkspace(project.id, workspace.id, machineId);
+  private async refreshGitOnce(target: GitStatusRefreshTarget, force: boolean, lifecycleGeneration: number): Promise<void> {
+    const isCurrent = () => this.isStatusLifecycleCurrent(lifecycleGeneration)
+      && this.isCurrentWorkspace(target.projectId, target.workspaceId, target.machineId);
     try {
-      const status = await api.gitStatus(project.id, workspace.id, machineId, force);
+      const status = await api.gitStatus(target.projectId, target.workspaceId, target.machineId, force);
       if (!isCurrent()) return;
       this.setState({ gitStatus: status, gitStale: false, error: "" });
       this.restartPollingWhenIntervalChanges();
@@ -91,6 +116,22 @@ export class GitController {
       if (!isCurrent()) return;
       this.setState({ error: String(error) });
     }
+  }
+
+  private getGitStatusRefreshTarget(): GitStatusRefreshTarget | undefined {
+    const state = this.getState();
+    const project = state.selectedProject;
+    const workspace = state.selectedWorkspace;
+    if (project === undefined || workspace === undefined) return undefined;
+    return { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(state) };
+  }
+
+  private isStatusRefreshActive(key: string, pending: PendingGitStatusRefresh, lifecycleGeneration: number): boolean {
+    return this.isStatusLifecycleCurrent(lifecycleGeneration) && this.statusRefreshes.get(key) === pending;
+  }
+
+  private isStatusLifecycleCurrent(lifecycleGeneration: number): boolean {
+    return !this.disposed && lifecycleGeneration === this.statusLifecycleGeneration;
   }
 
   async selectDiff(path: string): Promise<void> {

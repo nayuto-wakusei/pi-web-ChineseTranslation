@@ -34,6 +34,12 @@ interface FileRequestIdentity extends WorkspaceRequestIdentity {
   path: string;
 }
 
+interface PendingTreeRefresh {
+  promise: Promise<void>;
+  full: boolean;
+  parents: Set<string>;
+}
+
 export interface FileExplorerControllerDependencies {
   api?: FileExplorerApi;
   uploadWorkspaceFiles?: UploadWorkspaceFiles;
@@ -64,8 +70,7 @@ export class FileExplorerController {
   private treeRequestGeneration = 0;
   private directoryRequestSequence = 0;
   private readonly directoryRequestGeneration = new Map<string, number>();
-  private refreshInFlight: Promise<void> | undefined;
-  private refreshPending = false;
+  private readonly treeRefreshes = new Map<string, PendingTreeRefresh>();
 
   constructor(
     private readonly getState: GetState,
@@ -83,21 +88,46 @@ export class FileExplorerController {
   }
 
   refreshFiles(): Promise<void> {
-    this.refreshPending = true;
-    this.refreshInFlight ??= this.refreshLoop().finally(() => { this.refreshInFlight = undefined; });
-    return this.refreshInFlight;
+    const state = this.getState();
+    if (state.selectedProject === undefined || state.selectedWorkspace === undefined) return Promise.resolve();
+    return this.requestTreeRefresh({ projectId: state.selectedProject.id, workspaceId: state.selectedWorkspace.id, machineId: selectedMachineId(state) });
   }
 
-  private async refreshLoop(): Promise<void> {
-    while (this.consumeRefresh()) {
-      await this.refreshFileTree();
+  private requestTreeRefresh(request: WorkspaceRequestIdentity, parents?: readonly string[]): Promise<void> {
+    const key = JSON.stringify([request.machineId, request.projectId, request.workspaceId]);
+    const existing = this.treeRefreshes.get(key);
+    if (existing !== undefined) {
+      existing.full ||= parents === undefined;
+      for (const parent of parents ?? []) existing.parents.add(parent);
+      return existing.promise;
     }
+    const pending: PendingTreeRefresh = { promise: Promise.resolve(), full: parents === undefined, parents: new Set(parents) };
+    this.treeRefreshes.set(key, pending);
+    pending.promise = this.refreshLoop(request, pending).finally(() => { this.treeRefreshes.delete(key); });
+    return pending.promise;
   }
 
-  private consumeRefresh(): boolean {
-    const pending = this.refreshPending;
-    this.refreshPending = false;
-    return pending;
+  private async refreshLoop(request: WorkspaceRequestIdentity, pending: PendingTreeRefresh): Promise<void> {
+    let lastError: unknown;
+    let failed = false;
+    while (pending.full || pending.parents.size > 0) {
+      if (!this.isCurrentWorkspace(request)) return;
+      const full = pending.full;
+      const parents = [...pending.parents];
+      pending.full = false;
+      pending.parents.clear();
+      // Full and mutation refreshes share a workspace queue so an older snapshot
+      // cannot land after a newer mutation snapshot. Preserve all dirty parents.
+      try {
+        if (full) await this.refreshFileTree();
+        else await this.refreshParentTrees(request, parents);
+        failed = false;
+      } catch (error) {
+        lastError = error;
+        failed = true;
+      }
+    }
+    if (failed) throw lastError;
   }
 
   private async refreshFileTree(): Promise<void> {
@@ -169,16 +199,20 @@ export class FileExplorerController {
   }
 
   private async refreshParents(paths: readonly string[]): Promise<void> {
-    this.treeRequestGeneration += 1;
     const state = this.getState();
     if (state.selectedProject === undefined || state.selectedWorkspace === undefined) return;
     const request = { projectId: state.selectedProject.id, workspaceId: state.selectedWorkspace.id, machineId: selectedMachineId(state) };
-    const parents = [...new Set(paths.map((path) => {
-      let parent = parentPath(path);
-      while (parent !== "" && state.expandedDirs[parent] === undefined) parent = parentPath(parent);
-      return parent;
-    }))];
+    const parents = [...new Set(paths.map(parentPath))];
     if (parents.length === 0) return;
+    await this.requestTreeRefresh(request, parents);
+  }
+
+  private async refreshParentTrees(request: WorkspaceRequestIdentity, parents: readonly string[]): Promise<void> {
+    const previousExpandedDirs = this.getState().expandedDirs;
+    parents = [...new Set(parents.map((path) => {
+      while (path !== "" && previousExpandedDirs[path] === undefined) path = parentPath(path);
+      return path;
+    }))];
     const results = [];
     for (let offset = 0; offset < parents.length; offset += 128) {
       const response = await this.api.workspaceTreeBatch(request.projectId, request.workspaceId, parents.slice(offset, offset + 128), request.machineId);
@@ -190,7 +224,7 @@ export class FileExplorerController {
     for (const item of results) {
       if (!("tree" in item)) throw new Error(item.error);
       if (item.path === "") fileTree = item.tree.entries;
-      else if (expandedDirs[item.path] !== undefined) expandedDirs[item.path] = item.tree.entries;
+      else if (expandedDirs[item.path] !== undefined && expandedDirs[item.path] === previousExpandedDirs[item.path]) expandedDirs[item.path] = item.tree.entries;
     }
     this.setState({ fileTree, expandedDirs });
   }

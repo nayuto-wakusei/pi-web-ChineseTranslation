@@ -10,7 +10,7 @@ export interface SessionProxyDaemon {
 }
 
 export type ManagementProjectCwdResolver = (projectId: string, context: ManagementEmbedContext) => Promise<readonly string[]>;
-export type NormalProjectCwdResolver = () => Promise<readonly string[]>;
+export type NormalProjectCwdResolver = (requestedCwds?: readonly string[]) => Promise<readonly string[]>;
 
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -148,6 +148,7 @@ async function sessionProjectScope(url: string, method: string, body: unknown, c
   const queryScopes = parsed.searchParams.getAll("scopeProjectId");
   const suppliedScope = bodyScope !== undefined ? bodyScope : queryScopes[0];
   if ((suppliedScope !== undefined && (typeof suppliedScope !== "string" || suppliedScope.trim() === "")) || queryScopes.some((scope) => scope !== suppliedScope)) throw new SessionScopeError(400, "Invalid project scope");
+  const requestedNormalCwds = context === undefined ? normalScopeCwds(parsed, fields, cleanup) : undefined;
   let allowed: readonly string[];
   if (context !== undefined) {
     const projectId = cleanup ? fields["projectId"] : suppliedScope ?? (context.projects.length === 1 ? context.projects[0]?.id : undefined);
@@ -158,7 +159,7 @@ async function sessionProjectScope(url: string, method: string, body: unknown, c
   } else {
     if (suppliedScope !== undefined) throw new SessionScopeError(400, "scopeProjectId is only valid in management embed mode");
     if (normal === undefined) throw new SessionScopeError(400, "Project scope resolver is unavailable");
-    allowed = await normal();
+    allowed = await normal(requestedNormalCwds);
   }
   const allowedSet = new Set(allowed.map(normalizeRequestCwd));
   const validate = (value: unknown): string => {
@@ -187,6 +188,39 @@ async function sessionProjectScope(url: string, method: string, body: unknown, c
     } else if (queryCwds.length === 0 && fields["cwd"] === undefined) throw new SessionScopeError(400, "cwd is required");
   }
   return { url: `${parsed.pathname}${parsed.search}`, body: body === undefined && !cleanup ? undefined : result, handled: true };
+}
+
+function normalScopeCwds(parsed: URL, fields: Record<string, unknown>, cleanup: boolean): readonly string[] | undefined {
+  if (cleanup) {
+    const requested = fields["projectCwds"];
+    if (requested === undefined) return undefined;
+    if (!Array.isArray(requested) || !requested.every((cwd) => typeof cwd === "string")) throw new SessionScopeError(400, "projectCwds must be an array of strings");
+    return unique(requested.map(normalizeScopeCwd));
+  }
+
+  const requested: unknown[] = parsed.searchParams.getAll("cwd");
+  if (fields["cwd"] !== undefined) requested.push(fields["cwd"]);
+  if (Array.isArray(fields["sessions"])) {
+    for (const session of fields["sessions"]) {
+      if (!isRecord(session)) throw new SessionScopeError(400, "Invalid session reference");
+      requested.push(session["cwd"]);
+    }
+  } else if (requested.length === 0) {
+    throw new SessionScopeError(400, "cwd is required");
+  }
+  return unique(requested.map(normalizeScopeCwd));
+}
+
+function normalizeScopeCwd(value: unknown): string {
+  try {
+    return normalizeRequestCwd(value);
+  } catch (error) {
+    throw new SessionScopeError(400, error instanceof Error ? error.message : String(error));
+  }
+}
+
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 function bridgeSockets(client: WebSocket, upstream: WebSocket): void {
