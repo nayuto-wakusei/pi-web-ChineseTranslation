@@ -2,14 +2,14 @@ import type { FastifyInstance } from "fastify";
 import type { ProjectService } from "./projects/projectService.js";
 import type { WorkspaceService } from "./workspaces/workspaceService.js";
 import { resolveRouteWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
-import { gitDiff, gitStatus } from "./git/gitService.js";
+import { gitDiff, GitStatusCache } from "./git/gitService.js";
 import type { ManagementEmbedRuntime } from "./managementEmbed.js";
 
-export function registerGitRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix = "/api", managementEmbed?: ManagementEmbedRuntime): void {
-  app.get<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/git/status`, async (request, reply) => {
+export function registerGitRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix = "/api", managementEmbed?: ManagementEmbedRuntime, cache = new GitStatusCache()): void {
+  app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { refresh?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/git/status`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
-      return await gitStatus(context.root);
+      return await cache.get(JSON.stringify([context.managementContext?.user, context.project.id, context.workspace.id, context.root]), context.root, request.query.refresh === "true");
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

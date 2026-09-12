@@ -6,6 +6,27 @@ import { GitController } from "./gitController";
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("GitController request lifecycle", () => {
+  it("stops polling while hidden and refreshes once when visible again", async () => {
+    const documentState = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    vi.stubGlobal("document", documentState);
+    const setInterval = vi.fn(() => 1);
+    const clearInterval = vi.fn();
+    vi.stubGlobal("window", { setInterval, clearInterval });
+    const fetchStatus = vi.spyOn(api, "gitStatus").mockResolvedValue(status("visible"));
+    const harness = createHarness({ workspaceTool: "core:workspace.git" });
+    harness.controller.connect();
+    harness.controller.updatePolling();
+    documentState.visibilityState = "hidden";
+    documentState.dispatchEvent(new Event("visibilitychange"));
+    expect(clearInterval).toHaveBeenCalledWith(1);
+    expect(fetchStatus).not.toHaveBeenCalled();
+    documentState.visibilityState = "visible";
+    documentState.dispatchEvent(new Event("visibilitychange"));
+    await Promise.resolve();
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    harness.controller.dispose();
+  });
+
   it("keeps a newer file diff when the old response arrives last", async () => {
     const first = deferred<GitDiffResponse>();
     vi.spyOn(api, "gitDiff").mockImplementation((_project, _workspace, options) => options?.path === "a.ts"
@@ -67,14 +88,16 @@ describe("GitController request lifecycle", () => {
     expect(harness.state.gitStatus).toBeUndefined();
   });
 
-  it("does not overwrite a newer status refresh", async () => {
+  it("coalesces overlapping status refreshes and runs one trailing refresh", async () => {
     const pending = deferred<GitStatusResponse>();
-    vi.spyOn(api, "gitStatus").mockReturnValueOnce(pending.promise).mockResolvedValue(status("new"));
+    const fetchStatus = vi.spyOn(api, "gitStatus").mockReturnValueOnce(pending.promise).mockResolvedValue(status("new"));
     const harness = createHarness();
     const loading = harness.controller.refreshGit();
-    await harness.controller.refreshGit();
+    const trailing = harness.controller.refreshGit();
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
     pending.resolve(status("old"));
-    await loading;
+    await Promise.all([loading, trailing]);
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
     expect(harness.state.gitStatus?.hash).toBe("new");
   });
 
@@ -118,6 +141,17 @@ describe("GitController request lifecycle", () => {
 
     harness.controller.dispose();
     expect(timers.size).toBe(0);
+  });
+
+  it("uses a slower poll interval for large Git status lists", () => {
+    const setInterval = vi.fn(() => 1);
+    vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
+    const files = Array.from({ length: 1_001 }, (_, index) => ({ path: `${String(index)}.ts`, index: "modified" as const, workingTree: "modified" as const }));
+    const harness = createHarness({ workspaceTool: "core:workspace.git", gitStatus: { ...status("large"), files } });
+
+    harness.controller.updatePolling();
+
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000);
   });
 
   it("ignores pending responses after disposal", async () => {

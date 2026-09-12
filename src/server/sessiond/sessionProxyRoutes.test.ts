@@ -13,7 +13,7 @@ beforeEach(async () => {
   app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
   daemon = await FakeSessionDaemon.create();
-  registerSessionProxyRoutes(app, daemon, "/api/machines/local");
+  registerSessionProxyRoutes(app, daemon, "/api/machines/local", undefined, undefined, () => Promise.resolve([process.cwd()]));
 });
 
 afterEach(async () => {
@@ -22,6 +22,45 @@ afterEach(async () => {
 });
 
 describe("machine-scoped session proxy routes", () => {
+  it.each(["/api", "/api/machines/local"])("restricts normal cleanup and archive mutations to registered workspaces through %s", async (prefix) => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const cwd = process.cwd();
+    const outside = dirname(cwd);
+    registerSessionProxyRoutes(app, daemon, prefix, undefined, undefined, () => Promise.resolve([cwd]));
+    const preview = await app.inject({ method: "POST", url: `${prefix}/sessions/cleanup/preview`, payload: { archiveIdleDays: 30 } });
+    expect(preview.statusCode).toBe(200);
+    expect(daemon.requests[0]?.body).toEqual({ archiveIdleDays: 30, projectCwds: [cwd] });
+    for (const suffix of ["archive", "archive-tree", "restore"]) {
+      const rejected = await app.inject({ method: "POST", url: `${prefix}/sessions/s1/${suffix}`, payload: { cwd: outside } });
+      expect(rejected.statusCode).toBe(403);
+    }
+    expect((await app.inject({ method: "DELETE", url: `${prefix}/sessions/s1?cwd=${encodeURIComponent(outside)}` })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${prefix}/sessions/bulk/archive`, payload: { sessions: [{ id: "s1", cwd }, { id: "s2", cwd: outside }] } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${prefix}/sessions/cleanup`, payload: { projectCwds: [outside] } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${prefix}/sessions/s1/archive`, payload: { cwd, scopeProjectId: "p1" } })).statusCode).toBe(400);
+    expect(daemon.requests).toHaveLength(1);
+  });
+
+  it("requires an unambiguous managed project and strips gateway scope metadata", async () => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const cwd = process.cwd();
+    const other = dirname(cwd);
+    registerSessionProxyRoutes(app, daemon, "/api", {
+      enabled: true, projectRoot: cwd,
+      authenticate: () => Promise.resolve({ user: { id: "u", rootUserId: "u", roles: [], permissions: [] }, projects: [{ id: "p1", name: "one", root: cwd }, { id: "p2", name: "two", root: other }] }),
+    }, (id) => Promise.resolve(id === "p1" ? [cwd] : [other]));
+    const url = "/api/sessions/s1/archive?embed=management&token=test";
+    expect((await app.inject({ method: "POST", url, payload: { cwd } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url, payload: { cwd: other, scopeProjectId: "p1" } })).statusCode).toBe(403);
+    expect(daemon.requests).toHaveLength(0);
+    expect((await app.inject({ method: "POST", url, payload: { cwd, scopeProjectId: "p1" } })).statusCode).toBe(200);
+    expect(daemon.requests[0]?.body).toEqual({ cwd });
+  });
+
   it("strips the machine prefix before forwarding session requests", async () => {
     const response = await app.inject({ method: "GET", url: "/api/machines/local/sessions?cwd=/repo" });
 
@@ -91,7 +130,7 @@ describe("machine-scoped session proxy routes", () => {
         user: { id: "limited-user", rootUserId: "root", roles: [], permissions: [] },
         projects: [{ id: "p1", name: "Project", root: cwd }],
       }),
-    });
+    }, () => Promise.resolve([cwd]));
     const managementQuery = "embed=management&token=launch-token";
     for (const candidateCwd of [outsideCwd, cwd]) {
       const expectedStatus = candidateCwd === cwd ? 200 : 502;
@@ -101,13 +140,13 @@ describe("machine-scoped session proxy routes", () => {
       }
       for (const path of ["/sessions", "/sessions/s1/pin", "/sessions/s1/prompt", "/sessions/s1/archive", "/sessions/s1/tree/navigate", "/sessions/s1/attachments"]) {
         const response = await app.inject({ method: "POST", url: `${prefix}${path}?${managementQuery}`, payload: { cwd: candidateCwd } });
-        expect(response.statusCode, path).toBe(expectedStatus);
+        expect(response.statusCode, path).toBe(path.endsWith("/archive") && candidateCwd !== cwd ? 403 : expectedStatus);
       }
       const deleted = await app.inject({ method: "DELETE", url: `${prefix}/sessions/s1?cwd=${encodeURIComponent(candidateCwd)}&${managementQuery}` });
-      expect(deleted.statusCode).toBe(expectedStatus);
+      expect(deleted.statusCode).toBe(candidateCwd === cwd ? 200 : 403);
       for (const path of ["/sessions/bulk/archive", "/sessions/bulk/delete-archived"]) {
         const response = await app.inject({ method: "POST", url: `${prefix}${path}?${managementQuery}`, payload: { sessions: [{ id: "s1", cwd }, { id: "s2", cwd: candidateCwd }] } });
-        expect(response.statusCode, path).toBe(expectedStatus);
+        expect(response.statusCode, path).toBe(candidateCwd === cwd ? 200 : 403);
       }
       if (candidateCwd === outsideCwd) expect(daemon.requests).toEqual([]);
     }
@@ -186,7 +225,7 @@ describe("machine-scoped session proxy routes", () => {
     });
 
     expect(previewResponse.statusCode).toBe(200);
-    expect(rejectedResponse.statusCode).toBe(502);
+    expect(rejectedResponse.statusCode).toBe(403);
     expect(daemon.requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
       { method: "POST", path: "/sessions/cleanup/preview?embed=management&token=launch-token", body: { projectId: "p1", archiveIdleDays: 30, projectCwds: [cwd] } },
     ]);
@@ -217,11 +256,12 @@ describe("machine-scoped session proxy routes", () => {
   it("forwards empty upstream responses without parsing a body", async () => {
     daemon.respondWith({ statusCode: 204, headers: {}, body: "" });
 
-    const response = await app.inject({ method: "DELETE", url: "/api/machines/local/sessions/session-1" });
+    const query = `?cwd=${encodeURIComponent(process.cwd())}`;
+    const response = await app.inject({ method: "DELETE", url: `/api/machines/local/sessions/session-1${query}` });
 
     expect(response.statusCode).toBe(204);
     expect(response.body).toBe("");
-    expect(daemon.requests).toEqual([{ method: "DELETE", path: "/sessions/session-1", body: undefined }]);
+    expect(daemon.requests).toEqual([{ method: "DELETE", path: `/sessions/session-1${query}`, body: undefined }]);
   });
 
   it("returns a 502 response when the daemon request fails", async () => {

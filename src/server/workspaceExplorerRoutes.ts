@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import type { WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
+import type { WorkspaceTreeBatchRequest, WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import type { ProjectService } from "./projects/projectService.js";
 import { deleteWorkspaceFile, moveWorkspaceFile, readWorkspaceFile, writeWorkspaceFile } from "./workspaces/fileContentService.js";
 import { createWorkspaceDirectory, deleteWorkspaceDirectory, moveWorkspaceDirectory, readWorkspaceFileDownload, type WorkspaceMoveInput, type WorkspacePathInput } from "./workspaces/fileOperationService.js";
-import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
-import { listWorkspaceTree } from "./workspaces/fileTreeService.js";
+import { FileSuggestionCatalog, isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
+import { listWorkspaceTree, listWorkspaceTreeBatch } from "./workspaces/fileTreeService.js";
 import { readWorkspaceFilePreview } from "./workspaces/filePreviewService.js";
 import { applyWorkspaceFilePreviewErrorResponsePolicy, applyWorkspaceFilePreviewResponsePolicy } from "./workspaces/filePreviewResponseHeaders.js";
 import { workspaceFilePreviewResponsePolicy } from "./workspaces/filePreviewResponsePolicy.js";
@@ -15,13 +15,24 @@ import type { ManagementEmbedRuntime } from "./managementEmbed.js";
 import type { WorkspaceCatalogInput } from "./workspaces/workspaceCatalog.js";
 
 export interface WorkspaceExplorerRouteOptions {
+  fileSuggestions?: FileSuggestionCatalog;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
 export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix = "/api", options: WorkspaceExplorerRouteOptions = {}): void {
   const managementEmbed = options.managementEmbed;
+  const fileSuggestions = options.fileSuggestions ?? new FileSuggestionCatalog();
   registerWorkspaceFileContentParsers(app);
+
+  app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceTreeBatchRequest }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/tree/batch`, async (request, reply) => {
+    try {
+      const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
+      return await listWorkspaceTreeBatch(context.root, readFileTreeBatchPaths(request.body), await pathAccessForWorkspaceContext(context, options.config));
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/tree`, async (request, reply) => {
     try {
@@ -52,7 +63,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         createDirs: request.query.createDirs !== "false",
         overwrite: request.query.overwrite !== "false",
       };
-      return await writeWorkspaceFile(context.root, request.query.path, request.body, writeOptions);
+      const result = await writeWorkspaceFile(context.root, request.query.path, request.body, writeOptions);
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -61,7 +74,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.delete<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
-      return await deleteWorkspaceFile(context.root, request.query.path);
+      const result = await deleteWorkspaceFile(context.root, request.query.path);
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -70,10 +85,12 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.post<{ Params: { projectId: string; workspaceId: string }; Querystring: { fromPath?: string; toPath?: string; createDirs?: string; overwrite?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/file/move`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
-      return await moveWorkspaceFile(context.root, request.query.fromPath, request.query.toPath, {
+      const result = await moveWorkspaceFile(context.root, request.query.fromPath, request.query.toPath, {
         createDirs: request.query.createDirs !== "false",
         overwrite: request.query.overwrite === "true",
       });
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -97,7 +114,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.post<{ Params: { projectId: string; workspaceId: string }; Body: WorkspacePathInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
-      return await createWorkspaceDirectory(context.root, request.body);
+      const result = await createWorkspaceDirectory(context.root, request.body);
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -106,7 +125,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.patch<{ Params: { projectId: string; workspaceId: string }; Body: WorkspaceMoveInput }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
-      return await moveWorkspaceDirectory(context.root, request.body);
+      const result = await moveWorkspaceDirectory(context.root, request.body);
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -115,7 +136,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
   app.delete<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/directory`, async (request, reply) => {
     try {
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
-      return await deleteWorkspaceDirectory(context.root, request.query.path);
+      const result = await deleteWorkspaceDirectory(context.root, request.query.path);
+      fileSuggestions.invalidate(context.root);
+      return result;
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -144,7 +167,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const query = request.query.q ?? "";
       const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForWorkspaceContext(context, options.config) : undefined;
       if (request.query.mode === "path") return await listPathSuggestions(context.root, query, pathAccess);
-      return await listFileSuggestions(context.root, query, { kind: request.query.kind, scope: request.query.scope, pathAccess });
+      return await listFileSuggestions(context.root, query, { kind: request.query.kind, scope: request.query.scope, pathAccess }, { catalog: fileSuggestions, catalogKey: JSON.stringify([context.managementContext?.user, context.project.id, context.workspace.id]) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -162,4 +185,11 @@ function registerWorkspaceFileContentParsers(app: FastifyInstance): void {
 
 function isMissingPathError(error: unknown): error is Error {
   return error instanceof Error && error.message === "Path does not exist";
+}
+
+function readFileTreeBatchPaths(body: unknown): string[] {
+  if (typeof body !== "object" || body === null || !("paths" in body) || !Array.isArray(body.paths) || !body.paths.every((path: unknown) => typeof path === "string")) {
+    throw new Error("paths must be an array of strings");
+  }
+  return body.paths;
 }

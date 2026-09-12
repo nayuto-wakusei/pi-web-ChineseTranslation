@@ -601,6 +601,8 @@ export interface SessionBulkMutationRef {
 
 export interface SessionBulkMutationRequest {
   sessions: SessionBulkMutationRef[];
+  /** Optional project scope asserted by the browser and consumed by the web gateway. */
+  scopeProjectId?: string | null;
 }
 
 export interface SessionBulkFailure {
@@ -1163,6 +1165,20 @@ export interface FileTreeResponse {
   truncated: boolean;
 }
 
+export const FILE_TREE_BATCH_MAX_PATHS = 128;
+
+export interface WorkspaceTreeBatchRequest {
+  paths: string[];
+}
+
+export type WorkspaceTreeBatchResult =
+  | { path: string; tree: FileTreeResponse }
+  | { path: string; error: string };
+
+export interface WorkspaceTreeBatchResponse {
+  results: WorkspaceTreeBatchResult[];
+}
+
 export type FileContentMediaType = WorkspaceFileMediaType;
 
 export interface FileContentResponse {
@@ -1242,6 +1258,8 @@ export interface GitStatusResponse {
   // uses this list to group and label them and to distinguish a submodule root
   // from an ordinary directory with the same name.
   submodules: string[];
+  /** True when Git output exceeded the transport limit and the file list is incomplete. */
+  truncated?: boolean;
 }
 
 export interface GitDiffResponse {

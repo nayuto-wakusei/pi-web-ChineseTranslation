@@ -11,7 +11,7 @@ import type {
   WorkspaceProvider,
   WorkspaceRemovePlan,
 } from "@chainingintention/pi-web-cn/server-plugin-api";
-import { requestGitBackend } from "./git-backend.js";
+import { createGitBackend } from "./git-backend.js";
 
 const GIT_LOCAL_ENV_VARS = Object.freeze([
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -43,6 +43,7 @@ const plugin: PiWebServerPlugin = {
 export default plugin;
 
 export function createGitWorkspaceProvider(context: ServerPluginActivationContext): WorkspaceProvider {
+  const requestBackend = createGitBackend(context);
   return Object.freeze({
     fallback: true,
     async probe(project: ProjectInput, signal: AbortSignal): Promise<ProviderClaim> {
@@ -109,7 +110,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
         };
       });
     },
-    request: (request: ProviderRequestContext) => requestGitBackend(context, request),
+    request: (request: ProviderRequestContext) => requestBackend(request),
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {
       const privatePath = gitPrivateWorktreePath(workspace);
       if (resolve(privatePath) !== workspace.path) {

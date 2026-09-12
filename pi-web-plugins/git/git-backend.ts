@@ -47,6 +47,24 @@ interface ValidatedSubmodule {
 }
 
 /** Dispatch the Git-owned status/diff schema through the provider's public request seam. */
+export function createGitBackend(activationContext: ServerPluginActivationContext) {
+  const statuses = new Map<string, { promise: Promise<ProviderResponse>; expires: number }>();
+  return (request: ProviderRequestContext): Promise<ProviderResponse> => {
+    if (request.operation !== GIT_STATUS_OPERATION) return requestGitBackend(activationContext, request);
+    requireStatusInput(request.input);
+    const key = JSON.stringify([request.project.id, request.project.path, request.workspace.key, request.workspace.path]);
+    const cached = statuses.get(key);
+    if (cached !== undefined && (cached.expires === Infinity || (request.input === null && cached.expires > Date.now()))) return cached.promise;
+    const entry = { expires: Infinity, promise: requestGitBackend(activationContext, { ...request, signal: new AbortController().signal }).then((result) => {
+      entry.expires = Date.now() + 2000;
+      for (const [oldKey, old] of statuses) if (old.expires <= Date.now()) statuses.delete(oldKey);
+      return result;
+    }, (error: unknown) => { statuses.delete(key); throw error; }) };
+    statuses.set(key, entry);
+    return entry.promise;
+  };
+}
+
 export async function requestGitBackend(
   activationContext: ServerPluginActivationContext,
   request: ProviderRequestContext,
@@ -91,9 +109,9 @@ interface ParsedStatus {
 
 async function gitStatusWithRunner(runGit: RunGit, cwd: string): Promise<GitStatusResponse> {
   const result = await runGit(cwd, ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"]);
-  if (result.code !== 0) return { isGitRepo: false, hash: hash(result.stdout + result.stderr), files: [], submodules: [] };
-  const parsed = parseStatus(result.stdout, { deferSubmodules: true });
-  return expandSubmodules(runGit, cwd, parsed, result.stdout);
+  if (result.code !== 0) return { isGitRepo: false, hash: hash(result.stdout + result.stderr), files: [], submodules: [], ...(result.truncated ? { truncated: true } : {}) };
+  const parsed = parseStatus(result.truncated ? result.stdout.slice(0, result.stdout.lastIndexOf("\0") + 1) : result.stdout, { deferSubmodules: true });
+  return expandSubmodules(runGit, cwd, parsed, result.stdout, result.truncated);
 }
 
 /**
@@ -103,7 +121,7 @@ async function gitStatusWithRunner(runGit: RunGit, cwd: string): Promise<GitStat
  * entries under `<submodule>/<inner path>`. A plain `-dirty` pointer (commit
  * unchanged) is intentionally not surfaced as a pointer entry.
  */
-async function expandSubmodules(runGit: RunGit, cwd: string, parsed: ParsedStatus, topRaw: string): Promise<GitStatusResponse> {
+async function expandSubmodules(runGit: RunGit, cwd: string, parsed: ParsedStatus, topRaw: string, topTruncated: boolean): Promise<GitStatusResponse> {
   // Fan out concurrently — one `git status` per dirty submodule plus one
   // `git rev-parse` per unstaged pointer move — then concatenate in input
   // order so the file list and hash are identical to a serial pass.
@@ -118,10 +136,12 @@ async function expandSubmodules(runGit: RunGit, cwd: string, parsed: ParsedStatu
   const files: GitStatusFile[] = [...parsed.files];
   const dirtySubmodulePaths: string[] = [];
   let extraForHash = "";
+  let truncated = topTruncated;
   for (const part of expanded) {
     dirtySubmodulePaths.push(part.path);
     files.push(...part.files);
     extraForHash += part.extraForHash;
+    truncated ||= part.truncated;
   }
 
   return {
@@ -133,6 +153,7 @@ async function expandSubmodules(runGit: RunGit, cwd: string, parsed: ParsedStatu
     ...(parsed.behind === undefined ? {} : { behind: parsed.behind }),
     files,
     submodules: dirtySubmodulePaths,
+    ...(truncated ? { truncated: true } : {}),
   };
 }
 
@@ -141,9 +162,10 @@ async function expandSubmodule(
   runGit: RunGit,
   sub: SubmoduleRecord,
   location: ValidatedSubmodule | undefined,
-): Promise<{ files: GitStatusFile[]; extraForHash: string }> {
+): Promise<{ files: GitStatusFile[]; extraForHash: string; truncated: boolean }> {
   const files: GitStatusFile[] = [];
   let extraForHash = "";
+  let truncated = false;
   if (sub.commitChanged) {
     files.push({
       path: sub.path,
@@ -155,9 +177,10 @@ async function expandSubmodule(
   }
   if ((sub.hasModifiedContent || sub.hasUntrackedContent) && location !== undefined) {
     const inner = await runGit(location.cwd, ["status", "--porcelain=v2", "--untracked-files=all", "-z"]);
+    truncated = inner.truncated;
     if (inner.code === 0) {
       extraForHash = `\0${sub.path}\0${inner.stdout}`;
-      const innerFiles = parseStatus(inner.stdout, { deferSubmodules: false }).files;
+      const innerFiles = parseStatus(inner.truncated ? inner.stdout.slice(0, inner.stdout.lastIndexOf("\0") + 1) : inner.stdout, { deferSubmodules: false }).files;
       for (const file of innerFiles) {
         files.push({
           ...file,
@@ -168,7 +191,7 @@ async function expandSubmodule(
     }
     // non-zero exit: uninitialized / unreadable submodule — skip silently
   }
-  return { files, extraForHash };
+  return { files, extraForHash, truncated };
 }
 
 async function resolveSubmoduleToCommit(runGit: RunGit, cwd: string | undefined, sub: SubmoduleRecord): Promise<string> {
@@ -426,6 +449,7 @@ function statusProviderResponse(status: GitStatusResponse): ProviderResponse {
       ...(file.submoduleToCommit === undefined ? {} : { submoduleToCommit: file.submoduleToCommit }),
     })),
     submodules: status.submodules,
+    ...(status.truncated === true ? { truncated: true } : {}),
   };
 }
 
@@ -463,7 +487,7 @@ function commandResult(result: ServerPluginExecFileResult, args: readonly string
 }
 
 function requireStatusInput(input: JsonValue): void {
-  if (input !== null) throw new Error("Git 状态输入必须为 null");
+  if (input !== null && !(isRecord(input) && input["refresh"] === true && Object.keys(input).length === 1)) throw new Error("Git 状态输入必须为 null 或 refresh 对象");
 }
 
 function parseDiffInput(input: JsonValue): { path?: string; staged?: boolean } {

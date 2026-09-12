@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { promisify } from "node:util";
 import { sanitizedGitEnv } from "../git/gitEnv.js";
 import type { PiWebPathAccessConfig } from "../../shared/apiTypes.js";
@@ -44,6 +44,46 @@ export interface FileSuggestionOptions {
 export interface FileSuggestionDependencies {
   execFile?: CommandRunner;
   fzf?: CommandRunner;
+  catalog?: FileSuggestionCatalog;
+  catalogKey?: string;
+}
+
+export class FileSuggestionCatalog {
+  private readonly entries = new Map<string, { root: string; promise: Promise<ClientFileSuggestion[]>; expires: number; bytes: number }>();
+  constructor(private readonly now: () => number = Date.now) {}
+
+  get(key: string, root: string, scan: () => Promise<ClientFileSuggestion[]>): Promise<ClientFileSuggestion[]> {
+    root = resolve(root);
+    const cached = this.entries.get(key);
+    if (cached !== undefined && cached.expires > this.now()) {
+      this.entries.delete(key);
+      this.entries.set(key, cached);
+      return cached.promise;
+    }
+    const entry = { root, expires: Infinity, bytes: 0, promise: scan().then((files) => {
+      if (this.entries.get(key) !== entry) return files;
+      entry.expires = this.now() + 5000;
+      entry.bytes = files.reduce((bytes, file) => bytes + file.path.length * 2 + 64, 0);
+      let bytes = [...this.entries.values()].reduce((total, item) => total + item.bytes, 0);
+      for (const [oldKey, old] of this.entries) {
+        if (this.entries.size <= 8 && bytes <= 64 * 1024 * 1024) break;
+        if (old.expires === Infinity) continue;
+        this.entries.delete(oldKey);
+        bytes -= old.bytes;
+      }
+      return files;
+    }, (error: unknown) => {
+      if (this.entries.get(key) === entry) this.entries.delete(key);
+      throw error;
+    }) };
+    this.entries.set(key, entry);
+    return entry.promise;
+  }
+
+  invalidate(root: string): void {
+    root = resolve(root);
+    for (const [key, entry] of this.entries) if (entry.root === root) this.entries.delete(key);
+  }
 }
 
 export function isAbsoluteishFileSuggestionQuery(query = ""): boolean {
@@ -60,7 +100,8 @@ export async function listFileSuggestions(cwd: string, query = "", options: File
 
   const normalizedQuery = normalizeFileQuery(query);
   const command = deps.execFile ?? runCommand;
-  const files = await listFilesForScope(cwd, options.scope, command);
+  const scan = () => listFilesForScope(cwd, options.scope, command);
+  const files = deps.catalog === undefined ? await scan() : await deps.catalog.get(JSON.stringify([deps.catalogKey, cwd, options.scope]), cwd, scan);
   return (await rankFileSuggestionsWithOptionalFzf(
     cwd,
     files.filter((file) => options.kind === undefined || file.kind === options.kind),
@@ -341,6 +382,7 @@ function fzfRunnerForDependencies(deps: FileSuggestionDependencies): CommandRunn
 }
 
 async function rankFileSuggestionsWithOptionalFzf(cwd: string, files: ClientFileSuggestion[], normalizedQuery: string, fzf: CommandRunner | undefined): Promise<ClientFileSuggestion[]> {
+  if (files.length > 10_000) return rankFileSuggestions(files, normalizedQuery);
   return rankSuggestionsWithOptionalFzf(cwd, files, normalizedQuery, () => rankFileSuggestions(files, normalizedQuery), fzf);
 }
 
@@ -395,12 +437,27 @@ function pathSuggestionName(path: string): string {
 }
 
 function rankFileSuggestions(files: ClientFileSuggestion[], normalizedQuery: string): ClientFileSuggestion[] {
-  if (normalizedQuery === "") return [...files].sort(compareFileSuggestions);
-  return files
-    .map((file) => ({ file, score: fileSuggestionScore(file.path, normalizedQuery) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score || kindRank(a.file.kind) - kindRank(b.file.kind) || pathDepth(a.file.path) - pathDepth(b.file.path) || compareFileSuggestions(a.file, b.file))
-    .map(({ file }) => file);
+  const best: { file: ClientFileSuggestion; score: number }[] = [];
+  const compare = (a: typeof best[number], b: typeof best[number]) => normalizedQuery === "" ? compareFileSuggestions(a.file, b.file)
+    : b.score - a.score || kindRank(a.file.kind) - kindRank(b.file.kind) || pathDepth(a.file.path) - pathDepth(b.file.path) || compareFileSuggestions(a.file, b.file);
+  for (const file of files) {
+    const candidate = { file, score: normalizedQuery === "" ? 1 : fileSuggestionScore(file.path, normalizedQuery) };
+    if (candidate.score === 0) continue;
+    const last = best[maxFileSuggestions - 1];
+    if (last !== undefined && compare(candidate, last) >= 0) continue;
+    let low = 0;
+    let high = best.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      const current = best[middle];
+      if (current !== undefined && compare(candidate, current) < 0) high = middle;
+      else low = middle + 1;
+    }
+    if (low >= maxFileSuggestions) continue;
+    best.splice(low, 0, candidate);
+    if (best.length > maxFileSuggestions) best.pop();
+  }
+  return best.map(({ file }) => file);
 }
 
 function fileSuggestionScore(path: string, normalizedQuery: string): number {

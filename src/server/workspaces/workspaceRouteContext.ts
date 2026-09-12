@@ -23,10 +23,10 @@ export async function resolveRouteWorkspaceContext(
   projectId: string,
   workspaceId: string,
   options: RouteWorkspaceContextOptions,
-): Promise<WorkspaceContext> {
+): Promise<WorkspaceContext & { managementContext?: ManagementEmbedContext }> {
   const managementContext = await managementContextForRequest(request, managementEmbed, reply);
   if (managementContext === undefined) return resolveWorkspaceContext(projects, workspaces, projectId, workspaceId);
-  return resolveManagedWorkspaceContext(workspaces, managementEmbed, managementContext, projectId, workspaceId, options);
+  return { ...await resolveManagedWorkspaceContext(workspaces, managementEmbed, managementContext, projectId, workspaceId, options), managementContext };
 }
 
 export async function resolveManagedWorkspaceContext(

@@ -1,10 +1,49 @@
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { listFileSuggestions, listPathSuggestions, type FileSuggestionDependencies } from "./fileSuggestions";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FileSuggestionCatalog, listFileSuggestions, listPathSuggestions, type FileSuggestionDependencies } from "./fileSuggestions";
 
 const temporaryRoots: string[] = [];
+
+describe("FileSuggestionCatalog", () => {
+  it("enumerates once for concurrent queries and avoids fzf above 10,000 candidates", async () => {
+    const execFile = vi.fn(() => Promise.resolve({ stdout: Array.from({ length: 10_001 }, (_, i) => `file-${String(i)}.ts\0`).join("") }));
+    const fzf = vi.fn(() => Promise.reject(new Error("large catalogs should not start fzf")));
+    const deps = { execFile, fzf, catalog: new FileSuggestionCatalog(), catalogKey: "normal:p:w" };
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => listFileSuggestions("/repo", `file-${String(i)}`, { scope: "tracked" }, deps)));
+    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(fzf).not.toHaveBeenCalled();
+    expect(results.every((result) => result.length <= 80)).toBe(true);
+    expect(results[0]?.[0]?.path).toBe("file-0.ts");
+  });
+
+  it("shares concurrent scans, expires after five seconds and invalidates file changes", async () => {
+    let now = 0;
+    const catalog = new FileSuggestionCatalog(() => now);
+    const scan = vi.fn(() => Promise.resolve([{ path: "src/index.ts", kind: "tracked" as const }]));
+    await Promise.all(Array.from({ length: 20 }, () => catalog.get("normal:p:w", "/repo", scan)));
+    expect(scan).toHaveBeenCalledTimes(1);
+    now = 4999;
+    await catalog.get("normal:p:w", "/repo", scan);
+    expect(scan).toHaveBeenCalledTimes(1);
+    now = 5000;
+    await catalog.get("normal:p:w", "/repo", scan);
+    expect(scan).toHaveBeenCalledTimes(2);
+    catalog.invalidate("/repo");
+    await catalog.get("normal:p:w", "/repo", scan);
+    await catalog.get("management:user:p:w", "/repo", scan);
+    expect(scan).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps only eight completed snapshots", async () => {
+    const catalog = new FileSuggestionCatalog();
+    const scan = vi.fn(() => Promise.resolve([]));
+    for (let index = 0; index < 9; index++) await catalog.get(String(index), "/repo", scan);
+    await catalog.get("0", "/repo", scan);
+    expect(scan).toHaveBeenCalledTimes(10);
+  });
+});
 
 async function tempWorkspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-web-files-"));

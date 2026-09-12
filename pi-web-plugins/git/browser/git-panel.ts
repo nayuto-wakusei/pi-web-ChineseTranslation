@@ -26,6 +26,9 @@ import { parseUnifiedDiff, type UnifiedDiffLine, type UnifiedDiffTextSpan } from
 
 const GIT_PANEL_LOCAL_ID = "workspace.git";
 const GIT_POLL_INTERVAL_MS = 8_000;
+const LARGE_GIT_POLL_INTERVAL_MS = 30_000;
+const LARGE_GIT_FILE_COUNT = 1_000;
+const GIT_FILE_RENDER_BATCH = 500;
 // Keep navigation state for a few recent workspaces; heavy diff views are
 // released as soon as another machine/workspace becomes active.
 const GIT_WORKSPACE_STATE_LIMIT = 8;
@@ -45,8 +48,13 @@ interface GitWorkspaceUiState {
   error: string | undefined;
   expandedDirectories: Set<string>;
   statusRequest: Promise<void> | undefined;
+  statusRefreshPending: boolean;
   diffRequestSequence: number;
   viewStateCache: GitViewStateCache | undefined;
+  visibleFileLimit: number;
+  lastStatusRefreshAt: number;
+  remainingRows: number;
+  hasMoreRows: boolean;
 }
 
 interface GitDiffView {
@@ -64,6 +72,7 @@ interface GitViewStateCache {
   readonly status: GitStatusResponse | undefined;
   readonly view: GitFileView;
   readonly viewState: GitViewState;
+  readonly visibleFileLimit: number;
 }
 
 const EMPTY_LIST_MODEL: GitFileListModel = { submodules: [], files: [] };
@@ -131,7 +140,11 @@ class GitUiController {
   }
 
   poll(context: WorkspacePanelContext): void {
-    void this.refresh(context);
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const state = this.stateFor(context);
+    const interval = (state.status?.files.length ?? 0) > LARGE_GIT_FILE_COUNT ? LARGE_GIT_POLL_INTERVAL_MS : GIT_POLL_INTERVAL_MS;
+    if (Date.now() - state.lastStatusRefreshAt < interval) return;
+    void this.refresh(context, false);
   }
 
   invalidate(context: WorkspacePanelContext): Promise<void> {
@@ -142,17 +155,25 @@ class GitUiController {
     return this.refresh(context);
   }
 
-  refresh(context: WorkspacePanelContext): Promise<void> {
+  refresh(context: WorkspacePanelContext, force = true): Promise<void> {
     const state = this.stateFor(context);
-    if (state.statusRequest !== undefined) return state.statusRequest;
+    if (state.statusRequest !== undefined) {
+      state.statusRefreshPending ||= force;
+      return state.statusRequest;
+    }
     state.statusLoading = true;
+    state.lastStatusRefreshAt = Date.now();
     this.requestRender(state);
 
-    const request = requestGitBackend(context, GIT_STATUS_OPERATION, null)
+    const request = requestGitBackend(context, GIT_STATUS_OPERATION, force ? { refresh: true } : null)
       .then(parseGitStatusResponse)
       .then(async (status) => {
         if (!state.retained) return;
-        state.status = state.status?.hash === status.hash ? state.status : status;
+        if (state.status?.hash !== status.hash) {
+          state.status = status;
+          state.visibleFileLimit = Math.min(GIT_FILE_RENDER_BATCH, status.files.length);
+          revealSelectedFile(state, this.view);
+        }
         state.stale = false;
         state.error = undefined;
         const path = state.selectedDiffPath;
@@ -168,6 +189,11 @@ class GitUiController {
         state.statusRequest = undefined;
         state.statusLoading = false;
         this.requestRender(state);
+        if (state.statusRefreshPending && state.retained && this.connectedWorkspaceKey === workspaceContextKey(context)) {
+          state.statusRefreshPending = false;
+          return this.refresh(context);
+        }
+        return undefined;
       });
     state.statusRequest = request;
     return request;
@@ -176,6 +202,7 @@ class GitUiController {
   selectDiff(context: WorkspacePanelContext, path: string): void {
     const state = this.stateFor(context);
     state.selectedDiffPath = path;
+    revealSelectedFile(state, this.view);
     state.selectedDiff = undefined;
     state.selectedStagedDiff = undefined;
     state.diffLoading = true;
@@ -202,10 +229,17 @@ class GitUiController {
 
   viewState(state: GitWorkspaceUiState): GitViewState {
     const cached = state.viewStateCache;
-    if (cached !== undefined && cached.status === state.status && cached.view === this.view) return cached.viewState;
+    if (cached !== undefined && cached.status === state.status && cached.view === this.view && cached.visibleFileLimit === state.visibleFileLimit) return cached.viewState;
     const viewState = buildViewState(state.status, this.view);
-    state.viewStateCache = { status: state.status, view: this.view, viewState };
+    state.viewStateCache = { status: state.status, view: this.view, viewState, visibleFileLimit: state.visibleFileLimit };
     return viewState;
+  }
+
+  showMore(context: WorkspacePanelContext): void {
+    const state = this.stateFor(context);
+    state.visibleFileLimit += GIT_FILE_RENDER_BATCH;
+    state.viewStateCache = undefined;
+    this.requestRender(state);
   }
 
   toggleDirectory(context: WorkspacePanelContext, path: string): void {
@@ -247,8 +281,13 @@ class GitUiController {
       error: undefined,
       expandedDirectories: new Set(),
       statusRequest: undefined,
+      statusRefreshPending: false,
       diffRequestSequence: 0,
       viewStateCache: undefined,
+      visibleFileLimit: GIT_FILE_RENDER_BATCH,
+      remainingRows: GIT_FILE_RENDER_BATCH,
+      hasMoreRows: false,
+      lastStatusRefreshAt: 0,
     };
     this.states.set(key, created);
     return created;
@@ -409,6 +448,7 @@ function renderGitPanel(html: HtmlTemplateTag, controller: GitUiController, cont
         </div>
       </section>
       ${state.error === undefined ? null : html`<div class="git-error" role="alert">${state.error}</div>`}
+      ${state.status?.truncated === true ? html`<div class="git-warning" role="status">Git 状态输出过大，文件列表已截断。</div>` : null}
       <section class="git-split">
         <div class="git-file-list">${renderFileList(html, controller, context, state, viewState)}</div>
         <div class="git-viewer">${renderDiffViewer(html, state)}</div>
@@ -454,10 +494,16 @@ function renderFileList(
   if (!status.isGitRepo) return html`<p class="git-muted">当前工作区不是 Git 仓库。</p>`;
   const summary = html`<p class="git-summary">${gitSummary(status)}</p>`;
   if (status.files.length === 0) return html`${summary}<p class="git-muted">没有更改。</p>`;
+  state.remainingRows = state.visibleFileLimit;
+  state.hasMoreRows = status.files.length > state.visibleFileLimit;
   const body = controller.currentView() === "tree"
     ? viewState.nodes.map((node) => renderTreeNode(html, controller, context, state, node, 0))
     : renderListBody(html, controller, context, state, viewState.listModel);
-  return html`${summary}${body}`;
+  const rendered = Math.min(state.visibleFileLimit, status.files.length);
+  const more = state.hasMoreRows || rendered < status.files.length
+    ? html`<button type="button" class="git-load-more" @click=${() => { controller.showMore(context); }}>显示更多（${String(rendered)}/${String(status.files.length)}）</button>`
+    : null;
+  return html`${summary}${body}${more}`;
 }
 
 function renderListBody(
@@ -480,6 +526,7 @@ function renderSubmoduleGroup(
   state: GitWorkspaceUiState,
   group: GitFileListSubmoduleGroup,
 ) {
+  if (!consumeGitRow(state)) return html``;
   const expanded = state.expandedDirectories.has(group.path);
   return html`
     <button type="button" class="git-row" style="--depth:0" aria-expanded=${String(expanded)} @click=${() => { controller.toggleDirectory(context, group.path); }}>
@@ -512,6 +559,7 @@ function renderTreeNode(
   depth: number,
 ): ReturnType<HtmlTemplateTag> {
   if (node.kind === "directory") {
+    if (!consumeGitRow(state)) return html``;
     const expanded = state.expandedDirectories.has(node.path);
     return html`
       <button type="button" class="git-row" style=${`--depth:${String(depth)}`} aria-expanded=${String(expanded)} @click=${() => { controller.toggleDirectory(context, node.path); }}>
@@ -544,6 +592,7 @@ function renderSelectableRow(
   file: GitStatusFile,
   depth: number,
 ) {
+  if (!consumeGitRow(state)) return html``;
   const selected = state.selectedDiffPath === path;
   return html`
     <button type="button" class=${selected ? "git-row is-selected" : "git-row"} style=${`--depth:${String(depth)}`} @click=${() => { controller.selectDiff(context, path); }}>
@@ -561,6 +610,12 @@ function renderDiffViewer(html: HtmlTemplateTag, state: GitWorkspaceUiState) {
   const diffs = [staged, unstaged].filter((diff) => diff.response.diff !== "");
   if (diffs.length === 0) return html`<p class="git-muted">没有已暂存或未暂存的差异。</p>`;
   return html`<div class=${diffs.length === 1 ? "git-diffs is-single" : "git-diffs"}>${diffs.map((diff) => renderDiffSection(html, diff))}</div>`;
+}
+
+function consumeGitRow(state: GitWorkspaceUiState): boolean {
+  if (state.remainingRows > 0) { state.remainingRows -= 1; return true; }
+  state.hasMoreRows = true;
+  return false;
 }
 
 function renderDiffSection(html: HtmlTemplateTag, view: GitDiffView) {
@@ -597,12 +652,33 @@ function renderDiffSpans(html: HtmlTemplateTag, spans: UnifiedDiffTextSpan[]) {
 
 function buildViewState(status: GitStatusResponse | undefined, view: GitFileView): GitViewState {
   if (status === undefined || !status.isGitRepo || status.files.length === 0) return EMPTY_VIEW_STATE;
+  const visibleStatus = status;
   if (view === "tree") {
-    const nodes = buildGitFileTree(status.files, status.submodules);
+    const nodes = buildGitFileTree(visibleStatus.files, visibleStatus.submodules);
     return { nodes, listModel: EMPTY_LIST_MODEL, expandablePaths: collectGitFileTreeDirectoryPaths(nodes) };
   }
-  const listModel = buildGitFileList(status.files, status.submodules);
+  const listModel = buildGitFileList(visibleStatus.files, visibleStatus.submodules);
   return { nodes: [], listModel, expandablePaths: listModel.submodules.map((group) => group.path) };
+}
+
+function revealSelectedFile(state: GitWorkspaceUiState, view: GitFileView): void {
+  const path = state.selectedDiffPath;
+  if (path === undefined || state.status === undefined) return;
+  let selectedRow = state.status.files.findIndex((file) => file.path === path) + state.status.submodules.length + 1;
+  if (view === "tree") {
+    const nodes = buildGitFileTree(state.status.files, state.status.submodules);
+    for (const directory of collectGitFileTreeDirectoryPaths(nodes)) if (path.startsWith(`${directory}/`)) state.expandedDirectories.add(directory);
+    let row = 0;
+    const visit = (children: readonly GitFileTreeNode[]) => {
+      for (const node of children) {
+        row += 1;
+        if (node.path === path) selectedRow = row;
+        if (node.kind === "directory" && state.expandedDirectories.has(node.path)) visit(node.children);
+      }
+    };
+    visit(nodes);
+  }
+  state.visibleFileLimit = Math.max(state.visibleFileLimit, Math.ceil(selectedRow / GIT_FILE_RENDER_BATCH) * GIT_FILE_RENDER_BATCH);
 }
 
 function defineGitPanelActivityElement(): void {
@@ -626,18 +702,20 @@ function defineGitPanelActivityElement(): void {
 
     connectedCallback(): void {
       window.addEventListener("popstate", this.onPopState);
+      document.addEventListener("visibilitychange", this.onVisibilityChange);
       this.restart();
     }
 
     disconnectedCallback(): void {
       window.removeEventListener("popstate", this.onPopState);
+      document.removeEventListener("visibilitychange", this.onVisibilityChange);
       if (this.controllerValue !== undefined && this.contextValue !== undefined) this.controllerValue.disconnect(this.contextValue);
       this.stopTimer();
     }
 
     private restart(): void {
       this.stopTimer();
-      if (!this.isConnected || this.controllerValue === undefined || this.contextValue === undefined) return;
+      if (!this.isConnected || document.visibilityState !== "visible" || this.controllerValue === undefined || this.contextValue === undefined) return;
       this.controllerValue.connect(this.contextValue);
       this.pollTimer = window.setInterval(() => {
         if (this.controllerValue !== undefined && this.contextValue !== undefined) this.controllerValue.poll(this.contextValue);
@@ -651,6 +729,14 @@ function defineGitPanelActivityElement(): void {
 
     private readonly onPopState = () => {
       if (this.controllerValue !== undefined && this.contextValue !== undefined) this.controllerValue.handlePopState(this.contextValue);
+    };
+
+    private readonly onVisibilityChange = () => {
+      this.stopTimer();
+      if (document.visibilityState === "visible" && this.controllerValue !== undefined && this.contextValue !== undefined) {
+        this.restart();
+        void this.controllerValue.refresh(this.contextValue);
+      }
     };
   }
   customElements.define(activityElementTag, GitPanelActivityElement);
@@ -707,6 +793,8 @@ const gitPanelStyles = `
   .git-panel .git-view-toggle button.is-selected { position: relative; z-index: 1; border-color: var(--pi-accent); background: var(--pi-selection-bg); }
   .git-panel .git-stale { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); padding: 1px 6px; font-size: 12px; }
   .git-panel .git-error { flex: 0 0 auto; margin: 8px; border: 1px solid var(--pi-danger); border-radius: 7px; color: var(--pi-danger); padding: 8px; }
+  .git-panel .git-warning { flex: 0 0 auto; margin: 8px; border: 1px solid var(--pi-warning-border); border-radius: 7px; color: var(--pi-warning); padding: 8px; }
+  .git-panel .git-load-more { margin: 8px auto; }
   .git-panel .git-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }
   .git-panel .git-file-list { min-height: 0; overflow: auto; border-bottom: 1px solid var(--pi-border); padding: 6px; }
   .git-panel .git-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px; width: 100%; border: 0; border-radius: 5px; background: transparent; text-align: left; padding: 4px 6px 4px calc(6px + var(--depth, 0) * 14px); }

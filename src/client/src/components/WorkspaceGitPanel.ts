@@ -17,10 +17,12 @@ interface GitViewStateCache {
   readonly status: GitStatusResponse | undefined;
   readonly view: GitFileView;
   readonly viewState: GitViewState;
+  readonly visibleFileLimit: number;
 }
 
 const EMPTY_LIST_MODEL: GitFileListModel = { submodules: [], files: [] };
 const EMPTY_VIEW_STATE: GitViewState = { nodes: [], listModel: EMPTY_LIST_MODEL, expandablePaths: [] };
+const GIT_FILE_RENDER_BATCH = 500;
 
 @customElement("workspace-git-panel")
 export class WorkspaceGitPanel extends LitElement {
@@ -37,6 +39,8 @@ export class WorkspaceGitPanel extends LitElement {
       .view-toggle button.selected { position: relative; z-index: 1; }
       .row .twisty { color: var(--pi-dim, var(--pi-muted)); }
       .submodule-badge { display: inline-block; margin-left: 6px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; vertical-align: baseline; }
+      .warning { margin: 8px; border: 1px solid var(--pi-warning-border); border-radius: 7px; color: var(--pi-warning); padding: 8px; }
+      .load-more { display: flex; margin: 8px auto; }
     `,
   ];
 
@@ -55,6 +59,9 @@ export class WorkspaceGitPanel extends LitElement {
   // or diff selection reuse the model, while a new poll or view switch rebuilds
   // it. Expand state is read live at render time, never baked into the model.
   private viewStateCache: GitViewStateCache | undefined;
+  @state() private visibleFileLimit = GIT_FILE_RENDER_BATCH;
+  private remainingRows = GIT_FILE_RENDER_BATCH;
+  private hasMoreRows = false;
 
   protected override willUpdate(changedProperties: PropertyValues<this>): void {
     if (!changedProperties.has("context")) return;
@@ -62,6 +69,11 @@ export class WorkspaceGitPanel extends LitElement {
     if (previous !== undefined && this.context !== undefined && gitPanelContextKey(previous) !== gitPanelContextKey(this.context)) {
       // Switching workspace/machine resets the ephemeral expand state.
       this.expandedDirectories = new Set();
+      this.visibleFileLimit = GIT_FILE_RENDER_BATCH;
+    } else if (previous?.gitStatus?.hash !== this.context?.gitStatus?.hash) {
+      this.visibleFileLimit = this.visibleLimitForSelection(this.context?.gitStatus, this.context?.selectedDiffPath);
+    } else if (previous?.selectedDiffPath !== this.context?.selectedDiffPath) {
+      this.visibleFileLimit = Math.max(this.visibleFileLimit, this.visibleLimitForSelection(this.context?.gitStatus, this.context?.selectedDiffPath));
     }
   }
 
@@ -80,6 +92,7 @@ export class WorkspaceGitPanel extends LitElement {
           <button type="button" @click=${context.onRefreshGit}>刷新</button>
         </div>
       </section>
+      ${status?.truncated === true ? html`<div class="warning" role="status">Git 状态输出过大，文件列表已截断。</div>` : null}
       <section class="split">
         <div class="list">
           ${this.renderFileList(context, status, viewState)}
@@ -117,10 +130,16 @@ export class WorkspaceGitPanel extends LitElement {
     if (!status.isGitRepo) return html`<p class="muted">不是 Git 仓库。</p>`;
     const summary = html`<p class="summary">${gitSummary(status)}</p>`;
     if (status.files.length === 0) return html`${summary}<p class="muted">没有更改。</p>`;
+    this.remainingRows = this.visibleFileLimit;
+    this.hasMoreRows = status.files.length > this.visibleFileLimit;
     const body = this.view === "tree"
       ? viewState.nodes.map((node) => this.renderTreeNode(context, node, 0))
       : this.renderListBody(context, viewState.listModel);
-    return html`${summary}${body}`;
+    const rendered = Math.min(this.visibleFileLimit, status.files.length);
+    const more = this.hasMoreRows || rendered < status.files.length
+      ? html`<button type="button" class="load-more" @click=${() => { this.visibleFileLimit += GIT_FILE_RENDER_BATCH; }}>显示更多（${String(rendered)}/${String(status.files.length)}）</button>`
+      : null;
+    return html`${summary}${body}${more}`;
   }
 
   private renderListBody(context: WorkspacePanelContext, model: GitFileListModel): TemplateResult {
@@ -131,6 +150,7 @@ export class WorkspaceGitPanel extends LitElement {
   }
 
   private renderSubmoduleGroup(context: WorkspacePanelContext, group: GitFileListSubmoduleGroup): TemplateResult {
+    if (!this.consumeRow()) return html``;
     const expanded = this.expandedDirectories.has(group.path);
     return html`
       <button type="button" class="row" style="--depth:0" aria-expanded=${expanded ? "true" : "false"} @click=${() => { this.toggleDirectory(group.path); }}>
@@ -150,6 +170,7 @@ export class WorkspaceGitPanel extends LitElement {
 
   private renderTreeNode(context: WorkspacePanelContext, node: GitFileTreeNode, depth: number): TemplateResult {
     if (node.kind === "directory") {
+      if (!this.consumeRow()) return html``;
       const expanded = this.expandedDirectories.has(node.path);
       return html`
         <button type="button" class="row" style=${`--depth:${String(depth)}`} aria-expanded=${expanded ? "true" : "false"} @click=${() => { this.toggleDirectory(node.path); }}>
@@ -167,6 +188,7 @@ export class WorkspaceGitPanel extends LitElement {
   }
 
   private renderSelectableRow(context: WorkspacePanelContext, path: string, label: string, file: GitStatusFile, depth: number): TemplateResult {
+    if (!this.consumeRow()) return html``;
     const selected = context.selectedDiffPath === path;
     return html`
       <button type="button" class=${selected ? "row selected" : "row"} style=${`--depth:${String(depth)}`} @click=${() => { context.onSelectDiff(path); }}>
@@ -178,19 +200,20 @@ export class WorkspaceGitPanel extends LitElement {
 
   private computeViewState(status: GitStatusResponse | undefined): GitViewState {
     const cached = this.viewStateCache;
-    if (cached !== undefined && cached.status === status && cached.view === this.view) return cached.viewState;
+    if (cached !== undefined && cached.status === status && cached.view === this.view && cached.visibleFileLimit === this.visibleFileLimit) return cached.viewState;
     const viewState = this.buildViewState(status);
-    this.viewStateCache = { status, view: this.view, viewState };
+    this.viewStateCache = { status, view: this.view, viewState, visibleFileLimit: this.visibleFileLimit };
     return viewState;
   }
 
   private buildViewState(status: GitStatusResponse | undefined): GitViewState {
     if (status === undefined || !status.isGitRepo || status.files.length === 0) return EMPTY_VIEW_STATE;
+    const files = status.files;
     if (this.view === "tree") {
-      const nodes = buildGitFileTree(status.files, status.submodules);
+      const nodes = buildGitFileTree(files, status.submodules);
       return { nodes, listModel: EMPTY_LIST_MODEL, expandablePaths: collectGitFileTreeDirectoryPaths(nodes) };
     }
-    const listModel = buildGitFileList(status.files, status.submodules);
+    const listModel = buildGitFileList(files, status.submodules);
     return { nodes: [], listModel, expandablePaths: listModel.submodules.map((group) => group.path) };
   }
 
@@ -211,6 +234,33 @@ export class WorkspaceGitPanel extends LitElement {
 
   private toggleExpandAll(expandablePaths: readonly string[], allExpanded: boolean): void {
     this.expandedDirectories = allExpanded ? new Set() : new Set(expandablePaths);
+  }
+
+  private consumeRow(): boolean {
+    if (this.remainingRows > 0) { this.remainingRows -= 1; return true; }
+    this.hasMoreRows = true;
+    return false;
+  }
+
+  private visibleLimitForSelection(status: GitStatusResponse | undefined, selectedPath: string | undefined): number {
+    if (status === undefined || selectedPath === undefined) return GIT_FILE_RENDER_BATCH;
+    if (this.view === "list") {
+      const index = status.files.findIndex((file) => file.path === selectedPath);
+      return Math.max(GIT_FILE_RENDER_BATCH, Math.ceil((index + status.submodules.length + 1) / GIT_FILE_RENDER_BATCH) * GIT_FILE_RENDER_BATCH);
+    }
+    const nodes = this.computeViewState(status).nodes;
+    for (const path of collectGitFileTreeDirectoryPaths(nodes)) if (selectedPath.startsWith(`${path}/`)) this.expandedDirectories.add(path);
+    let row = 0;
+    let selectedRow = 0;
+    const visit = (children: readonly GitFileTreeNode[]) => {
+      for (const node of children) {
+        row += 1;
+        if (node.path === selectedPath) selectedRow = row;
+        if (node.kind === "directory" && this.expandedDirectories.has(node.path)) visit(node.children);
+      }
+    };
+    visit(nodes);
+    return Math.max(GIT_FILE_RENDER_BATCH, Math.ceil(selectedRow / GIT_FILE_RENDER_BATCH) * GIT_FILE_RENDER_BATCH);
   }
 }
 

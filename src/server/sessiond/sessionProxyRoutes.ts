@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { WebSocket, type RawData } from "ws";
+import { normalizeRequestCwd } from "../workingDirectory.js";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
 import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
@@ -9,13 +10,15 @@ export interface SessionProxyDaemon {
 }
 
 export type ManagementProjectCwdResolver = (projectId: string, context: ManagementEmbedContext) => Promise<readonly string[]>;
+export type NormalProjectCwdResolver = () => Promise<readonly string[]>;
 
-export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver): void {
+export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      const daemonPath = stripPrefix(request.url, prefix);
-      const body = await managementBody(daemonPath, request.body, managementContext, managementEmbed, resolveManagementProjectCwds, request.method);
+      const scoped = await sessionProjectScope(stripPrefix(request.url, prefix), request.method, request.body, managementContext, resolveManagementProjectCwds, resolveNormalProjectCwds);
+      const daemonPath = scoped.url;
+      const body = scoped.handled ? scoped.body : await managementBody(daemonPath, scoped.body, managementContext, managementEmbed, request.method);
       const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext, managementEmbed));
       reply.code(upstream.statusCode);
       const contentType = upstream.headers["content-type"];
@@ -88,14 +91,11 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
 }
 
-async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver, method = "GET"): Promise<unknown> {
+async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, method = "GET"): Promise<unknown> {
   if (context === undefined) return body;
   const parsed = new URL(url, "http://local");
   const routePath = parsed.pathname;
   if (routePath !== "/sessions" && !routePath.startsWith("/sessions/")) return body;
-  if (routePath === "/sessions/cleanup/preview" || routePath === "/sessions/cleanup") {
-    return await managementCleanupBody(body, context, managementEmbed, resolveManagementProjectCwds);
-  }
   for (const cwd of parsed.searchParams.getAll("cwd")) {
     await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
   }
@@ -113,22 +113,6 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
   return body;
 }
 
-async function managementCleanupBody(body: unknown, context: ManagementEmbedContext, managementEmbed: ManagementEmbedRuntime | undefined, resolveManagementProjectCwds?: ManagementProjectCwdResolver): Promise<unknown> {
-  if (!isRecord(body) || typeof body["projectId"] !== "string" || body["projectId"].trim() === "") {
-    throw new Error("projectId field is required in management embed mode");
-  }
-  if (resolveManagementProjectCwds === undefined) throw new Error("Management cleanup project resolver is unavailable");
-
-  const allowedCwds = [...new Set(await resolveManagementProjectCwds(body["projectId"], context))];
-  const requestedCwds = stringArray(body["projectCwds"]) ?? allowedCwds;
-  const allowedCwdSet = new Set(allowedCwds);
-  for (const cwd of requestedCwds) {
-    const validatedCwd = await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
-    if (!allowedCwdSet.has(validatedCwd)) throw new Error("Cleanup path is outside the selected managed project");
-  }
-  return { ...body, projectCwds: [...new Set(requestedCwds)] };
-}
-
 function stripPrefix(url: string, prefix: string): string {
   const path = url.split("?", 1)[0] ?? url;
   const query = url.slice(path.length);
@@ -142,7 +126,67 @@ function parseJson(text: string): unknown {
 }
 
 function requestFailed(reply: FastifyReply, error: unknown): void {
+  if (error instanceof SessionScopeError) {
+    reply.code(error.statusCode).send({ error: error.message });
+    return;
+  }
   reply.code(502).send({ error: `Session daemon unavailable: ${error instanceof Error ? error.message : String(error)}` });
+}
+
+class SessionScopeError extends Error {
+  constructor(readonly statusCode: number, message: string) { super(message); }
+}
+
+async function sessionProjectScope(url: string, method: string, body: unknown, context: ManagementEmbedContext | undefined, managed?: ManagementProjectCwdResolver, normal?: NormalProjectCwdResolver) {
+  const parsed = new URL(url, "http://local");
+  const cleanup = /^\/sessions\/cleanup(?:\/preview)?$/.test(parsed.pathname);
+  const archive = /^\/sessions\/(?:bulk\/(?:archive|delete-archived)|[^/]+\/(?:archive|archive-tree|restore))$/.test(parsed.pathname)
+    || (method === "DELETE" && /^\/sessions\/[^/]+$/.test(parsed.pathname));
+  if (!cleanup && !archive) return { url, body, handled: false };
+  const fields = isRecord(body) ? body : {};
+  const bodyScope = fields["scopeProjectId"];
+  const queryScopes = parsed.searchParams.getAll("scopeProjectId");
+  const suppliedScope = bodyScope !== undefined ? bodyScope : queryScopes[0];
+  if ((suppliedScope !== undefined && (typeof suppliedScope !== "string" || suppliedScope.trim() === "")) || queryScopes.some((scope) => scope !== suppliedScope)) throw new SessionScopeError(400, "Invalid project scope");
+  let allowed: readonly string[];
+  if (context !== undefined) {
+    const projectId = cleanup ? fields["projectId"] : suppliedScope ?? (context.projects.length === 1 ? context.projects[0]?.id : undefined);
+    if (typeof projectId !== "string" || projectId.trim() === "") throw new SessionScopeError(400, "Project scope is required");
+    if (!context.projects.some((project) => project.id === projectId)) throw new SessionScopeError(400, "Unknown project scope");
+    if (managed === undefined) throw new SessionScopeError(400, "Project scope resolver is unavailable");
+    allowed = await managed(projectId, context);
+  } else {
+    if (suppliedScope !== undefined) throw new SessionScopeError(400, "scopeProjectId is only valid in management embed mode");
+    if (normal === undefined) throw new SessionScopeError(400, "Project scope resolver is unavailable");
+    allowed = await normal();
+  }
+  const allowedSet = new Set(allowed.map(normalizeRequestCwd));
+  const validate = (value: unknown): string => {
+    let cwd: string;
+    try { cwd = normalizeRequestCwd(value); }
+    catch (error) { throw new SessionScopeError(400, error instanceof Error ? error.message : String(error)); }
+    if (!allowedSet.has(cwd)) throw new SessionScopeError(403, "Path is outside the selected project scope");
+    return cwd;
+  };
+  const result = { ...fields };
+  delete result["scopeProjectId"];
+  parsed.searchParams.delete("scopeProjectId");
+  if (cleanup) {
+    const requested = fields["projectCwds"];
+    if (requested !== undefined && (!Array.isArray(requested) || !requested.every((cwd) => typeof cwd === "string"))) throw new SessionScopeError(400, "projectCwds must be an array of strings");
+    result["projectCwds"] = requested === undefined ? [...allowedSet] : [...new Set(requested.map(validate))];
+  } else {
+    const queryCwds = parsed.searchParams.getAll("cwd");
+    queryCwds.forEach(validate);
+    if (fields["cwd"] !== undefined) result["cwd"] = validate(fields["cwd"]);
+    if (Array.isArray(fields["sessions"])) {
+      result["sessions"] = fields["sessions"].map((session: unknown) => {
+        if (!isRecord(session)) throw new SessionScopeError(400, "Invalid session reference");
+        return { ...session, cwd: validate(session["cwd"]) };
+      });
+    } else if (queryCwds.length === 0 && fields["cwd"] === undefined) throw new SessionScopeError(400, "cwd is required");
+  }
+  return { url: `${parsed.pathname}${parsed.search}`, body: body === undefined && !cleanup ? undefined : result, handled: true };
 }
 
 function bridgeSockets(client: WebSocket, upstream: WebSocket): void {
@@ -167,10 +211,4 @@ function closeSocketWithError(socket: WebSocket, error: unknown): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringArray(value: unknown): string[] | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("projectCwds field must be an array of strings");
-  return value;
 }

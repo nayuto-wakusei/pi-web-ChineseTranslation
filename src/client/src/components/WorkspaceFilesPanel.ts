@@ -33,11 +33,18 @@ export class WorkspaceFilesPanel extends LitElement {
   @state() private formError = "";
   @state() private dragActive = false;
   private dragDepth = 0;
+  @state() private visibleRows = 200;
+  private treeObserver: IntersectionObserver | undefined;
   private uploadModalRegistration: RenderedModalRegistration | undefined;
 
   protected override willUpdate(changedProperties: PropertyValues<this>): void {
     if (!changedProperties.has("context")) return;
     const previous = changedProperties.get("context");
+    if (previous !== undefined && this.context !== undefined && workspaceContextKey(previous) !== workspaceContextKey(this.context)) this.visibleRows = 200;
+    if (this.context !== undefined) {
+      const selected = flattenFileTree(this.context.fileTree, this.context.expandedDirs).findIndex(({ entry }) => entry.path === this.context?.selectedFilePath);
+      this.visibleRows = Math.max(this.visibleRows, Math.ceil((selected + 1) / 200) * 200);
+    }
     if (previous !== undefined && this.context !== undefined && workspaceContextKey(previous) !== workspaceContextKey(this.context)) this.resetPendingUpload();
   }
 
@@ -48,6 +55,7 @@ export class WorkspaceFilesPanel extends LitElement {
     const selectedKind = selectedWorkspacePathKind(context.fileTree, context.expandedDirs, selectedPath);
     const hasSelection = selectedPath !== undefined && selectedPath !== "";
     const canDownload = hasSelection && selectedKind === "file";
+    const rows = flattenFileTree(context.fileTree, context.expandedDirs);
     return html`
       <section
         class=${this.dragActive ? "files-panel dragging" : "files-panel"}
@@ -73,7 +81,8 @@ export class WorkspaceFilesPanel extends LitElement {
         ${this.renderUploadProgress(context)}
         <section class="split">
           <div class="list tree">
-            ${context.fileTree.length === 0 ? html`<p class="muted">未加载文件。</p>` : context.fileTree.map((entry) => this.renderTreeEntry(context, entry, 0))}
+            ${rows.length === 0 ? html`<p class="muted">未加载文件。</p>` : rows.slice(0, this.visibleRows).map(({ entry, depth }) => this.renderTreeEntry(context, entry, depth))}
+            ${rows.length > this.visibleRows ? html`<button class="tree-more" @click=${() => { this.visibleRows += 200; }}>显示更多</button>` : null}
           </div>
           <div class="viewer">
             ${this.renderFileViewer(context)}
@@ -99,7 +108,6 @@ export class WorkspaceFilesPanel extends LitElement {
         <span>${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
         <span>${entry.name}</span>
       </button>
-      ${hasChildren ? children.map((child) => this.renderTreeEntry(context, child, depth + 1)) : null}
     `;
   }
 
@@ -114,9 +122,18 @@ export class WorkspaceFilesPanel extends LitElement {
 
   protected override updated(): void {
     this.syncUploadModal();
+    this.treeObserver?.disconnect();
+    const more = this.renderRoot.querySelector(".tree-more");
+    if (more !== null && typeof IntersectionObserver !== "undefined") {
+      this.treeObserver = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) this.visibleRows += 200;
+      }, { root: this.renderRoot.querySelector(".tree"), rootMargin: "200px" });
+      this.treeObserver.observe(more);
+    }
   }
 
   override disconnectedCallback(): void {
+    this.treeObserver?.disconnect();
     this.releaseUploadModal();
     super.disconnectedCallback();
   }
@@ -487,6 +504,19 @@ export function selectedWorkspacePathKind(
 ): FileTreeEntry["type"] | undefined {
   if (selectedPath === undefined) return undefined;
   return findWorkspaceTreeEntry(fileTree, expandedDirs, selectedPath)?.type;
+}
+
+function flattenFileTree(entries: readonly FileTreeEntry[], expanded: Record<string, FileTreeEntry[]>): { entry: FileTreeEntry; depth: number }[] {
+  const rows: { entry: FileTreeEntry; depth: number }[] = [];
+  const visit = (children: readonly FileTreeEntry[], depth: number) => {
+    for (const entry of children) {
+      rows.push({ entry, depth });
+      const nested = expanded[entry.path];
+      if (nested !== undefined) visit(nested, depth + 1);
+    }
+  };
+  visit(entries, 0);
+  return rows;
 }
 
 export function workspaceNewPathDefault(selectedPath: string | undefined, selectedKind: FileTreeEntry["type"] | undefined, basename: string): string {

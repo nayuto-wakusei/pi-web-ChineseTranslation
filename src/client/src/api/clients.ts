@@ -1,4 +1,5 @@
 import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { WorkspaceTreeBatchRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
 import { request, requestOptional } from "./http";
 import {
   arrayOf,
@@ -15,6 +16,7 @@ import {
   parseExtensionDialogCloseResponse,
   parseFileContentResponse,
   parseFileSuggestion,
+  parseWorkspaceTreeBatchResponse,
   parseFileTreeResponse,
   parseGitDiffResponse,
   parseGitStatusResponse,
@@ -94,20 +96,24 @@ function sessionQueryPath(session: SessionRef, endpoint: string, machineId = "lo
   return `${sessionPath(session, endpoint, machineId)}${sessionQuery(session)}`;
 }
 
-function sessionBaseQueryPath(session: SessionRef, machineId = "local"): string {
-  return `${sessionBasePath(session, machineId)}${sessionQuery(session)}`;
+function sessionBaseQueryPath(session: SessionRef, machineId = "local", scopeProjectId?: string): string {
+  return `${sessionBasePath(session, machineId)}${sessionQuery(session, scopeProjectId === undefined ? {} : { scopeProjectId })}`;
 }
 
-function sessionQuery(session: SessionRef): string {
-  return `?${new URLSearchParams({ cwd: session.cwd }).toString()}`;
+function sessionQuery(session: SessionRef, fields: Record<string, string> = {}): string {
+  return `?${new URLSearchParams({ cwd: session.cwd, ...fields }).toString()}`;
 }
 
 function sessionBody(session: SessionRef, fields: Record<string, unknown> = {}): string {
   return JSON.stringify({ cwd: session.cwd, ...fields });
 }
 
-function sessionBulkMutationBody(sessions: readonly SessionRef[]): string {
-  return JSON.stringify({ sessions: sessions satisfies readonly SessionBulkMutationRef[] });
+function sessionBulkMutationBody(sessions: readonly SessionRef[], scopeProjectId?: string): string {
+  const body: SessionBulkMutationRequest = {
+    sessions: [...sessions] satisfies SessionBulkMutationRef[],
+    ...(scopeProjectId === undefined ? {} : { scopeProjectId }),
+  };
+  return JSON.stringify(body);
 }
 
 function authUrl(endpoint: string, target: AuthRequestTarget): string {
@@ -220,6 +226,10 @@ export const workspacesApi = {
   workspaces: (projectId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces`, arrayOf(parseWorkspace)),
   deleteWorkspace: (projectId: string, workspaceId: string, precondition: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE", body: JSON.stringify({ precondition }), headers: { "Content-Type": "application/json" } }),
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
+  workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") => {
+    const body: WorkspaceTreeBatchRequest = { paths: [...paths] };
+    return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree/batch`, parseWorkspaceTreeBatchResponse, { method: "POST", body: JSON.stringify(body) });
+  },
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
   optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse),
   createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => writeWorkspaceFile(projectId, workspaceId, path, new Uint8Array(), undefined, machineId),
@@ -262,8 +272,8 @@ export const sessionsApi = {
   startSession: (cwd: string, machineId = "local", startupToken?: string) => request(`${machinePrefix(machineId)}/sessions`, parseSessionInfo, { method: "POST", body: JSON.stringify(startupToken === undefined ? { cwd } : { cwd, startupToken }) }),
   cleanupPreview: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup/preview`, parseSessionCleanupPreviewResponse, { method: "POST", body: JSON.stringify(input) }),
   cleanup: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup`, parseSessionCleanupExecuteResponse, { method: "POST", body: JSON.stringify(input) }),
-  archiveMany: (sessions: readonly SessionLookup[], machineId = "local") => request(`${machinePrefix(machineId)}/sessions/bulk/archive`, parseSessionBulkArchiveResponse, { method: "POST", body: sessionBulkMutationBody(sessions) }),
-  deleteArchivedMany: (sessions: readonly SessionLookup[], machineId = "local") => request(`${machinePrefix(machineId)}/sessions/bulk/delete-archived`, parseSessionBulkDeleteArchivedResponse, { method: "POST", body: sessionBulkMutationBody(sessions) }),
+  archiveMany: (sessions: readonly SessionLookup[], machineId = "local", scopeProjectId?: string) => request(`${machinePrefix(machineId)}/sessions/bulk/archive`, parseSessionBulkArchiveResponse, { method: "POST", body: sessionBulkMutationBody(sessions, scopeProjectId) }),
+  deleteArchivedMany: (sessions: readonly SessionLookup[], machineId = "local", scopeProjectId?: string) => request(`${machinePrefix(machineId)}/sessions/bulk/delete-archived`, parseSessionBulkDeleteArchivedResponse, { method: "POST", body: sessionBulkMutationBody(sessions, scopeProjectId) }),
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messagePath(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
   streamSnapshot: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "stream-snapshot", machineId), parseSessionStreamSnapshot),
@@ -292,10 +302,10 @@ export const sessionsApi = {
   }),
   abort: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "abort", machineId), parseAborted, { method: "POST", body: sessionBody(session) }),
   stop: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "stop", machineId), parseStopped, { method: "POST", body: sessionBody(session) }),
-  archive: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "archive", machineId), parseArchived, { method: "POST", body: sessionBody(session) }),
-  archiveWithDescendants: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "archive-tree", machineId), parseArchived, { method: "POST", body: sessionBody(session) }),
-  restore: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "restore", machineId), parseRestored, { method: "POST", body: sessionBody(session) }),
-  deleteArchived: (session: SessionLookup, machineId = "local") => request(sessionBaseQueryPath(session, machineId), parseDeleted, { method: "DELETE" }),
+  archive: (session: SessionLookup, machineId = "local", scopeProjectId?: string) => request(sessionPath(session, "archive", machineId), parseArchived, { method: "POST", body: sessionBody(session, scopeProjectId === undefined ? {} : { scopeProjectId }) }),
+  archiveWithDescendants: (session: SessionLookup, machineId = "local", scopeProjectId?: string) => request(sessionPath(session, "archive-tree", machineId), parseArchived, { method: "POST", body: sessionBody(session, scopeProjectId === undefined ? {} : { scopeProjectId }) }),
+  restore: (session: SessionLookup, machineId = "local", scopeProjectId?: string) => request(sessionPath(session, "restore", machineId), parseRestored, { method: "POST", body: sessionBody(session, scopeProjectId === undefined ? {} : { scopeProjectId }) }),
+  deleteArchived: (session: SessionLookup, machineId = "local", scopeProjectId?: string) => request(sessionBaseQueryPath(session, machineId, scopeProjectId), parseDeleted, { method: "DELETE" }),
   detachParent: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "detach-parent", machineId), parseDetached, { method: "POST", body: sessionBody(session) }),
   reloadSession: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "reload", machineId), parseReloaded, { method: "POST", body: sessionBody(session) }),
   clearQueue: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "queue/clear", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session) }),
@@ -378,6 +388,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export interface FileSuggestionQueryOptions {
+  signal?: AbortSignal | undefined;
   kind?: FileSuggestion["kind"] | undefined;
   mode?: "file" | "path" | undefined;
   scope?: "tracked" | "all" | undefined;
@@ -394,15 +405,15 @@ export const filesApi = {
     if (options.mode !== undefined) params.set("mode", options.mode);
     if (options.scope !== undefined) params.set("scope", options.scope);
     if (options.workspaceScoped === true && options.projectId !== undefined && options.workspaceId !== undefined) {
-      return request(`${machinePrefix(options.machineId)}/projects/${encodeURIComponent(options.projectId)}/workspaces/${encodeURIComponent(options.workspaceId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion));
+      return request(`${machinePrefix(options.machineId)}/projects/${encodeURIComponent(options.projectId)}/workspaces/${encodeURIComponent(options.workspaceId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion), { signal: options.signal ?? null });
     }
     params.set("cwd", cwd);
-    return request(`${machinePrefix(options.machineId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion));
+    return request(`${machinePrefix(options.machineId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion), { signal: options.signal ?? null });
   },
 };
 
 export const gitApi = {
-  gitStatus: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/git/status`, parseGitStatusResponse),
+  gitStatus: (projectId: string, workspaceId: string, machineId = "local", refresh = false) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/git/status${refresh ? "?refresh=true" : ""}`, parseGitStatusResponse),
   gitDiff: (projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }, machineId = "local") => request(machineGitDiffPath(machineId, projectId, workspaceId, options), parseGitDiffResponse),
 };
 

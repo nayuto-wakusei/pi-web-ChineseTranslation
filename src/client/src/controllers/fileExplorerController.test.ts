@@ -66,6 +66,7 @@ describe("FileExplorerController", () => {
     const calls: string[] = [];
     const api: typeof defaultApi = {
       ...defaultApi,
+      workspaceTreeBatch: batchFromTree,
       createWorkspaceFile: (_projectId, _workspaceId, path) => {
         calls.push(`create-file:${path}`);
         return Promise.resolve({ path, size: 0, modifiedAt: "now", created: true });
@@ -144,6 +145,7 @@ describe("FileExplorerController", () => {
     };
     const api: typeof defaultApi = {
       ...defaultApi,
+      workspaceTreeBatch: batchFromTree,
       moveWorkspaceDirectory: () => Promise.resolve({ path: "renamed-empty" }),
       workspaceTree: (_projectId, _workspaceId, path) => {
         if (path === "") return Promise.resolve({
@@ -272,15 +274,17 @@ describe("FileExplorerController tree request lifecycle", () => {
     expect(harness.state.expandedDirs).toEqual({});
   });
 
-  it("does not overwrite a newer refresh of the same workspace", async () => {
+  it("coalesces overlapping refreshes into one trailing batch", async () => {
     const requests = deferredWorkspaceTrees();
     const harness = createHarness({ api: { ...createTestApi(), workspaceTree: requests.fn } });
     const first = harness.controller.refreshFiles();
     const latest = harness.controller.refreshFiles();
     const entries: FileTreeEntry[] = [{ name: "latest", path: "latest", type: "file" }];
+    expect(requests.fn).toHaveBeenCalledTimes(1);
+    requests.request(0).resolve(treeResponse(""));
+    await vi.waitFor(() => { expect(requests.fn).toHaveBeenCalledTimes(2); });
     requests.request(1).resolve(treeResponse("", entries));
     await latest;
-    requests.request(0).resolve(treeResponse(""));
     await first;
     expect(harness.state.fileTree).toEqual(entries);
   });
@@ -503,6 +507,7 @@ function createHarness(deps: FileExplorerControllerDependencies = {}, statePatch
     ...statePatch,
   };
   const api: NonNullable<FileExplorerControllerDependencies["api"]> = deps.api ?? {
+    workspaceTreeBatch: batchFromTree,
     workspaceTree: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceTree"]>((_projectId, _workspaceId, path = "") => Promise.resolve(treeResponse(path))),
     workspaceFile: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceFile"]>((_projectId, _workspaceId, path) => Promise.resolve(fileResponse(path))),
     createWorkspaceFile: vi.fn(() => Promise.reject(new Error("createWorkspaceFile not used in this test"))),
@@ -539,6 +544,7 @@ function createHarness(deps: FileExplorerControllerDependencies = {}, statePatch
 
 function createTestApi(): NonNullable<FileExplorerControllerDependencies["api"]> {
   return {
+    workspaceTreeBatch: batchFromTree,
     workspaceTree: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceTree"]>((_projectId, _workspaceId, path = "") => Promise.resolve(treeResponse(path))),
     workspaceFile: vi.fn<NonNullable<FileExplorerControllerDependencies["api"]>["workspaceFile"]>((_projectId, _workspaceId, path) => Promise.resolve(fileResponse(path))),
     createWorkspaceFile: vi.fn(() => Promise.reject(new Error("not used"))),
@@ -564,6 +570,10 @@ function deferredWorkspaceFiles() {
       return request;
     },
   };
+}
+
+async function batchFromTree(this: Pick<typeof defaultApi, "workspaceTree">, projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") {
+  return { results: await Promise.all(paths.map(async (path) => ({ path, tree: await this.workspaceTree(projectId, workspaceId, path, machineId) }))) };
 }
 
 function deferredWorkspaceTrees() {

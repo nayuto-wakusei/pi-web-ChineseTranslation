@@ -561,6 +561,9 @@ describe("API parsers", () => {
   it("defaults submodules to an empty list when absent", () => {
     const parsed = parseGitStatusResponse({ isGitRepo: true, hash: "h", files: [] });
     expect(parsed.submodules).toEqual([]);
+    expect(parsed.truncated).toBeUndefined();
+    expect(parseGitStatusResponse({ isGitRepo: true, hash: "h", files: [], truncated: true }).truncated).toBe(true);
+    expect(() => parseGitStatusResponse({ isGitRepo: true, hash: "h", files: [], truncated: "yes" })).toThrow("Invalid PI WEB truncated field");
   });
 
   it("validates file content responses", () => {

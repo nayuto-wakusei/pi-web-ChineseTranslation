@@ -11,16 +11,17 @@ import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
-import { isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
+import { FileSuggestionCatalog, isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
 import { loadEffectiveProjectAttachmentsConfig, loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
 import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
-import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type NormalProjectCwdResolver, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
+import { GitStatusCache } from "./git/gitService.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerPluginBackendProxyRoutes } from "./plugins/pluginBackendProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
@@ -165,6 +166,7 @@ async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWeb
 }
 
 interface LocalFileSuggestionRouteOptions {
+  fileSuggestions?: FileSuggestionCatalog;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
@@ -181,7 +183,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
       const query = request.query.q ?? "";
       const pathAccess = isAbsoluteishFileSuggestionQuery(query) ? await pathAccessForCwd(cwd, projects, catalog, options.config) : undefined;
       if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);
-      return await listFileSuggestions(cwd, query, { kind: request.query.kind, scope: request.query.scope, pathAccess });
+      return await listFileSuggestions(cwd, query, { kind: request.query.kind, scope: request.query.scope, pathAccess }, { ...(options.fileSuggestions === undefined ? {} : { catalog: options.fileSuggestions }), catalogKey: JSON.stringify([context?.user, cwd]) });
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -262,6 +264,16 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     const listed = isLegacyWorkspaceService(workspaceInput) ? await workspaceInput.list(project) : await workspaces.list(project.id, { managementContext: context });
     return listed.map((workspace) => workspace.path);
   };
+  const resolveNormalProjectCwds: NormalProjectCwdResolver = async () => {
+    const registeredProjects = await projects.list();
+    const listed = await Promise.all(registeredProjects.map(async (project) => {
+      const workspacesForProject = isLegacyWorkspaceService(workspaceInput)
+        ? await workspaceInput.list(project)
+        : await workspaces.list(project.id);
+      return workspacesForProject.map((workspace) => workspace.path);
+    }));
+    return listed.flat();
+  };
   const normalAuth = new NormalModeAuthService(configService);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
@@ -300,21 +312,23 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerLocalProjectRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });
   registerLocalProjectRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed });
 
-  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds);
-  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/plugin-backends", managementEmbed);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/machines/local/plugin-backends", managementEmbed);
-  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });
-  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed });
-  registerGitRoutes(app, projects, legacyWorkspaces, "/api", managementEmbed);
-  registerGitRoutes(app, projects, legacyWorkspaces, "/api/machines/local", managementEmbed);
+  const fileSuggestions = new FileSuggestionCatalog();
+  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
+  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });
+  const gitStatuses = new GitStatusCache();
+  registerGitRoutes(app, projects, legacyWorkspaces, "/api", managementEmbed, gitStatuses);
+  registerGitRoutes(app, projects, legacyWorkspaces, "/api/machines/local", managementEmbed, gitStatuses);
   registerTerminalProxyRoutes(app, projects, workspaceInput, sessionDaemon, "/api", managementEmbed);
   registerTerminalProxyRoutes(app, projects, workspaceInput, sessionDaemon, "/api/machines/local", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
 
-  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });
-  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed });
+  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
+  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });
 
   registerMachineProxyRoutes(app, machines);
 

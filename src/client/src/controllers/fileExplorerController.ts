@@ -20,7 +20,7 @@ import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from 
 
 const FILES_ROUTE_NAMESPACE = queryNamespace("core:workspace.files");
 
-type FileExplorerApi = Pick<typeof defaultApi, "workspaceFile" | "workspaceTree" | "createWorkspaceFile" | "createWorkspaceDirectory" | "moveWorkspaceFile" | "moveWorkspaceDirectory" | "deleteWorkspaceFile" | "deleteWorkspaceDirectory" | "downloadWorkspaceFile">;
+type FileExplorerApi = Pick<typeof defaultApi, "workspaceFile" | "workspaceTree" | "workspaceTreeBatch" | "createWorkspaceFile" | "createWorkspaceDirectory" | "moveWorkspaceFile" | "moveWorkspaceDirectory" | "deleteWorkspaceFile" | "deleteWorkspaceDirectory" | "downloadWorkspaceFile">;
 type UploadWorkspaceFiles = typeof defaultUploadWorkspaceFiles;
 
 interface WorkspaceRequestIdentity {
@@ -64,6 +64,8 @@ export class FileExplorerController {
   private treeRequestGeneration = 0;
   private directoryRequestSequence = 0;
   private readonly directoryRequestGeneration = new Map<string, number>();
+  private refreshInFlight: Promise<void> | undefined;
+  private refreshPending = false;
 
   constructor(
     private readonly getState: GetState,
@@ -80,7 +82,25 @@ export class FileExplorerController {
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
-  async refreshFiles(): Promise<void> {
+  refreshFiles(): Promise<void> {
+    this.refreshPending = true;
+    this.refreshInFlight ??= this.refreshLoop().finally(() => { this.refreshInFlight = undefined; });
+    return this.refreshInFlight;
+  }
+
+  private async refreshLoop(): Promise<void> {
+    while (this.consumeRefresh()) {
+      await this.refreshFileTree();
+    }
+  }
+
+  private consumeRefresh(): boolean {
+    const pending = this.refreshPending;
+    this.refreshPending = false;
+    return pending;
+  }
+
+  private async refreshFileTree(): Promise<void> {
     const state = this.getState();
     const project = state.selectedProject;
     const workspace = state.selectedWorkspace;
@@ -91,17 +111,15 @@ export class FileExplorerController {
     const isCurrent = () => generation === this.treeRequestGeneration && this.isCurrentWorkspace(request);
     try {
       const machineId = request.machineId;
-      const root = await this.api.workspaceTree(project.id, workspace.id, "", machineId);
-      if (!isCurrent()) return;
-      const expandedEntries = await Promise.all(Object.keys(expandedDirs).map(async (path) => {
-        try {
-          const response = await this.api.workspaceTree(project.id, workspace.id, path, machineId);
-          return [path, response.entries] as const;
-        } catch (error) {
-          if (isUnavailableFileError(error)) return [path, undefined] as const;
-          throw error;
-        }
-      }));
+      const paths = ["", ...Object.keys(expandedDirs)];
+      const results = [];
+      for (let offset = 0; offset < paths.length; offset += 128) {
+        const batch = await this.api.workspaceTreeBatch(project.id, workspace.id, paths.slice(offset, offset + 128), machineId);
+        results.push(...batch.results);
+      }
+      const root = results.find((item) => item.path === "");
+      if (root === undefined || !("tree" in root)) throw new Error(root?.error ?? "Unable to load file tree");
+      const expandedEntries = results.filter((item) => item.path !== "").map((item) => [item.path, "tree" in item ? item.tree.entries : undefined] as const);
       if (!isCurrent()) return;
       let expanded = { ...this.getState().expandedDirs };
       for (const [path, entries] of expandedEntries) {
@@ -110,7 +128,7 @@ export class FileExplorerController {
         if (entries === undefined) expanded = omitKey(expanded, path);
         else expanded[path] = entries;
       }
-      this.setState({ fileTree: root.entries, expandedDirs: expanded, fileTreeStale: false, error: "" });
+      this.setState({ fileTree: root.tree.entries, expandedDirs: expanded, fileTreeStale: false, error: "" });
     } catch (error) {
       if (!isCurrent()) return;
       this.setState({ error: String(error) });
@@ -148,6 +166,39 @@ export class FileExplorerController {
     return state.selectedProject?.id === request.projectId
       && state.selectedWorkspace?.id === request.workspaceId
       && selectedMachineId(state) === request.machineId;
+  }
+
+  private async refreshParents(paths: readonly string[]): Promise<void> {
+    this.treeRequestGeneration += 1;
+    const state = this.getState();
+    if (state.selectedProject === undefined || state.selectedWorkspace === undefined) return;
+    const request = { projectId: state.selectedProject.id, workspaceId: state.selectedWorkspace.id, machineId: selectedMachineId(state) };
+    const parents = [...new Set(paths.map((path) => {
+      let parent = parentPath(path);
+      while (parent !== "" && state.expandedDirs[parent] === undefined) parent = parentPath(parent);
+      return parent;
+    }))];
+    if (parents.length === 0) return;
+    const results = [];
+    for (let offset = 0; offset < parents.length; offset += 128) {
+      const response = await this.api.workspaceTreeBatch(request.projectId, request.workspaceId, parents.slice(offset, offset + 128), request.machineId);
+      results.push(...response.results);
+    }
+    if (!this.isCurrentWorkspace(request)) return;
+    const expandedDirs = { ...this.getState().expandedDirs };
+    let fileTree = this.getState().fileTree;
+    for (const item of results) {
+      if (!("tree" in item)) throw new Error(item.error);
+      if (item.path === "") fileTree = item.tree.entries;
+      else if (expandedDirs[item.path] !== undefined) expandedDirs[item.path] = item.tree.entries;
+    }
+    this.setState({ fileTree, expandedDirs });
+  }
+
+  private removeExpandedSubtree(path: string): void {
+    for (const key of this.directoryRequestGeneration.keys()) if (key === path || key.startsWith(`${path}/`)) this.directoryRequestGeneration.delete(key);
+    const expandedDirs = Object.fromEntries(Object.entries(this.getState().expandedDirs).filter(([key]) => key !== path && !key.startsWith(`${path}/`)));
+    this.setState({ expandedDirs });
   }
 
   async selectFile(path: string): Promise<void> {
@@ -195,9 +246,12 @@ export class FileExplorerController {
     const project = this.getState().selectedProject;
     const workspace = this.getState().selectedWorkspace;
     if (project === undefined || workspace === undefined || path === "") return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(this.getState()) };
     try {
-      await this.api.createWorkspaceFile(project.id, workspace.id, path, selectedMachineId(this.getState()));
-      await this.refreshFiles();
+      await this.api.createWorkspaceFile(project.id, workspace.id, path, request.machineId);
+      if (!this.isCurrentWorkspace(request)) return;
+      await this.refreshParents([path]);
+      if (!this.isCurrentWorkspace(request)) return;
       await this.selectFile(path);
       this.setState({ error: "" });
     } catch (error) {
@@ -209,9 +263,12 @@ export class FileExplorerController {
     const project = this.getState().selectedProject;
     const workspace = this.getState().selectedWorkspace;
     if (project === undefined || workspace === undefined || path === "") return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(this.getState()) };
     try {
-      await this.api.createWorkspaceDirectory(project.id, workspace.id, path, selectedMachineId(this.getState()));
-      await this.refreshFiles();
+      await this.api.createWorkspaceDirectory(project.id, workspace.id, path, request.machineId);
+      if (!this.isCurrentWorkspace(request)) return;
+      await this.refreshParents([path]);
+      if (!this.isCurrentWorkspace(request)) return;
       this.selectDirectory(path);
       this.setState({ error: "" });
     } catch (error) {
@@ -224,15 +281,21 @@ export class FileExplorerController {
     const workspace = this.getState().selectedWorkspace;
     const fromPath = this.getState().selectedFilePath;
     if (project === undefined || workspace === undefined || fromPath === undefined || fromPath === "" || toPath === "") return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(this.getState()) };
     try {
       const machineId = selectedMachineId(this.getState());
       if (selectedPathKind(this.getState()) === "directory") {
         await this.api.moveWorkspaceDirectory(project.id, workspace.id, fromPath, toPath, machineId);
-        await this.refreshFiles();
+        if (!this.isCurrentWorkspace(request)) return;
+        this.removeExpandedSubtree(fromPath);
+        await this.refreshParents([fromPath, toPath]);
+        if (!this.isCurrentWorkspace(request)) return;
         this.selectDirectory(toPath);
       } else {
         await this.api.moveWorkspaceFile(project.id, workspace.id, fromPath, toPath, undefined, machineId);
-        await this.refreshFiles();
+        if (!this.isCurrentWorkspace(request)) return;
+        await this.refreshParents([fromPath, toPath]);
+        if (!this.isCurrentWorkspace(request)) return;
         await this.selectFile(toPath);
       }
       this.setState({ error: "" });
@@ -246,11 +309,15 @@ export class FileExplorerController {
     const workspace = this.getState().selectedWorkspace;
     const path = this.getState().selectedFilePath;
     if (project === undefined || workspace === undefined || path === undefined || path === "") return;
+    const request = { projectId: project.id, workspaceId: workspace.id, machineId: selectedMachineId(this.getState()) };
     try {
       const machineId = selectedMachineId(this.getState());
       if (selectedPathKind(this.getState()) === "directory") await this.api.deleteWorkspaceDirectory(project.id, workspace.id, path, machineId);
       else await this.api.deleteWorkspaceFile(project.id, workspace.id, path, machineId);
-      await this.refreshFiles();
+      if (!this.isCurrentWorkspace(request)) return;
+      this.removeExpandedSubtree(path);
+      await this.refreshParents([path]);
+      if (!this.isCurrentWorkspace(request)) return;
       this.clearSelection();
       this.setState({ error: "" });
     } catch (error) {
@@ -355,7 +422,7 @@ export class FileExplorerController {
     if (batch?.status !== "uploading") return;
     this.setUploadBatch(completeWorkspaceUploadBatch(batch, responses, this.now()), { error: "" });
     if (!this.isCurrentWorkspaceBatch(batch)) return;
-    await this.refreshFiles();
+    await this.refreshParents(responses.map((response) => response.path));
     const uploadedPath = responses[0]?.path;
     if (options.selectUploadedFile !== false && uploadedPath !== undefined && this.isCurrentWorkspaceBatch(batch)) await this.selectFile(uploadedPath);
   }
@@ -363,7 +430,7 @@ export class FileExplorerController {
   private async handleUploadFailure(batchId: string, error: unknown, options: StartWorkspaceUploadOptions): Promise<void> {
     const batch = this.failUploadBatch(batchId, error);
     if (!(error instanceof WorkspaceUploadBatchError) || error.responses.length === 0 || batch === undefined || !this.isCurrentWorkspaceBatch(batch)) return;
-    await this.refreshFiles();
+    await this.refreshParents(error.responses.map((response) => response.path));
     const uploadedPath = error.responses[0]?.path;
     if (options.selectUploadedFile !== false && uploadedPath !== undefined && this.isCurrentWorkspaceBatch(batch)) await this.selectFile(uploadedPath);
   }
@@ -396,17 +463,17 @@ export class FileExplorerController {
   }
 }
 
-function isUnavailableFileError(error: unknown): boolean {
-  const message = String(error);
-  return message.includes("Path does not exist") || message.includes("ENOENT") || message.includes("no such file or directory");
-}
-
 function isWorkspaceUploadCancelled(error: unknown): boolean {
   return error instanceof WorkspaceUploadCancelledError;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parentPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.slice(0, Math.max(0, normalized.lastIndexOf("/")));
 }
 
 function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {

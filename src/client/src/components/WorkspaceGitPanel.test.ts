@@ -136,6 +136,22 @@ describe("workspace-git-panel expand/collapse all", () => {
 });
 
 describe("workspace-git-panel rows", () => {
+  it("renders large status lists in 500-file batches", () => {
+    const { panel } = newGitPanel();
+    panel.context = workspacePanelContext({ gitStatus: gitStatus({ files: Array.from({ length: 501 }, (_, index) => gitFile(`file-${String(index)}.ts`)) }) });
+
+    expect(findOptionalTemplateClickHandlerForText(panel.render(), "file-500.ts")).toBeUndefined();
+    templateClickHandlerForText(panel.render(), "显示更多（500/501）")(new Event("click"));
+    expect(findOptionalTemplateClickHandlerForText(panel.render(), "file-500.ts")).toBeDefined();
+  });
+
+  it("warns when the Git status list is truncated", () => {
+    const { panel } = newGitPanel();
+    panel.context = workspacePanelContext({ gitStatus: gitStatus({ truncated: true }) });
+
+    expect(templateText(panel.render())).toContain("Git 状态输出过大，文件列表已截断。");
+  });
+
   it("toggles a directory's children when its row is clicked", () => {
     const { panel } = newGitPanel({ [GIT_FILE_VIEW_STORAGE_KEY]: "tree" });
     panel.context = workspacePanelContext({ gitStatus: treeStatus() });

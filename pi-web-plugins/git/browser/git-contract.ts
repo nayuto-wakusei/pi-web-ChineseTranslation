@@ -21,6 +21,7 @@ export interface GitStatusResponse {
   behind?: number;
   files: GitStatusFile[];
   submodules: string[];
+  truncated?: boolean;
 }
 
 export interface GitDiffResponse {
@@ -37,6 +38,7 @@ export function parseGitStatusResponse(value: unknown): GitStatusResponse {
   const upstream = optionalString(record, "upstream");
   const ahead = optionalNumber(record, "ahead");
   const behind = optionalNumber(record, "behind");
+  const truncated = optionalBoolean(record, "truncated");
   return {
     isGitRepo: requireBoolean(record, "isGitRepo"),
     hash: requireString(record, "hash"),
@@ -46,6 +48,7 @@ export function parseGitStatusResponse(value: unknown): GitStatusResponse {
     ...(behind === undefined ? {} : { behind }),
     files: requireArray(record, "files").map(parseGitStatusFile),
     submodules: record["submodules"] === undefined ? [] : requireStringArray(record["submodules"], "submodules"),
+    ...(truncated === undefined ? {} : { truncated }),
   };
 }
 
@@ -127,6 +130,13 @@ function optionalNumber(record: Record<string, unknown>, key: string): number | 
   const value = record[key];
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`字段必须是有限数字：${key}`);
+  return value;
+}
+
+function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`字段必须是布尔值：${key}`);
   return value;
 }
 

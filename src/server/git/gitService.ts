@@ -8,6 +8,23 @@ import { sanitizedGitEnv } from "./gitEnv.js";
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 
+export class GitStatusCache {
+  private readonly entries = new Map<string, { promise: Promise<GitStatusResponse>; expires: number }>();
+  constructor(private readonly scan = gitStatus, private readonly now = Date.now) {}
+
+  get(key: string, cwd: string, force = false): Promise<GitStatusResponse> {
+    const cached = this.entries.get(key);
+    if (cached !== undefined && (cached.expires === Infinity || (!force && cached.expires > this.now()))) return cached.promise;
+    const entry = { expires: Infinity, promise: this.scan(cwd).then((status) => {
+      entry.expires = this.now() + 2000;
+      for (const [oldKey, old] of this.entries) if (old.expires <= this.now()) this.entries.delete(oldKey);
+      return status;
+    }, (error: unknown) => { this.entries.delete(key); throw error; }) };
+    this.entries.set(key, entry);
+    return entry.promise;
+  }
+}
+
 /**
  * A submodule row parsed from the superproject status. `git status` reports a
  * submodule as a single path with an `S<c><m><u>` flag field (commit changed /
@@ -37,9 +54,9 @@ interface ParsedStatus {
 
 export async function gitStatus(cwd: string): Promise<GitStatusResponse> {
   const result = await runGit(cwd, ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"]);
-  if (result.code !== 0) return { isGitRepo: false, hash: hash(result.stdout + result.stderr), files: [], submodules: [] };
-  const parsed = parseStatus(result.stdout, { deferSubmodules: true });
-  return expandSubmodules(cwd, parsed, result.stdout);
+  if (result.code !== 0) return { isGitRepo: false, hash: hash(result.stdout + result.stderr), files: [], submodules: [], ...(result.truncated ? { truncated: true } : {}) };
+  const parsed = parseStatus(result.truncated ? result.stdout.slice(0, result.stdout.lastIndexOf("\0") + 1) : result.stdout, { deferSubmodules: true });
+  return expandSubmodules(cwd, parsed, result.stdout, result.truncated);
 }
 
 /**
@@ -49,7 +66,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResponse> {
  * entries under `<submodule>/<inner path>`. A plain `-dirty` pointer (commit
  * unchanged) is intentionally not surfaced as a pointer entry.
  */
-async function expandSubmodules(cwd: string, parsed: ParsedStatus, topRaw: string): Promise<GitStatusResponse> {
+async function expandSubmodules(cwd: string, parsed: ParsedStatus, topRaw: string, topTruncated: boolean): Promise<GitStatusResponse> {
   // Fan out concurrently — one `git status` per dirty submodule plus one
   // `git rev-parse` per unstaged pointer move — then concatenate in input
   // order so the file list and hash are identical to a serial pass.
@@ -58,10 +75,12 @@ async function expandSubmodules(cwd: string, parsed: ParsedStatus, topRaw: strin
   const files: GitStatusFile[] = [...parsed.files];
   const dirtySubmodulePaths: string[] = [];
   let extraForHash = "";
+  let truncated = topTruncated;
   for (const part of expanded) {
     dirtySubmodulePaths.push(part.path);
     files.push(...part.files);
     extraForHash += part.extraForHash;
+    truncated ||= part.truncated;
   }
 
   return {
@@ -73,13 +92,15 @@ async function expandSubmodules(cwd: string, parsed: ParsedStatus, topRaw: strin
     ...(parsed.behind === undefined ? {} : { behind: parsed.behind }),
     files,
     submodules: dirtySubmodulePaths,
+    ...(truncated ? { truncated: true } : {}),
   };
 }
 
 /** Expand one dirty submodule: the pointer entry first, then its inner files. */
-async function expandSubmodule(cwd: string, sub: SubmoduleRecord): Promise<{ files: GitStatusFile[]; extraForHash: string }> {
+async function expandSubmodule(cwd: string, sub: SubmoduleRecord): Promise<{ files: GitStatusFile[]; extraForHash: string; truncated: boolean }> {
   const files: GitStatusFile[] = [];
   let extraForHash = "";
+  let truncated = false;
   if (sub.commitChanged) {
     files.push({
       path: sub.path,
@@ -91,9 +112,10 @@ async function expandSubmodule(cwd: string, sub: SubmoduleRecord): Promise<{ fil
   }
   if (sub.hasModifiedContent || sub.hasUntrackedContent) {
     const inner = await runGit(join(cwd, sub.path), ["status", "--porcelain=v2", "--untracked-files=all", "-z"]);
+    truncated = inner.truncated;
     if (inner.code === 0) {
       extraForHash = `\0${sub.path}\0${inner.stdout}`;
-      const innerFiles = parseStatus(inner.stdout, { deferSubmodules: false }).files;
+      const innerFiles = parseStatus(inner.truncated ? inner.stdout.slice(0, inner.stdout.lastIndexOf("\0") + 1) : inner.stdout, { deferSubmodules: false }).files;
       for (const file of innerFiles) {
         files.push({
           ...file,
@@ -104,7 +126,7 @@ async function expandSubmodule(cwd: string, sub: SubmoduleRecord): Promise<{ fil
     }
     // non-zero exit: uninitialized / unreadable submodule — skip silently
   }
-  return { files, extraForHash };
+  return { files, extraForHash, truncated };
 }
 
 async function resolveSubmoduleToCommit(cwd: string, sub: SubmoduleRecord): Promise<string> {

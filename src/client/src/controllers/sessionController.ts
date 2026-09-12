@@ -1,5 +1,6 @@
 import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingAskUser, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
+import { isManagementEmbedMode } from "../api/managementEmbed";
 import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -687,6 +688,10 @@ export class SessionController {
     this.applyStatus(status);
   }
 
+  private archiveScopeProjectId(): string | undefined {
+    return isManagementEmbedMode() ? this.getState().selectedProject?.id : undefined;
+  }
+
   async archiveSession(session = this.getState().selectedSession) {
     if (!session) return;
     const status = this.statusForSession(session);
@@ -698,7 +703,7 @@ export class SessionController {
     if (!isArchivableSessionInfo(session, status, persistenceOptions)) return;
     const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.archive(session, machineId);
+      await this.api.archive(session, machineId, this.archiveScopeProjectId());
       const state = this.getState();
       const sessions = markSessionArchived(state.sessions, session.id, new Date().toISOString());
       const selectionChange = selectionAfterArchivingSession(sessions, state.selectedSession?.id, session.id);
@@ -715,7 +720,7 @@ export class SessionController {
     if (session === undefined || !isArchivableSessionInfo(session, this.statusForSession(session), this.sessionPersistenceOptions())) return;
     const machineId = selectedMachineId(this.getState());
     try {
-      const response = await this.api.archiveWithDescendants(session, machineId);
+      const response = await this.api.archiveWithDescendants(session, machineId, this.archiveScopeProjectId());
       const archivedIds = response.sessionIds !== undefined && response.sessionIds.length > 0 ? response.sessionIds : [session.id];
       const state = this.getState();
       const sessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
@@ -780,12 +785,12 @@ export class SessionController {
   }
 
   private async archiveSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
-    const response = await this.api.archiveMany(sessions, machineId);
+    const response = await this.api.archiveMany(sessions, machineId, this.archiveScopeProjectId());
     return { succeededIds: response.archivedSessionIds, failures: bulkFailureMessages(response.failures), generatedAt: response.generatedAt };
   }
 
   private async deleteArchivedSessionBatch(sessions: readonly SessionInfo[], machineId: string): Promise<BulkSessionMutationResult> {
-    const response = await this.api.deleteArchivedMany(sessions, machineId);
+    const response = await this.api.deleteArchivedMany(sessions, machineId, this.archiveScopeProjectId());
     return { succeededIds: response.deletedSessionIds, failures: bulkFailureMessages(response.failures) };
   }
 
@@ -887,7 +892,7 @@ export class SessionController {
     if (!session) return;
     const machineId = selectedMachineId(this.getState());
     try {
-      await this.api.restore(session, machineId);
+      await this.api.restore(session, machineId, this.archiveScopeProjectId());
       const restored = { ...session };
       delete restored.archived;
       delete restored.archivedAt;

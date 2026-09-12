@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listWorkspaceTree } from "./fileTreeService.js";
+import { listWorkspaceTree, listWorkspaceTreeBatch } from "./fileTreeService.js";
 
 const roots: string[] = [];
 
@@ -17,6 +17,17 @@ afterEach(async () => {
 });
 
 describe("listWorkspaceTree", () => {
+  it("deduplicates batch paths, isolates missing directories and enforces the batch limit", async () => {
+    const root = await tempWorkspace();
+    await mkdir(join(root, "src"));
+    const response = await listWorkspaceTreeBatch(root, ["", "src", "missing", "src", "../outside"]);
+    expect(response.results.map((result) => result.path)).toEqual(["", "src", "missing", "../outside"]);
+    expect(response.results[0]).toHaveProperty("tree");
+    expect(response.results[1]).toHaveProperty("tree");
+    expect(response.results[2]).toHaveProperty("error");
+    expect(response.results[3]).toHaveProperty("error");
+    await expect(listWorkspaceTreeBatch(root, Array.from({ length: 129 }, (_, i) => String(i)))).rejects.toThrow("128");
+  });
   it("lists entries with directories first, sorted by name", async () => {
     const root = await tempWorkspace();
     await mkdir(join(root, "z-dir"));
