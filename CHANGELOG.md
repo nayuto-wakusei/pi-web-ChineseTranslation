@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.9
+
+### Patch Changes
+
+- 477e709: Allow signed management-embed tokens to grant a constrained bash tool with read-only host filesystem access, HTTP/web-fetch/web-search, and sandbox network when `managementEmbed.allowPrivileged` is enabled.
+
 ## 1.202609.8
 
 ### Patch Changes
