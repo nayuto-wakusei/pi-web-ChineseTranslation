@@ -140,6 +140,76 @@ describe("management permission system", () => {
     expect(managementAgentToolNames(deniedContext, controlledTools)).not.toContain("ask_user");
     expect(createManagementPermissionSystemPolicy(deniedContext, controlledTools).tools["ask_user"]).toBe("deny");
   });
+
+  it("allows a privileged managed bash tool and HTTP without opening SDK shell, mcp, or terminals", () => {
+    const context = managementContext({ privileged: { bash: true, network: true } });
+    const privileges = { bash: true, network: true };
+    const extraTools = ["bash", "http", "webfetch", "websearch"];
+
+    expect(managementAgentToolNames(context, extraTools, privileges)).toEqual([
+      "read",
+      "write",
+      "edit",
+      "ls",
+      "grep",
+      "find",
+      "python",
+      ...extraTools,
+    ]);
+    expect(createManagementPermissionSystemPolicy(context, extraTools, privileges)).toMatchObject({
+      defaultPolicy: { tools: "deny", bash: "deny", mcp: "deny", skills: "deny", special: "deny" },
+      tools: {
+        bash: "allow",
+        python: "allow",
+        http: "allow",
+        webfetch: "allow",
+        websearch: "allow",
+        shell: "deny",
+        powershell: "deny",
+        pwsh: "deny",
+        terminal: "deny",
+        mcp: "deny",
+      },
+      bash: { "*": "deny" },
+    });
+  });
+
+  it("lifts managed bash for a bash grant without enabling HTTP tools", () => {
+    const context = managementContext({ privileged: { bash: true } });
+    const privileges = { bash: true, network: false };
+    const extraTools = ["bash", "http"];
+
+    expect(managementAgentToolNames(context, extraTools, privileges)).toContain("bash");
+    expect(managementAgentToolNames(context, extraTools, privileges)).not.toContain("http");
+    expect(createManagementPermissionSystemPolicy(context, extraTools, privileges).tools).toMatchObject({
+      bash: "allow",
+      http: "deny",
+      shell: "deny",
+    });
+  });
+
+  it("lifts HTTP tools for a network grant without enabling bash", () => {
+    const context = managementContext({ privileged: { network: true } });
+    const privileges = { bash: false, network: true };
+    const extraTools = ["bash", "http", "webfetch", "websearch"];
+
+    expect(managementAgentToolNames(context, extraTools, privileges)).toEqual(expect.arrayContaining(["http", "webfetch", "websearch"]));
+    expect(managementAgentToolNames(context, extraTools, privileges)).not.toContain("bash");
+    expect(createManagementPermissionSystemPolicy(context, extraTools, privileges).tools).toMatchObject({
+      bash: "deny",
+      http: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+    });
+  });
+
+  it("keeps bash denied when an explicit deny accompanies a privileged grant", () => {
+    const context = managementContext({ privileged: { bash: true }, tools: { deny: ["bash"] } });
+    const privileges = { bash: false, network: false };
+
+    expect(managementAgentToolNames(context, ["bash"], privileges)).not.toContain("bash");
+    expect(createManagementPermissionSystemPolicy(context, ["bash"], privileges).tools["bash"]).toBe("deny");
+  });
 });
 
 function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {

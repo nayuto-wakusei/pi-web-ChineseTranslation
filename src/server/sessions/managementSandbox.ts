@@ -28,6 +28,7 @@ export interface BubblewrapPythonInvocationOptions {
   workspaceRoot: string;
   env?: NodeJS.ProcessEnv;
   readOnlyPaths?: readonly string[];
+  network?: boolean;
 }
 
 export interface BubblewrapPythonInvocation {
@@ -42,6 +43,9 @@ export interface BubblewrapShellInvocationOptions {
   script: string;
   env?: NodeJS.ProcessEnv;
   readOnlyPaths?: readonly string[];
+  network?: boolean;
+  /** When true, the host filesystem is visible read-only; the workspace stays writable. */
+  hostFilesystem?: boolean;
 }
 
 export interface BubblewrapShellInvocation {
@@ -69,21 +73,7 @@ export function createManagedSandboxEnvironment(options: ManagedSandboxEnvironme
 
 export function createBubblewrapPythonInvocation(options: BubblewrapPythonInvocationOptions): BubblewrapPythonInvocation {
   const args = [
-    "--unshare-net",
-    "--unshare-ipc",
-    "--unshare-pid",
-    "--die-with-parent",
-    "--clearenv",
-    ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["--setenv", key, value ?? ""]),
-    "--tmpfs",
-    "/tmp",
-    "--dir",
-    SANDBOX_HOME,
-    "--proc",
-    "/proc",
-    "--dev",
-    "/dev",
-    ...[...new Set(options.readOnlyPaths ?? DEFAULT_BUBBLEWRAP_PATHS)].flatMap((path) => ["--ro-bind-try", path, path]),
+    ...bubblewrapBaseArgs(options.env, options.readOnlyPaths, options.network),
     "--bind",
     options.workspaceRoot,
     MANAGED_SANDBOX_WORKSPACE,
@@ -97,11 +87,14 @@ export function createBubblewrapPythonInvocation(options: BubblewrapPythonInvoca
 }
 
 export function createBubblewrapShellInvocation(options: BubblewrapShellInvocationOptions): BubblewrapShellInvocation {
+  const hostFilesystem = options.hostFilesystem === true;
   const args = [
-    ...bubblewrapBaseArgs(options.env, options.readOnlyPaths),
+    ...bubblewrapBaseArgs(options.env, hostFilesystem ? [] : options.readOnlyPaths, options.network),
+    ...(hostFilesystem ? ["--ro-bind-try", "/", "/"] : []),
     "--bind",
     options.workspaceRoot,
     MANAGED_SANDBOX_WORKSPACE,
+    ...(hostFilesystem ? ["--bind", options.workspaceRoot, options.workspaceRoot] : []),
     "--chdir",
     MANAGED_SANDBOX_WORKSPACE,
     options.shellExecutable,
@@ -111,9 +104,9 @@ export function createBubblewrapShellInvocation(options: BubblewrapShellInvocati
   return { command: options.bubblewrapExecutable, args };
 }
 
-function bubblewrapBaseArgs(env: NodeJS.ProcessEnv | undefined, readOnlyPaths: readonly string[] | undefined): string[] {
+function bubblewrapBaseArgs(env: NodeJS.ProcessEnv | undefined, readOnlyPaths: readonly string[] | undefined, network = false): string[] {
   return [
-    "--unshare-net",
+    ...(network ? [] : ["--unshare-net"]),
     "--unshare-ipc",
     "--unshare-pid",
     "--die-with-parent",

@@ -76,6 +76,57 @@ describe("management sandbox environment", () => {
       "cat /etc/ssh/ssh_host_rsa_key",
     ]));
     expect(invocation.args).not.toEqual(expect.arrayContaining(["--dev-bind", "/", "/"]));
+    expect(invocation.args).not.toEqual(expect.arrayContaining(["--ro-bind-try", "/", "/"]));
+  });
+
+  it("omits network isolation when privileged network is enabled", () => {
+    const python = createBubblewrapPythonInvocation({
+      bubblewrapExecutable: "bwrap",
+      pythonExecutable: "python3",
+      workspaceRoot: "/srv/pi/project",
+      network: true,
+    });
+    const shell = createBubblewrapShellInvocation({
+      bubblewrapExecutable: "bwrap",
+      shellExecutable: "/bin/bash",
+      workspaceRoot: "/srv/pi/project",
+      script: "curl https://example.test",
+      network: true,
+    });
+
+    expect(python.args).not.toContain("--unshare-net");
+    expect(shell.args).not.toContain("--unshare-net");
+    expect(python.args).toEqual(expect.arrayContaining(["--unshare-pid", "--bind", "/srv/pi/project", "/workspace"]));
+    expect(shell.args).toEqual(expect.arrayContaining(["--unshare-pid", "--bind", "/srv/pi/project", "/workspace"]));
+  });
+
+  it("makes the host filesystem read-only while keeping the workspace writable", () => {
+    const invocation = createBubblewrapShellInvocation({
+      bubblewrapExecutable: "bwrap",
+      shellExecutable: "/bin/bash",
+      workspaceRoot: "/srv/pi/project",
+      script: "ls /other/project",
+      hostFilesystem: true,
+    });
+
+    expect(invocation.args).toEqual(expect.arrayContaining([
+      "--ro-bind-try",
+      "/",
+      "/",
+      "--bind",
+      "/srv/pi/project",
+      "/workspace",
+      "--bind",
+      "/srv/pi/project",
+      "/srv/pi/project",
+      "--chdir",
+      "/workspace",
+    ]));
+    expect(invocation.args).not.toEqual(expect.arrayContaining(["--dev-bind", "/", "/"]));
+    const rootBind = invocation.args.indexOf("/");
+    const workspaceBind = invocation.args.lastIndexOf("/workspace");
+    expect(rootBind).toBeGreaterThan(-1);
+    expect(workspaceBind).toBeGreaterThan(rootBind);
   });
 
   it("detects host bubblewrap permission failures that should fall back", () => {

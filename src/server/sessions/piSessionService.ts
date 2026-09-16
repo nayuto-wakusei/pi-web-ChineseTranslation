@@ -61,6 +61,7 @@ import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
+import { managementPrivilegeRequested, managementPrivileges } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
 import { createAskUserToolDefinition, type AskUserInvocation, type AskUserToolDeps } from "./askUserTool.js";
@@ -72,8 +73,8 @@ import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type S
 import { buildTranscriptView } from "./subsessionTranscript.js";
 import { planSessionCleanup, summarizeSessionCleanupExecution, type NormalizedSessionCleanupRequest, type SessionCleanupPlan } from "./sessionCleanup.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
-import { createManagedAgentToolOptions, createManagedPythonToolDefinition } from "./managementAgentTools.js";
-import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
+import { createManagedAgentToolOptions, createManagedBashToolDefinition, createManagedPythonToolDefinition } from "./managementAgentTools.js";
+import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, privilegedManagementToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 import { SessionNotificationStore, type SessionNotificationGeneration, type SessionNotificationMutation } from "./sessionNotificationStore.js";
 import { plainTextTheme } from "./plainTextTheme.js";
 import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, MANAGED_RELAY_SKILL_NAMES } from "./relaySkill.js";
@@ -863,11 +864,12 @@ function createDefaultRuntimeFactory(
   managementAudit?: ManagementAuditRecorder,
   managementProjectIdForCwd?: (cwd: string, context: ManagementEmbedContext) => Promise<string>,
   appendSystemPromptSections: readonly string[] = [],
+  managementAllowPrivileged = false,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged)({
         cwd,
         agentDir,
         sessionManager,
@@ -927,6 +929,7 @@ function createManagementRuntimeFactory(
   logger: PiSessionLogger,
   managementAudit: ManagementAuditRecorder | undefined,
   managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
+  managementAllowPrivileged = false,
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     await ensureManagedRelaySkills(cwd);
@@ -968,7 +971,16 @@ function createManagementRuntimeFactory(
       ...workbenchTools,
     ];
     const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, controlledManagementToolNames);
+    const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
+    if (!managementAllowPrivileged && managementPrivilegeRequested(managementContext)) {
+      logger.info({
+        userId: managementContext.user.id,
+        requestedBash: managementContext.privileged?.bash === true,
+        requestedNetwork: managementContext.privileged?.network === true,
+      }, "management privileged grant ignored because managementEmbed.allowPrivileged is disabled");
+    }
+    const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
+    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const settingsManager = await createScopedSettingsManager({
         cwd,
@@ -996,7 +1008,8 @@ function createManagementRuntimeFactory(
       const managedToolOptions = createManagedAgentToolOptions(cwd);
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
-        createManagedPythonToolDefinition(cwd, managementContext),
+        createManagedPythonToolDefinition(cwd, managementContext, { network: privileges.network }),
+        ...(privileges.bash ? [createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network })] : []),
         ...controlledManagementTools,
       ];
       const options = {
@@ -1004,7 +1017,7 @@ function createManagementRuntimeFactory(
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        tools: managementAgentToolNames(managementContext, controlledManagementToolNames),
+        tools: managementAgentToolNames(managementContext, extraToolNames, privileges),
         ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
         ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
@@ -1127,6 +1140,11 @@ export interface PiSessionServiceDependencies {
   managementAudit?: ManagementAuditRecorder;
   /** Resolve the authorized management project owning a session cwd. */
   managementProjectIdForCwd?: (cwd: string, context: ManagementEmbedContext) => Promise<string>;
+  /**
+   * When true, signed management-embed `privileged` grants may enable the
+   * constrained bash tool and sandbox network. Default false.
+   */
+  managementAllowPrivileged?: boolean;
   /** Clock seam for cleanup planning tests. */
   now?: () => Date;
   /** Daemon-lifetime notification state, injected by sessiond in production. */
@@ -1293,6 +1311,7 @@ export class PiSessionService {
       this.managementAudit,
       this.managementProjectIdForCwd,
       deps.appendSystemPromptSections ?? [],
+      deps.managementAllowPrivileged === true,
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;

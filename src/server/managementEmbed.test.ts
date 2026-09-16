@@ -294,6 +294,56 @@ describe("management embed sandbox policy", () => {
   });
 });
 
+describe("management embed privileged grants", () => {
+  it("preserves privileged grants from a signed entry token", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload({
+      ...contextFor([{ id: "p1", name: "Project 1" }]),
+      privileged: { bash: true, network: true },
+    }), "secret-1");
+
+    const context = await managementContextForRequest(
+      requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }),
+      runtime,
+      replyFor(),
+    );
+
+    expect(context).toBeDefined();
+    if (context === undefined) return;
+    expect(context.privileged).toEqual({ bash: true, network: true });
+    expect(managementToolAllowed(context, "bash")).toBe(false);
+    expect(managementToolAllowed(context, "terminal")).toBe(false);
+  });
+
+  it("ignores non-boolean privileged flags", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }]), {
+      privileged: { bash: "true", network: false },
+    }), "secret-1");
+
+    const context = await managementContextForRequest(
+      requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }),
+      runtime,
+      replyFor(),
+    );
+
+    expect(context?.privileged).toEqual({ network: false });
+  });
+
+  it("rejects a non-object privileged payload", async () => {
+    const runtime = runtimeFor("secret-1");
+    const token = signToken(tokenPayload(contextFor([{ id: "p1", name: "Project 1" }]), { privileged: true }), "secret-1");
+
+    await expect(
+      managementContextForRequest(
+        requestFor({ "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": token }),
+        runtime,
+        replyFor(),
+      ),
+    ).rejects.toThrow("Management embed privileged grant is invalid");
+  });
+});
+
 describe("management embed local token authentication", () => {
   it("preserves optional project instructions from a signed entry token", async () => {
     const runtime = runtimeFor("secret-1");

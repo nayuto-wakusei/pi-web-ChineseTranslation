@@ -5,7 +5,7 @@ import path from "node:path";
 import { defineTool, type EditOperations, type FindOperations, type GrepOperations, type LsOperations, type ReadOperations, type WriteOperations } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { createBubblewrapPythonInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS, MANAGED_SANDBOX_WORKSPACE } from "./managementSandbox.js";
+import { createBubblewrapPythonInvocation, createBubblewrapShellInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS, MANAGED_SANDBOX_WORKSPACE } from "./managementSandbox.js";
 
 interface ManagedAgentToolOptions {
   read: { operations: ReadOperations };
@@ -33,11 +33,23 @@ const pythonSchema = Type.Object({
   timeoutMs: Type.Optional(Type.Number({ description: "Execution timeout in milliseconds" })),
 });
 
-export function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext) {
+const bashSchema = Type.Object({
+  command: Type.String({ description: "Bash command to run in the managed project workspace" }),
+  timeoutMs: Type.Optional(Type.Number({ description: "Execution timeout in milliseconds" })),
+});
+
+interface ManagedSandboxToolOptions {
+  network?: boolean;
+}
+
+export function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext, options: ManagedSandboxToolOptions = {}) {
+  const network = options.network === true;
   return defineTool<typeof pythonSchema, undefined>({
     name: "python",
     label: "python",
-    description: "Run Python code inside the managed project workspace. Shell commands and paths outside the project are blocked.",
+    description: network
+      ? "Run Python code inside the managed project workspace. Paths outside the project are blocked. Network access is enabled for this privileged session."
+      : "Run Python code inside the managed project workspace. Shell commands and paths outside the project are blocked.",
     promptSnippet: "Run Python code in the current project",
     promptGuidelines: ["Use python for scripts and calculations. Do not use it to run shell commands."],
     parameters: pythonSchema,
@@ -53,6 +65,35 @@ export function createManagedPythonToolDefinition(cwd: string, context: Manageme
         code: params.code,
         timeoutMs,
         env,
+        network,
+        signal,
+      });
+    },
+  });
+}
+
+export function createManagedBashToolDefinition(cwd: string, context: ManagementEmbedContext, options: ManagedSandboxToolOptions = {}) {
+  const network = options.network === true;
+  return defineTool<typeof bashSchema, undefined>({
+    name: "bash",
+    label: "bash",
+    description: network
+      ? "Run a bash command in a sandbox. The current project is writable; other host paths are read-only. Network access is enabled for this privileged session."
+      : "Run a bash command in a sandbox. The current project is writable; other host paths are read-only. Network access is disabled.",
+    promptSnippet: "Run a bash command; the project is writable and other host paths are read-only",
+    promptGuidelines: ["The current project workspace is writable. Paths outside it are visible read-only."],
+    parameters: bashSchema,
+    async execute(_toolCallId, params, signal) {
+      const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000));
+      const env = createManagedSandboxEnvironment({ hostEnv: process.env, context });
+      return runManagedBash({
+        bubblewrapExecutable: bubblewrapExecutable(),
+        cwd,
+        command: params.command,
+        timeoutMs,
+        env,
+        network,
+        hostFilesystem: true,
         signal,
       });
     },
@@ -175,6 +216,18 @@ interface RunManagedPythonOptions {
   code: string;
   timeoutMs: number;
   env: NodeJS.ProcessEnv;
+  network: boolean;
+  signal: AbortSignal | undefined;
+}
+
+interface RunManagedBashOptions {
+  bubblewrapExecutable: string;
+  cwd: string;
+  command: string;
+  timeoutMs: number;
+  env: NodeJS.ProcessEnv;
+  network: boolean;
+  hostFilesystem: boolean;
   signal: AbortSignal | undefined;
 }
 
@@ -186,6 +239,7 @@ async function runManagedPython(options: RunManagedPythonOptions): Promise<{ con
     workspaceRoot,
     env: options.env,
     readOnlyPaths: await readableBubblewrapPaths(),
+    network: options.network,
   });
 
   return new Promise((resolve, reject) => {
@@ -237,6 +291,67 @@ async function runManagedPython(options: RunManagedPythonOptions): Promise<{ con
   });
 }
 
+async function runManagedBash(options: RunManagedBashOptions): Promise<{ content: { type: "text"; text: string }[]; details: undefined }> {
+  const workspaceRoot = await realpath(options.cwd);
+  const invocation = createBubblewrapShellInvocation({
+    bubblewrapExecutable: options.bubblewrapExecutable,
+    shellExecutable: managedBashExecutable(),
+    workspaceRoot,
+    script: options.command,
+    env: options.env,
+    readOnlyPaths: await readableBubblewrapPaths(),
+    network: options.network,
+    hostFilesystem: options.hostFilesystem,
+  });
+
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted === true) {
+      reject(new Error("Operation aborted"));
+      return;
+    }
+
+    const child = spawn(invocation.command, invocation.args, { cwd: workspaceRoot, env: options.env, stdio: ["ignore", "pipe", "pipe"], shell: false });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const output = truncateToolOutput([stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== "").join("\n"));
+      const prefix = code === 0 ? "" : `Bash exited with code ${String(code)}\n`;
+      resolve({ content: [{ type: "text", text: `${prefix}${output}`.trimEnd() }], details: undefined });
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      fail(new Error(`Bash execution timed out after ${String(options.timeoutMs)}ms`));
+    }, options.timeoutMs);
+    const onAbort = () => {
+      child.kill();
+      fail(new Error("Operation aborted"));
+    };
+
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      if (isNodeErrorWithCode(error, "ENOENT")) fail(new Error("Bash sandbox is unavailable"));
+      else fail(error);
+    });
+    child.on("close", finish);
+  });
+}
+
 async function readableBubblewrapPaths(): Promise<string[]> {
   const paths = await Promise.all(DEFAULT_BUBBLEWRAP_PATHS.map(async (candidate) => {
     try {
@@ -267,6 +382,12 @@ async function nearestExistingParent(target: string): Promise<string> {
 function bubblewrapExecutable(): string {
   const configured = process.env["PI_WEB_BWRAP_EXECUTABLE"]?.trim() ?? process.env["PI_WEB_BUBBLEWRAP"]?.trim();
   return configured === undefined || configured === "" ? "bwrap" : configured;
+}
+
+function managedBashExecutable(): string {
+  const configured = process.env["PI_WEB_COMMAND_SHELL"]?.trim();
+  if (configured !== undefined && configured !== "") return configured;
+  return "/bin/bash";
 }
 
 function assertInsideWorkspace(workspaceRoot: string, target: string, originalPath: string): void {

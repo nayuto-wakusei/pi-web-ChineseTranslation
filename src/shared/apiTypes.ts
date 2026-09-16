@@ -176,6 +176,12 @@ export interface PiWebManagementEmbedConfig {
     deny?: string[];
     permissions?: Record<string, boolean>;
   };
+  /**
+   * When true, signed management-embed tokens may grant sandboxed bash and
+   * sandbox network. Default false; requires a matching `privileged` grant on
+   * the token. Restart the session daemon after changing this.
+   */
+  allowPrivileged?: boolean;
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";

@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { createManagedAgentToolOptions } from "./managementAgentTools.js";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { createManagedAgentToolOptions, createManagedBashToolDefinition } from "./managementAgentTools.js";
 
 describe("managed agent tools", () => {
   it("allows file tools inside the managed workspace", async () => {
@@ -54,4 +56,33 @@ describe("managed agent tools", () => {
 
     await expect(options.write.operations.writeFile(join(root, "links", "outside", "secret.txt"), "changed")).rejects.toThrow("path outside the managed project sandbox");
   });
+
+  it("registers a constrained bash tool that fails closed without bubblewrap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
+    const previous = process.env["PI_WEB_BWRAP_EXECUTABLE"];
+    process.env["PI_WEB_BWRAP_EXECUTABLE"] = join(root, "missing-bwrap");
+    try {
+      const tool = createManagedBashToolDefinition(root, managementContext(), { network: true });
+      expect(tool.name).toBe("bash");
+      expect(tool.description).toContain("Network access is enabled");
+      expect(tool.description).toContain("other host paths are read-only");
+      await expect(tool.execute("call-1", { command: "echo hi" }, undefined, undefined, unusedExtensionContext())).rejects.toThrow("Bash sandbox is unavailable");
+    } finally {
+      if (previous === undefined) delete process.env["PI_WEB_BWRAP_EXECUTABLE"];
+      else process.env["PI_WEB_BWRAP_EXECUTABLE"] = previous;
+    }
+  });
 });
+
+function managementContext(): ManagementEmbedContext {
+  return {
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: ["tools:execute"] },
+    projects: [{ id: "project-1", name: "Project 1" }],
+  };
+}
+
+function unusedExtensionContext(): ExtensionContext {
+  const sessionManager = { getSessionId: () => "session-1", getSessionFile: () => undefined };
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- execute requires a context the bash tool does not read.
+  return { sessionManager } as unknown as ExtensionContext;
+}

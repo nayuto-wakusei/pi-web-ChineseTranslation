@@ -111,6 +111,29 @@ describe("PI WEB config persistence", () => {
     expect(loadPiWebConfig(testOptions()).config.managementEmbed?.auth).toEqual(saved.config.managementEmbed?.auth);
   });
 
+  it("reads and writes management embed privileged opt-in", () => {
+    const saved = savePiWebConfig({
+      managementEmbed: {
+        enabled: true,
+        allowPrivileged: true,
+      },
+    }, testOptions());
+
+    expect(saved.config.managementEmbed?.allowPrivileged).toBe(true);
+    expect(loadPiWebConfig(testOptions()).config.managementEmbed?.allowPrivileged).toBe(true);
+  });
+
+  it("rejects a non-boolean management embed privileged opt-in", async () => {
+    await writeFile(configPath, `${JSON.stringify({
+      managementEmbed: {
+        enabled: true,
+        allowPrivileged: "true",
+      },
+    }, null, 2)}\n`, "utf8");
+
+    expect(() => loadPiWebConfig(testOptions())).toThrow("managementEmbed.allowPrivileged must be a boolean");
+  });
+
   it("rejects old management embed introspection auth config", async () => {
     await writeFile(configPath, `${JSON.stringify({
       managementEmbed: {

@@ -262,12 +262,14 @@ function parseManagementEmbed(value: unknown, context: ParseContext): NonNullabl
   const auth = value["auth"];
   const sandbox = value["sandbox"];
   const tools = value["tools"];
+  const allowPrivileged = value["allowPrivileged"];
   return {
     ...(enabled === undefined ? {} : { enabled: parseBoolean(enabled, "managementEmbed.enabled", context) }),
     ...(projectRoot === undefined ? {} : { projectRoot: parseString(projectRoot, "managementEmbed.projectRoot", context) }),
     ...(auth === undefined ? {} : { auth: parseManagementEmbedAuth(auth, context) }),
     ...(sandbox === undefined ? {} : { sandbox: parseManagementEmbedSandbox(sandbox, context) }),
     ...(tools === undefined ? {} : { tools: parseManagementEmbedTools(tools, context) }),
+    ...(allowPrivileged === undefined ? {} : { allowPrivileged: parseBoolean(allowPrivileged, "managementEmbed.allowPrivileged", context) }),
   };
 }
 

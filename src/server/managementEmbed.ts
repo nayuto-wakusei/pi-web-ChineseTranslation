@@ -43,6 +43,7 @@ export interface ManagementEmbedContext {
   }[];
   tools?: { allow?: string[]; deny?: string[]; permissions?: Record<string, boolean> };
   sandbox?: { pythonExecutable?: string; env?: Record<string, string> };
+  privileged?: { bash?: boolean; network?: boolean };
   expiresAt?: string;
 }
 
@@ -341,6 +342,7 @@ function parseIntrospectionPayload(payload: Record<string, unknown>): Management
   };
   if (isRecord(payload["tools"])) context.tools = parseTools(payload["tools"]);
   if (isRecord(payload["sandbox"])) context.sandbox = parseSandbox(payload["sandbox"]);
+  if (payload["privileged"] !== undefined) context.privileged = parsePrivileged(payload["privileged"]);
   if (typeof payload["expiresAt"] === "string") context.expiresAt = payload["expiresAt"];
   return context;
 }
@@ -357,6 +359,14 @@ function parseSandbox(value: Record<string, unknown>): NonNullable<ManagementEmb
   return {
     ...(typeof value["pythonExecutable"] === "string" ? { pythonExecutable: value["pythonExecutable"] } : {}),
     ...(isRecord(value["env"]) ? { env: stringRecord(value["env"]) } : {}),
+  };
+}
+
+function parsePrivileged(value: unknown): NonNullable<ManagementEmbedContext["privileged"]> {
+  if (!isRecord(value)) throw new Error("Management embed privileged grant is invalid");
+  return {
+    ...(typeof value["bash"] === "boolean" ? { bash: value["bash"] } : {}),
+    ...(typeof value["network"] === "boolean" ? { network: value["network"] } : {}),
   };
 }
 

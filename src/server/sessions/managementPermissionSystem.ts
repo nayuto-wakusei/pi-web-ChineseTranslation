@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { DISABLED_MANAGEMENT_PRIVILEGES, type ManagementPrivileges } from "../managementPrivileges.js";
 
 export const PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR = "PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR";
 
@@ -39,10 +40,21 @@ interface PiPermissionSystemPolicy {
   };
 }
 
-export function createManagementPermissionSystemPolicy(context: ManagementEmbedContext, extraToolNames: readonly string[] = []): PiPermissionSystemPolicy {
+export function privilegedManagementToolNames(privileges: ManagementPrivileges): string[] {
+  return [
+    ...(privileges.bash ? ["bash"] : []),
+    ...(privileges.network ? ["http", "webfetch", "websearch"] : []),
+  ];
+}
+
+export function createManagementPermissionSystemPolicy(
+  context: ManagementEmbedContext,
+  extraToolNames: readonly string[] = [],
+  privileges: ManagementPrivileges = DISABLED_MANAGEMENT_PRIVILEGES,
+): PiPermissionSystemPolicy {
   const tools: Record<string, PermissionState> = { "*": "deny" };
-  for (const tool of managementAgentToolNames(context, extraToolNames)) tools[tool] = "allow";
-  for (const tool of managementDeniedToolNames(context)) tools[tool] = "deny";
+  for (const tool of managementAgentToolNames(context, extraToolNames, privileges)) tools[tool] = "allow";
+  for (const tool of managementDeniedToolNames(context, privileges)) tools[tool] = "deny";
 
   return {
     defaultPolicy: {
@@ -63,8 +75,12 @@ export function createManagementPermissionSystemPolicy(context: ManagementEmbedC
   };
 }
 
-export function managementAgentToolNames(context: ManagementEmbedContext, extraToolNames: readonly string[] = []): string[] {
-  const denied = new Set([...ALWAYS_DENIED_TOOL_NAMES, ...(context.tools?.deny ?? [])]);
+export function managementAgentToolNames(
+  context: ManagementEmbedContext,
+  extraToolNames: readonly string[] = [],
+  privileges: ManagementPrivileges = DISABLED_MANAGEMENT_PRIVILEGES,
+): string[] {
+  const denied = new Set([...alwaysDeniedToolNames(privileges), ...(context.tools?.deny ?? [])]);
   const safeTools = MANAGEMENT_AGENT_TOOL_NAMES.filter((tool) => !denied.has(tool));
   const allowed = context.tools?.allow;
   const selected = allowed === undefined || allowed.length === 0 ? [...safeTools] : safeTools.filter((tool) => allowed.includes(tool));
@@ -72,7 +88,13 @@ export function managementAgentToolNames(context: ManagementEmbedContext, extraT
   return [...selected, ...extraToolNames.filter((tool) => !denied.has(tool) && !selectedNames.has(tool))];
 }
 
-export async function writeManagementPermissionSystemPolicy(agentDir: string, cwd: string, context: ManagementEmbedContext, extraToolNames: readonly string[] = []): Promise<string> {
+export async function writeManagementPermissionSystemPolicy(
+  agentDir: string,
+  cwd: string,
+  context: ManagementEmbedContext,
+  extraToolNames: readonly string[] = [],
+  privileges: ManagementPrivileges = DISABLED_MANAGEMENT_PRIVILEGES,
+): Promise<string> {
   const policyAgentDir = join(
     agentDir,
     "management-embed",
@@ -81,7 +103,7 @@ export async function writeManagementPermissionSystemPolicy(agentDir: string, cw
     createHash("sha256").update(cwd).digest("hex").slice(0, 16),
   );
   await mkdir(policyAgentDir, { recursive: true });
-  await writeFile(join(policyAgentDir, "pi-permissions.jsonc"), `${JSON.stringify(createManagementPermissionSystemPolicy(context, extraToolNames), null, 2)}\n`, "utf8");
+  await writeFile(join(policyAgentDir, "pi-permissions.jsonc"), `${JSON.stringify(createManagementPermissionSystemPolicy(context, extraToolNames, privileges), null, 2)}\n`, "utf8");
   return policyAgentDir;
 }
 
@@ -113,8 +135,13 @@ export async function withRuntimeCreationEnvironment<T>(env: Record<string, stri
   }
 }
 
-function managementDeniedToolNames(context: ManagementEmbedContext): string[] {
-  return [...ALWAYS_DENIED_TOOL_NAMES, ...(context.tools?.deny ?? [])];
+function managementDeniedToolNames(context: ManagementEmbedContext, privileges: ManagementPrivileges): string[] {
+  return [...alwaysDeniedToolNames(privileges), ...(context.tools?.deny ?? [])];
+}
+
+function alwaysDeniedToolNames(privileges: ManagementPrivileges): readonly string[] {
+  const lifted = new Set(privilegedManagementToolNames(privileges));
+  return ALWAYS_DENIED_TOOL_NAMES.filter((tool) => !lifted.has(tool));
 }
 
 function safePathSegment(value: string): string {

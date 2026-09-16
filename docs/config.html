@@ -178,6 +178,7 @@
                 <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
                 <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
                 <li><code>workbenchIntegration</code>: restart both the web/API process and session daemon; both must use the same endpoints and limits.</li>
+                <li><code>managementEmbed.allowPrivileged</code>: restart both the web/API process and session daemon; signed tokens must also send <code>privileged.bash</code> / <code>privileged.network</code>.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
                 <li><code>attachments.defaultFolder</code>: applies to prompt attachments saved as workspace files after config/workspace refresh.</li>
@@ -440,6 +441,14 @@
                       <td>Restart session daemon on that machine</td>
                     </tr>
                     <tr>
+                      <td>Management-embed privileged tools</td>
+                      <td><code>managementEmbed.allowPrivileged</code></td>
+                      <td>—</td>
+                      <td>Global/session daemon</td>
+                      <td>Not supported locally</td>
+                      <td>Restart web/API and session daemon; token must also send <code>privileged.bash</code> / <code>privileged.network</code></td>
+                    </tr>
+                    <tr>
                       <td>Workbench/MCP integration</td>
                       <td><code>workbenchIntegration.*</code></td>
                       <td><code>PI_WEB_WORKBENCH_URL</code>, <code>PI_WEB_MCP_URL</code>, and timeout/Skill limit overrides</td>
@@ -666,6 +675,12 @@ pi-web audit vacuum</code></pre>
                 <code>ask_user</code>; spawned sessions inherit the same management context.
                 Python runs without network access in an isolated Bubblewrap environment that binds only the managed
                 workspace; generic MCP, HTTP, web search, shell, and terminal tools remain denied.
+                A signed token may request <code>privileged.bash</code> and/or <code>privileged.network</code>; those
+                grants apply only when <code>managementEmbed.allowPrivileged</code> is true. Privileged bash is a
+                constrained sandbox tool: the current workspace is writable and other host paths are read-only. The
+                generic SDK shell stays denied. Privileged network enables
+                <code>http</code>, <code>webfetch</code>, and <code>websearch</code> plus sandbox network. Interactive
+                terminals and generic MCP stay denied.
                 Authorized Skill bundles are validated against their manifests before they enter the managed project.
               </p>
               <p>

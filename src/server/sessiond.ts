@@ -196,6 +196,7 @@ await runSessionDaemonStartup({
     const spawnTargets = config.spawnSessions
       ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders })
       : undefined;
+    const managementAllowPrivileged = config.managementEmbed?.allowPrivileged === true;
     const sessions = new PiSessionService(eventHub, {
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
@@ -229,6 +230,7 @@ await runSessionDaemonStartup({
         ...dockerEnvironmentPromptSections({ env: daemonEnvironment, enabled: config.environmentFacts, logger: app.log }),
       ],
       ...(workbench === undefined ? {} : { workbench }),
+      managementAllowPrivileged,
       sessionManager: createPiSessionManagerGateway({
         agentDir: activeAgentProfile.dir,
         env: daemonEnvironment,
@@ -251,7 +253,7 @@ await runSessionDaemonStartup({
     machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
-    const terminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices);
+    const terminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices, managementAllowPrivileged);
     const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals, { notices: serverNotices });
     const runtimeComponent = Object.freeze({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),

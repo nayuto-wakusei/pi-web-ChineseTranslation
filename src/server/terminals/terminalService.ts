@@ -5,6 +5,7 @@ import * as pty from "node-pty";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus, TerminalUiEvent } from "../../shared/apiTypes.js";
 import { targetWorkspaceIdMetadataKey, workspaceDeleteOperation, workspaceDeleteOperationMetadataKey } from "../../shared/workspaceDeletion.js";
 import { managementToolAllowed, type ManagementEmbedContext } from "../managementEmbed.js";
+import { managementPrivileges } from "../managementPrivileges.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/sessionEventScope.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
@@ -54,6 +55,7 @@ export class TerminalService {
     private readonly workspaceActivity?: Pick<WorkspaceActivityService, "updateTerminal" | "removeTerminal">,
     private readonly spawnPty: typeof pty.spawn = pty.spawn,
     private readonly notices?: ServerNoticeCreator,
+    private readonly allowPrivileged = false,
   ) {}
 
   list(cwd: string): TerminalInfo[] {
@@ -99,7 +101,7 @@ export class TerminalService {
     this.commandRuns.set(commandRunId, running);
     this.commandRunScopes.set(commandRunId, eventScope);
 
-    const commandProcess = commandRunProcess(options);
+    const commandProcess = commandRunProcess(options, this.allowPrivileged);
     try {
       this.createTerminal({
         id: terminalId,
@@ -389,12 +391,15 @@ function commandRunShell(env: NodeJS.ProcessEnv = process.env): string {
   return shell !== undefined && shell !== "" ? shell : "/bin/bash";
 }
 
-function commandRunProcess(options: RunTerminalCommandOptions): { command: string; args: string[]; env?: NodeJS.ProcessEnv } {
+function commandRunProcess(options: RunTerminalCommandOptions, allowPrivileged: boolean): { command: string; args: string[]; env?: NodeJS.ProcessEnv } {
   const script = commandRunShellScript(options.command);
   const managementEnv = managementEnvironment(options.managementContext);
   if (managementEnv === undefined) {
     return { command: commandRunShell(), args: ["-lc", script] };
   }
+  const network = options.managementContext === undefined
+    ? false
+    : managementPrivileges(options.managementContext, { allowPrivileged }).network;
   const invocation = createBubblewrapShellInvocation({
     bubblewrapExecutable: "bwrap",
     shellExecutable: commandRunShell(),
@@ -402,6 +407,7 @@ function commandRunProcess(options: RunTerminalCommandOptions): { command: strin
     script,
     env: managementEnv,
     readOnlyPaths: DEFAULT_BUBBLEWRAP_PATHS.filter((path) => existsSync(path)),
+    network,
   });
   return { command: invocation.command, args: invocation.args, env: managementEnv };
 }

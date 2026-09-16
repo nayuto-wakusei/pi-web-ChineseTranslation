@@ -25,6 +25,10 @@ export function managementContextKey(context: ManagementEmbedContext | undefined
       pythonExecutable: context.sandbox.pythonExecutable,
       env: sortedRecord(context.sandbox.env),
     },
+    privileged: context.privileged === undefined ? undefined : {
+      bash: context.privileged.bash === true,
+      network: context.privileged.network === true,
+    },
   });
 }
 

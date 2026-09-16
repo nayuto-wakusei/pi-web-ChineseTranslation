@@ -12,4 +12,21 @@ describe("management session event scope", () => {
 
     expect(managementContextFromEventScope(eventScopeFromManagementContext(context))).toEqual(context);
   });
+
+  it("keeps privileged grants in the management event scope", () => {
+    const context: ManagementEmbedContext = {
+      user: { id: "user-1", rootUserId: "root-1", roles: ["operator"], permissions: [] },
+      projects: [{ id: "managed", name: "Managed project" }],
+      privileged: { bash: true, network: true },
+    };
+
+    expect(managementContextFromEventScope(eventScopeFromManagementContext(context))).toEqual({
+      ...context,
+      privileged: { bash: true, network: true },
+    });
+    expect(eventScopeFromManagementContext(context)).not.toBe(eventScopeFromManagementContext({
+      user: context.user,
+      projects: context.projects,
+    }));
+  });
 });

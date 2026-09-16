@@ -171,6 +171,13 @@ describe("SessionEventHub", () => {
     expect(eventScopeFromManagementContext(withDifferentTools)).not.toBe(eventScopeFromManagementContext(base));
     expect(eventScopeFromManagementContext(withDifferentSandbox)).not.toBe(eventScopeFromManagementContext(base));
   });
+
+  it("changes management event scope when privileged grants change", () => {
+    const base = managementContext();
+    const privileged = managementContext({ privileged: { bash: true, network: true } });
+
+    expect(eventScopeFromManagementContext(privileged)).not.toBe(eventScopeFromManagementContext(base));
+  });
 });
 
 function managementContext(patch: Partial<ManagementEmbedContext> = {}): ManagementEmbedContext {
