@@ -1,9 +1,11 @@
-import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isRecord } from "../shared/piWebConfigParsing.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import { createFixedTtlSessionStore, readCookie, type FixedTtlSessionStore } from "./httpSessions.js";
 import { managementContextForRequest, readManagementEmbedRequest, type ManagementEmbedRuntime } from "./managementEmbed.js";
+
+import { PasswordVerifier, PasswordVerificationBusyError } from "./passwordVerifier.js";
 
 export const NORMAL_AUTH_COOKIE = "pi_web_normal_session";
 const HASH_ALGORITHM = "pbkdf2-sha256";
@@ -38,12 +40,15 @@ interface NormalAuthRouteOptions {
 
 export class NormalModeAuthService {
   private readonly sessions: FixedTtlSessionStore<true>;
+  private readonly verifier: PasswordVerifier;
+  private observedHash: string | undefined;
 
   constructor(
     private readonly config: Pick<PiWebConfigService, "read" | "write">,
     now: () => number = () => Date.now(),
     newSessionId: () => string = () => randomUUID(),
   ) {
+    this.verifier = new PasswordVerifier(now);
     this.sessions = createFixedTtlSessionStore(SESSION_TTL_MS, now, newSessionId);
   }
 
@@ -60,22 +65,25 @@ export class NormalModeAuthService {
     if (current.config.normalAuth?.passwordHash !== undefined) return { status: "already-configured" };
     const passwordHash = hashPassword(requirePassword(password, "password"));
     await this.config.write({ ...current.config, normalAuth: { passwordHash } });
+    await this.passwordHash();
     this.sessions.clear();
     return { status: "created", sessionId: this.createSession() };
   }
 
   async login(password: unknown): Promise<string | undefined> {
     const passwordHash = await this.passwordHash();
-    if (passwordHash === undefined || !verifyPassword(requirePassword(password, "password"), passwordHash)) return undefined;
+    if (passwordHash === undefined || !(await this.verifier.check(requirePassword(password, "password"), passwordHash)) || await this.passwordHash() !== passwordHash) return undefined;
     return this.createSession();
   }
 
   async changePassword(cookieHeader: string | string[] | undefined, currentPassword: unknown, newPassword: unknown): Promise<ChangePasswordResult> {
+    await this.passwordHash();
     if (!this.isAuthenticated(cookieHeader)) return { status: "unauthorized" };
     const current = await this.config.read();
     const passwordHash = current.config.normalAuth?.passwordHash;
-    if (passwordHash === undefined || !verifyPassword(requirePassword(currentPassword, "currentPassword"), passwordHash)) return { status: "invalid-password" };
+    if (passwordHash === undefined || !(await this.verifier.check(requirePassword(currentPassword, "currentPassword"), passwordHash)) || await this.passwordHash() !== passwordHash) return { status: "invalid-password" };
     await this.config.write({ ...current.config, normalAuth: { passwordHash: hashPassword(requirePassword(newPassword, "newPassword")) } });
+    await this.passwordHash();
     this.sessions.clear();
     return { status: "changed", sessionId: this.createSession() };
   }
@@ -85,12 +93,18 @@ export class NormalModeAuthService {
     if (passwordHash === undefined) return "setup-required";
     if (this.isAuthenticated(cookieHeader)) return "authorized";
     const token = bearerToken(authorizationHeader);
-    if (token !== undefined && verifyPassword(token, passwordHash)) return "authorized";
+    if (token !== undefined && await this.verifier.check(token, passwordHash, true) && await this.passwordHash() === passwordHash) return "authorized";
     return "login-required";
   }
 
   private async passwordHash(): Promise<string | undefined> {
-    return (await this.config.read()).config.normalAuth?.passwordHash;
+    const hash = (await this.config.read()).config.normalAuth?.passwordHash;
+    if (hash !== this.observedHash) {
+      this.observedHash = hash;
+      this.verifier.clear();
+      this.sessions.clear();
+    }
+    return hash;
   }
 
   private createSession(): string {
@@ -119,7 +133,7 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
       setSessionCookie(reply, result.sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
       return;
     }
   });
@@ -141,7 +155,7 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
       setSessionCookie(reply, sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
       return;
     }
   });
@@ -161,7 +175,7 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
       setSessionCookie(reply, result.sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
       return;
     }
   });
@@ -237,7 +251,13 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
         return;
       }
     }
-    const authorization = await auth.authorize(request.headers.cookie, request.headers.authorization);
+    let authorization;
+    try { authorization = await auth.authorize(request.headers.cookie, request.headers.authorization); }
+    catch (error) {
+      if (!(error instanceof PasswordVerificationBusyError)) throw error;
+      await reply.header("retry-after", "1").code(503).send({ error: error.message });
+      return;
+    }
     if (authorization === "authorized") {
       if (bearer !== undefined) loginAttempts.clear(request.ip);
       return;
@@ -293,25 +313,6 @@ function hashPassword(password: string): string {
   const salt = randomBytes(16);
   const hash = pbkdf2Sync(password, salt, HASH_ITERATIONS, HASH_BYTES, "sha256");
   return `${HASH_ALGORITHM}$${String(HASH_ITERATIONS)}$${salt.toString("base64url")}$${hash.toString("base64url")}`;
-}
-
-function verifyPassword(password: string, passwordHash: string): boolean {
-  const parsed = parsePasswordHash(passwordHash);
-  if (parsed === undefined) return false;
-  const hash = pbkdf2Sync(password, parsed.salt, parsed.iterations, parsed.hash.length, "sha256");
-  return hash.length === parsed.hash.length && timingSafeEqual(hash, parsed.hash);
-}
-
-function parsePasswordHash(passwordHash: string): { iterations: number; salt: Buffer; hash: Buffer } | undefined {
-  const [algorithm, iterationsValue, saltValue, hashValue, extra] = passwordHash.split("$");
-  if (algorithm !== HASH_ALGORITHM || extra !== undefined || iterationsValue === undefined || saltValue === undefined || hashValue === undefined) return undefined;
-  const iterations = Number(iterationsValue);
-  if (!Number.isInteger(iterations) || iterations < 1) return undefined;
-  return {
-    iterations,
-    salt: Buffer.from(saltValue, "base64url"),
-    hash: Buffer.from(hashValue, "base64url"),
-  };
 }
 
 function requirePassword(value: unknown, field: string): string {

@@ -19,5 +19,6 @@
   "ignore": [
     "src/client/src/components/shared.ts"
   ],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["getconf"]
 }

@@ -185,6 +185,63 @@ describe("normal mode login rate limit", () => {
   });
 });
 
+describe("credential revision", () => {
+  it("returns retryable overload instead of unbounded verification work", async () => {
+    await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "valid" } });
+    const responses = await Promise.all(Array.from({ length: 64 }, (_, i) => protectedRequest(`wrong-${String(i)}`, `192.0.2.${String(i + 1)}`)));
+    expect(responses.every(r => r.statusCode === 401 || r.statusCode === 503)).toBe(true);
+    const busy = responses.filter(r => r.statusCode === 503);
+    expect(busy.length).toBeGreaterThan(0);
+    expect(busy.every(r => r.headers["retry-after"] === "1")).toBe(true);
+    expect((await protectedRequest("valid", "198.51.100.1")).statusCode).toBe(200);
+  });
+
+  it("applies the same Bearer verification and revocation to WebSocket handshakes", async () => {
+    await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "socket-pass" } });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}/api/test-socket`, { headers: { authorization: "Bearer socket-pass" } });
+    await waitForOpen(socket);
+    socket.terminate();
+    await new Promise<void>((resolve) => { socket.once("close", () => { resolve(); }); });
+    piWebConfig = {};
+    const rejected = new WebSocket(`${serverUrl(app)}/api/test-socket`, { headers: { authorization: "Bearer socket-pass" } });
+    await expect(waitForOpen(rejected)).rejects.toThrow("401");
+    rejected.terminate();
+  });
+
+  it("revokes a warm Bearer cache after the password change API", async () => {
+    const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "old-pass" } });
+    expect((await protectedRequest("old-pass", "127.0.0.1")).statusCode).toBe(200);
+    const changed = await app.inject({ method: "POST", url: "/api/normal-auth/change-password", headers: { cookie: authCookie(setup) }, payload: { currentPassword: "old-pass", newPassword: "new-pass" } });
+    expect(changed.statusCode).toBe(200);
+    expect((await protectedRequest("old-pass", "127.0.0.1")).statusCode).toBe(401);
+    expect((await protectedRequest("new-pass", "127.0.0.1")).statusCode).toBe(200);
+  });
+
+  it("invalidates cached Bearer and browser cookies after external password replacement", async () => {
+    const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "old-pass" } });
+    const cookie = authCookie(setup);
+    expect((await protectedRequest("old-pass", "127.0.0.1")).statusCode).toBe(200);
+    const other = new NormalModeAuthService({ read: () => piWebConfigResponse({}), write: (config) => { piWebConfig = config; return piWebConfigResponse(config); } });
+    await other.setup("new-pass");
+    expect((await app.inject({ method: "GET", url: "/api/protected", headers: { cookie } })).statusCode).toBe(401);
+    expect((await protectedRequest("old-pass", "127.0.0.1")).statusCode).toBe(401);
+    expect((await protectedRequest("new-pass", "127.0.0.1")).statusCode).toBe(200);
+    piWebConfig = {};
+    expect((await protectedRequest("new-pass", "127.0.0.1")).statusCode).toBe(401);
+  });
+
+  it("rejects a successful old verification when configuration changes during its await", async () => {
+    let reads = 0;
+    const auth = new NormalModeAuthService({
+      read: () => { reads++; return piWebConfigResponse(reads >= 2 ? {} : piWebConfig); },
+      write: (config) => piWebConfigResponse(config),
+    });
+    await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "old-pass" } });
+    expect(await auth.authorize(undefined, "Bearer old-pass")).toBe("login-required");
+  });
+});
+
 function authCookie(response: { headers: Record<string, unknown> }): string {
   const header = response.headers["set-cookie"];
   const value = typeof header === "string" ? header : Array.isArray(header) && typeof header[0] === "string" ? header[0] : undefined;

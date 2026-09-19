@@ -431,7 +431,8 @@ describe("buildApp", () => {
   });
 
   it("lets project-local upload config override global upload config on workspace responses", async () => {
-    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("test-password") }, uploads: { defaultFolder: "global-uploads" } };
+    // Change upload defaults without rotating the credential that owns the fixture cookie.
+    piWebConfig = { ...piWebConfig, uploads: { defaultFolder: "global-uploads" } };
     const addResponse = await app.inject({
       method: "POST",
       url: "/api/projects",
