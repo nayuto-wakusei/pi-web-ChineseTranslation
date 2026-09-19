@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.10
+
+### Patch Changes
+
+- 8dc5ce0: 优化普通模式 Bearer 鉴权：复用短期成功验证结果，使用有界异步密码校验，避免重复请求阻塞 Web。密码配置变更会使旧认证结果和浏览器会话失效；保留密码哈希强度和现有限速。
+- 10a3919: Improve sessiond connection reuse and disconnect slow realtime clients before their outbound buffers grow without bound. Add a dependency-free local load runner for measuring HTTP, WebSocket, event-loop, CPU, and memory behavior under concurrent clients.
+
 ## 1.202609.9
 
 ### Patch Changes
