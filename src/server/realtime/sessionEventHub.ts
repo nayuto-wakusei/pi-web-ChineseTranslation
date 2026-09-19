@@ -6,10 +6,14 @@ export { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "./sessionEve
 export interface RealtimeSocket {
   readonly OPEN: number;
   readyState: number;
+  readonly bufferedAmount?: number;
   send(payload: string): void;
   terminate(): void;
   on(event: "close", listener: () => void): unknown;
 }
+
+/** Stop feeding a client that cannot keep up; the next connection gets a fresh snapshot. */
+export const REALTIME_SOCKET_HIGH_WATER_MARK = 8 * 1024 * 1024;
 
 export class SessionEventHub {
   private readonly socketsBySession = new Map<string, Set<RealtimeSocket>>();
@@ -56,6 +60,11 @@ export class SessionEventHub {
     const payload = JSON.stringify({ ...projectBrowserSessionEvent(event), seq });
     for (const socket of this.socketsBySession.get(key) ?? []) {
       if (socket.readyState !== socket.OPEN) continue;
+      if (socket.bufferedAmount !== undefined && socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
+        this.socketsBySession.get(key)?.delete(socket);
+        socket.terminate();
+        continue;
+      }
       try {
         socket.send(payload);
       } catch {
@@ -77,6 +86,11 @@ export class SessionEventHub {
     const payload = JSON.stringify(event);
     for (const socket of this.globalSocketsByScope.get(scope) ?? []) {
       if (socket.readyState !== socket.OPEN) continue;
+      if (socket.bufferedAmount !== undefined && socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
+        this.globalSocketsByScope.get(scope)?.delete(socket);
+        socket.terminate();
+        continue;
+      }
       try {
         socket.send(payload);
       } catch {

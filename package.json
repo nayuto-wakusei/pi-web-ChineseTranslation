@@ -54,6 +54,7 @@
     "build:plugin-api": "tsc -p tsconfig.plugin-api.json",
     "build:plugins": "tsc -p tsconfig.plugins.json && node scripts/build-plugins.mjs",
     "capture:screenshots": "node scripts/capture-screenshots.mjs",
+    "perf:load": "node scripts/perf-load.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:cached": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/pi-web/typecheck.tsbuildinfo",
     "knip": "knip",

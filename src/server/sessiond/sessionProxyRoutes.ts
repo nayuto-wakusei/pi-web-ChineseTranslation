@@ -3,6 +3,7 @@ import { WebSocket, type RawData } from "ws";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
 import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { REALTIME_SOCKET_HIGH_WATER_MARK } from "../realtime/sessionEventHub.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
@@ -234,6 +235,10 @@ function bridgeSockets(client: WebSocket, upstream: WebSocket): void {
 
 function sendIfOpen(socket: WebSocket, data: RawData): void {
   if (socket.readyState === WebSocket.OPEN) {
+    if (socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
+      socket.terminate();
+      return;
+    }
     socket.send(data);
   }
 }

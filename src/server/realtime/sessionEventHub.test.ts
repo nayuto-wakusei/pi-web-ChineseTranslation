@@ -1,12 +1,13 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { SessionEventHub, type RealtimeSocket } from "./sessionEventHub.js";
+import { REALTIME_SOCKET_HIGH_WATER_MARK, SessionEventHub, type RealtimeSocket } from "./sessionEventHub.js";
 import { eventScopeFromManagementContext } from "./sessionEventScope.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 class FakeSocket extends EventEmitter implements RealtimeSocket {
   readonly OPEN = 1;
   readyState = this.OPEN;
+  bufferedAmount = 0;
   send = vi.fn();
   terminate = vi.fn();
 }
@@ -79,6 +80,21 @@ describe("SessionEventHub", () => {
     expect(failed.terminate).toHaveBeenCalledOnce();
     expect(healthy.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "assistant.delta", text: "again", seq: 2 }));
     expect(hub.currentSeq("s1")).toBe(2);
+  });
+
+  it("terminates a slow session socket before sending into an unbounded buffer", () => {
+    const hub = new SessionEventHub();
+    const slow = new FakeSocket();
+    const healthy = new FakeSocket();
+    slow.bufferedAmount = REALTIME_SOCKET_HIGH_WATER_MARK + 1;
+    hub.add("s1", slow);
+    hub.add("s1", healthy);
+
+    hub.publish("s1", { type: "assistant.delta", text: "hello" });
+
+    expect(slow.send).not.toHaveBeenCalled();
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    expect(healthy.send).toHaveBeenCalledOnce();
   });
 
   it("publishes global events only to global sockets", () => {
