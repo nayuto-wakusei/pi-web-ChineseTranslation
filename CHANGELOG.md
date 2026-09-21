@@ -1,5 +1,13 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.11
+
+### Patch Changes
+
+- 2523db8: Fix workspace removal failing when a completed request body is mistaken for a disconnected browser.
+- 7c8ee9f: 将 Pi SDK 升级至 0.86.1，适配 transcript 系统消息上下文，获得 Meta Muse 登录、提示缓存预热、离线 Radius 模型目录与上游提供商修复。
+- 12211e0: 去掉网关访问本地会话守护进程的 30 秒默认超时，避免对话进行中把忙碌的守护进程误报为不可用。浏览器断开或工作区删除等调用方取消仍会中止对应的下游请求；后台刷新被取消时不再弹出错误横幅。
+
 ## 1.202609.10
 
 ### Patch Changes
