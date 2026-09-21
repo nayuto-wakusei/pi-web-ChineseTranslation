@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { HttpRequestError } from "../api/http";
 import { initialAppState } from "../appState";
 import { browserErrorScopeKey, sessionBrowserErrorScope, visibleBrowserErrors } from "../browserErrors";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
@@ -196,6 +197,29 @@ describe("SessionController selected-session refresh errors", () => {
     expect(warn).toHaveBeenCalledOnce();
   });
 
+  it("does not banner a session-list timeout while a conversation is still running", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          sessions: () => Promise.reject(new HttpRequestError("Session daemon unavailable: The operation was aborted", 502)),
+        },
+        socket: new FakeSocket(),
+      },
+    );
+
+    await controller.refreshCurrentWorkspaceSessions();
+
+    expect(state.browserErrors).toEqual({});
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
   it("surfaces a user-triggered refresh failure in the selected session scope", async () => {
     const harness = failingRefreshSetup();
 
@@ -208,7 +232,7 @@ describe("SessionController selected-session refresh errors", () => {
       workspaceId: workspace.id,
       sessionId: oldSession.id,
       cwd: oldSession.cwd,
-    }).map((entry) => entry.message)).toContain("Error: poll boom");
+    }).map((entry) => entry.message)).toContain("poll boom");
   });
 });
 
@@ -238,7 +262,7 @@ describe("SessionController scoped refresh errors", () => {
 
     const oldScope = sessionBrowserErrorScope("local", oldSession.id, { cwd: oldSession.cwd, projectId: workspace.projectId, workspaceId: workspace.id });
     expect(state.error).toBe("");
-    expect(state.browserErrors[browserErrorScopeKey(oldScope)]?.message).toBe("Error: old transcript unavailable");
+    expect(state.browserErrors[browserErrorScopeKey(oldScope)]?.message).toBe("old transcript unavailable");
     expect(state.browserErrors[browserErrorScopeKey(sessionBrowserErrorScope("local", replacementSession.id, { cwd: replacementSession.cwd }))]).toBeUndefined();
   });
 });

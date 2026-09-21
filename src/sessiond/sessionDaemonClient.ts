@@ -4,8 +4,8 @@ import { isHostAbsoluteAgentDir, isSafeAgentCommandForHost } from "../config.js"
 import type { ActiveAgentProfileDescriptor } from "../shared/apiTypes.js";
 import { parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
 import { sessiondHttpUrl, sessiondSocketPath } from "./config.js";
+import { normalizeSessionDaemonRequestError } from "./sessionDaemonErrors.js";
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const SESSIOND_SOCKET_AGENT = new http.Agent({ keepAlive: true, maxSockets: 256, maxFreeSockets: 32 });
 
 export type SessionDaemonAgentProfileResult =
@@ -17,6 +17,7 @@ export interface SessionDaemonRequestClient {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
 }
 
+/** Talks to the local session daemon. A dead socket fails immediately, so there is no default request deadline; a busy agent turn is not a hang. Callers may still pass an AbortSignal. */
 export class SessionDaemonClient {
   private readonly baseUrl = sessiondHttpUrl();
   private readonly socketPath = sessiondSocketPath();
@@ -41,32 +42,31 @@ export class SessionDaemonClient {
   }
 
   private async requestUrl(method: string, path: string, payload?: string, headers: Record<string, string> = {}, signal?: AbortSignal) {
-    const init: RequestInit = { method, headers, signal: signal ?? AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS) };
+    const init: RequestInit = { method, headers, ...(signal === undefined ? {} : { signal }) };
     if (payload !== undefined && payload !== "") {
       init.headers = { ...headers, "content-type": "application/json" };
       init.body = payload;
     }
-    const response = await fetch(new URL(path, this.baseUrl), init);
-    return {
-      statusCode: response.status,
-      headers: Object.fromEntries(response.headers.entries()),
-      body: await response.text(),
-    };
+    try {
+      const response = await fetch(new URL(path, this.baseUrl), init);
+      return {
+        statusCode: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: await response.text(),
+      };
+    } catch (error) {
+      throw normalizeSessionDaemonRequestError(error, signal);
+    }
   }
 
   private requestSocket(method: string, path: string, payload?: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     return new Promise((resolve, reject) => {
-      const timeoutController = new AbortController();
-      const effectiveSignal = signal === undefined ? timeoutController.signal : AbortSignal.any([signal, timeoutController.signal]);
-      const timeout = setTimeout(() => {
-        timeoutController.abort(new Error("session daemon request timed out"));
-      }, DEFAULT_REQUEST_TIMEOUT_MS);
       const request = http.request(
         {
           socketPath: this.socketPath,
           path,
           method,
-          signal: effectiveSignal,
+          ...(signal === undefined ? {} : { signal }),
           agent: SESSIOND_SOCKET_AGENT,
           headers: payload !== undefined && payload !== ""
             ? { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
@@ -78,7 +78,6 @@ export class SessionDaemonClient {
             chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
           });
           response.on("end", () => {
-            clearTimeout(timeout);
             resolve({
               statusCode: response.statusCode ?? 500,
               headers: Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value ?? ""])),
@@ -87,7 +86,9 @@ export class SessionDaemonClient {
           });
         },
       );
-      request.on("error", (error) => { clearTimeout(timeout); reject(error); });
+      request.on("error", (error) => {
+        reject(normalizeSessionDaemonRequestError(error, signal));
+      });
       if (payload !== undefined && payload !== "") request.write(payload);
       request.end();
     });

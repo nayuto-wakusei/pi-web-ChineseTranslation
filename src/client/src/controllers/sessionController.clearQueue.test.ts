@@ -119,7 +119,7 @@ describe("SessionController server queue clearing", () => {
 
     await controller.clearServerQueue();
 
-    expect(Object.values(fixture.state.browserErrors).map((error) => error.message)).toContain("Error: queue clear failed");
+    expect(Object.values(fixture.state.browserErrors).map((error) => error.message)).toContain("queue clear failed");
     expect(fixture.state.status).toBe(queuedStatus);
   });
 

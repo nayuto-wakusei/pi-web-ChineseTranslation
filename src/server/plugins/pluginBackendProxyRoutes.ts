@@ -5,7 +5,9 @@ import {
   utf8ByteLength,
 } from "../../shared/pluginBackendProtocol.js";
 import type { SessionDaemonRequestClient } from "../../sessiond/sessionDaemonClient.js";
+import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
 import { managementContextForRequest, managementHeaders, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { withRequestCancellation } from "../requestCancellation.js";
 
 interface PluginBackendProxyParams {
   pluginId: string;
@@ -29,11 +31,14 @@ export function registerPluginBackendProxyRoutes(
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
       let upstream: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
       try {
-        upstream = await daemon.request("POST", path, request.body, managementHeaders(managementContext, managementEmbed));
+        upstream = await withRequestCancellation(request, reply, (signal) => (
+          daemon.request("POST", path, request.body, managementHeaders(managementContext, managementEmbed), signal)
+        ));
       } catch (error) {
-        return reply.code(502).send({
-          error: `Session daemon unavailable: ${errorMessage(error)}`,
-          code: "daemon-unavailable",
+        const failure = sessionDaemonProxyFailure(error);
+        return reply.code(failure.statusCode).send({
+          error: failure.error,
+          code: failure.statusCode === 499 ? "daemon-cancelled" : failure.statusCode === 504 ? "daemon-timeout" : "daemon-unavailable",
           pluginId: request.params.pluginId,
           operation: request.params.operation,
         });
@@ -91,10 +96,6 @@ function isUnknownPluginBackendRoute(statusCode: number, body: unknown): boolean
   const error = body["error"];
   const message = body["message"];
   return error === "Not Found" || (typeof message === "string" && /^Route .* not found$/u.test(message));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

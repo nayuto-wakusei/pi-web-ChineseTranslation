@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { dirname } from "node:path";
 import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedRuntime } from "../managementEmbed";
 import { createNormalProjectCwdResolver } from "../workspaces/normalProjectCwdResolver";
@@ -340,6 +340,49 @@ describe("machine-scoped session proxy routes", () => {
     expect(daemon.requests).toEqual([{ method: "GET", path: "/sessions", body: undefined }]);
   });
 
+  it("forwards inbound request cancellation to the session daemon", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/machines/local/sessions" });
+
+    expect(response.statusCode).toBe(200);
+    expect(daemon.requestSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(daemon.requestSignals[0]?.aborted).toBe(false);
+  });
+
+  it("returns a 504 response when the daemon request is aborted without a caller cancel reason", async () => {
+    daemon.failWith(new DOMException("The operation was aborted", "AbortError"));
+
+    const response = await app.inject({ method: "GET", url: "/api/machines/local/sessions" });
+
+    expect(response.statusCode).toBe(504);
+    expect(response.json()).toEqual({ error: "Session daemon timed out: session daemon request timed out" });
+  });
+
+  it("returns a 499 response when the inbound request is cancelled", async () => {
+    daemon.failWith(new DOMException("HTTP request cancelled", "AbortError"));
+
+    const response = await app.inject({ method: "GET", url: "/api/machines/local/sessions" });
+
+    expect(response.statusCode).toBe(499);
+    expect(response.json()).toEqual({ error: "Session daemon request cancelled" });
+  });
+
+  it("cancels the session daemon request when the browser disconnects", async () => {
+    daemon.holdUntilAborted = true;
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP address");
+    const controller = new AbortController();
+    const pending = fetch(`http://127.0.0.1:${String(address.port)}/api/machines/local/sessions`, { signal: controller.signal });
+    await vi.waitFor(() => {
+      expect(daemon.requestSignals[0]).toBeInstanceOf(AbortSignal);
+    });
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    await vi.waitFor(() => {
+      expect(daemon.requestSignals[0]?.aborted).toBe(true);
+    });
+  });
+
   it("preserves cwd query context when forwarding session event websockets", async () => {
     await app.listen({ host: "127.0.0.1", port: 0 });
     const socket = new WebSocket(`${serverUrl(app)}/api/machines/local/sessions/session-1/events?cwd=${encodeURIComponent("/repo")}`);
@@ -426,8 +469,10 @@ interface FakeSessionDaemonResponse {
 class FakeSessionDaemon {
   readonly requests: { method: string; path: string; body: unknown }[] = [];
   readonly requestHeaders: (Record<string, string> | undefined)[] = [];
+  readonly requestSignals: (AbortSignal | undefined)[] = [];
   readonly websocketPaths: string[] = [];
   readonly websocketHeaders: (Record<string, string> | undefined)[] = [];
+  holdUntilAborted = false;
   private readonly queuedResponses: (FakeSessionDaemonResponse | Error)[] = [];
   private readonly sockets = new Set<WebSocket>();
 
@@ -452,9 +497,20 @@ class FakeSessionDaemon {
     this.queuedResponses.push(error);
   }
 
-  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<FakeSessionDaemonResponse> {
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<FakeSessionDaemonResponse> {
     this.requests.push({ method, path, body });
     this.requestHeaders.push(headers);
+    this.requestSignals.push(signal);
+    if (this.holdUntilAborted && signal !== undefined) {
+      return new Promise((_resolve, reject) => {
+        const fail = (): void => {
+          const reason: unknown = signal.reason;
+          reject(reason instanceof Error ? reason : new DOMException("HTTP request cancelled", "AbortError"));
+        };
+        if (signal.aborted) fail();
+        else signal.addEventListener("abort", fail, { once: true });
+      });
+    }
     const queuedResponse = this.queuedResponses.shift();
     if (queuedResponse instanceof Error) return Promise.reject(queuedResponse);
     return Promise.resolve(queuedResponse ?? { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });

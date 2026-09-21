@@ -34,7 +34,7 @@ describe("SessionController session rename", () => {
 
     await controller.renameSession(targetSession, "新名称");
 
-    expect(Object.values(fixture.state.browserErrors).map((error) => error.message)).toContain("Error: rename failed");
+    expect(Object.values(fixture.state.browserErrors).map((error) => error.message)).toContain("rename failed");
     expect(fixture.state.messages).toEqual([]);
   });
 });

@@ -51,7 +51,7 @@ describe("SessionController model catalog", () => {
     const failing = createSessionControllerTestFixture({ initialState: state, api: failingApi });
 
     expect(await failing.controller.setModelEnabled("openai", "gpt-4o", true)).toBeUndefined();
-    expect(Object.values(failing.state.browserErrors).map((error) => error.message)).toContain("Error: toggle failed");
+    expect(Object.values(failing.state.browserErrors).map((error) => error.message)).toContain("toggle failed");
 
     const unusedApi = { modelCatalog: () => { throw new Error("must not be called"); } } satisfies Partial<typeof defaultApi>;
     const unused = createSessionControllerTestFixture({ initialState: initialAppState(), api: unusedApi });

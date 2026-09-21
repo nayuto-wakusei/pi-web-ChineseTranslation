@@ -5,6 +5,7 @@ import {
 } from "../../shared/workspaceRemovalProtocol.js";
 import { workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
+import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
 import { requestCancellation } from "../requestCancellation.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ProjectService } from "../projects/projectService.js";
@@ -59,9 +60,8 @@ export function registerWorkspaceDeletionRoutes(
         );
         return await proxyJsonResponse(reply, upstream);
       } catch (error) {
-        return await reply.code(502).send({
-          error: `Session daemon unavailable: ${errorMessage(error)}`,
-        });
+        const failure = sessionDaemonProxyFailure(error);
+        return await reply.code(failure.statusCode).send({ error: failure.error });
       } finally {
         cancellation.dispose();
       }

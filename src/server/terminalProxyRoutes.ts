@@ -1,6 +1,7 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ProjectService } from "./projects/projectService.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
+import { withRequestCancellation } from "./requestCancellation.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { resolveWorkspaceContext } from "./workspaces/workspaceContext.js";
 import { resolveManagedWorkspaceContext } from "./workspaces/workspaceRouteContext.js";
@@ -21,7 +22,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
     try {
       if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return [];
       const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
-      return await proxyJson(daemon, "GET", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, reply);
+      return await proxyJson(daemon, "GET", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, request, reply);
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -31,7 +32,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
   app.delete<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/terminals`, async (request, reply) => {
     try {
       const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
-      return await proxyJson(daemon, "DELETE", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, reply);
+      return await proxyJson(daemon, "DELETE", `/terminals?cwd=${encodeURIComponent(context.root)}`, undefined, request, reply);
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -42,7 +43,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
     try {
       if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       const context = await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
-      return await proxyJson(daemon, "POST", "/terminals", { ...request.body, cwd: context.root }, reply);
+      return await proxyJson(daemon, "POST", "/terminals", { ...request.body, cwd: context.root }, request, reply);
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -53,7 +54,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
     try {
       if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
-      return await proxyJson(daemon, "POST", `/terminals/${encodeURIComponent(request.params.terminalId)}/continue`, undefined, reply);
+      return await proxyJson(daemon, "POST", `/terminals/${encodeURIComponent(request.params.terminalId)}/continue`, undefined, request, reply);
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -64,7 +65,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
     try {
       if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
       await resolveWorkspaceContext(projects, workspaces, request.params.projectId, request.params.workspaceId);
-      return await proxyJson(daemon, "DELETE", `/terminals/${encodeURIComponent(request.params.terminalId)}`, undefined, reply);
+      return await proxyJson(daemon, "DELETE", `/terminals/${encodeURIComponent(request.params.terminalId)}`, undefined, request, reply);
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -86,7 +87,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
         title: request.body.title,
         command: request.body.command,
         metadata: request.body.metadata ?? {},
-      }, reply, managementHeaders(managementContext));
+      }, request, reply, managementHeaders(managementContext));
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -96,7 +97,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
   app.get<{ Querystring: TerminalCommandRunQuery }>(`${prefix}/terminal-command-runs`, async (request, reply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      const value = await proxyJson(daemon, "GET", `/terminal-command-runs${terminalCommandRunQuery(request.query)}`, undefined, reply, managementHeaders(managementContext));
+      const value = await proxyJson(daemon, "GET", `/terminal-command-runs${terminalCommandRunQuery(request.query)}`, undefined, request, reply, managementHeaders(managementContext));
       return managementContext === undefined ? value : filterManagedCommandRuns(value, managementContext);
     } catch (error) {
       requestFailed(reply, error);
@@ -107,7 +108,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
   app.post<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId/cancel`, async (request, reply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      return await proxyJson(daemon, "POST", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}/cancel`, undefined, reply, managementHeaders(managementContext));
+      return await proxyJson(daemon, "POST", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}/cancel`, undefined, request, reply, managementHeaders(managementContext));
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -117,7 +118,7 @@ export function registerTerminalProxyRoutes(app: FastifyInstance, projects: Proj
   app.get<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId`, async (request, reply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      const value = await proxyJson(daemon, "GET", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}`, undefined, reply, managementHeaders(managementContext));
+      const value = await proxyJson(daemon, "GET", `/terminal-command-runs/${encodeURIComponent(request.params.runId)}`, undefined, request, reply, managementHeaders(managementContext));
       if (managementContext !== undefined && !isManagedCommandRun(value, managementContext)) return await reply.code(404).send({ error: "Terminal command run not found" });
       return value;
     } catch (error) {
@@ -165,13 +166,23 @@ function terminalCommandRunQuery(filter: TerminalCommandRunQuery): string {
   return query === "" ? "" : `?${query}`;
 }
 
-async function proxyJson(daemon: SessionProxyDaemon, method: string, path: string, body: unknown, reply: FastifyReply, headers?: Record<string, string>): Promise<unknown> {
-  const upstream = await daemon.request(method, path, body, headers);
-  reply.code(upstream.statusCode);
-  const contentType = upstream.headers["content-type"];
-  if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
-  const value: unknown = upstream.body !== "" ? JSON.parse(upstream.body) : undefined;
-  return value;
+async function proxyJson(
+  daemon: SessionProxyDaemon,
+  method: string,
+  path: string,
+  body: unknown,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  headers?: Record<string, string>,
+): Promise<unknown> {
+  return await withRequestCancellation(request, reply, async (signal) => {
+    const upstream = await daemon.request(method, path, body, headers, signal);
+    reply.code(upstream.statusCode);
+    const contentType = upstream.headers["content-type"];
+    if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
+    const value: unknown = upstream.body !== "" ? JSON.parse(upstream.body) : undefined;
+    return value;
+  });
 }
 
 function managementHeaders(context: ManagementEmbedContext | undefined): Record<string, string> | undefined {

@@ -19,6 +19,7 @@ import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionSt
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
 import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
+import { isTransientSessionDaemonRequestError, sessionDaemonErrorText } from "../sessionDaemonError";
 
 const MESSAGE_PAGE_SIZE = 100;
 const SEARCH_JUMP_PAGE_SIZE = 500;
@@ -337,7 +338,7 @@ export class SessionController {
       this.socket.connect(
         session,
         (event) => socketBuffer.push(event),
-        () => { void this.refreshSelectedSession(session.id); },
+        () => { void this.refreshSelectedSession(session.id, { silent: true }); },
         machineId,
         () => { void this.notifications?.refreshSelectedSession(session, machineId); },
       );
@@ -532,7 +533,7 @@ export class SessionController {
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
-      if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))] });
+      if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", sessionDaemonErrorText(error))] });
       this.reportSessionError(session, machineId, error);
       return false;
     }
@@ -553,7 +554,7 @@ export class SessionController {
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
-      if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))] });
+      if (this.getState().selectedSession?.id === session.id) this.setState({ messages: [...this.getState().messages, textMessage("system", sessionDaemonErrorText(error))] });
       this.reportSessionError(session, machineId, error);
       return false;
     } finally {
@@ -845,6 +846,10 @@ export class SessionController {
       if (next !== undefined) await this.selectSession(next);
       else this.deselectSession({ forgetRememberedSelection: true });
     } catch (error) {
+      if (isTransientSessionDaemonRequestError(error)) {
+        console.warn("Workspace session list refresh timed out", error);
+        return;
+      }
       this.reportWorkspaceError(workspace, machineId, error);
     }
   }
@@ -1249,7 +1254,7 @@ export class SessionController {
   }
 
   private reportSessionError(session: SessionInfo, machineId: string, error: unknown, errorOwner: SessionBrowserErrorOwner = { cwd: session.cwd }): void {
-    this.browserErrors.report(sessionBrowserErrorScope(machineId, session.id, errorOwner), String(error));
+    this.browserErrors.report(sessionBrowserErrorScope(machineId, session.id, errorOwner), sessionDaemonErrorText(error));
   }
 
   private captureSessionErrorOwner(session: SessionInfo, workspace = this.workspaceForSessionError(session)): SessionBrowserErrorOwner {
@@ -1266,7 +1271,7 @@ export class SessionController {
   }
 
   private reportWorkspaceError(workspace: Workspace, machineId: string, error: unknown): void {
-    this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
+    this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), sessionDaemonErrorText(error));
   }
 
   private applyBulkSessionFailures(action: string, failures: readonly string[], machineId: string, workspace: Workspace | undefined, fallbackSession: SessionInfo | undefined): void {

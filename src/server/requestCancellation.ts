@@ -36,3 +36,17 @@ export function requestCancellation(request: FastifyRequest, reply: FastifyReply
     },
   };
 }
+
+/** Run downstream work that should stop only when this inbound HTTP request is cancelled. */
+export async function withRequestCancellation<T>(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const cancellation = requestCancellation(request, reply);
+  try {
+    return await work(cancellation.signal);
+  } finally {
+    cancellation.dispose();
+  }
+}

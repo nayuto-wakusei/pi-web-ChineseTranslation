@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { WebSocket, type RawData } from "ws";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
+import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
+import { withRequestCancellation } from "../requestCancellation.js";
 import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import { REALTIME_SOCKET_HIGH_WATER_MARK } from "../realtime/sessionEventHub.js";
 
@@ -16,41 +18,35 @@ export type NormalProjectCwdResolver = (requestedCwds?: readonly string[]) => Pr
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const managementContext = await managementContextForRequest(request, managementEmbed, reply);
-      const scoped = await sessionProjectScope(stripPrefix(request.url, prefix), request.method, request.body, managementContext, resolveManagementProjectCwds, resolveNormalProjectCwds);
-      const daemonPath = scoped.url;
-      const body = scoped.handled ? scoped.body : await managementBody(daemonPath, scoped.body, managementContext, managementEmbed, request.method);
-      const upstream = await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext, managementEmbed));
-      reply.code(upstream.statusCode);
-      const contentType = upstream.headers["content-type"];
-      if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
-      return upstream.body !== "" ? parseJson(upstream.body) : undefined;
+      return await withRequestCancellation(request, reply, async (signal) => {
+        const managementContext = await managementContextForRequest(request, managementEmbed, reply);
+        const scoped = await sessionProjectScope(stripPrefix(request.url, prefix), request.method, request.body, managementContext, resolveManagementProjectCwds, resolveNormalProjectCwds);
+        const daemonPath = scoped.url;
+        const body = scoped.handled ? scoped.body : await managementBody(daemonPath, scoped.body, managementContext, managementEmbed, request.method);
+        return sendDaemonBody(reply, await daemon.request(request.method, daemonPath, body, managementHeaders(managementContext, managementEmbed), signal));
+      });
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
     }
   };
 
-  app.get(`${prefix}/sessiond/health`, async (_request, reply) => {
+  app.get(`${prefix}/sessiond/health`, async (request, reply) => {
     try {
-      const upstream = await daemon.request("GET", "/health");
-      reply.code(upstream.statusCode);
-      const contentType = upstream.headers["content-type"];
-      if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
-      return upstream.body !== "" ? parseJson(upstream.body) : undefined;
+      return await withRequestCancellation(request, reply, async (signal) => (
+        sendDaemonBody(reply, await daemon.request("GET", "/health", undefined, undefined, signal))
+      ));
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
     }
   });
 
-  app.get(`${prefix}/sessiond/runtime`, async (_request, reply) => {
+  app.get(`${prefix}/sessiond/runtime`, async (request, reply) => {
     try {
-      const upstream = await daemon.request("GET", "/runtime");
-      reply.code(upstream.statusCode);
-      const contentType = upstream.headers["content-type"];
-      if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
-      return upstream.body !== "" ? parseJson(upstream.body) : undefined;
+      return await withRequestCancellation(request, reply, async (signal) => (
+        sendDaemonBody(reply, await daemon.request("GET", "/runtime", undefined, undefined, signal))
+      ));
     } catch (error) {
       requestFailed(reply, error);
       return undefined;
@@ -121,6 +117,13 @@ function stripPrefix(url: string, prefix: string): string {
   return stripped === "" ? "/" : stripped;
 }
 
+function sendDaemonBody(reply: FastifyReply, upstream: { statusCode: number; headers: Record<string, string>; body: string }): unknown {
+  reply.code(upstream.statusCode);
+  const contentType = upstream.headers["content-type"];
+  if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
+  return upstream.body !== "" ? parseJson(upstream.body) : undefined;
+}
+
 function parseJson(text: string): unknown {
   const value: unknown = JSON.parse(text);
   return value;
@@ -131,7 +134,8 @@ function requestFailed(reply: FastifyReply, error: unknown): void {
     reply.code(error.statusCode).send({ error: error.message });
     return;
   }
-  reply.code(502).send({ error: `Session daemon unavailable: ${error instanceof Error ? error.message : String(error)}` });
+  const failure = sessionDaemonProxyFailure(error);
+  reply.code(failure.statusCode).send({ error: failure.error });
 }
 
 class SessionScopeError extends Error {
