@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, TranscriptContext } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
@@ -44,17 +44,23 @@ function streamThatErrors(): StreamFn {
 
 describe("sessionNameGenerator", () => {
   it("generates a session name by calling the injected streamFn", async () => {
-    const calls: unknown[] = [];
+    const contexts: TranscriptContext[] = [];
     const stream = streamThatCompletes('Title: "Fix the bug"');
     const streamFn: StreamFn = (model, context, options) => {
-      calls.push({ model, context, options });
+      contexts.push(context);
       return stream(model, context, options);
     };
 
     const name = await generateShortSessionName(streamFn, fakeModel(), "Please fix the login bug");
 
     expect(name).toBe("Fix the bug");
-    expect(calls).toHaveLength(1);
+    expect(contexts).toHaveLength(1);
+    const context = contexts[0];
+    if (context === undefined) throw new Error("expected a stream context");
+    expect("systemPrompt" in context).toBe(false);
+    expect(context.messages.map((message) => message.role)).toEqual(["system", "user"]);
+    expect(JSON.stringify(context.messages[0])).toContain("Generate a concise title");
+    expect(JSON.stringify(context.messages[1])).toContain("Please fix the login bug");
   });
 
   it("returns undefined when the stream reports an error", async () => {
