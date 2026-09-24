@@ -14,6 +14,7 @@ beforeEach(async () => {
   app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
   daemon = await FakeSessionDaemon.create();
+  registerSessionProxyRoutes(app, daemon, "/api");
   registerSessionProxyRoutes(app, daemon, "/api/machines/local", undefined, undefined, () => Promise.resolve([process.cwd()]));
 });
 
@@ -457,6 +458,54 @@ describe("machine-scoped session proxy routes", () => {
     } finally {
       socket.close();
     }
+  });
+});
+
+describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (prefix) => {
+  it("forwards mutations without query credentials or management headers", async () => {
+    const project = { id: "project-1", name: "Repo", path: "/repo" };
+    daemon.respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(project) });
+    daemon.respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ closed: true }) });
+    const input = { name: "Repo", path: "/repo", create: true };
+
+    const added = await app.inject({ method: "POST", url: `${prefix}/projects?source=test`, payload: input });
+    const closed = await app.inject({ method: "DELETE", url: `${prefix}/projects/project%201?source=test` });
+
+    expect(added.statusCode).toBe(200);
+    expect(added.json()).toEqual(project);
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json()).toEqual({ closed: true });
+    expect(daemon.requests).toEqual([
+      { method: "POST", path: "/projects", body: input },
+      { method: "DELETE", path: "/projects/project%201", body: undefined },
+    ]);
+    expect(daemon.requestHeaders).toEqual([undefined, undefined]);
+  });
+
+  it("keeps project mutations forbidden for a valid management embed context", async () => {
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    const managementContext = {
+      user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Managed" }],
+    };
+    const managementEmbed: ManagementEmbedRuntime = {
+      enabled: true,
+      projectRoot: "/managed",
+      authenticate: (token) => token === "entry-token" ? Promise.resolve(managementContext) : Promise.reject(new Error("invalid token")),
+    };
+    registerSessionProxyRoutes(app, daemon, prefix, managementEmbed);
+
+    const query = "?embed=management&token=entry-token";
+    const added = await app.inject({ method: "POST", url: `${prefix}/projects${query}`, payload: { path: "/repo" } });
+    const closed = await app.inject({ method: "DELETE", url: `${prefix}/projects/p1${query}` });
+
+    expect(added.statusCode).toBe(403);
+    expect(closed.statusCode).toBe(403);
+    expect(daemon.requests).toEqual([]);
   });
 });
 

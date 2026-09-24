@@ -21,7 +21,9 @@ import { createPiSessionManagerGateway } from "./sessions/piSessionManagerGatewa
 import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
 import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
 import { ProjectService } from "./projects/projectService.js";
+import { ProjectLifecycleService } from "./projects/projectLifecycleService.js";
 import { ProjectStore } from "./storage/projectStore.js";
+import { FileSessionUnreadPersistence, SessionUnreadStore, defaultSessionUnreadFilePath } from "./sessions/sessionUnreadStore.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
 import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
@@ -57,6 +59,7 @@ import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
+import { registerProjectMutationRoutes } from "./sessiond/projectMutationRoutes.js";
 import { createFilePiWebConfigService } from "./configRoutes.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
@@ -107,6 +110,13 @@ await runSessionDaemonStartup({
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore());
+    const unreadStore = new SessionUnreadStore({
+      persistence: new FileSessionUnreadPersistence(defaultSessionUnreadFilePath(daemonEnvironment)),
+      onPersistenceError(operation, error) {
+        app.log.error({ err: error, operation }, "session unread persistence failed");
+      },
+    });
+    await unreadStore.load();
     const serverPlugins = await createServerPluginRuntime({
       catalog: serverPluginCatalog,
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
@@ -197,6 +207,7 @@ await runSessionDaemonStartup({
       ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders })
       : undefined;
     const managementAllowPrivileged = config.managementEmbed?.allowPrivileged === true;
+    const projectLifecycleRef: { current?: ProjectLifecycleService } = {};
     const sessions = new PiSessionService(eventHub, {
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
@@ -213,7 +224,10 @@ await runSessionDaemonStartup({
       dataDir: piWebDataDir(),
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
-      onUnreadChanged: (scope) => { machineStatus.notifyChanged(scope); },
+      onUnreadChanged: (scope, hasNewCompletion) => {
+        machineStatus.notifyChanged(scope);
+        if (scope === NORMAL_SESSION_EVENT_SCOPE && hasNewCompletion) projectLifecycleRef.current?.scheduleCleanup();
+      },
       logger: app.log,
       ...(normalToolAudit === undefined ? {} : { normalToolAudit }),
       ...(managementAudit === undefined ? {} : {
@@ -250,6 +264,18 @@ await runSessionDaemonStartup({
       logger: app.log,
     });
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
+    const projectLifecycle = new ProjectLifecycleService({
+      projects,
+      workspaces: workspaceProviders,
+      hasUnread: () => unreadStore.hasUnread(),
+      reconcileUnreadWorkspaces: (cwds) => sessions.reconcileUnreadWorkspaces(cwds),
+      logger: app.log,
+      onProjectsChanged: () => {
+        statusAttribution.invalidate();
+        machineStatus.notifyChanged();
+      },
+    });
+    projectLifecycleRef.current = projectLifecycle;
     machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
@@ -259,9 +285,11 @@ await runSessionDaemonStartup({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
-    return { eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
+    projectLifecycle.scheduleCleanup();
+    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
   },
-  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
+  registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
+    registerProjectMutationRoutes(app, projectLifecycle);
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
     registerServerNoticeRoutes(app, serverNotices);
@@ -273,8 +301,16 @@ await runSessionDaemonStartup({
       ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
       : undefined;
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot });
-    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: (scope) => { statusAttribution.invalidate(); machineStatus.notifyChanged(scope); } });
-    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: (scope) => { statusAttribution.invalidate(); machineStatus.notifyChanged(scope); } });
+    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: (scope) => {
+      statusAttribution.invalidate();
+      machineStatus.notifyChanged(scope);
+      if (scope === NORMAL_SESSION_EVENT_SCOPE) projectLifecycle.scheduleCleanup();
+    } });
+    registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: (scope) => {
+      statusAttribution.invalidate();
+      machineStatus.notifyChanged(scope);
+      if (scope === NORMAL_SESSION_EVENT_SCOPE) projectLifecycle.scheduleCleanup();
+    } });
 
     app.get("/health", () => ({
       ok: true,
@@ -292,12 +328,13 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ projectAuth, managementAuth, sessions, terminals, normalToolAudit, managementAudit, serverPlugins }) {
+  async listen({ projectAuth, managementAuth, projectLifecycle, sessions, terminals, normalToolAudit, managementAudit, serverPlugins }) {
     let shuttingDown = false;
     async function shutdown(signal: NodeJS.Signals): Promise<void> {
       if (shuttingDown) return;
       shuttingDown = true;
       app.log.info({ signal }, "shutting down session daemon");
+      await projectLifecycle.closeAll();
       terminals.dispose();
       await serverPlugins.stop();
       await projectAuth.dispose();

@@ -32,8 +32,9 @@ beforeEach(async () => {
   projectDir = join(tempDir, "project");
   remoteClient = undefined;
   piWebConfig = {};
+  const projects = new ProjectService(new ProjectStore(join(tempDir, "projects.json")));
   app = await buildApp({
-    projects: new ProjectService(new ProjectStore(join(tempDir, "projects.json"))),
+    projects,
     workspaces: new WorkspaceService(),
     machines: new MachineService(new MachineStore(join(tempDir, "machines.json")), {
       remoteClientFactory: () => {
@@ -51,7 +52,7 @@ beforeEach(async () => {
         capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
       }),
     }),
-    sessionDaemon: fakeSessionDaemon(),
+    sessionDaemon: fakeSessionDaemon(projects),
     config: fakeConfigService(),
     piPackages: fakePiPackageService(),
     piWebPlugins: {
@@ -382,11 +383,12 @@ describe("buildApp", () => {
     };
     const managedMachinesService = new MachineService(new MachineStore(join(tempDir, "managed-machines.json")));
     await managedMachinesService.add({ name: "Private Remote", baseUrl: "https://remote.example.test" });
+    const projects = new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json")));
     app = await buildApp({
-      projects: new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json"))),
+      projects,
       workspaces: new WorkspaceService(),
       machines: managedMachinesService,
-      sessionDaemon: fakeSessionDaemon(),
+      sessionDaemon: fakeSessionDaemon(projects),
       config: fakeConfigService(),
       piWebPlugins: {
         manifest: () => Promise.resolve({ plugins: [] }),
@@ -685,15 +687,32 @@ function fakePiPackageService(): PiPackageService {
   };
 }
 
-function fakeSessionDaemon(): SessionProxyDaemon {
+function fakeSessionDaemon(projects: ProjectService): SessionProxyDaemon {
   return {
-    request: (method, path, body) => {
+    request: async (method, path, body) => {
+      if (method === "POST" && path === "/projects" && isRecord(body) && typeof body["path"] === "string") {
+        const project = await projects.add({
+          path: body["path"],
+          ...(typeof body["name"] === "string" ? { name: body["name"] } : {}),
+          ...(typeof body["create"] === "boolean" ? { create: body["create"] } : {}),
+        });
+        return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(project) };
+      }
+      if (method === "DELETE" && path.startsWith("/projects/")) {
+        const projectId = decodeURIComponent(path.slice("/projects/".length));
+        try {
+          await projects.close(projectId);
+          return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ closed: true }) };
+        } catch (error) {
+          return { statusCode: 404, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }) };
+        }
+      }
       const captured = { method, path, ...(body === undefined ? {} : { body }) };
-      return Promise.resolve({
+      return {
         statusCode: 200,
         headers: { "content-type": "application/json" },
         body: JSON.stringify(captured),
-      });
+      };
     },
     connectWebSocket: () => { throw new Error("WebSocket not configured for test"); },
   };

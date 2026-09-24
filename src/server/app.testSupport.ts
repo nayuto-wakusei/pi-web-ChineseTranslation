@@ -2,7 +2,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
-import type { FastifyInstance, InjectOptions, LightMyRequestCallback, LightMyRequestChain, LightMyRequestResponse } from "fastify";
+import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestCallback, type LightMyRequestChain, type LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach } from "vitest";
 import { buildApp } from "./app.js";
 import { ProjectService } from "./projects/projectService.js";
@@ -16,6 +16,7 @@ import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
 import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import type { SessionDaemonAgentProfileResult } from "../sessiond/sessionDaemonClient.js";
+import { registerProjectMutationRoutes } from "./sessiond/projectMutationRoutes.js";
 
 interface AppTestContext {
   readonly app: FastifyInstance;
@@ -88,8 +89,10 @@ export function registerAppTestHooks(): void {
     piPackageRequests = [];
     piWebConfig = {};
     agentProfileResult = { status: "available", profile: appTestAgentProfile(join(tempDir, "agent")) };
+    const projects = new ProjectService(new ProjectStore(join(tempDir, "projects.json")));
+    const sessionDaemon = fakeSessionDaemon(projects);
     app = await buildApp({
-      projects: new ProjectService(new ProjectStore(join(tempDir, "projects.json"))),
+      projects,
       workspaces: new WorkspaceService(),
       machines: new MachineService(new MachineStore(join(tempDir, "machines.json")), {
         remoteClientFactory: () => {
@@ -107,7 +110,7 @@ export function registerAppTestHooks(): void {
           capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
         }),
       }),
-      sessionDaemon: fakeSessionDaemon(),
+      sessionDaemon,
       agentProfileProvider: { getActiveAgentProfile: () => Promise.resolve(agentProfileResult) },
       config: fakeConfigService(),
       piPackages: fakePiPackageService(),
@@ -119,6 +122,7 @@ export function registerAppTestHooks(): void {
       clientDist: false,
       logger: false,
     });
+    app.addHook("onClose", () => sessionDaemon.close());
     await installTestAuth(app);
   });
 
@@ -294,11 +298,18 @@ function fakePiPackageService(): PiPackageService {
   };
 }
 
-function fakeSessionDaemon(): SessionProxyDaemon {
+function fakeSessionDaemon(projects: ProjectService): SessionProxyDaemon & { close(): Promise<void> } {
+  const daemonApp = Fastify({ logger: false });
+  registerProjectMutationRoutes(daemonApp, projects);
   return {
-    request: (method, path, body) => {
+    close: () => daemonApp.close(),
+    request: async (method, path, body) => {
       const captured = { method, path, ...(body === undefined ? {} : { body }) } satisfies CapturedSessionDaemonRequest;
       sessionDaemonRequests.push(captured);
+      if ((method === "POST" && path === "/projects") || (method === "DELETE" && path.startsWith("/projects/"))) {
+        const response = await daemonApp.inject({ method, url: path, ...(body === undefined ? {} : { payload: JSON.stringify(body), headers: { "content-type": "application/json" } }) });
+        return { statusCode: response.statusCode, headers: { "content-type": "application/json" }, body: response.body };
+      }
       return Promise.resolve({
         statusCode: 200,
         headers: { "content-type": "application/json" },

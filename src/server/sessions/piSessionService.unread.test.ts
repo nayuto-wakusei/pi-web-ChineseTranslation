@@ -12,6 +12,7 @@ import {
   sessionGateway,
   sessionRecord,
   sessionRef,
+  testManagementContext,
   testModelRuntime,
   type RuntimeCreator,
 } from "./piSessionService.testSupport.js";
@@ -32,6 +33,40 @@ afterEach(async () => {
 });
 
 describe("PiSessionService daemon-owned unread state", () => {
+  it("reconciles durable normal unread without touching management-scoped unread", async () => {
+    const unreadStore = new SessionUnreadStore({ createCatalogId: () => "catalog-test" });
+    completeStoreWork(unreadStore, "normal", WORKSPACE_CWD);
+    const fake = fakeRuntime("session-1");
+    const context = testManagementContext();
+    const onUnreadChanged = vi.fn();
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("session-1")]),
+      archiveStore: emptyArchiveStore(),
+      heartbeatIntervalMs: 60_000,
+      unreadStore,
+      onUnreadChanged,
+    });
+
+    try {
+      await service.status(sessionRef("session-1", WORKSPACE_CWD), context);
+      completeRuntimeWork(fake);
+      expect((await service.unreadCatalog(context)).sessions).toMatchObject([{ sessionId: "session-1" }]);
+      expect((await service.unreadCatalog()).sessions).toMatchObject([{ sessionId: "normal" }]);
+      expect(onUnreadChanged.mock.calls).toContainEqual([expect.stringMatching(/^management:/), true]);
+
+      await service.reconcileUnreadWorkspaces([]);
+
+      expect((await service.unreadCatalog()).sessions).toEqual([]);
+      expect((await service.unreadCatalog(context)).sessions).toMatchObject([{ sessionId: "session-1" }]);
+      expect(onUnreadChanged).toHaveBeenLastCalledWith("normal", false);
+    } finally {
+      await service.dispose();
+    }
+  });
+
   it("records one durable completion and keeps stale acknowledgements from clearing newer work", async () => {
     const unreadStore = new SessionUnreadStore({ createCatalogId: () => "catalog-test" });
     const hub = new CapturingSessionEventHub();

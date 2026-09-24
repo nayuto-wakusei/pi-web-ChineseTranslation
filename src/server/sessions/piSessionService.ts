@@ -1154,7 +1154,7 @@ export interface PiSessionServiceDependencies {
   /** Initial retry delay for durable unread publication failures. */
   unreadPublicationRetryDelayMs?: number;
   /** Notify the machine status projection when unread state changes. */
-  onUnreadChanged?: (scope: string) => void;
+  onUnreadChanged?: (scope: string, hasNewCompletion: boolean) => void;
   /**
    * Lets session startup report that provider model lists are refreshing while
    * a session is being constructed. Omit to report the startup phase alone.
@@ -1242,7 +1242,7 @@ export class PiSessionService {
   private readonly catalogRefreshStatus: CatalogRefreshStatus | undefined;
   private readonly config: Pick<PiWebConfigService, "read"> | undefined;
   private readonly unreadPublicationRetryInitialMs: number;
-  private readonly onUnreadChanged: ((scope: string) => void) | undefined;
+  private readonly onUnreadChanged: ((scope: string, hasNewCompletion: boolean) => void) | undefined;
   private readonly pendingUnreadMutations: SessionUnreadMutation[] = [];
   private unreadPublication: Promise<void> | undefined;
   private unreadPublicationFailure: unknown;
@@ -4112,6 +4112,10 @@ async unreadCatalog(context?: ManagementEmbedContext): Promise<SessionUnreadCata
     return this.unreadForScope(eventScope).durableCatalogSnapshot();
   }
 
+  async reconcileUnreadWorkspaces(cwds: Iterable<string>): Promise<void> {
+    await this.publishUnreadMutations(this.unreadStore.reconcileWorkspaces(cwds));
+  }
+
 async acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot> {
     const store = this.unreadForScope(eventScopeFromManagementContext(context));
     const result = store.acknowledge(sessionId, {
@@ -4487,11 +4491,12 @@ private observeUnreadActivityState(session: PiAgentSession): void {
 
 private publishUnreadMutations(mutations: readonly SessionUnreadMutation[]): Promise<void> {
     if (mutations.length > 0) {
-      const scopes = new Set<string>();
+      const scopes = new Map<string, boolean>();
       for (const mutation of mutations) {
-        scopes.add(mutation.eventScope ?? NORMAL_SESSION_EVENT_SCOPE);
+        const scope = mutation.eventScope ?? NORMAL_SESSION_EVENT_SCOPE;
+        scopes.set(scope, scopes.get(scope) === true || mutation.event.unread !== null);
       }
-      scopes.forEach((scope) => this.onUnreadChanged?.(scope));
+      scopes.forEach((hasNewCompletion, scope) => this.onUnreadChanged?.(scope, hasNewCompletion));
     }
     this.enqueueUnreadMutations(mutations);
     this.unreadPublicationFlushRequested = true;

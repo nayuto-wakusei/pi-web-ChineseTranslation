@@ -30,6 +30,25 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       return undefined;
     }
   };
+  const projectMutationProxy = async (request: FastifyRequest, reply: FastifyReply, path: string) => {
+    try {
+      return await withRequestCancellation(request, reply, async (signal) => {
+        let managementContext: ManagementEmbedContext | undefined;
+        try {
+          managementContext = await managementContextForRequest(request, managementEmbed, reply);
+        } catch (error) {
+          return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+        }
+        if (managementContext !== undefined) {
+          return reply.code(403).send({ error: "Project management is disabled in management embed mode" });
+        }
+        return sendDaemonBody(reply, await daemon.request(request.method, path, request.body, undefined, signal));
+      });
+    } catch (error) {
+      requestFailed(reply, error);
+      return undefined;
+    }
+  };
 
   app.get(`${prefix}/sessiond/health`, async (request, reply) => {
     try {
@@ -86,6 +105,8 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/auth/*`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
+  app.post(`${prefix}/projects`, (request, reply) => projectMutationProxy(request, reply, "/projects"));
+  app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, (request, reply) => projectMutationProxy(request, reply, `/projects/${encodeURIComponent(request.params.projectId)}`));
 }
 
 async function managementBody(url: string, body: unknown, context: ManagementEmbedContext | undefined, managementEmbed: ManagementEmbedRuntime | undefined, method = "GET"): Promise<unknown> {

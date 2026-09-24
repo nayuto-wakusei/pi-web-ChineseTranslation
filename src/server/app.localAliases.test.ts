@@ -48,6 +48,11 @@ describe("buildApp local machine aliases", () => {
     expect(closeTerminalsResponse.json()).toEqual({ method: "DELETE", path: `/terminals?cwd=${encodeURIComponent(appTestContext.projectDir)}` });
     expect(appTestContext.sessionDaemonRequests[1]).toEqual({
       method: "POST",
+      path: "/projects",
+      body: { name: "Machine Local", path: appTestContext.projectDir, create: true },
+    });
+    expect(appTestContext.sessionDaemonRequests[2]).toEqual({
+      method: "POST",
       path: "/terminal-command-runs",
       body: {
         origin: "core",
@@ -59,7 +64,7 @@ describe("buildApp local machine aliases", () => {
         metadata: { "pi.operation": "test" },
       },
     });
-    expect(appTestContext.sessionDaemonRequests[2]).toEqual({ method: "DELETE", path: `/terminals?cwd=${encodeURIComponent(appTestContext.projectDir)}` });
+    expect(appTestContext.sessionDaemonRequests[3]).toEqual({ method: "DELETE", path: `/terminals?cwd=${encodeURIComponent(appTestContext.projectDir)}` });
   });
 
   it("serves local projects and workspaces through machine-scoped aliases", async () => {

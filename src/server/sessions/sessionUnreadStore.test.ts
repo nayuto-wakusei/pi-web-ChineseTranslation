@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
 import {
@@ -158,6 +158,68 @@ describe("SessionUnreadStore", () => {
     expect(store.observeActivityState("active-orphan", "/repo", false)).toEqual([]);
     complete(store, "excluded-orphan", "/repo");
     expect(currentOrder(store, "excluded-orphan", "/repo")).toBeGreaterThan(0);
+  });
+
+  it("reconciles canonical exact workspace paths without rewriting session identities", () => {
+    const store = storeAt("2026-07-20T00:00:00.000Z", "catalog-a");
+    complete(store, "same-id", "/repo/./");
+    complete(store, "same-id", "/repo");
+    complete(store, "child", "/repo/child");
+    complete(store, "prefix", "/repo-other");
+
+    const mutations = store.reconcileWorkspaces([resolve("/repo/nested/..")]);
+
+    expect(mutations.map(({ event }) => [event.sessionId, event.cwd, event.unread])).toEqual([
+      ["child", "/repo/child", null],
+      ["prefix", "/repo-other", null],
+    ]);
+    expect(store.catalogSnapshot().sessions.map(({ sessionId, cwd }) => [sessionId, cwd])).toEqual([
+      ["same-id", "/repo"],
+      ["same-id", "/repo/./"],
+    ]);
+    expect(store.reconcileWorkspaces(["/repo/"])).toEqual([]);
+  });
+
+  it("clears orphan activity latches but leaves sub-session exclusions independent", () => {
+    const store = storeAt("2026-07-20T00:00:00.000Z", "catalog-a");
+    store.observeActivityState("orphan-active", "/gone", true);
+    store.observeActivityState("retained-active", "/repo", true);
+    store.excludeSession("tracked", "/gone");
+
+    expect(store.reconcileWorkspaces(["/repo"])).toEqual([]);
+    expect(store.observeActivityState("orphan-active", "/gone", false)).toEqual([]);
+    expect(store.observeActivityState("retained-active", "/repo", false)).toHaveLength(1);
+    complete(store, "tracked", "/gone");
+    expect(currentOrder(store, "tracked", "/gone")).toBe(0);
+    store.forgetSession("tracked", "/gone");
+    complete(store, "tracked", "/gone");
+    expect(currentOrder(store, "tracked", "/gone")).toBe(2);
+  });
+
+  it("persists cleanup tombstones and validates every workspace before mutating state", async () => {
+    const persistence = new MemoryPersistence(undefined);
+    const first = persistedStore(persistence, "catalog-a", "2026-07-20T00:00:00.000Z");
+    await first.load();
+    complete(first, "retained", "/repo/");
+    complete(first, "orphan", "/gone");
+    await first.flush();
+
+    const second = persistedStore(persistence, "unused", "2026-07-20T00:00:00.000Z");
+    await second.load();
+    expect(() => second.reconcileWorkspaces(["/repo", ""])).toThrow("cwd must be a non-empty string");
+    expect(second.hasUnread()).toBe(true);
+    expect(second.reconcileWorkspaces(["/repo"])).toMatchObject([
+      { event: { catalogRevision: 3, sessionId: "orphan", cwd: "/gone", unread: null } },
+    ]);
+    await second.flush();
+
+    const third = persistedStore(persistence, "unused", "2026-07-20T00:00:00.000Z");
+    await third.load();
+    expect(third.catalogSnapshot().sessions).toMatchObject([
+      { sessionId: "retained", cwd: "/repo/", completionOrder: 1 },
+    ]);
+    expect(third.reconcileWorkspaces(["/repo"])).toEqual([]);
+    expect(third.hasUnread()).toBe(true);
   });
 
   it("bounds the catalog and emits an authoritative removal when pruning", () => {

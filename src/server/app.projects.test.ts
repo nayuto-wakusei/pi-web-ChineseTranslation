@@ -31,6 +31,26 @@ describe("buildApp project routes", () => {
     expect(emptyListResponse.json<Project[]>()).toEqual([]);
   });
 
+  it("routes machine-local project mutations through the session daemon alias", async () => {
+    const added = await appTestContext.app.inject({
+      method: "POST",
+      url: "/api/machines/local/projects",
+      payload: { name: "Machine alias", path: appTestContext.projectDir, create: true },
+    });
+    expect(added.statusCode).toBe(200);
+    const project = added.json<Project>();
+
+    const listed = await appTestContext.app.inject({ method: "GET", url: "/api/machines/local/projects" });
+    expect(listed.json<Project[]>()).toEqual([project]);
+    expect(appTestContext.sessionDaemonRequests).toEqual([
+      { method: "POST", path: "/projects", body: { name: "Machine alias", path: appTestContext.projectDir, create: true } },
+    ]);
+
+    const closed = await appTestContext.app.inject({ method: "DELETE", url: `/api/machines/local/projects/${project.id}` });
+    expect(closed.statusCode).toBe(200);
+    expect(appTestContext.sessionDaemonRequests.at(-1)).toEqual({ method: "DELETE", path: `/projects/${project.id}` });
+  });
+
   it("trims surrounding whitespace from the submitted project path", async () => {
     const addResponse = await appTestContext.app.inject({
       method: "POST",
