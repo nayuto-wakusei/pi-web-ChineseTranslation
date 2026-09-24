@@ -2,8 +2,9 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
-import { defineConfig } from "vite";
+import { defineConfig, normalizePath } from "vite";
 import { effectivePiWebConfig } from "./src/config";
 import { DEPLOYMENT_MANIFEST_CONTENT_TYPE, DEPLOYMENT_MANIFEST_PATH, createDeploymentFlavorResolver, deploymentIdentityAssetForPath, deploymentManifestForFlavor, isDeploymentIdentityAssetPath } from "./src/server/deploymentIdentity";
 import { detectPiWebInstallation } from "./src/server/piWebStatus";
@@ -152,8 +153,26 @@ function devDeploymentIdentityPlugin(): Plugin {
   };
 }
 
+function manualRefreshPlugin(): Plugin {
+  const clientEntry = normalizePath(fileURLToPath(new URL("../client/client.mjs", import.meta.resolve("vite"))));
+  const connect = "transport.connect(createHMRHandler(handleMessage));";
+  return {
+    name: "pi-web-manual-refresh",
+    apply: "serve",
+    transform(code, id) {
+      if (id.split("?")[0] !== clientEntry) return;
+      // Vite 8 still starts its client with hmr:false and ws:false. Keep its
+      // import helpers, but do not let its handshake block /api WebSockets.
+      if (code.split(connect).length !== 2) {
+        throw new Error("Vite client startup changed; update PI WEB's manual-refresh transform");
+      }
+      return { code: code.replace(connect, "/* PI WEB uses manual browser refresh. */"), map: null };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [devDocsPlugin(), devDeploymentIdentityPlugin()],
+  plugins: [devDocsPlugin(), devDeploymentIdentityPlugin(), manualRefreshPlugin()],
   root: "src/client",
   base: "./",
   build: {
@@ -174,6 +193,10 @@ export default defineConfig({
     },
   },
   server: {
+    // A suspended PWA must not reload when the development socket reconnects.
+    // The application's /api WebSocket proxy remains enabled.
+    hmr: false,
+    ws: false,
     port: 8505,
     strictPort: true,
     ...(config.allowedHosts === undefined ? {} : { allowedHosts: config.allowedHosts }),

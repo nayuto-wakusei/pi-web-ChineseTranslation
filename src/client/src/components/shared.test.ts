@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatStyles, promptEditorStyles } from "./shared";
+import { chatStyles, formattedTextStyles, promptEditorStyles } from "./shared";
 
 describe("chatStyles", () => {
   it("bounds the chat scroller to its flex-allocated wrapper", () => {
@@ -24,6 +24,12 @@ describe("chatStyles", () => {
     expect(chatStyles.cssText).toContain(".chat-image { display: block");
     expect(chatStyles.cssText).toContain("max-width: 100%");
     expect(chatStyles.cssText).toContain("max-height: 320px");
+  });
+});
+
+describe("formattedTextStyles", () => {
+  it("keeps markdown images within the message width", () => {
+    expect(formattedTextStyles.cssText).toContain("img { max-width: 100%; }");
   });
 });
 
