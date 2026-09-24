@@ -2,6 +2,8 @@ import { css, LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Workspace } from "../api";
 import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspacePanelContext } from "../plugins/types";
+import { isNavigationPinned } from "../navigationPreferences";
+import { renderBuiltinTabIcon } from "./tabIcons";
 
 const workspacePanelStyles = css`
   :host { display: flex; flex-direction: column; min-height: 0; color: var(--pi-text); background: var(--pi-bg); font: 13px system-ui, sans-serif; container-type: inline-size; }
@@ -29,6 +31,8 @@ const workspacePanelStyles = css`
   .panel-content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
   .empty-state { box-sizing: border-box; width: min(100%, 380px); margin: auto; padding: 24px; display: grid; gap: 8px; color: var(--pi-muted); text-align: center; }
   .empty-state h2 { margin: 0; color: var(--pi-text); font-size: 15px; line-height: 1.3; }
+  .empty-state[role="alert"] { color: var(--pi-danger); }
+  .empty-state[role="alert"] h2 { color: var(--pi-danger); }
   .empty-state p { margin: 0; line-height: 1.45; }
   small, .muted { color: var(--pi-muted); }
   @media (max-width: 1180px) { header { display: none; } }
@@ -76,9 +80,12 @@ export class WorkspacePanel extends LitElement {
   @property({ attribute: false }) workspace: Workspace | undefined;
   @property({ attribute: false }) panelContext: WorkspacePanelContext | undefined;
   @property({ attribute: false }) emptyState: WorkspacePanelEmptyState | undefined;
+  @property() error = "";
   @property() tool: QualifiedContributionId = "core:workspace.files";
   @property({ attribute: false }) panels: QualifiedWorkspacePanelContribution[] = [];
   @property({ type: Boolean }) hideToolTabs = false;
+  @property({ attribute: false }) pinnedIds: readonly string[] = [];
+  @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ attribute: false }) onSelectTool: (tool: QualifiedContributionId) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
   @state() private workspaceHeaderCanScrollLeft = false;
@@ -108,6 +115,14 @@ export class WorkspacePanel extends LitElement {
   }
 
   override render() {
+    if (this.error !== "") {
+      return html`
+        <section class="empty-state" role="alert">
+          <h2>导航目标不可用</h2>
+          <p>${this.error}</p>
+        </section>
+      `;
+    }
     const workspace = this.workspace;
     if (workspace === undefined) return this.renderEmptyState(this.emptyState ?? {
       title: "选择工作区",
@@ -119,6 +134,7 @@ export class WorkspacePanel extends LitElement {
       body: "请尝试重新选择工作区。",
     });
     const visiblePanels = this.panels;
+    const pinnedPanels = visiblePanels.filter((panel) => isNavigationPinned(panel.id, this.pinnedIds));
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
     return html`
       ${this.hideToolTabs ? null : html`
@@ -126,7 +142,7 @@ export class WorkspacePanel extends LitElement {
           <div class=${this.workspaceHeaderFrameClass()}>
             <div class="workspace-header-strip" @scroll=${this.onWorkspaceHeaderScroll}>
               <div class="tabs">
-                ${visiblePanels.map((panel) => {
+                ${pinnedPanels.map((panel) => {
                   const selected = selectedPanel?.id === panel.id;
                   const badge = panel.badge?.(context);
                   const ariaLabel = this.panelTabAriaLabel(panel, badge);
@@ -137,6 +153,9 @@ export class WorkspacePanel extends LitElement {
                   `;
                 })}
               </div>
+              ${this.onShowNavigation === undefined ? null : html`
+                <button type="button" class="icon-tab navigation-button" title="打开导航" aria-label="打开导航" @click=${this.onShowNavigation}>${renderBuiltinTabIcon("navigation")}</button>
+              `}
             </div>
           </div>
         </header>

@@ -57,6 +57,7 @@ export class WorkspaceController {
       this.setState({ workspaces, workspacesByProjectId: { ...this.getState().workspacesByProjectId, [project.id]: workspaces }, isLoadingWorkspaces: false });
       const workspace = selectPreferredWorkspace(workspaces, { targetWorkspaceId: target?.workspaceId, latestWorkspaceId: this.workspaceSelection.latestWorkspaceId(machineProjectKey(machineId, project.id)) });
       if (workspace) await this.selectWorkspace(workspace, { sessionId: target?.sessionId, updateUrl: target?.updateUrl });
+      else if (target?.workspaceId !== undefined && target.workspaceId !== "") this.browserErrors.report(errorScope, `找不到工作区：${target.workspaceId}`);
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
       if (selectedMachineId(this.getState()) === machineId && this.getState().selectedProject?.id === project.id) this.setState({ isLoadingWorkspaces: false });
@@ -76,6 +77,7 @@ export class WorkspaceController {
       this.setState({ sessions });
       const session = this.sessions.preferredSession(workspace.path, sessions, target?.sessionId);
       if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl });
+      else if (target?.sessionId !== undefined && target.sessionId !== "") this.browserErrors.report(errorScope, `找不到会话：${target.sessionId}`);
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
       this.browserErrors.report(errorScope, String(error));

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppState } from "../appState";
 import { initialAppState } from "../appState";
 import type { Machine, Project, SessionInfo, Workspace } from "../api";
+import { browserErrorScopeKey, projectBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
 import type { SessionController } from "./sessionController";
 import { WorkspaceController } from "./workspaceController";
 
@@ -22,6 +23,7 @@ function session(cwd: string, id = "s1"): SessionInfo {
 }
 
 type LoadWorkspaces = (projectId: string, machineId?: string) => Promise<Workspace[]>;
+type LoadSessions = (path: string, machineId?: string) => Promise<SessionInfo[]>;
 
 interface Harness {
   controller: WorkspaceController;
@@ -32,7 +34,7 @@ interface Harness {
   setState: (patch: Partial<AppState>) => void;
 }
 
-function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces): Harness {
+function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces, loadSessions: LoadSessions = () => Promise.resolve([])): Harness {
   let state: AppState = { ...initialAppState(), ...initial };
   const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
   const clearActiveSession = vi.fn();
@@ -50,7 +52,7 @@ function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces): Ha
     sessions,
     undefined,
     {
-      api: { workspaces: loadWorkspaces, sessions: vi.fn<(path: string, machineId?: string) => Promise<SessionInfo[]>>().mockResolvedValue([]) },
+      api: { workspaces: loadWorkspaces, sessions: vi.fn<(path: string, machineId?: string) => Promise<SessionInfo[]>>().mockImplementation(loadSessions) },
       onBackgroundError: (message, error) => { backgroundErrors.push({ message, error }); },
     },
   );
@@ -324,5 +326,40 @@ describe("WorkspaceController.refreshSelectedProjectTopology", () => {
     await test.controller.refreshSelectedProjectTopology();
 
     expect(loadWorkspaces).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkspaceController route targets", () => {
+  it("keeps a missing workspace target instead of selecting the main workspace", async () => {
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const test = harness({ selectedMachine: machine("local"), projects: [repo] }, () => Promise.resolve([main]));
+
+    await test.controller.selectProject(repo, { workspaceId: "missing-workspace", updateUrl: false });
+
+    expect(test.state().selectedProject?.id).toBe(repo.id);
+    expect(test.state().selectedWorkspace).toBeUndefined();
+    expect(test.clearActiveSession).toHaveBeenCalledOnce();
+    expect(test.updateUrl).not.toHaveBeenCalled();
+    expect(test.state().browserErrors[browserErrorScopeKey(projectBrowserErrorScope("local", repo.id))]?.message).toBe("找不到工作区：missing-workspace");
+  });
+
+  it("keeps a missing session target instead of selecting another session", async () => {
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const available = session(main.path, "available-session");
+    const test = harness(
+      { selectedMachine: machine("local"), selectedProject: repo, projects: [repo] },
+      () => Promise.resolve([main]),
+      () => Promise.resolve([available]),
+    );
+
+    await test.controller.selectWorkspace(main, { sessionId: "missing-session", updateUrl: false });
+
+    expect(test.state().selectedWorkspace?.id).toBe(main.id);
+    expect(test.state().sessions.map((item) => item.id)).toEqual([available.id]);
+    expect(test.state().selectedSession).toBeUndefined();
+    expect(test.updateUrl).not.toHaveBeenCalled();
+    expect(test.state().browserErrors[browserErrorScopeKey(workspaceBrowserErrorScope("local", repo.id, main.id))]?.message).toBe("找不到会话：missing-session");
   });
 });

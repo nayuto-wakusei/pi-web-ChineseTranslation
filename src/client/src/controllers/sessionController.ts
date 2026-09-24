@@ -5,6 +5,7 @@ import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorSc
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
 import { machineSessionKey } from "../machineKeys";
+import { isCreatingSessionId, type SessionCreationRouteIdentity } from "../route";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
 import { clearStagedAttachments, moveStagedAttachments } from "../promptAttachmentStaging";
 import { clearAskDraft } from "../askDrafts";
@@ -56,6 +57,8 @@ export interface SelectedSessionReady {
   session: SessionInfo;
 }
 
+export type PendingSessionStartNavigation = SessionCreationRouteIdentity;
+
 export interface SessionControllerDependencies {
   api?: typeof defaultApi;
   socket?: SessionEventSocket;
@@ -64,6 +67,8 @@ export interface SessionControllerDependencies {
   notifications?: SessionNotificationSessionBridge;
   replacePromptEditorText?: (replacement: PromptEditorTextReplacement) => void | Promise<void>;
   onSelectedSessionReady?: (selection: SelectedSessionReady) => void;
+  isPendingSessionStartRouteCurrent?: (navigation: PendingSessionStartNavigation) => boolean;
+  onPendingSessionStartCommitted?: (navigation: PendingSessionStartNavigation, session: SessionInfo) => void;
   onModelScopeChanged?: (revision: number) => void;
 }
 
@@ -114,6 +119,8 @@ export class SessionController {
   private readonly notifications: SessionNotificationSessionBridge | undefined;
   private readonly replacePromptEditorText: SessionControllerDependencies["replacePromptEditorText"];
   private readonly onSelectedSessionReady: SessionControllerDependencies["onSelectedSessionReady"];
+  private readonly isPendingSessionStartRouteCurrent: SessionControllerDependencies["isPendingSessionStartRouteCurrent"];
+  private readonly onPendingSessionStartCommitted: SessionControllerDependencies["onPendingSessionStartCommitted"];
   private readonly onModelScopeChanged: SessionControllerDependencies["onModelScopeChanged"];
   private readonly browserErrors: BrowserErrorReporter;
   private selectionSeq = 0;
@@ -129,7 +136,6 @@ export class SessionController {
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private searchSeq = 0;
   private searchTargetSeq = 0;
-  private pendingSessionStartSeq = 0;
   private pendingQueuedSendSeq = 0;
   private readonly pendingSessionStarts = new Map<string, PendingSessionStart>();
   private readonly suppressedCreatedSessions = new Map<string, SuppressedCreatedSession>();
@@ -149,6 +155,8 @@ export class SessionController {
     this.notifications = deps.notifications;
     this.replacePromptEditorText = deps.replacePromptEditorText;
     this.onSelectedSessionReady = deps.onSelectedSessionReady;
+    this.isPendingSessionStartRouteCurrent = deps.isPendingSessionStartRouteCurrent;
+    this.onPendingSessionStartCommitted = deps.onPendingSessionStartCommitted;
     this.onModelScopeChanged = deps.onModelScopeChanged;
     this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
@@ -292,6 +300,12 @@ export class SessionController {
   }
 
   preferredSession(cwd: string, sessions: SessionInfo[], targetSessionId: string | undefined): SessionInfo | undefined {
+    if (isCreatingSessionId(targetSessionId)) {
+      const pending = this.pendingSessionStarts.get(targetSessionId);
+      return pending !== undefined && !pending.discarded && pending.cwd === cwd && this.isCurrentPendingStart(pending)
+        ? pending.session
+        : undefined;
+    }
     return selectPreferredSession(sessions, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
   }
 
@@ -1313,7 +1327,8 @@ export class SessionController {
   }
 
   private createPendingSessionStart(workspace: Workspace, machineId: string): PendingSessionStart {
-    const tempId = `pending-session-${String(++this.pendingSessionStartSeq)}-${Date.now().toString(36)}`;
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const tempId = `creating:${token}`;
     const now = new Date().toISOString();
     const session: ClientPendingStartSessionInfo = {
       id: tempId,
@@ -1399,17 +1414,27 @@ export class SessionController {
 
     const state = this.getState();
     const wasSelected = state.selectedSession?.id === tempId;
+    const navigation: PendingSessionStartNavigation = {
+      machineId: pending.machineId,
+      projectId: pending.originWorkspace.projectId,
+      workspaceId: pending.workspaceId,
+      sessionId: tempId,
+    };
+    const shouldHandoffSelection = wasSelected
+      && (this.isPendingSessionStartRouteCurrent?.(navigation) ?? true);
+    if (wasSelected && !shouldHandoffSelection) this.clearActiveSession();
     this.setState({
       sessions: replacePendingSessionInList(state.sessions, tempId, cachedSession),
       sessionActivities: omitSessionActivity(state.sessionActivities, tempId),
       sendingPrompts: moveRecordKey(state.sendingPrompts, tempId, cachedSession.id),
       clientQueuedSessionMessages: moveRecordKey(state.clientQueuedSessionMessages, tempId, cachedSession.id),
-      ...(wasSelected ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id]), pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
+      ...(shouldHandoffSelection ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id]), pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
       error: "",
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
-    if (wasSelected) {
-      this.updateUrl({ replace: true });
+    if (shouldHandoffSelection) {
+      this.onPendingSessionStartCommitted?.(navigation, cachedSession);
+      if (this.onPendingSessionStartCommitted === undefined) this.updateUrl({ replace: true });
       await this.selectSession(cachedSession, { updateUrl: false });
     }
     await this.flushQueuedPendingSends(cachedSession, pending.machineId, queuedSends);

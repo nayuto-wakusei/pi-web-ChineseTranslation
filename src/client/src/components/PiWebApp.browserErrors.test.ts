@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AppState } from "../appState";
+import { initialAppState, type AppState } from "../appState";
 import type { AppAction } from "../actions";
 import { browserErrorScopeKey, machineBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
 import { HttpRequestError } from "../api/http";
@@ -25,7 +25,12 @@ function createApp(): PiWebApp {
     setItem: () => undefined,
     removeItem: () => undefined,
   };
-  vi.stubGlobal("window", { location: { search: "" }, localStorage: storage });
+  vi.stubGlobal("window", {
+    location: { search: "" },
+    localStorage: storage,
+    setTimeout: vi.fn(() => 1),
+    clearTimeout: vi.fn(),
+  });
   return new PiWebApp();
 }
 
@@ -44,6 +49,8 @@ function setState(app: PiWebApp, patch: Partial<AppState>): AppState {
 type ReportWorkspaceRemovalFailure = (workspace: Workspace, machineId: string, scope: ReturnType<typeof workspaceBrowserErrorScope>, error: unknown) => Promise<void>;
 type SetRemoteRouteRestoreMessage = (route: AppRoute, options?: { exhausted?: boolean }) => void;
 type RunAction = (action: AppAction) => void;
+type RestoreRouteFor = (route: AppRoute, updateUrl: boolean) => Promise<void>;
+type RouteContentError = () => string;
 
 function setRemoteRouteRestoreMessage(app: PiWebApp): SetRemoteRouteRestoreMessage {
   const method: unknown = Reflect.get(app, "setRemoteRouteRestoreMessage");
@@ -73,6 +80,34 @@ function isSetRemoteRouteRestoreMessage(value: unknown): value is SetRemoteRoute
 
 function isRunAction(value: unknown): value is RunAction {
   return typeof value === "function";
+}
+
+function isRestoreRouteFor(value: unknown): value is RestoreRouteFor {
+  return typeof value === "function";
+}
+
+function isRouteContentError(value: unknown): value is RouteContentError {
+  return typeof value === "function";
+}
+
+function privateRestoreRouteFor(app: PiWebApp): RestoreRouteFor {
+  const method: unknown = Reflect.get(app, "restoreRouteFor");
+  if (!isRestoreRouteFor(method)) throw new Error("Route restore boundary was unavailable");
+  return (route, updateUrl) => method.call(app, route, updateUrl);
+}
+
+function routeContentError(app: PiWebApp): RouteContentError {
+  const method: unknown = Reflect.get(app, "routeContentError");
+  if (!isRouteContentError(method)) throw new Error("Route error boundary was unavailable");
+  return () => method.call(app);
+}
+
+function installSearch(search: string): void {
+  if (!Reflect.set(window.location, "search", search)) throw new Error("Could not set the current route");
+}
+
+function stubSelectedMachinePluginLoad(app: PiWebApp): void {
+  if (!Reflect.set(app, "loadPluginsForSelectedMachine", () => Promise.resolve())) throw new Error("Could not stub plugin loading");
 }
 
 function isAppState(value: unknown): value is AppState {
@@ -113,6 +148,68 @@ describe("PiWebApp browser error boundaries", () => {
     });
 
     expect(appState(app).error).toBe("");
+  });
+});
+
+describe("PiWebApp route restoration", () => {
+  it("keeps an unavailable project URL and reports the requested destination", async () => {
+    const app = createApp();
+    const local: Machine = { id: "local", name: "本地", kind: "local", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [local], selectedMachine: local });
+    stubSelectedMachinePluginLoad(app);
+    installSearch("?project=missing-project&workspace=missing-workspace&session=missing-session");
+    const requestedUrl = window.location.search;
+
+    await privateRestoreRouteFor(app)({
+      machineId: undefined, projectId: "missing-project", workspaceId: "missing-workspace", sessionId: "missing-session", tool: undefined, view: undefined,
+    }, false);
+
+    expect(window.location.search).toBe(requestedUrl);
+    expect(routeContentError(app)()).toBe("找不到项目：missing-project");
+    expect(appState(app).selectedSession).toBeUndefined();
+  });
+
+  it("does not substitute the local machine for an unavailable remote URL", async () => {
+    const app = createApp();
+    const local: Machine = { id: "local", name: "本地", kind: "local", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [local], selectedMachine: local, projects: [] });
+    stubSelectedMachinePluginLoad(app);
+    installSearch("?machine=offline&project=remote-project");
+    const requestedUrl = window.location.search;
+
+    await privateRestoreRouteFor(app)({
+      machineId: "offline", projectId: "remote-project", workspaceId: undefined, sessionId: undefined, tool: undefined, view: undefined,
+    }, false);
+
+    expect(window.location.search).toBe(requestedUrl);
+    expect(appState(app).selectedMachine?.id).toBe(local.id);
+    expect(routeContentError(app)()).toBe("找不到机器：offline");
+  });
+
+  it("restores a registered remote machine without rewriting its project destination", async () => {
+    const app = createApp();
+    const local: Machine = { id: "local", name: "本地", kind: "local", createdAt: "now", updatedAt: "now" };
+    const remote: Machine = { id: "remote-1", name: "远程", kind: "remote", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [local, remote], selectedMachine: local, projects: [] });
+    stubSelectedMachinePluginLoad(app);
+    const machineController: unknown = Reflect.get(app, "machines");
+    if (typeof machineController !== "object" || machineController === null) throw new Error("Machine controller was unavailable");
+    if (!Reflect.set(machineController, "selectMachine", (selected: Machine) => {
+      setState(app, { selectedMachine: selected });
+      return Promise.resolve();
+    })) {
+      throw new Error("Could not stub machine selection");
+    }
+    installSearch("?machine=remote-1&project=remote-project");
+    const requestedUrl = window.location.search;
+
+    await privateRestoreRouteFor(app)({
+      machineId: remote.id, projectId: "remote-project", workspaceId: undefined, sessionId: undefined, tool: undefined, view: undefined,
+    }, false);
+
+    expect(window.location.search).toBe(requestedUrl);
+    expect(appState(app).selectedMachine?.id).toBe(remote.id);
+    expect(routeContentError(app)()).toBe("找不到项目：remote-project");
   });
 });
 

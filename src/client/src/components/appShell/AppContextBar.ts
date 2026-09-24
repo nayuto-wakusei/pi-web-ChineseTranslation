@@ -16,6 +16,7 @@ export class AppContextBar extends LitElement {
   @property({ attribute: false }) session?: SessionInfo;
   @property({ attribute: false }) refreshControl: unknown;
   @property({ attribute: false }) onOpenSection?: (section: NavigationSection) => void;
+  @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ attribute: false }) onShowActions?: () => void;
   @query(".context-items") private contextItems?: HTMLElement | null;
   @state() private canScrollLeft = false;
@@ -84,7 +85,7 @@ export class AppContextBar extends LitElement {
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.renderActionsButton()}${this.refreshControl}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.renderNavigationButton()}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
       </nav>
     `;
   }
@@ -115,17 +116,32 @@ export class AppContextBar extends LitElement {
     `;
   }
 
+  private renderNavigationButton() {
+    if (this.onShowNavigation === undefined) return null;
+    return html`
+      <button type="button" class="context-action-button" title="打开导航" aria-label="打开导航" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowNavigation?.(); }}>
+        <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 5h16M4 12h16M4 19h16"></path>
+        </svg>
+      </button>
+    `;
+  }
+
   private contextBarClass(): string {
     const classes = ["context-bar"];
     if (this.hasContextActions()) classes.push("has-context-actions");
-    if (this.refreshControl !== undefined && this.onShowActions !== undefined) classes.push("has-context-actions-double");
+    if (this.contextActionCount() > 1) classes.push("has-context-actions-double");
     if (this.canScrollLeft) classes.push("can-scroll-left");
     if (this.canScrollRight) classes.push("can-scroll-right");
     return classes.join(" ");
   }
 
   private hasContextActions(): boolean {
-    return this.refreshControl !== undefined || this.onShowActions !== undefined;
+    return this.contextActionCount() > 0;
+  }
+
+  private contextActionCount(): number {
+    return Number(this.refreshControl !== undefined) + Number(this.onShowActions !== undefined) + Number(this.onShowNavigation !== undefined);
   }
 
   private observeContextItems(): void {

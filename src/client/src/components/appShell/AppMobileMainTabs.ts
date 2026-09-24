@@ -21,6 +21,7 @@ export class AppMobileMainTabs extends LitElement {
   @property({ attribute: false }) tabs: AppMobileMainTab[] = [];
   @property({ attribute: false }) selectedView: AppState["mainView"] = "chat";
   @property({ attribute: false }) onSelect?: (view: AppState["mainView"]) => void;
+  @property({ attribute: false }) onShowNavigation?: () => void;
   @query(".mobile-tabs") private mobileTabs?: HTMLElement | null;
   @state() private canScrollLeft = false;
   @state() private canScrollRight = false;
@@ -59,6 +60,7 @@ export class AppMobileMainTabs extends LitElement {
               </button>
             `;
           })}
+          ${this.onShowNavigation === undefined ? null : html`<button type="button" class="navigation-menu-button" title="打开导航" aria-label="打开导航" @click=${this.onShowNavigation}>${renderAppTabIcon("navigation")}</button>`}
         </div>
       </div>
     `;
@@ -159,6 +161,7 @@ export class AppMobileMainTabs extends LitElement {
     .mobile-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 8px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
     .mobile-tabs button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .mobile-tabs .navigation-tab { display: none; }
+    .navigation-menu-button { min-width: 36px; justify-content: center; }
     .mobile-tabs button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
     .tab-icon { flex: 0 0 auto; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
     .tab-custom-icon { flex: 0 0 auto; width: 18px; height: 18px; display: inline-grid; place-items: center; color: currentColor; pointer-events: none; }
@@ -172,6 +175,7 @@ export class AppMobileMainTabs extends LitElement {
       .mobile-tabs { gap: 4px; padding: 6px 8px; }
       .mobile-tabs button { min-width: 44px; height: 44px; justify-content: center; gap: 4px; padding: 0 8px; }
       .mobile-tabs .navigation-tab { display: inline-flex; }
+      .mobile-tabs .navigation-menu-button { min-width: 44px; }
       .tab-fallback { display: inline-block; }
       .tab-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
       .tab-badge { min-width: 13px; padding: 0 4px; font-size: 10px; line-height: 13px; }

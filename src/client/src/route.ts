@@ -9,6 +9,25 @@ export interface AppRoute {
   view: "chat" | QualifiedContributionId | undefined;
 }
 
+export interface SessionCreationRouteIdentity {
+  machineId: string;
+  projectId: string;
+  workspaceId: string;
+  sessionId: string;
+}
+
+/** Browser-owned creation identity, never a daemon session ID or a create command. */
+export function isCreatingSessionId(sessionId: string | undefined): sessionId is `creating:${string}` {
+  return sessionId?.startsWith("creating:") === true;
+}
+
+export function routeMatchesSessionCreation(route: AppRoute, identity: SessionCreationRouteIdentity): boolean {
+  return (route.machineId ?? "local") === identity.machineId
+    && route.projectId === identity.projectId
+    && route.workspaceId === identity.workspaceId
+    && route.sessionId === identity.sessionId;
+}
+
 export function readRoute(): AppRoute {
   const params = new URLSearchParams(window.location.search);
   return {

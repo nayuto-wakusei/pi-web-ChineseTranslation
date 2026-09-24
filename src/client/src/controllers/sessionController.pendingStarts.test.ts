@@ -25,7 +25,7 @@ describe("SessionController pending starts", () => {
 
     expect(fixture.state).not.toBe(initialState);
     expect(initialState.sessions).toEqual([]);
-    expect(temporarySession?.id).toMatch(/^pending-session-/);
+    expect(temporarySession?.id).toMatch(/^creating:/);
     expect(temporarySession?.persisted).toBe(false);
     expect(fixture.state.sessions.map((session) => session.id)).toEqual([temporarySession?.id]);
     expect(fixture.state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "正在创建会话" });
@@ -207,7 +207,7 @@ describe("SessionController pending starts", () => {
     await controller.startSession();
     const temporaryId = fixture.state.selectedSession?.id;
 
-    expect(temporaryId).toMatch(/^pending-session-/);
+    expect(temporaryId).toMatch(/^creating:/);
     expect(fixture.state.sessions.map((session) => session.id)).toEqual([temporaryId]);
     expect(fixture.state.sessions[0]?.persisted).toBe(false);
     expect(fixture.state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
@@ -217,6 +217,72 @@ describe("SessionController pending starts", () => {
 
     expect(fixture.state.sessions).toEqual([]);
     expect(fixture.state.selectedSession).toBeUndefined();
+  });
+
+  it("does not fall back to another session for an expired creation route", () => {
+    const state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession], selectedSession: oldSession };
+    const { controller } = createSessionControllerTestFixture({ initialState: state });
+
+    expect(controller.preferredSession(workspace.path, state.sessions, "creating:expired")).toBeUndefined();
+  });
+
+  it("commits the stable session only when the same creation route still owns the selection", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    const committed: unknown[] = [];
+    const state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedMachine: { id: "local", name: "Local", kind: "local", createdAt: "now", updatedAt: "now" }, sessions: [] };
+    const fixture = createSessionControllerTestFixture({
+      initialState: state,
+      api: { startSession: () => startRequest.promise },
+      dependencies: {
+        isPendingSessionStartRouteCurrent: () => false,
+        onPendingSessionStartCommitted: (navigation, session) => { committed.push({ navigation, session }); },
+      },
+    });
+
+    const start = fixture.controller.startSession();
+    const temporaryId = fixture.state.selectedSession?.id;
+    startRequest.resolve(started);
+    await start;
+
+    expect(fixture.state.sessions.map((session) => session.id)).toContain(started.id);
+    expect(fixture.state.selectedSession).toBeUndefined();
+    expect(committed).toEqual([]);
+    expect(temporaryId).toMatch(/^creating:/);
+  });
+
+  it("replaces only the session ID after a matching creation route resolves", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", cwd: "/remote/repo", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    const committed: unknown[] = [];
+    const remoteWorkspace = { ...workspace, id: "remote-workspace", projectId: "remote-project", path: "/remote/repo" };
+    const remoteMachine = { id: "remote-1", name: "Remote", kind: "remote" as const, createdAt: "now", updatedAt: "now" };
+    const fixture = createSessionControllerTestFixture({
+      initialState: {
+        ...initialAppState(),
+        selectedMachine: remoteMachine,
+        selectedProject: { id: remoteWorkspace.projectId, name: "Remote Project", path: "/remote/repo", createdAt: "now" },
+        selectedWorkspace: remoteWorkspace,
+        sessions: [],
+      },
+      api: { startSession: () => startRequest.promise },
+      dependencies: {
+        isPendingSessionStartRouteCurrent: () => true,
+        onPendingSessionStartCommitted: (navigation, session) => { committed.push({ navigation, session }); },
+      },
+    });
+
+    const start = fixture.controller.startSession();
+    const temporaryId = fixture.state.selectedSession?.id;
+    startRequest.resolve(started);
+    await start;
+
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toMatchObject({
+      navigation: { machineId: remoteMachine.id, projectId: remoteWorkspace.projectId, workspaceId: remoteWorkspace.id, sessionId: temporaryId },
+      session: { id: started.id },
+    });
+    expect(fixture.state.selectedSession?.id).toBe(started.id);
   });
 
   it("stops the backend session if a discarded pending start resolves later", async () => {
