@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialAppState } from "../appState";
 import { isCachedNewSessionInfo, loadCachedNewSessions } from "../cachedNewSessions";
+import { loadStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
 import type { SessionController } from "./sessionController";
 import { createSessionControllerTestFixture, defaultApi, deferred, emptyPage, FakeSocket, MemoryStorage, oldSession, sessionKey, sessionLookupId, status, workspace, type AppState, type SessionInfo } from "./sessionController.testSupport";
@@ -39,6 +40,39 @@ describe("SessionController pending starts", () => {
     expect(fixture.state.selectedSession?.id).toBe("started-session");
     expect(messageCalls).toEqual(["started-session"]);
     expect(statusCalls).toEqual(["started-session"]);
+  });
+
+  it("cancels before backend creation when the post-insertion callback loses navigation ownership", async () => {
+    const storage = new MemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+    let apiStartCalls = 0;
+    const api = {
+      startSession: () => { apiStartCalls += 1; return Promise.resolve(oldSession); },
+    } satisfies Partial<typeof defaultApi>;
+    const fixture = createSessionControllerTestFixture({
+      initialState: { ...initialAppState(), selectedWorkspace: workspace, sessions: [] },
+      api,
+    });
+    let temporaryId: string | undefined;
+
+    await fixture.controller.startSession(() => {
+      const pending = fixture.state.selectedSession;
+      if (pending === undefined) throw new Error("Expected the temporary session to be selected before the callback");
+      temporaryId = pending.id;
+      expect(pending.id).toMatch(/^creating:/);
+      expect(fixture.state.sessions.map((session) => session.id)).toEqual([pending.id]);
+      expect(apiStartCalls).toBe(0);
+      saveDraft(sessionKey(pending.id), "unsent draft");
+      saveStagedAttachments(sessionKey(pending.id), [{ id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
+      return Promise.resolve(false);
+    });
+
+    if (temporaryId === undefined) throw new Error("Expected a temporary session id");
+    expect(apiStartCalls).toBe(0);
+    expect(fixture.state.sessions).toEqual([]);
+    expect(fixture.state.selectedSession).toBeUndefined();
+    expect(loadDraft(sessionKey(temporaryId))).toBe("");
+    expect(loadStagedAttachments(sessionKey(temporaryId))).toEqual([]);
   });
 
   it("does not duplicate a started session when its session.created broadcast races the HTTP response", async () => {

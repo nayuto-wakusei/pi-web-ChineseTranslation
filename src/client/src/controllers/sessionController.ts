@@ -220,7 +220,7 @@ export class SessionController {
     this.deselectSession({ forgetRememberedSelection: true });
   }
 
-  async startSession() {
+  async startSession(beforeCreate?: () => Promise<boolean>) {
     const workspace = this.getState().selectedWorkspace;
     if (!workspace) return;
     const machineId = selectedMachineId(this.getState());
@@ -228,6 +228,10 @@ export class SessionController {
     this.pendingSessionStarts.set(pending.tempId, pending);
     this.insertAndSelectPendingSession(pending.session);
     try {
+      if (beforeCreate !== undefined && !(await beforeCreate())) {
+        this.cancelUnstartedSession(pending);
+        return;
+      }
       const session = await this.api.startSession(workspace.path, machineId, pending.tempId);
       await this.resolvePendingSessionStart(pending.tempId, session);
     } catch (error) {
@@ -1438,6 +1442,35 @@ export class SessionController {
       await this.selectSession(cachedSession, { updateUrl: false });
     }
     await this.flushQueuedPendingSends(cachedSession, pending.machineId, queuedSends);
+  }
+
+  private cancelUnstartedSession(pending: PendingSessionStart): void {
+    if (this.pendingSessionStarts.get(pending.tempId) !== pending) return;
+    this.pendingSessionStarts.delete(pending.tempId);
+    pending.discarded = true;
+    pending.queuedSends = [];
+    forgetCachedNewSession(pending.tempId, pending.machineId);
+    const cacheKey = machineSessionKey(pending.machineId, pending.tempId);
+    clearDraft(cacheKey);
+    clearStagedAttachments(cacheKey);
+    const state = this.getState();
+    const wasSelected = state.selectedSession?.id === pending.tempId;
+    this.setState({
+      sessions: state.sessions.filter((session) => session.id !== pending.tempId),
+      sessionStatuses: omitKey(state.sessionStatuses, pending.tempId),
+      sessionActivities: omitSessionActivity(state.sessionActivities, pending.tempId),
+      sendingPrompts: omitKey(state.sendingPrompts, pending.tempId),
+      clientQueuedSessionMessages: omitKey(state.clientQueuedSessionMessages, pending.tempId),
+    });
+    if (!wasSelected) return;
+    this.clearActiveSession();
+    const navigation: PendingSessionStartNavigation = {
+      machineId: pending.machineId,
+      projectId: pending.originWorkspace.projectId,
+      workspaceId: pending.workspaceId,
+      sessionId: pending.tempId,
+    };
+    if (this.isPendingSessionStartRouteCurrent?.(navigation) ?? true) this.updateUrl({ replace: true });
   }
 
   private failPendingSessionStart(tempId: string, error: unknown): void {

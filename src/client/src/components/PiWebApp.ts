@@ -1781,11 +1781,18 @@ export class PiWebApp extends LitElement {
       && selectedMachineId(this.state) === machineId
       && this.state.selectedProject?.id === workspace.projectId
       && this.state.selectedWorkspace?.id === workspace.id;
-    if (isCurrent()) await this.focusChatComposer();
     if (!isCurrent()) return;
-    const start = this.sessions.startSession().catch((error: unknown) => {
-      this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
+    let focus: Promise<void> | undefined;
+    const start = this.sessions.startSession(async () => {
+      if (!isCurrent()) return false;
+      focus = this.focusChatComposer();
+      await focus;
+      return isCurrent();
+    }).catch((error: unknown) => {
+      if (isCurrent()) this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
     });
+    if (focus !== undefined) await focus.catch(() => undefined);
+    if (!isCurrent()) return;
     void start;
   }
 
