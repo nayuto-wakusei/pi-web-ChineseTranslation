@@ -89,7 +89,8 @@ import {
   clientSessionFromArchivedRecord,
   type WorkspaceArchiveCandidate,
 } from "./sessionArchiveMapping.js";
-import { annotateAssistantThinkingLevel, getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
+import { getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
+import { annotateAssistantThinkingLevel, historyMessagesFromEntries } from "./transcriptMessages.js";
 import { WorkbenchAccessStateStore } from "../workbench/accessStateStore.js";
 import { WorkbenchClient } from "../workbench/workbenchClient.js";
 import { WorkbenchMcpClient } from "../workbench/mcpClient.js";
@@ -4956,33 +4957,12 @@ function buildPromptOptions(behavior: QueuedPromptKind | undefined, images: Imag
   return Object.keys(options).length > 0 ? options : undefined;
 }
 
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function historyMessages(session: PiAgentSession): unknown[] {
   return historyMessagesFromManager(session.sessionManager);
 }
 
 function historyMessagesFromManager(sessionManager: PiSessionManager): unknown[] {
   return historyMessagesFromEntries(sessionManager.getBranch());
-}
-
-function historyMessagesFromEntries(entries: readonly unknown[]): unknown[] {
-  const messages: unknown[] = [];
-  let thinkingLevel: string | undefined;
-  for (const entry of entries) {
-    if (!isRecord(entry)) continue;
-    if (entry["type"] === "message") messages.push(annotateAssistantThinkingLevel(entry["message"], thinkingLevel));
-    else if (entry["type"] === "thinking_level_change") {
-      const level = getString(entry, "thinkingLevel");
-      if (level !== undefined) thinkingLevel = level;
-    }
-    else if (entry["type"] === "custom_message" && entry["display"] === true) messages.push({ role: "custom", content: entry["content"], customType: entry["customType"], details: entry["details"] });
-    else if (entry["type"] === "compaction") messages.push({ role: "system", source: "compaction", content: `Compacted history:\n\n${stringValue(entry["summary"])}` });
-    else if (entry["type"] === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${stringValue(entry["summary"])}` });
-  }
-  return messages;
 }
 
 function transcriptMessageCount(entries: readonly unknown[]): number {

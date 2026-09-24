@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { toClientEvent } from "./sessionUiEvents.js";
 
 describe("toClientEvent", () => {
+  it.each([
+    [{ type: "message", message: { role: "user", content: "queued prompt" } }, { role: "user", content: "queued prompt" }],
+    [{ type: "custom_message", display: true, content: "draft", customType: "notice" }, { role: "custom", content: "draft", customType: "notice" }],
+    [{ type: "compaction", summary: "short history" }, { role: "system", source: "compaction", content: "Compacted history:\n\nshort history" }],
+  ])("appends a visible durable entry without changing transcript projection", (entry, message) => {
+    expect(toClientEvent({ type: "entry_appended", entry })).toMatchObject({ type: "message.append", message });
+  });
+
+  it("does not append internal or hidden entries", () => {
+    expect(toClientEvent({ type: "entry_appended", entry: { type: "context_edit", targetId: "entry-1" } })).toEqual({ type: "pi.event", eventType: "entry_appended" });
+    expect(toClientEvent({ type: "entry_appended", entry: { type: "custom_message", display: false, content: "hidden" } })).toEqual({ type: "pi.event", eventType: "entry_appended" });
+  });
+
   it("keeps top-level array tool args compatible with the legacy summary behavior", () => {
     const args = ["alpha", 2, true];
     const event = toClientEvent({
