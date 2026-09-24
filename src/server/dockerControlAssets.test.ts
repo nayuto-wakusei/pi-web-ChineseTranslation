@@ -129,6 +129,24 @@ describe("Docker command assets", () => {
     expect(hostProfile).toContain("pi_web_docker_write_container_env_template() {");
   });
 
+  it("loads a dev-only container environment after shared defaults without changing runtime", async () => {
+    const [devCompose, runtimeCompose, devWrapper, dockerCommand] = await Promise.all([
+      readRepoFile("docker/compose.dev.yml"),
+      readRepoFile("docker/compose.yml"),
+      readRepoFile("docker/internal/dev/compose"),
+      readRepoFile("docker/pi-web-docker"),
+    ]);
+    const devEnvFiles = /^x-pi-web-dev-env-file: &pi-web-dev-env-file\n((?:[ \t]+[^\n]*\n)+)/m.exec(devCompose)?.[1];
+
+    expect(devEnvFiles?.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("- "))).toEqual([
+      "- ${PI_WEB_DOCKER_DATA_DIR:-${HOME}/.local/share/pi-web-docker/data}/container.env",
+      "- ../.pi-web/docker-compose-dev.container.env",
+    ]);
+    expect(devWrapper).toContain("dev_container_env_file=$repo_root/.pi-web/docker-compose-dev.container.env");
+    expect(dockerCommand).toContain("Dev container environment: created on next start");
+    expect(runtimeCompose).not.toContain("docker-compose-dev.container.env");
+  });
+
   dockerCommandIt("fetches remote installer assets without clobbering the write target", async () => {
     const installDir = join(tempDir, "remote-runtime");
     const fakeDocker = await installFakeDocker();

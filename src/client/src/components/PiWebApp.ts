@@ -626,6 +626,7 @@ export class PiWebApp extends LitElement {
     await this.renegotiateUnreadMachines();
     await Promise.all([
       this.sessions.refreshSelectedSession(),
+      this.sessions.refreshCurrentWorkspaceSessions(),
       this.refreshMachineActivities(),
       this.refreshMachineStatusSnapshots(),
       this.refreshWorkspaceDeletionRuns(),
@@ -1247,6 +1248,8 @@ export class PiWebApp extends LitElement {
     this.realtime.connect(
       (event) => { this.handleRealtimeEvent(machineId, event); },
       () => {
+        // Live broadcasts are not replayed after a connection gap.
+        void this.sessions.refreshCurrentWorkspaceSessions(machineId);
         void this.renegotiateUnreadMachine(machineId);
         if (this.apiScope === "normal") void this.serverNotices.refresh(machineId);
         const workspace = this.state.selectedWorkspace;

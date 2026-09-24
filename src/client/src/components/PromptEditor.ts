@@ -372,7 +372,6 @@ export class PromptEditor extends LitElement {
       if (version !== this.requestVersion) return;
       this.completions = commands
         .filter((command) => command.name.toLowerCase().includes(trigger.query.toLowerCase()))
-        .slice(0, 12)
         .map((command) => ({
           kind: "command",
           replaceFrom: trigger.from,

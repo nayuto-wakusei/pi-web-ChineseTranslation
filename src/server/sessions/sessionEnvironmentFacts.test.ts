@@ -6,6 +6,8 @@ describe("session environment facts", () => {
     const facts = sessionEnvironmentFacts({ env: { PI_WEB_DATA_DIR: "/tmp/pi-web", PI_WEB_SESSIOND_SOCKET: "/tmp/pi-web/sessiond.sock" } });
     expect(facts).toContain("<pi_web_session_environment>");
     expect(facts).toContain("/tmp/pi-web");
+    expect(facts).toContain("unless the user explicitly requests or authorizes");
+    expect(facts).toContain("interrupts active sessions");
     expect(facts).not.toContain("PI_WEB_AUDIT_ES_PASSWORD");
   });
 

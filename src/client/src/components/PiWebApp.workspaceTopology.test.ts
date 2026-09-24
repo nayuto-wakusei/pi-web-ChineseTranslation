@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
+import { RealtimeSocket } from "../sessionSocket";
 import { PiWebApp } from "./PiWebApp";
 
 type RefreshCallback = () => void | Promise<void>;
@@ -14,10 +16,12 @@ describe("PiWebApp workspace topology refresh wiring", () => {
     const app = createApp();
     stubBackgroundRefreshes(app);
     const refreshTopology = spyOnTopologyRefresh(app);
+    const refreshSessions = spyOnWorkspaceSessionsRefresh(app);
 
     await browserResumeRefresh(app)();
 
     expect(refreshTopology).toHaveBeenCalledOnce();
+    expect(refreshSessions).toHaveBeenCalledOnce();
   });
 
   it("re-lists the selected project's workspaces on the plugin-facing app-data refresh", async () => {
@@ -35,11 +39,48 @@ describe("PiWebApp workspace topology refresh wiring", () => {
     stubBackgroundRefreshes(app);
     failBackgroundRefresh(app, "refreshMachineActivities", new Error("machine activity unavailable"));
     const refreshTopology = spyOnTopologyRefresh(app);
+    const refreshSessions = spyOnWorkspaceSessionsRefresh(app);
 
     await expect(browserResumeRefresh(app)()).rejects.toThrow("machine activity unavailable");
     expect(refreshTopology).toHaveBeenCalledOnce();
+    expect(refreshSessions).toHaveBeenCalledOnce();
   });
 });
+
+describe("PiWebApp realtime session-list recovery", () => {
+  it("re-lists workspace sessions on each socket open, including reconnects", () => {
+    const app = createApp();
+    const refreshSessions = spyOnWorkspaceSessionsRefresh(app);
+    for (const name of ["renegotiateUnreadMachine", "refreshWorkspaceActivity"]) {
+      if (!Reflect.set(app, name, vi.fn().mockResolvedValue(undefined))) throw new Error(`Could not replace PiWebApp.${name}`);
+    }
+    for (const name of ["serverNotices", "machineStatus"]) {
+      const controller: unknown = Reflect.get(app, name);
+      if (typeof controller !== "object" || controller === null || !Reflect.set(controller, "refresh", vi.fn().mockResolvedValue(undefined))) {
+        throw new Error(`Could not replace ${name}.refresh`);
+      }
+    }
+    const connect = vi.spyOn(RealtimeSocket.prototype, "connect").mockImplementation(() => undefined);
+    const connectRealtime: unknown = Reflect.get(app, "connectRealtime");
+    if (typeof connectRealtime !== "function") throw new Error("Realtime connection was unavailable");
+    connectRealtime.call(app);
+    const onOpen = connect.mock.calls[0]?.[1];
+    if (onOpen === undefined) throw new Error("Realtime onOpen callback was unavailable");
+
+    onOpen();
+    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local");
+
+    refreshSessions.mockClear();
+    onOpen();
+    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local");
+  });
+});
+
+function spyOnWorkspaceSessionsRefresh(app: PiWebApp) {
+  const controller: unknown = Reflect.get(app, "sessions");
+  if (!(controller instanceof SessionController)) throw new Error("PiWebApp SessionController was unavailable");
+  return vi.spyOn(controller, "refreshCurrentWorkspaceSessions").mockResolvedValue(undefined);
+}
 
 function createApp(): PiWebApp {
   const storage = {

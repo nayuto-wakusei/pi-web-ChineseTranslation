@@ -22,7 +22,6 @@ export function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveS
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
   };
 }
-
 export function archiveInputFromActiveSession(session: PiAgentSession): ArchiveSessionInput {
   const sessionFile = session.sessionFile;
   if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
@@ -107,13 +106,4 @@ export function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, f
     archived: true,
     archivedAt: record.archivedAt,
   };
-}
-
-export function compareArchivedRecords(a: ArchivedSessionRecord, b: ArchivedSessionRecord): number {
-  return archivedTimestamp(b) - archivedTimestamp(a);
-}
-
-function archivedTimestamp(record: ArchivedSessionRecord): number {
-  const time = Date.parse(record.archivedAt);
-  return Number.isNaN(time) ? 0 : time;
 }

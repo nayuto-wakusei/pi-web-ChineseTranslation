@@ -1021,6 +1021,28 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
     await service.dispose();
   });
 
+  it("orders archived sessions by latest activity rather than archive time", async () => {
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      archiveStore: {
+        list: () => Promise.resolve([
+          { sessionId: "old", cwd: "/workspace", archivedAt: "2026-01-05T00:00:00.000Z", originalPath: "/sessions/old.jsonl", archivePath: "/archive/old.jsonl", created: "2026-01-01T00:00:00.000Z", modified: "2026-01-01T00:00:00.000Z", messageCount: 1, firstMessage: "old" },
+          { sessionId: "new", cwd: "/workspace", archivedAt: "2026-01-03T00:00:00.000Z", originalPath: "/sessions/new.jsonl", archivePath: "/archive/new.jsonl", created: "2026-01-01T00:00:00.000Z", modified: "2026-01-03T00:00:00.000Z", messageCount: 1, firstMessage: "new" },
+        ]),
+        get: () => Promise.resolve(undefined),
+        archive: () => { throw new Error("listing must not archive"); },
+        restore: () => Promise.resolve(),
+        isArchived: () => Promise.resolve(false),
+      },
+      sessionManager: sessionGateway([]),
+      heartbeatIntervalMs: 60_000,
+    });
+
+    expect((await service.list("/workspace")).map((session) => session.id)).toEqual(["new", "old"]);
+    await service.dispose();
+  });
+
   it("lists archived records that have been moved out of the active session directory", async () => {
     const service = new PiSessionService(new CapturingSessionEventHub(), {
       agentDir: TEST_AGENT_DIR,

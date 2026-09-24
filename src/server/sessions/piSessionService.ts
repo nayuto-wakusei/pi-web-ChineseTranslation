@@ -87,7 +87,6 @@ import {
   archiveInputFromCandidate,
   archiveInputFromListEntry,
   clientSessionFromArchivedRecord,
-  compareArchivedRecords,
   type WorkspaceArchiveCandidate,
 } from "./sessionArchiveMapping.js";
 import { annotateAssistantThinkingLevel, getBoolean, getProperty, getString, toClientEvent } from "./sessionUiEvents.js";
@@ -1517,9 +1516,9 @@ export class PiSessionService {
       await this.publishUnreadMutations(this.unreadForScope(eventScopeFromManagementContext(managementContext)).reconcileCwd(canonicalizeStoredCwd(cwd), reconcilableSessionIds));
     }
     const archivedSessions = archivedForCwd
-      .sort(compareArchivedRecords)
       .map((record) => clientSessionFromArchivedRecord(record, sessionsById.get(record.sessionId)))
-      .filter(isDefined);
+      .filter(isDefined)
+      .sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified));
     return {
       sessions: [...unarchivedSessions, ...archivedSessions],
       entriesById: new Map(sessions.map((session) => [session.id, session])),
@@ -3054,9 +3053,10 @@ export class PiSessionService {
 
   private async archiveStoreArchiveMany(inputs: readonly ArchiveSessionInput[]): Promise<ArchivedSessionRecord[]> {
     if (inputs.length === 0) return [];
-    if (this.archiveStore.archiveMany !== undefined) return this.archiveStore.archiveMany(inputs);
+    const oldestFirst = [...inputs].sort((a, b) => Date.parse(a.modified) - Date.parse(b.modified));
+    if (this.archiveStore.archiveMany !== undefined) return this.archiveStore.archiveMany(oldestFirst);
     const records: ArchivedSessionRecord[] = [];
-    for (const input of inputs) records.push(await this.archiveStore.archive(input));
+    for (const input of oldestFirst) records.push(await this.archiveStore.archive(input));
     return records;
   }
 
@@ -3510,6 +3510,13 @@ export class PiSessionService {
       this.auditAssistantResponseEvent(active, event);
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
+      if (eventType === "message_start" && isRecord(event) && getString(event["message"], "role") === "user") {
+        void this.voidOpenAskForUserMessage(session).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          this.publishActivity(session, "扩展错误", "error", message);
+          this.events.publish(session.sessionId, { type: "session.error", message }, active.eventScope);
+        });
+      }
       if (eventType === "agent_end") this.abortRunScopedExtensionDialogs(session);
       if (eventType === "compaction_end") this.scheduleCompactionQueueDrain(session.sessionId);
       if (eventType === "agent_start" || eventType === "agent_end") this.scheduleCompactionQueueDrain(session.sessionId);

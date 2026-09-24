@@ -79,7 +79,7 @@ export class CommandPicker extends LitElement {
   }
 
   static override styles = [commandPickerStyles, css`
-    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100vh - 40px)); }
+    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100% - 40px)); }
     modal-surface > header, modal-surface > .options, modal-surface > input { position: relative; }
   `];
 }

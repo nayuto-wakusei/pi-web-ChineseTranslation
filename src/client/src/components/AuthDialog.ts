@@ -252,7 +252,7 @@ export class AuthDialog extends LitElement {
   }
 
   static override styles = [commandPickerStyles, css`
-    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100vh - 40px)); }
+    modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100% - 40px)); }
     .form { display: grid; gap: 12px; padding: 14px; overflow: auto; }
     .form p { margin: 0; color: var(--pi-text-secondary); overflow-wrap: anywhere; }
     .form a { color: var(--pi-accent); overflow-wrap: anywhere; }

@@ -595,6 +595,8 @@ run_doctor() {
       dev_env=$root/.pi-web/docker-compose-dev.generated.env
       dev_override=$root/.pi-web/docker-compose-dev.host.generated.yml
       dev_compose_file=$root/docker/compose.dev.yml
+      dev_only_container_env=$root/.pi-web/docker-compose-dev.container.env
+      [ -f "$dev_only_container_env" ] && printf 'Dev container environment: %s\n' "$dev_only_container_env" || printf 'Dev container environment: created on next start (%s)\n' "$dev_only_container_env"
       dev_wrapper=$root/docker/internal/dev/compose
       [ -f "$dev_config" ] && printf 'Dev config: %s\n' "$dev_config" || printf 'Dev config: missing (%s)\n' "$dev_config"
       [ -f "$dev_env" ] && printf 'Generated dev env: %s\n' "$dev_env" || printf 'Generated dev env: missing (%s)\n' "$dev_env"
