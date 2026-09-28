@@ -100,8 +100,14 @@ describe("route helpers", () => {
     });
   });
 
+  it("keeps the terminal URL alias for the bundled terminal panel", () => {
+    installWindow("http://localhost/app?tool=terminal&view=terminal");
+
+    expect(readRoute()).toMatchObject({ tool: "terminal", view: "terminal" });
+  });
+
   it("ignores unsupported tool and view values", () => {
-    installWindow("http://localhost/app?tool=terminal&view=settings");
+    installWindow("http://localhost/app?tool=settings&view=settings");
 
     expect(readRoute()).toMatchObject({ tool: undefined, view: undefined });
   });

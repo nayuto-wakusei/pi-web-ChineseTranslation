@@ -157,13 +157,25 @@ class GitUiController {
 
   refresh(context: WorkspacePanelContext, force = true): Promise<void> {
     const state = this.stateFor(context);
+    const background = !force;
     if (state.statusRequest !== undefined) {
       state.statusRefreshPending ||= force;
+      if (!background && !state.statusLoading) {
+        state.statusLoading = true;
+        this.requestRender(state);
+      }
       return state.statusRequest;
     }
-    state.statusLoading = true;
+    const previousStatus = state.status;
+    const previousError = state.error;
+    const previousStale = state.stale;
+    const previousPath = state.selectedDiffPath;
+    const showLoading = !background || state.status === undefined;
+    if (showLoading) {
+      state.statusLoading = true;
+      this.requestRender(state);
+    }
     state.lastStatusRefreshAt = Date.now();
-    this.requestRender(state);
 
     const request = requestGitBackend(context, GIT_STATUS_OPERATION, force ? { refresh: true } : null)
       .then(parseGitStatusResponse)
@@ -175,11 +187,14 @@ class GitUiController {
           revealSelectedFile(state, this.view);
         }
         state.stale = false;
-        state.error = undefined;
         const path = state.selectedDiffPath;
-        if (path === undefined) return;
-        if (!status.files.some((file) => file.path === path)) this.clearSelection(state, true);
-        else if (this.connectedWorkspaceKey === workspaceContextKey(context)) await this.refreshDiff(state, path, context);
+        if (path !== undefined && status.files.some((file) => file.path === path)
+          && this.connectedWorkspaceKey === workspaceContextKey(context)) {
+          await this.refreshDiff(state, path, context, background);
+        } else {
+          state.error = undefined;
+          if (path !== undefined && !status.files.some((file) => file.path === path)) this.clearSelection(state, true);
+        }
       })
       .catch((error: unknown) => {
         if (state.retained) state.error = errorMessage(error);
@@ -187,8 +202,10 @@ class GitUiController {
       .finally(() => {
         if (state.statusRequest !== request) return;
         state.statusRequest = undefined;
+        const wasLoading = state.statusLoading;
         state.statusLoading = false;
-        this.requestRender(state);
+        if (wasLoading || previousStatus !== state.status || previousError !== state.error
+          || previousStale !== state.stale || previousPath !== state.selectedDiffPath) this.requestRender(state);
         if (state.statusRefreshPending && state.retained && this.connectedWorkspaceKey === workspaceContextKey(context)) {
           state.statusRefreshPending = false;
           return this.refresh(context);
@@ -344,11 +361,17 @@ class GitUiController {
     }
   }
 
-  private async refreshDiff(state: GitWorkspaceUiState, path: string, context: WorkspacePanelContext): Promise<void> {
+  private async refreshDiff(state: GitWorkspaceUiState, path: string, context: WorkspacePanelContext, background = false): Promise<void> {
     const sequence = state.diffRequestSequence + 1;
     state.diffRequestSequence = sequence;
-    state.diffLoading = true;
-    this.requestRender(state);
+    const previousDiff = state.selectedDiff;
+    const previousStagedDiff = state.selectedStagedDiff;
+    const previousError = state.error;
+    const showLoading = !background || previousDiff === undefined || previousStagedDiff === undefined;
+    if (showLoading) {
+      state.diffLoading = true;
+      this.requestRender(state);
+    }
     try {
       const [selectedDiff, selectedStagedDiff] = await Promise.all([
         requestGitBackend(context, GIT_DIFF_OPERATION, { path }).then(parseGitDiffResponse),
@@ -363,8 +386,10 @@ class GitUiController {
       state.error = errorMessage(error);
     } finally {
       if (state.retained && state.diffRequestSequence === sequence && state.selectedDiffPath === path) {
+        const wasLoading = state.diffLoading;
         state.diffLoading = false;
-        this.requestRender(state);
+        if (wasLoading || previousDiff !== state.selectedDiff || previousStagedDiff !== state.selectedStagedDiff
+          || previousError !== state.error) this.requestRender(state);
       }
     }
   }
@@ -763,10 +788,10 @@ function formatLineNumber(lineNumber: number | undefined): string {
 }
 
 function createDiffView(response: GitDiffResponse, previous: GitDiffView | undefined): GitDiffView {
-  return {
-    response,
-    lines: previous?.response.hash === response.hash ? previous.lines : undefined,
-  };
+  if (previous?.response.hash !== response.hash) return { response, lines: undefined };
+  if (previous.response.path === response.path && previous.response.staged === response.staged
+    && previous.response.truncated === response.truncated) return previous;
+  return { response, lines: previous.lines };
 }
 
 function workspaceContextKey(context: WorkspacePanelContext): string {

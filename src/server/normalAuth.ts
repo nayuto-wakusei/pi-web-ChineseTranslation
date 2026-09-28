@@ -276,13 +276,14 @@ function requiresNormalAuth(request: FastifyRequest): boolean {
 
 function allowsManagementRequest(request: FastifyRequest): boolean {
   const pathname = new URL(request.url, "http://pi-web.local").pathname;
+  if (pathname.startsWith("/pi-web-plugins/") && pathname !== "/pi-web-plugins/manifest.json") return request.method === "GET" || request.method === "HEAD";
   if (pathname === "/api/machines") return request.method === "GET" || request.method === "HEAD";
   if (/^\/api\/machines\/local(?:\/(?:health|runtime))?$/u.test(pathname)) {
     return request.method === "GET" || request.method === "HEAD";
   }
   const path = pathname.startsWith("/api/machines/local/") ? pathname.slice("/api/machines/local".length) : pathname.slice("/api".length);
   // Only local APIs that preserve management context may bypass normal auth.
-  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|terminal-command-runs)(?:\/|$)/u.test(path)
+  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|terminal-command-runs)(?:\/|$)/u.test(path)
     || /^\/sessiond\/(?:health|runtime)$/u.test(path);
 }
 

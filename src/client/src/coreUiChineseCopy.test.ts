@@ -154,7 +154,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes workspace files, git, machine, project, and workspace controls",
-    paths: ["components/WorkspaceFilesPanel.ts", "components/WorkspaceGitPanel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "plugins/core/panels.ts"],
+    paths: ["components/WorkspaceFilesPanel.ts", "components/WorkspaceGitPanel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "../../../pi-web-plugins/files/pi-web-plugin.ts", "../../../pi-web-plugins/terminal/pi-web-plugin.ts"],
     expected: ["拖放文件以上传", "工作区上传", "没有更改。", "全部展开", "机器活动中", "项目活动中", "工作区活动中", "复制路径", "title: \"文件\"", "title: \"终端\""],
     forbidden: ["Drop files to upload", "Workspace uploads", "No changes.", "Expand all", "Machine active", "Project active", "Workspace active", "Copy path", "title: \"Files\"", "title: \"Terminal\""],
   },

@@ -236,7 +236,7 @@ export class FileExplorerController {
   }
 
   async selectFile(path: string): Promise<void> {
-    this.setState({ selectedFilePath: path, selectedFileContent: undefined, selectedFileLoadError: undefined, workspaceTool: "core:workspace.files", mainView: this.getState().mainView === "chat" ? "chat" : "core:workspace.files" });
+    this.setState({ selectedFilePath: path, selectedFileContent: undefined, selectedFileLoadError: undefined });
     setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", path);
     this.updateUrl({ replace: true });
     await this.restoreFile(path);
@@ -244,7 +244,7 @@ export class FileExplorerController {
 
   selectDirectory(path: string): void {
     this.fileRequestGeneration += 1;
-    this.setState({ selectedFilePath: path, selectedFileContent: undefined, selectedFileLoadError: undefined, workspaceTool: "core:workspace.files", mainView: this.getState().mainView === "chat" ? "chat" : "core:workspace.files" });
+    this.setState({ selectedFilePath: path, selectedFileContent: undefined, selectedFileLoadError: undefined });
     setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", undefined, { replace: true });
     this.updateUrl({ replace: true });
   }

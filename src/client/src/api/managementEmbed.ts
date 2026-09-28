@@ -3,7 +3,7 @@ export type ApiScope = "normal" | "management";
 const MANAGEMENT_EMBED_MODE = "management";
 
 export function isManagementEmbedMode(search: string | undefined = browserSearch()): boolean {
-  return readEmbedMode(search) === MANAGEMENT_EMBED_MODE;
+  return readEmbedMode(search) === MANAGEMENT_EMBED_MODE || (search === browserSearch() && parentPageUrl() !== undefined && readEmbedMode(parentPageUrl()?.search) === MANAGEMENT_EMBED_MODE);
 }
 
 export function currentApiScope(pageUrl: URL | undefined = currentPageUrl()): ApiScope {
@@ -40,11 +40,28 @@ function scopedManagementUrl(url: string, pageUrl: URL | undefined, scope: ApiSc
 }
 
 function managementEmbedParams(pageUrl: URL | undefined): { embed: "management"; token?: string } | undefined {
+  const own = embedParamsFromUrl(pageUrl);
+  if (own !== undefined) return own;
+  // Workbench rewrites the iframe URL without the embed marker. Keep the
+  // surrounding management page as the authority for plugin asset requests.
+  return embedParamsFromUrl(parentPageUrl());
+}
+
+function embedParamsFromUrl(pageUrl: URL | undefined): { embed: "management"; token?: string } | undefined {
   if (pageUrl === undefined) return undefined;
   const embed = readEmbedMode(pageUrl.search);
   const token = pageUrl.searchParams.get("token")?.trim();
   if (embed !== MANAGEMENT_EMBED_MODE) return undefined;
   return { embed, ...(token === undefined || token === "" ? {} : { token }) };
+}
+
+function parentPageUrl(): URL | undefined {
+  if (typeof window === "undefined" || window.parent === window) return undefined;
+  try {
+    return new URL(window.parent.location.href);
+  } catch {
+    return undefined;
+  }
 }
 
 function readEmbedMode(search: string | undefined): string | undefined {

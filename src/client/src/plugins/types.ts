@@ -75,6 +75,8 @@ export interface PluginMachine {
   kind: Machine["kind"];
 }
 
+export type { WorkspaceFilesCapabilityV1, WorkspaceFileReferenceOptions, WorkspaceFileRequestOptions, WorkspaceFileUploadOptions, WorkspaceFileUploadTask } from "../../../plugin-api";
+
 export interface WorkspaceFiles {
   readFile(path: string): Promise<FileContentResponse>;
   readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;

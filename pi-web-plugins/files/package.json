@@ -1,0 +1,13 @@
+{
+  "name": "@pi-web/files-plugin",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "files",
+        "module": "pi-web-plugin.js"
+      }
+    ]
+  }
+}

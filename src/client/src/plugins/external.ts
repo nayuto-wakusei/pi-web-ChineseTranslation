@@ -1,6 +1,7 @@
 import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import { isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
+import { withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
 import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
 
@@ -20,6 +21,7 @@ export interface LoadExternalPluginsOptions {
   machineId?: string;
   shouldLoadPlugin?: (entry: PluginManifestEntry) => boolean;
   moduleLoader?: (moduleUrl: string) => Promise<unknown>;
+  plugins?: readonly PluginManifestEntry[];
 }
 
 export interface ExternalPluginLoadFailure {
@@ -33,8 +35,8 @@ export interface ExternalPluginLoadResult {
 }
 
 export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest.json", options: LoadExternalPluginsOptions = {}): Promise<ExternalPluginLoadResult> {
-  const resolvedManifestUrl = resolveAppUrl(manifestUrl);
-  const manifest = await fetchPluginManifest(resolvedManifestUrl);
+  const resolvedManifestUrl = resolveAppUrl(withManagementEmbed(manifestUrl));
+  const manifest = await fetchPluginManifest(resolvedManifestUrl, options.plugins);
   if (manifest === undefined) return { registrations: [], failures: [] };
 
   const registrations: PiWebPluginRegistration[] = [];
@@ -62,15 +64,17 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
 }
 
 export function resolvePluginModuleUrl(moduleReference: string, manifestUrl: string, appUrlContext?: AppUrlContext): string {
-  if (!moduleReference.startsWith("/")) return new URL(moduleReference, manifestUrl).toString();
-  return appUrlContext === undefined ? resolveAppUrl(moduleReference) : resolveAppUrl(moduleReference, appUrlContext);
+  if (!moduleReference.startsWith("/")) return new URL(withManagementEmbed(moduleReference), manifestUrl).toString();
+  const resolved = appUrlContext === undefined ? resolveAppUrl(moduleReference) : resolveAppUrl(moduleReference, appUrlContext);
+  return withManagementEmbed(resolved);
 }
 
 async function importPluginModule(moduleUrl: string): Promise<unknown> {
   return import(/* @vite-ignore */ moduleUrl);
 }
 
-async function fetchPluginManifest(manifestUrl: string): Promise<PluginManifest | undefined> {
+async function fetchPluginManifest(manifestUrl: string, plugins: readonly PluginManifestEntry[] | undefined): Promise<PluginManifest | undefined> {
+  if (plugins !== undefined) return { plugins: [...plugins] };
   const response = await fetch(manifestUrl, { cache: "no-store" });
   if (response.status === 404) return undefined;
   if (!response.ok) throw new Error(await pluginManifestResponseError(response));

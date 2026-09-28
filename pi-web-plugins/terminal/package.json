@@ -1,0 +1,13 @@
+{
+  "name": "@pi-web/terminal-plugin",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "pi-web.terminal",
+        "module": "pi-web-plugin.js"
+      }
+    ]
+  }
+}

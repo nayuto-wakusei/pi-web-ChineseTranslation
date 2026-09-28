@@ -177,14 +177,32 @@ export interface Workspace {
   readonly removal?: WorkspaceRemovalPresentation;
 }
 
+export interface WorkspaceFileRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface WorkspaceFileReferenceOptions {
+  readonly modifiedAt?: string;
+}
+
+export interface WorkspaceFileUploadOptions {
+  readonly folder?: string;
+  readonly overwrite?: boolean;
+  readonly signal?: AbortSignal;
+}
+
+export interface WorkspaceFileUploadTask {
+  readonly completed: Promise<WriteWorkspaceFileResponse>;
+}
+
 export interface WorkspaceFiles {
   /** Read a file from the workspace. Works for local and federated machines. */
-  readFile(path: string): Promise<FileContentResponse>;
-  readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
+  readFile(path: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
+  readOptionalFile?(path: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse | undefined>;
   /** List the entries of a workspace directory. Pass "" for the workspace root.
    *  Works for local and federated machines. Rejects when the directory does not
    *  exist or cannot be read, matching readFile error behavior. */
-  listFiles(path: string): Promise<FileTreeResponse>;
+  listFiles(path: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
   /** Write content to a workspace file. Creates intermediate directories by default.
    *  Works for local and federated machines. Auto-refreshes the file explorer after success. */
   writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
@@ -195,6 +213,18 @@ export interface WorkspaceFiles {
    *  Default overwrite: false (safer than writeFile). Auto-refreshes the file explorer after success. */
   moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
 }
+
+/** Versioned host files capability used by the bundled Files plugin. */
+export interface WorkspaceFilesCapabilityV1 extends WorkspaceFiles {
+  readonly capabilityVersion: 1;
+  readonly defaultUploadFolder: string;
+  readonly maxInlinePreviewBytes: number;
+  previewUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
+  downloadUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
+  uploadFile(file: File, options?: WorkspaceFileUploadOptions): WorkspaceFileUploadTask;
+}
+
+export type WorkspaceFilesContextValue = WorkspaceFiles | WorkspaceFilesCapabilityV1;
 
 export type WorkspacePanelFiles = WorkspaceFiles;
 

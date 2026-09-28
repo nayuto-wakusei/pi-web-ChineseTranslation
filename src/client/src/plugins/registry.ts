@@ -201,7 +201,7 @@ export class PluginRegistry {
   }
 
   resolveWorkspacePanelRouteId(value: string, selectedMachineId: string): QualifiedContributionId | undefined {
-    const activePanels = this.workspacePanels.filter((panel) => this.isContributionActive(panel.pluginId, panel.machineId, selectedMachineId, panel.sourcePluginId));
+    const activePanels = this.activeWorkspacePanels(selectedMachineId);
     const exact = activePanels.find((panel) => panel.id === value);
     if (exact !== undefined) return exact.id;
     const aliases = activePanels.filter((panel) => panel.routeAliases?.includes(value) === true);
@@ -344,6 +344,10 @@ export class PluginRegistry {
   private qualifyReference(pluginId: string, localId: string): QualifiedContributionId {
     this.validateLocalId(localId);
     return `${pluginId}:${localId}`;
+  }
+
+  private activeWorkspacePanels(selectedMachineId: string): QualifiedWorkspacePanelContribution[] {
+    return this.workspacePanels.filter((panel) => this.isContributionActive(panel.pluginId, panel.machineId, selectedMachineId, panel.sourcePluginId));
   }
 
   private isContributionActive(pluginId: string, machineId: string | undefined, selectedMachineId: string, sourcePluginId: string | undefined): boolean {

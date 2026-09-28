@@ -132,7 +132,16 @@ function parseWorkspaceRouteSurface(value: unknown): WorkspaceRouteSurface {
 
 function parseMainView(value: string | undefined): AppState["mainView"] | undefined {
   if (value === "navigation" || value === "chat") return value;
-  return parseQualifiedId(value);
+  return parsePanelId(value);
+}
+
+function parsePanelId(value: string | undefined): Extract<AppState["mainView"], `${string}:${string}`> | undefined {
+  if (value === undefined || !/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u.test(value)) return undefined;
+  const separator = value.indexOf(":");
+  const pluginId = value.slice(0, separator);
+  const localId = value.slice(separator + 1);
+  if (pluginId === "" || localId === "") return undefined;
+  return `${pluginId}:${localId}`;
 }
 
 type QualifiedRouteId = NonNullable<AppRoute["tool"]>;

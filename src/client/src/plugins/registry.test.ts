@@ -64,7 +64,7 @@ describe("PluginRegistry", () => {
     void registry.register({ id: "core", plugin: corePlugin });
 
     expect(registry.getActions(createContext().context).some((action) => action.id === "core:actions.show")).toBe(true);
-    expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual(["core:workspace.files", "core:workspace.terminal"]);
+    expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual([]);
   });
 
   it("provides html and svg helpers to plugin activation and callbacks", () => {
@@ -155,10 +155,9 @@ describe("PluginRegistry", () => {
     const inactive = registry.getActions(createContext().context);
     const active = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
 
-    expect(inactive.find((action) => action.id === "core:view.files")?.enabled).toBe(false);
-    expect(inactive.find((action) => action.id === "core:view.terminal")?.enabled).toBe(false);
-    expect(active.find((action) => action.id === "core:view.files")?.enabled).toBe(true);
-    expect(active.find((action) => action.id === "core:view.terminal")?.enabled).toBe(true);
+    expect(inactive.find((action) => action.id === "core:view.files")).toBeUndefined();
+    expect(inactive.find((action) => action.id === "core:view.git")?.enabled).toBe(false);
+    expect(active.find((action) => action.id === "core:view.git")?.enabled).toBe(true);
     expect(active.find((action) => action.id === "core:workspace.delete")?.enabled).toBe(false);
 
     const deletable = registry.getActions(createContext({ selectedWorkspace: testWorkspace({ isMain: false, isGitWorktree: true }) }).context);
@@ -347,16 +346,12 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["reloadPage", "openSettings"]);
   });
 
-  it("exposes terminal navigation as a shortcut-backed action", () => {
+  it("leaves terminal navigation to the bundled terminal plugin", () => {
     const registry = new PluginRegistry();
     void registry.register({ id: "core", plugin: corePlugin });
-    const { context, calls } = createContext({ selectedWorkspace: testWorkspace() });
-    const action = registry.getActions(context).find((candidate) => candidate.id === "core:view.terminal");
 
-    expect(action?.shortcut).toBe("mod+4");
-    if (action !== undefined) void action.run();
-
-    expect(calls).toEqual(["selectMainView:core:workspace.terminal"]);
+    expect(registry.getActions(createContext().context).some((action) => action.id === "core:view.terminal")).toBe(false);
+    expect(registry.getWorkspacePanels().some((panel) => panel.id === "core:workspace.terminal")).toBe(false);
   });
 
   it("keeps built-in keyboard shortcuts unique and action-backed", () => {
@@ -371,10 +366,7 @@ describe("PluginRegistry", () => {
       ["core:prompt.focus", "mod+g c"],
       ["core:settings.open", "mod+,"],
       ["core:view.chat", "mod+1"],
-      ["core:view.files", "mod+2"],
       ["core:view.git", "mod+3"],
-      ["core:view.terminal", "mod+4"],
-      ["core:workspace.refresh-files", "mod+shift+f"],
       ["core:workspace.refresh-git", "mod+shift+g"],
       ["core:workspace.refresh-current", "mod+shift+r"],
       ["core:session.start", "mod+enter"],

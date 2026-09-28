@@ -1,5 +1,6 @@
-import type { Machine } from "../api";
-import { loadExternalPlugins } from "./external";
+import { pluginsApi, type Machine } from "../api";
+import { isManagementEmbedMode } from "../api/managementEmbed";
+import { loadExternalPlugins, type PluginManifestEntry } from "./external";
 import type { PiWebPluginRegistration } from "./types";
 
 type RegisterPlugins = (label: string, load: () => Promise<PiWebPluginRegistration[]>) => Promise<boolean>;
@@ -15,7 +16,9 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => (await loadExternalPlugins()).registrations);
+    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => (await loadExternalPlugins("pi-web-plugins/manifest.json", {
+      plugins: await managementPluginEntries(),
+    })).registrations);
     return this.gatewayLoad;
   }
 
@@ -37,4 +40,17 @@ export class MachinePluginLoadCoordinator {
     this.machineLoads.set(machine.id, load);
     await load;
   }
+}
+
+async function managementPluginEntries(): Promise<readonly PluginManifestEntry[] | undefined> {
+  if (!isManagementEmbedMode()) return undefined;
+  const response = await pluginsApi.plugins();
+  return response.plugins.flatMap((plugin) => plugin.module === undefined ? [] : [{
+    id: plugin.id,
+    module: plugin.module,
+    machineSpecific: plugin.machineSpecific,
+    ...(plugin.backendRevision === undefined ? {} : { backendRevision: plugin.backendRevision }),
+    ...(plugin.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: plugin.pairedRequestVersion }),
+    ...(plugin.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: plugin.pairedChannelVersion }),
+  }]);
 }

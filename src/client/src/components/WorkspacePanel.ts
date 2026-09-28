@@ -4,6 +4,8 @@ import type { Workspace } from "../api";
 import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspacePanelContext } from "../plugins/types";
 import { isNavigationPinned } from "../navigationPreferences";
 import { renderBuiltinTabIcon } from "./tabIcons";
+import { type TerminalPanelHostElement } from "./terminalPanelElement";
+import { WorkspaceFilesPanel } from "./WorkspaceFilesPanel";
 
 const workspacePanelStyles = css`
   :host { display: flex; flex-direction: column; min-height: 0; color: var(--pi-text); background: var(--pi-bg); font: 13px system-ui, sans-serif; container-type: inline-size; }
@@ -106,6 +108,8 @@ export class WorkspacePanel extends LitElement {
   override updated(): void {
     this.observeWorkspaceHeaderStrip();
     this.updateWorkspaceHeaderScrollState();
+    this.bindTerminalPanelHost();
+    this.bindFilesPanelHost();
   }
 
   override disconnectedCallback(): void {
@@ -170,6 +174,26 @@ export class WorkspacePanel extends LitElement {
         </div>
       `}
     `;
+  }
+
+  private bindFilesPanelHost(): void {
+    const host = this.renderRoot.querySelector("workspace-files-panel");
+    const context = this.panelContext;
+    if (!(host instanceof WorkspaceFilesPanel) || context === undefined) return;
+    host.context = context;
+  }
+
+  private bindTerminalPanelHost(): void {
+    const host = this.renderRoot.querySelector("pi-web-terminal-host");
+    const context = this.panelContext;
+    if (!isTerminalPanelHost(host) || context === undefined) return;
+    host.panel = {
+      workspace: context.workspace,
+      machineId: context.machine.id,
+      selectedTerminalId: context.selectedTerminalId,
+      autoStart: context.terminalAutoStart,
+      onSelectTerminal: context.onSelectTerminal,
+    };
   }
 
   private panelTabClass(panel: QualifiedWorkspacePanelContribution, selected: boolean): string {
@@ -238,4 +262,8 @@ export class WorkspacePanel extends LitElement {
   }
 
   static override styles = workspacePanelStyles;
+}
+
+function isTerminalPanelHost(value: Element | null): value is TerminalPanelHostElement {
+  return value instanceof LitElement && value.tagName === "PI-WEB-TERMINAL-HOST";
 }

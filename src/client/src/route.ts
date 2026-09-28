@@ -1,12 +1,15 @@
 import type { QualifiedContributionId } from "./plugins/types";
 
+/** A qualified panel id, or a short URL alias such as `terminal` that a panel claims. */
+export type WorkspacePanelRouteId = QualifiedContributionId | "terminal";
+
 export interface AppRoute {
   machineId: string | undefined;
   projectId: string | undefined;
   workspaceId: string | undefined;
   sessionId: string | undefined;
-  tool: QualifiedContributionId | undefined;
-  view: "chat" | QualifiedContributionId | undefined;
+  tool: WorkspacePanelRouteId | undefined;
+  view: "chat" | WorkspacePanelRouteId | undefined;
 }
 
 export interface SessionCreationRouteIdentity {
@@ -61,16 +64,18 @@ export function writeRoute(route: AppRoute, options?: { replace?: boolean | unde
   else window.history.pushState({}, "", url);
 }
 
-function parseTool(value: string | null): QualifiedContributionId | undefined {
+function parseTool(value: string | null): WorkspacePanelRouteId | undefined {
   if (value === "files") return "core:workspace.files";
   if (value === "git") return "core:workspace.git";
+  if (value === "terminal") return "terminal";
   return isQualifiedId(value) ? value : undefined;
 }
 
-function parseView(value: string | null): "chat" | QualifiedContributionId | undefined {
+function parseView(value: string | null): "chat" | WorkspacePanelRouteId | undefined {
   if (value === "chat") return "chat";
   if (value === "files") return "core:workspace.files";
   if (value === "git") return "core:workspace.git";
+  if (value === "terminal") return "terminal";
   return isQualifiedId(value) ? value : undefined;
 }
 
