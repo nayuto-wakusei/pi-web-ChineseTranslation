@@ -32,13 +32,14 @@ export class SessionDaemonClient {
     return getSessionDaemonActiveAgentProfile(this);
   }
 
-  connectWebSocket(path: string, headers: Record<string, string> = {}): WebSocket {
+  connectWebSocket(path: string, headers: Record<string, string> = {}, maxPayload?: number): WebSocket {
+    const options = { headers, ...(maxPayload === undefined ? {} : { maxPayload }) };
     if (this.baseUrl !== undefined && this.baseUrl !== "") {
       const url = new URL(path, this.baseUrl);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      return new WebSocket(url, { headers });
+      return new WebSocket(url, options);
     }
-    return new WebSocket(`ws+unix:${this.socketPath}:${path}`, { headers });
+    return new WebSocket(`ws+unix:${this.socketPath}:${path}`, options);
   }
 
   private async requestUrl(method: string, path: string, payload?: string, headers: Record<string, string> = {}, signal?: AbortSignal) {

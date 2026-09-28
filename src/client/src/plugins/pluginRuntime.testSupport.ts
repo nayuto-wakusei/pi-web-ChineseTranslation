@@ -4,6 +4,7 @@ export function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): Plugi
   const noop = () => undefined;
   return {
     state: {},
+    navigate: () => Promise.resolve(),
     prompt: { insertText: noop, getText: () => "", getSelection: () => null },
     openActionPalette: noop,
     focusPrompt: noop,

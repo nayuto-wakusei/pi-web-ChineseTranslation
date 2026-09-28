@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
 import {
+  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
   parsePluginBackendRequestEnvelope,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
@@ -8,12 +9,10 @@ import {
   serializeBoundedPluginBackendJson,
   type PluginBackendRequestEnvelope,
 } from "../../shared/pluginBackendProtocol.js";
+import { requestCancellation } from "../requestCancellation.js";
 import type { Project } from "../types.js";
 import { eventScopeFromManagementContext, type SessionEventScope } from "../realtime/sessionEventScope.js";
-import {
-  WorkspaceProviderRequestError,
-  type WorkspaceProviderRequest,
-} from "../workspaces/workspaceProviderRegistry.js";
+import { PluginBackendRequestError, type PluginBackendRequest } from "../plugins/pluginBackendRegistry.js";
 import { managementContextFromSessiondHeaders, resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 
 interface PluginBackendRouteParams {
@@ -24,7 +23,7 @@ interface PluginBackendRouteParams {
 }
 
 export interface PluginBackendDispatcher {
-  request(request: WorkspaceProviderRequest): Promise<unknown>;
+  request(request: PluginBackendRequest, signal?: AbortSignal): Promise<unknown>;
 }
 
 export interface PluginBackendRouteDependencies {
@@ -34,14 +33,14 @@ export interface PluginBackendRouteDependencies {
   onWorkspacesMutated?: (scope: SessionEventScope) => void;
 }
 
-/** JSON-only sessiond boundary for the active owner of one current workspace. */
+/** JSON-only sessiond boundary for a revision-paired plugin and current workspace. */
 export function registerPluginBackendRoutes(
   app: FastifyInstance,
   dependencies: PluginBackendRouteDependencies,
-  prefix = "/plugin-backends",
+  prefix = "",
 ): void {
   app.post<{ Params: PluginBackendRouteParams; Body: unknown }>(
-    `${prefix}/:pluginId/projects/:projectId/workspaces/:workspaceId/:operation`,
+    `${prefix}${PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH}`,
     { bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES },
     async (request, reply) => {
       const { pluginId, projectId, workspaceId } = request.params;
@@ -72,6 +71,8 @@ export function registerPluginBackendRoutes(
         );
       }
 
+      const cancellation = requestCancellation(request, reply);
+      const managementContext = managementContextFromSessiondHeaders(request.headers);
       try {
         const result = await dependencies.backends.request({
           pluginId,
@@ -80,16 +81,19 @@ export function registerPluginBackendRoutes(
           workspaceId,
           operation,
           input: envelope.input,
-        });
+          ...(managementContext === undefined ? {} : { managementContext }),
+        }, cancellation.signal);
         const serialized = serializeBoundedPluginBackendJson(
           result,
           `Server plugin ${pluginId} operation ${operation} result`,
           PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
         );
-        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContextFromSessiondHeaders(request.headers)));
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
         return await reply.type("application/json; charset=utf-8").send(serialized);
       } catch (error) {
-        return pluginBackendRequestFailed(reply, error, pluginId, operation);
+        return await pluginBackendRequestFailed(reply, error, pluginId, operation);
+      } finally {
+        cancellation.dispose();
       }
     },
   );
@@ -101,7 +105,7 @@ function pluginBackendRequestFailed(
   pluginId: string,
   operation: string,
 ): FastifyReply {
-  if (error instanceof WorkspaceProviderRequestError) {
+  if (error instanceof PluginBackendRequestError) {
     return attributedError(reply, error.statusCode, error.message, error.code, pluginId, operation);
   }
   return attributedError(

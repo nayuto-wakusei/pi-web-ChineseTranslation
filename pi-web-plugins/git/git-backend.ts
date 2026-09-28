@@ -3,10 +3,9 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type {
   JsonValue,
-  ProviderRequestContext,
-  ProviderResponse,
   ServerPluginActivationContext,
   ServerPluginExecFileResult,
+  ServerPluginPeerRequestContext,
 } from "@chainingintention/pi-web-cn/server-plugin-api";
 import {
   GIT_DIFF_OPERATION,
@@ -46,36 +45,18 @@ interface ValidatedSubmodule {
   cwd: string;
 }
 
-/** Dispatch the Git-owned status/diff schema through the provider's public request seam. */
-export function createGitBackend(activationContext: ServerPluginActivationContext) {
-  const statuses = new Map<string, { promise: Promise<ProviderResponse>; expires: number }>();
-  return (request: ProviderRequestContext): Promise<ProviderResponse> => {
-    if (request.operation !== GIT_STATUS_OPERATION) return requestGitBackend(activationContext, request);
-    requireStatusInput(request.input);
-    const key = JSON.stringify([request.project.id, request.project.path, request.workspace.key, request.workspace.path]);
-    const cached = statuses.get(key);
-    if (cached !== undefined && (cached.expires === Infinity || (request.input === null && cached.expires > Date.now()))) return cached.promise;
-    const entry = { expires: Infinity, promise: requestGitBackend(activationContext, { ...request, signal: new AbortController().signal }).then((result) => {
-      entry.expires = Date.now() + 2000;
-      for (const [oldKey, old] of statuses) if (old.expires <= Date.now()) statuses.delete(oldKey);
-      return result;
-    }, (error: unknown) => { statuses.delete(key); throw error; }) };
-    statuses.set(key, entry);
-    return entry.promise;
-  };
-}
-
+/** Dispatch the Git status/diff schema through the package peer request seam. */
 export async function requestGitBackend(
   activationContext: ServerPluginActivationContext,
-  request: ProviderRequestContext,
-): Promise<ProviderResponse> {
+  request: ServerPluginPeerRequestContext,
+): Promise<JsonValue> {
   const runGit = createGitRunner(activationContext, request.signal);
   if (request.operation === GIT_STATUS_OPERATION) {
     requireStatusInput(request.input);
-    return statusProviderResponse(await gitStatusWithRunner(runGit, request.workspace.path));
+    return statusPeerResponse(await gitStatusWithRunner(runGit, request.workspace.path));
   }
   if (request.operation === GIT_DIFF_OPERATION) {
-    return diffProviderResponse(await gitDiffWithRunner(runGit, request.workspace.path, parseDiffInput(request.input)));
+    return diffPeerResponse(await gitDiffWithRunner(runGit, request.workspace.path, parseDiffInput(request.input)));
   }
   throw new Error(`Unsupported Git workspace backend operation: ${request.operation}`);
 }
@@ -432,7 +413,7 @@ function hash(value: string): string {
   return createHash("sha1").update(value).digest("hex");
 }
 
-function statusProviderResponse(status: GitStatusResponse): ProviderResponse {
+function statusPeerResponse(status: GitStatusResponse): JsonValue {
   return {
     isGitRepo: status.isGitRepo,
     hash: status.hash,
@@ -453,7 +434,7 @@ function statusProviderResponse(status: GitStatusResponse): ProviderResponse {
   };
 }
 
-function diffProviderResponse(diff: GitDiffResponse): ProviderResponse {
+function diffPeerResponse(diff: GitDiffResponse): JsonValue {
   return {
     ...(diff.path === undefined ? {} : { path: diff.path }),
     staged: diff.staged,

@@ -425,10 +425,10 @@ function createGitPanel(
 }
 
 function requestGitBackend(context: WorkspacePanelContext, operation: string, input: JsonValue): Promise<JsonValue> {
-  if (context.backend === undefined || context.workspace.provider?.capabilities.request === false) {
+  if (context.peer?.request === undefined) {
     return Promise.reject(new Error("Git 工作区后端不可用。请更新并重启此机器上的 PI WEB，然后重新加载浏览器。"));
   }
-  return context.backend.request(operation, input);
+  return context.peer.request(operation, input);
 }
 
 function renderGitPanel(html: HtmlTemplateTag, controller: GitUiController, context: WorkspacePanelContext) {

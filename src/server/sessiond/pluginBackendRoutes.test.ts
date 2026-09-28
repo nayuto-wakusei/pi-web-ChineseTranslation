@@ -42,7 +42,7 @@ describe("sessiond plugin backend project resolution", () => {
   it("keeps ordinary requests on ProjectStore resolution", async () => {
     const response = await app.inject({
       method: "POST",
-      url: "/plugin-backends/git/projects/normal/workspaces/main/list",
+      url: "/paired-plugin-backends/git/projects/normal/workspaces/main/list",
       payload: { revision: "v1", input: {} },
     });
 
@@ -57,7 +57,7 @@ describe("sessiond plugin backend project resolution", () => {
     };
     const response = await app.inject({
       method: "POST",
-      url: "/plugin-backends/git/projects/managed/workspaces/main/list",
+      url: "/paired-plugin-backends/git/projects/managed/workspaces/main/list",
       headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) },
       payload: { revision: "v1", input: {} },
     });
@@ -74,7 +74,7 @@ describe("sessiond plugin backend project resolution", () => {
     };
     const response = await app.inject({
       method: "POST",
-      url: "/plugin-backends/git/projects/normal/workspaces/main/list",
+      url: "/paired-plugin-backends/git/projects/normal/workspaces/main/list",
       headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) },
       payload: { revision: "v1", input: {} },
     });

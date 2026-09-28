@@ -1,5 +1,5 @@
 import type { TemplateResult } from "lit";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 
 export type {
   FileContentMediaType,
@@ -20,6 +20,8 @@ export type {
   PiWebStatusResponse,
   PiWebStatusSeverity,
   PiWebVersionResponse,
+  PluginCapability,
+  PluginCapabilityProvision,
   TerminalCommandRun,
   TerminalCommandRunFilter,
   TerminalCommandRunHandle,
@@ -39,26 +41,42 @@ export type LocalContributionId = string;
 export type QualifiedContributionId = string;
 export type HtmlTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
 export type SvgTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
+type MaybePromise<T> = T | Promise<T>;
 
 export interface PiWebPlugin {
-  apiVersion: 2;
+  apiVersion: 4;
   name: string;
-  activate: (context: PluginActivationContext) => PluginActivationResult;
+  requires?: readonly PluginCapability[];
+  activate: (context: PluginActivationContext) => MaybePromise<PluginActivationResult>;
 }
 
 /** Host-owned frozen values supplied once during browser plugin activation. */
 export interface PluginActivationContext {
-  readonly apiVersion: 2;
+  readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
   /** Host-unique identity for qualified contribution references in this runtime. */
   readonly runtimePluginId?: PluginId;
   readonly html: HtmlTemplateTag;
   readonly svg: SvgTemplateTag;
+  readonly signal: AbortSignal;
+  readonly lifetimeSignal: AbortSignal;
+}
+
+export interface PluginCapabilityResolver {
+  readonly resolve: <Value>(capability: PluginCapability<Value>) => Value;
+}
+
+export interface PluginStartContext {
+  readonly capabilities: PluginCapabilityResolver;
+  readonly signal: AbortSignal;
 }
 
 export interface PluginActivationResult {
   contributions: PluginContributions;
+  provides?: readonly PluginCapabilityProvision[];
+  start?(context: PluginStartContext): MaybePromise<void>;
+  dispose?(signal: AbortSignal): MaybePromise<void>;
 }
 
 export interface PluginContributions {
@@ -96,7 +114,17 @@ export interface PluginPromptEditor {
   getSelection(): { start: number; end: number; text: string } | null;
 }
 
+export interface PluginNavigationDestination {
+  machineId?: string;
+  projectId?: string;
+  workspaceId?: string;
+  sessionId?: string;
+  view?: "navigation" | "chat" | "workspace";
+  tool?: QualifiedContributionId;
+}
+
 export interface PluginRuntimeContext {
+  navigate: (destination: PluginNavigationDestination) => Promise<void>;
   state: PluginRuntimeState;
   prompt: PluginPromptEditor;
   openActionPalette: () => void;
@@ -175,6 +203,26 @@ export interface WorkspaceBackend {
   request(operation: string, input: JsonValue): Promise<JsonValue>;
 }
 
+export interface PluginPeerRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface PluginPeerChannel {
+  readonly closed: Promise<{ readonly code: number; readonly reason: string; readonly wasClean: boolean }>;
+  send(data: JsonValue): void;
+  close(reason?: string): void;
+}
+
+export interface PluginPeerChannelOptions {
+  readonly signal?: AbortSignal;
+  readonly onData: (data: JsonValue) => void;
+}
+
+export interface PluginPeer {
+  request?(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+  openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+}
+
 export interface WorkspaceHost {
   requestRender(): void;
 }
@@ -188,6 +236,7 @@ export interface WorkspaceContext {
   files: WorkspaceFiles;
   /** Present only when this browser entry has a paired active server backend. */
   backend?: WorkspaceBackend;
+  peer?: PluginPeer;
   host: WorkspaceHost;
 }
 

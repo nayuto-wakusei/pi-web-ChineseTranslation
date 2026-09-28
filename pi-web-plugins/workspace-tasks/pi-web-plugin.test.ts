@@ -7,7 +7,8 @@ describe("workspace tasks plugin Chinese display text", () => {
     vi.stubGlobal("customElements", { get: () => undefined, define: vi.fn() });
 
     const { default: plugin } = await import("./pi-web-plugin");
-    const activation = plugin.activate({ apiVersion: 2, pluginId: "workspace-tasks", html, svg });
+    const signal = new AbortController().signal;
+    const activation = await plugin.activate({ apiVersion: 4, pluginId: "workspace-tasks", html, svg, signal, lifetimeSignal: signal });
 
     expect(plugin.name).toBe("工作区任务");
     expect(activation.contributions.actions?.[0]).toMatchObject({

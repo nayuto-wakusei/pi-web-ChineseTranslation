@@ -266,6 +266,8 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
   const name = optionalString(value, "name", label);
   const message = optionalString(value, "message", label);
   const browserRevision = optionalString(value, "browserRevision", label);
+  const pairedRequestVersion = optionalCapabilityVersion(value, "pairedRequestVersion", label);
+  const pairedChannelVersion = optionalCapabilityVersion(value, "pairedChannelVersion", label);
   return Object.freeze({
     pluginId: requirePluginId(value, "pluginId", label),
     source: requireString(value, "source", label),
@@ -274,6 +276,8 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
     ...(browserRevision === undefined ? {} : { browserRevision }),
     settingsRevision: requireString(value, "settingsRevision", label),
     machineSpecific: requireBoolean(value, "machineSpecific", label),
+    ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
+    ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
     state,
     ...(name === undefined ? {} : { name }),
     ...(phase === undefined ? {} : { phase }),
@@ -361,6 +365,12 @@ function requireString(record: Record<string, unknown>, field: string, label: st
   const value = record[field];
   if (typeof value !== "string" || value === "") throw protocolError(`${label} ${field} must be a non-empty string`);
   return value;
+}
+
+function optionalCapabilityVersion(record: Record<string, unknown>, field: string, label: string): 1 | undefined {
+  if (!Object.hasOwn(record, field) || record[field] === undefined) return undefined;
+  if (record[field] !== 1) throw protocolError(`${label} ${field} is invalid`);
+  return 1;
 }
 
 function optionalString(record: Record<string, unknown>, field: string, label: string): string | undefined {

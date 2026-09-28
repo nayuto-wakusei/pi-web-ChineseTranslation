@@ -24,7 +24,7 @@ describe("external plugin manifests", () => {
       plugins: [{ id: "info", module: "./info/pi-web-plugin.js?v=1", machineSpecific: false }],
     }))));
     const moduleLoader = vi.fn(() => Promise.resolve({
-      default: { apiVersion: 2, name: "Info", activate: () => ({ contributions: {} }) },
+      default: { apiVersion: 4, name: "Info", activate: () => ({ contributions: {} }) },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -32,7 +32,7 @@ describe("external plugin manifests", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(manifestUrl, { cache: "no-store" });
     expect(moduleLoader).toHaveBeenCalledWith("https://pi.example.test/test/ai/pi-web-plugins/info/pi-web-plugin.js?v=1");
-    expect(registrations.registrations).toMatchObject([{ id: "info", machineSpecific: false, plugin: { apiVersion: 2, name: "Info" } }]);
+    expect(registrations.registrations).toMatchObject([{ id: "info", machineSpecific: false, plugin: { apiVersion: 4, name: "Info" } }]);
   });
 
   it("treats root-style modules from existing manifests as application-root paths", () => {

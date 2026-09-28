@@ -1600,15 +1600,28 @@ function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
   const record = requireRecord(value);
   const module = optionalString(record, "module");
   const backendRevision = optionalString(record, "backendRevision");
+  const pairedRequestVersion = parsePairedCapabilityVersion(record["pairedRequestVersion"]);
+  const pairedChannelVersion = parsePairedCapabilityVersion(record["pairedChannelVersion"]);
+  if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) {
+    throw new Error("Invalid PI WEB plugin paired capability");
+  }
   return {
     id: requireString(record, "id"),
     ...(module === undefined ? {} : { module }),
     ...(backendRevision === undefined ? {} : { backendRevision }),
+    ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
+    ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
     source: requireString(record, "source"),
     scope: parsePiWebPluginScope(record["scope"]),
     machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,
     enabled: requireBoolean(record, "enabled"),
   };
+}
+
+function parsePairedCapabilityVersion(value: unknown): 1 | undefined {
+  if (value === undefined) return undefined;
+  if (value !== 1) throw new Error("Invalid PI WEB plugin paired capability version");
+  return 1;
 }
 
 function parsePiWebPluginScope(value: unknown): PiWebPluginScope {

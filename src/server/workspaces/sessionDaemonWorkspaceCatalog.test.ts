@@ -36,4 +36,32 @@ describe("session daemon workspace catalog proxy", () => {
     expect(decodeManagementContext(headers?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(context);
     expect(headers?.[WORKBENCH_ACCESS_HANDLE_HEADER]).toBe("opaque-workbench-handle");
   });
+
+  it("keeps paired plugin capability versions from the daemon runtime snapshot", async () => {
+    const catalog = new SessionDaemonWorkspaceCatalog({
+      request: () => Promise.resolve({
+        statusCode: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          protocolVersion: 1,
+          records: [{
+            pluginId: "git",
+            source: "bundled",
+            scope: "bundled",
+            moduleRevision: "git-r1",
+            settingsRevision: "settings-r1",
+            machineSpecific: false,
+            pairedRequestVersion: 1,
+            state: "active",
+          }],
+          health: [],
+          diagnostics: [],
+        }),
+      }),
+    });
+
+    await expect(catalog.providerRuntime()).resolves.toMatchObject({
+      records: [{ pluginId: "git", pairedRequestVersion: 1 }],
+    });
+  });
 });

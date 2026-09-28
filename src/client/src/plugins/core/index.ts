@@ -4,7 +4,7 @@ import { createCoreActions } from "./actions";
 import { createCoreWorkspacePanels } from "./panels";
 
 export const corePlugin: PiWebPlugin = {
-  apiVersion: 2,
+  apiVersion: 4,
   name: "PI WEB 核心",
   activate: () => {
     const terminalEnabled = !isManagementEmbedMode();

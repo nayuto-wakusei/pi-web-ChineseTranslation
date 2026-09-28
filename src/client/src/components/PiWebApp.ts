@@ -37,12 +37,12 @@ import type { ServerNotice } from "../../../shared/apiTypes";
 import { HttpRequestError } from "../api/http";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
-import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePluginBinding } from "../plugins/types";
+import type { PiWebPluginRegistration, PluginMachine, PluginNavigationDestination, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePluginBinding } from "../plugins/types";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
 import { PluginRegistry, installPluginRuntimeScope, installWorkspaceLabelScope, installWorkspacePanelScope } from "../plugins/registry";
-import { createPluginWorkspaceBackend } from "../plugins/workspaceBackend";
+import { createPluginPeer, createPluginWorkspaceBackend } from "../plugins/workspaceBackend";
 import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
@@ -781,6 +781,30 @@ export class PiWebApp extends LitElement {
     }
     await this.restoreRouteFor(route, updateUrl);
     if (this.routeContentError() === "") this.rememberCurrentMachineNavigation();
+  }
+
+  private async navigate(destination: PluginNavigationDestination): Promise<void> {
+    if (typeof destination !== "object" || Array.isArray(destination)) throw new TypeError("Navigation destination must be an object");
+    for (const key of ["machineId", "projectId", "workspaceId", "sessionId", "tool"] as const) {
+      if (destination[key] !== undefined && typeof destination[key] !== "string") throw new TypeError(`Navigation ${key} must be a string`);
+    }
+    if (destination.view !== undefined && !["navigation", "chat", "workspace"].includes(destination.view)) {
+      throw new TypeError("Navigation view must be navigation, chat, or workspace");
+    }
+    const view = destination.view === "workspace"
+      ? destination.tool ?? this.state.workspaceTool
+      : destination.view === "navigation" || destination.view === undefined && destination.tool === undefined
+        ? undefined
+        : destination.view ?? destination.tool;
+    writeRoute({
+      machineId: destination.machineId ?? selectedMachineId(this.state),
+      projectId: destination.projectId,
+      workspaceId: destination.workspaceId,
+      sessionId: destination.sessionId,
+      tool: destination.tool,
+      view,
+    });
+    await this.restoreRoute(false);
   }
 
   private async restoreRouteFor(route: AppRoute, updateUrl: boolean, surface = this.readWorkspaceRouteSurface(route), restoredMainView?: AppState["mainView"]) {
@@ -1936,12 +1960,14 @@ export class PiWebApp extends LitElement {
     const machine = pluginMachineFromState(this.state);
     const createContext = (binding: WorkspacePluginBinding): WorkspaceLabelContext => {
       const backend = createPluginWorkspaceBackend(binding, workspace, machine.id);
+      const peer = createPluginPeer(binding, workspace, machine.id);
       return installWorkspaceLabelScope({
         machine,
         workspace,
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machine.id),
         ...(backend === undefined ? {} : { backend }),
+        ...(peer === undefined ? {} : { peer }),
         host: this.createWorkspaceHost(),
       }, createContext);
     };
@@ -1983,10 +2009,12 @@ export class PiWebApp extends LitElement {
     const createContext = (binding: WorkspacePluginBinding): WorkspacePanelContext => {
       const terminalCommandRuns = this.terminalCommandRunsForOrigin(binding.registrationPluginId, machineId);
       const backend = createPluginWorkspaceBackend(binding, workspace, machineId);
+      const peer = createPluginPeer(binding, workspace, machineId);
       return installWorkspacePanelScope({
         machine,
         workspace,
         ...(backend === undefined ? {} : { backend }),
+        ...(peer === undefined ? {} : { peer }),
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machineId),
         prompt: this.createPromptEditor(),
@@ -2165,7 +2193,7 @@ export class PiWebApp extends LitElement {
       const registrations = await load();
       for (const registration of registrations) {
         try {
-          this.plugins.register(registration);
+          await this.plugins.register(registration);
         } catch (error) {
           console.warn(`Failed to register PI WEB plugin ${registration.id}`, error);
         }
@@ -2227,6 +2255,7 @@ export class PiWebApp extends LitElement {
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
       selectMainView: (view) => { this.selectMainView(view); },
+      navigate: (destination) => this.navigate(destination),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
       openTerminal: (options) => { this.openTerminal(options); },
       refreshFiles: () => this.files.refreshFiles(),
@@ -2891,8 +2920,8 @@ function modelValueFromStatus(status: AppState["status"]): string | undefined {
 
 function createPluginRegistry(): PluginRegistry {
   const registry = new PluginRegistry();
-  registry.register({ id: "core", plugin: corePlugin });
-  registry.register({ id: "themes", plugin: themePackPlugin });
+  void registry.register({ id: "core", plugin: corePlugin });
+  void registry.register({ id: "themes", plugin: themePackPlugin });
   return registry;
 }
 

@@ -52,11 +52,21 @@ import { PiPackageDismissalStore, piPackageDismissalStorePath } from "./storage/
 import { reconcileAutoInstallablePiPackages } from "./sessiond/autoInstallPiPackages.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
+import {
+  PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
+  PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+  PI_WEB_HOST_WORKSPACES_CAPABILITY,
+} from "../server-plugin-api.js";
 import { createServerPluginRuntime } from "./plugins/serverPluginRuntime.js";
+import { createServerPluginPiSessionEventsCapabilityFactory } from "./plugins/serverPluginPiSessionEventsCapability.js";
+import { createServerPluginPiSessionsCapabilityFactory } from "./plugins/serverPluginPiSessionsCapability.js";
+import { createServerPluginWorkspacesCapabilityFactory } from "./plugins/serverPluginWorkspacesCapability.js";
 import { eligibleWorkspaceProviderContributions, WorkspaceProviderRegistry } from "./workspaces/workspaceProviderRegistry.js";
+import { eligiblePluginBackendContributions, PluginBackendRegistry } from "./plugins/pluginBackendRegistry.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
+import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 import { registerProjectMutationRoutes } from "./sessiond/projectMutationRoutes.js";
@@ -119,9 +129,15 @@ await runSessionDaemonStartup({
     await unreadStore.load();
     const serverPlugins = await createServerPluginRuntime({
       catalog: serverPluginCatalog,
+      dataDir: piWebDataDir(),
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
       logger: app.log,
       execFile: createServerPluginExecFile({ env: daemonEnvironment }),
+      lateHostCapabilities: [
+        PI_WEB_HOST_WORKSPACES_CAPABILITY,
+        PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+        PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
+      ],
     });
     const providerHealth = await serverPlugins.inspectHealth();
     const workspaceProviders = new WorkspaceProviderRegistry({
@@ -251,6 +267,11 @@ await runSessionDaemonStartup({
         sessionDirEnvKeys: activeAgentProfile.sessionDirEnvKeys,
       }),
     });
+    await serverPlugins.resumeWithHostCapabilityFactories([
+      createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
+      createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
+      createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
+    ]);
     const statusAttribution = new CachedWorkspaceAttribution({
       projects: { list: projectsForScope },
       workspaces: { list: (project) => workspaceProviders.list(project) },
@@ -280,15 +301,21 @@ await runSessionDaemonStartup({
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     const terminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices, managementAllowPrivileged);
+    const pluginHealth = await serverPlugins.inspectHealth();
+    const pluginBackends = new PluginBackendRegistry({
+      contributions: eligiblePluginBackendContributions(serverPlugins.pairedBackendContributions(), pluginHealth),
+      workspaces: workspaceProviders,
+      logger: app.log,
+    });
     const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals, { notices: serverNotices });
     const runtimeComponent = Object.freeze({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
     projectLifecycle.scheduleCleanup();
-    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, workspaceProviderRuntime, workspaceRemovals, projects };
+    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects };
   },
-  registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, workspaceProviderRuntime, workspaceRemovals }) {
+  registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
     registerProjectMutationRoutes(app, projectLifecycle);
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
@@ -301,11 +328,12 @@ await runSessionDaemonStartup({
       ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
       : undefined;
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot });
-    registerPluginBackendRoutes(app, { projects, backends: workspaceProviders, managementProjectRoot, onWorkspacesMutated: (scope) => {
+    registerPluginBackendRoutes(app, { projects, backends: pluginBackends, managementProjectRoot, onWorkspacesMutated: (scope) => {
       statusAttribution.invalidate();
       machineStatus.notifyChanged(scope);
       if (scope === NORMAL_SESSION_EVENT_SCOPE) projectLifecycle.scheduleCleanup();
     } });
+    registerPluginBackendChannelRoutes(app, { projects, backends: pluginBackends, managementProjectRoot });
     registerWorkspaceRemovalRoutes(app, { projects, removals: workspaceRemovals, managementProjectRoot, onWorkspacesMutated: (scope) => {
       statusAttribution.invalidate();
       machineStatus.notifyChanged(scope);
@@ -328,7 +356,7 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ projectAuth, managementAuth, projectLifecycle, sessions, terminals, normalToolAudit, managementAudit, serverPlugins }) {
+  async listen({ projectAuth, managementAuth, projectLifecycle, sessions, terminals, normalToolAudit, managementAudit, serverPlugins, pluginBackends }) {
     let shuttingDown = false;
     async function shutdown(signal: NodeJS.Signals): Promise<void> {
       if (shuttingDown) return;
@@ -336,6 +364,7 @@ await runSessionDaemonStartup({
       app.log.info({ signal }, "shutting down session daemon");
       await projectLifecycle.closeAll();
       terminals.dispose();
+      await pluginBackends.closeAll();
       await serverPlugins.stop();
       await projectAuth.dispose();
       managementAuth.dispose();

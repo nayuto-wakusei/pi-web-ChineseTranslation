@@ -8,8 +8,22 @@ export interface JsonObject {
   readonly [key: string]: JsonValue;
 }
 
+/** One exact host or plugin capability version. Parsers validate values at each boundary. */
+export interface PluginCapability<Value = unknown, Version extends number = number> {
+  readonly pluginId: string;
+  readonly id: string;
+  readonly version: Version;
+  readonly parse: (value: unknown) => Value;
+}
+
+export interface PluginCapabilityProvision<Value = unknown, Version extends number = number> {
+  readonly capability: PluginCapability<Value, Version>;
+  readonly value: Value;
+}
+
 export interface WorkspaceProviderCapabilities {
-  readonly request: boolean;
+  /** Legacy provider request support during the Git peer migration. */
+  readonly request?: boolean;
   /** True only when this specific workspace advertises removal. */
   readonly remove: boolean;
 }

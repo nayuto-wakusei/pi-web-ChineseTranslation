@@ -25,6 +25,8 @@ import { registerGitRoutes } from "./gitRoutes.js";
 import { GitStatusCache } from "./git/gitService.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerPluginBackendProxyRoutes } from "./plugins/pluginBackendProxyRoutes.js";
+import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackendChannelProxyRoutes.js";
+import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
@@ -204,6 +206,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     threshold: 1024,
   });
   await app.register(fastifyWebsocket);
+  installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
 
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const legacyWorkspaces = deps.workspaces ?? new WorkspaceService();
@@ -292,8 +295,10 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
-  registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/plugin-backends", managementEmbed);
-  registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/machines/local/plugin-backends", managementEmbed);
+  registerPluginBackendProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
+  registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
+  registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
   const fileSuggestions = new FileSuggestionCatalog();
   registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
   registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });

@@ -24,7 +24,7 @@ beforeEach(() => {
       requestHeaders = headers;
       return Promise.resolve({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });
     },
-  }, "/api/plugin-backends", managementEmbed);
+  }, "/api", managementEmbed);
 });
 
 afterEach(async () => {
@@ -35,7 +35,7 @@ describe("plugin backend proxy management context", () => {
   it("forwards the management context and opaque Workbench handle", async () => {
     const response = await app.inject({
       method: "POST",
-      url: "/api/plugin-backends/git/projects/managed/workspaces/main/list?embed=management&token=entry-token",
+      url: "/api/paired-plugin-backends/git/projects/managed/workspaces/main/list?embed=management&token=entry-token",
       payload: { revision: "v1", input: {} },
     });
 

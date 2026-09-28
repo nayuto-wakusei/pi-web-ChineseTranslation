@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
+  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
   utf8ByteLength,
@@ -20,11 +21,11 @@ interface PluginBackendProxyParams {
 export function registerPluginBackendProxyRoutes(
   app: FastifyInstance,
   daemon: SessionDaemonRequestClient,
-  prefix = "/api/plugin-backends",
+  prefix = "/api",
   managementEmbed?: ManagementEmbedRuntime,
 ): void {
   app.post<{ Params: PluginBackendProxyParams; Body: unknown }>(
-    `${prefix}/:pluginId/projects/:projectId/workspaces/:workspaceId/:operation`,
+    `${prefix}${PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH}`,
     { bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES },
     async (request, reply) => {
       const path = daemonPluginBackendPath(request.params);
@@ -72,7 +73,7 @@ export function registerPluginBackendProxyRoutes(
 
 function daemonPluginBackendPath(params: PluginBackendProxyParams): string {
   return [
-    "/plugin-backends",
+    "/paired-plugin-backends",
     encodeURIComponent(params.pluginId),
     "projects",
     encodeURIComponent(params.projectId),

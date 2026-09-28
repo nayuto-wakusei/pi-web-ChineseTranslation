@@ -28,7 +28,7 @@ describe("plugin backend API scope", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://pi.example.test/api/plugin-backends/git/projects/managed/workspaces/main/status?embed=management&token=launch-token",
+      "https://pi.example.test/api/paired-plugin-backends/git/projects/managed/workspaces/main/status?embed=management&token=launch-token",
     );
   });
 });

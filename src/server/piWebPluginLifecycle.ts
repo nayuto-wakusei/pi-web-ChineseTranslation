@@ -23,6 +23,8 @@ export type ProviderRuntimeLoadResult =
 export interface ReconciledBrowserPlugin {
   plugin: PiWebPluginCatalogEntry;
   backendRevision?: string;
+  pairedRequestVersion?: 1;
+  pairedChannelVersion?: 1;
 }
 
 export interface PiWebPluginLifecycleReconciliation {
@@ -61,6 +63,8 @@ export function reconcilePiWebPluginLifecycle(
         browserPlugins.push({
           plugin,
           ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
+          ...(record?.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: record.pairedRequestVersion }),
+          ...(record?.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: record.pairedChannelVersion }),
         });
       }
 

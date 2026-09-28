@@ -4,10 +4,12 @@ import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeEntry, F
 import type { AppState } from "../appState";
 import type { SettingsSection } from "../settingsRoute";
 import type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
+import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
 
 export type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
 export type HtmlTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
 export type SvgTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
+type MaybePromise<T> = T | Promise<T>;
 
 export interface PiWebPluginRegistration {
   id: PluginId;
@@ -15,6 +17,8 @@ export interface PiWebPluginRegistration {
   machineId?: string;
   sourcePluginId?: PluginId;
   backendRevision?: string;
+  pairedRequestVersion?: 1;
+  pairedChannelVersion?: 1;
   machineSpecific?: boolean;
 }
 
@@ -22,26 +26,39 @@ export interface WorkspacePluginBinding {
   registrationPluginId: PluginId;
   sourcePluginId: PluginId;
   backendRevision?: string;
+  pairedRequestVersion?: 1;
+  pairedChannelVersion?: 1;
 }
 
 export interface PiWebPlugin {
-  apiVersion: 2;
+  apiVersion: 4;
   name: string;
-  activate: (context: PluginActivationContext) => PluginActivationResult;
+  requires?: readonly PluginCapability[];
+  activate: (context: PluginActivationContext) => MaybePromise<PluginActivationResult>;
 }
 
 export interface PluginActivationContext {
-  readonly apiVersion: 2;
+  readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
   /** Host-unique identity for qualified contribution references in this runtime. */
   readonly runtimePluginId: PluginId;
   readonly html: HtmlTemplateTag;
   readonly svg: SvgTemplateTag;
+  readonly signal: AbortSignal;
+  readonly lifetimeSignal: AbortSignal;
+}
+
+export interface PluginStartContext {
+  readonly capabilities: { readonly resolve: <Value>(capability: PluginCapability<Value>) => Value };
+  readonly signal: AbortSignal;
 }
 
 export interface PluginActivationResult {
   contributions: PluginContributions;
+  provides?: readonly PluginCapabilityProvision[];
+  start?(context: PluginStartContext): MaybePromise<void>;
+  dispose?(signal: AbortSignal): MaybePromise<void>;
 }
 
 export interface PluginContributions {
@@ -71,6 +88,26 @@ export interface WorkspaceBackend {
   request(operation: string, input: JsonValue): Promise<JsonValue>;
 }
 
+export interface PluginPeerRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface PluginPeerChannel {
+  readonly closed: Promise<{ readonly code: number; readonly reason: string; readonly wasClean: boolean }>;
+  send(data: JsonValue): void;
+  close(reason?: string): void;
+}
+
+export interface PluginPeerChannelOptions {
+  readonly signal?: AbortSignal;
+  readonly onData: (data: JsonValue) => void;
+}
+
+export interface PluginPeer {
+  request?(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+  openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+}
+
 export interface WorkspaceHost {
   requestRender(): void;
 }
@@ -81,6 +118,7 @@ export interface WorkspaceContext {
   state: AppState;
   files: WorkspaceFiles;
   backend?: WorkspaceBackend;
+  peer?: PluginPeer;
   host: WorkspaceHost;
 }
 
@@ -109,7 +147,17 @@ export interface PluginPromptEditor {
   getSelection(): { start: number; end: number; text: string } | null;
 }
 
+export interface PluginNavigationDestination {
+  machineId?: string;
+  projectId?: string;
+  workspaceId?: string;
+  sessionId?: string;
+  view?: "navigation" | "chat" | "workspace";
+  tool?: QualifiedContributionId;
+}
+
 export interface PluginRuntimeContext {
+  navigate: (destination: PluginNavigationDestination) => Promise<void>;
   state: AppState;
   prompt: PluginPromptEditor;
   piWebUnstable?: PiWebUnstableRuntimeContext;

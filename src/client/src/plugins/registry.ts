@@ -1,6 +1,7 @@
 import { html, svg } from "lit";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
-import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding } from "./types";
+import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
+import type { PiWebPluginRegistration, PluginAction, PluginActivationResult, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
 const localIdPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -30,8 +31,11 @@ export class PluginRegistry {
   private readonly gatewayMachineSpecificPluginIds = new Set<string>();
   private readonly remoteMachineSpecificPluginIds = new Map<string, Set<string>>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
+  private readonly capabilities = new Map<string, PluginCapabilityProvision>();
+  private readonly activePlugins: { id: string; activation: PluginActivationResult; lifetime: AbortController }[] = [];
+  private shuttingDown = false;
 
-  register(registration: PiWebPluginRegistration): void {
+  register(registration: PiWebPluginRegistration): Promise<void> {
     const { plugin } = registration;
     const runtimePluginId = registration.id;
     const sourcePluginId = registration.sourcePluginId ?? runtimePluginId;
@@ -39,24 +43,67 @@ export class PluginRegistry {
     this.validatePluginId(sourcePluginId);
     const machineSpecific = this.parseMachineSpecific(runtimePluginId, registration.machineSpecific);
     const backendRevision = this.parseBackendRevision(runtimePluginId, registration.backendRevision);
+    this.parsePairedCapabilityVersions(runtimePluginId, registration, backendRevision);
     if (this.pluginIds.has(runtimePluginId) || this.registeringPluginIds.has(runtimePluginId)) throw new Error(`Duplicate plugin id: ${runtimePluginId}`);
-    if (this.isRemoteDuplicateHiddenByGateway(registration.sourcePluginId, registration.machineId, machineSpecific)) return;
+    if (this.isRemoteDuplicateHiddenByGateway(registration.sourcePluginId, registration.machineId, machineSpecific)) return Promise.resolve();
 
     this.registeringPluginIds.add(runtimePluginId);
     try {
       const apiVersion: unknown = plugin.apiVersion;
-      if (apiVersion !== 2) throw new Error(`Unsupported browser plugin API version for ${sourcePluginId}: ${String(apiVersion)} (expected 2)`);
-      const contributions = plugin.activate(Object.freeze({
-        apiVersion: 2,
+      if (apiVersion !== 4) throw new Error(`Unsupported browser plugin API version for ${sourcePluginId}: ${String(apiVersion)} (expected 4)`);
+      if (this.shuttingDown) throw new Error("Browser plugin host is shutting down");
+      const requirements = plugin.requires ?? [];
+      for (const requirement of requirements) {
+        if (!this.capabilities.has(capabilityKey(requirement))) throw new Error(`Unavailable browser plugin capability: ${capabilityKey(requirement)}`);
+      }
+      const lifetime = new AbortController();
+      const activated = plugin.activate(Object.freeze({
+        apiVersion: 4,
         pluginId: sourcePluginId,
         runtimePluginId,
         html,
         svg,
-      })).contributions;
+        signal: lifetime.signal,
+        lifetimeSignal: lifetime.signal,
+      }));
+      if (activated instanceof Promise) {
+        return activated.then((activation) => this.finishRegistration(registration, activation, lifetime, requirements))
+          .finally(() => { this.registeringPluginIds.delete(runtimePluginId); });
+      }
+      const result = this.finishRegistration(registration, activated, lifetime, requirements);
+      return result.finally(() => { this.registeringPluginIds.delete(runtimePluginId); });
+    } catch (error) {
+      this.registeringPluginIds.delete(runtimePluginId);
+      throw error;
+    }
+  }
+
+  private finishRegistration(
+    registration: PiWebPluginRegistration,
+    activation: PluginActivationResult,
+    lifetime: AbortController,
+    requirements: readonly PluginCapability[],
+  ): Promise<void> {
+    const runtimePluginId = registration.id;
+    const sourcePluginId = registration.sourcePluginId ?? runtimePluginId;
+    const machineSpecific = this.parseMachineSpecific(runtimePluginId, registration.machineSpecific);
+    const backendRevision = this.parseBackendRevision(runtimePluginId, registration.backendRevision);
+    const pairedRequestVersion = this.parsePairedCapabilityVersion(runtimePluginId, "request", registration.pairedRequestVersion, backendRevision);
+    const pairedChannelVersion = this.parsePairedCapabilityVersion(runtimePluginId, "channel", registration.pairedChannelVersion, backendRevision);
+    const contributions = activation.contributions;
+    const publish = (): void => {
+      if (this.shuttingDown || lifetime.signal.aborted) return;
+      for (const provision of activation.provides ?? []) {
+        const key = capabilityKey(provision.capability);
+        if (provision.capability.pluginId !== sourcePluginId) throw new Error(`Plugin ${sourcePluginId} cannot provide ${key}`);
+        if (this.capabilities.has(key)) throw new Error(`Duplicate browser plugin capability: ${key}`);
+        provision.capability.parse(provision.value);
+        this.capabilities.set(key, provision);
+      }
       const contributionIds = new Set<QualifiedContributionId>();
       const actions = (contributions.actions ?? []).map((action) => this.qualifyAction(runtimePluginId, action, registration.machineId, registration.sourcePluginId, contributionIds));
-      const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, contributionIds));
-      const workspaceLabels = (contributions.workspaceLabels ?? []).map((contribution) => this.qualifyWorkspaceLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, contributionIds));
+      const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
+      const workspaceLabels = (contributions.workspaceLabels ?? []).map((contribution) => this.qualifyWorkspaceLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
       const themes = registration.machineId === undefined
         ? (contributions.themes ?? []).map((theme) => this.qualifyTheme(runtimePluginId, theme, contributionIds))
         : [];
@@ -71,15 +118,50 @@ export class PluginRegistry {
       this.workspaceLabels.push(...workspaceLabels);
       this.themes.push(...themes);
       this.themePairs.push(...themePairs);
+      this.activePlugins.push({ id: runtimePluginId, activation, lifetime });
       if (registration.machineId === undefined) {
         this.gatewayPluginIds.add(runtimePluginId);
         if (machineSpecific) this.gatewayMachineSpecificPluginIds.add(runtimePluginId);
       } else if (registration.sourcePluginId !== undefined && machineSpecific) {
         addMappedSetValue(this.remoteMachineSpecificPluginIds, registration.sourcePluginId, registration.machineId);
       }
-    } finally {
-      this.registeringPluginIds.delete(runtimePluginId);
+    };
+    const start = activation.start?.bind(activation);
+    if (start === undefined) {
+      publish();
+      return Promise.resolve();
     }
+    const resolved = new Map(requirements.map((requirement) => [capabilityKey(requirement), this.capabilities.get(capabilityKey(requirement))]));
+    const started = start({
+      capabilities: {
+        resolve: <Value>(capability: PluginCapability<Value>): Value => {
+          const key = capabilityKey(capability);
+          if (!resolved.has(key)) throw new Error(`Undeclared browser plugin capability: ${key}`);
+          const provision = resolved.get(key);
+          if (provision === undefined) throw new Error(`Unavailable browser plugin capability: ${key}`);
+          return capability.parse(provision.value);
+        },
+      },
+      signal: lifetime.signal,
+    });
+    if (started instanceof Promise) return started.then(publish).catch((error: unknown) => { lifetime.abort(error); throw error; });
+    publish();
+    return Promise.resolve();
+  }
+
+  beginShutdown(): void {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    for (const active of this.activePlugins) active.lifetime.abort();
+  }
+
+  async dispose(): Promise<void> {
+    this.beginShutdown();
+    for (const active of [...this.activePlugins].reverse()) {
+      try { await active.activation.dispose?.(new AbortController().signal); }
+      catch (error) { console.warn(`Failed to dispose PI WEB plugin ${active.id}`, error); }
+    }
+    this.activePlugins.length = 0;
   }
 
   hasPlugin(pluginId: string): boolean {
@@ -183,13 +265,15 @@ export class PluginRegistry {
     machineId: string | undefined,
     sourcePluginId: string | undefined,
     backendRevision: string | undefined,
+    pairedRequestVersion: 1 | undefined,
+    pairedChannelVersion: 1 | undefined,
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedWorkspacePanelContribution {
     const id = this.qualify(pluginId, panel.id, contributionIds);
     const badge = panel.badge;
     const visible = panel.visible;
     const onInvalidate = panel.onInvalidate;
-    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision);
+    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion);
     const sourceId = `${sourcePluginId ?? pluginId}:${panel.id}`;
     const routeAliases = this.parseRouteAliases(id, panel.routeAliases, sourceId);
     return {
@@ -213,12 +297,14 @@ export class PluginRegistry {
     machineId: string | undefined,
     sourcePluginId: string | undefined,
     backendRevision: string | undefined,
+    pairedRequestVersion: 1 | undefined,
+    pairedChannelVersion: 1 | undefined,
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedWorkspaceLabelContribution {
     const id = this.qualify(pluginId, contribution.id, contributionIds);
     const visible = contribution.visible;
     const items = contribution.items;
-    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision);
+    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion);
     return {
       ...contribution,
       id,
@@ -319,11 +405,40 @@ export class PluginRegistry {
     }
   }
 
+  private parsePairedCapabilityVersions(
+    pluginId: string,
+    registration: PiWebPluginRegistration,
+    backendRevision: string | undefined,
+  ): void {
+    this.parsePairedCapabilityVersion(pluginId, "request", registration.pairedRequestVersion, backendRevision);
+    this.parsePairedCapabilityVersion(pluginId, "channel", registration.pairedChannelVersion, backendRevision);
+  }
+
+  private parsePairedCapabilityVersion(
+    pluginId: string,
+    capability: "request" | "channel",
+    value: unknown,
+    backendRevision: string | undefined,
+  ): 1 | undefined {
+    if (value === undefined) return undefined;
+    if (value !== 1 || backendRevision === undefined) {
+      throw new Error(`Invalid plugin paired ${capability} version for ${pluginId}`);
+    }
+    return 1;
+  }
+
   private parseMachineSpecific(pluginId: string, value: unknown): boolean {
     if (value === undefined) return false;
     if (typeof value !== "boolean") throw new Error(`Invalid plugin machineSpecific value for ${pluginId}: ${formatUnknownValue(value)}`);
     return value;
   }
+}
+
+function capabilityKey(capability: PluginCapability): string {
+  if (!idPattern.test(capability.pluginId) || !localIdPattern.test(capability.id) || !Number.isSafeInteger(capability.version) || capability.version < 1 || typeof capability.parse !== "function") {
+    throw new Error("Invalid browser plugin capability");
+  }
+  return `${capability.pluginId}:${capability.id}@${String(capability.version)}`;
 }
 function pluginRuntimeContextFor(context: PluginRuntimeContext, pluginId: string): PluginRuntimeContext {
   return pluginRuntimeScopes.get(context)?.(pluginId) ?? context;
@@ -362,11 +477,15 @@ function workspacePluginBinding(
   registrationPluginId: string,
   sourcePluginId: string | undefined,
   backendRevision: string | undefined,
+  pairedRequestVersion: 1 | undefined,
+  pairedChannelVersion: 1 | undefined,
 ): WorkspacePluginBinding {
   return Object.freeze({
     registrationPluginId,
     sourcePluginId: sourcePluginId ?? registrationPluginId,
     ...(backendRevision === undefined ? {} : { backendRevision }),
+    ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
+    ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
   });
 }
 

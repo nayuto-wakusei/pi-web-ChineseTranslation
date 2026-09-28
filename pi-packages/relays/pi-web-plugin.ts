@@ -3,7 +3,7 @@ import { RELAYS_ROOT } from "./relayDiscovery.js";
 import { defineRelaysPanelElement } from "./relaysPanelElement.js";
 
 const plugin: PiWebPlugin = {
-  apiVersion: 2,
+  apiVersion: 4,
   name: "中继",
   activate: ({ pluginId, html, svg }) => {
     defineRelaysPanelElement();

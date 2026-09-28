@@ -250,7 +250,7 @@ function isUnknownRemotePluginBackendRoute(
   statusCode: number,
   body: NodeJS.ReadableStream | Buffer | undefined,
 ): boolean {
-  if (!spec.path.startsWith("/plugin-backends/") || statusCode !== 404 || !(body instanceof Buffer)) return false;
+  if (!spec.path.startsWith("/paired-plugin-backends/") || statusCode !== 404 || !(body instanceof Buffer)) return false;
   try {
     const value: unknown = JSON.parse(body.toString("utf8"));
     if (!isRecord(value) || value["statusCode"] !== 404 || value["error"] !== "Not Found") return false;

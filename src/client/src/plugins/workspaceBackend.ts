@@ -1,12 +1,35 @@
 import type { JsonValue, Workspace } from "../api";
-import { requestPluginBackend, type PluginBackendRequestTarget } from "../api/pluginBackends";
-import type { WorkspaceBackend, WorkspacePluginBinding } from "./types";
+import { openPluginBackendChannel, requestPluginBackend, type PluginBackendRequestOptions, type PluginBackendRequestTarget } from "../api/pluginBackends";
+import type { PluginPeer, WorkspaceBackend, WorkspacePluginBinding } from "./types";
 
 export type PluginBackendRequester = (
   target: PluginBackendRequestTarget,
   operation: string,
   input: JsonValue,
+  options?: PluginBackendRequestOptions,
 ) => Promise<JsonValue>;
+
+export function createPluginPeer(
+  binding: WorkspacePluginBinding,
+  workspace: Pick<Workspace, "id" | "projectId">,
+  machineId: string,
+  request: PluginBackendRequester = requestPluginBackend,
+): PluginPeer | undefined {
+  if (binding.pairedRequestVersion !== 1 && binding.pairedChannelVersion !== 1) return undefined;
+  const backendRevision = binding.backendRevision;
+  if (backendRevision === undefined) return undefined;
+  const target = {
+    pluginId: binding.sourcePluginId,
+    backendRevision,
+    machineId,
+    projectId: workspace.projectId,
+    workspaceId: workspace.id,
+  };
+  return {
+    ...(binding.pairedRequestVersion === 1 ? { request: (operation: string, input: JsonValue, options?: PluginBackendRequestOptions) => request(target, operation, input, options) } : {}),
+    ...(binding.pairedChannelVersion === 1 ? { openChannel: (operation: string, input: JsonValue, options: Parameters<typeof openPluginBackendChannel>[3]) => openPluginBackendChannel(target, operation, input, options) } : {}),
+  };
+}
 
 export function createPluginWorkspaceBackend(
   binding: WorkspacePluginBinding,

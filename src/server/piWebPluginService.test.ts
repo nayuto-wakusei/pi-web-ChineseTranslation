@@ -29,7 +29,7 @@ describe("PiWebPluginService", () => {
     const pluginDir = join(tempDir, "plugins", "info");
     await writePlugin(pluginDir, {
       packageJson: { piWeb: { plugins: [{ id: "info", module: "pi-web-plugin.js" }] } },
-      files: { "pi-web-plugin.js": "export default { apiVersion: 1, name: 'Info', activate: () => ({ contributions: {} }) };" },
+      files: { "pi-web-plugin.js": "export default { apiVersion: 4, name: 'Info', activate: () => ({ contributions: {} }) };" },
     });
 
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
@@ -119,7 +119,7 @@ describe("PiWebPluginService", () => {
     const packageDir = join(tempDir, "pkg");
     await writePlugin(packageDir, {
       packageJson: { piWeb: { plugins: [{ id: "review", module: "dist/review.js" }] } },
-      files: { "dist/review.js": "export default { apiVersion: 1, name: 'Review', activate: () => ({ contributions: {} }) };" },
+      files: { "dist/review.js": "export default { apiVersion: 4, name: 'Review', activate: () => ({ contributions: {} }) };" },
     });
     const packageProvider: PiPackageProvider = {
       listPackages: () => [{ source: "npm:@acme/review", scope: "user", installedPath: packageDir }],
@@ -199,7 +199,7 @@ describe("PiWebPluginService", () => {
     await writeFile(join(tempDir, "src", "server", "index.ts"), "export {};\n");
     await writePlugin(join(tempDir, "plugins", "source-dev"), {
       packageJson: { piWeb: { plugins: [{ id: "source-dev", module: "dist/pi-web-plugin.js" }] } },
-      files: { "dist/pi-web-plugin.js": "export default { apiVersion: 1, name: 'Source Dev', activate: () => ({ contributions: {} }) };" },
+      files: { "dist/pi-web-plugin.js": "export default { apiVersion: 4, name: 'Source Dev', activate: () => ({ contributions: {} }) };" },
     });
 
     const service = new PiWebPluginService({ cwd: tempDir, packageProvider: false });
@@ -215,7 +215,7 @@ describe("PiWebPluginService", () => {
     const pluginDir = join(tempDir, "dev-plugin");
     await writePlugin(pluginDir, {
       packageJson: { piWeb: { plugins: [{ id: "dev", module: "pi-web-plugin.js" }] } },
-      files: { "pi-web-plugin.js": "export default { apiVersion: 1, name: 'Dev', activate: () => ({ contributions: {} }) };" },
+      files: { "pi-web-plugin.js": "export default { apiVersion: 4, name: 'Dev', activate: () => ({ contributions: {} }) };" },
     });
     await mkdir(join(tempDir, "plugins"), { recursive: true });
     await symlink(pluginDir, join(tempDir, "plugins", "dev"), process.platform === "win32" ? "junction" : "dir");

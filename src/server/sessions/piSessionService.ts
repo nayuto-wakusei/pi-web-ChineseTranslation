@@ -7,6 +7,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createEventBus,
   createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
@@ -50,6 +51,8 @@ import type { PiWebConfigService } from "../configRoutes.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT, type PiWebAttachmentsConfig } from "../../shared/apiTypes.js";
 import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
+import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
+import { PiSessionEventConnections } from "./piSessionEventConnections.js";
 import type { SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
@@ -303,7 +306,7 @@ interface PersistedChildSubsessionLink {
   spawnedSessionId: string;
 }
 
-type SessionCreationProvenance = "tracked-subsession";
+type SessionCreationProvenance = "tracked-subsession" | "host-one-shot";
 
 interface StartSessionOptions {
   parentSession?: string;
@@ -613,6 +616,11 @@ interface CreateSessionRuntimeOptions extends Pick<InternalStartSessionOptions, 
   notificationGeneration?: SessionNotificationGeneration;
   notifications?: "enabled" | "disabled";
   /**
+   * Cancels only unpublished startup. Hosted publication transfers lifetime
+   * ownership, so a later abort must not stop the conversation.
+   */
+  startupSignal?: AbortSignal;
+  /**
    * What the user asked for, so startup progress can say "Creating" instead of
    * "Opening". Only `startSession()` creates a brand new session; every other
    * caller opens an existing one, so "open" is the default.
@@ -853,6 +861,7 @@ export function piWebResourceLoaderOptions(
 }
 
 function createDefaultRuntimeFactory(
+  sessionEvents: PiSessionEventConnections,
   normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>,
   managementModelRuntime: () => Promise<ModelRuntime>,
   resolveSettingsScope: ResolveSettingsScopeDirectory,
@@ -886,8 +895,12 @@ function createDefaultRuntimeFactory(
       globalAgentDir: agentDir,
       mode: "normal",
     });
+    // Package event buses are normal-mode only. Management runtimes never
+    // register one, so connectSessionEvents cannot attach to them.
+    const eventBus = createEventBus();
     const resourceLoaderOptions = {
       ...piWebResourceLoaderOptions(appendSystemPromptSections),
+      eventBus,
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     };
     const services = await createAgentSessionServices({
@@ -914,6 +927,7 @@ function createDefaultRuntimeFactory(
       ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
       ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
     });
+    sessionEvents.register(result.session, eventBus);
     return { ...result, services, diagnostics: services.diagnostics };
   };
 }
@@ -1080,6 +1094,7 @@ function createPiWebEditToolDefinition(cwd: string, options?: EditToolOptions) {
 }
 
 export interface PiSessionServiceDependencies {
+  sessionEvents?: PiSessionEventConnections;
   archiveStore?: SessionArchiveRepository;
   pinStore?: SessionPinStore;
   agentDir?: string;
@@ -1218,6 +1233,7 @@ export class PiSessionService {
   private readonly sessionManager: PiSessionManagerGateway;
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
+  private readonly sessionEvents: PiSessionEventConnections;
   private readonly normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>;
   private readonly managementModelRuntime: () => Promise<ModelRuntime>;
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
@@ -1294,7 +1310,9 @@ export class PiSessionService {
     // Subsessions are gated behind their own flag, and they
     // also require the spawn capability (they share its project-scope resolver).
     const subsessionsActive = this.spawnTargets !== undefined && deps.subsessionsEnabled === true;
+    this.sessionEvents = deps.sessionEvents ?? new PiSessionEventConnections();
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(
+      this.sessionEvents,
       this.normalModelRuntimeForCwd,
       this.managementModelRuntime,
       (cwd, mode) => this.resolveSettingsScopeDirectory(cwd, mode),
@@ -1532,6 +1550,80 @@ export class PiSessionService {
     return this.startSession(cwd, options);
   }
 
+  /** Publish a host-owned normal-mode conversation without submitting an initial prompt. */
+  async createHostedSession(cwd: string, signal: AbortSignal): Promise<{ readonly id: string }> {
+    const created = await this.startManagedSession(cwd, signal);
+    return Object.freeze({ id: created.id });
+  }
+
+  /** Atomically start and prompt one visible normal-mode, non-delegating session. */
+  async startOneShotRun(
+    cwd: string,
+    text: unknown,
+    signal: AbortSignal,
+  ): Promise<{ readonly id: string; readonly completion: Promise<void> }> {
+    const promptText = requirePromptText(text);
+    return this.startManagedSession(cwd, signal, promptText);
+  }
+
+  private async startManagedSession(
+    cwd: string,
+    signal: AbortSignal,
+    promptText?: string,
+  ): Promise<{ readonly id: string; readonly completion: Promise<void> }> {
+    signal.throwIfAborted();
+    await this.normalModelRuntimeForCwd(cwd);
+    const active = await this.create(
+      this.sessionManager.create(cwd),
+      cwd,
+      { startupIntent: "create", creationProvenance: "host-one-shot", startupSignal: signal },
+    );
+    const { session } = active.runtime;
+    try {
+      signal.throwIfAborted();
+      if (promptText !== undefined) this.maybeGenerateSessionName(session, promptText);
+      const created = this.announceCreatedSession(active, cwd);
+      // Publication transfers lifetime ownership to normal hosting. Plugin
+      // cancellation after this point must not abort this or later user work.
+      const completion = promptText === undefined ? Promise.resolve() : this.submitInitialRunPrompt(session, promptText);
+      return Object.freeze({ id: created.id, completion });
+    } catch (error) {
+      try {
+        await this.closeActive(session.sessionId);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `托管会话 ${session.sessionId} 启动失败后清理失败`,
+          { cause: cleanupError },
+        );
+      }
+      throw error;
+    }
+  }
+
+  private announceCreatedSession(
+    active: ManagedActiveSession,
+    cwd: string,
+    parentSession?: string,
+  ): ClientSession {
+    const { session } = active.runtime;
+    const created: ClientSession = {
+      id: session.sessionId,
+      path: session.sessionFile ?? "",
+      cwd,
+      persisted: sessionFileExists(session.sessionFile),
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      messageCount: session.messages.length,
+      firstMessage: "",
+      // Include the parent so listeners can nest the new session in the tree
+      // immediately, instead of showing it flat until the next reload.
+      ...(parentSession === undefined ? {} : { parentSessionPath: parentSession }),
+    };
+    this.events.publishGlobal({ type: "session.created", session: created }, active.eventScope);
+    return created;
+  }
+
   private async startSession(cwd: string, options: InternalStartSessionOptions): Promise<ClientSession> {
     const active = await this.create(
       this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession }),
@@ -1545,24 +1637,7 @@ export class PiSessionService {
         startupIntent: "create",
       },
     );
-    const { session } = active.runtime;
-    const created: ClientSession = {
-      id: session.sessionId,
-      path: session.sessionFile ?? "",
-      cwd,
-      persisted: sessionFileExists(session.sessionFile),
-      created: new Date().toISOString(),
-      modified: new Date().toISOString(),
-      messageCount: session.messages.length,
-      firstMessage: "",
-      // Include the parent so listeners can nest the new session in the tree
-      // immediately, instead of showing it flat until the next reload.
-      ...(options.parentSession === undefined ? {} : { parentSessionPath: options.parentSession }),
-    };
-    // Broadcast so other clients (and the spawning agent's UI) can add the new
-    // session to their list without a manual reload.
-    this.events.publishGlobal({ type: "session.created", session: created }, active.eventScope);
-    return created;
+    return this.announceCreatedSession(active, cwd, options.parentSession);
   }
 
   /**
@@ -1903,8 +1978,13 @@ export class PiSessionService {
     session: PiAgentSession,
     request: { kind: ExtensionDialogKind; title: string; message?: string | undefined; options?: string[] | undefined; placeholder?: string | undefined },
     opts: ExtensionUIDialogOptions | undefined,
+    startupSignal?: AbortSignal,
   ): Promise<boolean | string | undefined> {
-    const signal = opts?.signal;
+    const signal = opts?.signal === undefined
+      ? startupSignal
+      : startupSignal === undefined
+        ? opts.signal
+        : AbortSignal.any([opts.signal, startupSignal]);
     // A pre-aborted signal dismisses the dialog before it ever opens.
     if (signal?.aborted === true) return extensionDialogCancelValue(request.kind);
     const timeoutMs = effectiveExtensionDialogTimeoutMs(opts?.timeout, this.extensionDialogsTimeoutMs);
@@ -2524,18 +2604,67 @@ export class PiSessionService {
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
+    const promptPromise = this.beginPromptSubmission(session, text, behavior, images, echoUserMessage).catch(() => undefined);
+    void promptPromise;
+    return promptPromise;
+  }
+
+  private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
     this.auditUserPrompt(session, text);
     this.publishActivity(session, behavior === "steer" ? "插队消息已排队" : behavior === "followUp" ? "消息已排队" : "消息已接收", "active");
     const eventScope = this.eventScopeForSession(session);
     if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
     const promptOptions = buildPromptOptions(behavior, images);
-    const promptPromise = this.runSessionEntryMutation(session, "send a prompt", () => session.prompt(text, promptOptions)).catch((error: unknown) => {
+    const promptPromise = this.runSessionEntryMutation(session, "send a prompt", () => session.prompt(text, promptOptions));
+    void promptPromise.catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "发生错误", "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
     });
-    void promptPromise;
     return promptPromise;
+  }
+
+  private async submitInitialRunPrompt(session: PiAgentSession, text: string): Promise<void> {
+    let failure: Error | undefined;
+    let settled = false;
+    let sawInitialUserMessage = false;
+    const unsubscribe = session.subscribe((event) => {
+      if (settled || !isRecord(event)) return;
+      if (event["type"] === "agent_settled") {
+        // Freeze the initial outcome before a later user submission can change it.
+        settled = true;
+        return;
+      }
+      if (event["type"] === "auto_retry_end" && event["success"] === false && event["finalError"] === "Retry cancelled") {
+        // Native Pi cancels retry sleep without an aborted assistant message.
+        failure = new DOMException("初始 PI 会话运行已中止", "AbortError");
+        return;
+      }
+      const message = event["message"];
+      if (!isRecord(message)) return;
+      if (event["type"] === "message_start" && message["role"] === "user") {
+        // Pi can drain a queued user follow-up inside the same prompt promise.
+        // Its outcome belongs to that later submission, not this launcher.
+        if (sawInitialUserMessage) settled = true;
+        sawInitialUserMessage = true;
+        return;
+      }
+      if (event["type"] !== "message_end" || message["role"] !== "assistant") return;
+      // A successful retry supersedes a transient provider failure. Pi's
+      // prompt promise can fulfill even when the final assistant is an error.
+      const reason = message["stopReason"];
+      failure = reason === "aborted"
+        ? new DOMException("初始 PI 会话运行已中止", "AbortError")
+        : reason === "error"
+          ? new Error(typeof message["errorMessage"] === "string" ? message["errorMessage"] : "初始 PI 会话运行失败")
+          : undefined;
+    });
+    try {
+      await this.beginPromptSubmission(session, text, undefined);
+      if (failure !== undefined) throw failure;
+    } finally {
+      unsubscribe();
+    }
   }
 
   private enqueuePromptDuringCompaction(session: PiAgentSession, text: string, kind: QueuedPromptKind, images: ImageContent[] = [], echoUserMessage = true): void {
@@ -3441,6 +3570,22 @@ export class PiSessionService {
     return this.submitPrompt(active.runtime.session, text, undefined, [], false);
   }
 
+  /**
+   * Attach to one already-hosted normal-mode session. Management scopes are
+   * not searched: host session events are a normal-mode capability.
+   */
+  connectSessionEvents(ref: PiSessionRef, lifetime: AbortSignal): PiWebHostPiSessionConnection {
+    const active = this.activeForSessionIdAndScope(ref.id, NORMAL_SESSION_EVENT_SCOPE);
+    if (active?.runtime.session.sessionId !== ref.id
+      || !cwdPathsEqual(active.runtime.session.sessionManager.getCwd(), ref.cwd)) {
+      throw new Error("Selected session is not hosted in this workspace on this machine");
+    }
+    if (this.startupSessions.has(activeSessionKey(ref.id, NORMAL_SESSION_EVENT_SCOPE))) {
+      throw new Error("Selected session is still initializing its extensions");
+    }
+    return this.sessionEvents.connect(active.runtime.session, lifetime);
+  }
+
   private activeForSessionId(sessionId: string): ManagedActiveSession | undefined {
     return this.activeSessionsForId(sessionId)[0];
   }
@@ -3476,8 +3621,10 @@ export class PiSessionService {
     session: PiAgentSession,
     generation: SessionNotificationGeneration | undefined,
     owner: Pick<ManagedActiveSession, "eventScope" | "managementContextKey">,
+    startupSignal?: AbortSignal,
   ): Promise<void> {
-    const uiContext = this.sessionUiContext(session, generation);
+    const startupDialogs = { signal: startupSignal };
+    const uiContext = this.sessionUiContext(session, generation, startupDialogs);
     const key = activeSessionKey(session.sessionId, owner.eventScope);
     this.startupSessions.set(key, { session, ...owner });
     try {
@@ -3491,6 +3638,9 @@ export class PiSessionService {
         },
       });
     } finally {
+      // A captured startup UI context must not carry plugin cancellation into
+      // later user turns after startup has finished.
+      startupDialogs.signal = undefined;
       if (this.startupSessions.get(key)?.session === session) this.startupSessions.delete(key);
     }
   }
@@ -3505,7 +3655,10 @@ export class PiSessionService {
         if (!sessionId.endsWith(`\0${session.sessionId}`)) this.clearCompactionPromptQueue(candidate.runtime.session.sessionId);
       }
     }
-    active.unsubscribe = session.subscribe((event) => {
+    if (active.eventScope === NORMAL_SESSION_EVENT_SCOPE && active.runtime.session !== session) {
+      this.sessionEvents.close(active.runtime.session);
+    }
+    const unsubscribe = session.subscribe((event) => {
       this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel), active.eventScope);
       this.auditToolExecutionEvent(active, event);
       this.auditAssistantResponseEvent(active, event);
@@ -3524,6 +3677,10 @@ export class PiSessionService {
       this.publishStatus(session);
       this.updateSubsessionTracking(session);
     });
+    active.unsubscribe = () => {
+      if (active.eventScope === NORMAL_SESSION_EVENT_SCOPE) this.sessionEvents.close(session);
+      unsubscribe();
+    };
     this.active.set(activeSessionKey(session.sessionId, active.eventScope), active);
   }
 
@@ -4255,8 +4412,14 @@ private async createSessionRuntime(
     startup: SessionStartupProgressReporter,
   ): Promise<ManagedActiveSession> {
     startup.report(STARTUP_PHASE_RUNTIME);
-    const delegationToolsEnabled = options.creationProvenance !== "tracked-subsession"
-      && await sessionAllowsDelegationTools(sessionManager, this.sessionManager);
+    options.startupSignal?.throwIfAborted();
+    // Ordinary local sessions (undefined provenance) keep the current rule.
+    // Only an explicit host one-shot forces delegation off; do not treat every
+    // defined provenance as disabled the way upstream does.
+    const delegationToolsEnabled = options.creationProvenance === "host-one-shot"
+      ? false
+      : options.creationProvenance !== "tracked-subsession"
+        && await sessionAllowsDelegationTools(sessionManager, this.sessionManager);
     const runtime = await this.createAgentRuntime(this.createRuntime, {
       cwd,
       agentDir: this.agentDir,
@@ -4277,6 +4440,11 @@ private async createSessionRuntime(
     };
     let boundSession = runtime.session;
     this.sessionEventScopes.set(boundSession, active.eventScope);
+    const startupSignal = options.startupSignal;
+    const cancelStartup = (): void => { this.endSessionExtensionDialogs(boundSession); };
+    if (startupSignal !== undefined && !startupSignal.aborted) {
+      startupSignal.addEventListener("abort", cancelStartup, { once: true });
+    }
     const notificationStore = this.notificationsForScope(active.eventScope);
     let notificationGeneration = options.notificationGeneration;
     let notificationOwnership: "disabled" | "external" | "registered" | "replacement" = options.notifications === "disabled"
@@ -4306,6 +4474,7 @@ private async createSessionRuntime(
     if (notificationGeneration !== undefined) this.notificationGenerationBySession.set(runtime.session, notificationGeneration);
 
     try {
+      startupSignal?.throwIfAborted();
       if (options.creationProvenance === "tracked-subsession") {
         await this.publishUnreadMutations(this.unreadForScope(active.eventScope).excludeSession(
           runtime.session.sessionId,
@@ -4314,8 +4483,10 @@ private async createSessionRuntime(
       } else {
         await this.recoverSubsessionTrackingForOpenedSession(runtime.session);
       }
+      startupSignal?.throwIfAborted();
       startup.report(STARTUP_PHASE_EXTENSIONS);
-      await this.bindSessionExtensions(runtime.session, notificationGeneration, active);
+      await this.bindSessionExtensions(runtime.session, notificationGeneration, active, startupSignal);
+      startupSignal?.throwIfAborted();
       this.bindRuntime(active);
       runtime.setRebindSession(async (session) => {
         this.sessionEventScopes.set(session, active.eventScope);
@@ -4348,6 +4519,7 @@ private async createSessionRuntime(
           throw error;
         }
       });
+      startupSignal?.throwIfAborted();
       this.active.set(activeSessionKey(runtime.session.sessionId, active.eventScope), active);
       if (notificationOwnership === "replacement" && notificationGeneration !== undefined) {
         this.publishNotificationMutations(notificationStore.commitReplacement(notificationGeneration));
@@ -4384,6 +4556,8 @@ private async createSessionRuntime(
         await runtime.dispose();
       }
       throw error;
+    } finally {
+      startupSignal?.removeEventListener("abort", cancelStartup);
     }
   }
 
@@ -4394,6 +4568,7 @@ private replaceSessionNotificationContext(session: PiAgentSession, generation: S
 private sessionUiContext(
     session: PiAgentSession,
     generation: SessionNotificationGeneration | undefined,
+    startupDialogs: { signal?: AbortSignal | undefined } = {},
   ): ExtensionUIContext {
     const baseUiContext = session.extensionRunner.getUIContext();
     const eventScope = this.eventScopeForSession(session);
@@ -4428,15 +4603,15 @@ private sessionUiContext(
         if (property === "theme") return plainTextTheme;
         if (property === "confirm") {
           return (title: string, message: string, opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "confirm", title, message }, opts);
+            this.openExtensionDialog(session, { kind: "confirm", title, message }, opts, startupDialogs.signal);
         }
         if (property === "select") {
           return (title: string, options: string[], opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "select", title, options }, opts);
+            this.openExtensionDialog(session, { kind: "select", title, options }, opts, startupDialogs.signal);
         }
         if (property === "input") {
           return (title: string, placeholder: string | undefined, opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "input", title, placeholder }, opts);
+            this.openExtensionDialog(session, { kind: "input", title, placeholder }, opts, startupDialogs.signal);
         }
         const value: unknown = Reflect.get(target, property, receiver);
         return value;

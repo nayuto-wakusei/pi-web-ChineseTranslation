@@ -26,6 +26,10 @@ export interface PiWebPluginManifestEntry {
   id: string;
   module: string;
   backendRevision?: string;
+  /** Versioned transport metadata used to expose `context.peer.request`. */
+  pairedRequestVersion?: 1;
+  /** Versioned transport metadata used to expose `context.peer.openChannel`. */
+  pairedChannelVersion?: 1;
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
@@ -139,10 +143,12 @@ export class PiWebPluginService {
       const lifecycle = await this.lifecycle();
       return {
         lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION,
-        plugins: lifecycle.browserPlugins.map(({ plugin, backendRevision }) => ({
+        plugins: lifecycle.browserPlugins.map(({ plugin, backendRevision, pairedRequestVersion, pairedChannelVersion }) => ({
           id: plugin.id,
           module: browserModuleUrl(plugin),
           ...(backendRevision === undefined ? {} : { backendRevision }),
+          ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
+          ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
           source: plugin.source,
           scope: plugin.scope,
           machineSpecific: plugin.machineSpecific,

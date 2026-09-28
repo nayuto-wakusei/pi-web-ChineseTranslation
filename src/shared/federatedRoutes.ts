@@ -43,7 +43,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/projects/:projectId/workspaces" },
   {
     method: "POST",
-    path: "/plugin-backends/:pluginId/projects/:projectId/workspaces/:workspaceId/:operation",
+    path: "/paired-plugin-backends/:pluginId/projects/:projectId/workspaces/:workspaceId/:operation",
     timeoutMs: PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
     bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
     responseBodyLimit: PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,

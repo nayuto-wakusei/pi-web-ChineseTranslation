@@ -11,7 +11,7 @@ describe("Info plugin copy-diagnostics action", () => {
   it("copies a diagnostics summary to the clipboard", async () => {
     const writeText = vi.fn((text: string) => { void text; return Promise.resolve(); });
     vi.stubGlobal("navigator", { clipboard: { writeText } });
-    const action = findCopyDiagnosticsAction();
+    const action = await findCopyDiagnosticsAction();
     const context = runtimeContext({
       state: {
         selectedMachine: { id: "local", name: "devbox", kind: "local" },
@@ -39,8 +39,10 @@ describe("Info plugin copy-diagnostics action", () => {
   });
 });
 
-function findCopyDiagnosticsAction() {
-  const action = plugin.activate({ apiVersion: 2, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
+async function findCopyDiagnosticsAction() {
+  const signal = new AbortController().signal;
+  const activation = await plugin.activate({ apiVersion: 4, pluginId: "info", html, svg, signal, lifetimeSignal: signal });
+  const action = activation.contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;
 }
