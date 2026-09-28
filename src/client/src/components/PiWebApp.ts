@@ -51,7 +51,7 @@ import { NavigationSectionsController, type NavigationSection } from "../appShel
 import { PanelCollapseController, mainViewClass } from "../appShell/panelCollapseController";
 import { PanelResizeController, type PanelResizeConstraints, type ResizablePanelSide } from "../appShell/panelResizeController";
 import { readRoute, routeMatchesSessionCreation, writeRoute, type AppRoute } from "../route";
-import { loadNavigationPreferences, pinnedNavigationTabs, saveNavigationPreferences, type NavigationPreferences } from "../navigationPreferences";
+import { availableNavigationTabs, hasHiddenActiveNavigationTab, loadNavigationPreferences, pinnedNavigationTabs, saveNavigationPreferences, selectedNavigationTab, type NavigationPreferences } from "../navigationPreferences";
 import { readSettingsSection, writeSettingsSection, type SettingsSection } from "../settingsRoute";
 import { effectiveWorkspaceAttachmentsFolder, workspaceEffectiveAttachmentsFolder } from "../api/workspaceAttachments";
 import { applyActiveShortcutPreferences } from "../shortcutPreferences";
@@ -1446,6 +1446,7 @@ export class PiWebApp extends LitElement {
         .error=${this.requestedWorkspacePanelError()}
         .pinnedIds=${this.navigationPreferences.pinnedIds}
         .onShowNavigation=${this.showNavigation}
+        .hiddenActiveDestination=${this.hiddenActiveNavigationDestination()}
         .onSelectTool=${(tool: QualifiedContributionId) => { this.openWorkspaceTool(tool); }}
       ></workspace-panel>
     `;
@@ -2709,21 +2710,54 @@ export class PiWebApp extends LitElement {
         .refreshControl=${this.appShell.shouldShowAppRefreshInContextBar() ? this.renderAppRefresh() : undefined}
         .onOpenSection=${(section: NavigationSection) => { this.openNavigationSection(section); }}
         .onShowNavigation=${this.showNavigation}
+        .hiddenActiveDestination=${this.hiddenActiveNavigationDestination(
+          this.availableNavigationTabs(),
+          this.navigationPreferences.mobileCollapsed ? [] : pinnedNavigationTabs(this.availableNavigationTabs(), this.navigationPreferences.pinnedIds),
+        )}
         .onShowActions=${this.apiScope === "management" ? undefined : () => { this.setState({ actionPaletteOpen: true }); }}
       ></app-context-bar>
     `;
   }
 
   private renderMobileMainTabs() {
-    const tabs = this.mobileMainTabs();
+    if (this.appShell.isMobileNavigationLayout && this.navigationPreferences.mobileCollapsed) return null;
+    const availableTabs = this.availableNavigationTabs();
+    const tabs = pinnedNavigationTabs(availableTabs, this.navigationPreferences.pinnedIds);
+    const selectedTab = this.selectedNavigationTab();
     return html`
       <app-mobile-main-tabs
-        .tabs=${pinnedNavigationTabs(tabs, this.navigationPreferences.pinnedIds)}
-        .selectedView=${this.state.mainView}
-        .onShowNavigation=${this.appShell.isMobileNavigationLayout ? undefined : this.showNavigation}
+        .tabs=${tabs}
+        .selectedTab=${selectedTab}
+        .hiddenActiveDestination=${this.hiddenActiveNavigationDestination(availableTabs, tabs, selectedTab)}
+        .onShowNavigation=${this.showNavigation}
         .onSelect=${(view: AppState["mainView"]) => { this.selectMainView(view); }}
       ></app-mobile-main-tabs>
     `;
+  }
+
+  private availableNavigationTabs(): AppMobileMainTab[] {
+    return availableNavigationTabs(this.mobileMainTabs(), {
+      mobile: this.appShell.isMobileNavigationLayout,
+      sideBySide: this.appShell.isDesktopSideBySideLayout,
+    });
+  }
+
+  private selectedNavigationTab(): AppState["mainView"] | undefined {
+    const panels = this.visibleWorkspacePanels();
+    return selectedNavigationTab(
+      this.state.mainView,
+      panels.find((panel) => panel.id === this.state.workspaceTool)?.id ?? panels[0]?.id,
+      this.appShell.isDesktopSideBySideLayout,
+      this.routeContentError() !== "" || this.requestedWorkspacePanelError() !== "",
+    );
+  }
+
+  private hiddenActiveNavigationDestination(
+    availableTabs = this.availableNavigationTabs(),
+    visibleTabs = pinnedNavigationTabs(availableTabs, this.navigationPreferences.pinnedIds),
+    selectedTab = this.selectedNavigationTab(),
+  ): boolean {
+    return hasHiddenActiveNavigationTab(availableTabs, visibleTabs, selectedTab);
   }
 
   private mobileMainTabs(): AppMobileMainTab[] {
@@ -2813,9 +2847,9 @@ export class PiWebApp extends LitElement {
         ${this.renderWorkspacePanel()}
         ${state.authDialog !== undefined ? html`<auth-dialog .state=${state.authDialog} .onChooseMethod=${(authType: "oauth" | "api_key") => { void this.auth.chooseLoginMethod(authType); }} .onSelectProvider=${(providerId: string, authType: "oauth" | "api_key") => { void this.auth.selectLoginProvider(providerId, authType); }} .onApiKeyInput=${(value: string) => { this.auth.updateApiKey(value); }} .onSaveApiKey=${() => { void this.auth.saveApiKey(); }} .onLogoutProvider=${(providerId: string) => { void this.auth.logoutProvider(providerId); }} .onOAuthInput=${(value: string) => { this.auth.updateOAuthInput(value); }} .onOAuthRespond=${(value?: string) => { void this.auth.respondOAuth(value); }} .onOAuthCancel=${() => { void this.auth.cancelOAuth(); }} .onCancel=${() => { this.auth.closeDialog(); }}></auth-dialog>` : null}
         ${this.navigationDialogOpen ? html`<navigation-dialog
-          .tabs=${this.mobileMainTabs()}
+          .tabs=${this.availableNavigationTabs()}
           .pinUniverse=${this.mobileMainTabs().map((tab) => tab.id)}
-          .selectedView=${this.state.mainView}
+          .selectedTab=${this.selectedNavigationTab()}
           .preferences=${this.navigationPreferences}
           .onPreferencesChange=${this.changeNavigationPreferences}
           .onSelect=${(view: AppState["mainView"]) => { this.selectMainView(view); }}

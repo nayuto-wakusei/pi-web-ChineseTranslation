@@ -48,6 +48,20 @@ describe("machine crumb", () => {
   });
 });
 
+describe("navigation button", () => {
+  it("marks a hidden active destination as current", async () => {
+    const bar = new AppContextBar();
+    bar.onShowNavigation = () => undefined;
+    bar.hiddenActiveDestination = true;
+    document.body.append(bar);
+    await bar.updateComplete;
+
+    const button = bar.renderRoot.querySelector<HTMLButtonElement>(".context-action-button");
+    expect(button?.classList.contains("selected")).toBe(true);
+    expect(button?.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 async function mountBar(machines: Machine[], locationIndicator = false, selected?: Machine): Promise<AppContextBar> {
   const bar = new AppContextBar();
   bar.machines = machines;

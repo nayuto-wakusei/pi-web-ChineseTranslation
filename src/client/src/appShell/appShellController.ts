@@ -22,6 +22,10 @@ export class AppShellController implements ReactiveController {
   isStackedWorkspaceLayout: boolean;
   isPwaDisplayMode: boolean;
 
+  get isDesktopSideBySideLayout(): boolean {
+    return !this.isStackedWorkspaceLayout;
+  }
+
   constructor(private readonly host: ReactiveControllerHost, options: AppShellControllerOptions = {}) {
     host.addController(this);
     this.mobileNavigationMedia = options.mobileNavigationMedia ?? createMobileNavigationMedia();

@@ -16,7 +16,7 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes the navigation search and pinned destination controls",
     paths: ["components/appShell/NavigationDialog.ts", "components/WorkspacePanel.ts", "components/PiWebApp.ts"],
-    expected: ["打开导航", "搜索导航目标", "导航目标", "没有匹配的导航目标", "固定到标签栏", "取消固定", "显示全部标签", "导航目标不可用", "找不到机器：", "找不到项目：", "找不到工作区：", "找不到会话："],
+    expected: ["打开导航", "搜索导航目标", "导航目标", "没有匹配的导航目标", "固定到标签栏", "取消固定", "显示全部标签", "移动导航显示方式", "展开", "折叠", "导航目标不可用", "找不到机器：", "找不到项目：", "找不到工作区：", "找不到会话："],
     forbidden: ["Search navigation", "No destinations found", "Pin to tab bar", "Show all tabs", "Destination unavailable"],
   },
   {

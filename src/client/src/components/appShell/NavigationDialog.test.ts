@@ -45,7 +45,7 @@ describe("NavigationDialog", () => {
       { id: "core:workspace.files", label: "文件", icon: "files" },
     ];
     dialog.pinUniverse = ["chat", "core:workspace.files"];
-    dialog.preferences = { pinnedIds: [] };
+    dialog.preferences = { pinnedIds: [], mobileCollapsed: false };
     dialog.onPreferencesChange = onPreferencesChange;
     document.body.append(dialog);
     await dialog.updateComplete;
@@ -54,7 +54,24 @@ describe("NavigationDialog", () => {
     if (pin === null) throw new Error("Navigation pin control was not rendered");
     pin.click();
 
-    expect(onPreferencesChange).toHaveBeenCalledWith({ pinnedIds: ["core:workspace.files"] });
+    expect(onPreferencesChange).toHaveBeenCalledWith({ pinnedIds: ["core:workspace.files"], mobileCollapsed: false });
     expect(dialog.renderRoot.querySelector("input")?.getAttribute("aria-describedby")).toBe("navigation-selection");
+  });
+
+  it("keeps unavailable-layout pin preferences intact and controls mobile collapse", async () => {
+    const onPreferencesChange = vi.fn();
+    const dialog = new NavigationDialog();
+    dialog.tabs = [{ id: "core:workspace.files", label: "文件", icon: "files" }];
+    dialog.pinUniverse = ["chat", "core:workspace.files"];
+    dialog.preferences = { pinnedIds: ["chat"], mobileCollapsed: false };
+    dialog.onPreferencesChange = onPreferencesChange;
+    document.body.append(dialog);
+    await dialog.updateComplete;
+
+    dialog.renderRoot.querySelector<HTMLButtonElement>(".mobile-navigation button:last-child")?.click();
+    expect(onPreferencesChange).toHaveBeenCalledWith({ pinnedIds: ["chat"], mobileCollapsed: true });
+    onPreferencesChange.mockClear();
+    dialog.renderRoot.querySelector<HTMLButtonElement>(".pin-button")?.click();
+    expect(onPreferencesChange).toHaveBeenCalledWith({ pinnedIds: ["chat", "core:workspace.files"], mobileCollapsed: false });
   });
 });

@@ -86,6 +86,7 @@ export class WorkspacePanel extends LitElement {
   @property({ type: Boolean }) hideToolTabs = false;
   @property({ attribute: false }) pinnedIds: readonly string[] = [];
   @property({ attribute: false }) onShowNavigation?: () => void;
+  @property({ type: Boolean }) hiddenActiveDestination = false;
   @property({ attribute: false }) onSelectTool: (tool: QualifiedContributionId) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
   @state() private workspaceHeaderCanScrollLeft = false;
@@ -154,7 +155,7 @@ export class WorkspacePanel extends LitElement {
                 })}
               </div>
               ${this.onShowNavigation === undefined ? null : html`
-                <button type="button" class="icon-tab navigation-button" title="打开导航" aria-label="打开导航" @click=${this.onShowNavigation}>${renderBuiltinTabIcon("navigation")}</button>
+                <button type="button" class=${`icon-tab navigation-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderBuiltinTabIcon("navigation")}</button>
               `}
             </div>
           </div>

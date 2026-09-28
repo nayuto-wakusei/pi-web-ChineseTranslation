@@ -17,6 +17,7 @@ export class AppContextBar extends LitElement {
   @property({ attribute: false }) refreshControl: unknown;
   @property({ attribute: false }) onOpenSection?: (section: NavigationSection) => void;
   @property({ attribute: false }) onShowNavigation?: () => void;
+  @property({ type: Boolean }) hiddenActiveDestination = false;
   @property({ attribute: false }) onShowActions?: () => void;
   @query(".context-items") private contextItems?: HTMLElement | null;
   @state() private canScrollLeft = false;
@@ -119,7 +120,7 @@ export class AppContextBar extends LitElement {
   private renderNavigationButton() {
     if (this.onShowNavigation === undefined) return null;
     return html`
-      <button type="button" class="context-action-button" title="打开导航" aria-label="打开导航" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowNavigation?.(); }}>
+      <button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowNavigation?.(); }}>
         <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M4 5h16M4 12h16M4 19h16"></path>
         </svg>
@@ -192,7 +193,7 @@ export class AppContextBar extends LitElement {
     .context-actions::before { content: ""; position: absolute; top: 0; bottom: 0; left: -24px; z-index: 0; width: 24px; background: linear-gradient(90deg, transparent, var(--pi-bg)); pointer-events: none; }
     app-refresh-control, .context-action-button { position: relative; z-index: 1; pointer-events: auto; }
     .context-action-button { box-sizing: border-box; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 0; line-height: 1; }
-    .context-action-button:hover, .context-action-button:focus-visible { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .context-action-button:hover, .context-action-button:focus-visible, .context-action-button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
     .context-action-icon { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
     .context-chip { flex: 0 0 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 8px; font: inherit; text-align: left; }
     .context-chip-icon { flex: 0 0 auto; width: 14px; height: 14px; }

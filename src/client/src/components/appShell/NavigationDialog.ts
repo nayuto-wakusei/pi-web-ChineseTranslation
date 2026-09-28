@@ -8,8 +8,8 @@ import "../ModalSurface";
 export class NavigationDialog extends LitElement {
   @property({ attribute: false }) tabs: AppMobileMainTab[] = [];
   @property({ attribute: false }) pinUniverse?: readonly string[];
-  @property({ attribute: false }) preferences: NavigationPreferences = { pinnedIds: [] };
-  @property({ attribute: false }) selectedView?: string;
+  @property({ attribute: false }) preferences: NavigationPreferences = { pinnedIds: [], mobileCollapsed: false };
+  @property({ attribute: false }) selectedTab?: string;
   @property({ attribute: false }) onSelect?: (id: AppMobileMainTab["id"]) => void;
   @property({ attribute: false }) onPreferencesChange?: (preferences: NavigationPreferences) => void;
   @property({ attribute: false }) onClose?: () => void;
@@ -18,7 +18,7 @@ export class NavigationDialog extends LitElement {
   @state() private selectedIndex = 0;
 
   protected override willUpdate(changed: PropertyValues): void {
-    if (changed.has("selectedView")) this.selectedIndex = Math.max(0, this.filteredTabs().findIndex((tab) => tab.id === this.selectedView));
+    if (changed.has("selectedTab")) this.selectedIndex = Math.max(0, this.filteredTabs().findIndex((tab) => tab.id === this.selectedTab));
     this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredTabs().length - 1));
   }
 
@@ -53,9 +53,9 @@ export class NavigationDialog extends LitElement {
             const pinned = isNavigationPinned(tab.id, this.preferences.pinnedIds);
             return html`
               <div class="destination">
-                <button type="button" class=${`destination-button ${index === this.selectedIndex ? "selected" : ""}`} aria-current=${tab.id === this.selectedView ? "page" : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.select(tab); }}>${tab.label}</button>
+                <button type="button" class=${`destination-button ${index === this.selectedIndex ? "selected" : ""}`} aria-current=${tab.id === this.selectedTab ? "page" : nothing} aria-pressed=${String(tab.id === this.selectedTab)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.select(tab); }}>${tab.label}</button>
                 <button type="button" class="pin-button" aria-label=${pinned ? `取消固定：${tab.label}` : `固定：${tab.label}`} title=${pinned ? "取消固定" : "固定到标签栏"} aria-pressed=${String(pinned)} @click=${() => {
-                  this.onPreferencesChange?.({ pinnedIds: toggleNavigationPin(tab.id, this.preferences.pinnedIds, this.pinUniverse ?? this.tabs.map((item) => item.id)) });
+                  this.onPreferencesChange?.({ ...this.preferences, pinnedIds: toggleNavigationPin(tab.id, this.preferences.pinnedIds, this.pinUniverse ?? this.tabs.map((item) => item.id)) });
                 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill=${pinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M8 3h8l-1 7 4 4v2H5v-2l4-4-1-7Z"></path><path d="M12 16v6"></path>
@@ -66,7 +66,12 @@ export class NavigationDialog extends LitElement {
           })}
         </nav>
         <footer>
-          <button type="button" @click=${() => { this.onPreferencesChange?.({ pinnedIds: [] }); }}>显示全部标签</button>
+          <button type="button" @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>显示全部标签</button>
+          <div class="mobile-navigation" role="group" aria-label="移动导航显示方式">
+            <span>移动导航</span>
+            <button type="button" aria-pressed=${String(!this.preferences.mobileCollapsed)} @click=${() => { this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: false }); }}>展开</button>
+            <button type="button" aria-pressed=${String(this.preferences.mobileCollapsed)} @click=${() => { this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: true }); }}>折叠</button>
+          </div>
         </footer>
       </modal-surface>
     `;
@@ -126,6 +131,8 @@ export class NavigationDialog extends LitElement {
     .pin-button[aria-pressed="true"] { color: var(--pi-accent); }
     footer { padding: 12px; border-top: 1px solid var(--pi-border); }
     footer button { padding: 7px 9px; }
+    .mobile-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+    .mobile-navigation button[aria-pressed="true"] { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
     .empty { padding: 18px 12px; color: var(--pi-muted); text-align: center; }
     button:focus-visible, input:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
   `;
