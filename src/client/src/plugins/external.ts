@@ -64,9 +64,8 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
 }
 
 export function resolvePluginModuleUrl(moduleReference: string, manifestUrl: string, appUrlContext?: AppUrlContext): string {
-  if (!moduleReference.startsWith("/")) return new URL(withManagementEmbed(moduleReference), manifestUrl).toString();
-  const resolved = appUrlContext === undefined ? resolveAppUrl(moduleReference) : resolveAppUrl(moduleReference, appUrlContext);
-  return withManagementEmbed(resolved);
+  if (!moduleReference.startsWith("/")) return new URL(moduleReference, manifestUrl).toString();
+  return appUrlContext === undefined ? resolveAppUrl(moduleReference) : resolveAppUrl(moduleReference, appUrlContext);
 }
 
 async function importPluginModule(moduleUrl: string): Promise<unknown> {

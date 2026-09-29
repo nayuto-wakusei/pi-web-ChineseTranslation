@@ -283,7 +283,7 @@ function allowsManagementRequest(request: FastifyRequest): boolean {
   }
   const path = pathname.startsWith("/api/machines/local/") ? pathname.slice("/api/machines/local".length) : pathname.slice("/api".length);
   // Only local APIs that preserve management context may bypass normal auth.
-  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|terminal-command-runs)(?:\/|$)/u.test(path)
+  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|paired-plugin-backends|terminal-command-runs)(?:\/|$)/u.test(path)
     || /^\/sessiond\/(?:health|runtime)$/u.test(path);
 }
 

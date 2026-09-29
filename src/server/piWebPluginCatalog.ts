@@ -446,6 +446,8 @@ async function readPiWebPackageConfig(root: string): Promise<PiWebPackageConfig 
   return { plugins };
 }
 
+const PLUGIN_ENTRY_KEYS = new Set(["id", "module", "serverModule", "machineSpecific"]);
+
 function parsePluginEntries(piWeb: Record<string, unknown>, packagePath: string): PiWebPluginMetadataEntry[] {
   if (piWeb["plugin"] !== undefined) {
     throw new Error(`Unsupported PI WEB plugin metadata in ${packagePath}: use piWeb.plugins with { id, module?, serverModule?, machineSpecific? } entries`);
@@ -456,6 +458,8 @@ function parsePluginEntries(piWeb: Record<string, unknown>, packagePath: string)
 
   return plugins.map((entry, index): PiWebPluginMetadataEntry => {
     if (!isRecord(entry)) throw new Error(`PI WEB plugin entry ${String(index + 1)} must be an object in ${packagePath}`);
+    const unknownKey = Object.keys(entry).find((key) => !PLUGIN_ENTRY_KEYS.has(key));
+    if (unknownKey !== undefined) throw new Error(`PI WEB plugin entry ${String(index + 1)} contains unknown key ${JSON.stringify(unknownKey)} in ${packagePath}`);
     const id = entry["id"];
     if (typeof id !== "string" || !isPiWebPluginId(id)) throw new Error(`Invalid PI WEB plugin id in ${packagePath}: ${String(id)}`);
     const module = parseOptionalModule(entry["module"], "browser", packagePath, id);

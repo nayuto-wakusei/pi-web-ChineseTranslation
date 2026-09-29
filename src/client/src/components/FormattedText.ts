@@ -2,7 +2,9 @@ import { css, LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { writeClipboardText } from "../clipboard";
+import type { ChatContentRendering } from "../formatting/contentRendering";
 import { toSafeMarkdownHtml } from "../formatting/markdown";
+import type { MarkdownWorkspaceContext, WorkspaceFileOpenRequest } from "../formatting/workspaceLinks";
 
 const formattedTextStyles = css`
   :host { display: block; }
@@ -36,9 +38,19 @@ const formattedTextStyles = css`
 export class FormattedText extends LitElement {
   @property() text = "";
   @property() highlight = "";
+  @property() intentKey: string | undefined;
+  @property({ attribute: false }) contentRendering: ChatContentRendering | undefined;
+  @property({ type: Number }) contentRendererVersion = 0;
+  @property() machineId = "local";
+  @property({ attribute: false }) workspaceContext: MarkdownWorkspaceContext | undefined;
 
   override render() {
-    return html`<div class="formatted" dir="auto" @click=${this.onFormattedClick}>${unsafeHTML(toSafeMarkdownHtml(this.text))}</div>`;
+    const content = this.contentRendering?.renderMarkdown({
+      text: this.text,
+      machineId: this.workspaceContext?.machineId ?? this.machineId,
+      toSafeHtml: (text) => toSafeMarkdownHtml(text, this.workspaceContext),
+    }, this.intentKey) ?? unsafeHTML(toSafeMarkdownHtml(this.text, this.workspaceContext));
+    return html`<div class="formatted" dir="auto" @click=${this.onFormattedClick}>${content}</div>`;
   }
 
   override updated(): void {
@@ -86,6 +98,19 @@ export class FormattedText extends LitElement {
 
   private readonly onFormattedClick = (event: MouseEvent): void => {
     if (!(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[data-workspace-file]");
+    if (anchor instanceof HTMLAnchorElement && this.workspaceContext !== undefined
+      && !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+      && (!anchor.target || anchor.target === "_self")) {
+      const path = anchor.getAttribute("data-workspace-file");
+      if (path !== null) {
+        const request = new CustomEvent<WorkspaceFileOpenRequest>("workspace-file-open", {
+          detail: { ...this.workspaceContext, path }, bubbles: true, composed: true, cancelable: true,
+        });
+        if (!this.dispatchEvent(request)) event.preventDefault();
+      }
+      return;
+    }
     const button = event.target.closest(".code-copy-button");
     if (!(button instanceof HTMLButtonElement)) return;
     const wrapper = button.closest(".code-block-wrapper");

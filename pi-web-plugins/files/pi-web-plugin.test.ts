@@ -15,6 +15,9 @@ describe("bundled Files plugin", () => {
       routeAliases: ["files", "core:workspace.files"],
     }));
     expect(activation.contributions.actions?.map((action) => action.title)).toEqual(["转到文件", "刷新文件"]);
+    expect(panel?.fileOpenQuery).toBeTypeOf("function");
+    expect(Reflect.apply(panel?.fileOpenQuery ?? (() => undefined), undefined, [{}, "reports/a #1.txt"])).toEqual({ file: "reports/a #1.txt" });
+    expect(panel?.render.toString()).toContain("workspace-files-panel");
   });
 
   it("rejects a mismatched plugin id before contributing a panel", () => {

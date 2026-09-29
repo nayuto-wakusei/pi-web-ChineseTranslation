@@ -35,6 +35,14 @@ describe("external plugin manifests", () => {
     expect(registrations.registrations).toMatchObject([{ id: "info", machineSpecific: false, plugin: { apiVersion: 4, name: "Info" } }]);
   });
 
+  it("keeps management plugin modules under a nested application base", () => {
+    vi.stubGlobal("location", { href: "https://pi.example.test/test/ai/?embed=management&token=entry" });
+    const manifestUrl = "https://pi.example.test/test/ai/pi-web-plugins/manifest.json";
+
+    expect(resolvePluginModuleUrl("./info/pi-web-plugin.js?v=1", manifestUrl))
+      .toBe("https://pi.example.test/test/ai/pi-web-plugins/info/pi-web-plugin.js?v=1");
+  });
+
   it("treats root-style modules from existing manifests as application-root paths", () => {
     const rootManifestUrl = "https://pi.example.test/pi-web-plugins/manifest.json";
     const nestedManifestUrl = "https://pi.example.test/test/ai/pi-web-plugins/manifest.json";

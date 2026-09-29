@@ -1,6 +1,9 @@
 import { html, svg } from "lit";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
+import type { ContentRenderRequest } from "../../../plugin-api";
+import { contentRenderingCapabilityToken, createContentRenderingService } from "../formatting/contentRendering";
+import { compareContentRenderers, contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
 import type { PiWebPluginRegistration, PluginAction, PluginActivationResult, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -20,6 +23,10 @@ type RegisteredPluginAction = Omit<PluginAction, "id"> & {
 };
 
 export class PluginRegistry {
+  private readonly contentRenderers: RegisteredContentRenderer[] = [];
+  readonly chatContentRendering = createContentRenderingService((request) => this.matchContentRenderers(request));
+  private contentRendererRevision = 0;
+  readonly contentRendering = this.chatContentRendering.capability;
   private readonly actions: RegisteredPluginAction[] = [];
   private readonly workspacePanels: QualifiedWorkspacePanelContribution[] = [];
   private readonly workspaceLabels: QualifiedWorkspaceLabelContribution[] = [];
@@ -34,6 +41,30 @@ export class PluginRegistry {
   private readonly capabilities = new Map<string, PluginCapabilityProvision>();
   private readonly activePlugins: { id: string; activation: PluginActivationResult; lifetime: AbortController }[] = [];
   private shuttingDown = false;
+
+  constructor() {
+    const key = capabilityKey(contentRenderingCapabilityToken);
+    this.capabilities.set(key, { capability: contentRenderingCapabilityToken, value: this.contentRendering });
+  }
+
+  get contentRendererVersion(): number {
+    return this.contentRendererRevision;
+  }
+
+  matchContentRenderers(request: ContentRenderRequest): readonly ContentRendererChoice[] {
+    return this.contentRenderers.filter((renderer) => this.isContributionActive(renderer.pluginId, renderer.machineId, request.machineId, renderer.sourcePluginId) && contentRendererMatches(renderer, request))
+      .sort(compareContentRenderers)
+      .map((renderer) => ({ id: renderer.id, label: renderer.label, renderer }));
+  }
+
+  resolveWorkspaceFileOpen(context: WorkspacePanelContext, path: string): { contributionId: QualifiedContributionId; query: Readonly<Record<string, string>> } | undefined {
+    for (const panel of this.getWorkspacePanels()) {
+      if (panel.visible?.(context) === false) continue;
+      const query = panel.fileOpenQuery?.(context, path);
+      if (query !== undefined) return { contributionId: panel.id, query };
+    }
+    return undefined;
+  }
 
   register(registration: PiWebPluginRegistration): Promise<void> {
     const { plugin } = registration;
@@ -101,6 +132,22 @@ export class PluginRegistry {
         this.capabilities.set(key, provision);
       }
       const contributionIds = new Set<QualifiedContributionId>();
+      const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
+        const snapshot = snapshotContentRenderer(renderer);
+        return {
+          ...snapshot,
+          id: this.qualify(runtimePluginId, renderer.id, contributionIds),
+          pluginId: runtimePluginId,
+          localId: renderer.id,
+          label: `${sourcePluginId} / ${renderer.id}`,
+          ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+          ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+          render: (input) => {
+            const signal = linkAbortSignals(input.signal, lifetime.signal);
+            return snapshot.render({ ...input, signal, fail: (error) => { if (!signal.aborted) input.fail(error); } });
+          },
+        };
+      });
       const actions = (contributions.actions ?? []).map((action) => this.qualifyAction(runtimePluginId, action, registration.machineId, registration.sourcePluginId, contributionIds));
       const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
       const workspaceLabels = (contributions.workspaceLabels ?? []).map((contribution) => this.qualifyWorkspaceLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
@@ -113,6 +160,8 @@ export class PluginRegistry {
 
       this.pluginIds.add(runtimePluginId);
       for (const contributionId of contributionIds) this.contributionIds.add(contributionId);
+      this.contentRenderers.push(...contentRenderers);
+      if (contentRenderers.length > 0) this.contentRendererRevision += 1;
       this.actions.push(...actions);
       this.workspacePanels.push(...workspacePanels);
       this.workspaceLabels.push(...workspaceLabels);
@@ -270,6 +319,7 @@ export class PluginRegistry {
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedWorkspacePanelContribution {
     const id = this.qualify(pluginId, panel.id, contributionIds);
+    const fileOpenQuery = panel.fileOpenQuery;
     const badge = panel.badge;
     const visible = panel.visible;
     const onInvalidate = panel.onInvalidate;
@@ -285,6 +335,7 @@ export class PluginRegistry {
       ...(machineId === undefined ? {} : { machineId }),
       ...(sourcePluginId === undefined ? {} : { sourcePluginId }),
       visible: (context: WorkspacePanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId) && (visible?.(workspacePanelContextFor(context, binding)) ?? true),
+      ...(fileOpenQuery === undefined ? {} : { fileOpenQuery: (context: WorkspacePanelContext, path: string) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId) ? fileOpenQuery(workspacePanelContextFor(context, binding), path) : undefined }),
       ...(badge === undefined ? {} : { badge: (context: WorkspacePanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId) ? badge(workspacePanelContextFor(context, binding)) : undefined }),
       ...(onInvalidate === undefined ? {} : { onInvalidate: (context: WorkspacePanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId) ? onInvalidate(workspacePanelContextFor(context, binding)) : undefined }),
       render: (context: WorkspacePanelContext) => panel.render(workspacePanelContextFor(context, binding)),
@@ -436,6 +487,19 @@ export class PluginRegistry {
     if (typeof value !== "boolean") throw new Error(`Invalid plugin machineSpecific value for ${pluginId}: ${formatUnknownValue(value)}`);
     return value;
   }
+}
+
+function linkAbortSignals(primary: AbortSignal, lifetime: AbortSignal): AbortSignal {
+  if (primary.aborted || lifetime.aborted) {
+    const aborted = new AbortController();
+    aborted.abort(primary.aborted ? primary.reason : lifetime.reason);
+    return aborted.signal;
+  }
+  const linked = new AbortController();
+  const abort = () => { linked.abort(primary.aborted ? primary.reason : lifetime.reason); };
+  primary.addEventListener("abort", abort, { once: true });
+  lifetime.addEventListener("abort", abort, { once: true });
+  return linked.signal;
 }
 
 function capabilityKey(capability: PluginCapability): string {

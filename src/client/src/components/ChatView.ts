@@ -26,6 +26,8 @@ import {
   type SelectedSessionNotificationView,
   type SessionNotificationTarget,
 } from "../sessionNotifications";
+import type { ChatContentRendering } from "../formatting/contentRendering";
+import type { MarkdownWorkspaceContext } from "../formatting/workspaceLinks";
 import type { ChatLine, ChatPart } from "./shared";
 import { chatStyles, renderSessionWarningIcon } from "./shared";
 import "./AskUserCard";
@@ -203,6 +205,10 @@ function chatMessageModelLabel(message: ChatLine): string | undefined {
 export class ChatView extends LitElement {
   @property({ attribute: false }) messages: ChatLine[] = [];
   @property() sessionId = "";
+  @property() machineId = "local";
+  @property({ attribute: false }) contentRendering: ChatContentRendering | undefined;
+  @property({ type: Number }) contentRendererVersion = 0;
+  @property({ attribute: false }) workspaceContext: MarkdownWorkspaceContext | undefined;
   @property({ type: Number }) messageStart = 0;
   @property({ type: Number }) messageEnd = 0;
   @property({ type: Number }) messageTotal = 0;
@@ -735,7 +741,7 @@ export class ChatView extends LitElement {
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
             <span class="queued-kind">${message.kind === "steer" ? "引导" : "后续"} ${String(index + 1)}</span>
-            <formatted-text .text=${message.text}></formatted-text>
+            <formatted-text .text=${message.text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${`${this.sessionId}:queued:${section.source}:${String(index)}`}></formatted-text>
           </div>
         `)}
       </aside>
@@ -991,13 +997,13 @@ export class ChatView extends LitElement {
 
   private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
-    if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
-    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
+    if (part.type === "text") return this.renderFormattedText(part.text, message, "text");
+    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary>${this.renderFormattedText(part.text, message, "thinking")}</details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[skill]</b> ${part.name}</summary>
         <small>${part.location}</small>
-        <formatted-text .text=${part.content}></formatted-text>
+        ${this.renderFormattedText(part.content, message, "skill")}
       </details>
     `;
     if (part.type === "skillRead") return html`
@@ -1022,10 +1028,15 @@ export class ChatView extends LitElement {
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>
         <summary>${part.isError ? "✖" : "✓"} ${part.toolName} result</summary>
-        <formatted-text .text=${part.text}></formatted-text>
+        ${this.renderFormattedText(part.text, message, "tool-result")}
       </details>
     `;
     return null;
+  }
+
+  private renderFormattedText(text: string, message: ChatLine | undefined, part: string) {
+    const identity = message?.transcriptIndex === undefined ? undefined : `${this.sessionId}:${String(message.transcriptIndex)}:${part}`;
+    return html`<formatted-text class="part" .text=${text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${identity}></formatted-text>`;
   }
 
   private onGroupToggle(key: string, event: Event, defaultOpen: boolean) {

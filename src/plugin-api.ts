@@ -79,7 +79,73 @@ export interface PluginActivationResult {
   dispose?(signal: AbortSignal): MaybePromise<void>;
 }
 
+export interface ContentRendererInput {
+  readonly text: string;
+  /** Aborted when source, renderer, mode, mounting, or plugin lifetime changes. */
+  readonly signal: AbortSignal;
+  /** Report asynchronous failure; calls from obsolete renders are ignored. */
+  readonly fail: (error: unknown) => void;
+}
+
+export interface ContentRendererContribution {
+  id: LocalContributionId;
+  languages?: readonly string[];
+  /** Extensions without a leading dot, matched case-insensitively. */
+  fileExtensions?: readonly string[];
+  /** Defaults to manual: render is not called until the user chooses 渲染. */
+  renderMode?: "manual" | "automatic";
+  /** Synchronous Lit template or DOM node; own async work in a component and honor signal. */
+  render(input: ContentRendererInput): TemplateResult | Node;
+}
+
+export interface ContentRenderRequest {
+  machineId: string;
+  text: string;
+  language?: string;
+  filePath?: string;
+  truncated?: boolean;
+}
+
+export interface ContentRendererOption {
+  readonly id: string;
+  readonly label: string;
+  readonly renderMode: "manual" | "automatic";
+}
+
+export type ContentTextRenderRequest = ContentRenderRequest & {
+  /** Authorize manual previews; false/omitted retains automatic defaults. Never overrides user 原始. */
+  allowManualPreview?: boolean;
+} & ({ controls: "external"; rendererId?: string } | { controls?: never; rendererId?: never });
+
+export interface ContentMarkdownRenderRequest {
+  machineId: string;
+  text: string;
+  truncated?: boolean;
+  toSafeHtml: (text: string) => string;
+  /** Authorize manual fence previews; false/omitted retains automatic defaults. Never overrides user 原始. */
+  allowManualPreview?: boolean;
+}
+
+/** Host capability token: { pluginId: "pi-web", id: "content-rendering", version: 1, parse }. */
+export interface ContentRenderingCapability {
+  /** Eligible choices in source plugin ID order, then local contribution ID order. */
+  listRenderers(request: ContentRenderRequest): readonly ContentRendererOption[];
+  /**
+   * Undefined when no renderer claims the complete text.
+   * External controls require the caller to provide raw-source access and a renderer chooser.
+   * Only external controls accept rendererId; absent or unavailable IDs use the first match.
+   * Listing and creating templates never call render.
+   */
+  renderText(request: ContentTextRenderRequest): TemplateResult | undefined;
+  /**
+   * The caller supplies its existing trusted HTML sanitizer; policies are not shared.
+   * Each eligible fence owns its chooser and 原始 control. Public calls do not store intent.
+   */
+  renderMarkdown(request: ContentMarkdownRenderRequest): TemplateResult;
+}
+
 export interface PluginContributions {
+  contentRenderers?: ContentRendererContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
@@ -300,6 +366,8 @@ export interface WorkspacePanelContribution {
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
   /** Called when the host invalidates workspace-panel data. */
   onInvalidate?: (context: WorkspacePanelContext) => void | Promise<void>;
+  /** Query that opens this panel on a workspace-relative file path. */
+  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, string>> | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 

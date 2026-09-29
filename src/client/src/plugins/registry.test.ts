@@ -126,6 +126,33 @@ describe("PluginRegistry", () => {
     expect(insertText).toHaveBeenCalledWith("@docs/example.md");
   });
 
+  it("resolves a files panel fileOpenQuery for the selected machine", async () => {
+    const registry = new PluginRegistry();
+    await registry.register({
+      id: "files",
+      plugin: {
+        apiVersion: 4,
+        name: "文件",
+        activate: () => ({
+          contributions: {
+            workspacePanels: [{
+              id: "workspace.files",
+              title: "文件",
+              fileOpenQuery: (_context, path) => ({ file: path }),
+              render: () => html`<workspace-files-panel></workspace-files-panel>`,
+            }],
+          },
+        }),
+      },
+    });
+
+    expect(registry.resolveWorkspaceFileOpen(createWorkspacePanelContext("local"), "docs/readme.md")).toEqual({
+      contributionId: "files:workspace.files",
+      query: { file: "docs/readme.md" },
+    });
+    expect(registry.contentRendering.listRenderers({ machineId: "local", text: "graph", language: "mermaid" })).toEqual([]);
+  });
+
   it("rejects duplicate ids within the same namespace", () => {
     const registry = new PluginRegistry();
 

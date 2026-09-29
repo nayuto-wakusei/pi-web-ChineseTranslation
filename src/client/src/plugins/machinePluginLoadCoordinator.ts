@@ -16,9 +16,10 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => (await loadExternalPlugins("pi-web-plugins/manifest.json", {
-      plugins: await managementPluginEntries(),
-    })).registrations);
+    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => {
+      const plugins = await managementPluginEntries();
+      return (await loadExternalPlugins("pi-web-plugins/manifest.json", plugins === undefined ? {} : { plugins })).registrations;
+    });
     return this.gatewayLoad;
   }
 

@@ -72,6 +72,9 @@ export function reconcilePiWebPluginLifecycle(
         return {
           id: plugin.id,
           ...(plugin.browserModule === undefined ? {} : { module: browserModuleUrl(plugin) }),
+          ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
+          ...(record?.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: record.pairedRequestVersion }),
+          ...(record?.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: record.pairedChannelVersion }),
           source: plugin.source,
           scope: plugin.scope,
           machineSpecific: plugin.machineSpecific,

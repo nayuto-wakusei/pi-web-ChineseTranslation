@@ -36,6 +36,7 @@ export function activateFilesPlugin(context: PluginActivationContext): PluginAct
         `,
         order: 10,
         routeAliases: [...FILES_PANEL_ROUTE_ALIASES],
+        fileOpenQuery: (_context, path) => ({ file: path }),
         render: () => context.html`<workspace-files-panel></workspace-files-panel>`,
       }],
       actions: [

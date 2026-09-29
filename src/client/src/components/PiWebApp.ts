@@ -25,6 +25,7 @@ import { SessionStorageTerminalSelectionMemory } from "../controllers/terminalSe
 import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspaceSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
+import { markdownWorkspaceContext, type WorkspaceFileOpenRequest } from "../formatting/workspaceLinks";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey, sessionCleanupUnavailableMessage } from "../sessionCleanupUi";
 import { selectedNotificationView } from "../sessionNotifications";
@@ -821,8 +822,11 @@ export class PiWebApp extends LitElement {
     try {
       await this.restoreRouteMachine(route, false);
       const selectedMachinePluginLoad = this.loadPluginsForSelectedMachine();
-      const requestedPanel = this.resolveWorkspacePanelRoute(route.view !== undefined && route.view !== "chat" ? route.view : route.tool);
-      if (requestedPanel?.startsWith("machine.") === true) await selectedMachinePluginLoad;
+      const requestedPanelRoute = route.view !== undefined && route.view !== "chat" ? route.view : route.tool;
+      if (requestedPanelRoute !== undefined) {
+        await this.ensureGatewayPluginsLoaded();
+        await selectedMachinePluginLoad;
+      }
       if (!this.isCurrentRouteRestore(restoreSeq)) return;
       const requestedMachineId = route.machineId ?? "local";
       if (selectedMachineId(this.state) !== requestedMachineId) {
@@ -831,7 +835,7 @@ export class PiWebApp extends LitElement {
         return;
       }
       const workspaceTool = this.resolveWorkspacePanelRoute(route.tool) ?? this.state.workspaceTool;
-      const restoredView = restoredMainView ?? this.resolveWorkspacePanelRoute(route.view === "terminal" ? undefined : route.view);
+      const restoredView = restoredMainView ?? this.resolveWorkspacePanelRoute(route.view);
       this.setState({
         workspaceTool,
         mainView: this.appShell.normalizedMainView(restoredView, route.sessionId !== undefined),
@@ -940,7 +944,7 @@ export class PiWebApp extends LitElement {
   }
 
   private isFilesPanel(tool: string): boolean {
-    return (FILES_PANEL_ALIASES as readonly string[]).includes(tool) || tool === this.filesPanelId();
+    return FILES_PANEL_ALIASES.some((alias) => alias === tool) || tool === this.filesPanelId();
   }
 
   private terminalPanelId(): QualifiedContributionId {
@@ -950,7 +954,7 @@ export class PiWebApp extends LitElement {
   }
 
   private isTerminalPanel(tool: QualifiedContributionId): boolean {
-    return (TERMINAL_PANEL_IDS as readonly string[]).includes(tool) || tool === this.terminalPanelId();
+    return TERMINAL_PANEL_IDS.some((id) => id === tool) || tool === this.terminalPanelId();
   }
 
   private readTerminalRouteId(): string | undefined {
@@ -962,9 +966,11 @@ export class PiWebApp extends LitElement {
   }
 
   private requestedWorkspacePanelError(route: AppRoute = readRoute()): string {
-    const requested = this.resolveWorkspacePanelRoute(route.view !== undefined && route.view !== "chat" ? route.view : route.tool);
-    if (requested === undefined || this.visibleWorkspacePanels().some((panel) => panel.id === requested)) return "";
-    return `工作区工具不可用：${requested}`;
+    const requestedRoute = route.view !== undefined && route.view !== "chat" ? route.view : route.tool;
+    if (requestedRoute === undefined) return "";
+    const requested = this.resolveWorkspacePanelRoute(requestedRoute);
+    if (requested !== undefined && this.visibleWorkspacePanels().some((panel) => panel.id === requested)) return "";
+    return `工作区工具不可用：${requested ?? requestedRoute}`;
   }
 
   private shouldDeferRemoteRouteRestore(route: AppRoute, routeMachineHealth = this.state.machineStatuses[route.machineId ?? "local"]): boolean {
@@ -1201,6 +1207,20 @@ export class PiWebApp extends LitElement {
     const machineError = this.state.browserErrors[browserErrorScopeKey(machineBrowserErrorScope(selectedMachineId(this.state)))];
     return snapshot.projectId !== undefined && this.state.selectedProject?.id !== snapshot.projectId && (this.state.error !== "" || machineError !== undefined);
   }
+
+  private readonly handleWorkspaceFileOpen = (event: CustomEvent<WorkspaceFileOpenRequest>): void => {
+    const workspace = this.state.selectedWorkspace;
+    const request = event.detail;
+    if (event.defaultPrevented || workspace === undefined || request.machineId !== selectedMachineId(this.state)
+      || request.projectId !== workspace.projectId || request.workspaceId !== workspace.id || request.root !== workspace.path) return;
+    const panelId = this.filesPanelId();
+    if (panelId === undefined) return;
+    const query = this.plugins.resolveWorkspaceFileOpen(this.createWorkspacePanelContext(workspace), request.path);
+    if (query?.contributionId !== panelId || query.query["file"] !== request.path) return;
+    event.preventDefault();
+    void this.files.selectFile(request.path);
+    this.openWorkspaceTool(panelId);
+  };
 
   private openWorkspaceTool(tool: QualifiedContributionId) {
     if (this.isTerminalPanel(tool)) this.terminalAutoStartWorkspaceId = this.state.selectedWorkspace?.id;
@@ -2741,7 +2761,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 

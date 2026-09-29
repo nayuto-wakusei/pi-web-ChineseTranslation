@@ -401,8 +401,19 @@ describe("buildApp", () => {
     });
     const headers = { "x-pi-web-embed-mode": "management", "x-pi-web-embed-token": "token" };
 
-    for (const url of ["/api/config", "/api/machines/local/config", "/api/plugins", "/api/machines/local/plugins", "/api/pi-web/status", "/api/machines/remote/projects", "/pi-web-plugins/manifest.json", "/api/machines/remote/pi-web-plugins/manifest.json"]) {
+    for (const url of ["/api/config", "/api/machines/local/config", "/api/pi-web/status", "/api/machines/remote/projects", "/pi-web-plugins/manifest.json", "/api/machines/remote/pi-web-plugins/manifest.json"]) {
       expect((await app.inject({ method: "GET", url, headers })).statusCode, url).toBe(403);
+    }
+    for (const url of ["/api/plugins", "/api/machines/local/plugins"]) {
+      const response = await app.inject({ method: "GET", url, headers });
+      expect(response.statusCode, url).toBe(200);
+      expect(response.json()).toEqual({ plugins: [] });
+    }
+    for (const url of [
+      "/api/paired-plugin-backends/git/projects/project/workspaces/workspace/status",
+      "/api/machines/local/paired-plugin-backends/git/projects/project/workspaces/workspace/status",
+    ]) {
+      expect((await app.inject({ method: "POST", url, payload: { revision: "rev", input: {} }, headers })).statusCode, url).not.toBe(403);
     }
     for (const prefix of ["/api", "/api/machines/local"]) {
       expect((await app.inject({ method: "PUT", url: `${prefix}/config`, payload: { config: {} }, headers })).statusCode).toBe(403);

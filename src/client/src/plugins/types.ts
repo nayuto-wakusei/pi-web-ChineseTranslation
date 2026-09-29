@@ -4,6 +4,7 @@ import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeEntry, F
 import type { AppState } from "../appState";
 import type { SettingsSection } from "../settingsRoute";
 import type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
+import type { ContentRendererContribution } from "../../../plugin-api";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
 
 export type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
@@ -62,12 +63,23 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  contentRenderers?: ContentRendererContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
   themes?: ThemeContribution[];
   themePairs?: ThemePairContribution[];
 }
+
+export type {
+  ContentMarkdownRenderRequest,
+  ContentRendererContribution,
+  ContentRendererInput,
+  ContentRendererOption,
+  ContentRenderRequest,
+  ContentRenderingCapability,
+  ContentTextRenderRequest,
+} from "../../../plugin-api";
 
 export interface PluginMachine {
   id: string;
@@ -267,6 +279,8 @@ export interface WorkspacePanelContribution {
   visible?: (context: WorkspacePanelContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
   onInvalidate?: (context: WorkspacePanelContext) => void | Promise<void>;
+  /** Query that opens this panel on a workspace-relative file path. */
+  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, string>> | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 

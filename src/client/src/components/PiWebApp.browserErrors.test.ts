@@ -6,6 +6,7 @@ import { HttpRequestError } from "../api/http";
 import { ServerNoticesController } from "../serverNotices";
 import type { Machine, Workspace } from "../api";
 import type { AppRoute } from "../route";
+import { PluginRegistry } from "../plugins/registry";
 import { PiWebApp } from "./PiWebApp";
 
 const workspace: Workspace = {
@@ -210,6 +211,50 @@ describe("PiWebApp route restoration", () => {
     expect(window.location.search).toBe(requestedUrl);
     expect(appState(app).selectedMachine?.id).toBe(remote.id);
     expect(routeContentError(app)()).toBe("找不到项目：remote-project");
+  });
+
+  it("waits for remote panel registration before resolving a deep link", async () => {
+    const app = createApp();
+    const remote: Machine = { id: "remote-1", name: "远程", kind: "remote", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [remote], selectedMachine: remote, projects: [] });
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Plugin registry was unavailable");
+    let loaded = false;
+    vi.spyOn(registry, "resolveWorkspacePanelRouteId").mockImplementation((value) => loaded && value === "machine.remote-1.notes:workspace.notes" ? value : undefined);
+    Reflect.set(app, "ensureGatewayPluginsLoaded", () => Promise.resolve());
+    Reflect.set(app, "loadPluginsForSelectedMachine", async () => { await Promise.resolve(); loaded = true; });
+    const panelId = "machine.remote-1.notes:workspace.notes";
+
+    await privateRestoreRouteFor(app)({ machineId: remote.id, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool: panelId, view: panelId }, false);
+
+    expect(loaded).toBe(true);
+    expect(appState(app).workspaceTool).toBe(panelId);
+    expect(appState(app).mainView).toBe(panelId);
+  });
+
+  it("reports unavailable workspace panels instead of silently selecting another", () => {
+    const app = createApp();
+    const method: unknown = Reflect.get(app, "requestedWorkspacePanelError");
+    if (typeof method !== "function") throw new Error("Workspace panel error boundary was unavailable");
+
+    expect(Reflect.apply(method, app, [{ machineId: undefined, projectId: undefined, workspaceId: undefined, sessionId: undefined, tool: "missing:panel", view: "missing:panel" }]))
+      .toBe("工作区工具不可用：missing:panel");
+  });
+
+  it("restores the terminal view alias after the bundled plugin loads", async () => {
+    const app = createApp();
+    const local: Machine = { id: "local", name: "本地", kind: "local", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [local], selectedMachine: local, projects: [] });
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Plugin registry was unavailable");
+    vi.spyOn(registry, "resolveWorkspacePanelRouteId").mockImplementation((value) => value === "terminal" ? "pi-web.terminal:workspace.terminal" : undefined);
+    Reflect.set(app, "ensureGatewayPluginsLoaded", () => Promise.resolve());
+    stubSelectedMachinePluginLoad(app);
+
+    await privateRestoreRouteFor(app)({ machineId: undefined, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool: "terminal", view: "terminal" }, false);
+
+    expect(appState(app).workspaceTool).toBe("pi-web.terminal:workspace.terminal");
+    expect(appState(app).mainView).toBe("pi-web.terminal:workspace.terminal");
   });
 });
 

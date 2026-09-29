@@ -27,7 +27,7 @@ export interface TerminalPanelHostElement extends LitElement {
 export class TerminalPanelHost extends LitElement implements TerminalPanelHostElement {
   @property({ attribute: false }) panel: TerminalPanelRenderInput | undefined;
 
-  override createRenderRoot(): HTMLElement {
+  override createRenderRoot() {
     const root = super.createRenderRoot();
     if (root instanceof ShadowRoot) {
       const style = document.createElement("style");

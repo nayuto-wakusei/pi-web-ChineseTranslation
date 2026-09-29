@@ -17,14 +17,14 @@ afterEach(() => {
 });
 
 describe("management app bootstrap boundaries", () => {
-  it("does not load normal-mode configuration, runtime status or browser plugins", async () => {
+  it("loads browser plugins without loading normal-mode configuration or runtime status", async () => {
     vi.useFakeTimers();
     history.replaceState({}, "", "/?embed=management");
     const app = new PiWebApp();
     const config = vi.spyOn(configApi, "config");
     const status = vi.spyOn(PiWebStatusController.prototype, "refresh");
-    const gatewayPlugins = vi.spyOn(MachinePluginLoadCoordinator.prototype, "ensureGatewayLoaded");
-    const machinePlugins = vi.spyOn(MachinePluginLoadCoordinator.prototype, "loadForMachine");
+    const gatewayPlugins = vi.spyOn(MachinePluginLoadCoordinator.prototype, "ensureGatewayLoaded").mockResolvedValue(true);
+    const machinePlugins = vi.spyOn(MachinePluginLoadCoordinator.prototype, "loadForMachine").mockResolvedValue();
 
     await invoke(app, "loadClientConfig");
     await invoke(app, "ensureGatewayPluginsLoaded");
@@ -34,8 +34,8 @@ describe("management app bootstrap boundaries", () => {
 
     expect(config).not.toHaveBeenCalled();
     expect(status).not.toHaveBeenCalled();
-    expect(gatewayPlugins).not.toHaveBeenCalled();
-    expect(machinePlugins).not.toHaveBeenCalled();
+    expect(gatewayPlugins).toHaveBeenCalled();
+    expect(machinePlugins).toHaveBeenCalledOnce();
   });
 
   it("retains normal-mode gateway plugin loading and runtime refresh", async () => {

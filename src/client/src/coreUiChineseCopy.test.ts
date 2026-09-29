@@ -165,6 +165,12 @@ const copyCases: readonly CopyCase[] = [
     forbidden: ["Recording:", "Beta：", "测试版：", "~/.pi/agent or ~/agent-profiles/work", "Pi-compatible agent profile restart required", "No session status yet", "Select Model", "Select Thinking Level", "ariaLabel: \"Delete\"", "setAttribute(\"aria-label\", \"Table\")"],
   },
   {
+    name: "localizes shared content renderer and Mermaid preview controls",
+    paths: ["components/ContentRendererHost.ts", "../../../pi-web-plugins/mermaid/mermaidPreviewElement.ts", "../../../pi-web-plugins/mermaid/pi-web-plugin.ts"],
+    expected: ["渲染", "原始", "预览", "复制源码", "已复制源码", "复制源码失败", "预览失败，已显示原始源码。", "title = \"图表\"", "name: \"图表\""],
+    forbidden: ["Copy source", "Copied source", "Failed to copy source", "Preview failed", "Rendering diagram", "name: \"Mermaid\""],
+  },
+  {
     name: "keeps the file upload control as one visible Chinese button",
     paths: ["components/WorkspaceFilesPanel.ts"],
     expected: ["aria-label=\"上传文件\"", "type=\"file\" multiple hidden"],
