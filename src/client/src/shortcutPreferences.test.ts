@@ -27,6 +27,20 @@ describe("shortcut preferences", () => {
     ]);
   });
 
+  it("uses saved alias preferences for display and active bindings", () => {
+    const actions = [action({ id: "files:open", shortcutAliases: ["core:view.files"], shortcut: "mod+1" })];
+    const shortcuts = { "core:view.files": "mod+shift+2" };
+    expect(applyShortcutPreferences(actions, shortcuts)[0]?.shortcut).toBe("mod+shift+2");
+    expect(applyActiveShortcutPreferences(actions, shortcuts)[0]?.shortcut).toBe("mod+shift+2");
+  });
+
+  it("gives the current id precedence over aliases, including an explicit disable", () => {
+    const actions = [action({ id: "files:open", shortcutAliases: ["core:view.files"], shortcut: "mod+1" })];
+    const shortcuts = { "files:open": null, "core:view.files": "mod+shift+2" };
+    expect(applyShortcutPreferences(actions, shortcuts)[0]?.shortcut).toBeUndefined();
+    expect(applyActiveShortcutPreferences(actions, shortcuts)[0]?.shortcut).toBeUndefined();
+  });
+
   it("keeps only active shortcuts when applying preferences for display", () => {
     expect(applyActiveShortcutPreferences([
       action({ id: "core:z", title: "Later", shortcut: "mod+k" }),

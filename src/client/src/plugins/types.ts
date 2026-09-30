@@ -90,9 +90,9 @@ export interface PluginMachine {
 export type { WorkspaceFilesCapabilityV1, WorkspaceFileReferenceOptions, WorkspaceFileRequestOptions, WorkspaceFileUploadOptions, WorkspaceFileUploadTask } from "../../../plugin-api";
 
 export interface WorkspaceFiles {
-  readFile(path: string): Promise<FileContentResponse>;
+  readFile(path: string, options?: import("../../../plugin-api").WorkspaceFileRequestOptions): Promise<FileContentResponse>;
   readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
-  listFiles(path: string): Promise<FileTreeResponse>;
+  listFiles(path: string, options?: import("../../../plugin-api").WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
   writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
   deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
   moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;

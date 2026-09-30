@@ -2039,7 +2039,9 @@ export class PiWebApp extends LitElement {
   }
 
   private createWorkspaceFiles(workspace: Workspace, machineId: string): WorkspaceFiles {
-    const files = createWorkspaceFiles(workspacesApi, workspace, machineId, () => { void this.files.refreshFiles(); });
+    const files = createWorkspaceFiles(workspacesApi, workspace, machineId, () => { void this.files.refreshFiles(); }, {
+      defaultUploadFolder: workspaceEffectiveUploadFolder(workspace.effectiveConfig, this.workspaceUploadDefaultFolder),
+    });
     return {
       ...files,
       readOptionalFile: (path: string) => workspacesApi.optionalWorkspaceFile(workspace.projectId, workspace.id, path, machineId),

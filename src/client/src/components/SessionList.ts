@@ -1,5 +1,6 @@
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { shortSessionId } from "../sessionLabels";
@@ -88,6 +89,31 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @state() private archivedVisibleLimit = SESSION_LIST_BATCH_SIZE;
   @query(".list-body") private listBody?: HTMLElement;
   private loadMoreObserver: IntersectionObserver | undefined;
+  private treeCache: {
+    sessions: SessionInfo[];
+    pinnedSessionIds: string[];
+    currentRows: SessionRow[];
+    currentSelectableSessions: SessionInfo[];
+    archivedRows: SessionRow[];
+    archivedSessions: SessionInfo[];
+  } | undefined;
+
+  private sessionTree() {
+    if (this.treeCache?.sessions !== this.sessions || this.treeCache.pinnedSessionIds !== this.pinnedSessionIds) {
+      const currentRows = sessionRowsForCurrentTree(this.sessions, this.pinnedSessionIds);
+      const currentRowIds = new Set(currentRows.map((row) => row.session.id));
+      const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
+      this.treeCache = {
+        sessions: this.sessions,
+        pinnedSessionIds: this.pinnedSessionIds,
+        currentRows,
+        currentSelectableSessions: currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current"),
+        archivedRows,
+        archivedSessions: archivedRows.map((row) => row.session),
+      };
+    }
+    return this.treeCache;
+  }
 
   private readonly onDocumentClick = (event: MouseEvent) => {
     if (event.composedPath().includes(this)) return;
@@ -166,10 +192,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   override render() {
-    const currentRows = sessionRowsForCurrentTree(this.sessions, this.pinnedSessionIds);
-    const currentRowIds = new Set(currentRows.map((row) => row.session.id));
-    const currentSelectableSessions = currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
-    const archivedRows = sessionRows(this.sessions.filter((session) => session.archived === true && !currentRowIds.has(session.id)), this.pinnedSessionIds);
+    const { currentRows, currentSelectableSessions, archivedRows, archivedSessions } = this.sessionTree();
     const unreadCount = unreadSessionCount(currentSelectableSessions, this.unreadSessionIds);
     const visibleCurrentRows = currentRows.slice(0, this.currentVisibleLimit);
     const visibleCurrentSessions = visibleCurrentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
@@ -182,13 +205,13 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           <div class="list-body">
             ${this.renderCurrentSelectionToolbar(visibleCurrentSessions)}
             ${this.startingCount > 0 ? this.renderStartingSession() : null}
-            ${visibleCurrentRows.map((row) => this.renderSession(row, "current"))}
+            ${repeat(visibleCurrentRows, (row) => row.session.id, (row) => this.renderSession(row, "current"))}
             ${this.renderLoadMoreSentinel("current", visibleCurrentRows.length, currentRows.length)}
             ${archivedRows.length > 0 ? html`
-              ${this.renderArchivedHeading(archivedRows.map((row) => row.session), visibleArchivedSessions)}
+              ${this.renderArchivedHeading(archivedSessions, visibleArchivedSessions)}
               ${this.archivedExpanded ? html`
                 ${this.renderArchivedSelectionToolbar(visibleArchivedSessions)}
-                ${visibleArchivedRows.map((row) => this.renderSession(row, "archived"))}
+                ${repeat(visibleArchivedRows, (row) => row.session.id, (row) => this.renderSession(row, "archived"))}
                 ${this.renderLoadMoreSentinel("archived", visibleArchivedRows.length, archivedRows.length)}
               ` : null}
             ` : null}

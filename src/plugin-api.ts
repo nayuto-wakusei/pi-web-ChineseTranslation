@@ -248,17 +248,32 @@ export interface WorkspaceFileRequestOptions {
 }
 
 export interface WorkspaceFileReferenceOptions {
+  readonly version?: string;
+  /** Legacy alias for version. */
   readonly modifiedAt?: string;
 }
 
+export interface WorkspaceFileUploadProgress {
+  readonly loaded: number;
+  readonly total: number;
+  readonly percent: number;
+  readonly lengthComputable: boolean;
+}
+
 export interface WorkspaceFileUploadOptions {
+  readonly destinationFolder?: string;
+  readonly createDirs?: boolean;
+  readonly onProgress?: (progress: WorkspaceFileUploadProgress) => void;
+  /** Legacy alias for destinationFolder. */
   readonly folder?: string;
   readonly overwrite?: boolean;
   readonly signal?: AbortSignal;
 }
 
 export interface WorkspaceFileUploadTask {
+  readonly path: string;
   readonly completed: Promise<WriteWorkspaceFileResponse>;
+  cancel(): void;
 }
 
 export interface WorkspaceFiles {

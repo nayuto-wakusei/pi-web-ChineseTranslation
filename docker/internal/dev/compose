@@ -111,6 +111,11 @@ write_initial_dev_config() {
 # PI_WEB_DEV_API_PORT=8504
 # PI_WEB_DEV_PORT=8505
 #
+# PI_WEB_DEV_SESSIOND_SOCKET defaults to /data/pi-web/sessiond-dev.sock so the
+# dev session daemon does not collide with a runtime stack sharing the same
+# data directory. Override only if you intentionally want a different path.
+# PI_WEB_DEV_SESSIOND_SOCKET=/data/pi-web/sessiond-dev.sock
+#
 # Shared Docker/runtime-style defaults may also be set here:
 # PI_WEB_DOCKER_DATA_DIR=/absolute/path/to/pi-web-docker/data
 # PI_WEB_DOCKER_EXTRA_HOST_PATHS="/absolute/path/one /absolute/path/two"
@@ -241,6 +246,7 @@ pi_web_dev_api_bind_addr=$(value_from_config_or_generated_or_env_or_runtime_or_d
 pi_web_dev_bind_addr=$(value_from_config_or_generated_or_env_or_runtime_or_default PI_WEB_DEV_BIND_ADDR "$default_dev_bind_addr")
 pi_web_dev_api_port=$(value_from_config_or_generated_or_env_or_runtime_or_default PI_WEB_DEV_API_PORT 8504)
 pi_web_dev_port=$(value_from_config_or_generated_or_env_or_runtime_or_default PI_WEB_DEV_PORT 8505)
+pi_web_dev_sessiond_socket=$(value_from_config_or_generated_or_env_or_default PI_WEB_DEV_SESSIOND_SOCKET /data/pi-web/sessiond-dev.sock)
 
 require_unsigned_int PI_WEB_UID "$pi_web_uid"
 require_unsigned_int PI_WEB_GID "$pi_web_gid"
@@ -310,6 +316,7 @@ PI_WEB_DEV_API_BIND_ADDR=$pi_web_dev_api_bind_addr
 PI_WEB_DEV_BIND_ADDR=$pi_web_dev_bind_addr
 PI_WEB_DEV_API_PORT=$pi_web_dev_api_port
 PI_WEB_DEV_PORT=$pi_web_dev_port
+PI_WEB_DEV_SESSIOND_SOCKET=$pi_web_dev_sessiond_socket
 EOF
 mv "$temp_env" "$env_file"
 

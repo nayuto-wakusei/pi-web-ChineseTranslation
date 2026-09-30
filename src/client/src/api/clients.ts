@@ -226,12 +226,12 @@ function writeWorkspaceFile(projectId: string, workspaceId: string, path: string
 export const workspacesApi = {
   workspaces: (projectId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces`, arrayOf(parseWorkspace)),
   deleteWorkspace: (projectId: string, workspaceId: string, precondition: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE", body: JSON.stringify({ precondition }), headers: { "Content-Type": "application/json" } }),
-  workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
+  workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse, options),
   workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") => {
     const body: WorkspaceTreeBatchRequest = { paths: [...paths] };
     return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree/batch`, parseWorkspaceTreeBatchResponse, { method: "POST", body: JSON.stringify(body) });
   },
-  workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
+  workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse, options),
   optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse),
   createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => writeWorkspaceFile(projectId, workspaceId, path, new Uint8Array(), undefined, machineId),
   writeWorkspaceFile,

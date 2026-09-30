@@ -15,7 +15,7 @@ x-pi-web-dev-environment: &pi-web-dev-environment
   HOME: /data/home
   XDG_CONFIG_HOME: /data/config
   PI_WEB_DATA_DIR: /data/pi-web
-  PI_WEB_SESSIOND_SOCKET: /data/pi-web/sessiond.sock
+  PI_WEB_SESSIOND_SOCKET: ${PI_WEB_DEV_SESSIOND_SOCKET:-/data/pi-web/sessiond-dev.sock}
   PI_CODING_AGENT_DIR: /data/pi-agent
   HOSTEXEC_IMAGE: ${HOSTEXEC_IMAGE:-alpine:3.22}
   HOSTEXEC_MODE: ${HOSTEXEC_MODE:-disabled}
@@ -86,7 +86,7 @@ services:
     environment: *pi-web-dev-environment
     volumes: *pi-web-dev-volumes
     healthcheck:
-      test: ["CMD-SHELL", "test -S /data/pi-web/sessiond.sock"]
+      test: ["CMD-SHELL", "test -S ${PI_WEB_DEV_SESSIOND_SOCKET:-/data/pi-web/sessiond-dev.sock}"]
       interval: 5s
       timeout: 3s
       retries: 24

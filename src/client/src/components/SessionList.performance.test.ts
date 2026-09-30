@@ -12,6 +12,20 @@ afterEach(() => {
 });
 
 describe("SessionList incremental rendering", () => {
+  it("retains row elements across ordering and pin changes", async () => {
+    const all = sessions(3);
+    const list = await renderList(all);
+    const original = new Map(rows(list).map((row) => [row.getAttribute("title"), row]));
+    list.sessions = all.map((session, index) => ({ ...session, modified: `2030-01-0${String(index + 1)}T00:00:00.000Z` }));
+    await list.updateComplete;
+    for (const row of rows(list)) expect(row).toBe(original.get(row.getAttribute("title")));
+
+    list.pinnedSessionIds = [all[0]?.id ?? ""];
+    await list.updateComplete;
+    expect(rows(list)[0]?.getAttribute("title")).toBe(all[0]?.path);
+    for (const row of rows(list)) expect(row).toBe(original.get(row.getAttribute("title")));
+  });
+
   it("disables row paint containment while an action menu is open", async () => {
     const list = await renderList(sessions(1));
     const toggle = list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle");

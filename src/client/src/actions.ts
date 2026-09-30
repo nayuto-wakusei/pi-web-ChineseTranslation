@@ -3,6 +3,7 @@ export interface AppAction {
   title: string;
   description?: string;
   shortcut?: string;
+  shortcutAliases?: string[];
   group?: string;
   enabled?: boolean;
   /** When present on a disabled action, keep it visible and explain why it cannot run. */

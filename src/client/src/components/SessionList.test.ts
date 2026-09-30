@@ -1,21 +1,20 @@
+// @vitest-environment happy-dom
 import type { TemplateResult } from "lit";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-// Vitest runs in the node environment with no DOM, so menu/bulk-bar wiring is
-// verified through the shared TemplateResult inspection escape hatch: handler
-// lookups stay anchored to the buttons' own user-facing text.
+// Legacy bulk-toolbar checks use template inspection; row menus use the DOM.
 import {
-  findOptionalTemplateClickHandlerForText,
   isTemplateEventHandler,
   isTemplateResult,
-  templateClickHandlerForText,
   templateStrings,
   templateValues,
   type TemplateEventHandler,
 } from "../templateInspection.testSupport";
 import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, sessionRowUnread, unarchivedDescendantCount, unreadSessionCount } from "./SessionList";
+
+afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
@@ -105,34 +104,37 @@ describe("session action eligibility", () => {
 });
 
 describe("mark-as-read actions", () => {
-  it("offers Mark as read in the menu of an unread current session and forwards it", () => {
+  it("offers Mark as read in the menu of an unread current session and forwards it", async () => {
     const unread = session("unread");
     const list = sessionList([unread, session("read")], new Set([unread.id]));
     const onMarkRead = vi.fn<(session: SessionInfo) => void>();
     list.onMarkRead = onMarkRead;
 
-    openSessionMenu(list, unread.id);
-    templateClickHandlerForText(renderList(list), "标记为已读")(new Event("click"));
+    await openSessionMenu(list, unread);
+    const button = markReadMenuButton(list);
+    if (button === undefined) throw new Error("Missing mark-as-read action");
+    button.click();
+    await list.updateComplete;
 
     expect(onMarkRead).toHaveBeenCalledWith(unread);
     expect(componentState(list, "openMenuSessionId")).toBeUndefined();
   });
 
-  it("hides Mark as read for read, transient, and archived sessions even when tracked as unread", () => {
+  it("hides Mark as read for read, transient, and archived sessions even when tracked as unread", async () => {
     const read = session("read");
     const cached = markCachedNewSessionInfo(session("cached"));
     const archived = { ...session("archived"), archived: true, archivedAt: "2026-06-09T00:00:00.000Z" };
     const list = sessionList([read, cached, archived], new Set([cached.id, archived.id]));
 
-    openSessionMenu(list, read.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
+    await openSessionMenu(list, read);
+    expect(markReadMenuButton(list)).toBeUndefined();
 
-    openSessionMenu(list, cached.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
+    await openSessionMenu(list, cached);
+    expect(markReadMenuButton(list)).toBeUndefined();
 
     setComponentState(list, "archivedExpanded", true);
-    openSessionMenu(list, archived.id);
-    expect(findOptionalTemplateClickHandlerForText(renderList(list), "标记为已读")).toBeUndefined();
+    await openSessionMenu(list, archived);
+    expect(markReadMenuButton(list)).toBeUndefined();
   });
 
   it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", () => {
@@ -236,8 +238,18 @@ function renderList(list: SessionList): TemplateResult {
   return list.render();
 }
 
-function openSessionMenu(list: SessionList, sessionId: string): void {
-  setComponentState(list, "openMenuSessionId", sessionId);
+async function openSessionMenu(list: SessionList, session: SessionInfo): Promise<void> {
+  if (!list.isConnected) document.body.append(list);
+  await list.updateComplete;
+  const row = Array.from(list.shadowRoot?.querySelectorAll("[title]") ?? []).find((element) => element.getAttribute("title") === session.path);
+  const toggle = row?.querySelector<HTMLButtonElement>(".action-menu-toggle");
+  if (toggle === null || toggle === undefined) throw new Error("Missing session menu toggle");
+  toggle.click();
+  await list.updateComplete;
+}
+
+function markReadMenuButton(list: SessionList): HTMLButtonElement | undefined {
+  return Array.from(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? []).find((button) => button.textContent.trim() === "标记为已读");
 }
 
 function componentState(list: SessionList, property: string): unknown {

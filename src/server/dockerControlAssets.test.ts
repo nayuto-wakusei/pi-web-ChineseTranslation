@@ -111,6 +111,20 @@ describe("Docker command assets", () => {
     expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
   });
 
+  it("keeps the development daemon socket separate from runtime", async () => {
+    const [devCompose, runtimeCompose, devWrapper] = await Promise.all([
+      readRepoFile("docker/compose.dev.yml"),
+      readRepoFile("docker/compose.yml"),
+      readRepoFile("docker/internal/dev/compose"),
+    ]);
+    expect(devCompose).toContain("PI_WEB_SESSIOND_SOCKET: ${PI_WEB_DEV_SESSIOND_SOCKET:-/data/pi-web/sessiond-dev.sock}");
+    expect(devCompose).toContain("test -S ${PI_WEB_DEV_SESSIOND_SOCKET:-/data/pi-web/sessiond-dev.sock}");
+    expect(devWrapper).toContain("value_from_config_or_generated_or_env_or_default PI_WEB_DEV_SESSIOND_SOCKET /data/pi-web/sessiond-dev.sock");
+    expect(devWrapper).toContain("PI_WEB_DEV_SESSIOND_SOCKET=$pi_web_dev_sessiond_socket");
+    expect(runtimeCompose).toContain("PI_WEB_SESSIOND_SOCKET: /data/pi-web/sessiond.sock");
+    expect(runtimeCompose).not.toContain("PI_WEB_DEV_SESSIOND_SOCKET");
+  });
+
   it("shares one user-owned container environment file across runtime and development services", async () => {
     const [runtimeCompose, devCompose, installer, devWrapper, hostProfile] = await Promise.all([
       readRepoFile("docker/compose.yml"),

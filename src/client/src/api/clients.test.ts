@@ -53,6 +53,25 @@ afterEach(() => {
 });
 
 describe("machine-scoped runtime API", () => {
+  it.each(["normal", "management"] as const)("forwards workspace read cancellation in %s mode", async (mode) => {
+    setApiScope(mode);
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });
+    vi.stubGlobal("location", { href: `https://pi.example.test/nested/pi-web/${mode === "management" ? "?embed=management&token=test-entry" : ""}` });
+    const controller = new AbortController();
+    const error = new DOMException("cancelled", "AbortError");
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.reject(error));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(workspacesApi.workspaceFile("p 1", "w/1", "a.txt", "remote /?", { signal: controller.signal })).rejects.toBe(error);
+    await expect(workspacesApi.workspaceTree("p 1", "w/1", "", "remote /?", { signal: controller.signal })).rejects.toBe(error);
+    for (const [url, init] of fetchMock.mock.calls) {
+      const urlString = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      expect(urlString).toContain("/nested/pi-web/api/machines/remote%20%2F%3F/projects/p%201/workspaces/w%2F1/");
+      expect(init?.signal).toBe(controller.signal);
+      expect(new URL(urlString).searchParams.get("embed")).toBe(mode === "management" ? "management" : null);
+    }
+  });
+
   it.each(["normal", "management"] as const)("scopes session defaults to the encoded machine and session under %s mode", async (mode) => {
     setApiScope(mode);
     vi.stubEnv("BASE_URL", "./");
