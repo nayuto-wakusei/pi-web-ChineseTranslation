@@ -25,7 +25,7 @@ describe("settings-shortcuts-panel layout", () => {
     expect(frameNotices(template).map((notice) => notice.type)).toEqual(["error", "success"]);
     expectTextOrder(rendered, [
       "键盘快捷键",
-      "按操作编辑应用快捷键。",
+      "可以输入",
       "<code>mod+k</code>",
       "重新加载",
       "Failed to load shortcut settings.",

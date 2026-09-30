@@ -157,10 +157,12 @@ http://localhost:8505
 For the split development setup:
 
 ```bash
-npm run dev:sessiond
 npm run dev:web
+npm run start:sessiond
 npm run dev:client
 ```
+
+Run these in separate terminals, starting Web first. The daemon waits for the Web-owned plugin build and does not autoreload. See [development service startup](https://pi-web.dev/install#manage-services) for build and restart ordering.
 
 Validate changes with:
 

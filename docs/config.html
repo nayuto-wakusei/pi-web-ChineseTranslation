@@ -486,7 +486,7 @@
                       <td>—</td>
                       <td>Global</td>
                       <td>Not supported locally</td>
-                      <td>Applies after settings save/config refresh</td>
+                      <td>Applies after settings save/config refresh. <code>composer.send.desktop</code> and <code>composer.send.mobile</code> accept a single editor-only chord; until saved, the browser's Enter preference is preserved.</td>
                     </tr>
                     <tr>
                       <td>Project config version</td>
@@ -1116,11 +1116,17 @@ pi-web audit vacuum</code></pre>
               </div>
             </section>
 
+            <section id="session-defaults">
+              <h2>新会话默认值</h2>
+              <p>模型和思考等级选择器中的星标仅影响之后创建的会话，不修改当前会话。默认值按机器上的项目和普通/管理模式分别保存；同一项目的工作区共享普通模式偏好，项目级覆盖仍按现有优先级生效。</p>
+              <p>偏好保存在项目作用域的 <code>settings.preferences.json</code>，不写共享 agent 的 <code>settings.json</code>，也不新增可提交的项目配置文件。普通模式与项目认证存储同目录；管理模式使用独立的 <code>management-embed/projects/&lt;hash&gt;/</code>，无法唯一归属项目时使用 <code>management-embed/orphan/&lt;cwdHash&gt;/</code>。</p>
+            </section>
+
             <section id="prompt-completions">
               <h2>提示词补全</h2>
               <p>聊天输入框会在键入以下三个触发字符时打开补全菜单：</p>
               <ul>
-                <li>在草稿开头键入 <code>/</code> 可补全会话命令。</li>
+                <li>在草稿开头键入 <code>/</code> 可补全会话命令。声明了参数的命令会在名称旁显示提示，选中后在光标处显示一次性灰色提示，下一次编辑或移动光标即消失。</li>
                 <li>
                   <code>@</code> 用于补全文件路径：<code>@</code> 显示已跟踪文件，<code>@ </code>（先键入
                   <code>@</code>，再键入空格）或 <code>!@</code> 显示所有文件。选中后会把 <code>@path</code>

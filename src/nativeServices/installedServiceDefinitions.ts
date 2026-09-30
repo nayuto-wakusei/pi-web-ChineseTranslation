@@ -48,6 +48,14 @@ const systemdInspectionProperties = [
 const systemdBusDestination = "org.freedesktop.systemd1";
 const systemdUnitObjectPathPrefix = "/org/freedesktop/systemd1/unit/";
 const legacySystemdUnprintableValue = "[unprintable]";
+const managedSystemdEnvironmentKeys = [
+  "PI_WEB_CONFIG",
+  "PI_WEB_DATA_DIR",
+  "PI_WEB_SESSIOND_SOCKET",
+  "PI_WEB_SESSIOND_URL",
+  "PI_WEB_SESSIOND_HOST",
+  "PI_WEB_SESSIOND_PORT",
+] as const;
 
 type SystemdInspectionProperty = typeof systemdInspectionProperties[number];
 
@@ -55,10 +63,10 @@ type SystemdInspectionProperty = typeof systemdInspectionProperties[number];
  * Read installed definitions through a strict UTF-8 boundary, parse the
  * manager-relevant environment, and then bind that byte snapshot to the
  * service manager's effective context. Systemd must report the canonical
- * fragment, no unmodeled environment inputs, and the same effective
- * environment; legacy systemctl output is recovered losslessly from the
- * manager's D-Bus property. A loaded LaunchAgent must report the canonical
- * plist and the same PI_WEB_CONFIG. Launchd restart is the exception: its existing
+ * fragment, no EnvironmentFile inputs, and matching config/data/transport
+ * environment; unrelated drop-in values are allowed. Legacy systemctl output
+ * is recovered losslessly from the manager's D-Bus property. A loaded LaunchAgent
+ * must report the canonical plist and the same PI_WEB_CONFIG. Launchd restart is the exception: its existing
  * bootout/bootstrap path deliberately replaces loaded state before probing.
  */
 export function inspectInstalledNativeServiceDefinitions(
@@ -173,11 +181,7 @@ function inspectEffectiveSystemdDefinition(
         : `Systemd unit ${source.systemdName} reports unrecognized NeedDaemonReload=${JSON.stringify(needDaemonReload)}.`,
     };
   }
-  // Drop-ins (including package-owned global ones such as Fedora's
-  // service.d/10-timeout-abort.conf) are tolerated: every drop-in-settable
-  // property inspected here (Environment, EnvironmentFiles) is reported by
-  // systemctl as the drop-in-merged effective value and is strictly verified
-  // below, so a drop-in cannot silently alter what this inspection sees.
+  // Drop-ins may add audit/auth settings, but cannot redirect the config or daemon probes.
   const environmentFiles = parsed.value.properties.get("EnvironmentFiles") ?? [];
   const configuredEnvironmentFiles = environmentFiles.filter((value) => value !== "");
   if (configuredEnvironmentFiles.length > 0) {
@@ -212,7 +216,10 @@ function inspectEffectiveSystemdDefinition(
     dependencies,
   );
   if (!effectiveEnvironment.ok) return effectiveEnvironment;
-  if (!recordsEqual(effectiveEnvironment.value, expectedEnvironment)) {
+  if (!recordsEqual(
+    managedEnvironmentValues(effectiveEnvironment.value),
+    managedEnvironmentValues(expectedEnvironment),
+  )) {
     return {
       ok: false,
       message: `Systemd unit ${source.systemdName} has an effective environment that differs from installed definition ${source.path}; run \`systemctl --user daemon-reload\` or reinstall the managed services before probing it.`,
@@ -398,6 +405,15 @@ function unrecognizedSystemdEnvironment(
     ok: false,
     message: `Could not inspect effective systemd unit ${source.systemdName}: ${command} returned an unrecognized Environment value.`,
   };
+}
+
+function managedEnvironmentValues(environment: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
+  const entries: [string, string][] = [];
+  for (const key of managedSystemdEnvironmentKeys) {
+    const value = ownEnvironmentValue(environment, key);
+    if (value !== undefined) entries.push([key, value]);
+  }
+  return Object.fromEntries(entries);
 }
 
 function environmentFromAssignments(assignments: readonly string[]): Readonly<Record<string, string>> | undefined {

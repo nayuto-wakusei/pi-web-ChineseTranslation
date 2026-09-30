@@ -433,9 +433,15 @@ Plugins are enabled by default. Set `plugins.<id>.enabled` to `false` to remove 
 
 Reload the browser tab after changing plugin enablement. Already-loaded plugin JavaScript is not unloaded from the current page.
 
+### 新会话默认值
+
+模型和思考等级选择器中的星标仅影响之后创建的会话，不修改当前会话。默认值按机器上的项目和普通/管理模式分别保存；同一项目的工作区共享普通模式偏好，项目级覆盖仍按现有优先级生效。
+
+这些偏好属于 PI WEB 管理的数据，保存在项目作用域的 `settings.preferences.json`，不写入共享 agent 目录的 `settings.json`，也不新增可提交的项目配置文件。普通模式下与项目认证存储同目录；管理模式使用独立的 `management-embed/projects/<hash>/` 存储，无法唯一归属项目时使用 `management-embed/orphan/<cwdHash>/`。
+
 ### Shortcut config
 
-Shortcut values are keyed by action id. Values are shortcut strings such as `mod+k` or `mod+g p`; `null` disables that action's shortcut.
+Shortcut values are keyed by action id. Values are shortcut strings such as `mod+k` or `g p`; `null` disables that action's shortcut. Unmodified sequences can be saved, but they do not fire while typing in an editor. `composer.send.desktop` and `composer.send.mobile` are single chords used only inside the message editor. Until one is saved, the editor keeps the current browser's Enter preference.
 
 ```json
 {
@@ -452,7 +458,7 @@ Prefer Settings → Keyboard for editing shortcuts interactively.
 
 聊天输入框会在键入以下三个触发字符时打开补全菜单：
 
-- 在草稿开头键入 `/` 可补全会话命令。
+- 在草稿开头键入 `/` 可补全会话命令。声明了参数的命令会在名称旁显示提示，选中后在光标处显示一次性灰色提示，下一次编辑或移动光标即消失。
 - `@` 用于补全文件路径：`@` 显示已跟踪文件，`@ `（先键入 `@`，再键入空格）或 `!@` 显示所有文件。选中后会把 `@path` 引用插入草稿；路径包含空格时会自动加引号。
 - `#` 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。选中后会把 `#provider/model-id` 引用插入草稿，提示代理应使用该模型执行请求，例如作为 `spawn_session` 的 `model` 参数。
 

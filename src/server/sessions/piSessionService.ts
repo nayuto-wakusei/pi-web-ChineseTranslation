@@ -50,7 +50,7 @@ import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWe
 import type { PiWebConfigService } from "../configRoutes.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT, type PiWebAttachmentsConfig } from "../../shared/apiTypes.js";
-import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
+import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";
 import type { SessionRouteRef } from "./sessionService.js";
@@ -67,6 +67,7 @@ import { workbenchAccessHandle, type ManagementEmbedContext } from "../managemen
 import { managementPrivilegeRequested, managementPrivileges } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
+import { parseSessionDefaults, parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
 import { createAskUserToolDefinition, type AskUserInvocation, type AskUserToolDeps } from "./askUserTool.js";
 import { PendingAskStore, renderAskUserAnswersText, type PendingAskCloseResult, type PendingAskOpenResult } from "./pendingAskStore.js";
 import { PendingExtensionDialogStore, type ExtensionDialogCancelReason } from "./pendingExtensionDialogStore.js";
@@ -453,6 +454,11 @@ export interface PiAgentSession {
   settingsManager: {
     getWarnings(): { anthropicExtraUsage?: boolean };
     setWarnings(warnings: { anthropicExtraUsage?: boolean }): void;
+    getGlobalSettings?(): { defaultProvider?: string; defaultModel?: string; defaultThinkingLevel?: ClientThinkingLevel };
+    setDefaultModelAndProvider?(provider: string, modelId: string): void;
+    setDefaultThinkingLevel?(level: ClientThinkingLevel): void;
+    flush?(): Promise<void>;
+    drainErrors?(): { error: { message: string } }[];
     getEnabledModels(): string[] | undefined;
     getProjectSettings?(): object;
     setEnabledModels(patterns: string[] | undefined): void;
@@ -478,7 +484,7 @@ export interface PiAgentSession {
     getUIContext(): ExtensionUIContext;
     setUIContext(uiContext?: ExtensionUIContext, mode?: "rpc"): void;
   };
-  promptTemplates: readonly { name: string; description?: string }[];
+  promptTemplates: readonly { name: string; description?: string; argumentHint?: string }[];
   resourceLoader: { getSkills(): { skills: readonly { name: string; description?: string }[] } };
   subscribe(listener: (event: unknown) => void): () => void;
   bindExtensions(bindings: PiExtensionBindings): Promise<void>;
@@ -2436,6 +2442,43 @@ export class PiSessionService {
     return { seq, partial };
   }
 
+  async getSessionDefaults(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<SessionDefaults> {
+    const session = await this.getOrOpen(ref, managementContext);
+    return this.readSessionDefaultPins(session);
+  }
+
+  async setSessionDefaults(ref: PiSessionLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext): Promise<SessionDefaults> {
+    const update = parseSessionDefaultsUpdate({ ...defaults });
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref, managementContext);
+    return this.runModelScopeMutation(async () => {
+      const settings = session.settingsManager;
+      if (settings.setDefaultModelAndProvider === undefined || settings.setDefaultThinkingLevel === undefined || settings.flush === undefined) {
+        throw new Error("当前会话不支持设置新会话默认值");
+      }
+      if (update.provider !== undefined && update.modelId !== undefined) {
+        await session.modelRuntime.refresh({ allowNetwork: false });
+        const target = `${update.provider}/${update.modelId}`;
+        const available = session.modelRuntime.getAvailableSnapshot();
+        if (!available.some((model) => modelScopeId(model) === target)) throw new Error(`未找到模型：${target}`);
+        const enabledIds = (await this.modelScopeSnapshot(session)).enabledIds;
+        if (enabledIds !== null && !enabledIds.includes(target)) throw new Error(`模型未启用：${target}`);
+        settings.setDefaultModelAndProvider(update.provider, update.modelId);
+      } else if (update.thinkingLevel !== undefined) {
+        settings.setDefaultThinkingLevel(update.thinkingLevel);
+      }
+      await settings.flush();
+      const errors = settings.drainErrors?.() ?? [];
+      if (errors.length > 0) throw new Error(`会话默认值写入失败：${errors.map(({ error }) => error.message).join("; ")}`);
+      return this.readSessionDefaultPins(session);
+    });
+  }
+
+  private readSessionDefaultPins(session: PiAgentSession): SessionDefaults {
+    // Merged getters include workspace .pi/settings.json. Pins are the scoped global overlay only.
+    return parseSessionDefaults(session.settingsManager.getGlobalSettings?.() ?? {});
+  }
+
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
     const session = await this.getOrOpen(ref, managementContext);
     const models = await this.sessionModelCandidates(session);
@@ -2562,7 +2605,12 @@ export class PiSessionService {
       commands.push({ name: command.invocationName, ...(command.description === undefined ? {} : { description: command.description }), source: "extension" });
     }
     for (const template of session.promptTemplates) {
-      commands.push({ name: template.name, ...(template.description === undefined ? {} : { description: template.description }), source: "prompt" });
+      commands.push({
+        name: template.name,
+        ...(template.description === undefined ? {} : { description: template.description }),
+        ...(template.argumentHint === undefined || template.argumentHint === "" ? {} : { argumentHint: template.argumentHint }),
+        source: "prompt",
+      });
     }
     for (const skill of session.resourceLoader.getSkills().skills) {
       commands.push({ name: `skill:${skill.name}`, ...(skill.description === undefined ? {} : { description: skill.description }), source: "skill" });
@@ -2758,6 +2806,7 @@ export class PiSessionService {
         throw new Error("The session changed since /tree was opened. Reopen /tree and try again.");
       }
 
+      const oldLeafId = session.sessionManager.getLeafId();
       this.publishActivity(session, options.summarize ? "正在汇总分支" : "正在切换会话树", "active");
       this.publishStatus(session);
       const result = await session.navigateTree(request.targetId, options);
@@ -2766,6 +2815,13 @@ export class PiSessionService {
           this.publishActivity(session, result.aborted === true ? "分支汇总已终止" : "会话树切换已取消", "idle");
         }
         return { cancelled: true, ...(result.aborted === undefined ? {} : { aborted: result.aborted }) };
+      }
+
+      if (session.sessionManager.getLeafId() !== oldLeafId) {
+        // Questions belong to the branch we left. Close them without appending a
+        // cancellation message or waking the rewound session.
+        const outcome = this.pendingAskStore.cancelOpen(session.sessionId);
+        if (outcome !== undefined) this.publishAskClosed(session.sessionId, outcome);
       }
 
       if (this.isCurrentActiveSession(session)) this.publishActivity(session, "已切换会话树", "idle");

@@ -114,6 +114,15 @@ describe("pi-web-docker command planning", () => {
   });
 
   it("plans development host commands through the generated dev Compose environment", () => {
+    expect(devHostPlan(["--dev", "restart"])).toEqual({
+      kind: "composeSequence",
+      usesGeneratedEnv: true,
+      steps: [
+        { args: ["restart", "web"] },
+        { args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
+        { args: ["restart", "sessiond"] },
+      ],
+    });
     expect(devHostPlan(["--dev", "start"])).toEqual({ kind: "compose", args: ["up", "-d", "--build"], usesGeneratedEnv: true });
     expect(devHostPlan(["--dev", "status"])).toEqual({ kind: "compose", args: ["ps"], usesGeneratedEnv: true });
     expect(devHostPlan(["--dev", "logs", "data-init"])).toEqual({ kind: "compose", args: ["logs", "-f", "data-init"], usesGeneratedEnv: true });

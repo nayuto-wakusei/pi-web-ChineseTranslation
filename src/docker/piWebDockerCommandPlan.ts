@@ -129,7 +129,15 @@ export function planPiWebDockerDevHostCommand(plan: PiWebDockerCommandPlan): PiW
     case "stop":
       return devComposeHostPlan("down");
     case "restart":
-      return devComposeHostPlan("restart", "web", "sessiond");
+      return {
+        kind: "composeSequence",
+        usesGeneratedEnv: true,
+        steps: [
+          { args: ["restart", "web"] },
+          { args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
+          { args: ["restart", "sessiond"] },
+        ],
+      };
     case "restart-web":
       return devComposeHostPlan("restart", "web");
     case "restart-sessiond":

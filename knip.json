@@ -7,6 +7,7 @@
     "extensions/pi-web.ts",
     "pi-web-plugins/**/pi-web-plugin.ts",
     "pi-web-plugins/**/server-plugin.ts",
+    "pi-web-plugins/mermaid/mermaidRuntime.ts",
     "pi-packages/**/pi-web-plugin.ts",
     "scripts/*.mjs"
   ],

@@ -11,6 +11,8 @@ import type {
   SessionNotificationDismissAllRequest,
   SessionNotificationDismissRequest,
   SessionNotificationInboxSnapshot,
+  SessionDefaults,
+  SessionDefaultsUpdate,
   SessionModelScopeMode,
   SessionUnreadAcknowledgeRequest,
   SessionUnreadCatalogSnapshot,
@@ -72,6 +74,8 @@ export interface SessionRouteService {
   answerDialog(ref: SessionRouteLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   cancelDialog(ref: SessionRouteLookup, dialogId: string, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   dismissWarning(ref: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  getSessionDefaults(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionDefaults>;
+  setSessionDefaults(ref: SessionRouteLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext): Promise<SessionDefaults>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
   modelCatalog(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

@@ -36,6 +36,31 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "localStorage", { value: new MemoryStorage(), configurable: true });
 });
 
+describe("SessionController message history actions", () => {
+  it("forks a durable message through the existing tree API and refuses a missing entry", async () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const forkTree = vi.fn<typeof defaultApi.forkTree>(() => Promise.resolve({ cancelled: false, session: replacementSession }));
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      runCommand: () => Promise.resolve({ type: "tree", tree }),
+      forkTree,
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.actOnMessage("root", "fork");
+    await expect(controller.actOnMessage("missing", "fork")).rejects.toThrow(/不在当前会话历史/);
+
+    expect(forkTree).toHaveBeenCalledTimes(1);
+    expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1" }, "local");
+  });
+});
+
 describe("SessionController session tree navigation", () => {
   it("opens tree command results and keeps older-server unsupported results inert", async () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };

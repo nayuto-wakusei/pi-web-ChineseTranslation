@@ -14,6 +14,12 @@ interface CopyCase {
 
 const copyCases: readonly CopyCase[] = [
   {
+    name: "localizes session defaults, message history actions, and composer shortcut labels",
+    paths: ["components/DefaultPin.ts", "components/ChatView.ts", "composerShortcuts.ts", "promptCompletions.ts", "components/PromptEditor.ts"],
+    expected: ["新会话默认", "已是新会话默认", "从这条消息分叉", "回退到这条消息", "当前会话保持不变", "未保存的输入不会保留", "发送消息", "聊天输入框", "内置", "扩展", "提示词", "技能", "slashCommandSourceLabel(command.source)"],
+    forbidden: ["Set as default", "Fork from here", "Back to here", "Send message", "command.argumentHint ?? command.source"],
+  },
+  {
     name: "localizes the navigation search and pinned destination controls",
     paths: ["components/appShell/NavigationDialog.ts", "components/WorkspacePanel.ts", "components/PiWebApp.ts"],
     expected: ["打开导航", "搜索导航目标", "导航目标", "没有匹配的导航目标", "固定到标签栏", "取消固定", "显示全部标签", "移动导航显示方式", "展开", "折叠", "导航目标不可用", "找不到机器：", "找不到项目：", "找不到工作区：", "找不到会话："],
@@ -143,7 +149,7 @@ const copyCases: readonly CopyCase[] = [
   {
     name: "localizes questions, session-tree navigation, chat queues, and notifications",
     paths: ["components/AskUserCard.ts", "components/SessionTreeNavigator.ts", "components/ChatView.ts", "controllers/sessionController.ts", "sessionNotifications.ts", "sessionTreeModel.ts"],
-    expected: ["发送回答", "自定义回答", "全部问题均已回答", "浏览会话树", "从此处继续", "分叉为新会话", "bash: { label: \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
+    expected: ["发送回答", "自定义回答", "全部问题均已回答", "浏览会话树", "从此处继续", "分叉为新会话", "从这条消息分叉", "回退到这条消息", "bash: { label: \"命令\"", "排队中的消息", "清除队列", "已排队", "个附件", "通知（", "关闭通知", "assistant: \"助手\"", "chatMessageRoleLabel(message.role)"],
     forbidden: ["Send answers", "Custom answer", ": outcome.summary", "Navigate session tree", "Summarize and navigate", "Fork into a new session", "case \"bash\": return \"Shell\"", "Queued messages", "Clear queue", " attachment queued", " attachments queued", "Notifications (", "Dismiss notification", "label: string = message.role"],
   },
   {

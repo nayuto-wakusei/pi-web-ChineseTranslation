@@ -294,7 +294,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
       const pendingRead = navigation === "during-read" ? service.messages(sessionRef(sessionId)) : undefined;
       if (pendingRead !== undefined) await readStarted.promise;
       await service.navigateTree(sessionRef(sessionId), { targetId: firstId, expectedLeafId: manager.getLeafId(), summary: { mode: "none" } });
-      const expected = navigation === "root" ? [] : [firstMessage];
+      const expected = navigation === "root" ? [] : [{ ...firstMessage, entryId: firstId }];
       if (pendingRead !== undefined) {
         diskRead.resolve(diskBranch);
         await expect(pendingRead).resolves.toEqual(expected);
@@ -304,10 +304,10 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
 
       const nextMessage = { role: "user" as const, content: "new branch", timestamp: 3 };
       const externalMessage = { role: "user" as const, content: "external append", timestamp: 4 };
-      manager.appendMessage(nextMessage);
+      const nextId = manager.appendMessage(nextMessage);
       diskBranch = [...manager.getBranch(), { type: "message", message: externalMessage }];
       readBranch.mockImplementation(() => Promise.resolve(diskBranch));
-      await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([...expected, nextMessage, externalMessage]);
+      await expect(service.messages(sessionRef(sessionId))).resolves.toEqual([...expected, { ...nextMessage, entryId: nextId }, externalMessage]);
     } finally {
       diskRead.resolve(diskBranch);
       await service.dispose();

@@ -8,6 +8,7 @@ import {
   doctorExitCode,
   expectedRunningComponents,
   isCliEntrypoint,
+  installedServiceProbeEnvironment,
   launchdRuntimeDetails,
   nodeVersionCheck,
   regularFileExists,
@@ -91,6 +92,72 @@ describe("agentCommandForChecks", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("installed service probe configuration", () => {
+  const backend = { kind: "systemd", label: "systemd" } as const;
+  const ids = new Set(["web", "sessiond"] as const);
+  function definitions(configPath?: string) {
+    const environment = configPath === undefined ? "" : `Environment="PI_WEB_CONFIG=${configPath}"\n`;
+    const contents = `[Service]\n${environment}ExecStart=/usr/bin/env "/bin/bash" -lc "exec true"\n`;
+    return [
+      { id: "web" as const, contents },
+      { id: "sessiond" as const, contents },
+    ];
+  }
+
+  it.each(["start", "restart", "doctor"] as const)("uses installed configuration for %s without mutating the caller", (purpose) => {
+    const inspect = vi.fn(() => ({ ok: true as const, value: definitions("/managed/config with space.json") }));
+    const caller = { PATH: "/bin", PI_WEB_SESSIOND_SOCKET: "/custom/sessiond.sock" };
+    const result = installedServiceProbeEnvironment(backend, ids, caller, purpose, inspect);
+    expect(result).toEqual({ ok: true, value: { ...caller, PI_WEB_CONFIG: "/managed/config with space.json" } });
+    expect(inspect).toHaveBeenCalledWith(backend, ["web", "sessiond"], purpose);
+    expect(caller).not.toHaveProperty("PI_WEB_CONFIG");
+  });
+
+  it("lets an explicit caller override bypass unreadable definitions", () => {
+    const inspect = vi.fn(() => ({ ok: false as const, message: "unreadable" }));
+    const caller = { PI_WEB_CONFIG: "/caller/config.json" };
+    expect(installedServiceProbeEnvironment(backend, ids, caller, "start", inspect)).toEqual({ ok: true, value: caller });
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it("uses the installed default when the caller config is empty or inherited", () => {
+    const inspect = () => ({ ok: true as const, value: definitions() });
+    const caller: NodeJS.ProcessEnv = {};
+    Object.setPrototypeOf(caller, { PI_WEB_CONFIG: "/inherited/config.json" });
+    for (const env of [caller, { PI_WEB_CONFIG: "" }]) {
+      expect(installedServiceProbeEnvironment(backend, ids, env, "doctor", inspect)).toEqual({ ok: true, value: { PI_WEB_CONFIG: "" } });
+    }
+  });
+
+  it("preserves the caller context when no managed services are installed", () => {
+    const inspect = vi.fn(() => ({ ok: false as const, message: "unused" }));
+    const caller = { PATH: "/bin" };
+    expect(installedServiceProbeEnvironment(backend, new Set(), caller, "doctor", inspect)).toEqual({ ok: true, value: caller });
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it("rejects unreadable, relative, and mismatched installed configurations", () => {
+    const mismatched = definitions("/a/config.json");
+    mismatched[1] = { id: "sessiond", contents: definitions("/b/config.json")[1]?.contents ?? "" };
+    for (const inspection of [
+      { ok: false as const, message: "unreadable" },
+      { ok: true as const, value: definitions("relative/config.json") },
+      { ok: true as const, value: mismatched },
+    ]) {
+      expect(installedServiceProbeEnvironment(backend, ids, {}, "doctor", () => inspection).ok).toBe(false);
+    }
+  });
+
+  it("selects an installed LaunchAgent configuration", () => {
+    const contents = `<plist><dict><key>ProgramArguments</key><array><string>/usr/bin/env</string><string>/bin/zsh</string><string>-lc</string><string>exec true</string></array><key>EnvironmentVariables</key><dict><key>PI_WEB_CONFIG</key><string>/managed/config.json</string></dict></dict></plist>`;
+    const result = installedServiceProbeEnvironment(
+      { kind: "launchd", label: "LaunchAgents" }, ids, {}, "restart",
+      () => ({ ok: true, value: [{ id: "web", contents }, { id: "sessiond", contents }] }),
+    );
+    expect(result).toEqual({ ok: true, value: { PI_WEB_CONFIG: "/managed/config.json" } });
   });
 });
 

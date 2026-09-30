@@ -466,9 +466,15 @@ run_restart_sessiond() {
 
 run_restart_all() {
   assert_no_args restart "$@"
-  # Restart web first to mirror native service commands. Detached helpers keep
-  # running after sessiond restarts, so this is safe when launched from PI WEB.
-  compose_for_install restart web sessiond
+  case "$(docker_mode)" in
+    dev)
+      # Web owns the build. Keep sessiond untouched until web is ready.
+      dev_compose restart web
+      dev_compose up -d --no-deps --no-recreate --wait --wait-timeout 120 web
+      dev_compose restart sessiond
+      ;;
+    runtime) runtime_compose restart web sessiond ;;
+  esac
 }
 
 # Runtime updates always rerun the installer. It refreshes assets and reuses

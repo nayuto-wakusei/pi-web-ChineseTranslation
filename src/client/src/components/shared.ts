@@ -64,6 +64,8 @@ export type ChatPart =
 export interface ChatLine {
   role: "user" | "assistant" | "tool" | "system" | "bash" | "skill";
   parts: ChatPart[];
+  /** Durable session-tree entry. Absent for in-flight messages, which cannot be forked or rewound. */
+  entryId?: string;
   transcriptIndex?: number;
   source?: "compaction" | "branch_summary";
   meta?: {
@@ -579,6 +581,7 @@ export const promptEditorStyles = css`
   footer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; border-top: 1px solid var(--pi-border); }
   footer.shell-mode { border-top-color: var(--pi-success); background: var(--pi-success-bg); }
   .editor-wrap { position: relative; min-width: 0; }
+  .cm-argument-hint { color: var(--pi-muted); opacity: 0.7; pointer-events: none; }
   .actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap; }
   .compact-status { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--pi-muted); font-size: 12px; flex: 1 1 0; }
   .compact-status > button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

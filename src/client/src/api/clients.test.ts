@@ -53,6 +53,32 @@ afterEach(() => {
 });
 
 describe("machine-scoped runtime API", () => {
+  it.each(["normal", "management"] as const)("scopes session defaults to the encoded machine and session under %s mode", async (mode) => {
+    setApiScope(mode);
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });
+    const defaults = { defaultProvider: "provider /?", defaultModel: "model /?", defaultThinkingLevel: "high" };
+    const fetchMock = stubSequenceFetch([jsonResponse(defaults), jsonResponse(defaults)]);
+    vi.stubGlobal("location", { href: `https://pi.example.test/nested/pi-web/${mode === "management" ? "?embed=management&token=test-entry" : ""}` });
+    const session = { id: "session /?", cwd: "/repo with spaces" };
+    const base = "https://pi.example.test/nested/pi-web/api/machines/remote%20%2F%3F/sessions/session%20%2F%3F/defaults";
+
+    await expect(sessionsApi.getSessionDefaults(session, "remote /?")).resolves.toEqual(defaults);
+    await expect(sessionsApi.setSessionDefaults(session, { provider: "provider /?", modelId: "model /?" }, "remote /?")).resolves.toEqual(defaults);
+    const [readUrl, readInit] = fetchCall(fetchMock, 0);
+    const [writeUrl, writeInit] = fetchCall(fetchMock, 1);
+    expect(readUrl).toBe(`${base}?cwd=%2Frepo+with+spaces${mode === "management" ? "&embed=management&token=test-entry" : ""}`);
+    expect(writeUrl).toBe(`${base}${mode === "management" ? "?embed=management&token=test-entry" : ""}`);
+    expect(writeInit?.method).toBe("POST");
+    expect(JSON.parse(requestBody(writeInit))).toEqual({ cwd: session.cwd, provider: "provider /?", modelId: "model /?" });
+    expect(readInit?.method).toBeUndefined();
+  });
+
+  it("rejects invalid defaults returned by a remote machine", async () => {
+    stubJsonFetch({ defaultThinkingLevel: "unknown" });
+    await expect(sessionsApi.getSessionDefaults({ id: "session", cwd: "/repo" }, "remote")).rejects.toThrow();
+  });
+
   it("reads machine PI WEB status through the gateway route", async () => {
     const fetchMock = stubJsonFetch(piWebStatusResponse());
 

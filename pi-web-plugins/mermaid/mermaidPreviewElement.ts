@@ -1,5 +1,5 @@
 import type { ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
-import { mermaidFrameDocument } from "./mermaidEngine.js";
+import { loadMermaidEngine, mermaidFrameDocument } from "./mermaidEngine.js";
 
 const PREVIEW_TAG = "pi-web-mermaid-preview";
 
@@ -22,11 +22,10 @@ class MermaidPreviewElement extends HTMLElement {
     frame.title = "图表";
     frame.sandbox.add("allow-scripts");
     frame.referrerPolicy = "no-referrer";
-    frame.srcdoc = mermaidFrameDocument();
     frame.style.cssText = "display:block;width:100%;height:180px;border:0;background:white";
     this.replaceChildren(frame);
     this.frame = frame;
-    this.draw();
+    void this.draw();
   }
 
   disconnectedCallback(): void {
@@ -35,7 +34,7 @@ class MermaidPreviewElement extends HTMLElement {
     this.cleanup = undefined;
   }
 
-  private draw(): void {
+  private async draw(): Promise<void> {
     this.cleanup?.();
     const input = this.input;
     const frame = this.frame;
@@ -60,7 +59,7 @@ class MermaidPreviewElement extends HTMLElement {
       if (current()) input.fail(new Error("图表预览超时"));
       cleanup();
     }, 30_000);
-    const onAbort = () => { cleanup(); };
+    const onAbort = () => { frame.remove(); cleanup(); };
     const cleanup = () => {
       window.clearTimeout(timeout);
       window.removeEventListener("message", onMessage);
@@ -69,5 +68,12 @@ class MermaidPreviewElement extends HTMLElement {
     this.cleanup = cleanup;
     window.addEventListener("message", onMessage);
     input.signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      const engine = await loadMermaidEngine();
+      if (current()) frame.srcdoc = mermaidFrameDocument(engine);
+    } catch (error) {
+      if (current()) input.fail(error);
+      cleanup();
+    }
   }
 }

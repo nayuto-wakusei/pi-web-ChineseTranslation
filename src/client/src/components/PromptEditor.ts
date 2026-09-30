@@ -2,6 +2,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndI
 import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
+import { promptArgumentHintExtension, setPromptArgumentHint } from "../promptArgumentHint";
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -10,11 +11,12 @@ import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
 import { capturePromptAttachments, effectivePromptAttachmentDelivery, isInlinePromptAttachment, promptAttachmentsCanUseInlineDelivery } from "../promptAttachmentCapture";
 import { inputModeForDraft, inputModesEqual, type InputMode } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
-import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices, type PromptCompletionTrigger } from "../promptCompletions";
+import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices, slashCommandSourceLabel, type PromptCompletionTrigger } from "../promptCompletions";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
 import { clearStagedAttachments, loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
 import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
-import { createMobilePromptEnterMedia, readPromptEnterPreference, shouldSendPromptOnEnterShortcut, shouldUsePromptEnterShiftShortcut } from "../promptEnterBehavior";
+import { composerSendShortcut, matchesComposerSend } from "../composerShortcuts";
+import { createMobilePromptEnterMedia, readPromptEnterPreference, shouldUsePromptEnterShiftShortcut } from "../promptEnterBehavior";
 import type { CompletionItem } from "../promptCompletionTypes";
 import { promptEditorStyles } from "./shared";
 import { renderAttachIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
@@ -37,6 +39,7 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) canStop = false;
   @property({ attribute: false }) status?: SessionStatus;
   @property({ type: Boolean }) sending = false;
+  @property({ attribute: false }) shortcutConfig: Record<string, string | null> = {};
   @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery?: PromptAttachmentDelivery, folder?: string) => void | Promise<void>;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
@@ -285,6 +288,7 @@ export class PromptEditor extends LitElement {
         doc: this.draft,
         extensions: [
           history(),
+          promptArgumentHintExtension,
           markdown(),
           indentOnInput(),
           indentUnit.of("  "),
@@ -377,8 +381,9 @@ export class PromptEditor extends LitElement {
           replaceFrom: trigger.from,
           replaceTo: trigger.to,
           insertText: `/${command.name}`,
-          detail: command.source,
+          detail: command.argumentHint ?? slashCommandSourceLabel(command.source),
           ...(command.description === undefined ? {} : { description: command.description }),
+          ...(command.argumentHint === undefined ? {} : { argumentHint: command.argumentHint }),
         }));
     } else if (trigger.kind === "file" && this.cwd !== undefined && this.cwd !== "") {
       this.fileCompletionAbort = new AbortController();
@@ -457,7 +462,17 @@ export class PromptEditor extends LitElement {
       if (completion !== undefined) this.pick(completion);
       return true;
     }
-    if (!shouldSendPromptOnEnterShortcut(shiftKey, this.mobilePromptEnterMedia, readPromptEnterPreference())) {
+    const sendShortcut = composerSendShortcut(this.shortcutConfig, this.mobilePromptEnterMedia, readPromptEnterPreference());
+    const matchesSend = matchesComposerSend({
+      key: "Enter",
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey,
+      isComposing: false,
+      target: null,
+    }, sendShortcut);
+    if (!matchesSend) {
       return insertNewlineContinueMarkup(view) || insertNewlineAndIndent(view);
     }
     this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
@@ -487,6 +502,7 @@ export class PromptEditor extends LitElement {
     editor.dispatch({
       changes: { from: item.replaceFrom, to: replaceTo, insert: `${item.insertText}${suffix}` },
       selection: EditorSelection.cursor(cursor),
+      effects: item.argumentHint === undefined ? [] : setPromptArgumentHint.of({ pos: cursor, text: item.argumentHint }),
       scrollIntoView: true,
     });
     this.completions = [];

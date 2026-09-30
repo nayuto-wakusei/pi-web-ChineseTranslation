@@ -20,6 +20,6 @@ it("keeps all matching command completions beyond twelve", async () => {
 
   const completions: unknown = Reflect.get(editor, "completions");
   expect(completions).toEqual(skills.map((skill) => ({
-    kind: "command", replaceFrom: 0, replaceTo: 7, insertText: `/${skill.name}`, detail: "skill",
+    kind: "command", replaceFrom: 0, replaceTo: 7, insertText: `/${skill.name}`, detail: "技能",
   })));
 });

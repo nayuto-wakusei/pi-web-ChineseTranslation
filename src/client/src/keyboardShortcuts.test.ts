@@ -185,9 +185,9 @@ describe("shortcut input parsing", () => {
     expect(parseShortcutInput("cmd+g p")).toEqual({ ok: true, shortcut: "mod+g p", tokens: ["mod+g", "p"] });
   });
 
-  it("rejects shortcuts that would capture normal typing", () => {
-    expect(parseShortcutInput("r")).toEqual({ ok: false, message: "快捷键必须以 Ctrl/⌘ 或 Alt 开头，避免拦截普通输入。" });
-    expect(parseShortcutInput("shift+r")).toEqual({ ok: false, message: "快捷键必须以 Ctrl/⌘ 或 Alt 开头，避免拦截普通输入。" });
+  it("accepts unmodified Gmail-style sequences outside editors", () => {
+    expect(parseShortcutInput("g p")).toEqual({ ok: true, shortcut: "g p", tokens: ["g", "p"] });
+    expect(parseShortcutInput("shift+r")).toEqual({ ok: true, shortcut: "shift+r", tokens: ["shift+r"] });
   });
 
   it("builds canonical tokens from recorded key events", () => {

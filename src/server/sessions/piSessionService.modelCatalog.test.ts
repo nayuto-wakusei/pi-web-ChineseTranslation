@@ -84,6 +84,43 @@ function managementContext(): ManagementEmbedContext {
   };
 }
 
+describe("PiSessionService session default pins", () => {
+  it("pins a future-session model and thinking level into the project preference file", async () => {
+    const { service, ref, settingsPath } = await startSessionWithSettings();
+    const agentSettings = join(settingsPath, "..", "..", "..", "..", "agent", "settings.json");
+    try {
+      await expect(service.setSessionDefaults(ref, { provider: PROVIDER, modelId: "missing" })).rejects.toThrow(/未找到模型/);
+      const pinnedModel = await service.setSessionDefaults(ref, { provider: PROVIDER, modelId: FIRST_MODEL });
+      const pinnedThinking = await service.setSessionDefaults(ref, { thinkingLevel: "high" });
+
+      expect(pinnedModel).toMatchObject({ defaultProvider: PROVIDER, defaultModel: FIRST_MODEL });
+      expect(pinnedThinking.defaultThinkingLevel).toBe("high");
+      expect(JSON.parse(await readFile(settingsPath, "utf8"))).toMatchObject({
+        defaultProvider: PROVIDER,
+        defaultModel: FIRST_MODEL,
+        defaultThinkingLevel: "high",
+      });
+      await expect(readFile(agentSettings, "utf8")).rejects.toThrow();
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("rejects a model pin outside the enabled set without writing preferences", async () => {
+    const { service, ref, settingsPath } = await startSessionWithSettings({
+      enabledModels: [`${PROVIDER}/${DEFAULT_MODEL}`],
+    });
+    try {
+      await expect(service.setSessionDefaults(ref, { provider: PROVIDER, modelId: FIRST_MODEL })).rejects.toThrow(/模型未启用/);
+      expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({
+        enabledModels: [`${PROVIDER}/${DEFAULT_MODEL}`],
+      });
+    } finally {
+      await service.dispose();
+    }
+  });
+});
+
 describe("PiSessionService model catalog", () => {
   it("marks every available model enabled in catalog order when no scope is configured", async () => {
     const { service, ref, modelRuntime } = await startSessionWithSettings();

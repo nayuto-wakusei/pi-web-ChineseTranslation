@@ -1,4 +1,8 @@
-import type { SessionModel } from "../../shared/apiTypes";
+import type { SessionModel, SlashCommand } from "../../shared/apiTypes";
+
+export function slashCommandSourceLabel(source: SlashCommand["source"]): string {
+  return { builtin: "内置", extension: "扩展", prompt: "提示词", skill: "技能" }[source];
+}
 
 export type PromptCompletionTrigger =
   | { kind: "command"; query: string; from: number; to: number }

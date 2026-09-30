@@ -75,8 +75,8 @@ services:
     command: ["npm", "run", "start:sessiond"]
     working_dir: /workspace
     depends_on:
-      data-init:
-        condition: service_completed_successfully
+      web:
+        condition: service_healthy
     user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
     group_add:
       - "${DOCKER_GID:-0}"
@@ -98,8 +98,8 @@ services:
     command: ["bash", "-lc", "trap 'kill 0' EXIT; npm run dev:web & npm run dev:client & wait"]
     working_dir: /workspace
     depends_on:
-      sessiond:
-        condition: service_healthy
+      data-init:
+        condition: service_completed_successfully
     user: "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}"
     group_add:
       - "${DOCKER_GID:-0}"

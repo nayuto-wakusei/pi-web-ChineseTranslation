@@ -377,8 +377,8 @@ export function createDevelopmentNativeServicePlan(input: DevelopmentNativeServi
         restart: "never",
         environment,
         workingDirectory: input.workingDirectory,
-        after: ["sessiond"],
-        wants: ["sessiond"],
+        after: [],
+        wants: [],
         prerequisites: [
           nodeRequirement("uiDev"),
           commandRequirement("uiDev", "npm"),

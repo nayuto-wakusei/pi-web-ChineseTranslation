@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionTreeNavigateRequest, SessionTreeSummaryChoice } from "../../shared/apiTypes.js";
+import { PendingAskStore } from "./pendingAskStore.js";
 import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionServiceDependencies } from "./piSessionService.js";
 import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, testModelRuntime, type TestSession } from "./piSessionService.testSupport.js";
 import type { ProjectableSessionTreeNode } from "./sessionTreeProjection.js";
@@ -88,6 +89,31 @@ describe("PiSessionService session-tree behavior", () => {
       },
     });
 
+    await service.dispose();
+  });
+
+  it("closes an open question when navigation changes the leaf, without appending a cancellation", async () => {
+    const pendingAskStore = new PendingAskStore();
+    let leafId = "leaf-1";
+    const sendCustomMessage = vi.fn(() => Promise.resolve());
+    const { service, hub } = treeHarness(
+      { getSessionId: () => SESSION_ID, getLeafId: () => leafId },
+      {
+        navigateTree: () => {
+          leafId = "rewound-leaf";
+          return Promise.resolve({ cancelled: false });
+        },
+        sendCustomMessage,
+      },
+      { pendingAskStore },
+    );
+    pendingAskStore.open({ sessionId: SESSION_ID, questions: [{ id: "continue", question: "继续？", options: [] }] });
+
+    await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest({ mode: "none" }))).resolves.toEqual({ cancelled: false });
+
+    expect(pendingAskStore.pendingAsk(SESSION_ID)).toBeUndefined();
+    expect(sendCustomMessage).not.toHaveBeenCalled();
+    expect(hub.sessionEvents.some((entry) => entry.sessionId === SESSION_ID && entry.event.type === "ask.closed" && entry.event.reason === "cancelled")).toBe(true);
     await service.dispose();
   });
 

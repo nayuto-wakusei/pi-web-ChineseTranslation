@@ -15,6 +15,7 @@ import type {
   SessionCleanupExecuteResponse,
   SessionCleanupPreviewResponse,
   SessionModelCatalogEntry,
+  SessionDefaultsUpdate,
   SessionModelScopeMode,
   SessionNotificationDismissAllRequest,
   SessionNotificationDismissRequest,
@@ -111,6 +112,39 @@ describe("session routes", () => {
       expect(invalid.statusCode).toBe(400);
       expect(invalid.json()).toEqual({ error: "mode 字段必须是 all 或 current" });
       expect(routeService.setModelScopeCalls).toEqual([{ lookup: { id: "session-1", cwd }, mode: "current", managementContext: undefined }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("pins one session default selector and rejects mixed updates", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const cwd = resolve("/repo");
+      const managementContext: ManagementEmbedContext = {
+        user: { id: "account-1", rootUserId: "root-1", roles: [], permissions: [] },
+        projects: [{ id: "project-1", name: "Project 1" }],
+      };
+      const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) };
+      const current = await routeApp.inject({ method: "GET", url: `/sessions/session-1/defaults?cwd=${encodeURIComponent(cwd)}`, headers });
+      const pinned = await routeApp.inject({ method: "POST", url: "/sessions/session-1/defaults", headers, payload: { cwd, thinkingLevel: "high" } });
+      const mixed = await routeApp.inject({ method: "POST", url: "/sessions/session-1/defaults", payload: { cwd, provider: "anthropic", modelId: "claude-opus", thinkingLevel: "low" } });
+
+      expect(current.statusCode).toBe(200);
+      expect(current.json()).toEqual({ defaultProvider: "anthropic", defaultModel: "claude-opus", defaultThinkingLevel: "medium" });
+      expect(pinned.statusCode).toBe(200);
+      expect(pinned.json()).toEqual({ defaultThinkingLevel: "high" });
+      expect(mixed.statusCode).toBe(400);
+      expect(routeService.sessionDefaultCalls).toEqual([
+        { lookup: { id: "session-1", cwd }, managementContext },
+        { lookup: { id: "session-1", cwd }, defaults: { thinkingLevel: "high" }, managementContext },
+      ]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -1103,6 +1137,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly modelCatalogCalls: { lookup: SessionRouteLookup; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly setModelEnabledCalls: { lookup: SessionRouteLookup; provider: string; modelId: string; enabled: boolean; managementContext: ManagementEmbedContext | undefined }[] = [];
   readonly setModelScopeCalls: { lookup: SessionRouteLookup; mode: SessionModelScopeMode; managementContext: ManagementEmbedContext | undefined }[] = [];
+  readonly sessionDefaultCalls: { lookup: SessionRouteLookup; defaults?: SessionDefaultsUpdate; managementContext: ManagementEmbedContext | undefined }[] = [];
   askError: Error | undefined;
   dialogError: Error | undefined;
   reloadError: Error | undefined;
@@ -1268,6 +1303,19 @@ class CapturingRouteSessionService implements SessionRouteService {
   streamSnapshot(lookup: SessionRouteLookup): Promise<SessionStreamSnapshot> {
     this.streamSnapshotCalls.push(lookup);
     return Promise.resolve(this.streamSnapshotResponse);
+  }
+
+  getSessionDefaults(lookup: SessionRouteLookup, managementContext?: ManagementEmbedContext) {
+    this.sessionDefaultCalls.push({ lookup, managementContext });
+    return Promise.resolve({ defaultProvider: "anthropic", defaultModel: "claude-opus", defaultThinkingLevel: "medium" as const });
+  }
+
+  setSessionDefaults(lookup: SessionRouteLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext) {
+    this.sessionDefaultCalls.push({ lookup, defaults, managementContext });
+    return Promise.resolve({
+      ...(defaults.provider === undefined ? {} : { defaultProvider: defaults.provider, defaultModel: defaults.modelId }),
+      ...(defaults.thinkingLevel === undefined ? {} : { defaultThinkingLevel: defaults.thinkingLevel }),
+    });
   }
 
   availableModels(): Promise<[]> { return Promise.resolve([]); }

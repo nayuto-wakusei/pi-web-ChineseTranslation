@@ -341,6 +341,21 @@ server {
 <span class="comment"># From a checkout, install the split development services:</span>
 <span class="prompt">$</span> pi-web install --dev</code></pre>
               </div>
+              <p>
+                In a source checkout, the Web process owns plugin builds. For a split manual setup, start
+                <code>npm run dev:web</code> first, then run <code>npm run start:sessiond</code> and
+                <code>npm run dev:client</code> in separate terminals. The daemon waits up to two minutes for
+                <code>dist/.plugins-ready</code>; <code>npm run build:plugins</code> can also prepare this marker
+                when starting the daemon without a Web watcher. <code>start:sessiond</code> does not autoreload;
+                <code>dev:sessiond</code> explicitly opts into watching daemon source.
+              </p>
+              <p>
+                Managed development startup and service restarts wait for Web build and API readiness before
+                starting or restarting the daemon. A failed Web readiness check leaves the daemon untouched.
+                Restarting only the Web/UI service preserves active sessions; restarting the daemon interrupts them.
+                Existing development service files need to be regenerated to remove the old UI dependency on the daemon.
+                Updating service files and restarting the daemon should be scheduled when sessions can be interrupted.
+              </p>
             </section>
 
             <section id="configure">

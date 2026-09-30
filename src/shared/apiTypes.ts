@@ -1074,6 +1074,20 @@ export interface ModelSelectionResponse {
   models: SessionModel[];
 }
 
+/** Pins used by future sessions in this mode and project. Workspace overrides are not pins. */
+export interface SessionDefaults {
+  defaultProvider?: string;
+  defaultModel?: string;
+  defaultThinkingLevel?: import("./thinkingLevels.js").ThinkingLevel;
+}
+
+/** Exactly one selector: a model pair, or a thinking level. */
+export interface SessionDefaultsUpdate {
+  provider?: string;
+  modelId?: string;
+  thinkingLevel?: import("./thinkingLevels.js").ThinkingLevel;
+}
+
 export interface ThinkingLevelsResponse {
   levels: string[];
 }
@@ -1152,6 +1166,12 @@ export interface WorkspaceActivityResponse {
 export interface SlashCommand {
   name: string;
   description?: string;
+  /**
+   * Pi-style argument hint (e.g. `<会话名称>`, `[说明]`) shown next to the
+   * command name. Angle brackets are required; square brackets are optional.
+   * Absent when a command takes no arguments or does not declare them.
+   */
+  argumentHint?: string;
   source: "extension" | "prompt" | "skill" | "builtin";
 }
 

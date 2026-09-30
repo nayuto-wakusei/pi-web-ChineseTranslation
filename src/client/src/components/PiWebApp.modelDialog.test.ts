@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setApiScope, type PromptAttachment, type SessionInfo, type SessionModel, type SessionStatus } from "../api";
+import type { SessionDefaults } from "../../../shared/apiTypes";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
 import { PiWebApp } from "./PiWebApp";
+
+beforeEach(() => {
+  vi.spyOn(SessionController.prototype, "getSessionDefaults").mockResolvedValue(undefined);
+});
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -16,6 +21,53 @@ afterEach(() => {
 });
 
 describe("PiWebApp model dialog", () => {
+  it("does not apply an older default read to a reopened dialog", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, sessions: [selectedSession] });
+    vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
+    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue([]);
+    const pending = deferred<SessionDefaults | undefined>();
+    vi.spyOn(SessionController.prototype, "getSessionDefaults")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ defaultProvider: "openai", defaultModel: "new" });
+
+    await callOpenModelDialog(app);
+    await callOpenModelDialog(app);
+    await vi.waitFor(() => { expect(appModelDialog(app)?.defaultValue).toBe("openai/new"); });
+    pending.resolve({ defaultProvider: "openai", defaultModel: "old" });
+    await pending.promise;
+
+    expect(appModelDialog(app)?.defaultValue).toBe("openai/new");
+  });
+
+  it.each(["model", "thinking"] as const)("does not apply a pending %s pin to another session's dialog", async (kind) => {
+    const app = new PiWebApp();
+    const origin = { machineId: "local", sessionId: "session-1", cwd: "/repo" };
+    const dialog = { instanceId: 1, origin, title: "选择", options: [], defaultValue: "previous" };
+    setAppState(app, { selectedSession: session("session-1"), modelDialog: dialog, thinkingDialog: dialog });
+    const pending = deferred<SessionDefaults>();
+    const setDefaults = vi.spyOn(SessionController.prototype, "setSessionDefaults").mockReturnValue(pending.promise);
+    const pin = callPinSessionDefault(app, kind, kind === "model" ? "openai/new" : "high");
+    const replacement = { ...dialog, instanceId: 2, origin: { ...origin, sessionId: "session-2" } };
+    setAppState(app, { selectedSession: session("session-2"), modelDialog: replacement, thinkingDialog: replacement });
+    pending.resolve({ defaultProvider: "openai", defaultModel: "new", defaultThinkingLevel: "high" });
+    await pin;
+
+    expect(setDefaults).toHaveBeenCalledOnce();
+    expect(appModelDialog(app)?.defaultValue).toBe("previous");
+    expect(readAppState(app).thinkingDialog?.defaultValue).toBe("previous");
+  });
+
+  it("consumes message-action failures already reported by the controller", async () => {
+    const app = new PiWebApp();
+    const action = vi.spyOn(SessionController.prototype, "actOnMessage").mockRejectedValue(new Error("reported"));
+    const handler: unknown = Reflect.get(app, "handleMessageAction");
+    if (typeof handler !== "function") throw new Error("Message action boundary was unavailable");
+    Reflect.apply(handler, app, ["entry-1", "fork"]);
+    await vi.waitFor(() => { expect(action).toHaveBeenCalledWith("entry-1", "fork"); });
+  });
+
   it.each(["/model", "/scoped-models"])("opens the existing model dialog for %s", async (command) => {
     const app = new PiWebApp();
     const selectedSession = session("session-1");
@@ -76,8 +128,10 @@ describe("PiWebApp model dialog", () => {
       { provider: "openai", id: "gpt-4o", enabled: false },
     ];
     const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue(catalog);
+    vi.spyOn(SessionController.prototype, "getSessionDefaults").mockResolvedValue(undefined);
 
     await callOpenModelDialog(app);
+    await vi.waitFor(() => { expect(appModelDialog(app)?.defaultsLoading).toBe(false); });
 
     expect(listModelCatalog).toHaveBeenCalledOnce();
     expect(appModelDialog(app)).toEqual({
@@ -90,6 +144,7 @@ describe("PiWebApp model dialog", () => {
         { value: "anthropic/claude-sonnet-4-5", label: "claude-sonnet-4-5", description: "anthropic" },
       ],
       catalog,
+      defaultsLoading: false,
     });
   });
 
@@ -101,8 +156,10 @@ describe("PiWebApp model dialog", () => {
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([{ provider: "openai", id: "gpt-5" }]);
     const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockRejectedValue(new Error("must not be called"));
     const setModelEnabled = vi.spyOn(SessionController.prototype, "setModelEnabled").mockRejectedValue(new Error("must not be called"));
+    vi.spyOn(SessionController.prototype, "getSessionDefaults").mockResolvedValue(undefined);
 
     await callOpenModelDialog(app);
+    await vi.waitFor(() => { expect(appModelDialog(app)?.defaultsLoading).toBe(false); });
     await callToggleHandler(app, "openai", "gpt-5", false);
 
     expect(listModelCatalog).not.toHaveBeenCalled();
@@ -112,6 +169,7 @@ describe("PiWebApp model dialog", () => {
       origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
       title: "选择模型",
       options: [{ value: "openai/gpt-5", label: "gpt-5", description: "openai" }],
+      defaultsLoading: false,
     });
   });
 
@@ -182,6 +240,18 @@ async function callOpenModelDialog(app: PiWebApp): Promise<void> {
   await Reflect.apply(method, app, []);
 }
 
+async function callPinSessionDefault(app: PiWebApp, kind: "model" | "thinking", value: string): Promise<void> {
+  const method: unknown = Reflect.get(app, "pinSessionDefault");
+  if (typeof method !== "function") throw new Error("Session default boundary was unavailable");
+  await Reflect.apply(method, app, [kind, value]);
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => { throw new Error("Promise not initialized"); };
+  const promise = new Promise<T>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
+
 function callSendPrompt(app: PiWebApp, text: string, streamingBehavior?: "followUp", attachments?: PromptAttachment[]): void {
   const handler: unknown = Reflect.get(app, "handleSendPrompt");
   if (typeof handler !== "function") throw new Error("PiWebApp send handler was unavailable");
@@ -201,9 +271,13 @@ async function callScopeHandler(app: PiWebApp, mode: "all" | "current"): Promise
 }
 
 function appModelDialog(app: PiWebApp): AppState["modelDialog"] {
+  return readAppState(app).modelDialog;
+}
+
+function readAppState(app: PiWebApp): AppState {
   const state: unknown = Reflect.get(app, "state");
   if (!isAppState(state)) throw new Error("PiWebApp state was unavailable");
-  return state.modelDialog;
+  return state;
 }
 
 function isAppState(value: unknown): value is AppState {

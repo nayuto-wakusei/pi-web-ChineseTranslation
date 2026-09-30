@@ -1,5 +1,6 @@
 import { posix as posixPath } from "node:path";
 import { TextDecoder, TextEncoder } from "node:util";
+import { ownEnvironmentValue } from "../environment.js";
 import {
   createDevelopmentNativeServicePlan,
   nativeServicePrerequisiteNeedsPathAdvice,
@@ -32,6 +33,10 @@ export interface InstalledNativeServiceContext {
 export type InstalledNativeServiceInspection<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
+
+export type ManagedNativeServiceConfigSelection =
+  | { source: "caller" | "installed"; configPath: string }
+  | { source: "default" };
 
 export type NativeServiceDoctorTarget =
   | {
@@ -96,6 +101,26 @@ export function inferInstalledNativeServiceMode(serviceIds: ReadonlySet<NativeSe
   if (hasProductionWeb && !hasDevelopmentUi) return "production";
   if (hasDevelopmentUi && !hasProductionWeb) return "development";
   return "ambiguous";
+}
+
+export function selectManagedNativeServiceConfig(
+  backend: NativeServiceBackend,
+  definitions: readonly InstalledNativeServiceDefinition[],
+  callerConfigPath: string | undefined,
+): InstalledNativeServiceInspection<ManagedNativeServiceConfigSelection> {
+  if (callerConfigPath !== undefined && callerConfigPath !== "") {
+    return { ok: true, value: { source: "caller", configPath: callerConfigPath } };
+  }
+  if (definitions.length === 0) return { ok: true, value: { source: "default" } };
+  const parsed = parseConsistentDefinitions(backend, definitions);
+  if (!parsed.ok) return parsed;
+  const environment = parsed.value[0]?.environment;
+  const configPath = environment === undefined ? undefined : ownEnvironmentValue(environment, "PI_WEB_CONFIG");
+  if (configPath === undefined || configPath === "") return { ok: true, value: { source: "default" } };
+  if (!posixPath.isAbsolute(configPath)) {
+    return { ok: false, message: `Installed service definitions declare relative PI_WEB_CONFIG ${JSON.stringify(configPath)}; managed config paths must be absolute.` };
+  }
+  return { ok: true, value: { source: "installed", configPath } };
 }
 
 export function inspectInstalledProductionServiceContext(

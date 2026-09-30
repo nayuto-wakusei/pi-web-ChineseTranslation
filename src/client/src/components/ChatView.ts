@@ -231,6 +231,7 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
   @property({ type: Boolean }) canClearServerQueue = false;
   @property({ attribute: false }) onClearServerQueue?: () => void;
+  @property({ attribute: false }) onMessageAction?: (entryId: string, action: "fork" | "back") => void | Promise<void>;
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
   @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
   @property({ attribute: false }) onDismissAllNotifications?: () => void;
@@ -943,15 +944,38 @@ export class ChatView extends LitElement {
   }
 
   private renderMessageActions(message: ChatLine, key: string) {
-    if (!this.isCopyableMessage(message)) return null;
+    const copyable = this.isCopyableMessage(message);
+    const historyEntryId = this.historyActionEntryId(message);
+    if (!copyable && historyEntryId === undefined) return null;
     const copied = this.copiedMessageKey === key;
     return html`
       <div class="msg-actions" aria-label="消息操作">
-        <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${chatMessageRoleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
-          <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
-        </button>
+        ${copyable ? html`
+          <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${chatMessageRoleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
+            <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
+          </button>
+        ` : null}
+        ${historyEntryId === undefined ? null : html`
+          <button type="button" class="msg-action" title="从这条消息分叉" aria-label="分叉" @click=${(event: MouseEvent) => { this.confirmMessageAction(historyEntryId, "fork", event); }}>分叉</button>
+          <button type="button" class="msg-action" title="回退到这条消息" aria-label="回退" @click=${(event: MouseEvent) => { this.confirmMessageAction(historyEntryId, "back", event); }}>回退</button>
+        `}
       </div>
     `;
+  }
+
+  private historyActionEntryId(message: ChatLine): string | undefined {
+    if (this.onMessageAction === undefined) return undefined;
+    if (message.role !== "user" && message.role !== "assistant") return undefined;
+    return message.entryId;
+  }
+
+  private confirmMessageAction(entryId: string, action: "fork" | "back", event: MouseEvent): void {
+    event.stopPropagation();
+    const prompt = action === "fork"
+      ? "从这条消息分叉出一个新会话？当前会话保持不变。"
+      : "回退到这条消息？之后的对话会离开当前分支，未保存的输入不会保留。";
+    if (!window.confirm(prompt)) return;
+    void this.onMessageAction?.(entryId, action);
   }
 
   private onMetaKeydown(event: KeyboardEvent, key: string, expanded: boolean) {

@@ -147,6 +147,46 @@ describe("Docker command assets", () => {
     expect(runtimeCompose).not.toContain("docker-compose-dev.container.env");
   });
 
+  it("starts the development builder before the daemon without a dependency cycle", async () => {
+    const compose = await readRepoFile("docker/compose.dev.yml");
+    const daemon = compose.slice(compose.indexOf("\n  sessiond:"), compose.indexOf("\n  web:"));
+    const web = compose.slice(compose.indexOf("\n  web:"));
+    expect(daemon).toContain("depends_on:\n      web:\n        condition: service_healthy");
+    expect(web).toContain("depends_on:\n      data-init:\n        condition: service_completed_successfully");
+    expect(web).not.toContain("depends_on:\n      sessiond:");
+    // This gateway-owned endpoint works before sessiond starts, unlike daemon health.
+    expect(web).toContain("/api/normal-auth/status");
+    const command = await readRepoFile("docker/pi-web-docker");
+    expect(command).toMatch(/^#![^\r\n]*\n/u);
+    expect(command).not.toContain("\r");
+  });
+
+  dockerCommandIt("orders development restart through the web health gate", async () => {
+    const fakeDocker = await installFakeDocker();
+    const logPath = join(tempDir, "restart-order.log");
+    const devRoot = await createDevRepoFixtureWithFakeHelper(logPath);
+    await runDockerCommand(["--dev", "__run-detached", "restart"], devRuntimeEnv(fakeDocker, devRoot));
+    const log = await readFile(logPath, "utf8");
+    expect(log.trim().split("\n").map((line) => line.split("args=")[1])).toEqual([
+      "restart web",
+      "up -d --no-deps --no-recreate --wait --wait-timeout 120 web",
+      "restart sessiond",
+    ]);
+  });
+
+  dockerCommandIt("does not restart the daemon when the development web gate fails", async () => {
+    const fakeDocker = await installFakeDocker();
+    const logPath = join(tempDir, "restart-order.log");
+    const devRoot = await createDevRepoFixtureWithFakeHelper(logPath);
+    const helper = join(devRoot, "docker", "internal", "dev", "compose");
+    await writeFile(helper, `${await readFile(helper, "utf8")}\n[ "$1" != up ] || exit 1\n`, "utf8");
+    await expect(runDockerCommand(["--dev", "__run-detached", "restart"], devRuntimeEnv(fakeDocker, devRoot))).rejects.toThrow();
+    const log = await readFile(logPath, "utf8");
+    expect(log).toContain("args=restart web");
+    expect(log).toContain("args=up -d");
+    expect(log).not.toContain("args=restart sessiond");
+  });
+
   dockerCommandIt("fetches remote installer assets without clobbering the write target", async () => {
     const installDir = join(tempDir, "remote-runtime");
     const fakeDocker = await installFakeDocker();

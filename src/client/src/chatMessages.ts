@@ -15,7 +15,13 @@ export function textMessage(role: ChatLine["role"], text: string): ChatLine {
 
 export function withMessageMeta(line: ChatLine, rawMessage: unknown): ChatLine {
   const meta = normalizeMeta(rawMessage);
-  return meta === undefined ? line : { ...line, meta };
+  const entryId = getString(rawMessage, "entryId");
+  if (meta === undefined && (entryId === undefined || entryId === "")) return line;
+  return {
+    ...line,
+    ...(meta === undefined ? {} : { meta }),
+    ...(entryId === undefined || entryId === "" ? {} : { entryId }),
+  };
 }
 
 export function appendText(messages: ChatLine[], role: ChatLine["role"], text: string): ChatLine[] {
@@ -248,6 +254,7 @@ function coalesceToolExecutions(lines: ChatLine[]): ChatLine[] {
   for (const line of lines) {
     let passthroughParts: ChatPart[] = [];
     const metadata = {
+      ...(line.entryId === undefined ? {} : { entryId: line.entryId }),
       ...(line.transcriptIndex === undefined ? {} : { transcriptIndex: line.transcriptIndex }),
       ...(line.source === undefined ? {} : { source: line.source }),
       ...(line.meta === undefined ? {} : { meta: line.meta }),

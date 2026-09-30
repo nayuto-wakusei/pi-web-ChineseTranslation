@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import type { CommandOption, SessionModelCatalogEntry, SessionModelScopeMode } from "../api";
 import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEventTarget";
+import { defaultPin, defaultPinHelp, defaultPinStyles } from "./DefaultPin";
 import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
 
@@ -75,7 +76,10 @@ export class ModelPicker extends LitElement {
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) catalog: SessionModelCatalogEntry[] = [];
   @property({ attribute: false }) selectedValue?: string;
+  @property({ attribute: false }) defaultValue?: string;
+  @property({ type: Boolean }) defaultsLoading = false;
   @property({ attribute: false }) onPick?: (value: string) => void;
+  @property({ attribute: false }) onSetDefault?: (value: string) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @property({ attribute: false }) onToggleEnabled?: (provider: string, modelId: string, enabled: boolean) => unknown;
   @property({ attribute: false }) onSetScope?: (mode: SessionModelScopeMode) => unknown;
@@ -104,6 +108,7 @@ export class ModelPicker extends LitElement {
             <span>当前工作区的 <code>.pi/settings.json</code> 控制模型可用性，无法在此修改。</span>
           </div>
         ` : nothing}
+        ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
         <div class="search-row">
           <input class="search" aria-label="搜索模型" placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
           ${this.mode === "all" ? this.renderToggleAllButton() : nothing}
@@ -174,12 +179,16 @@ export class ModelPicker extends LitElement {
   }
 
   private renderEnabledList(): TemplateResult[] {
-    return filterModelOptions(this.options, this.query).map((option, index) => html`
-      <button class=${index === this.selectedIndex ? "selected" : ""} ?disabled=${this.membershipChangePending} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @focus=${() => { this.selectedIndex = index; }} @click=${() => this.onPick?.(option.value)}>
-        <span>${option.label}</span>
-        ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
-      </button>
-    `);
+    return filterModelOptions(this.options, this.query).map((option, index) => {
+      const row = html`
+        <button class=${index === this.selectedIndex ? "selected" : ""} ?disabled=${this.membershipChangePending} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @focus=${() => { this.selectedIndex = index; }} @click=${() => this.onPick?.(option.value)}>
+          <span>${option.label}</span>
+          ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
+        </button>
+      `;
+      if (this.onSetDefault === undefined) return row;
+      return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading || this.membershipChangePending, () => { this.onSetDefault?.(option.value); })}</div>`;
+    });
   }
 
   private renderCatalogList(): TemplateResult {
@@ -316,7 +325,7 @@ export class ModelPicker extends LitElement {
     }
   }
 
-  static override styles = css`
+  static override styles = [defaultPinStyles, css`
     :host { position: fixed; inset: 0; z-index: 10; color: var(--pi-text); font: 14px system-ui, sans-serif; }
     modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100% - 40px)); }
     header { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--pi-border); }
@@ -344,5 +353,5 @@ export class ModelPicker extends LitElement {
     .catalog-row .membership { flex: 1; min-width: 0; display: block; padding: 10px 12px; text-align: left; }
     small { display: block; margin-top: 4px; color: var(--pi-muted); }
     .empty { padding: 24px; color: var(--pi-muted); text-align: center; }
-  `;
+  `];
 }

@@ -4,6 +4,7 @@ import type { CommandOption } from "../api";
 import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEventTarget";
 import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
+import { defaultPin, defaultPinHelp, defaultPinStyles } from "./DefaultPin";
 import { commandPickerStyles } from "./styles/commandPickerStyles";
 
 @customElement("command-picker")
@@ -12,7 +13,10 @@ export class CommandPicker extends LitElement {
   @property({ type: Boolean }) searchable = false;
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) selectedValue?: string;
+  @property({ attribute: false }) defaultValue?: string;
+  @property({ type: Boolean }) defaultsLoading = false;
   @property({ attribute: false }) onPick?: (value: string) => void;
+  @property({ attribute: false }) onSetDefault?: (value: string) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @state() private selectedIndex = 0;
   @state() private query = "";
@@ -26,13 +30,9 @@ export class CommandPicker extends LitElement {
             <button @click=${() => this.onCancel?.()}>×</button>
           </header>
           ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
+          ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
           <div class="options" tabindex="0">
-            ${options.map((option, index) => html`
-              <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @focus=${() => { this.selectedIndex = index; }} @click=${() => this.onPick?.(option.value)}>
-                <span>${option.label}</span>
-                ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
-              </button>
-            `)}
+            ${options.map((option, index) => this.renderOption(option, index))}
             ${options.length === 0 ? html`<div class="empty">没有匹配选项</div>` : null}
           </div>
       </modal-surface>
@@ -41,6 +41,17 @@ export class CommandPicker extends LitElement {
 
   override firstUpdated() {
     this.selectInitialValue();
+  }
+
+  private renderOption(option: CommandOption, index: number) {
+    const row = html`
+      <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @focus=${() => { this.selectedIndex = index; }} @click=${() => this.onPick?.(option.value)}>
+        <span>${option.label}</span>
+        ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
+      </button>
+    `;
+    if (this.onSetDefault === undefined) return row;
+    return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading, () => { this.onSetDefault?.(option.value); })}</div>`;
   }
 
   private selectInitialValue(): void {
@@ -78,7 +89,7 @@ export class CommandPicker extends LitElement {
     }
   }
 
-  static override styles = [commandPickerStyles, css`
+  static override styles = [commandPickerStyles, defaultPinStyles, css`
     modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100% - 40px)); }
     modal-surface > header, modal-surface > .options, modal-surface > input { position: relative; }
   `];

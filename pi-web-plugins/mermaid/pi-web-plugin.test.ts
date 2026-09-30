@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
 import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
-import { mermaidFrameDocument, MERMAID_ENGINE_SOURCE } from "./mermaidEngine.js";
+import { mermaidFrameDocument } from "./mermaidEngine.js";
 import { sanitizeMermaidSvg } from "./mermaidSvg.js";
 
 describe("bundled Mermaid plugin", () => {
@@ -31,9 +31,9 @@ describe("bundled Mermaid plugin", () => {
   });
 
   it("sandboxes the local engine and rejects active SVG", () => {
-    const frame = mermaidFrameDocument();
+    const frame = mermaidFrameDocument("window.engineReady = true;");
     expect(frame).toContain("script-src 'unsafe-inline'");
-    expect(frame).toContain(MERMAID_ENGINE_SOURCE.slice(0, 40));
+    expect(frame).toContain("window.engineReady = true;");
     expect(frame).not.toContain("allow-same-origin");
     const clean = sanitizeMermaidSvg('<svg xmlns="http://www.w3.org/2000/svg"><text onclick="bad()">图表</text></svg>');
     expect(clean).toContain("图表");

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { SessionModel } from "../../shared/apiTypes";
-import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices } from "./promptCompletions";
+import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices, slashCommandSourceLabel } from "./promptCompletions";
+
+describe("slashCommandSourceLabel", () => {
+  it("maps protocol sources to Chinese display labels", () => {
+    expect(slashCommandSourceLabel("builtin")).toBe("内置");
+    expect(slashCommandSourceLabel("extension")).toBe("扩展");
+    expect(slashCommandSourceLabel("prompt")).toBe("提示词");
+    expect(slashCommandSourceLabel("skill")).toBe("技能");
+  });
+});
 
 describe("detectPromptCompletionTrigger", () => {
   it("keeps all-file suggestions active when an @ space query contains spaces", () => {

@@ -2,7 +2,8 @@ import { css, html, LitElement, type PropertyValues, type TemplateResult } from 
 import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues, PiWebShortcutConfig } from "../../api";
-import { formatShortcut, isShortcutSequenceStarter, parseShortcutInput, resolveShortcutBindings, shortcutSequenceTimeoutMs, shortcutTokenFromEvent, type ShortcutBindingResolution } from "../../keyboardShortcuts";
+import { isComposerShortcut } from "../../composerShortcuts";
+import { formatShortcut, parseShortcutInput, resolveShortcutBindings, shortcutSequenceTimeoutMs, shortcutTokenFromEvent, type ShortcutBindingResolution } from "../../keyboardShortcuts";
 import { readPromptEnterPreference, writePromptEnterPreference, type PromptEnterPreference } from "../../promptEnterBehavior";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
@@ -28,7 +29,7 @@ const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: stri
 ];
 
 function renderShortcutsDescription(): TemplateResult {
-  return html`按操作编辑应用快捷键。输入 <code>mod+k</code> 或 <code>mod+g p</code> 这类快捷键，也可以从键盘录制、设为无或恢复默认。快捷键冲突时，自定义快捷键优先于默认值；同级按操作 ID 排序，较短快捷键会遮蔽相同前缀的较长序列。`;
+  return html`按操作编辑应用快捷键。可以输入 <code>mod+k</code> 或 <code>mod+g p</code>，也可以从键盘录制、设为无或恢复默认。无修饰键序列可以保存，但正在输入时不会触发。发送键是单个组合键，未保存前仍沿用当前浏览器的 Enter 偏好。`;
 }
 
 @customElement("settings-shortcuts-panel")
@@ -64,8 +65,8 @@ export class SettingsShortcutsPanel extends LitElement {
       this.localError = "请按字母、数字、标点、功能键或导航键。按 Esc 取消录制。";
       return;
     }
-    if (recording.tokens.length === 0 && !isShortcutSequenceStarter(token)) {
-      this.localError = "快捷键请以 Ctrl/⌘ 或 Alt 开始，以免捕获正常输入。";
+    if (recording.tokens.length > 0 && isComposerShortcut(recording.actionId)) {
+      this.localError = "发送键只能是一个组合键，不能录成序列。";
       return;
     }
 

@@ -29,6 +29,11 @@ export interface RunningVersionInfo {
 
 export type RunningComponentId = PiWebComponentStatus["component"];
 
+export interface PiWebVersionReportOptions {
+  configEnv?: NodeJS.ProcessEnv;
+  webEndpointError?: string;
+}
+
 export function runningComponentsReady(info: RunningVersionInfo, expected: readonly RunningComponentId[]): boolean {
   return expected.every((id) => {
     const status = info[id];
@@ -38,9 +43,9 @@ export function runningComponentsReady(info: RunningVersionInfo, expected: reado
 }
 
 /** Authentication-required means the web service is reachable, but its version cannot be verified. */
-export async function probeRunningComponentReady(component: RunningComponentId): Promise<boolean> {
+export async function probeRunningComponentReady(component: RunningComponentId, options: Pick<PiWebVersionReportOptions, "configEnv"> = {}): Promise<boolean> {
   if (component === "sessiond") return (await collectRunningSessiondInfo()).component !== undefined;
-  const endpoint = webVersionEndpoint();
+  const endpoint = webVersionEndpoint(options.configEnv);
   if (endpoint.endpoint === undefined) return false;
   try {
     await fetchPiWebVersionResponse(endpoint.endpoint);
@@ -62,10 +67,10 @@ export function packageVersion(): string {
   return readPackageInfo()?.version ?? DEFAULT_PACKAGE_VERSION;
 }
 
-export async function printPiWebVersionReport(): Promise<RunningVersionInfo> {
+export async function printPiWebVersionReport(options: PiWebVersionReportOptions = {}): Promise<RunningVersionInfo> {
   console.log("PI WEB version");
   printInstalledPackageVersions();
-  const runningInfo = await collectRunningVersionInfo();
+  const runningInfo = await collectRunningVersionInfo(options);
   printRunningVersionInfo(runningInfo);
   return runningInfo;
 }
@@ -95,9 +100,9 @@ function parsePackageInfo(value: unknown, path: string): PackageInfo | undefined
   return { name, version, path };
 }
 
-function webVersionEndpoint(): { endpoint?: string; error?: string } {
+function webVersionEndpoint(env: NodeJS.ProcessEnv = process.env): { endpoint?: string; error?: string } {
   try {
-    const { config } = effectivePiWebConfig();
+    const { config } = effectivePiWebConfig({ env });
     const host = httpClientHost(config.host);
     const port = config.port ?? 8504;
     return { endpoint: `http://${urlHost(host)}:${String(port)}${PI_WEB_VERSION_ENDPOINT_PATH}` };
@@ -134,8 +139,10 @@ async function fetchPiWebVersionResponse(endpoint: string): Promise<PiWebVersion
   return status;
 }
 
-async function collectRunningVersionInfo(): Promise<RunningVersionInfo> {
-  const endpoint = webVersionEndpoint();
+async function collectRunningVersionInfo(options: PiWebVersionReportOptions): Promise<RunningVersionInfo> {
+  const endpoint = options.webEndpointError === undefined
+    ? webVersionEndpoint(options.configEnv)
+    : { error: options.webEndpointError };
   if (endpoint.endpoint !== undefined) {
     try {
       const status = await fetchPiWebVersionResponse(endpoint.endpoint);

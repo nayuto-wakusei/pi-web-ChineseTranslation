@@ -5,5 +5,6 @@ export interface CompletionItem {
   insertText: string;
   detail: string;
   description?: string;
+  argumentHint?: string;
   cursorOffset?: number;
 }

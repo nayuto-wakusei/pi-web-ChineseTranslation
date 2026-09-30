@@ -153,6 +153,8 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.setModelEnabled(session, "openai", "gpt", true, machineId)),
       ignoreParseFailure(sessionsApi.setModel(session, "openai", "gpt", machineId)),
       ignoreParseFailure(sessionsApi.cycleModel(session, "forward", machineId)),
+      ignoreParseFailure(sessionsApi.getSessionDefaults(session, machineId)),
+      ignoreParseFailure(sessionsApi.setSessionDefaults(session, { thinkingLevel: "high" }, machineId)),
       ignoreParseFailure(sessionsApi.thinkingLevels(session, machineId)),
       ignoreParseFailure(sessionsApi.setThinkingLevel(session, "medium", machineId)),
       ignoreParseFailure(sessionsApi.cycleThinkingLevel(session, machineId)),

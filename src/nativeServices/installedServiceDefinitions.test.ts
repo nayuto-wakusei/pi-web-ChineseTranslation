@@ -230,7 +230,7 @@ describe("installed native-service definition boundary", () => {
       diskAssignments: ["__proto__=disk"],
       managerEnvironment: "PI_WEB_CONFIG=/managed/config.json __proto__=manager",
     },
-  ])("fails closed when a prototype-collision environment assignment exists $name", ({
+  ])("ignores an unmanaged prototype-collision environment assignment $name", ({
     diskAssignments,
     managerEnvironment,
   }) => {
@@ -244,10 +244,7 @@ describe("installed native-service definition boundary", () => {
       "doctor",
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected prototype-collision environment mismatch to fail");
-    expect(result.message).toContain("effective environment");
-    expect(result.message).toContain("differs");
+    expect(result.ok).toBe(true);
   });
 
   it("rejects a duplicate prototype-collision assignment in the effective manager environment", () => {
@@ -455,6 +452,37 @@ describe("installed native-service definition boundary", () => {
     );
 
     expect(result.ok).toBe(true);
+  });
+
+  it.each(["start", "restart", "doctor"] as const)("accepts audit and management drop-ins during %s", (purpose) => {
+    const result = inspectInstalledNativeServiceDefinitions(
+      { kind: "systemd", label: "systemd" },
+      [source],
+      dependencies(undefined, {
+        status: 0,
+        stdout: managerOutput({
+          DropInPaths: "/home/user/.config/systemd/user/pi-web-web.service.d/management-embed.conf",
+          Environment: "PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN=test-token PI_WEB_AUDIT_ES_URL=http://audit.local:9200",
+        }),
+        stderr: "",
+      }),
+      purpose,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it.each(["PI_WEB_DATA_DIR", "PI_WEB_SESSIOND_SOCKET", "PI_WEB_SESSIOND_URL", "PI_WEB_SESSIOND_HOST", "PI_WEB_SESSIOND_PORT"])("rejects a drop-in changing %s routing", (key) => {
+    const result = inspectInstalledNativeServiceDefinitions(
+      { kind: "systemd", label: "systemd" },
+      [source],
+      dependencies(undefined, {
+        status: 0,
+        stdout: managerOutput({ Environment: `${key}=/other/runtime` }),
+        stderr: "",
+      }),
+      "doctor",
+    );
+    expect(result.ok).toBe(false);
   });
 
   it.each([

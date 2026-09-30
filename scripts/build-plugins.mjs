@@ -27,12 +27,37 @@ if (isDirectExecution()) {
 }
 
 async function buildAll() {
+  // Cold-start readiness only; restart commands must order web before sessiond.
+  const readyPath = resolve("dist", ".plugins-ready");
+  await rm(readyPath, { force: true });
   for (const target of buildTargets) {
     await rm(target.outDir, { recursive: true, force: true });
     const result = await buildDirectory(target.rootDir, target.outDir);
+    if (target.label === "plugin" && await stat(resolve(target.rootDir, "mermaid/mermaidRuntime.ts")).catch(() => undefined)) {
+      await buildMermaidEngine(resolve(target.rootDir, "mermaid"), resolve(target.outDir, "mermaid"));
+    }
     const suffix = result.transpiled === 1 ? "file" : "files";
     console.log(`[plugins] built ${String(result.transpiled)} TypeScript ${target.label} ${suffix} into ${relative(cwd, target.outDir)}`);
   }
+  await writeFile(readyPath, "ready\n");
+  process.send?.({ type: "plugin-build-ready" });
+}
+
+export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+  await buildBrowser({
+    configFile: false,
+    root: sourceDir,
+    publicDir: false,
+    logLevel: "silent",
+    build: {
+      outDir: targetDir,
+      emptyOutDir: false,
+      target: "es2022",
+      minify: true,
+      reportCompressedSize: false,
+      lib: { entry: resolve(sourceDir, "mermaidRuntime.ts"), name: "MermaidEngine", formats: ["iife"], fileName: () => "mermaidRuntime.js" },
+    },
+  });
 }
 
 export async function buildDirectory(sourceDir, targetDir, visited = new Set()) {
@@ -176,6 +201,7 @@ async function watchAndBuild() {
   let timer;
   let building = false;
   let pending = false;
+  let builtOnce = false;
 
   const closeWatchers = () => {
     for (const watcher of watchers) watcher.close();
@@ -199,9 +225,14 @@ async function watchAndBuild() {
         pending = false;
         await refreshWatchers();
         await buildAll();
+        builtOnce = true;
       } while (pending);
     } catch (error) {
       console.error(`[plugins] ${formatUnknownError(error)}`);
+      if (!builtOnce) {
+        closeWatchers();
+        throw error;
+      }
     } finally {
       building = false;
     }

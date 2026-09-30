@@ -14,6 +14,7 @@ export const serviceRestartOrder: readonly NativeServiceId[] = ["web", "uiDev", 
 const LAUNCHD_UNLOAD_SETTLE_TIMEOUT_MS = 10_000;
 const LAUNCHD_UNLOAD_SETTLE_INTERVAL_MS = 250;
 const SERVICE_READINESS_TIMEOUT_MS = 30_000;
+const DEV_SERVICE_READINESS_TIMEOUT_MS = 120_000;
 const SERVICE_READINESS_INTERVAL_MS = 1_000;
 
 export interface ServiceActionTiming {
@@ -180,19 +181,32 @@ export async function performServiceAction(
   deps: ServiceActionDeps,
   timing: ServiceActionTiming = {},
 ): Promise<ServiceActionResult> {
-  const refs = orderServices(input.refs, orderForAction(input.action));
-  if (refs.length === 0) return { unreadyServices: [] };
+  const developmentStart = input.action === "start" && input.refs.some((ref) => ref.id === "uiDev");
+  const refs = orderServices(input.refs, developmentStart ? serviceRestartOrder : orderForAction(input.action));
+  // systemd argument order is not job order. Gate the web-owned build in a separate stage.
+  const webFirst = input.action === "restart" || developmentStart;
+  const stages = webFirst
+    ? [refs.filter((ref) => ref.id !== "sessiond"), refs.filter((ref) => ref.id === "sessiond")]
+    : [refs];
 
-  if (input.backend.kind === "systemd") {
-    runChecked(deps, "systemctl", systemctlUserActionArgs(input.action, refs.map((ref) => ref.systemdName)));
-  } else if (input.action === "stop") {
-    for (const ref of refs) deps.runQuiet("launchctl", launchdBootoutArgs(launchdServiceTarget(input.launchdContext.domain, ref)));
-  } else if (input.action === "restart") {
-    for (const ref of refs) await restartLaunchdService(ref, input.launchdContext, deps, timing);
-  } else {
-    for (const ref of refs) startLaunchdService(ref, input.launchdContext, deps);
+  for (const stage of stages) {
+    if (stage.length === 0) continue;
+    if (input.backend.kind === "systemd") {
+      runChecked(deps, "systemctl", systemctlUserActionArgs(input.action, stage.map((ref) => ref.systemdName)));
+    } else if (input.action === "stop") {
+      for (const ref of stage) deps.runQuiet("launchctl", launchdBootoutArgs(launchdServiceTarget(input.launchdContext.domain, ref)));
+    } else if (input.action === "restart") {
+      for (const ref of stage) await restartLaunchdService(ref, input.launchdContext, deps, timing);
+    } else {
+      for (const ref of stage) startLaunchdService(ref, input.launchdContext, deps);
+    }
+
+    if (input.action === "stop") continue;
+    const readinessTiming = stage.some((ref) => ref.id === "uiDev")
+      ? { ...timing, readinessTimeoutMs: timing.readinessTimeoutMs ?? DEV_SERVICE_READINESS_TIMEOUT_MS }
+      : timing;
+    const unreadyServices = await awaitServicesReady(stage, deps, readinessTiming);
+    if (unreadyServices.length > 0) return { unreadyServices };
   }
-
-  if (input.action === "stop") return { unreadyServices: [] };
-  return { unreadyServices: await awaitServicesReady(refs, deps, timing) };
+  return { unreadyServices: [] };
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,5 +29,23 @@ describe("PI WEB plugin package keys", () => {
 
     expect(snapshot.plugins).toEqual([]);
     expect(snapshot.diagnostics[0]?.message).toContain("unknown key \"browserRoot\"");
+  });
+
+  it("accepts the shipped Relay browser manifest without unsupported metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-relay-manifest-"));
+    roots.push(root);
+    const pluginRoot = join(root, "plugins", "relays");
+    await mkdir(pluginRoot, { recursive: true });
+    await writeFile(join(pluginRoot, "package.json"), await readFile(new URL("../../pi-packages/relays/package.json", import.meta.url)));
+    await writeFile(join(pluginRoot, "pi-web-plugin.js"), "export default {};\n");
+
+    const snapshot = await new PiWebPluginCatalog({
+      roots: [{ path: join(root, "plugins"), source: "test", scope: "local" }],
+      packageProvider: false,
+      configProvider: () => ({}),
+    }).snapshot();
+
+    expect(snapshot.plugins.map((plugin) => plugin.id)).toEqual(["relays"]);
+    expect(snapshot.diagnostics).toEqual([]);
   });
 });
