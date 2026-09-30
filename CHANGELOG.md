@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202609.12
+
+### Patch Changes
+
+- Allow management-embed sessions to use workspace-isolated bash by default while preserving explicit tool restrictions and separate authorization for host visibility and network access.
+
 ## 1.202609.11
 
 ### Patch Changes

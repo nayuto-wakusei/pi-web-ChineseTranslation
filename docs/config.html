@@ -178,7 +178,7 @@
                 <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
                 <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
                 <li><code>workbenchIntegration</code>: restart both the web/API process and session daemon; both must use the same endpoints and limits.</li>
-                <li><code>managementEmbed.allowPrivileged</code>: restart both the web/API process and session daemon; signed tokens must also send <code>privileged.bash</code> / <code>privileged.network</code>.</li>
+                <li><code>managementEmbed.allowPrivileged</code>: restart both the web/API process and session daemon; signed tokens must also send <code>privileged.network</code> for network access. Sandboxed bash does not require this switch.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
                 <li><code>attachments.defaultFolder</code>: applies to prompt attachments saved as workspace files after config/workspace refresh.</li>
@@ -446,7 +446,7 @@
                       <td>—</td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
-                      <td>Restart web/API and session daemon; token must also send <code>privileged.bash</code> / <code>privileged.network</code></td>
+                      <td>Restart web/API and session daemon; token must also send <code>privileged.network</code> for network access; sandboxed bash is available by default</td>
                     </tr>
                     <tr>
                       <td>Workbench/MCP integration</td>
@@ -675,12 +675,16 @@ pi-web audit vacuum</code></pre>
                 <code>ask_user</code>; spawned sessions inherit the same management context.
                 Python runs without network access in an isolated Bubblewrap environment that binds only the managed
                 workspace; generic MCP, HTTP, web search, shell, and terminal tools remain denied.
-                A signed token may request <code>privileged.bash</code> and/or <code>privileged.network</code>; those
-                grants apply only when <code>managementEmbed.allowPrivileged</code> is true. Privileged bash is a
-                constrained sandbox tool: the current workspace is writable and other host paths are read-only. The
-                generic SDK shell stays denied. Privileged network enables
+                Sandboxed <code>bash</code> is available by default without a privileged grant: only the current
+                workspace and necessary read-only runtime directories are mounted. Other host projects and private
+                configuration paths are not exposed. Network access is disabled by default. A nonempty
+                <code>tools.allow</code> list must include <code>bash</code>; explicit <code>tools.deny</code> still wins.
+                The generic SDK shell stays denied. An effective <code>privileged.bash</code> grant together with
+                <code>managementEmbed.allowPrivileged</code> preserves read-only host visibility in the sandbox.
+                A signed token may request <code>privileged.network</code>; this grant applies only when
+                <code>managementEmbed.allowPrivileged</code> is true. Privileged network enables
                 <code>http</code>, <code>webfetch</code>, and <code>websearch</code> plus sandbox network. Interactive
-                terminals and generic MCP stay denied.
+                terminals and generic MCP stay denied. Network authorization alone does not expose host paths.
                 Authorized Skill bundles are validated against their manifests before they enter the managed project.
               </p>
               <p>

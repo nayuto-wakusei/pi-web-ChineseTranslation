@@ -79,7 +79,7 @@ describe("BookStack controlled tool", () => {
     const toolNames = h.tools.map((tool) => tool.name);
     const management = { user: { id: "u", rootUserId: "u", roles: [], permissions: ["tools:execute"] }, projects: [{ id: "p", name: "Project" }] };
     expect(managementAgentToolNames(management, toolNames)).toContain("workbench_retrieve_bookstack");
-    expect(createManagementPermissionSystemPolicy(management, toolNames).tools).toMatchObject({ workbench_retrieve_bookstack: "allow", bash: "deny", http: "deny", mcp: "deny" });
+    expect(createManagementPermissionSystemPolicy(management, toolNames).tools).toMatchObject({ workbench_retrieve_bookstack: "allow", bash: "allow", http: "deny", mcp: "deny" });
     const denied = { ...management, tools: { deny: ["workbench_retrieve_bookstack"] } };
     expect(managementAgentToolNames(denied, toolNames)).not.toContain("workbench_retrieve_bookstack");
     expect(createManagementPermissionSystemPolicy(denied, toolNames).tools).toMatchObject({ workbench_retrieve_bookstack: "deny" });

@@ -1,10 +1,16 @@
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createManagedAgentToolOptions, createManagedBashToolDefinition } from "./managementAgentTools.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return { ...original, spawn: vi.fn(original.spawn) };
+});
 
 describe("managed agent tools", () => {
   it("allows file tools inside the managed workspace", async () => {
@@ -62,7 +68,7 @@ describe("managed agent tools", () => {
     const previous = process.env["PI_WEB_BWRAP_EXECUTABLE"];
     process.env["PI_WEB_BWRAP_EXECUTABLE"] = join(root, "missing-bwrap");
     try {
-      const tool = createManagedBashToolDefinition(root, managementContext(), { network: true });
+      const tool = createManagedBashToolDefinition(root, managementContext(), { network: true, hostFilesystem: true });
       expect(tool.name).toBe("bash");
       expect(tool.description).toContain("Network access is enabled");
       expect(tool.description).toContain("other host paths are read-only");
@@ -71,6 +77,41 @@ describe("managed agent tools", () => {
       if (previous === undefined) delete process.env["PI_WEB_BWRAP_EXECUTABLE"];
       else process.env["PI_WEB_BWRAP_EXECUTABLE"] = previous;
     }
+  });
+
+  it("passes workspace-only, network-disabled arguments to the default bash process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
+    const original = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    // Capture production process arguments without requiring Linux namespaces on the test host.
+    vi.mocked(spawn).mockImplementationOnce((_command, args) => original.spawn(
+      process.execPath, ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", "--", ...args],
+    ));
+    const tool = createManagedBashToolDefinition(root, managementContext());
+    const result = await tool.execute("call-1", { command: "echo hi" }, undefined, undefined, unusedExtensionContext());
+    const output = result.content[0];
+    if (output?.type !== "text") throw new Error("Expected sandbox invocation arguments");
+    const args: unknown = JSON.parse(output.text);
+
+    expect(args).toEqual(expect.arrayContaining(["--unshare-net", "--clearenv", "--bind", "/workspace", "--chdir", "-lc", "echo hi"]));
+    expect(args).not.toContain("/");
+    expect(tool.description).toContain("workspace");
+    expect(tool.description).not.toContain("other host paths are read-only");
+  });
+
+  it("opens host read-only mounts only for explicitly privileged bash", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
+    const original = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    vi.mocked(spawn).mockImplementationOnce((_command, args) => original.spawn(
+      process.execPath, ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", "--", ...args],
+    ));
+    const tool = createManagedBashToolDefinition(root, managementContext(), { hostFilesystem: true });
+    const result = await tool.execute("call-1", { command: "echo hi" }, undefined, undefined, unusedExtensionContext());
+    const output = result.content[0];
+    if (output?.type !== "text") throw new Error("Expected sandbox invocation arguments");
+    const args: unknown = JSON.parse(output.text);
+
+    expect(args).toEqual(expect.arrayContaining(["--ro-bind-try", "/", "--unshare-net"]));
+    expect(tool.description).toContain("other host paths are read-only");
   });
 });
 

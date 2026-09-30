@@ -89,7 +89,13 @@ describe("Pi SDK compatibility through the production session service", () => {
     }
   }, 20_000);
 
-  it("force-syncs both management Relay skills and keeps global skills and generic shell tools excluded", async () => {
+  it.each([
+    { name: "default isolation", allowPrivileged: false, bash: false, network: false, hostFilesystem: false },
+    { name: "ignored bash grant", allowPrivileged: false, bash: true, network: false, hostFilesystem: false },
+    { name: "machine switch without a grant", allowPrivileged: true, bash: false, network: false, hostFilesystem: false },
+    { name: "privileged bash", allowPrivileged: true, bash: true, network: false, hostFilesystem: true },
+    { name: "network grant without host access", allowPrivileged: true, bash: false, network: true, hostFilesystem: false },
+  ])("keeps managed skills and sandboxed bash scoped with $name", async ({ allowPrivileged, bash, network, hostFilesystem }) => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-sdk-managed-"));
     const cwd = join(root, "project");
     const agentDir = join(root, "agent");
@@ -105,10 +111,11 @@ describe("Pi SDK compatibility through the production session service", () => {
     await writeFile(join(agentDir, "skills", "relay", "SKILL.md"), '---\nname: relay\ndescription: Global relay\n---\nPrivate global relay instructions\n');
     await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [fileURLToPath(new URL("../../../pi-packages/relays", import.meta.url))] }));
     const modelRuntime = await createTestModelRuntime();
-    const context = testManagementContext();
+    const context = { ...testManagementContext(), privileged: { bash, network } };
     let runtime: AgentSessionRuntime | undefined;
     const service = new PiSessionService(new CapturingSessionEventHub(), {
       agentDir, dataDir: join(root, "data"), archiveStore: emptyArchiveStore(), modelRuntime,
+      managementAllowPrivileged: allowPrivileged,
       sessionManager: createPiSessionManagerGateway({ agentDir, env: {}, sessionDirEnvKeys: [] }),
       projectPathForCwd: () => Promise.resolve(cwd),
       createAgentRuntime: async (createRuntime, options) => {
@@ -126,8 +133,13 @@ describe("Pi SDK compatibility through the production session service", () => {
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name).sort()).toEqual(["relay", "relay-runner"]);
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.filePath)).toEqual(expect.arrayContaining([projectSkill, projectRunner]));
       expect(runtime?.services.resourceLoader.getSkills().diagnostics).toEqual([]);
-      expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python"]));
-      expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["bash"]));
+      expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python", "bash"]));
+      const bashDefinition = runtime?.session.getToolDefinition("bash");
+      expect(bashDefinition?.description).toContain(hostFilesystem ? "other host paths are read-only" : "only necessary runtime paths are visible read-only");
+      expect(bashDefinition?.description).toContain(network && allowPrivileged ? "Network access is enabled" : "Network access is disabled");
+      for (const tool of ["shell", "powershell", "terminal"]) {
+        expect(runtime?.session.getActiveToolNames()).not.toContain(tool);
+      }
       expect(runtime?.session.systemPrompt).not.toContain("Private global");
     } finally {
       await service.dispose();

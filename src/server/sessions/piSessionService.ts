@@ -1009,7 +1009,7 @@ function createManagementRuntimeFactory(
       const customTools = [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
         createManagedPythonToolDefinition(cwd, managementContext, { network: privileges.network }),
-        ...(privileges.bash ? [createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network })] : []),
+        createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network, hostFilesystem: privileges.bash }),
         ...controlledManagementTools,
       ];
       const options = {
