@@ -13,6 +13,7 @@ describe("bundled Files plugin", () => {
       title: "文件",
       order: 10,
       routeAliases: ["files", "core:workspace.files"],
+      navigationAliases: ["core:workspace.files"],
     }));
     expect(activation.contributions.actions?.map((action) => action.title)).toEqual(["转到文件", "刷新文件"]);
     expect(panel?.fileOpenQuery).toBeTypeOf("function");

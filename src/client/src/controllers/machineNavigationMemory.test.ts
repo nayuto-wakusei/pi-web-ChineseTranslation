@@ -5,6 +5,18 @@ import type { KeyValueStorage } from "./sessionStorageMemory";
 import { emptyMachineNavigationSnapshot, InMemoryMachineNavigationMemory, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory } from "./machineNavigationMemory";
 
 describe("InMemoryMachineNavigationMemory", () => {
+  it("keeps contribution query arrays isolated between machines and cloned snapshots", () => {
+    const memory = new InMemoryMachineNavigationMemory();
+    const query = { "example.panel--tag": ["one", "two"] };
+    memory.remember({ machineId: "local", surface: { contributionQuery: query } });
+    memory.remember({ machineId: "remote", surface: { contributionQuery: { "example.panel--tag": "remote" } } });
+    query["example.panel--tag"].push("changed");
+    const snapshot = memory.latest("local");
+    const tags = snapshot?.surface.contributionQuery?.["example.panel--tag"];
+    if (Array.isArray(tags)) tags.push("changed-again");
+    expect(memory.latest("local")?.surface.contributionQuery).toEqual({ "example.panel--tag": ["one", "two"] });
+    expect(memory.latest("remote")?.surface.contributionQuery).toEqual({ "example.panel--tag": "remote" });
+  });
   it("remembers independent navigation snapshots per machine", () => {
     const memory = new InMemoryMachineNavigationMemory();
 
@@ -32,6 +44,12 @@ describe("InMemoryMachineNavigationMemory", () => {
 });
 
 describe("SessionStorageMachineNavigationMemory", () => {
+  it("restores bounded contribution records without migrating old stored preferences", () => {
+    const storage = memoryStorage();
+    const memory = new SessionStorageMachineNavigationMemory(storage);
+    memory.remember({ machineId: "remote", surface: { contributionQuery: { "example.panel--file": "a.txt", malformed: "ignored" } } });
+    expect(new SessionStorageMachineNavigationMemory(storage).latest("remote")?.surface.contributionQuery).toEqual({ "example.panel--file": "a.txt" });
+  });
   it("persists independent navigation snapshots in per-tab storage", () => {
     const storage = memoryStorage();
     const memory = new SessionStorageMachineNavigationMemory(storage);

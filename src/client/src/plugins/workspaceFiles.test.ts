@@ -2,10 +2,23 @@ import { describe, expect, it, vi } from "vitest";
 import type { FileContentResponse, FileTreeResponse } from "../api";
 import { createWorkspaceFiles, type WorkspaceFilesApi } from "./workspaceFiles";
 import { WorkspaceUploadCancelledError, type uploadWorkspaceFile } from "../api/workspaceUploads";
+import type { WorkspaceInvalidation } from "./types";
 
 const workspace = { id: "w-1", projectId: "p-1" };
 
 describe("createWorkspaceFiles", () => {
+  it("publishes immutable resource invalidations after successful mutations only", async () => {
+    const writeWorkspaceFile = vi.fn<WorkspaceFilesApi["writeWorkspaceFile"]>()
+      .mockResolvedValueOnce({ path: "a.txt", size: 2, modifiedAt: "now", created: true })
+      .mockRejectedValueOnce(new Error("failed"));
+    const onInvalidate = vi.fn<(invalidation: WorkspaceInvalidation) => void>();
+    const files = createWorkspaceFiles(fakeApi({ writeWorkspaceFile }), workspace, "remote", undefined, { onInvalidate });
+    await files.writeFile("a.txt", "hi");
+    await expect(files.writeFile("b.txt", "hi")).rejects.toThrow("failed");
+    expect(onInvalidate).toHaveBeenCalledExactlyOnceWith({ reason: "mutation", resources: ["workspace.files"] });
+    expect(Object.isFrozen(onInvalidate.mock.calls[0]?.[0])).toBe(true);
+    expect(Object.isFrozen(onInvalidate.mock.calls[0]?.[0].resources)).toBe(true);
+  });
   it("forwards read cancellation without changing workspace or machine identity", async () => {
     const workspaceFile = vi.fn<WorkspaceFilesApi["workspaceFile"]>(() => Promise.resolve(testFileContent("a.txt")));
     const workspaceTree = vi.fn<WorkspaceFilesApi["workspaceTree"]>(() => Promise.resolve(testFileTreeResponse()));

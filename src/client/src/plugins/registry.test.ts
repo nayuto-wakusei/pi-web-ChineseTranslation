@@ -6,7 +6,7 @@ import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { corePlugin } from "./core";
-import { PluginRegistry } from "./registry";
+import { PluginRegistry, installWorkspacePanelScope } from "./registry";
 import { themePackPlugin } from "./themes";
 import type { PluginRuntimeContext, ThemeTokens, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "./types";
 
@@ -59,6 +59,69 @@ function createContext(statePatch: Partial<AppState> = {}) {
 }
 
 describe("PluginRegistry", () => {
+  it("scopes automatic invalidations to declared resources and the owning machine", async () => {
+    const registry = new PluginRegistry();
+    const declared = vi.fn();
+    const manualOnly = vi.fn();
+    await registry.register({ id: "machine.remote.example", sourcePluginId: "example", machineId: "remote", plugin: {
+      apiVersion: 4, name: "Example", activate: () => ({ contributions: { workspacePanels: [
+        { id: "files", title: "Files", invalidationResources: ["workspace.files", "workspace.files"], onInvalidate: declared, render: () => html`` },
+        { id: "manual", title: "Manual", onInvalidate: manualOnly, render: () => html`` },
+      ] } }),
+    } });
+    const invalidation = { reason: "mutation", resources: ["workspace.files"] } as const;
+    const local = createWorkspacePanelContext("local");
+    await registry.invalidateWorkspaceResources(local, invalidation);
+    expect(declared).not.toHaveBeenCalled();
+    const remote = createWorkspacePanelContext("remote");
+    await registry.invalidateWorkspaceResources(remote, invalidation);
+    expect(declared).toHaveBeenCalledExactlyOnceWith(remote, invalidation);
+    expect(manualOnly).not.toHaveBeenCalled();
+    expect(registry.getWorkspacePanels()[0]?.invalidationResources).toEqual(["workspace.files"]);
+    await registry.invalidateWorkspacePanels(remote, "machine.remote.example:manual");
+    expect(manualOnly).toHaveBeenCalledExactlyOnceWith(remote);
+  });
+
+  it("passes canonical contribution identity and source aliases to every panel callback", async () => {
+    const registry = new PluginRegistry();
+    const callback = vi.fn();
+    await registry.register({ id: "machine.remote.example", sourcePluginId: "example", machineId: "remote", plugin: {
+      apiVersion: 4, name: "Example", activate: () => ({ contributions: { workspacePanels: [{
+        id: "files", title: "Files", navigationAliases: ["legacy:files"],
+        visible: () => true, badge: () => "1", fileOpenQuery: () => ({ page: 1, tags: ["a", "b"] }),
+        onInvalidate: callback, render: () => html``,
+      }] } }),
+    } });
+    const context = createWorkspacePanelContext("remote");
+    const scope = vi.fn(() => context);
+    installWorkspacePanelScope(context, scope);
+    const panel = registry.getWorkspacePanels()[0];
+    panel?.visible?.(context);
+    panel?.badge?.(context);
+    panel?.fileOpenQuery?.(context, "a.txt");
+    panel?.render(context);
+    await registry.invalidateWorkspacePanels(context);
+    expect(scope).toHaveBeenCalledTimes(5);
+    for (const args of scope.mock.calls) expect(args).toEqual([
+      { registrationPluginId: "machine.remote.example", sourcePluginId: "example" },
+      "machine.remote.example:files", ["legacy:files", "example:files"],
+    ]);
+  });
+
+  it("isolates a failing invalidation callback from other contributions", async () => {
+    const registry = new PluginRegistry();
+    const good = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await registry.register({ id: "example", plugin: { apiVersion: 4, name: "Example", activate: () => ({ contributions: { workspacePanels: [
+      { id: "bad", title: "Bad", onInvalidate: () => Promise.reject(new Error("failed")), render: () => html`` },
+      { id: "good", title: "Good", onInvalidate: good, render: () => html`` },
+    ] } }) } });
+    await registry.invalidateWorkspacePanels(createWorkspacePanelContext("local"));
+    expect(good).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
   it("namespaces contribution ids with the owning plugin id", () => {
     const registry = new PluginRegistry();
     void registry.register({ id: "core", plugin: corePlugin });
@@ -707,6 +770,7 @@ function createWorkspaceLabelContext(machineId: string, workspace = testWorkspac
 function createWorkspacePanelContext(machineId: string, prompt: WorkspacePanelContext["prompt"] = { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) }): WorkspacePanelContext {
   const workspace = testWorkspace();
   return {
+    navigate: vi.fn(() => Promise.resolve()),
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
     workspace,
     state: { ...initialAppState(), selectedMachine: testMachine(machineId) },

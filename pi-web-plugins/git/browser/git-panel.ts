@@ -443,6 +443,7 @@ function createGitPanel(
     `,
     order: 20,
     routeAliases: ["git", "core:workspace.git"],
+    navigationAliases: ["core:workspace.git"],
     visible: (context) => controller.isOwnedWorkspace(context.workspace),
     onInvalidate: (context) => controller.invalidate(context),
     render: (context) => renderGitPanel(html, controller, context),

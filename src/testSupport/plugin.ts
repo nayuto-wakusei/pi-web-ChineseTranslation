@@ -2,6 +2,7 @@ import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-
 
 export function createWorkspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
   return {
+    navigate: () => Promise.resolve(),
     machine: { id: "local", name: "local", kind: "local" },
     workspace: { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false },
     files: {

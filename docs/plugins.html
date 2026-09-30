@@ -502,6 +502,11 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
                 <a href="plugins.md">plugins.md</a>.
               </p>
               <p>
+                面板公开接口支持宿主导航、贡献级 URL 查询状态及旧贡献 ID 别名。通过
+                <code>invalidationResources</code> 声明 <code>workspace.files</code> 后，可接收文件变更与代理活动结束的资源通知。
+                查询状态按机器隔离，失效的旧面板上下文不能覆盖当前导航；完整类型和兼容规则见上述参考文档。
+              </p>
+              <p>
                 If you want to understand the API yourself, ask an agent to read that file and explain the relevant
                 public extension points for the plugin you want. Private PI WEB internals exist for the daring; treat
                 them as experimental surfaces that may graduate into stable helpers, change shape, or disappear.

@@ -3,11 +3,15 @@ import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse
 import { uploadWorkspaceFile as defaultUploadWorkspaceFile, workspaceUploadPath, WorkspaceUploadCancelledError } from "../api/workspaceUploads";
 import { workspaceFilePreviewUrl } from "../api/urls";
 import type { WorkspaceFileReferenceOptions, WorkspaceFileRequestOptions, WorkspaceFilesCapabilityV1 } from "./types";
+import type { WorkspaceInvalidation } from "./types";
 
 export interface WorkspaceFilesOptions {
   readonly defaultUploadFolder?: string;
   readonly uploadWorkspaceFile?: typeof defaultUploadWorkspaceFile;
+  readonly onInvalidate?: (invalidation: WorkspaceInvalidation) => void;
 }
+
+const mutationInvalidation: WorkspaceInvalidation = Object.freeze({ reason: "mutation", resources: Object.freeze(["workspace.files"] as const) });
 
 /**
  * API surface the workspace files helper needs. Structurally satisfied by
@@ -31,6 +35,10 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
   const scope = { projectId: workspace.projectId, workspaceId: workspace.id, machineId };
   const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
   const defaultUploadFolder = options.defaultUploadFolder ?? "";
+  const publishMutation = () => {
+    onFilesChanged?.();
+    options.onInvalidate?.(mutationInvalidation);
+  };
   return {
     capabilityVersion: 1,
     defaultUploadFolder,
@@ -54,7 +62,7 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
       const cancel = () => { task.cancel(); };
       signal?.addEventListener("abort", cancel, { once: true });
       const completed = task.promise.then((result) => {
-        onFilesChanged?.();
+        publishMutation();
         return result;
       }, (error: unknown) => {
         if (error instanceof WorkspaceUploadCancelledError) throw new DOMException(error.message, "AbortError");
@@ -64,17 +72,17 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
     },
     writeFile: async (path, content, options) => {
       const result = await api.writeWorkspaceFile(scope.projectId, scope.workspaceId, path, content, options, scope.machineId);
-      onFilesChanged?.();
+      publishMutation();
       return result;
     },
     deleteFile: async (path) => {
       const result = await api.deleteWorkspaceFile(scope.projectId, scope.workspaceId, path, scope.machineId);
-      onFilesChanged?.();
+      publishMutation();
       return result;
     },
     moveFile: async (fromPath, toPath, options) => {
       const result = await api.moveWorkspaceFile(scope.projectId, scope.workspaceId, fromPath, toPath, options, scope.machineId);
-      onFilesChanged?.();
+      publishMutation();
       return result;
     },
   };

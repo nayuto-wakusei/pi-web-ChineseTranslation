@@ -1,9 +1,11 @@
 import type { AppState } from "../appState";
 import { LOCAL_MACHINE_ID } from "../machineKeys";
 import type { AppRoute } from "../route";
+import { normalizeContributionQueryRecord, type ContributionQueryRecord } from "../namespacedQueryArgs";
 import { browserSessionStorage, PersistentValueMap, type KeyValueStorage } from "./sessionStorageMemory";
 
 export interface WorkspaceRouteSurface {
+  contributionQuery?: ContributionQueryRecord | undefined;
   selectedFilePath?: string | undefined;
   selectedDiffPath?: string | undefined;
   selectedTerminalId?: string | undefined;
@@ -69,7 +71,7 @@ export function emptyMachineNavigationSnapshot(machineId: string): MachineNaviga
   return { machineId, surface: {} };
 }
 
-export function machineNavigationSnapshotFromState(state: AppState): MachineNavigationSnapshot {
+export function machineNavigationSnapshotFromState(state: AppState, contributionQuery?: ContributionQueryRecord): MachineNavigationSnapshot {
   const hasWorkspace = state.selectedWorkspace !== undefined;
   return {
     machineId: state.selectedMachine?.id ?? LOCAL_MACHINE_ID,
@@ -79,6 +81,7 @@ export function machineNavigationSnapshotFromState(state: AppState): MachineNavi
     tool: state.workspaceTool,
     view: state.mainView,
     surface: {
+      ...(contributionQuery === undefined ? {} : { contributionQuery: hasWorkspace ? normalizeContributionQueryRecord(contributionQuery) : {} }),
       selectedFilePath: hasWorkspace ? state.selectedFilePath : undefined,
       selectedDiffPath: hasWorkspace ? state.selectedDiffPath : undefined,
       selectedTerminalId: hasWorkspace ? state.selectedTerminalId : undefined,
@@ -100,7 +103,7 @@ export function routeFromMachineNavigationSnapshot(snapshot: MachineNavigationSn
 function cloneSnapshot(snapshot: MachineNavigationSnapshot): MachineNavigationSnapshot {
   return {
     ...snapshot,
-    surface: { ...snapshot.surface },
+    surface: { ...snapshot.surface, ...(snapshot.surface.contributionQuery === undefined ? {} : { contributionQuery: normalizeContributionQueryRecord(snapshot.surface.contributionQuery) }) },
   };
 }
 
@@ -124,6 +127,7 @@ function parseMachineNavigationSnapshot(value: unknown): MachineNavigationSnapsh
 function parseWorkspaceRouteSurface(value: unknown): WorkspaceRouteSurface {
   if (!isRecord(value)) return {};
   return {
+    ...(value["contributionQuery"] === undefined ? {} : { contributionQuery: normalizeContributionQueryRecord(value["contributionQuery"]) }),
     selectedFilePath: optionalStringField(value, "selectedFilePath"),
     selectedDiffPath: optionalStringField(value, "selectedDiffPath"),
     selectedTerminalId: optionalStringField(value, "selectedTerminalId"),

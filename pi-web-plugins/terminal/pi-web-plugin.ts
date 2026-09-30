@@ -43,6 +43,7 @@ export function activateTerminalPlugin(context: PluginActivationContext): Plugin
         `,
         order: 30,
         routeAliases: [...TERMINAL_PANEL_ROUTE_ALIASES],
+        navigationAliases: ["core:workspace.terminal"],
         badge: (workspaceContext) => terminalBadgeCount(workspaceContext),
         render: () => context.html`<pi-web-terminal-host></pi-web-terminal-host>`,
       }],

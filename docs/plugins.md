@@ -613,12 +613,18 @@ interface WorkspacePanelContribution {
   title: string;
   icon?: TemplateResult;
   order?: number;
+  routeAliases?: string[];
+  navigationAliases?: QualifiedContributionId[];
+  invalidationResources?: readonly WorkspaceResource[];
+  onInvalidate?: (context: WorkspacePanelContext, invalidation?: WorkspaceInvalidation) => void | Promise<void>;
   visible?: (context: WorkspacePanelContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 
 interface WorkspacePanelContext {
+  navigate(destination: PluginNavigationDestination): Promise<void>;
+  navigation?: WorkspacePanelNavigationV1;
   machine: PluginMachine;
   workspace: Workspace;
   state?: PluginRuntimeState;
@@ -646,6 +652,12 @@ interface WorkspacePanelContext {
 ```
 
 `icon` is optional and is used in the compact mobile tab bar. Prefer an SVG rendered with the `svg` helper from `PluginActivationContext`; use `currentColor` so PI WEB themes can style it. If `icon` is omitted, mobile tabs fall back to initials from the panel title, or to the full title when initials collide.
+
+面板可以通过 `context.navigate(destination)` 使用宿主路由恢复，通过 `context.navigation` 保存贡献级 URL 状态。`navigation.version` 为 `1`，`contributionId` 是运行时限定 ID；`query` 是冻结的字符串或字符串数组快照。使用 `navigation.set(key, value, { replace })` 写入字符串、数字、布尔值或其数组，使用 `null` 或 `undefined` 删除键。键须以小写字母开头，后续仅允许小写字母、数字、点或连字符。查询数据按上游规则限制大小与条目数量。
+
+`navigationAliases` 声明旧限定贡献 ID；规范 ID 的查询值优先，旧值按键回退，写入时仅保留该键的规范命名空间。路由参数、其他贡献查询和 URL hash 会保留。宿主按机器保存查询记忆，并继续读取旧文件、Git 和终端导航字段，不需要重写持久偏好。切换机器、工作区、面板或浏览器历史后，不应继续使用旧上下文写入导航；宿主会忽略失效上下文的查询修改和终端打开操作。
+
+需要自动刷新文件衍生数据的面板应声明 `invalidationResources: ["workspace.files"]`。`onInvalidate(context, invalidation)` 收到原因 `manual`、`mutation` 或 `agent-activity` 及资源列表；文件变更仅在成功后发布通知。没有声明资源的旧面板仍可接收显式面板刷新，此时第二个参数可省略。通知保持原工作区与机器身份，单个面板刷新失败不会阻断其他面板。
 
 `machine`, `workspace`, `files`, `prompt`, `terminal`, and `host` are documented as stable for panel callbacks. The `files` helper supports `readFile`, `listFiles`, `writeFile`, `deleteFile`, and `moveFile` — see [Reading workspace files](#reading-workspace-files), [Listing workspace files](#listing-workspace-files), and [Writing workspace files](#writing-workspace-files). The `prompt` helper supports panel interactions that insert workspace context into the current prompt — see [Prompt editor API](#prompt-editor-api). Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
 

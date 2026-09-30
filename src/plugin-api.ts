@@ -363,12 +363,31 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
+export type ContributionQueryValue = string | number | boolean | readonly (string | number | boolean)[];
+
+export interface WorkspacePanelNavigationV1 {
+  readonly version: 1;
+  readonly contributionId: QualifiedContributionId;
+  readonly query: Readonly<Record<string, string | readonly string[]>>;
+  set(key: string, value: ContributionQueryValue | undefined | null, options?: { replace?: boolean | undefined }): void;
+}
+
 export interface WorkspacePanelContext extends WorkspaceContext {
+  navigate: (destination: PluginNavigationDestination) => Promise<void>;
+  navigation?: WorkspacePanelNavigationV1;
   prompt: PluginPromptEditor;
   terminal: WorkspacePanelTerminal;
 }
 
 export type WorkspacePanelIcon = TemplateResult;
+
+export type WorkspaceResource = "workspace.files";
+export type WorkspaceInvalidationReason = "manual" | "mutation" | "agent-activity";
+
+export interface WorkspaceInvalidation {
+  readonly reason: WorkspaceInvalidationReason;
+  readonly resources: readonly WorkspaceResource[];
+}
 
 export interface WorkspacePanelContribution {
   id: LocalContributionId;
@@ -377,12 +396,14 @@ export interface WorkspacePanelContribution {
   order?: number;
   /** Former URL tool/view values that should resolve to this panel. */
   routeAliases?: string[];
+  navigationAliases?: QualifiedContributionId[];
   visible?: (context: WorkspacePanelContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
   /** Called when the host invalidates workspace-panel data. */
-  onInvalidate?: (context: WorkspacePanelContext) => void | Promise<void>;
+  invalidationResources?: readonly WorkspaceResource[];
+  onInvalidate?: (context: WorkspacePanelContext, invalidation?: WorkspaceInvalidation) => void | Promise<void>;
   /** Query that opens this panel on a workspace-relative file path. */
-  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, string>> | undefined;
+  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, ContributionQueryValue>> | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 

@@ -51,6 +51,7 @@ it("counts directory rows in the Git budget even after expanding all directories
 
 function panelContext(): WorkspacePanelContext {
   return {
+    navigate: vi.fn(() => Promise.resolve()),
     machine: { id: "local", name: "本机", kind: "local" },
     workspace: { id: "w", projectId: "p", path: "/repo", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false },
     state: initialAppState(),

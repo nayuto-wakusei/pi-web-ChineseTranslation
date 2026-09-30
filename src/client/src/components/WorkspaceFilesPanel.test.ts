@@ -273,6 +273,7 @@ function workspacePanelContext(patch: Partial<WorkspacePanelContext> = {}): Work
   const workspace = patch.workspace ?? { id: "workspace-1", projectId: "project-1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
   return {
     machine: patch.machine ?? { id: "local", name: "Local", kind: "local" },
+    navigate: patch.navigate ?? vi.fn(() => Promise.resolve()),
     workspace,
     state: patch.state ?? { ...initialAppState(), workspaceUploadBatches: {} },
     files: patch.files ?? {

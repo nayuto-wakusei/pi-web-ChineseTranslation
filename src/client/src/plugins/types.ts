@@ -88,6 +88,8 @@ export interface PluginMachine {
 }
 
 export type { WorkspaceFilesCapabilityV1, WorkspaceFileReferenceOptions, WorkspaceFileRequestOptions, WorkspaceFileUploadOptions, WorkspaceFileUploadTask } from "../../../plugin-api";
+export type { WorkspaceInvalidation, WorkspaceInvalidationReason, WorkspaceResource } from "../../../plugin-api";
+export type { WorkspacePanelNavigationV1, ContributionQueryValue } from "../../../plugin-api";
 
 export interface WorkspaceFiles {
   readFile(path: string, options?: import("../../../plugin-api").WorkspaceFileRequestOptions): Promise<FileContentResponse>;
@@ -227,6 +229,8 @@ export interface QualifiedPluginAction extends AppAction {
 }
 
 export interface WorkspacePanelContext extends WorkspaceContext {
+  navigate: (destination: PluginNavigationDestination) => Promise<void>;
+  navigation?: import("../../../plugin-api").WorkspacePanelNavigationV1;
   prompt: PluginPromptEditor;
   terminal: WorkspacePanelTerminal;
   /**
@@ -276,11 +280,13 @@ export interface WorkspacePanelContribution {
   order?: number;
   /** Former URL tool/view values that should resolve to this panel. */
   routeAliases?: string[];
+  navigationAliases?: QualifiedContributionId[];
   visible?: (context: WorkspacePanelContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
-  onInvalidate?: (context: WorkspacePanelContext) => void | Promise<void>;
+  invalidationResources?: readonly import("../../../plugin-api").WorkspaceResource[];
+  onInvalidate?: (context: WorkspacePanelContext, invalidation?: import("../../../plugin-api").WorkspaceInvalidation) => void | Promise<void>;
   /** Query that opens this panel on a workspace-relative file path. */
-  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, string>> | undefined;
+  fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, import("../../../plugin-api").ContributionQueryValue>> | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
 
