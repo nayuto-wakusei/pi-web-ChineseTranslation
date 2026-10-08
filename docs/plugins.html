@@ -256,6 +256,10 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
               </p>
               <ul>
                 <li><code>pi-web-plugins/info/package.json</code> shows the required metadata shape.</li>
+                <li>浏览器入口必须显式声明 <code>browserRoot</code>，且 <code>module</code> 必须位于该包内目录中。只有声明目录中的浏览器产物可以公开读取；不要放入私密配置或服务端代码。</li>
+                <li>缺少 <code>browserRoot</code> 的旧浏览器清单会被跳过并报错，不自动改写插件或用户数据。服务端专用插件不得声明该字段。</li>
+                <li><code>core</code>、<code>themes</code>、<code>machine.*</code>、<code>pi-web</code>、<code>pi-web.*</code> 为保留命名空间；只有受信任的内置来源可使用 <code>pi-web</code> 命名空间。</li>
+                <li>可选 <code>defaultEnabled: false</code> 让插件默认不启用，显式 <code>enabled</code> 设置优先。内置 Terminal 不接受普通配置禁用。</li>
                 <li><code>pi-web-plugins/info/pi-web-plugin.ts</code> is the skeleton: metadata and contribution definitions.</li>
                 <li><code>pi-web-plugins/info/infoInternals.ts</code> holds the bundled panel and action implementation, which you can ignore or replace when copying the plugin.</li>
                 <li><code>dist/pi-web-plugins/info/pi-web-plugin.js</code> is the built browser module in a checkout.</li>

@@ -109,7 +109,7 @@ export interface PluginPeerRequestOptions {
 }
 
 export interface PluginPeerChannel {
-  readonly closed: Promise<{ readonly code: number; readonly reason: string; readonly wasClean: boolean }>;
+  readonly closed: Promise<import("../../../plugin-api").PluginPeerChannelClose>;
   send(data: JsonValue): void;
   close(reason?: string): void;
 }

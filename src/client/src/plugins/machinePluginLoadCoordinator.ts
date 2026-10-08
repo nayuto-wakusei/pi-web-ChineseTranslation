@@ -46,9 +46,11 @@ export class MachinePluginLoadCoordinator {
 async function managementPluginEntries(): Promise<readonly PluginManifestEntry[] | undefined> {
   if (!isManagementEmbedMode()) return undefined;
   const response = await pluginsApi.plugins();
-  return response.plugins.flatMap((plugin) => plugin.module === undefined ? [] : [{
+  return response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined ? [] : [{
     id: plugin.id,
     module: plugin.module,
+    source: plugin.source,
+    scope: plugin.scope,
     machineSpecific: plugin.machineSpecific,
     ...(plugin.backendRevision === undefined ? {} : { backendRevision: plugin.backendRevision }),
     ...(plugin.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: plugin.pairedRequestVersion }),

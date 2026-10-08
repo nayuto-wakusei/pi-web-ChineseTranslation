@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { machineScopedPluginId, parseMachineScopedPluginId, type MachineScopedPluginIdParts } from "../../shared/machinePluginIds.js";
-import { isPiWebPluginId } from "../../shared/pluginIds.js";
+import { machineScopedManifestPluginId, parseMachineScopedPluginId, type MachineScopedPluginIdParts } from "../../shared/machinePluginIds.js";
+import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../../shared/pluginIds.js";
 import { RemoteMachineRequestError, type MachineClient } from "./machineClient.js";
 import { MachineService } from "./machineService.js";
 
@@ -86,7 +86,7 @@ function rewriteRemotePluginManifest(machineId: string, manifest: RemotePluginMa
       if (modulePath === undefined) return [];
       return [{
         ...plugin,
-        module: `../../../../pi-web-plugins/${encodeURIComponent(machineScopedPluginId(machineId, plugin.id))}/${modulePath.path}${modulePath.query}`,
+        module: `../../../../pi-web-plugins/${encodeURIComponent(machineScopedManifestPluginId(machineId, plugin.id))}/${modulePath.path}${modulePath.query}`,
       }];
     }),
   };
@@ -156,6 +156,10 @@ function parseRemoteManifest(value: unknown): RemotePluginManifest {
     plugins: value["plugins"].map((entry) => {
       if (!isRecord(entry) || typeof entry["id"] !== "string" || !isPiWebPluginId(entry["id"]) || typeof entry["module"] !== "string" || entry["module"] === "") {
         throw new Error("Invalid remote PI WEB plugin manifest entry");
+      }
+      if (isReservedPiWebPluginId(entry["id"])
+        && !(isPiWebBundledPluginId(entry["id"]) && entry["source"] === "bundled" && entry["scope"] === "bundled")) {
+        throw new Error(`Reserved remote PI WEB plugin id: ${entry["id"]}`);
       }
       return {
         id: entry["id"],

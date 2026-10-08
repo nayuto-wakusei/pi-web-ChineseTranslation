@@ -11,13 +11,13 @@ describe("PI WEB plugin package keys", () => {
     await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
   });
 
-  it("rejects unknown package keys including browserRoot", async () => {
+  it("rejects legacy browser metadata without browserRoot without rewriting the manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-plugin-keys-"));
     roots.push(root);
     const pluginRoot = join(root, "plugins", "mermaid");
     await mkdir(pluginRoot, { recursive: true });
     await writeFile(join(pluginRoot, "package.json"), `${JSON.stringify({
-      piWeb: { plugins: [{ id: "mermaid", module: "pi-web-plugin.js", browserRoot: "browser" }] },
+      piWeb: { plugins: [{ id: "mermaid", module: "pi-web-plugin.js" }] },
     })}\n`);
     await writeFile(join(pluginRoot, "pi-web-plugin.js"), "export default {};\n");
 
@@ -28,10 +28,13 @@ describe("PI WEB plugin package keys", () => {
     }).snapshot();
 
     expect(snapshot.plugins).toEqual([]);
-    expect(snapshot.diagnostics[0]?.message).toContain("unknown key \"browserRoot\"");
+    expect(snapshot.diagnostics[0]?.message).toContain("must declare browserRoot");
+    expect(JSON.parse(await readFile(join(pluginRoot, "package.json"), "utf8"))).toEqual({
+      piWeb: { plugins: [{ id: "mermaid", module: "pi-web-plugin.js" }] },
+    });
   });
 
-  it("accepts the shipped Relay browser manifest without unsupported metadata", async () => {
+  it("accepts the shipped Relay browser manifest with an explicit browser root", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-relay-manifest-"));
     roots.push(root);
     const pluginRoot = join(root, "plugins", "relays");

@@ -1,0 +1,35 @@
+{
+  "name": "@chainingintention/pi-captains-log",
+  "version": "0.1.0",
+  "description": "可选船长日志：通过原生 Pi 伴随扩展和 PI WEB 面板转述选中会话的最后一条回复",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package"],
+  "files": ["dist", "src", "docs", "test", "tsconfig.json", "vite.config.mjs"],
+  "scripts": { "build": "tsc -p tsconfig.json && vite build", "test": "node --test test/*.test.mjs" },
+  "dependencies": {
+    "marked": "^18.0.6"
+  },
+  "devDependencies": {
+    "@chainingintention/pi-web-cn": "^1.202609.1",
+    "@earendil-works/pi-coding-agent": "^0.87.0",
+    "@types/node": "^24.13.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.4"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@chainingintention/pi-web-cn": "^1.202609.1"
+  },
+  "pi": { "extensions": ["./dist/companion.js"] },
+  "piWeb": {
+    "plugins": [{
+      "id": "captains-log",
+      "defaultEnabled": false,
+      "browserRoot": "dist/browser",
+      "module": "dist/browser/index.js",
+      "serverModule": "dist/server.js",
+      "machineSpecific": true
+    }]
+  }
+}

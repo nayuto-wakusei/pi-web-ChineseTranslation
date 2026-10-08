@@ -5,7 +5,8 @@
   "piWeb": {
     "plugins": [{
       "id": "mermaid",
-      "module": "pi-web-plugin.js"
+      "browserRoot": "browser",
+      "module": "browser/pi-web-plugin.js"
     }]
   }
 }

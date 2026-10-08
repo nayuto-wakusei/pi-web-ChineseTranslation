@@ -6,6 +6,7 @@
     "plugins": [
       {
         "id": "git",
+        "browserRoot": "browser",
         "module": "browser/pi-web-plugin.js",
         "serverModule": "server-plugin.js",
         "machineSpecific": true

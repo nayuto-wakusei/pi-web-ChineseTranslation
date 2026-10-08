@@ -123,7 +123,7 @@ Package metadata:
   "private": true,
   "piWeb": {
     "plugins": [
-      { "id": "info", "module": "pi-web-plugin.js" }
+      { "id": "info", "browserRoot": ".", "module": "pi-web-plugin.js" }
     ]
   }
 }
@@ -212,7 +212,7 @@ Plugin preferences are stored under the top-level `plugins` config key in the PI
 }
 ```
 
-Plugins are enabled by default. Set `enabled` to `false` to remove a plugin from `/pi-web-plugins/manifest.json` so the browser will not import or activate it on the next page load. The optional `settings` object is reserved for plugin-specific settings.
+插件默认启用，除非包清单声明 `defaultEnabled: false`。显式 `enabled` 设置覆盖包默认值；设为 `false` 后，下一次加载不会导入或激活该插件。内置 Terminal 按上游规则不能通过普通 `enabled` 设置禁用。可选 `settings` 对象用于插件自身配置。
 
 After changing plugin enablement, reload the PI WEB browser tab. Already-loaded plugin JavaScript is not unloaded from the current page.
 
@@ -352,8 +352,8 @@ A package can expose one or more PI WEB plugin modules. There is exactly one sup
   "private": true,
   "piWeb": {
     "plugins": [
-      { "id": "review", "module": "dist/review.js" },
-      { "id": "dashboard", "module": "dist/dashboard.js", "machineSpecific": true }
+      { "id": "review", "browserRoot": "dist", "module": "dist/review.js" },
+      { "id": "dashboard", "browserRoot": "dist", "module": "dist/dashboard.js", "machineSpecific": true }
     ]
   }
 }
@@ -362,12 +362,17 @@ A package can expose one or more PI WEB plugin modules. There is exactly one sup
 Rules:
 
 - `piWeb.plugins` must be an array of objects.
-- Each entry must have an explicit `id` and `module`.
+- 每项必须显式声明 `id`，以及 `module` 或 `serverModule` 中至少一个；同时声明浏览器与服务端入口的插件必须为机器作用域。
 - `id` must match `^[a-z][a-z0-9.-]*$`.
-- `module` must be a safe relative path inside the plugin package root.
+- `core`、`themes`、`machine.*`、`pi-web`、`pi-web.*` 是保留命名空间；只有受信任的内置插件来源可以使用 `pi-web` 命名空间，用户插件不能占用。
+- 声明浏览器 `module` 时必须显式声明 `browserRoot`，入口必须同时位于该目录的逻辑路径和规范路径内。`browserRoot` 可以是 `"."` 或包内的相对目录；服务端专用插件不得声明它。路径按实际大小写校验，禁止越界、排除目录别名和符号链接逃逸。
+- 仅 `browserRoot` 内的已捕获文件可通过浏览器资源路由读取；不要将服务端代码、私密配置或其他非浏览器资源放入该公开目录。资源快照按内容版本缓存，旧入口版本不匹配时返回未找到。
+- `defaultEnabled` 可选且必须为布尔值；显式配置优先于包默认值。
 - `machineSpecific` is optional and must be a boolean; omit it for the default portable gateway behavior.
 - Duplicate plugin ids are not auto-renamed; later duplicates are skipped.
 - Legacy shortcuts such as `piWeb.plugin`, string entries in `piWeb.plugins`, `piWeb.id` fallback ids, and no-`package.json` fallbacks are not supported.
+
+升级时不再兼容缺少 `browserRoot` 的旧浏览器清单：插件会被跳过并报告清单错误，不会自动改写插件文件或用户数据。插件作者应自行更新清单并将公开浏览器产物放在声明目录中。
 
 ### Manifest and assets
 
@@ -1040,7 +1045,7 @@ PI WEB does not provide a plugin cache/invalidation framework. Keep host callbac
 If you are an AI agent building or editing a PI WEB plugin, follow this checklist:
 
 1. Create or update a plugin folder with `package.json` and a JavaScript module such as `pi-web-plugin.js`.
-2. Use the single supported package metadata shape: `piWeb.plugins` array with `{ id, module, machineSpecific? }` entries.
+2. 使用唯一支持的清单格式：`piWeb.plugins` 对象数组。浏览器入口声明 `{ id, browserRoot, module, machineSpecific?, defaultEnabled? }`；服务端入口使用 `serverModule`，浏览器与服务端双入口必须声明 `machineSpecific: true`。
 3. Default-export `{ apiVersion: 4, name, activate }` from a browser module. Server modules use server-plugin API v3 and serve package-paired requests through `peer.request`, not the legacy workspace-provider `request` method.
 4. Return `{ contributions: { actions, workspacePanels, workspaceLabels } }` from `activate()`.
 5. Use ids matching `^[a-z][a-z0-9.-]*$`.

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadExternalPlugins, resolvePluginModuleUrl } from "./external";
 import { PluginRegistry } from "./registry";
-import { machineScopedPluginId } from "../../../shared/machinePluginIds";
+import { machineScopedBundledPluginId, machineScopedPluginId } from "../../../shared/machinePluginIds";
 
 beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
@@ -11,6 +11,28 @@ afterEach(() => {
 });
 
 describe("external plugin manifests", () => {
+  it("accepts a host-validated bundled namespace on the owning remote machine", async () => {
+    const result = await loadExternalPlugins(undefined, {
+      machineId: "remote-a",
+      plugins: [{ id: "pi-web.terminal", source: "bundled", scope: "bundled", module: "./terminal/plugin.js", machineSpecific: true }],
+      moduleLoader: () => Promise.resolve({ default: { apiVersion: 4, name: "Terminal", activate: () => ({ contributions: {} }) } }),
+    });
+    expect(result.failures).toEqual([]);
+    expect(result.registrations[0]).toMatchObject({
+      id: machineScopedBundledPluginId("remote-a", "pi-web.terminal"),
+      machineId: "remote-a", sourcePluginId: "pi-web.terminal",
+    });
+  });
+
+  it.each(["core", "themes", "machine.remote.tools", "pi-web", "pi-web.terminal"])("rejects reserved user manifest id %s before importing code", async (id) => {
+    const moduleLoader = vi.fn();
+    await expect(loadExternalPlugins(undefined, {
+      plugins: [{ id, source: "local", scope: "local", module: "./plugin.js", machineSpecific: true }],
+      moduleLoader,
+    })).rejects.toThrow("Reserved plugin manifest id");
+    expect(moduleLoader).not.toHaveBeenCalled();
+  });
+
   it("keeps source and machine-scoped runtime identities through real loading and activation", async () => {
     const activate = vi.fn(() => ({ contributions: {} }));
     const result = await loadExternalPlugins(undefined, {

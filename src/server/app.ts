@@ -261,11 +261,11 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   app.get("/pi-web-plugins/manifest.json", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.manifest()));
 
-  app.get<{ Params: { pluginId: string; "*": string } }>("/pi-web-plugins/:pluginId/*", async (request, reply) => {
+  app.get<{ Params: { pluginId: string; "*": string }; Querystring: { v?: string } }>("/pi-web-plugins/:pluginId/*", async (request, reply) => {
     if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply)) return;
 
     return withProfileDependency(reply, async () => {
-      const asset = await piWebPlugins.readAsset(request.params.pluginId, request.params["*"]);
+      const asset = await piWebPlugins.readAsset(request.params.pluginId, request.params["*"], request.query.v);
       if (asset === undefined) return reply.code(404).send({ error: "Plugin asset not found" });
       return reply.type(asset.contentType).send(asset.content);
     });

@@ -334,8 +334,16 @@ export interface PluginPeerRequestOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface PluginPeerChannelClose {
+  readonly code: number;
+  readonly reason: string;
+  readonly wasClean: boolean;
+  /** Attributed host or server-plugin failure when one preceded the close. */
+  readonly error?: Readonly<{ code: string; message: string }>;
+}
+
 export interface PluginPeerChannel {
-  readonly closed: Promise<{ readonly code: number; readonly reason: string; readonly wasClean: boolean }>;
+  readonly closed: Promise<PluginPeerChannelClose>;
   send(data: JsonValue): void;
   close(reason?: string): void;
 }

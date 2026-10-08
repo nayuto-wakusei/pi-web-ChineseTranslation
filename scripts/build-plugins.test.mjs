@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig } from "./build-plugins.mjs";
+import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig, buildCaptainsLogBrowserPackage, buildMermaidPackage } from "./build-plugins.mjs";
 
 let tempDir;
 
@@ -32,6 +32,44 @@ describe("Files browser package", () => {
     expect(configs[0].build.outDir).toBe(join(target, "browser"));
     expect(configs[0].build.rollupOptions.output.entryFileNames).toBe("pi-web-plugin.js");
     expect(configs[0].build.rollupOptions.external).toBeUndefined();
+  });
+});
+
+describe("Mermaid browser package", () => {
+  it("bundles the renderer and writes the isolated engine alongside its entry without deleting the entry", async () => {
+    const source = join(tempDir, "mermaid");
+    const target = join(tempDir, "out");
+    await mkdir(source);
+    const manifest = { piWeb: { module: "browser/pi-web-plugin.js" } };
+    await writeFile(join(source, "package.json"), JSON.stringify(manifest));
+    const configs = [];
+    await buildMermaidPackage(source, target, (config) => {
+      configs.push(config);
+      return Promise.resolve();
+    });
+    expect(configs[0]).toEqual(filesBrowserBuildConfig(source, target));
+    expect(configs[1].build.outDir).toBe(join(target, "browser"));
+    expect(configs[1].build.emptyOutDir).toBe(false);
+    expect(configs[1].build.lib.entry).toBe(join(source, "mermaidRuntime.ts"));
+    expect(configs[1].build.lib.fileName()).toBe("mermaidRuntime.js");
+    expect(JSON.parse(await readFile(join(target, "package.json"), "utf8"))).toEqual(manifest);
+  });
+});
+
+describe("Captain's Log browser package", () => {
+  it("uses the independent package config and writes inside the shipped Pi package", async () => {
+    const source = join(tempDir, "captains-log");
+    const target = join(tempDir, "dist", "captains-log");
+    const configs = [];
+    await buildCaptainsLogBrowserPackage(source, target, (config) => {
+      configs.push(config);
+      return Promise.resolve();
+    });
+    expect(configs).toEqual([{
+      configFile: join(source, "vite.config.mjs"),
+      logLevel: "silent",
+      build: { outDir: join(target, "dist", "browser") },
+    }]);
   });
 });
 

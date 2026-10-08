@@ -141,7 +141,7 @@ async function writePackagePlugin(root: string, pluginId: string): Promise<void>
   await writeFile(join(root, "package.json"), `${JSON.stringify({
     name: `@test/${pluginId}`,
     version: "1.0.0",
-    piWeb: { plugins: [{ id: pluginId, module: "pi-web-plugin.js" }] },
+    piWeb: { plugins: [{ id: pluginId, browserRoot: ".", module: "pi-web-plugin.js" }] },
   }, null, 2)}\n`, "utf8");
   await writeFile(join(root, "pi-web-plugin.js"), "export default {};\n", "utf8");
 }

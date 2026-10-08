@@ -35,12 +35,16 @@ async function buildAll() {
     const filesSource = resolve(target.rootDir, "files");
     const hasFiles = target.label === "plugin" && (await stat(filesSource).catch(() => undefined))?.isDirectory() === true;
     const excluded = hasFiles ? new Set([await realpath(filesSource)]) : new Set();
+    const mermaidSource = resolve(target.rootDir, "mermaid");
+    const hasMermaid = target.label === "plugin" && (await stat(resolve(mermaidSource, "mermaidRuntime.ts")).catch(() => undefined))?.isFile() === true;
+    if (hasMermaid) excluded.add(await realpath(mermaidSource));
     const result = target.label === "package"
       ? await buildPiPackages(target.rootDir, target.outDir)
       : await buildDirectory(target.rootDir, target.outDir, new Set(), excluded);
     if (hasFiles) await buildFilesBrowserPackage(filesSource, resolve(target.outDir, "files"));
-    if (target.label === "plugin" && await stat(resolve(target.rootDir, "mermaid/mermaidRuntime.ts")).catch(() => undefined)) {
-      await buildMermaidEngine(resolve(target.rootDir, "mermaid"), resolve(target.outDir, "mermaid"));
+    if (hasMermaid) await buildMermaidPackage(mermaidSource, resolve(target.outDir, "mermaid"));
+    if (target.label === "package" && await stat(resolve(target.rootDir, "captains-log/vite.config.mjs")).catch(() => undefined)) {
+      await buildCaptainsLogBrowserPackage(resolve(target.rootDir, "captains-log"), resolve(target.outDir, "captains-log"));
     }
     const suffix = result.transpiled === 1 ? "file" : "files";
     console.log(`[plugins] built ${String(result.transpiled)} TypeScript ${target.label} ${suffix} into ${relative(cwd, target.outDir)}`);
@@ -51,6 +55,14 @@ async function buildAll() {
 
 export function filesBrowserBuildConfig(sourceDir, targetDir) {
   return complexBrowserBuildConfig(sourceDir, targetDir);
+}
+
+export async function buildCaptainsLogBrowserPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+  await buildBrowser({
+    configFile: resolve(sourceDir, "vite.config.mjs"),
+    logLevel: "silent",
+    build: { outDir: resolve(targetDir, "dist/browser") },
+  });
 }
 
 export function complexBrowserBuildConfig(sourceDir, targetDir) {
@@ -89,6 +101,11 @@ export async function buildFilesBrowserPackage(sourceDir, targetDir, buildBrowse
   await mkdir(targetDir, { recursive: true });
   await copyFile(resolve(sourceDir, "package.json"), resolve(targetDir, "package.json"));
   await buildBrowser(filesBrowserBuildConfig(sourceDir, targetDir));
+}
+
+export async function buildMermaidPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+  await buildFilesBrowserPackage(sourceDir, targetDir, buildBrowser);
+  await buildMermaidEngine(sourceDir, resolve(targetDir, "browser"), buildBrowser);
 }
 
 export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {

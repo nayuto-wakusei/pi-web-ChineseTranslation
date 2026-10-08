@@ -5,7 +5,7 @@
   "description": "Tool-agnostic Relay method, opinionated Relay Runner profile, and human-gated preparation prompts for independent Pi session chains.",
   "piWeb": {
     "plugins": [
-      { "id": "relays", "module": "pi-web-plugin.js" }
+      { "id": "relays", "browserRoot": ".", "module": "pi-web-plugin.js" }
     ]
   }
 }

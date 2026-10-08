@@ -1,11 +1,34 @@
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { machineScopedPluginId } from "../shared/machinePluginIds.js";
+import { machineScopedBundledPluginId, machineScopedPluginId } from "../shared/machinePluginIds.js";
 import { appTestContext, fakeRemoteClient, registerAppTestHooks } from "./app.testSupport.js";
 
 registerAppTestHooks();
 
 describe("buildApp PI WEB plugin routes", () => {
+  it("machine-scopes a trusted bundled namespace without treating it as a user plugin", async () => {
+    const add = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = add.json<{ id: string }>();
+    appTestContext.remoteClient = fakeRemoteClient({ requestJson: vi.fn(() => Promise.resolve({
+      statusCode: 200, headers: {}, body: { plugins: [{ id: "pi-web.terminal", source: "bundled", scope: "bundled", module: "browser/pi-web-plugin.js", machineSpecific: true }] },
+    })) });
+    const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/pi-web-plugins/manifest.json` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ plugins: [{
+      id: "pi-web.terminal", module: `../../../../pi-web-plugins/${machineScopedBundledPluginId(remote.id, "pi-web.terminal")}/browser/pi-web-plugin.js`,
+    }] });
+  });
+
+  it.each(["core", "themes", "machine.remote.tools", "pi-web.terminal"])("rejects untrusted remote namespace %s", async (id) => {
+    const add = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = add.json<{ id: string }>();
+    appTestContext.remoteClient = fakeRemoteClient({ requestJson: vi.fn(() => Promise.resolve({
+      statusCode: 200, headers: {}, body: { plugins: [{ id, source: "local", scope: "local", module: "plugin.js" }] },
+    })) });
+    const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/pi-web-plugins/manifest.json` });
+    expect(response.statusCode).toBe(502);
+  });
+
   it("serves application-root plugin modules through the manifest and plugin-list APIs", async () => {
     const manifestResponse = await appTestContext.app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);

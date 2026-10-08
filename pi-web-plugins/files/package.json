@@ -6,6 +6,7 @@
     "plugins": [
       {
         "id": "files",
+        "browserRoot": "browser",
         "module": "browser/pi-web-plugin.js"
       }
     ]

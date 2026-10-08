@@ -1,6 +1,6 @@
-import { machineScopedPluginId } from "../../../shared/machinePluginIds";
+import { machineScopedManifestPluginId } from "../../../shared/machinePluginIds";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
-import { isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
+import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
 import { withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
 import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
@@ -9,6 +9,8 @@ import { adaptPublicPlugin } from "./publicContext";
 export interface PluginManifestEntry {
   id: string;
   module: string;
+  source?: string;
+  scope?: string;
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
@@ -49,7 +51,7 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
       const module = await (options.moduleLoader ?? importPluginModule)(moduleUrl);
       const plugin = parsePluginModule(module, moduleUrl);
       registrations.push({
-        id: options.machineId === undefined ? entry.id : machineScopedPluginId(options.machineId, entry.id),
+        id: options.machineId === undefined ? entry.id : machineScopedManifestPluginId(options.machineId, entry.id),
         plugin,
         machineSpecific: entry.machineSpecific,
         ...(entry.backendRevision === undefined ? {} : { backendRevision: entry.backendRevision }),
@@ -74,7 +76,7 @@ async function importPluginModule(moduleUrl: string): Promise<unknown> {
 }
 
 async function fetchPluginManifest(manifestUrl: string, plugins: readonly PluginManifestEntry[] | undefined): Promise<PluginManifest | undefined> {
-  if (plugins !== undefined) return { plugins: [...plugins] };
+  if (plugins !== undefined) return parseManifest({ plugins: [...plugins] });
   const response = await fetch(manifestUrl, { cache: "no-store" });
   if (response.status === 404) return undefined;
   if (!response.ok) throw new Error(await pluginManifestResponseError(response));
@@ -87,7 +89,12 @@ function parseManifest(value: unknown): PluginManifest {
     if (!isRecord(entry) || typeof entry["id"] !== "string" || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
     const id = entry["id"];
     if (!isPiWebPluginId(id)) throw new Error(`Invalid plugin manifest id: ${id}`);
-    if (isReservedPiWebPluginId(id)) throw new Error(`Reserved plugin manifest id: ${id}`);
+    const source = typeof entry["source"] === "string" ? entry["source"] : undefined;
+    const scope = typeof entry["scope"] === "string" ? entry["scope"] : undefined;
+    if (isReservedPiWebPluginId(id)
+      && !(isPiWebBundledPluginId(id) && source === "bundled" && scope === "bundled")) {
+      throw new Error(`Reserved plugin manifest id: ${id}`);
+    }
     const backendRevision = parseBackendRevision(entry["backendRevision"]);
     const pairedRequestVersion = parsePairedCapabilityVersion(entry["pairedRequestVersion"]);
     const pairedChannelVersion = parsePairedCapabilityVersion(entry["pairedChannelVersion"]);
@@ -97,6 +104,8 @@ function parseManifest(value: unknown): PluginManifest {
     return {
       id,
       module: entry["module"],
+      ...(source === undefined ? {} : { source }),
+      ...(scope === undefined ? {} : { scope }),
       ...(backendRevision === undefined ? {} : { backendRevision }),
       ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
       ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
