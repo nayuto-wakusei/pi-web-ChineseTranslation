@@ -113,7 +113,7 @@ describe("updates plugin actions", () => {
 
 function activatePlugin() {
   const signal = new AbortController().signal;
-  return Promise.resolve(plugin.activate({ apiVersion: 4, pluginId: "updates", html, svg, signal, lifetimeSignal: signal }));
+  return Promise.resolve(plugin.activate({ apiVersion: 4, pluginId: "updates", runtimePluginId: "updates", html, svg, signal, lifetimeSignal: signal }));
 }
 
 type CopyButtonHandler = (event?: Event) => void;

@@ -41,7 +41,7 @@ describe("Info plugin copy-diagnostics action", () => {
 
 async function findCopyDiagnosticsAction() {
   const signal = new AbortController().signal;
-  const activation = await plugin.activate({ apiVersion: 4, pluginId: "info", html, svg, signal, lifetimeSignal: signal });
+  const activation = await plugin.activate({ apiVersion: 4, pluginId: "info", runtimePluginId: "info", html, svg, signal, lifetimeSignal: signal });
   const action = activation.contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;

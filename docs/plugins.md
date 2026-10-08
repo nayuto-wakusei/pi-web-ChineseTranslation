@@ -421,7 +421,7 @@ interface PiWebPlugin {
 interface PluginActivationContext {
   apiVersion: 4;
   pluginId: string;
-  runtimePluginId?: string;
+  runtimePluginId: string;
   html: typeof import("lit").html;
   svg: typeof import("lit").svg;
 }
@@ -514,7 +514,9 @@ interface PluginRuntimeContext {
   state: {
     selectedMachine?: PluginMachine;
     selectedWorkspace?: Workspace;
-    selectedSession?: unknown;
+    selectedSession?: { id: string; cwd: string; name?: string; archived: boolean; pending: boolean };
+    workspaceTool?: string;
+    mainView?: "navigation" | "chat" | "workspace";
     piWebStatus?: PiWebStatusResponse;
   };
   prompt: PluginPromptEditor;
@@ -538,7 +540,8 @@ Notes:
 
 - `state` is a snapshot of current UI state when actions are built.
 - The stable state fields are `state.selectedMachine`, `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`. `state.selectedMachine` identifies the currently selected machine. `state.piWebStatus` describes the currently selected machine's PI WEB runtime, or the gateway/local runtime when the local machine is selected.
-- Other `state` fields may exist at runtime, but they are private PI WEB internals that may graduate into stable helpers, change shape, or disappear.
+- 外部插件只接收公开状态投影，不再接收内部会话对象。选中会话仅包含上面列出的字段，不包含转录路径、首条消息或整个会话列表；修改投影不会修改宿主的选中会话。工作区面板在公开状态中统一使用 `mainView: "workspace"`。
+- `pluginId` 是源插件身份；必需的 `runtimePluginId` 是当前宿主中的注册身份，在远端机器上可能包含机器作用域。构造贡献限定 ID 时使用后者，声明能力提供者时使用前者。
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.

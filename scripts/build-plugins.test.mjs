@@ -1,8 +1,9 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDirectory } from "./build-plugins.mjs";
+import { buildDirectory, buildPiPackages } from "./build-plugins.mjs";
 
 let tempDir;
 
@@ -15,6 +16,18 @@ afterEach(async () => {
 });
 
 describe("buildDirectory", () => {
+  it("excludes test modules in every supported extension and non-distributable metadata", async () => {
+    const source = join(tempDir, "source");
+    await mkdir(source);
+    for (const name of [".gitignore", "a.test.mjs", "b.spec.cjs", "c.test.js", "d.spec.ts", "types.d.ts"]) {
+      await writeFile(join(source, name), "must not ship");
+    }
+    await writeFile(join(source, "runtime.ts"), 'export const value: number = 1;');
+    const target = join(tempDir, "out");
+    await buildDirectory(source, target);
+    expect(await readdir(target)).toEqual(["runtime.js"]);
+  });
+
   it("materializes a symlinked file as a real file", async () => {
     const source = join(tempDir, "source");
     await mkdir(source, { recursive: true });
@@ -65,5 +78,60 @@ describe("buildDirectory", () => {
     await expect(buildDirectory(source, target)).resolves.toEqual({ copied: 1, transpiled: 0 });
 
     expect(await readdir(target)).toEqual(["marker.txt"]);
+  });
+});
+
+describe("buildPiPackages", () => {
+  it("retains symlinked package roots as materialized standalone package graphs", async () => {
+    const source = join(tempDir, "packages");
+    const external = join(tempDir, "external");
+    await mkdir(source);
+    await mkdir(join(external, "src"), { recursive: true });
+    await writeFile(join(external, "package.json"), JSON.stringify({ name: "linked", type: "module" }));
+    await writeFile(join(external, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { rootDir: "src", outDir: "dist" }, include: ["src/**/*.ts"],
+    }));
+    await writeFile(join(external, "src/index.ts"), "export const value: number = 1;");
+    await symlink(external, join(source, "linked"), process.platform === "win32" ? "junction" : "dir");
+    const target = join(tempDir, "out");
+    await buildPiPackages(source, target);
+    expect((await lstat(join(target, "linked"))).isSymbolicLink()).toBe(false);
+    expect(await readFile(join(target, "linked/dist/index.js"), "utf8")).toContain("export const value = 1");
+  });
+
+  it("rebuilds a standalone src-to-dist graph without shipping stale output or tests", async () => {
+    const source = join(tempDir, "packages");
+    const packageDir = join(source, "example");
+    await mkdir(join(packageDir, "src"), { recursive: true });
+    await mkdir(join(packageDir, "dist"));
+    await mkdir(join(packageDir, "test"));
+    const manifest = { name: "example", type: "module", pi: { extensions: ["./dist/index.js"] } };
+    await writeFile(join(packageDir, "package.json"), JSON.stringify(manifest));
+    await writeFile(join(packageDir, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { rootDir: "src", outDir: "dist" }, include: ["src/**/*.ts"],
+    }));
+    await writeFile(join(packageDir, "src/index.ts"), 'import { value } from "./value.js"; export default value;');
+    await writeFile(join(packageDir, "src/value.ts"), 'export const value: string = "fresh";');
+    await writeFile(join(packageDir, "dist/index.js"), 'throw new Error("stale output");');
+    await writeFile(join(packageDir, "dist/deleted.js"), 'throw new Error("deleted source");');
+    await writeFile(join(packageDir, "test/index.test.mjs"), 'throw new Error("test source");');
+    const target = join(tempDir, "out");
+    await buildPiPackages(source, target);
+    const output = join(target, "example");
+    expect(await readdir(output)).toEqual(["dist", "package.json", "tsconfig.json"]);
+    expect(await readdir(join(output, "dist"))).toEqual(["index.js", "value.js"]);
+    expect(JSON.parse(await readFile(join(output, "package.json"), "utf8"))).toEqual(manifest);
+    expect((await import(pathToFileURL(join(output, "dist/index.js")).href)).default).toBe("fresh");
+  });
+
+  it.each([".", "../outside"])("rejects standalone output escaping its package: %s", async (outDir) => {
+    const source = join(tempDir, "packages");
+    const packageDir = join(source, "example");
+    await mkdir(join(packageDir, "src"), { recursive: true });
+    await writeFile(join(packageDir, "src/index.ts"), "export {};");
+    await writeFile(join(packageDir, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { rootDir: "src", outDir }, include: ["src/**/*.ts"], exclude: [],
+    }));
+    await expect(buildPiPackages(source, join(tempDir, "out"))).rejects.toThrow("Package build directory must be inside");
   });
 });

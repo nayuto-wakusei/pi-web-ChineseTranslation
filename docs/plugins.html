@@ -507,6 +507,11 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
                 查询状态按机器隔离，失效的旧面板上下文不能覆盖当前导航；完整类型和兼容规则见上述参考文档。
               </p>
               <p>
+                外部插件只接收公开状态投影，选中会话包含 ID、工作区路径、可选名称、归档及待启动状态，
+                不包含内部转录路径、消息或会话列表。激活上下文的 <code>pluginId</code> 是源插件身份，
+                必需的 <code>runtimePluginId</code> 是带机器作用域的运行时注册身份；构造贡献限定 ID 时使用后者。
+              </p>
+              <p>
                 If you want to understand the API yourself, ask an agent to read that file and explain the relevant
                 public extension points for the plugin you want. Private PI WEB internals exist for the daring; treat
                 them as experimental surfaces that may graduate into stable helpers, change shape, or disappear.

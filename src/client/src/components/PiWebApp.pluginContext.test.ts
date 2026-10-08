@@ -5,7 +5,8 @@ import { initialAppState } from "../appState";
 import { workspacesApi, type Workspace } from "../api";
 import { SessionStorageMachineNavigationMemory } from "../controllers/machineNavigationMemory";
 import { PluginRegistry } from "../plugins/registry";
-import type { WorkspacePanelContext } from "../plugins/types";
+import { loadExternalPlugins } from "../plugins/external";
+import type { PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
 import { PiWebApp } from "./PiWebApp";
 
 const workspace: Workspace = { id: "w1", projectId: "p1", path: "/repo", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
@@ -37,6 +38,18 @@ function isPanelContext(value: unknown): value is WorkspacePanelContext {
   return typeof value === "object" && value !== null && "navigate" in value && "files" in value;
 }
 
+function hostRuntimeContext(app: PiWebApp): PluginRuntimeContext {
+  const method: unknown = Reflect.get(app, "createPluginRuntimeContext");
+  if (typeof method !== "function") throw new Error("Missing runtime context factory");
+  const context: unknown = method.call(app);
+  if (!isRuntimeContext(context)) throw new Error("Missing runtime context");
+  return context;
+}
+
+function isRuntimeContext(value: unknown): value is PluginRuntimeContext {
+  return typeof value === "object" && value !== null && "navigate" in value && "selectWorkspaceTool" in value;
+}
+
 async function captureContext(app: PiWebApp): Promise<WorkspacePanelContext> {
   const registry: unknown = Reflect.get(app, "plugins");
   if (!(registry instanceof PluginRegistry)) throw new Error("Missing plugin registry");
@@ -50,6 +63,52 @@ async function captureContext(app: PiWebApp): Promise<WorkspacePanelContext> {
 }
 
 describe("PiWebApp plugin context ownership", () => {
+  it("projects the selected session through the actual external loader, registry and host", async () => {
+    const app = createApp();
+    const session = { id: "session", cwd: "/repo", name: "Conversation", path: "/private/session.jsonl",
+      created: "now", modified: "now", messageCount: 1, firstMessage: "Private transcript", clientPendingStart: true };
+    const state: unknown = Reflect.get(app, "state");
+    if (typeof state !== "object" || state === null) throw new Error("Missing application state");
+    Reflect.set(app, "state", { ...state, selectedSession: session });
+    const render = vi.fn(() => html``);
+    const enabled = vi.fn(() => false);
+    const disabledReason = vi.fn(() => "Unavailable");
+    const run = vi.fn<(context: PluginRuntimeContext) => void>();
+    const loaded = await loadExternalPlugins(undefined, {
+      plugins: [{ id: "external", module: "./external/plugin.js", machineSpecific: false }],
+      moduleLoader: () => Promise.resolve({ default: { apiVersion: 4, name: "External", activate: () => ({
+        contributions: { workspacePanels: [{ id: "panel", title: "Panel", render }],
+          actions: [{ id: "action", title: "Action", enabled, disabledReason, run }] },
+      }) } }),
+    });
+    expect(loaded.failures).toEqual([]);
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Missing plugin registry");
+    try {
+      for (const registration of loaded.registrations) await registry.register(registration);
+      const context = hostContext(app);
+      registry.getWorkspacePanels().find((panel) => panel.id === "external:panel")?.render(context);
+      const expectedState: unknown = expect.objectContaining({
+        selectedSession: { id: "session", cwd: "/repo", name: "Conversation", archived: false, pending: true },
+        mainView: "workspace",
+      });
+      expect(render).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: expectedState }));
+      const received: unknown = render.mock.calls[0];
+      expect(JSON.stringify(received)).not.toContain("Private transcript");
+      expect(JSON.stringify(received)).not.toContain("/private/session.jsonl");
+      expect(context.state.selectedSession).toBe(session);
+      const action = registry.getActions(hostRuntimeContext(app)).find((item) => item.id === "external:action");
+      expect(action?.disabledReason).toBe("Unavailable");
+      await action?.run();
+      for (const callback of [enabled, disabledReason, run]) {
+        expect(callback).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: expectedState }));
+        expect(JSON.stringify(callback.mock.calls)).not.toContain("Private transcript");
+      }
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("does not carry plugin query state into a different machine and can restore its saved record", () => {
     const app = createApp();
     const remember: unknown = Reflect.get(app, "rememberCurrentMachineNavigation");

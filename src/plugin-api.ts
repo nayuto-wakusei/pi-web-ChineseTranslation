@@ -56,7 +56,7 @@ export interface PluginActivationContext {
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
   /** Host-unique identity for qualified contribution references in this runtime. */
-  readonly runtimePluginId?: PluginId;
+  readonly runtimePluginId: PluginId;
   readonly html: HtmlTemplateTag;
   readonly svg: SvgTemplateTag;
   readonly signal: AbortSignal;
@@ -159,13 +159,21 @@ export interface PluginMachine {
   kind: MachineKind;
 }
 
+export interface PluginSelectedSession {
+  id: string;
+  cwd: string;
+  name?: string;
+  archived: boolean;
+  pending: boolean;
+}
+
 export interface PluginRuntimeState {
   /** Identity of the currently selected machine. Undefined only on older hosts or before machines load. */
   selectedMachine?: PluginMachine;
   selectedWorkspace?: Workspace;
-  selectedSession?: unknown;
+  selectedSession?: PluginSelectedSession;
   workspaceTool?: string;
-  mainView?: string;
+  mainView?: "navigation" | "chat" | "workspace";
   piWebStatus?: PiWebStatusResponse;
 }
 

@@ -29,7 +29,7 @@ export function activateTerminalPlugin(context: PluginActivationContext): Plugin
     throw new Error(`Terminal browser entry must activate as plugin id ${TERMINAL_PLUGIN_ID}, received ${context.pluginId}`);
   }
   if (isManagementEmbedMode()) return { contributions: {} };
-  const panelId = `${context.runtimePluginId ?? context.pluginId}:${TERMINAL_PANEL_ID}`;
+  const panelId = `${context.runtimePluginId}:${TERMINAL_PANEL_ID}`;
   return {
     contributions: {
       workspacePanels: [{

@@ -23,7 +23,7 @@ export function activateFilesPlugin(context: PluginActivationContext): PluginAct
   if (context.pluginId !== FILES_PLUGIN_ID) {
     throw new Error(`Files browser entry must activate as plugin id ${FILES_PLUGIN_ID}, received ${context.pluginId}`);
   }
-  const panelId = `${context.runtimePluginId ?? context.pluginId}:${FILES_PANEL_ID}`;
+  const panelId = `${context.runtimePluginId}:${FILES_PANEL_ID}`;
   return {
     contributions: {
       workspacePanels: [{

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadExternalPlugins, resolvePluginModuleUrl } from "./external";
+import { PluginRegistry } from "./registry";
+import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 
 beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
@@ -9,6 +11,26 @@ afterEach(() => {
 });
 
 describe("external plugin manifests", () => {
+  it("keeps source and machine-scoped runtime identities through real loading and activation", async () => {
+    const activate = vi.fn(() => ({ contributions: {} }));
+    const result = await loadExternalPlugins(undefined, {
+      machineId: "remote-a",
+      plugins: [{ id: "example", module: "./example/plugin.js", machineSpecific: false }],
+      moduleLoader: () => Promise.resolve({ default: { apiVersion: 4, name: "Example", activate } }),
+    });
+    expect(result.failures).toEqual([]);
+    const registry = new PluginRegistry();
+    try {
+      for (const registration of result.registrations) await registry.register(registration);
+      expect(activate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        pluginId: "example",
+        runtimePluginId: machineScopedPluginId("remote-a", "example"),
+      }));
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("fetches the default manifest through the application base", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 404 })));
     vi.stubGlobal("fetch", fetchMock);

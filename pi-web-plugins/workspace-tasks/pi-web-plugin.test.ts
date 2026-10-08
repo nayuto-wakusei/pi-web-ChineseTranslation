@@ -8,7 +8,7 @@ describe("workspace tasks plugin Chinese display text", () => {
 
     const { default: plugin } = await import("./pi-web-plugin");
     const signal = new AbortController().signal;
-    const activation = await plugin.activate({ apiVersion: 4, pluginId: "workspace-tasks", html, svg, signal, lifetimeSignal: signal });
+    const activation = await plugin.activate({ apiVersion: 4, pluginId: "workspace-tasks", runtimePluginId: "workspace-tasks", html, svg, signal, lifetimeSignal: signal });
 
     expect(plugin.name).toBe("工作区任务");
     expect(activation.contributions.actions?.[0]).toMatchObject({

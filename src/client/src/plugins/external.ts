@@ -4,6 +4,7 @@ import { isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/plugin
 import { withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
 import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
+import { adaptPublicPlugin } from "./publicContext";
 
 export interface PluginManifestEntry {
   id: string;
@@ -156,7 +157,7 @@ function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin {
     throw new Error(`Unsupported browser plugin API version for ${moduleUrl}: ${String(plugin["apiVersion"])} (expected 4)`);
   }
   if (!isPiWebPlugin(plugin)) throw new Error(`Plugin module ${moduleUrl} default export is not a PiWebPlugin`);
-  return plugin;
+  return adaptPublicPlugin(plugin);
 }
 
 function isPiWebPlugin(value: unknown): value is PiWebPlugin {

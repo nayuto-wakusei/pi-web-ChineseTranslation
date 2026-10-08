@@ -5,7 +5,7 @@ const plugin: PiWebPlugin = {
   apiVersion: 4,
   name: "Git",
   activate: ({ pluginId, runtimePluginId, html, svg }) => ({
-    contributions: createGitBrowserContributions(pluginId, runtimePluginId ?? pluginId, html, svg),
+    contributions: createGitBrowserContributions(pluginId, runtimePluginId, html, svg),
   }),
 };
 
