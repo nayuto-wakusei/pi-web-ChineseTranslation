@@ -32,9 +32,13 @@ async function buildAll() {
   await rm(readyPath, { force: true });
   for (const target of buildTargets) {
     await rm(target.outDir, { recursive: true, force: true });
+    const filesSource = resolve(target.rootDir, "files");
+    const hasFiles = target.label === "plugin" && (await stat(filesSource).catch(() => undefined))?.isDirectory() === true;
+    const excluded = hasFiles ? new Set([await realpath(filesSource)]) : new Set();
     const result = target.label === "package"
       ? await buildPiPackages(target.rootDir, target.outDir)
-      : await buildDirectory(target.rootDir, target.outDir);
+      : await buildDirectory(target.rootDir, target.outDir, new Set(), excluded);
+    if (hasFiles) await buildFilesBrowserPackage(filesSource, resolve(target.outDir, "files"));
     if (target.label === "plugin" && await stat(resolve(target.rootDir, "mermaid/mermaidRuntime.ts")).catch(() => undefined)) {
       await buildMermaidEngine(resolve(target.rootDir, "mermaid"), resolve(target.outDir, "mermaid"));
     }
@@ -43,6 +47,48 @@ async function buildAll() {
   }
   await writeFile(readyPath, "ready\n");
   process.send?.({ type: "plugin-build-ready" });
+}
+
+export function filesBrowserBuildConfig(sourceDir, targetDir) {
+  return complexBrowserBuildConfig(sourceDir, targetDir);
+}
+
+export function complexBrowserBuildConfig(sourceDir, targetDir) {
+  return {
+    configFile: false,
+    root: sourceDir,
+    base: "./",
+    publicDir: false,
+    logLevel: "silent",
+    build: {
+      outDir: resolve(targetDir, "browser"),
+      emptyOutDir: true,
+      copyPublicDir: false,
+      target: "es2022",
+      minify: true,
+      cssMinify: true,
+      sourcemap: false,
+      assetsInlineLimit: 0,
+      reportCompressedSize: false,
+      rollupOptions: {
+        input: resolve(sourceDir, "pi-web-plugin.ts"),
+        preserveEntrySignatures: "strict",
+        output: {
+          format: "es",
+          entryFileNames: "pi-web-plugin.js",
+          chunkFileNames: "assets/[name]-[hash].js",
+          assetFileNames: "assets/[name]-[hash][extname]",
+        },
+      },
+    },
+  };
+}
+
+export async function buildFilesBrowserPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  await copyFile(resolve(sourceDir, "package.json"), resolve(targetDir, "package.json"));
+  await buildBrowser(filesBrowserBuildConfig(sourceDir, targetDir));
 }
 
 export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {

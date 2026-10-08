@@ -880,6 +880,12 @@ workspaceLabels: [
 
 The file response includes fields such as `path`, `content`, `truncated`, and `binary`. Be careful with sensitive files such as `.env`: plugins are trusted browser code, and file contents are exposed to the plugin.
 
+### 独立文件面板与目录操作
+
+内置 Files 插件拥有自己的面板、文件树、预览、上传状态和浏览器构建产物，不依赖宿主的私有文件面板回调。它保留新建文件、新建文件夹、移动或重命名、删除及下载；文件树分批显示，文件选择通过面板导航恢复。
+
+`WorkspaceFilesCapabilityV1` 在原有文件操作之外提供可选的 `createDirectory(path)`、`moveDirectory(fromPath, toPath)` 和 `deleteDirectory(path)`。插件应先检查方法是否存在，以兼容旧宿主。路径均相对于绑定的工作区；宿主负责机器和工作区作用域，并在操作成功后发送 `workspace.files` 资源失效通知。目录删除仅允许空目录，不提供递归删除；内置面板的新建和移动操作不会覆盖已有文件，删除须用户确认。
+
 ## Listing workspace files
 
 `files.listFiles(path)` lists the entries of a workspace directory. Pass `""` for the workspace root. Like `readFile`, PI WEB binds the call to the callback's machine and workspace, so it works the same for local and federated machines.

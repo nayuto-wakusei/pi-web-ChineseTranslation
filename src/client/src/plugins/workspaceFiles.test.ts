@@ -7,6 +7,24 @@ import type { WorkspaceInvalidation } from "./types";
 const workspace = { id: "w-1", projectId: "p-1" };
 
 describe("createWorkspaceFiles", () => {
+  it("binds directory operations to the original machine and publishes only successful mutations", async () => {
+    const createWorkspaceDirectory = vi.fn<NonNullable<WorkspaceFilesApi["createWorkspaceDirectory"]>>((_project, _workspace, path) => Promise.resolve({ path }));
+    const moveWorkspaceDirectory = vi.fn<NonNullable<WorkspaceFilesApi["moveWorkspaceDirectory"]>>((_project, _workspace, _from, path) => Promise.resolve({ path }));
+    const deleteWorkspaceDirectory = vi.fn<NonNullable<WorkspaceFilesApi["deleteWorkspaceDirectory"]>>()
+      .mockRejectedValueOnce(new Error("directory not empty")).mockResolvedValueOnce({ path: "b", deleted: true });
+    const onInvalidate = vi.fn();
+    const files = createWorkspaceFiles(fakeApi({ createWorkspaceDirectory, moveWorkspaceDirectory, deleteWorkspaceDirectory }), workspace, "remote-a", undefined, { onInvalidate });
+    await files.createDirectory?.("a");
+    await files.moveDirectory?.("a", "b");
+    await expect(files.deleteDirectory?.("b")).rejects.toThrow("directory not empty");
+    expect(onInvalidate).toHaveBeenCalledTimes(2);
+    await files.deleteDirectory?.("b");
+    expect(createWorkspaceDirectory).toHaveBeenCalledExactlyOnceWith("p-1", "w-1", "a", "remote-a");
+    expect(moveWorkspaceDirectory).toHaveBeenCalledExactlyOnceWith("p-1", "w-1", "a", "b", "remote-a");
+    expect(deleteWorkspaceDirectory).toHaveBeenLastCalledWith("p-1", "w-1", "b", "remote-a");
+    expect(onInvalidate).toHaveBeenCalledTimes(3);
+  });
+
   it("publishes immutable resource invalidations after successful mutations only", async () => {
     const writeWorkspaceFile = vi.fn<WorkspaceFilesApi["writeWorkspaceFile"]>()
       .mockResolvedValueOnce({ path: "a.txt", size: 2, modifiedAt: "now", created: true })

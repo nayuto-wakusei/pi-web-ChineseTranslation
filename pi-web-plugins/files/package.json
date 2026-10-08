@@ -6,7 +6,7 @@
     "plugins": [
       {
         "id": "files",
-        "module": "pi-web-plugin.js"
+        "module": "browser/pi-web-plugin.js"
       }
     ]
   }

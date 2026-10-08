@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDirectory, buildPiPackages } from "./build-plugins.mjs";
+import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig } from "./build-plugins.mjs";
 
 let tempDir;
 
@@ -13,6 +13,26 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe("Files browser package", () => {
+  it("ships only the manifest and a self-contained browser build with relative chunks", async () => {
+    const source = join(tempDir, "files");
+    const target = join(tempDir, "out");
+    await mkdir(source);
+    const manifest = { piWeb: { module: "browser/pi-web-plugin.js" } };
+    await writeFile(join(source, "package.json"), JSON.stringify(manifest));
+    await writeFile(join(source, "private.ts"), "must not ship as source");
+    const configs = [];
+    await buildFilesBrowserPackage(source, target, (config) => { configs.push(config); return Promise.resolve(); });
+    expect(await readdir(target)).toEqual(["package.json"]);
+    expect(JSON.parse(await readFile(join(target, "package.json"), "utf8"))).toEqual(manifest);
+    expect(configs).toEqual([filesBrowserBuildConfig(source, target)]);
+    expect(configs[0].base).toBe("./");
+    expect(configs[0].build.outDir).toBe(join(target, "browser"));
+    expect(configs[0].build.rollupOptions.output.entryFileNames).toBe("pi-web-plugin.js");
+    expect(configs[0].build.rollupOptions.external).toBeUndefined();
+  });
 });
 
 describe("buildDirectory", () => {

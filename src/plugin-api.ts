@@ -311,9 +311,17 @@ export interface WorkspaceFilesCapabilityV1 extends WorkspaceFiles {
   previewUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
   downloadUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
   uploadFile(file: File, options?: WorkspaceFileUploadOptions): WorkspaceFileUploadTask;
+  /** Optional directory operations; older hosts can omit them. Paths stay workspace-relative. */
+  createDirectory?(path: string): Promise<{ path: string }>;
+  moveDirectory?(fromPath: string, toPath: string): Promise<{ path: string }>;
+  deleteDirectory?(path: string): Promise<{ path: string; deleted: true }>;
 }
 
-export type WorkspaceFilesContextValue = WorkspaceFiles | WorkspaceFilesCapabilityV1;
+export interface LegacyWorkspaceFiles extends WorkspaceFiles {
+  readonly capabilityVersion?: undefined;
+}
+
+export type WorkspaceFilesContextValue = LegacyWorkspaceFiles | WorkspaceFilesCapabilityV1;
 
 export type WorkspacePanelFiles = WorkspaceFiles;
 
@@ -352,7 +360,7 @@ export interface WorkspaceContext {
   machine: PluginMachine;
   workspace: Workspace;
   state?: PluginRuntimeState;
-  files: WorkspaceFiles;
+  files: WorkspaceFilesContextValue;
   /** Present only when this browser entry has a paired active server backend. */
   backend?: WorkspaceBackend;
   peer?: PluginPeer;

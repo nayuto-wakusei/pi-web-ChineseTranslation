@@ -18,6 +18,9 @@ const mutationInvalidation: WorkspaceInvalidation = Object.freeze({ reason: "mut
  * `workspacesApi`; declared here so the helper stays testable with fakes.
  */
 export interface WorkspaceFilesApi {
+  createWorkspaceDirectory?(projectId: string, workspaceId: string, path: string, machineId?: string): Promise<{ path: string }>;
+  moveWorkspaceDirectory?(projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId?: string): Promise<{ path: string }>;
+  deleteWorkspaceDirectory?(projectId: string, workspaceId: string, path: string, machineId?: string): Promise<{ path: string; deleted: true }>;
   workspaceFile(projectId: string, workspaceId: string, path: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
   workspaceTree(projectId: string, workspaceId: string, path?: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
   writeWorkspaceFile(projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId?: string): Promise<WriteWorkspaceFileResponse>;
@@ -35,6 +38,9 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
   const scope = { projectId: workspace.projectId, workspaceId: workspace.id, machineId };
   const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
   const defaultUploadFolder = options.defaultUploadFolder ?? "";
+  const createDirectory = api.createWorkspaceDirectory?.bind(api);
+  const moveDirectory = api.moveWorkspaceDirectory?.bind(api);
+  const deleteDirectory = api.deleteWorkspaceDirectory?.bind(api);
   const publishMutation = () => {
     onFilesChanged?.();
     options.onInvalidate?.(mutationInvalidation);
@@ -43,6 +49,21 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
     capabilityVersion: 1,
     defaultUploadFolder,
     maxInlinePreviewBytes: MAX_INLINE_PREVIEW_BYTES,
+    ...(createDirectory === undefined ? {} : { createDirectory: async (path: string) => {
+      const result = await createDirectory(scope.projectId, scope.workspaceId, path, scope.machineId);
+      publishMutation();
+      return result;
+    } }),
+    ...(moveDirectory === undefined ? {} : { moveDirectory: async (fromPath: string, toPath: string) => {
+      const result = await moveDirectory(scope.projectId, scope.workspaceId, fromPath, toPath, scope.machineId);
+      publishMutation();
+      return result;
+    } }),
+    ...(deleteDirectory === undefined ? {} : { deleteDirectory: async (path: string) => {
+      const result = await deleteDirectory(scope.projectId, scope.workspaceId, path, scope.machineId);
+      publishMutation();
+      return result;
+    } }),
     readFile: (path, requestOptions) => api.workspaceFile(scope.projectId, scope.workspaceId, path, scope.machineId, requestOptions),
     listFiles: (path, requestOptions) => api.workspaceTree(scope.projectId, scope.workspaceId, path, scope.machineId, requestOptions),
     previewUrl: (path, reference) => workspaceFilePreviewUrl(scope.projectId, scope.workspaceId, path, { machineId, ...referenceVersion(reference) }),
