@@ -407,7 +407,7 @@ function isLifecyclePhase(value: unknown): value is ServerPluginLifecyclePhase {
 }
 
 function isCatalogDiagnosticCode(value: unknown): value is PiWebPluginCatalogDiagnosticCode {
-  return value === "invalid-package" || value === "duplicate-id";
+  return value === "invalid-package" || value === "reserved-id" || value === "duplicate-id" || value === "required-plugin-config";
 }
 
 function encodedId(value: string, label: string): string {

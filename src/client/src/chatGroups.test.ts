@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { groupChatMessages, summarizeChatGroup } from "./chatGroups";
 import type { ChatLine } from "./chatTypes";
+import type { ChatLine as HistoryChatLine } from "./components/shared";
 
 const text = (role: ChatLine["role"], value: string): ChatLine => ({ role, parts: [{ type: "text", text: value }] });
 
 describe("groupChatMessages", () => {
+  it("preserves durable entry IDs in readable and technical groups", () => {
+    const messages: HistoryChatLine[] = [
+      { ...text("user", "question"), entryId: "user-entry" },
+      { role: "assistant", entryId: "assistant-entry", parts: [{ type: "thinking", text: "plan" }, { type: "text", text: "answer" }] },
+    ];
+    expect(groupChatMessages(messages)).toMatchObject([
+      { kind: "message", message: { entryId: "user-entry" } },
+      { kind: "group", messages: [{ entryId: "assistant-entry" }] },
+      { kind: "message", message: { entryId: "assistant-entry" } },
+    ]);
+  });
+
   it("groups technical parts until a readable message is encountered", () => {
     const messages: ChatLine[] = [
       { role: "assistant", parts: [{ type: "thinking", text: "plan" }, { type: "toolCall", toolName: "read", summary: "file" }] },

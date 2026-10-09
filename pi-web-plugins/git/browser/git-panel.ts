@@ -122,8 +122,8 @@ class GitUiController {
     this.connectedWorkspaceKey = key;
     this.synchronizeRoute(state, changedWorkspace);
     if (state.status === undefined && state.statusRequest === undefined) void this.refresh(context);
-    else if (state.selectedDiffPath !== undefined && (state.selectedDiff === undefined || state.selectedStagedDiff === undefined) && !state.diffLoading) {
-      if (state.status?.files.some((file) => file.path === state.selectedDiffPath) === true) void this.refreshDiff(state, state.selectedDiffPath, context);
+    else if (state.status !== undefined && state.selectedDiffPath !== undefined && (state.selectedDiff === undefined || state.selectedStagedDiff === undefined) && !state.diffLoading) {
+      if (state.status.files.some((file) => file.path === state.selectedDiffPath)) void this.refreshDiff(state, state.selectedDiffPath, context);
       else this.clearSelection(state, true);
     }
   }

@@ -429,7 +429,10 @@ export class PiWebApp extends LitElement {
   private previousStackedWorkspaceLayout = this.appShell.isStackedWorkspaceLayout;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    if (this.isRenderedModalOpen()) return;
+    if (this.isRenderedModalOpen() || this.promptEditor?.ownsKeyboardEvent(event) === true) {
+      this.keyboard.reset();
+      return;
+    }
     if (this.keyboard.handle(event, this.getDefaultActions(), { shortcuts: this.shortcutConfig })) {
       event.preventDefault();
       event.stopPropagation();
@@ -850,7 +853,7 @@ export class PiWebApp extends LitElement {
         return;
       }
       const workspaceTool = this.resolveWorkspacePanelRoute(route.tool) ?? this.state.workspaceTool;
-      const restoredView = restoredMainView ?? this.resolveWorkspacePanelRoute(route.view);
+      const restoredView = restoredMainView ?? (route.view === "chat" ? route.view : this.resolveWorkspacePanelRoute(route.view));
       this.setState({
         workspaceTool,
         mainView: this.appShell.normalizedMainView(restoredView, route.sessionId !== undefined),

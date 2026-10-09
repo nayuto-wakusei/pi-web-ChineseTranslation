@@ -34,8 +34,8 @@ try {
     mkdir(packDir, { recursive: true }),
     mkdir(join(globalPrefix, "lib"), { recursive: true }),
     mkdir(npmToolDir, { recursive: true }),
-    writeFile(join(npmToolDir, "package.json"), '{"private":true}\n'),
   ]);
+  await writeFile(join(npmToolDir, "package.json"), '{"private":true}\n');
 
   const packOutput = await runNpm(npmExecPath, ["pack", "--ignore-scripts", "--json", "--pack-destination", packDir], repoRoot);
   const tarballPath = join(packDir, packageTarballFilename(packOutput));

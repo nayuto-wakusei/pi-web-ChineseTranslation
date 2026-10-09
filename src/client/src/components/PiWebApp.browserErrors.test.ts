@@ -8,6 +8,7 @@ import type { Machine, Workspace } from "../api";
 import type { AppRoute } from "../route";
 import { PluginRegistry } from "../plugins/registry";
 import { PiWebApp } from "./PiWebApp";
+import { AppShellController } from "../appShell/appShellController";
 
 const workspace: Workspace = {
   id: "workspace-1",
@@ -121,6 +122,17 @@ afterEach(() => {
 });
 
 describe("PiWebApp browser error boundaries", () => {
+  it.each(["chat", undefined] as const)("restores mobile view %s without discarding the explicit chat destination", async (view) => {
+    const app = createApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("App shell was unavailable");
+    shell.isMobileNavigationLayout = true;
+    shell.isStackedWorkspaceLayout = true;
+    stubSelectedMachinePluginLoad(app);
+    await privateRestoreRouteFor(app)({ machineId: undefined, projectId: "missing", workspaceId: undefined, sessionId: "session-1", tool: undefined, view }, false);
+    expect(appState(app).mainView).toBe(view ?? "navigation");
+  });
+
   it("keeps remote route restore feedback on the affected machine", () => {
     const app = createApp();
     const remote: Machine = {
