@@ -1,4 +1,5 @@
 import type { ClientSession } from "../types.js";
+import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
 import type { PiAgentSession, PiSessionListEntry } from "./piSessionService.js";
 import type { ArchivedSessionRecord, ArchiveSessionInput } from "./sessionArchiveStore.js";
 import type { SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
@@ -101,7 +102,7 @@ export function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, f
     created,
     modified,
     messageCount,
-    firstMessage,
+    firstMessage: clientSessionFirstMessagePreview(firstMessage),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
     archived: true,
     archivedAt: record.archivedAt,

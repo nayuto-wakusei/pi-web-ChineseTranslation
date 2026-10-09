@@ -1,4 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
+import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -4931,7 +4932,7 @@ function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession 
     created: session.created.toISOString(),
     modified: session.modified.toISOString(),
     messageCount: session.messageCount,
-    firstMessage: session.firstMessage,
+    firstMessage: clientSessionFirstMessagePreview(session.firstMessage),
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
   };
 }

@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { RemoteMachineRequestError, type MachineClient } from "./machines/machineClient.js";
-import { PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS } from "../shared/federatedRoutes.js";
+import { PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, WORKSPACE_FILE_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES } from "../shared/federatedRoutes.js";
 import { MAX_INLINE_PREVIEW_BYTES } from "../shared/workspaceFiles.js";
 import { appTestContext, fakeRemoteClient, registerAppTestHooks } from "./app.testSupport.js";
 import { workspaceFilePreviewErrorResponsePolicy, workspaceFilePreviewResponsePolicy } from "./workspaces/filePreviewResponsePolicy.js";
@@ -9,6 +9,34 @@ import { workspaceFilePreviewErrorResponsePolicy, workspaceFilePreviewResponsePo
 registerAppTestHooks();
 
 describe("buildApp remote machine proxy routes", () => {
+  it("passes workspace file timeout and cancellation to the selected remote machine", async () => {
+    const added = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = added.json<{ id: string }>();
+    const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
+      statusCode: 200, headers: { "content-type": "application/json" }, body: Readable.from(["[]"]),
+    }));
+    appTestContext.remoteClient = fakeRemoteClient({ request });
+    const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/tree` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([]);
+    expect(request.mock.calls[0]?.slice(0, 3)).toEqual(["GET", "/api/projects/p1/workspaces/w1/tree", undefined]);
+    expect(request.mock.calls[0]?.[3]?.timeoutMs).toBe(WORKSPACE_FILE_FEDERATION_TIMEOUT_MS);
+    expect(request.mock.calls[0]?.[3]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("rejects a remote workspace file JSON response beyond the upstream budget", async () => {
+    const added = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = added.json<{ id: string }>();
+    const chunk = Buffer.alloc(1024 * 1024, 0x61);
+    const chunks = WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES / chunk.byteLength + 1;
+    appTestContext.remoteClient = fakeRemoteClient({ request: () => Promise.resolve({
+      statusCode: 200, headers: { "content-type": "application/json" },
+      body: Readable.from(Array.from({ length: chunks }, () => chunk)),
+    }) });
+    const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/file?path=huge.txt` });
+    expect(response.statusCode).toBe(502);
+  });
+
   it("proxies allowlisted remote HTTP routes through the selected machine", async () => {
     const addResponse = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();
@@ -213,7 +241,7 @@ describe("buildApp remote machine proxy routes", () => {
     const addResponse = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();
     const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-    const request = vi.fn(() => Promise.resolve({
+    const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
       statusCode: 200,
       headers: { "content-type": "application/json" },
       body: Readable.from([JSON.stringify({ path: "image.png", size: payload.length, modifiedAt: "now", created: true })]),
@@ -229,7 +257,10 @@ describe("buildApp remote machine proxy routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ path: "image.png", size: payload.length, modifiedAt: "now", created: true });
-    expect(request).toHaveBeenCalledWith("PUT", "/api/projects/p1/workspaces/w1/file?path=image.png", payload, { contentType: "application/octet-stream" });
+    expect(request.mock.calls[0]?.slice(0, 3)).toEqual(["PUT", "/api/projects/p1/workspaces/w1/file?path=image.png", payload]);
+    expect(request.mock.calls[0]?.[3]?.contentType).toBe("application/octet-stream");
+    expect(request.mock.calls[0]?.[3]?.timeoutMs).toBe(WORKSPACE_FILE_FEDERATION_TIMEOUT_MS);
+    expect(request.mock.calls[0]?.[3]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("proxies remote terminal command-run and continue routes", async () => {

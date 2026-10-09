@@ -26,6 +26,17 @@ afterEach(async () => {
 });
 
 describe("PiSessionService session search and pins", () => {
+  it("bounds list previews while preserving full transcript search", async () => {
+    const cwd = join(tempDir, "workspace");
+    const firstMessage = `${"x".repeat(2_000)} search beyond preview`;
+    const entry = sessionEntry("long-message", cwd, { firstMessage, allMessagesText: firstMessage });
+    const service = createService([entry], []);
+    const matches = await service.search(cwd, "search beyond preview");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.firstMessage).toBe(`${"x".repeat(509)}...`);
+    expect(entry.firstMessage).toBe(firstMessage);
+  });
+
   it("searches active full text, metadata, archived JSONL, and only the requested workspace", async () => {
     const cwd = join(tempDir, "workspace");
     const otherCwd = join(tempDir, "other");
