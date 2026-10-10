@@ -10,7 +10,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const docsDir = path.resolve(scriptDir, "../docs");
 const outDir = path.join(docsDir, ".deploy/dev");
 const pagesDir = path.join(outDir, "dev");
-const excludedEntries = new Set(["_redirects", "404.html", "robots.txt", "sitemap.xml", "wrangler.jsonc"]);
+const excludedEntries = new Set(["_redirects", "404.html", "robots.txt", "sitemap.xml", "wrangler.dev.jsonc", "wrangler.jsonc"]);
 
 function resolveGitSha() {
   const fromEnv = (process.env.GIT_SHA ?? process.env.GITHUB_SHA ?? "").trim().toLowerCase();
@@ -31,9 +31,12 @@ function bannerHtml(sha, stableUrl) {
   const source = sha
     ? `<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/commit/${sha}" style="color:inherit;text-decoration:underline;">main@${sha.slice(0, 7)}</a>`
     : "the main branch";
+  const linkStyle = "color:inherit;text-decoration:underline;font-weight:600;";
   return (
-    `<div class="dev-docs-banner">Development docs built from ${source} — content may not match the latest release. ` +
-    `<a href="${stableUrl}">View stable version →</a></div>`
+    `<div style="padding:8px 16px;background:#b45309;color:#fff7ed;text-align:center;` +
+    `font:500 14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;">` +
+    `开发文档来自 ${source}，内容可能不同于最新发布版。 ` +
+    `<a href="${stableUrl}" style="${linkStyle}">查看稳定版 →</a></div>`
   );
 }
 

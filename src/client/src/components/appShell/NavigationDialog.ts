@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { scrollWhenSelected } from "../scrollWhenSelected";
 import { isNavigationPinned, toggleNavigationPin, type NavigationPreferences } from "../../navigationPreferences";
 import type { AppMobileMainTab } from "./AppMobileMainTabs";
 import "../ModalSurface";
@@ -53,7 +54,7 @@ export class NavigationDialog extends LitElement {
             const pinned = isNavigationPinned(tab.id, this.preferences.pinnedIds);
             return html`
               <div class="destination">
-                <button type="button" class=${`destination-button ${index === this.selectedIndex ? "selected" : ""}`} aria-current=${tab.id === this.selectedTab ? "page" : nothing} aria-pressed=${String(tab.id === this.selectedTab)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.select(tab); }}>${tab.label}</button>
+                <button type="button" class=${`destination-button ${index === this.selectedIndex ? "selected" : ""}`} aria-current=${tab.id === this.selectedTab ? "page" : nothing} aria-pressed=${String(tab.id === this.selectedTab)} ${scrollWhenSelected(index === this.selectedIndex, tab.id)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.select(tab); }}>${tab.label}</button>
                 <button type="button" class="pin-button" aria-label=${pinned ? `取消固定：${tab.label}` : `固定：${tab.label}`} title=${pinned ? "取消固定" : "固定到标签栏"} aria-pressed=${String(pinned)} @click=${() => {
                   this.onPreferencesChange?.({ ...this.preferences, pinnedIds: toggleNavigationPin(tab.id, this.preferences.pinnedIds, this.pinUniverse ?? this.tabs.map((item) => item.id)) });
                 }}>

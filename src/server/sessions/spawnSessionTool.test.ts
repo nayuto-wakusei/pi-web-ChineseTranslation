@@ -52,11 +52,13 @@ describe("createSpawnSessionToolDefinition", () => {
 
   it("teaches the model parameter format and the #provider/model-id reference convention", () => {
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn: vi.fn() });
+    expect(tool.description).toContain("仅在用户或当前工作流明确要求");
+    expect(tool.promptSnippet).toContain("仅用于明确请求");
 
     expect(tool.parameters).toMatchObject({
       properties: {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- stringMatching yields `any` against the loosely typed tool schema.
-        model: { description: expect.stringMatching(/provider\/model-id.*#provider\/model-id.*省略时继承/s) },
+        model: { description: expect.stringMatching(/provider\/model-id.*仅在明确要求.*#provider\/model-id.*省略时继承/s) },
       },
     });
   });

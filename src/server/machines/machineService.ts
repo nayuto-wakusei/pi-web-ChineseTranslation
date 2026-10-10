@@ -225,6 +225,7 @@ function componentStatusFromRuntime(runtime: PiWebRuntimeComponent): PiWebCompon
 }
 
 function machineRuntime(machineId: string, checkedAt: string, runtime: PiWebRuntimeResponse): MachineRuntime {
+  const deprecatedAgentInputs = mergeComponentDeprecatedAgentInputs(runtime.components);
   return {
     machineId,
     ok: true,
@@ -233,7 +234,22 @@ function machineRuntime(machineId: string, checkedAt: string, runtime: PiWebRunt
     generatedAt: runtime.generatedAt,
     components: runtime.components,
     capabilities: runtime.capabilities,
+    ...(deprecatedAgentInputs.length === 0 ? {} : { deprecatedAgentInputs }),
   };
+}
+
+function mergeComponentDeprecatedAgentInputs(components: PiWebRuntimeResponse["components"]): import("../../shared/apiTypes.js").PiWebDeprecatedAgentInput[] {
+  const seen = new Set<string>();
+  const merged: import("../../shared/apiTypes.js").PiWebDeprecatedAgentInput[] = [];
+  for (const component of [components.web, components.sessiond]) {
+    for (const input of component.deprecatedAgentInputs ?? []) {
+      const key = `${input.source}\n${input.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(input);
+    }
+  }
+  return merged;
 }
 
 function isPiWebStatusResponse(value: unknown): value is PiWebStatusResponse {

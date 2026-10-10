@@ -18,6 +18,31 @@ const project: Project = {
 };
 
 describe("server plugin workspaces capability", () => {
+  it("forwards the plugin lifetime into a currently running owner resolution", async () => {
+    let signal: AbortSignal | undefined;
+    let started: (() => void) | undefined;
+    const ready = new Promise<void>((resolveReady) => { started = resolveReady; });
+    const registry = workspaceRegistry([contribution("owner", provider({
+      probe: (_project, currentSignal) => new Promise((_resolve, reject) => {
+        signal = currentSignal;
+        started?.();
+        currentSignal.addEventListener("abort", () => {
+          const reason: unknown = currentSignal.reason;
+          reject(reason instanceof Error ? reason : new Error("Plugin stopped", { cause: reason }));
+        }, { once: true });
+      }),
+    }))]);
+    const controller = new AbortController();
+    const instance = createServerPluginWorkspacesCapabilityFactory({ projects: { requireProject: () => Promise.resolve(project) }, workspaces: registry }).create({ pluginId: "consumer", packageRoot: "/plugins/consumer", lifetimeSignal: controller.signal });
+    const capability = PI_WEB_HOST_WORKSPACES_CAPABILITY.parse(instance.value);
+    const pending = capability.resolve({ projectId: project.id, workspaceId: "unresolved" });
+    const rejected = expect(pending).rejects.toThrow("consumer is no longer active");
+    await ready;
+    controller.abort(new DOMException("Plugin stopped", "AbortError"));
+    await rejected;
+    expect(signal?.aborted).toBe(true);
+    await registry.closeAll();
+  });
   it("re-resolves ids against current provider authority and returns only detached public projections", async () => {
     let owner: "alpha" | "beta" = "alpha";
     const alphaMetadata = { revision: 1, nested: [true] };

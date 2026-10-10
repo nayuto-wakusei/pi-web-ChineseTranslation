@@ -42,7 +42,11 @@
     "docs/config.md",
     "docs/assets",
     "plugin-api.d.ts",
-    "server-plugin-api.d.ts"
+    "server-plugin-api.d.ts",
+    "examples/workspace-provider-plugin",
+    "examples/session-bridge-plugin",
+    "!examples/**/node_modules",
+    "!examples/**/dist"
   ],
   "scripts": {
     "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:sessiond & npm run dev:web & npm run dev:client & wait'",
@@ -59,8 +63,9 @@
     "typecheck": "tsc --noEmit",
     "typecheck:cached": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/pi-web/typecheck.tsbuildinfo",
     "knip": "knip",
-    "lint": "eslint \"src/**/*.ts\" \"extensions/**/*.ts\" \"pi-web-plugins/**/*.ts\" \"pi-packages/**/*.ts\" vite.config.ts vitest.config.ts",
+    "lint": "eslint \"src/**/*.ts\" \"extensions/**/*.ts\" \"pi-web-plugins/**/*.ts\" \"pi-packages/**/*.ts\" vite.config.ts vitest.config.ts vitest.artifacts.config.ts",
     "test": "vitest run --config vitest.config.ts",
+    "check:artifacts": "vitest run --config vitest.artifacts.config.ts",
     "verify": "npm run typecheck && npm run lint && npm run knip && npm test",
     "verify:staged": "node scripts/verify-staged.mjs",
     "start": "tsx src/server/index.ts",

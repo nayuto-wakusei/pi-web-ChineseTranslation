@@ -20,7 +20,7 @@ Normal-mode provider credentials and custom models are stored separately for eac
 
 Each PI WEB machine has its own config. When using Fleet/machine federation, Settings uses the selected machine for config that affects work running there: session daemon tools, PI WEB plugin enablement, external path access, and upload defaults. Gateway/browser-only settings stay local to the gateway: keyboard shortcuts, remote machine registry/tokens, and gateway host/port/allowed-hosts. Remote servers that do not advertise selected-machine settings support report those settings as unavailable instead of silently falling back to the gateway.
 
-Pi package settings are separate from PI WEB config. They live in Pi's package-manager settings on the target machine and are managed by Pi (`pi install`, `pi remove`, `pi update`) or **Settings → Pi packages**. In a federated setup, **Settings → Pi packages** targets the currently selected machine. The PI WEB `plugins` config key only enables or disables discovered PI WEB browser plugins on the machine whose config you are editing; it does not install, remove, or update Pi packages.
+Pi 包配置与 PI WEB 配置分开，由目标机器的 Pi 包管理器或 **设置 → Pi 包** 管理。联邦模式下操作针对所选机器。PI WEB 的 `plugins` 配置控制该机器上已发现的浏览器入口、服务端入口和双入口插件的启用状态及设置，不负责安装、移除或更新 Pi 包。
 
 If you installed services with a custom config path, rerun `pi-web install --config /path/to/config.json` after changing that path or after upgrading from a version that only applied the custom path to the web service. This regenerates service files so the web/API and session daemon use the same `PI_WEB_CONFIG`.
 
@@ -52,8 +52,8 @@ Process restarts depend on the key:
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `attachments.defaultFolder`: applies to prompt attachments saved as workspace files after config/workspace refresh.
-- `plugins`: reload the browser tab after changing PI WEB plugin enablement.
-- Pi package install/remove/update: not a PI WEB config key; after a mutation, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for PI WEB browser plugin changes. If a global Pi extension adds or removes a provider, or changes a provider's connection settings, manually restart `pi-web-sessiond.service`; `/reload` cannot change the startup provider baseline. A known provider refreshing only its own model list is applied without a restart. See [Pi extension provider baseline](#pi-extension-provider-baseline).
+- `plugins`: 浏览器入口变更后刷新页面；影响 `serverModule` 的启用状态、配置、包来源或版本变更需要先手动重启目标机器的会话守护进程，再刷新页面。
+- Pi 包安装、移除或更新后，在目标机器的空闲会话中执行 `/reload` 刷新普通 Pi 资源。浏览器入口需要单独刷新页面；涉及 `serverModule` 的插件需要手动重启 `pi-web-sessiond.service` 后再刷新。全局 Pi 扩展新增或移除提供器、修改连接设置也需要重启；仅刷新已知提供器模型列表不需要重启。详见 [Pi extension provider baseline](#pi-extension-provider-baseline)。
 - `shortcuts`: saved settings apply in the browser after config refresh/save.
 
 ## 项目信任
@@ -330,6 +330,8 @@ An alternate command always requires an explicit state directory. The command mu
 
 Environment variables take precedence over the config file. For the state directory, precedence is `PI_WEB_AGENT_DIR` > `PI_CODING_AGENT_DIR` > `agent.dir` > the Pi default. For session storage, `PI_WEB_AGENT_SESSION_DIR` remains first for compatibility, followed by `PI_CODING_AGENT_SESSION_DIR`. The resolved directory is exported as `PI_CODING_AGENT_DIR` to embedded Pi processes.
 
+The runtime reports deprecated `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `agent.command`, and `agent.dir` inputs by name only. Ordinary-mode UI shows a non-dismissable warning attributed to each reporting machine; management embeds do not show these host diagnostics. Use `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` for directory overrides. This fork retains the companion-command compatibility above; diagnostics do not rewrite configuration or remove user data. The web report rechecks configuration at runtime checks, while the daemon report reflects its startup inputs and clears after the daemon restarts with corrected configuration.
+
 `environmentFacts` controls factual system-prompt sections appended only to ordinary sessions. These describe PI WEB session nesting and, when the daemon runs in Docker, the observed container filesystem, persistent mounts, host access, and development mount shape. `PI_WEB_ENVIRONMENT_FACTS` takes precedence and accepts `0|1|true|false`; the default is enabled. Set it to `false` to disable all such sections, restart the session daemon, and start a new session. Existing sessions retain the prompt they started with. Management-embed sessions do not receive these ordinary-session facts.
 
 The session daemon resolves the persisted desired values plus its environment once at startup. That secret-free active profile stays fixed for the daemon lifetime. **Settings → Session daemon** saves command and directory together as desired configuration and shows whether the profile is active, needs a restart, or cannot be compared. Until the daemon restarts, sessions, Pi package operations, Pi-package-backed PI WEB plugin discovery, status/install detection, and update planning continue to use the daemon-owned active profile; a web/API restart recovers that same active profile instead of applying the newly saved values.
@@ -338,9 +340,9 @@ If the session daemon cannot report a valid active profile, profile-dependent Pi
 
 ### Pi extension provider baseline
 
-This policy applies to **Pi runtime extensions**, not PI WEB browser plugins. Pi extensions are runtime modules loaded by the session daemon and can call `pi.registerProvider(...)`; PI WEB plugins are browser-side UI modules and never run in the session daemon.
+此策略适用于 **Pi 运行时扩展**。Pi 扩展由会话守护进程加载并可调用 `pi.registerProvider(...)`；PI WEB 插件则通过浏览器入口扩展界面、通过服务端入口提供工作区和宿主能力，不使用该模型提供器注册接口。
 
-PI WEB shares one model runtime across all sessions. When the session daemon starts, before any project resources load, it initializes global Pi extensions from the active agent profile (`agent.dir`), including extensions supplied by globally configured Pi packages. Provider registrations made by synchronous or awaited asynchronous extension factories during this bootstrap join the shared baseline. PI WEB captures both config-form registrations (`pi.registerProvider("id", config)`) and native-provider registrations (`pi.registerProvider(provider)`), alongside Pi built-ins, environment credentials, and providers from the active agent directory's `models.json`.
+会话守护进程启动时，在项目资源加载前从当前 agent 配置目录初始化全局 Pi 扩展，并建立共享的扩展提供器注册基线。同步及异步扩展工厂中的 `pi.registerProvider("id", config)` 与 `pi.registerProvider(provider)` 均参与该基线。普通模式会话仍使用所属注册项目的独立模型注册表、认证和 `models.json`；同一项目的工作区共享项目存储，不同项目不共享认证。管理嵌入使用独立的管理认证与模型存储。全局文件仅作为普通项目存储的首次初始化来源，之后不作为回退。
 
 After startup capture, a provider's connection settings are fixed for the daemon lifetime. Later attempts to add a provider, replace an existing provider's configuration, register a native provider, or unregister a provider are no-ops, regardless of source or provider ID. This includes project extensions attempting to add or replace a provider, lifecycle callbacks such as `session_start`, and `/reload`. Non-provider Pi extension features continue to load and reload normally.
 
@@ -367,7 +369,7 @@ Configure providers before the daemon starts: use the active agent directory's `
 
 ### Background model catalog refresh
 
-PI WEB shares one model runtime across all sessions, and provider model catalogs are refreshed over the network only on the session daemon's own background schedule. Requests never start a catalog fetch of their own, so a slow or unreachable provider cannot stall opening the model selector, starting a session, or the auth dialogs on its own account.
+各模型注册表的提供器模型目录仅在会话守护进程的后台计划中进行网络刷新。普通项目及管理嵌入保持各自的注册表身份；请求不会自行发起目录抓取，因此单个缓慢或不可达的提供器不会直接阻塞模型选择器、会话启动或认证对话框。
 
 A refresh that is *already* in flight can still briefly delay starting or opening a session, because the shared runtime is read while that refresh is running. PI WEB says so while you wait: the session's activity line names the startup step it is on and adds `provider model lists are refreshing` when a background refresh is running at the same time. That note reports what is happening concurrently, not a proven cause.
 

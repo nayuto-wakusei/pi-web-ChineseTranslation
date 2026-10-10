@@ -7,6 +7,14 @@ import { appTestContext, registerAppTestHooks } from "./app.testSupport.js";
 registerAppTestHooks();
 
 describe("buildApp project routes", () => {
+  it("reports web readiness without login or touching daemon ownership", async () => {
+    const response = await appTestContext.app.inject({ method: "GET", url: "/api/pi-web/health", headers: { cookie: "" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(appTestContext.sessionDaemonRequests).toEqual([]);
+    const projects = await appTestContext.app.inject({ method: "GET", url: "/api/projects", headers: { cookie: "" } });
+    expect(projects.statusCode).toBe(401);
+  });
   it("adds, lists, and closes projects through the HTTP contract", async () => {
     const addResponse = await appTestContext.app.inject({
       method: "POST",
@@ -88,7 +96,7 @@ describe("buildApp project routes", () => {
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
 
     expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+    expect(workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces).toEqual([
       expect.objectContaining({
         projectId: project.id,
         path: appTestContext.projectDir,
@@ -111,7 +119,7 @@ describe("buildApp project routes", () => {
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
 
     expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+    expect(workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces).toEqual([
       expect.objectContaining({
         projectId: project.id,
         effectiveConfig: {
@@ -136,7 +144,7 @@ describe("buildApp project routes", () => {
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
 
     expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+    expect(workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces).toEqual([
       expect.objectContaining({
         projectId: project.id,
         effectiveConfig: {

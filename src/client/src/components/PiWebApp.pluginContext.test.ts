@@ -174,6 +174,17 @@ describe("PiWebApp plugin context ownership", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it("retains panel navigation when only the selected session changes in the same workspace", async () => {
+    const app = createApp();
+    const context = await captureContext(app);
+    const state: unknown = Reflect.get(app, "state");
+    if (typeof state !== "object" || state === null) throw new Error("Missing state");
+    Reflect.set(app, "state", { ...state, selectedSession: { id: "next-session", cwd: workspace.path } });
+    window.history.replaceState({}, "", `${window.location.href}&session=next-session`);
+    expect(context.navigation?.set("file", "session-switch.txt")).toBe(true);
+    expect(new URL(window.location.href).searchParams.get("example.panel--file")).toBe("session-switch.txt");
+  });
+
   it("retires contexts when the surface changes away and returns", async () => {
     const app = createApp();
     const context = await captureContext(app);

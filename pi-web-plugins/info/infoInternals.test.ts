@@ -126,6 +126,13 @@ describe("small formatters", () => {
       isGitWorktree: false,
     })).toEqual(["非 Git 仓库"]);
   });
+
+  it("retains provider identity alongside local Git metadata", () => {
+    expect(workspaceFlags({
+      id: "ws", projectId: "project", path: "/workspace", label: "main", isMain: true,
+      branch: "main", isGitRepo: true, provider: { pluginId: "custom-workspaces", capabilities: { remove: true } },
+    })).toEqual(["提供器 custom-workspaces", "分支 main", "Git 仓库", "主工作区"]);
+  });
 });
 
 function componentStatus(patch: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {

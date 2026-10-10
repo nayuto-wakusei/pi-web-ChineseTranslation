@@ -1,6 +1,6 @@
 # PI WEB plugin API
 
-PI WEB plugins are trusted browser-side ES modules that extend the PI WEB UI. They are intended for personal, team, and project-local customization, and simple enough for an LLM to create or modify directly.
+PI WEB 插件是可信的应用扩展，可包含浏览器入口、运行在会话守护进程中的服务端入口，或同时包含两者。插件适用于个人、团队及项目级定制。
 
 Plugins can currently:
 
@@ -11,7 +11,7 @@ Plugins can currently:
 - read workspace files and start workspace terminal commands through documented helpers;
 - serve their own static assets from the plugin directory.
 
-They do **not** run in the session daemon, do not get a server-side hook API, and are not sandboxed.
+浏览器入口可声明操作、面板、标签、主题和内容渲染器。服务端入口可持久化插件数据、通过宿主能力启动会话、提供工作区，以及通过请求或流式通道与浏览器入口通信。插件是可信代码，不在独立沙箱中运行；管理嵌入仍保留独立的授权与资源边界。
 
 ## Pi packages, Pi extensions, and PI WEB plugins
 
@@ -19,15 +19,15 @@ They do **not** run in the session daemon, do not get a server-side hook API, an
 
 **Pi extensions** are runtime modules loaded by the session daemon. They can register Pi tools, hooks, commands, and model providers. They are not PI WEB plugins.
 
-**PI WEB plugins** are browser-side UI modules discovered from bundled, local, dev, and installed Pi-package sources. They cannot register model providers or server-side hooks. Enabling or disabling a PI WEB plugin is a PI WEB config task; installing, removing, or updating a Pi package is a separate Pi package-manager task.
+**PI WEB plugins** 可从内置、本地、开发目录和已安装的 Pi 包中发现。浏览器入口扩展界面，服务端入口在会话守护进程中运行；模型提供器仍由 Pi 扩展注册。启用或禁用 PI WEB 插件与安装、移除、更新 Pi 包是不同操作。
 
 Use **Settings → Pi packages** to view configured Pi packages or install/remove/update a package. Enter only the package source, such as `npm:@scope/package`, a git/URL source, or a local path. PI WEB uses Pi's default package location, equivalent to `pi install <source>`, and does not ask for an install location.
 
 When machine federation is enabled, **Settings → Pi packages** targets the currently selected machine. The panel labels whether changes will run on the local/gateway machine or on a selected remote PI WEB machine. If an older or unavailable remote PI WEB server does not expose package-management routes, PI WEB reports the package management operation as unsupported or unavailable instead of silently falling back to the gateway.
 
-Use **Settings → PI WEB plugins** to enable or disable discovered PI WEB browser plugins before the browser imports them. In a federated setup, this plugin enablement surface targets the currently selected machine and labels where changes are saved. If an older or unavailable remote PI WEB server does not advertise selected-machine settings support, PI WEB reports the plugin settings as unsupported or unavailable instead of silently falling back to the gateway.
+使用 **设置 → PI WEB 插件** 管理所选机器上已发现插件的启用状态和配置。远端不支持该设置时会明确报错，不会回退到网关。浏览器入口变更需要刷新页面；服务端入口的启用状态、配置、包来源或版本变更需要手动重启该机器的会话守护进程，再刷新对应界面。必需的 Terminal 插件不能禁用。
 
-After installing, removing, or updating a Pi package, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for newly discovered or changed PI WEB browser plugins. A provider-registering Pi extension follows a separate daemon-start policy; see [Pi extension provider baseline](https://pi-web.dev/config#pi-extension-provider-baseline).
+安装、移除或更新 Pi 包后，在目标机器的空闲会话中执行 `/reload` 刷新普通 Pi 资源。包含 `serverModule` 的 PI WEB 插件还需要手动重启 `pi-web-sessiond.service`，随后刷新浏览器。全局 Pi 扩展新增或移除提供器、修改其连接设置同样需要重启；仅刷新已知提供器模型列表不需要重启。详见 [Pi extension provider baseline](https://pi-web.dev/config#pi-extension-provider-baseline)。
 
 ## PI WEB 中的 Pi 扩展对话框
 

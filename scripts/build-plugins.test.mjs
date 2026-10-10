@@ -1,11 +1,18 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig, buildCaptainsLogBrowserPackage, buildMermaidPackage, buildTerminalPackage } from "./build-plugins.mjs";
+import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig, buildCaptainsLogBrowserPackage, buildMermaidPackage, buildTerminalPackage, findWatchDirs } from "./build-plugins.mjs";
 
 let tempDir;
+
+it("keeps each independently bundled plugin source in watcher coverage", async () => {
+  const directories = await findWatchDirs(resolve("pi-web-plugins"));
+  for (const id of ["files", "terminal", "mermaid"]) {
+    expect(directories).toContain(await realpath(resolve("pi-web-plugins", id)));
+  }
+});
 
 describe("Terminal package build boundary", () => {
   it("materializes only the server graph and browser bundle without shipping tests or private browser sources", async () => {
@@ -63,6 +70,18 @@ describe("Files browser package", () => {
 });
 
 describe("Mermaid browser package", () => {
+  it("propagates an engine build failure rather than treating the renderer as a complete package", async () => {
+    const source = join(tempDir, "mermaid");
+    const target = join(tempDir, "out");
+    await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ piWeb: { module: "browser/pi-web-plugin.js" } }));
+    const failure = new Error("missing isolated Mermaid engine");
+    await expect(buildMermaidPackage(source, target, (config) => {
+      if (config.build.lib !== undefined) return Promise.reject(failure);
+      return Promise.resolve();
+    })).rejects.toBe(failure);
+  });
+
   it("bundles the renderer and writes the isolated engine alongside its entry without deleting the entry", async () => {
     const source = join(tempDir, "mermaid");
     const target = join(tempDir, "out");
@@ -77,8 +96,8 @@ describe("Mermaid browser package", () => {
     expect(configs[0]).toEqual(filesBrowserBuildConfig(source, target));
     expect(configs[1].build.outDir).toBe(join(target, "browser"));
     expect(configs[1].build.emptyOutDir).toBe(false);
-    expect(configs[1].build.lib.entry).toBe(join(source, "mermaidRuntime.ts"));
-    expect(configs[1].build.lib.fileName()).toBe("mermaidRuntime.js");
+    expect(configs[1].build.lib.entry).toBe(join(source, "mermaid-engine.ts"));
+    expect(configs[1].build.lib.fileName()).toBe("mermaid-engine.js");
     expect(JSON.parse(await readFile(join(target, "package.json"), "utf8"))).toEqual(manifest);
   });
 });

@@ -99,6 +99,8 @@ Existing extraction tests are acceptable as-is. Convert them to a pure seam or t
 
 ## Checks to run
 
+Delivery checks consume already-built artifacts: run `npm run build` followed by `npm run check:artifacts` when changing emitted public or package contracts. This gate never refreshes `dist`; see [development and delivery checks](../../../docs/development-checks.md).
+
 Run the narrowest meaningful check first:
 
 - Changed test file: `npm test -- --run <test-file>`.

@@ -1,7 +1,46 @@
 import { describe, expect, it } from "vitest";
 import { ServerNoticeStore } from "./serverNoticeStore.js";
+import { SERVER_PLUGIN_NOTICE_GLOBAL_LIMIT, SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT } from "../../shared/serverNoticeContract.js";
 
 describe("ServerNoticeStore", () => {
+  it("evicts oldest plugin notices per source without evicting core notices", () => {
+    let nextId = 0;
+    const store = new ServerNoticeStore({ daemonInstanceId: "daemon-a", createNoticeId: () => String(++nextId) });
+    const core = store.record({ severity: "warning", message: "core", source: "workspace.delete" }).notice;
+    for (let index = 0; index <= SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT; index += 1) {
+      store.record({ severity: "info", message: String(index), source: "plugin:alpha" });
+    }
+    const snapshot = store.snapshot();
+    expect(snapshot.revision).toBe(SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT + 2);
+    expect(snapshot.notices).toHaveLength(SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT + 1);
+    expect(snapshot.notices).toContainEqual(core);
+    expect(snapshot.notices.some((notice) => notice.message === "0")).toBe(false);
+    expect(snapshot.notices[0]?.message).toBe(String(SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT));
+  });
+
+  it("bounds all plugin-authored sources globally while preserving core and exact dismissal", () => {
+    let nextId = 0;
+    const store = new ServerNoticeStore({ daemonInstanceId: "daemon-a", createNoticeId: () => String(++nextId) });
+    const core = store.record({ severity: "warning", message: "core", source: "workspace.delete" }).notice;
+    let firstId = "";
+    for (let index = 0; index <= SERVER_PLUGIN_NOTICE_GLOBAL_LIMIT; index += 1) {
+      const notice = store.record({ severity: "info", message: String(index), source: `plugin:source-${String(index % 5)}` }).notice;
+      if (index === 0) firstId = notice.id;
+    }
+    expect(store.snapshot().notices).toHaveLength(SERVER_PLUGIN_NOTICE_GLOBAL_LIMIT + 1);
+    expect(store.snapshot().notices).toContainEqual(core);
+    expect(store.dismiss("daemon-a", firstId).dismissed).toBe(false);
+    expect(store.dismiss("daemon-a", core.id).dismissed).toBe(true);
+  });
+
+  it("leaves revision and overflow candidates intact on invalid occurrence or duplicate id", () => {
+    const store = new ServerNoticeStore({ daemonInstanceId: "daemon-a", createNoticeId: () => "same" });
+    store.record({ severity: "info", message: "first", source: "plugin:alpha" });
+    const before = store.snapshot();
+    expect(() => store.record({ severity: "info", message: "duplicate", source: "plugin:alpha" })).toThrow("already exists");
+    expect(() => store.record({ severity: "info", message: "invalid", source: " " })).toThrow("source");
+    expect(store.snapshot()).toEqual(before);
+  });
   it("retains independent event occurrences even when their content matches", () => {
     let nextId = 0;
     const store = new ServerNoticeStore({

@@ -15,6 +15,7 @@ import {
   serviceBackendForPlatform,
   sessionDaemonRestartPlan,
 } from "./cli.js";
+import { nativeServiceManagerRefs } from "./nativeServices/servicePlan.js";
 
 const originalShell = process.env["SHELL"];
 const originalPiWebConfig = process.env["PI_WEB_CONFIG"];
@@ -152,10 +153,10 @@ describe("installed service probe configuration", () => {
   });
 
   it("selects an installed LaunchAgent configuration", () => {
-    const contents = `<plist><dict><key>ProgramArguments</key><array><string>/usr/bin/env</string><string>/bin/zsh</string><string>-lc</string><string>exec true</string></array><key>EnvironmentVariables</key><dict><key>PI_WEB_CONFIG</key><string>/managed/config.json</string></dict></dict></plist>`;
+    const contents = (id: "web" | "sessiond") => `<plist version="1.0"><dict><key>Label</key><string>${nativeServiceManagerRefs[id].launchdLabel}</string><key>ProgramArguments</key><array><string>/usr/bin/env</string><string>/bin/zsh</string><string>-lc</string><string>exec true</string></array><key>EnvironmentVariables</key><dict><key>PI_WEB_CONFIG</key><string>/managed/config.json</string></dict></dict></plist>`;
     const result = installedServiceProbeEnvironment(
       { kind: "launchd", label: "LaunchAgents" }, ids, {}, "restart",
-      () => ({ ok: true, value: [{ id: "web", contents }, { id: "sessiond", contents }] }),
+      () => ({ ok: true, value: [{ id: "web", contents: contents("web") }, { id: "sessiond", contents: contents("sessiond") }] }),
     );
     expect(result).toEqual({ ok: true, value: { PI_WEB_CONFIG: "/managed/config.json" } });
   });

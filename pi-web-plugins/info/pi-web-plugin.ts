@@ -26,7 +26,7 @@ const plugin: PiWebPlugin = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.isGitRepo === true ? "Git" : "文件夹", title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? (context.workspace.isGitRepo === true ? "Git" : "文件夹"), title: context.workspace.path }],
         },
       ],
       workspacePanels: [

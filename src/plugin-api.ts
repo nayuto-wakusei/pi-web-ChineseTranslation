@@ -23,7 +23,6 @@ export type {
   PluginCapability,
   PluginCapabilityProvision,
   TerminalCommandRun,
-  TerminalCommandRunFilter,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
   WorkspaceProviderCapabilities,

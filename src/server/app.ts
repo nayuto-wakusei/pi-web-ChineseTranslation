@@ -11,6 +11,7 @@ import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
+import { sendWorkspaceRequestError } from "./workspaces/workspaceRouteErrors.js";
 import { createNormalProjectCwdResolver } from "./workspaces/normalProjectCwdResolver.js";
 import { FileSuggestionCatalog, isAbsoluteishFileSuggestionQuery, listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
@@ -30,7 +31,7 @@ import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackend
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
-import { PiWebPluginService } from "./piWebPluginService.js";
+import { PiWebPluginManifestRuntimeError, PiWebPluginService } from "./piWebPluginService.js";
 import { createActiveProfilePiPackageService, type PiPackageService } from "./piPackageService.js";
 import { registerPiPackageRoutes } from "./piPackageRoutes.js";
 import { createPiWebStatusCache, type PiWebStatusCache } from "./piWebStatusCache.js";
@@ -59,6 +60,7 @@ import {
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
 import type { Project, Workspace } from "./types.js";
+import type { WorkspaceProviderResolution } from "../shared/apiTypes.js";
 import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
 export interface AppDependencies {
@@ -117,9 +119,9 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
         return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined, { managementContext: context });
       }
       const project = await projects.requireProject(request.params.projectId);
-      return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined);
+      return await resolveWorkspacesWithEffectiveConfig(project, catalog, options.config);
     } catch (error) {
-      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 404);
     }
   });
 }
@@ -135,6 +137,19 @@ async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: W
     isGitWorktree: workspace.provider?.metadata?.["isGitWorktree"] === true,
     effectiveConfig,
   }));
+}
+
+async function resolveWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">): Promise<WorkspaceProviderResolution> {
+  const [resolution, effectiveConfig] = await Promise.all([workspaces.resolveProject(project.id), workspaceEffectiveConfig(project.path, config)]);
+  return {
+    ...resolution,
+    workspaces: resolution.workspaces.map((workspace) => ({
+      ...workspace,
+      isGitRepo: workspace.provider === undefined ? "isGitRepo" in workspace && workspace.isGitRepo === true : workspace.provider.metadata?.["isGitRepo"] === true,
+      isGitWorktree: workspace.provider === undefined ? "isGitWorktree" in workspace && workspace.isGitWorktree === true : workspace.provider.metadata?.["isGitWorktree"] === true,
+      effectiveConfig,
+    })),
+  };
 }
 
 function isLegacyWorkspaceService(workspaces: WorkspaceCatalogInput): workspaces is WorkspaceService {
@@ -179,6 +194,17 @@ async function readEffectiveConfig(config: Pick<PiWebConfigService, "read">) {
   return (await config.read()).effectiveConfig;
 }
 
+async function desiredPluginAgentDir(profiles: ActiveAgentProfileProvider, config: Pick<PiWebConfigService, "read">): Promise<string> {
+  try {
+    return (await requireActiveAgentProfile(profiles)).dir;
+  } catch (error) {
+    if (!(error instanceof ActiveAgentProfileAccessError)) throw error;
+    const desiredDir = (await config.read()).effectiveConfig.agent?.dir;
+    if (desiredDir === undefined || desiredDir === "") throw error;
+    return desiredDir;
+  }
+}
+
 function invalidatePiWebStatusOnWrite(config: PiWebConfigService, statusCache: Pick<PiWebStatusCache, "invalidate">): PiWebConfigService {
   return {
     read: () => config.read(),
@@ -194,8 +220,13 @@ async function withProfileDependency<T>(reply: FastifyReply, operation: () => Pr
   try {
     return await operation();
   } catch (error) {
-    if (!(error instanceof ActiveAgentProfileAccessError)) throw error;
-    return reply.code(503).send({ error: error.message });
+    if (error instanceof ActiveAgentProfileAccessError) return reply.code(503).send({ error: error.message });
+    if (error instanceof PiWebPluginManifestRuntimeError) return reply.code(error.statusCode).send({
+      error: `Required Terminal plugin runtime is ${error.runtimeStatus}`,
+      code: `required-plugin-runtime-${error.runtimeStatus}`,
+      detail: error.message,
+    });
+    throw error;
   }
 }
 
@@ -227,7 +258,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const agentProfileProvider = deps.agentProfileProvider ?? new SessionDaemonActiveAgentProfileProvider(sessionDaemon);
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService({
     configProvider: readConfig,
-    agentDirProvider: async () => (await requireActiveAgentProfile(agentProfileProvider)).dir,
+    agentDirProvider: () => desiredPluginAgentDir(agentProfileProvider, configService),
     ...(providerRuntime === undefined ? {} : { runtimeProvider: providerRuntime }),
     recoveryProvider: () => loadServerPluginRecoveryConfig(),
   });
@@ -279,6 +310,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     const activeAgentProfile = await agentProfileProvider.getActiveAgentProfile();
     return getPiWebVersionStatus(sessionDaemon, activeAgentProfile.status === "available" ? { activeAgentProfile: activeAgentProfile.profile } : {});
   });
+  app.get("/api/pi-web/health", () => Promise.resolve({ ok: true }));
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
   app.get("/api/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
   app.get("/api/machines/local/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));

@@ -16,6 +16,12 @@ const FULL_TEST_TRIGGERS = new Set([
 const LINTABLE_ROOT_FILES = new Set([
   "vite.config.ts",
   "vitest.config.ts",
+  "vitest.artifacts.config.ts",
+]);
+
+const PUBLIC_DECLARATION_FILES = new Set([
+  "plugin-api.d.ts",
+  "server-plugin-api.d.ts",
 ]);
 
 const LINTABLE_DIRECTORIES = [
@@ -146,6 +152,7 @@ function isLintablePath(path) {
 }
 
 function isRelatedSourcePath(path) {
+  if (PUBLIC_DECLARATION_FILES.has(path)) return true;
   if (path === "plugin-api.d.ts") return true;
   if (!/\.(?:[cm]?[jt]s|[jt]sx|json)$/u.test(path)) return false;
   return RELATED_SOURCE_DIRECTORIES.some((directory) => path.startsWith(directory));

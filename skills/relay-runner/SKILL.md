@@ -15,6 +15,7 @@ For a Relay using this profile:
 
 - Have the preparation prompt select `relay-runner` before drafting the packet. Record it immediately in draft `operations.md` and retain it as required for every active leg, including implementation, review, remediation, and delivery.
 - Name both `relay` and `relay-runner` in every handoff prompt. Fresh sessions cannot inherit a prior runner's loaded skills.
+- Keep every Relay handoff on the current runner's model by omitting the `model` argument, unless instructed to use a specific model or to choose an appropriate one. Record any Relay-wide model instruction in `operations.md` so it remains available to later runners.
 - Treat the charter as destination and scope edges, `operations.md` as this profile's repository and execution bindings, `status.md` as current position and next work, and repository instructions as the quality and implementation authority.
 - Follow canonical repository policy when it conflicts with a profile default. Record a material operational adaptation in `operations.md`, not the charter. Stop for human intervention when reconciling the conflict would change the finish line or an edge, weaken a protected invariant, or require a product or business decision.
 
@@ -53,19 +54,26 @@ Relay intentionally does not predict the chain. Before dispatch, establish the d
 
 Expected files, subsystems, dependencies, architecture, and sequencing are route assumptions. Keep only what the current or next leg needs in status or a targeted temporary artifact; do not turn route assumptions into stable agreement.
 
-A leg is one context-contained, reviewable slice that leaves coherent durable progress toward the finish line. Prefer a functional, locally verifiable checkpoint. Keep directly coupled implementation, tests or manual checks, contracts, generated outputs, documentation, and integration glue together. Split independent responsibilities rather than splitting mechanically by file or repository layer.
+A leg is one context-contained, reviewable slice that advances the finish line. Development legs implement and verify by default: optimize for the smallest useful behaviour, not the smallest independently testable artifact. A functional checkpoint makes an observable charter outcome available and verifies it through the relevant application boundary. A tested but unused module is a prerequisite, not a functional outcome. Setup, required verification, review and delivery remain legitimate lifecycle legs.
+
+Slice by supported cases across the necessary layers. When a journey is too large, choose a narrower case or a safe partial capability with explicit limitations, keeping the full charter outstanding. Keep directly coupled implementation, checks, contracts, generated outputs, documentation and integration together.
 
 Before substantial work, state the leg's:
 
-- bounded outcome;
-- primary responsibility and expected change surface;
-- coupled verification;
-- deferred dependencies; and
-- checkpoint type: functional or profile-authorized transitional.
+- observable outcome and application boundary;
+- bounded change surface and coupled verification;
+- remaining connection to usable behaviour, if any; and
+- checkpoint type: functional, necessary prerequisite or profile-authorized transitional.
 
-Persist only conclusions useful to the next runner. If uncertainty prevents responsible sizing, run a bounded discovery leg with a concrete question and durable result instead of mixing broad archaeology with implementation.
+An unconnected prerequisite must name the behaviour it enables and why a connected slice cannot reasonably fit. Its successor prioritizes that connection. Before adding another prerequisite-only leg, reassess the slice and simplify the route; continue only when a concrete dependency still prevents connection.
 
-If a leg grows beyond its context-contained slice, stop broadening before context exhaustion. Finish or revert to a functional checkpoint, or use an already authorized transition. Record the next bounded slice. Do not promise a fixed total leg count.
+Routine reading, design, sizing and test investigation belong inside implementation. A research-only leg requires a specific unanswered question blocking responsible implementation: record the blocked behaviour, why available evidence is insufficient and the result needed to proceed. Answer that question and hand off to implementation; intervene if it remains unresolved. Size or complexity alone calls for a smaller implementation slice.
+
+Choose the simplest design satisfying the charter, canonical project rules and concrete risks introduced by the change. Justify additional safeguards against those obligations; keep speculative recovery systems and future-use abstractions outside the slice. Preserve safety when narrowing behaviour.
+
+Persist only conclusions useful to the next runner. Keep leg history in the packet log and project documentation focused on current behaviour and contracts.
+
+If a leg grows beyond its context-contained slice, stop broadening before context exhaustion. Finish or revert to a coherent functional or justified prerequisite checkpoint, or use an already authorized transition. Record the next bounded slice. Do not promise a fixed total leg count.
 
 When status does not name the next task, choose the smallest coherent slice that advances the critical path or unblocks an agreed outcome. Do not invent cleanup or speculative follow-up merely to fill a leg.
 
@@ -130,7 +138,7 @@ Do **not** put a quality bar, technical design, expected files or subsystems, ve
 Write the profile's mechanics to `operations.md` instead:
 
 - packet identity and `relay-runner` as the profile required in every leg and handoff;
-- adaptive leg sizing and critical-path task selection, with route assumptions provisional and no fixed leg count;
+- implementation-first leg sizing and outcome-led task selection under this profile, with route assumptions provisional and no fixed leg count;
 - pointers to canonical repository instructions and applicable project skills;
 - checkpoint and transition policy;
 - packet root, working location, branch, immutable base commit, initial HEAD, pre-existing state, packet isolation, and exact review range;
@@ -158,11 +166,11 @@ Use this loop:
 
 1. Read `charter.md`, `operations.md`, `status.md`, and only targeted context they reference. Then load canonical project skills applicable to this leg.
 2. Confirm that the prompt's leg identifier, status baton, working location, branch, and blockers are consistent. Resolve small baton defects with targeted inspection; intervene instead of broad archaeology or guessing about intent.
-3. Choose the explicit next task from status when it fits the charter and leg size. Otherwise apply the operations record's critical-path task-selection policy. If the task remains ambiguous or falls outside the finish line, intervene.
+3. Use status's next outcome as the starting point. Revise inherited sequencing or design when a simpler connected slice better advances it. Safe implementation splits within the charter are runner decisions, not approval requests. If the intended outcome remains ambiguous or falls outside the finish line, intervene.
 4. Re-anchor to the finish line and perform the containment check. Do exactly one bounded slice. Do not audit unrelated code, execute the next nominal leg too, or expand scope under the guise of quality.
 5. Run every focused check meaningful for the slice and report exact results. Before whole review, run the full verification named by `operations.md`. Never describe failed, skipped, or incomplete verification as passing.
 6. Make delivery changes durable under the operations record's commit policy without absorbing unrelated state. Keep packet-only writes out of delivery commits.
-7. Update status with the new position, completed and next leg identifiers, next task or selection pointer, targeted context, verification state, blockers, and active transition/review pointers. Append the concise leg entry to the log before stopping or handing off.
+7. Update status with the observable progress, completed and next leg identifiers, next outcome, existing seam to connect, concrete constraints, remaining unconnected work, targeted context, verification state, blockers and active transition/review pointers. Keep route choices provisional. Append the concise leg entry to the log before stopping or handing off.
 8. Stop without spawning when Relay completion is recorded, the leg is blocked, or an intervention trigger fires. When the chartered outcome is implemented but required review, approval, or delivery remains, name that lifecycle work as the next leg instead of stopping. Surface the intervention signal clearly. Otherwise hand off exactly once at the end with `spawn_session`.
 
 Use this handoff shape, substituting the actual paths and next identifier:
@@ -177,7 +185,7 @@ Load the `relay` and `relay-runner` skills, then read:
 - .pi-web/relays/<name>/status.md
 
 Do not read log.md end-to-end. Use only targeted entries referenced by charter.md, operations.md, or status.md.
-Run exactly one leg, make its work and packet updates durable, then either hand off once or stop with the recorded intervention signal.
+Run exactly one outcome-led leg under the profile's implementation-first rules. Use status's next outcome and connection priority; adapt the route within the charter. Make work and packet updates durable, then either hand off once or stop with the recorded intervention signal.
 ```
 
 ## Whole-work review and remediation
@@ -200,7 +208,7 @@ For each attempt:
 - When attempt 2 has a blocking finding, do not automatically consume attempt 3. Invoke the remediation contingency only when concrete evidence shows that an attempted remediation reasonably expected to resolve a blocker did not, remediation introduced an in-scope regression, or materially new evidence reveals a blocker that could not reasonably have been assessed earlier—and one bounded remediation is likely to resolve it. Record that justification, mark the contingency invoked, and dispatch one coherent remediation leg followed by attempt 3. Expanded scrutiny, a changed standard, deferred already-available evidence, or speculative possibility does not qualify. If a genuine blocker remains but the contingency is not justified or bounded, intervene.
 - When exceptional attempt 3 still has any blocking finding, stop the automatic loop. Record the unresolved findings and exact decision needed, raise the human intervention signal, and do **not** dispatch remediation or a fourth review. A human may accept an authorized risk, change the agreement, stop the Relay, or explicitly grant a bounded additional remediation/review attempt.
 
-The reviewer chooses proportionate independent review and records that decision. Independent subreviews are optional; use them only when a specific changed surface benefits from focused expertise, not to create review theater or increase the chance of finding something. The reviewer may use `spawn_subsession` for report-only focused reviews, then `yield_to_subsessions` and consolidate. Subreview prompts must identify repository, base and exact diff, the charter's goal and edges, canonical quality instructions, and the prohibition on all writes including packet changes. The consolidating reviewer is the sole packet writer. Do not assume a particular model is available. The Relay handoff still uses one `spawn_session` only at the end of the leg.
+The reviewer chooses proportionate independent review and records that decision. Independent subreviews are optional; use them only when a specific changed surface benefits from focused expertise, not to create review theater or increase the chance of finding something. The reviewer may use `spawn_subsession` for report-only focused reviews, then `yield_to_subsessions` and consolidate. Subreview prompts must identify repository, base and exact diff, the charter's goal and edges, canonical quality instructions, and the prohibition on all writes including packet changes. The consolidating reviewer is the sole packet writer. The Relay handoff still uses one `spawn_session` only at the end of the leg.
 
 A blocking finding needs concrete evidence of an in-scope defect: for example a reproduced failure, a failing relevant check, a specific execution path that violates the approved outcome, or a clear breach of a material contract, invariant, security, authorization, or data-integrity boundary. Mere possibility, stylistic preference, optional hardening, hypothetical future requirements, or “there could be an edge case” is not blocking. If proportionate targeted inspection cannot establish applicability and impact, classify the concern as non-blocking or omit it rather than forcing remediation.
 

@@ -74,12 +74,12 @@ function zoomedImage(view: ChatView): unknown {
   return Reflect.get(view, "zoomedImage");
 }
 
-type RenderPart = (this: ChatView, part: ChatLine["parts"][number], message?: ChatLine) => TemplateResult;
+type RenderPart = (this: ChatView, part: ChatLine["parts"][number], message: ChatLine, messageIndex: number, partIndex: number) => TemplateResult;
 
 function renderPart(view: ChatView, part: ChatLine["parts"][number], message?: ChatLine): TemplateResult {
   const method: unknown = Reflect.get(view, "renderPart");
   if (!isRenderPart(method)) throw new Error("ChatView.renderPart is not callable");
-  return method.call(view, part, message);
+  return method.call(view, part, message ?? { role: "user", parts: [part] }, 0, 0);
 }
 
 function isRenderPart(value: unknown): value is RenderPart {

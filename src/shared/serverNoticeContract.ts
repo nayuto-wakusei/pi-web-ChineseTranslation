@@ -10,6 +10,14 @@ export const SERVER_PLUGIN_NOTICE_CONTEXT_MAX_BYTES = 16 * 1024;
 export const SERVER_PLUGIN_NOTICE_CONTEXT_MAX_DEPTH = 32;
 /** Maximum length of each project, workspace, or session scope identifier. */
 export const SERVER_NOTICE_SCOPE_ID_MAX_LENGTH = 512;
+/** Maximum retained notices attributed to one plugin source. */
+export const SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT = 25;
+/** Maximum retained plugin-authored notices across all plugin sources. */
+export const SERVER_PLUGIN_NOTICE_GLOBAL_LIMIT = 100;
+
+export function isPluginServerNoticeSource(source: string | undefined): source is `plugin:${string}` {
+  return source?.startsWith(SERVER_PLUGIN_NOTICE_SOURCE_PREFIX) === true;
+}
 
 const SERVER_NOTICE_SCOPE_KEYS = ["projectId", "workspaceId", "sessionId"] as const;
 type ServerNoticeScopeKey = typeof SERVER_NOTICE_SCOPE_KEYS[number];

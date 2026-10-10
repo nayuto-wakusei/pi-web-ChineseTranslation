@@ -3,6 +3,27 @@ import { PI_WEB_CAPABILITIES } from "./capabilities";
 import { parsePiWebComponentStatus, parsePiWebInstallationInfo, parsePiWebRuntimeResponse, parsePiWebVersionResponse } from "./piWebStatusParsing";
 
 describe("PI WEB status parsing", () => {
+  it("accepts the upstream v2 profile without local command metadata", () => {
+    const parsed = parsePiWebRuntimeResponse({
+      packageName: "@chainingintention/pi-web-cn", generatedAt: "now", capabilities: [],
+      components: {
+        web: { component: "web", label: "Web", available: true, capabilities: [] },
+        sessiond: { component: "sessiond", label: "Daemon", available: true, capabilities: [], activeAgentProfile: { schemaVersion: 2, dir: "/agent" } },
+      },
+    });
+    expect(parsed?.components.sessiond.activeAgentProfile).toEqual({ schemaVersion: 2, dir: "/agent" });
+  });
+  it("filters malformed advisory diagnostics without dropping runtime components", () => {
+    const parsed = parsePiWebRuntimeResponse({
+      packageName: "@chainingintention/pi-web-cn", generatedAt: "now", capabilities: [],
+      components: {
+        web: { component: "web", label: "Web", available: true, capabilities: [], deprecatedAgentInputs: [{ source: "config", name: "agent.command" }, { source: "config", name: "" }, { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: 12 }] },
+        sessiond: { component: "sessiond", label: "Daemon", available: true, capabilities: [], deprecatedAgentInputs: "invalid" },
+      },
+    });
+    expect(parsed?.components.web.deprecatedAgentInputs).toEqual([{ source: "config", name: "agent.command" }]);
+    expect(parsed?.components.sessiond).not.toHaveProperty("deprecatedAgentInputs");
+  });
   it("parses known top-level and component capabilities while ignoring unknown strings", () => {
     expect(parsePiWebRuntimeResponse({
       packageName: "@chainingintention/pi-web-cn",

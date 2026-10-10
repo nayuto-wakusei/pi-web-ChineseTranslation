@@ -5,8 +5,11 @@ if (animatedHomePage !== null) {
     animatedHomePage.classList.add("intro-skipped");
   };
 
-  if (window.scrollY !== 0) skipIntroAnimation();
-  else window.addEventListener("scroll", skipIntroAnimation, { passive: true, once: true });
+  if (window.scrollY !== 0) {
+    skipIntroAnimation();
+  } else {
+    window.addEventListener("scroll", skipIntroAnimation, { passive: true, once: true });
+  }
 }
 
 const themeButtons = document.querySelectorAll("[data-theme-toggle]");
@@ -233,8 +236,79 @@ for (const carousel of screenshotCarousels) {
   setupScreenshotCarousel(carousel);
 }
 
+function setupPageContentsNavigation() {
+  const contents = document.querySelector(".toc, .reference-nav");
+  if (contents === null || typeof window.HTMLDialogElement?.prototype.showModal !== "function") return;
+
+  const compactLayout = window.matchMedia("(max-width: 1100px)");
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "docs-toc-toggle";
+  toggle.innerHTML = '<span aria-hidden="true">☷</span> 本页目录';
+  toggle.setAttribute("aria-haspopup", "dialog");
+  toggle.setAttribute("aria-controls", "docs-page-contents");
+  toggle.setAttribute("aria-expanded", "false");
+
+  const dialog = document.createElement("dialog");
+  dialog.id = "docs-page-contents";
+  dialog.className = "docs-toc-dialog";
+  dialog.setAttribute("aria-labelledby", "docs-page-contents-title");
+  dialog.innerHTML = '<div class="docs-toc-dialog-header"><strong id="docs-page-contents-title">本页目录</strong><button type="button" aria-label="关闭本页目录" autofocus>✕</button></div>';
+  const closeButton = dialog.querySelector("button");
+  const nav = document.createElement("nav");
+  nav.setAttribute("aria-label", "页面章节");
+  // Derive the popup from the existing TOC so both navigation surfaces stay in sync.
+  for (const source of contents.querySelectorAll('a[href^="#"]')) {
+    const link = document.createElement("a");
+    link.setAttribute("href", source.getAttribute("href"));
+    link.textContent = source.textContent;
+    link.addEventListener("click", (event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      dialog.close();
+      const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+      if (target !== null) {
+        // Continue keyboard navigation at the destination, not back at the floating button.
+        if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+        target.focus({ preventScroll: true });
+      }
+      // Keep native fragment navigation, history, and scroll-margin behavior.
+    });
+    nav.append(link);
+  }
+  dialog.append(nav);
+  document.body.append(toggle, dialog);
+  document.body.classList.add("docs-has-contents");
+
+  toggle.addEventListener("click", () => {
+    if (!compactLayout.matches) return;
+    for (const link of nav.querySelectorAll("a")) {
+      if (link.hash === window.location.hash) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    }
+    dialog.showModal();
+    toggle.setAttribute("aria-expanded", "true");
+  });
+  closeButton.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => toggle.setAttribute("aria-expanded", "false"));
+  dialog.addEventListener("click", (event) => {
+    if (event.target !== dialog) return;
+    const bounds = dialog.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+      dialog.close();
+    }
+  });
+  compactLayout.addEventListener("change", () => {
+    if (!compactLayout.matches && dialog.open) dialog.close();
+  });
+}
+
+setupPageContentsNavigation();
+
 const versionSwitchLinks = document.querySelectorAll(".version-switcher-option");
 
+// Carry the current anchor across the stable/dev switch so cross-links land on the
+// same section of the counterpart page. Mutating href on click also covers
+// open-in-new-tab; context-menu "copy link" keeps the hashless canonical URL.
 for (const link of versionSwitchLinks) {
   link.addEventListener("click", () => {
     if (window.location.hash === "") return;

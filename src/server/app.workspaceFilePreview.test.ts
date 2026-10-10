@@ -84,7 +84,7 @@ async function registeredWorkspace(name: string): Promise<{ projectId: string; w
   });
   const project = added.json<Project>();
   const listed = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-  const workspace = listed.json<Workspace[]>()[0];
+  const workspace = listed.json<{ workspaces: Workspace[] }>().workspaces[0];
   if (workspace === undefined) throw new Error("Expected workspace");
   return { projectId: project.id, workspaceId: workspace.id };
 }

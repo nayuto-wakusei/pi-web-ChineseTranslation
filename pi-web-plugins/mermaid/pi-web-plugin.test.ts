@@ -3,11 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, render, svg } from "lit";
 import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
-import { mermaidFrameDocument } from "./mermaidEngine.js";
+import { MermaidPreview, mermaidFrameDocument } from "./MermaidPreview.js";
 import { sanitizeMermaidSvg } from "./mermaidSvg.js";
 
-vi.mock("./mermaidEngine.js", async (original) => ({
-  ...await original<typeof import("./mermaidEngine.js")>(),
+vi.mock("./MermaidPreview.js", async (original) => ({
+  ...await original<typeof import("./MermaidPreview.js")>(),
   loadMermaidEngine: vi.fn(() => Promise.resolve("window.engineReady = true;")),
 }));
 
@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("bundled Mermaid plugin", () => {
-  it("renders its sandbox through the public TemplateResult contract", () => {
+  it("renders its sandbox through the public TemplateResult contract", async () => {
     const activation = plugin.activate(activationContext());
     if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
     const renderer = activation.contributions.contentRenderers?.[0];
@@ -26,7 +26,11 @@ describe("bundled Mermaid plugin", () => {
     const host = document.createElement("div");
     document.body.append(host);
     render(renderer.render({ text: "sequenceDiagram\nA->>B: request", fail: vi.fn(), signal: new AbortController().signal }), host);
-    const frame = host.querySelector("iframe");
+    const preview = host.querySelector("pi-web-mermaid-preview");
+    if (!(preview instanceof MermaidPreview)) throw new Error("Missing Mermaid preview");
+    await preview.updateComplete;
+    await vi.waitFor(() => { expect(preview.shadowRoot?.querySelector("iframe")).not.toBeNull(); });
+    const frame = preview.shadowRoot?.querySelector("iframe");
     expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
   });
 

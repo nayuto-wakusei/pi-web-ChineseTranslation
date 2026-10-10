@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EffectivePiWebAgentConfig } from "../config.js";
-import { createActiveAgentProfileDescriptor } from "./activeAgentProfile.js";
+import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "./activeAgentProfile.js";
 
 const baseAgent: EffectivePiWebAgentConfig = {
   command: "acme-agent",
@@ -9,6 +9,12 @@ const baseAgent: EffectivePiWebAgentConfig = {
 };
 
 describe("active agent profile descriptor", () => {
+  it("publishes only upstream v2 fields while retaining local runtime metadata", () => {
+    const profile = createActiveAgentProfileDescriptor(baseAgent);
+    expect(publicActiveAgentProfileDescriptor(profile)).toEqual({ schemaVersion: 2, dir: baseAgent.dir });
+    expect(profile.command).toBe(baseAgent.command);
+    expect(profile.sessionDirEnvKeys).toEqual(baseAgent.sessionDirEnvKeys);
+  });
   it("builds a stable revision from every effective profile field", () => {
     const first = createActiveAgentProfileDescriptor(baseAgent);
     const second = createActiveAgentProfileDescriptor({ ...baseAgent, sessionDirEnvKeys: [...baseAgent.sessionDirEnvKeys] });

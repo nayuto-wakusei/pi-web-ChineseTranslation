@@ -9,7 +9,7 @@ This fork is a translation plan for PI WEB. Its goal is to translate the plugin'
 
 **PI WEB is a web UI for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) that keeps agent sessions running in real workspaces on your machine or server.**
 
-The bundled runtime requires Pi `0.84.x` compatible packages. The session daemon owns its `PI_WEB_DATA_DIR`; use a separate data directory and session endpoint for each concurrently running instance.
+The bundled runtime supports Pi `0.86.1` or `0.87.0`. The session daemon owns its `PI_WEB_DATA_DIR`; use a separate data directory and session endpoint for each concurrently running instance.
 
 Run agents where your code, tools, credentials, and build caches live. Supervise them from any browser.
 
@@ -40,7 +40,7 @@ Requirements:
 
 - Node.js 22.19.0 or newer
 - npm
-- Pi Coding Agent `>=0.82.1 <0.83`, configured for your user
+- Pi Coding Agent `0.86.1` or `0.87.0`, configured for your user
 - git and the development tools your agents need
 
 Install and start PI WEB as per-user services:
@@ -114,9 +114,9 @@ Read more: [Fleet and machines guide](https://pi-web.dev/machines)
 
 ## PI WEB plugins
 
-PI WEB supports trusted browser-side plugins that can add actions, workspace panels, and workspace metadata. Use **Settings → PI WEB plugins** to enable or disable them on the selected machine.
+PI WEB supports trusted plugins that can add actions, workspace panels, tools, and workspace metadata. Use **Settings → PI WEB plugins** to enable or disable them on the selected machine.
 
-Pi packages are a separate Pi package-manager concept. A Pi package may include a PI WEB browser plugin, but installing a package and enabling its browser plugin are different operations.
+Pi packages are a separate Pi package-manager concept. A Pi package may include a PI WEB plugin, but installing a package and enabling it are different operations. Server-backed changes require a manual session-daemon restart; see the plugin guide for lifecycle and recovery details.
 
 Read more: [PI WEB plugin guide and API](https://pi-web.dev/plugins)
 

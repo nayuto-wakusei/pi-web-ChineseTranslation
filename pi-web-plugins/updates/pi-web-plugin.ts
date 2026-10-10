@@ -201,6 +201,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
       <section class="updates-meta">
         <span>生成时间 ${status.generatedAt}</span>
         ${status.release.latestVersion === undefined ? null : html`<span>最新 npm 版本 ${status.release.latestVersion}</span>`}
+        ${status.release.checkedAt === undefined || status.release.skipped === true ? null : html`<span>发布检查时间 ${status.release.checkedAt}</span>`}
         ${status.release.skipped === true ? html`<span>远程版本检查已跳过。</span>` : null}
         ${status.release.error === undefined ? null : html`<span>远程版本检查失败：${status.release.error}</span>`}
       </section>

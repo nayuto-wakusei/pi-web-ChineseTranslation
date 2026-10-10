@@ -1,4 +1,6 @@
 import {
+  PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH,
+  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
   PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
@@ -48,7 +50,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/projects/:projectId/workspaces" },
   {
     method: "POST",
-    path: "/paired-plugin-backends/:pluginId/projects/:projectId/workspaces/:workspaceId/:operation",
+    path: PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
     timeoutMs: PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
     bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
     responseBodyLimit: PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
@@ -187,6 +189,7 @@ export const FEDERATED_HTTP_ROUTES = [
 ] as const satisfies readonly FederatedHttpRouteSpec[];
 
 export const FEDERATED_WEBSOCKET_ROUTES = [
+  PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH,
   "/events",
   "/sessions/events",
   "/sessions/:sessionId/events",

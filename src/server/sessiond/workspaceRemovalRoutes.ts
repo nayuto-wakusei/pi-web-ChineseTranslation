@@ -67,12 +67,12 @@ export function registerWorkspaceRemovalRoutes(
           cancellation.signal,
           managementContext,
         );
-        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
         return result;
       } catch (error) {
         return await removalRequestFailed(reply, error);
       } finally {
         cancellation.dispose();
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
       }
     },
   );

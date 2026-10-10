@@ -720,7 +720,7 @@ async function validateProviderWorkspaces(
         pluginId: contribution.pluginId,
         capabilities: {
           request: contribution.provider.request !== undefined,
-          remove: contribution.provider.prepareRemove !== undefined,
+          remove: removal !== undefined,
         },
         ...(metadata === undefined ? {} : { metadata }),
       },

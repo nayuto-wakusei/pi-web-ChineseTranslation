@@ -27,10 +27,10 @@ export function annotateAssistantThinkingLevel(message: unknown, thinkingLevel: 
 
 /** The enclosing session-tree entry is authoritative. Provider message ids are not navigation targets. */
 function withDurableEntryId(message: unknown, entryId: unknown): unknown {
-  if (!isRecord(message) || typeof entryId !== "string" || entryId === "") return message;
+  if (!isRecord(message)) return message;
   const payload = { ...message };
   delete payload["entryId"];
-  return { ...payload, entryId };
+  return typeof entryId === "string" && entryId !== "" ? { ...payload, entryId } : payload;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

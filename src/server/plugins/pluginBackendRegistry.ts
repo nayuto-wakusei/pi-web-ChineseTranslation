@@ -569,7 +569,7 @@ export class PluginBackendRegistry {
     const project = snapshotProject(request.project);
     let target: WorkspaceListing | undefined;
     try {
-      const resolution = await this.options.workspaces.resolve(request.project);
+      const resolution = await this.options.workspaces.resolve(request.project, dispatchSignal);
       target = resolution.workspaces.find((workspace) => workspace.id === request.workspaceId);
     } catch (error) {
       if (dispatchSignal.aborted) throw abortError(dispatchSignal);
@@ -916,7 +916,7 @@ async function resolveDirectScope(
   }
   let target: WorkspaceListing | undefined;
   try {
-    const resolution = await workspaces.resolve(request.project);
+    const resolution = await workspaces.resolve(request.project, signal);
     target = resolution.workspaces.find((workspace) => workspace.id === request.workspaceId);
   } catch (error) {
     if (signal.aborted) throw abortError(signal);

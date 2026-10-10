@@ -3,7 +3,7 @@ import { isHostAbsoluteAgentDir, isSafeAgentCommandForHost, PI_CODING_AGENT_SESS
 import type { ActiveAgentProfileDescriptor } from "../shared/apiTypes.js";
 import { ACTIVE_AGENT_PROFILE_SCHEMA_VERSION } from "../shared/activeAgentProfile.js";
 
-export function createActiveAgentProfileDescriptor(agent: EffectivePiWebAgentConfig): ActiveAgentProfileDescriptor {
+export function createActiveAgentProfileDescriptor(agent: EffectivePiWebAgentConfig): ActiveAgentProfileDescriptor & { readonly command: string; readonly revision: string; readonly sessionDirEnvKeys: readonly string[] } {
   if (!isSafeAgentCommandForHost(agent.command) || !isHostAbsoluteAgentDir(agent.dir)) {
     throw new Error("Active agent profile command and directory must be valid for this host");
   }
@@ -12,19 +12,23 @@ export function createActiveAgentProfileDescriptor(agent: EffectivePiWebAgentCon
   }
   const sessionDirEnvKeys = Object.freeze([...agent.sessionDirEnvKeys]);
   const revisionInput = JSON.stringify({
-    schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION,
+    schemaVersion: 1,
     command: agent.command,
     dir: agent.dir,
     sessionDirEnvKeys,
   });
 
   return Object.freeze({
-    schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION,
+    schemaVersion: 1,
     revision: `sha256:${createHash("sha256").update(revisionInput).digest("hex")}`,
     command: agent.command,
     dir: agent.dir,
     sessionDirEnvKeys,
   });
+}
+
+export function publicActiveAgentProfileDescriptor(profile: ActiveAgentProfileDescriptor): ActiveAgentProfileDescriptor {
+  return Object.freeze({ schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION, dir: profile.dir });
 }
 
 function hasValidSessionDirEnvKeys(keys: readonly string[]): boolean {

@@ -5,8 +5,11 @@ import type { WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
 import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
+import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
 import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../../shared/machineStatus";
+import type { MachineStatusUiEvent } from "../../../shared/machineStatus";
+import type { SessionUiEvent, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -51,7 +54,13 @@ export function arrayOf<T>(parse: (value: unknown) => T): (value: unknown) => T[
 
 function parseUnknownArray(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error("Expected array response");
-  return value;
+  return value.map((message: unknown) => {
+    if (typeof message === "object" && message !== null && "entryId" in message
+      && message.entryId !== undefined && typeof message.entryId !== "string") {
+      throw new Error("Expected string field: entryId");
+    }
+    return message;
+  });
 }
 
 function arrayOfString(value: unknown, key: string): string[] {
@@ -60,7 +69,7 @@ function arrayOfString(value: unknown, key: string): string[] {
 }
 
 export function parseMessagePage(value: unknown): MessagePage {
-  if (Array.isArray(value)) return { messages: value, start: 0, total: value.length };
+  if (Array.isArray(value)) return { messages: parseUnknownArray(value), start: 0, total: value.length };
   const record = requireRecord(value);
   return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
 }
@@ -114,8 +123,15 @@ export function parseMachineRuntime(value: unknown): MachineRuntime {
     ...optionalField("generatedAt", optionalString(record, "generatedAt")),
     ...(record["components"] === undefined ? {} : { components: parsePiWebRuntimeComponents(record["components"]) }),
     ...(record["capabilities"] === undefined ? {} : { capabilities: parsePiWebCapabilities(record["capabilities"]) }),
+    ...(record["deprecatedAgentInputs"] === undefined ? {} : { deprecatedAgentInputs: parseMachineDeprecatedAgentInputs(record["deprecatedAgentInputs"]) }),
     ...(error === undefined ? {} : { error }),
   };
+}
+
+function parseMachineDeprecatedAgentInputs(value: unknown): import("../../../shared/apiTypes").PiWebDeprecatedAgentInput[] {
+  const inputs = parseDeprecatedAgentInputs(value);
+  if (inputs === undefined) throw new Error("Invalid PI WEB deprecated agent inputs");
+  return inputs;
 }
 
 function requireMachineKind(record: Record<string, unknown>, key: string): MachineKind {
@@ -154,6 +170,58 @@ export function parseWorkspace(value: unknown): Workspace {
     ...(removal === undefined ? {} : { removal }),
     ...optionalField("effectiveConfig", optionalWorkspaceEffectiveConfig(record["effectiveConfig"])),
   };
+}
+
+export function parseWorkspaceProviderResolution(value: unknown): WorkspaceProviderResolution {
+  const record = requireRecord(value);
+  const status = parseWorkspaceProviderResolutionStatus(record["status"]);
+  const projectId = requireString(record, "projectId");
+  const ownerPluginId = optionalString(record, "ownerPluginId");
+  if (status === "provider" && ownerPluginId === undefined) throw new Error("Provider workspace resolution is missing ownerPluginId");
+  if (status === "folder" && ownerPluginId !== undefined) throw new Error("Folder workspace resolution must not include ownerPluginId");
+
+  const workspaces = arrayOf(parseWorkspace)(record["workspaces"]);
+  if (workspaces.length === 0 || workspaces.some((workspace) => workspace.projectId !== projectId)) {
+    throw new Error("Workspace resolution contains invalid project workspaces");
+  }
+  const diagnostics = arrayOf(parseWorkspaceProviderDiagnostic)(record["diagnostics"]);
+  return Object.freeze({
+    status,
+    projectId,
+    ...(ownerPluginId === undefined ? {} : { ownerPluginId }),
+    workspaces: Object.freeze(workspaces),
+    diagnostics: Object.freeze(diagnostics),
+  });
+}
+
+function parseWorkspaceProviderResolutionStatus(value: unknown): WorkspaceProviderResolutionStatus {
+  if (value === "provider" || value === "folder" || value === "degraded") return value;
+  throw new Error("Invalid workspace provider resolution status");
+}
+
+function parseWorkspaceProviderDiagnostic(value: unknown): WorkspaceProviderDiagnostic {
+  const record = requireRecord(value);
+  const pluginId = optionalString(record, "pluginId");
+  const pluginIds = record["pluginIds"] === undefined
+    ? undefined
+    : arrayOfString(record["pluginIds"], "pluginIds");
+  return Object.freeze({
+    code: parseWorkspaceProviderDiagnosticCode(record["code"]),
+    message: requireString(record, "message"),
+    tier: parseWorkspaceProviderTier(record["tier"]),
+    ...(pluginId === undefined ? {} : { pluginId }),
+    ...(pluginIds === undefined ? {} : { pluginIds: Object.freeze(pluginIds) }),
+  });
+}
+
+function parseWorkspaceProviderDiagnosticCode(value: unknown): WorkspaceProviderDiagnosticCode {
+  if (value === "probe-failed" || value === "claim-conflict" || value === "list-failed") return value;
+  throw new Error("Invalid workspace provider diagnostic code");
+}
+
+function parseWorkspaceProviderTier(value: unknown): WorkspaceProviderTier {
+  if (value === "primary" || value === "fallback") return value;
+  throw new Error("Invalid workspace provider diagnostic tier");
 }
 
 function optionalWorkspaceProvider(value: unknown): Workspace["provider"] {
@@ -797,7 +865,7 @@ export function parseServerNoticeEvent(value: unknown): ServerNoticeEvent {
   return { type: "notices.updated", snapshot: parseServerNoticeSnapshot(record["snapshot"]) };
 }
 
-export function parseModelScopeChangedEvent(value: unknown): Extract<GlobalSessionEvent, { type: "models.changed" }> {
+function parseModelScopeChangedEvent(value: unknown): Extract<GlobalSessionEvent, { type: "models.changed" }> {
   const record = requireRecord(value);
   if (record["type"] !== "models.changed") throw new Error("Invalid model scope event type");
   return { type: "models.changed", revision: requireNonNegativeSafeInteger(record, "revision") };
@@ -1815,6 +1883,7 @@ function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponent {
     available: requireBoolean(record, "available"),
     capabilities: parsePiWebCapabilities(record["capabilities"]),
     ...optionalField("activeAgentProfile", activeAgentProfile),
+    ...optionalField("deprecatedAgentInputs", parseDeprecatedAgentInputs(record["deprecatedAgentInputs"])),
     ...optionalField("error", optionalString(record, "error")),
   };
 }
@@ -2116,6 +2185,138 @@ function numberOrNull(record: Record<string, unknown>, key: string): number | nu
 
 function optionalField(key: string, value: unknown): object {
   return value === undefined ? {} : { [key]: value };
+}
+export function parseSessionStreamEvent(value: unknown): SessionUiEvent {
+  const record = requireRecord(value);
+  switch (record["type"]) {
+    case "message.append":
+      // The message payload is a projected Pi message; only its presence is
+      // guaranteed at this boundary.
+      return { type: "message.append", message: requirePresent(record, "message") };
+    case "assistant.delta":
+      return { type: "assistant.delta", text: requireString(record, "text") };
+    case "assistant.thinking.delta":
+      return { type: "assistant.thinking.delta", text: requireString(record, "text") };
+    case "tool.start":
+      return {
+        type: "tool.start",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        summary: requireString(record, "summary"),
+        ...optionalField("args", record["args"]),
+      };
+    case "tool.update":
+      return {
+        type: "tool.update",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        text: requireString(record, "text"),
+        ...optionalField("content", record["content"]),
+        ...optionalField("details", record["details"]),
+      };
+    case "tool.end":
+      return {
+        type: "tool.end",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        text: requireString(record, "text"),
+        isError: requireBoolean(record, "isError"),
+        ...optionalField("content", record["content"]),
+        ...optionalField("details", record["details"]),
+      };
+    case "shell.start":
+      return {
+        type: "shell.start",
+        command: requireString(record, "command"),
+        ...optionalField("excludeFromContext", parseOptionalBoolean(record["excludeFromContext"], "excludeFromContext")),
+      };
+    case "shell.chunk":
+      return { type: "shell.chunk", chunk: requireString(record, "chunk") };
+    case "shell.end":
+      return {
+        type: "shell.end",
+        ...optionalField("output", optionalString(record, "output")),
+        ...optionalField("exitCode", optionalNumberOrNull(record, "exitCode")),
+        ...optionalField("cancelled", parseOptionalBoolean(record["cancelled"], "cancelled")),
+        ...optionalField("truncated", parseOptionalBoolean(record["truncated"], "truncated")),
+        ...optionalField("fullOutputPath", optionalString(record, "fullOutputPath")),
+        ...optionalField("isError", parseOptionalBoolean(record["isError"], "isError")),
+      };
+    case "agent.start":
+      return { type: "agent.start" };
+    case "agent.end":
+      return { type: "agent.end" };
+    case "message.end":
+      return { type: "message.end", ...optionalField("message", record["message"]) };
+    case "status.update":
+      return { type: "status.update", status: parseSessionStatus(record["status"]) };
+    case "activity.update":
+      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
+    case "command.output":
+      return parseCommandOutputEvent(record);
+    case "session.error":
+      return { type: "session.error", message: requireString(record, "message") };
+    case "session.name":
+      return parseSessionNameEvent(record);
+    case "session.created":
+      return { type: "session.created", session: parseSessionInfo(record["session"]) };
+    case "pi.event":
+      return { type: "pi.event", eventType: requireString(record, "eventType") };
+    default:
+      throw new Error("Unsupported session stream event type");
+  }
+}
+type RealtimeStreamEvent =
+  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "notices.updated" }>
+  | MachineStatusUiEvent;
+export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
+  const record = requireRecord(value);
+  switch (record["type"]) {
+    case "status.update":
+      return { type: "status.update", status: parseSessionStatus(record["status"]) };
+    case "activity.update":
+      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
+    case "session.name":
+      return parseSessionNameEvent(record);
+    case "session.created":
+      return { type: "session.created", session: parseSessionInfo(record["session"]) };
+    case "models.changed":
+      return parseModelScopeChangedEvent(record);
+    case "notices.updated":
+      return parseServerNoticeEvent(record);
+    case "machine.status":
+      return { type: "machine.status", status: requireMachineStatusSnapshot(record["status"]) };
+    default:
+      throw new Error("Unsupported realtime stream event type");
+  }
+}
+function requirePresent(record: Record<string, unknown>, key: string): unknown {
+  const value = record[key];
+  if (value === undefined) throw new Error(`Expected field: ${key}`);
+  return value;
+}
+function optionalNumberOrNull(record: Record<string, unknown>, key: string): number | null | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "number") throw new Error(`Expected optional number|null field: ${key}`);
+  return value;
+}
+function parseCommandOutputEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "command.output" }> {
+  const level = requireString(record, "level");
+  if (level !== "info" && level !== "success" && level !== "error") throw new Error("Invalid command output level");
+  return {
+    type: "command.output",
+    level,
+    message: requireString(record, "message"),
+  };
+}
+function parseSessionNameEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "session.name" }> {
+  return {
+    type: "session.name",
+    sessionId: requireNonEmptyString(record, "sessionId"),
+    ...optionalField("name", optionalString(record, "name")),
+  };
 }
 export function parseWorkspaceTrustResponse(value: unknown): import("../../../shared/apiTypes").WorkspaceTrustResponse {
   const record = requireRecord(value);

@@ -539,8 +539,12 @@ describe("machine-scoped file suggestion API", () => {
 });
 
 describe("machine-scoped workspace API", () => {
+  it("rejects provider resolutions for another project", async () => {
+    stubJsonFetch({ status: "folder", projectId: "other", diagnostics: [], workspaces: [{ id: "w", projectId: "other", path: "/repo", label: "repo", isMain: true, isGitRepo: false, isGitWorktree: false, effectiveConfig: {} }] });
+    await expect(workspacesApi.workspaceResolution("requested")).rejects.toThrow("project does not match");
+  });
   it("keeps project ids in one encoded route segment when listing workspaces", async () => {
-    const fetchMock = stubJsonFetch([]);
+    const fetchMock = stubJsonFetch({ status: "folder", projectId: "../p /?", diagnostics: [], workspaces: [{ id: "w", projectId: "../p /?", path: "/repo", label: "repo", isMain: true, isGitRepo: false, isGitWorktree: false, effectiveConfig: {} }] });
 
     await workspacesApi.workspaces("../p /?", "remote a");
 

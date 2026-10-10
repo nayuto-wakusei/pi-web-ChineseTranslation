@@ -232,6 +232,9 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) canClearServerQueue = false;
   @property({ attribute: false }) onClearServerQueue?: () => void;
   @property({ attribute: false }) onMessageAction?: (entryId: string, action: "fork" | "back") => void | Promise<void>;
+  @property({ type: Boolean }) messageActionsDisabled = false;
+  @state() private messageActionPending = false;
+  @state() private messageActionError: { sessionId: string; entryId: string; message: string } | undefined;
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
   @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
   @property({ attribute: false }) onDismissAllNotifications?: () => void;
@@ -870,7 +873,7 @@ export class ChatView extends LitElement {
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
       <article class=${toolOnly || askUserRecordOnly ? shellClass : `msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
         ${toolOnly || askUserRecordOnly ? null : this.renderMessageHeader(message, String(index))}
-        ${message.parts.map((part) => this.renderPart(part, message))}
+        ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
       </article>
     `;
   }
@@ -881,7 +884,7 @@ export class ChatView extends LitElement {
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
       <article class="msg tool-image-output" data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
         ${this.renderMessageHeader(message, String(index), label)}
-        ${message.parts.map((part) => this.renderPart(part, message))}
+        ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
       </article>
     `;
   }
@@ -917,7 +920,7 @@ export class ChatView extends LitElement {
           return html`
             <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${startIndex + offset} data-scroll-anchor-id=${this.eventAnchorKey(startIndex + offset)}>
               ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
-              ${message.parts.map((part) => this.renderPart(part, message))}
+              ${message.parts.map((part, partIndex) => this.renderPart(part, message, startIndex + offset, partIndex))}
             </section>
           `;
         })}
@@ -956,9 +959,10 @@ export class ChatView extends LitElement {
           </button>
         ` : null}
         ${historyEntryId === undefined ? null : html`
-          <button type="button" class="msg-action" title="从这条消息分叉" aria-label="分叉" @click=${(event: MouseEvent) => { this.confirmMessageAction(historyEntryId, "fork", event); }}>分叉</button>
-          <button type="button" class="msg-action" title="回退到这条消息" aria-label="回退" @click=${(event: MouseEvent) => { this.confirmMessageAction(historyEntryId, "back", event); }}>回退</button>
+          <button type="button" class="msg-action" title="从这条消息分叉" aria-label="分叉" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "fork", event); }}>分叉</button>
+          <button type="button" class="msg-action" title="回退到这条消息" aria-label="回退" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "back", event); }}>回退</button>
         `}
+        ${this.messageActionError?.sessionId === this.sessionId && this.messageActionError.entryId === historyEntryId ? html`<span role="alert">${this.messageActionError.message}</span>` : null}
       </div>
     `;
   }
@@ -969,13 +973,23 @@ export class ChatView extends LitElement {
     return message.entryId;
   }
 
-  private confirmMessageAction(entryId: string, action: "fork" | "back", event: MouseEvent): void {
+  private async confirmMessageAction(entryId: string, action: "fork" | "back", event: MouseEvent): Promise<void> {
     event.stopPropagation();
+    if (this.messageActionsDisabled || this.messageActionPending || this.onMessageAction === undefined) return;
     const prompt = action === "fork"
       ? "从这条消息分叉出一个新会话？当前会话保持不变。"
       : "回退到这条消息？之后的对话会离开当前分支，未保存的输入不会保留。";
     if (!window.confirm(prompt)) return;
-    void this.onMessageAction?.(entryId, action);
+    const sessionId = this.sessionId;
+    this.messageActionPending = true;
+    this.messageActionError = undefined;
+    try {
+      await this.onMessageAction(entryId, action);
+    } catch (error) {
+      if (this.sessionId === sessionId) this.messageActionError = { sessionId, entryId, message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      this.messageActionPending = false;
+    }
   }
 
   private onMetaKeydown(event: KeyboardEvent, key: string, expanded: boolean) {
@@ -1019,15 +1033,16 @@ export class ChatView extends LitElement {
     return label;
   }
 
-  private renderPart(part: ChatPart, message?: ChatLine) {
-    if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
-    if (part.type === "text") return this.renderFormattedText(part.text, message, "text");
-    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary>${this.renderFormattedText(part.text, message, "thinking")}</details>`;
+  private renderPart(part: ChatPart, message: ChatLine, messageIndex: number, partIndex: number) {
+    const intentKey = JSON.stringify([this.machineId, this.sessionId, message.entryId ?? messageIndex, partIndex]);
+    if (part.type === "text" && message.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
+    if (part.type === "text") return this.renderFormattedText(part.text, intentKey);
+    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary>${this.renderFormattedText(part.text, intentKey)}</details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[skill]</b> ${part.name}</summary>
         <small>${part.location}</small>
-        ${this.renderFormattedText(part.content, message, "skill")}
+        ${this.renderFormattedText(part.content, intentKey)}
       </details>
     `;
     if (part.type === "skillRead") return html`
@@ -1052,14 +1067,13 @@ export class ChatView extends LitElement {
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>
         <summary>${part.isError ? "✖" : "✓"} ${part.toolName} result</summary>
-        ${this.renderFormattedText(part.text, message, "tool-result")}
+        ${this.renderFormattedText(part.text, intentKey)}
       </details>
     `;
     return null;
   }
 
-  private renderFormattedText(text: string, message: ChatLine | undefined, part: string) {
-    const identity = message?.transcriptIndex === undefined ? undefined : `${this.sessionId}:${String(message.transcriptIndex)}:${part}`;
+  private renderFormattedText(text: string, identity: string) {
     return html`<formatted-text class="part" .text=${text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${identity}></formatted-text>`;
   }
 

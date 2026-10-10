@@ -74,6 +74,17 @@ describe("updates plugin Chinese display text", () => {
     expect(rendered).toContain("class=\"primary\"");
   });
 
+  it("shows the checked release timestamp only when a remote check was performed", async () => {
+    const panel = (await activatePlugin()).contributions.workspacePanels?.[0];
+    const status = statusWithCommands();
+    status.release.checkedAt = "2026-09-30T10:00:00.000Z";
+    status.release.skipped = false;
+    const renderStatus = () => serializeTemplate(panel?.render(createWorkspacePanelContext({ state: { piWebStatus: status } })));
+    expect(renderStatus()).toContain("发布检查时间 2026-09-30T10:00:00.000Z");
+    status.release.skipped = true;
+    expect(renderStatus()).not.toContain("发布检查时间");
+  });
+
   it("does not throw when the clipboard API is unavailable", async () => {
     vi.stubGlobal("navigator", {});
     const activation = await activatePlugin();

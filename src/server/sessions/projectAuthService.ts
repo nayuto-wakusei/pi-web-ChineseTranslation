@@ -6,6 +6,8 @@ import { getAgentDir, type ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { piWebDataDir } from "../../config.js";
 import type { Project } from "../types.js";
 import { AuthService, createModelRuntimeForAgentDir, type AuthChange } from "./authService.js";
+import { bootstrapAndFreezeGlobalExtensionProviders, type GlobalProviderBootstrapLogger } from "./globalProviderPolicy.js";
+import { ModelCatalogRefresher, type ModelCatalogRefresherOptions } from "./modelCatalogRefresher.js";
 
 interface ProjectLister {
   list(): Promise<Project[]>;
@@ -21,6 +23,10 @@ export interface ProjectAuthServiceDependencies {
   dataDir?: string;
   globalAgentDir?: string;
   createModelRuntime?: (paths: ProjectAuthStoragePaths) => Promise<ModelRuntime>;
+  logger?: GlobalProviderBootstrapLogger;
+  offline?: boolean;
+  bootstrapProviders?: typeof bootstrapAndFreezeGlobalExtensionProviders;
+  createCatalogRefresher?: (options: ModelCatalogRefresherOptions) => Pick<ModelCatalogRefresher, "start" | "requestRefresh" | "dispose" | "isRefreshInFlight">;
 }
 
 export interface ProjectAuthStoragePaths {
@@ -30,6 +36,7 @@ export interface ProjectAuthStoragePaths {
 }
 
 type ProjectAuthChangeListener = (change: AuthChange) => void;
+const noopLogger: GlobalProviderBootstrapLogger = { error() { /* no-op */ }, info() { /* no-op */ }, warn() { /* no-op */ } };
 
 /**
  * Owns the normal-mode auth/model registries that are scoped to registered
@@ -41,8 +48,10 @@ export class ProjectAuthService {
   private readonly initializations = new Map<string, Promise<AuthService>>();
   private readonly subscriptions = new Map<string, () => void>();
   private readonly listeners = new Set<ProjectAuthChangeListener>();
+  private readonly refreshers = new Map<string, Pick<ModelCatalogRefresher, "start" | "requestRefresh" | "dispose" | "isRefreshInFlight">>();
   private readonly dataDir: string;
   private readonly globalAgentDir: string;
+  private disposed = false;
 
   constructor(private readonly deps: ProjectAuthServiceDependencies) {
     this.dataDir = deps.dataDir ?? piWebDataDir();
@@ -57,6 +66,7 @@ export class ProjectAuthService {
   }
 
   async forProject(projectId: string): Promise<AuthService> {
+    if (this.disposed) throw new Error("Project auth service is disposed");
     const project = (await this.deps.projects.list()).find((candidate) => candidate.id === projectId);
     if (project === undefined) throw new Error("Project not found");
     return this.forProjectRecord(project);
@@ -82,9 +92,13 @@ export class ProjectAuthService {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     const pending = [...this.initializations.values()];
     this.initializations.clear();
     await Promise.allSettled(pending);
+    for (const refresher of this.refreshers.values()) refresher.dispose();
+    this.refreshers.clear();
     for (const unsubscribe of this.subscriptions.values()) unsubscribe();
     this.subscriptions.clear();
     const services = [...this.services.values()];
@@ -94,6 +108,7 @@ export class ProjectAuthService {
   }
 
   private async forProjectRecord(project: Project): Promise<AuthService> {
+    if (this.disposed) throw new Error("Project auth service is disposed");
     const paths = projectAuthStoragePaths(this.dataDir, project.path);
     const existing = this.services.get(paths.directory);
     if (existing !== undefined) return existing;
@@ -102,12 +117,20 @@ export class ProjectAuthService {
 
     const initialization = (async () => {
       await initializeProjectAuthFiles(paths, this.globalAgentDir);
+      const modelRuntime = await (this.deps.createModelRuntime?.(paths) ?? createModelRuntimeForAgentDir(paths.directory));
+      const logger = this.deps.logger ?? noopLogger;
+      await (this.deps.bootstrapProviders ?? bootstrapAndFreezeGlobalExtensionProviders)(modelRuntime, this.globalAgentDir, logger);
+      if (this.disposed) throw new Error("Project auth service is disposed");
       const service = new AuthService({
-        modelRuntime: await (this.deps.createModelRuntime?.(paths)
-          ?? createModelRuntimeForAgentDir(paths.directory)),
+        modelRuntime,
+        logger,
       });
+      const refresher = (this.deps.createCatalogRefresher ?? ((options) => new ModelCatalogRefresher(options)))({ runtime: modelRuntime, logger, offline: this.deps.offline ?? false });
+      this.refreshers.set(paths.directory, refresher);
+      refresher.start();
       this.services.set(paths.directory, service);
       this.subscriptions.set(paths.directory, service.subscribe((change) => {
+        refresher.requestRefresh();
         for (const listener of this.listeners) listener(change);
       }));
       return service;
@@ -118,6 +141,10 @@ export class ProjectAuthService {
     } finally {
       if (this.initializations.get(paths.directory) === initialization) this.initializations.delete(paths.directory);
     }
+  }
+
+  isRefreshInFlight(): boolean {
+    return [...this.refreshers.values()].some((refresher) => refresher.isRefreshInFlight());
   }
 }
 

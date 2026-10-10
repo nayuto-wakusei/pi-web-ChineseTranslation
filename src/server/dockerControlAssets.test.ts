@@ -105,7 +105,7 @@ describe("Docker command assets", () => {
     expect(devCompose).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}");
     expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
     expect(devCompose).not.toContain("COMPOSE_PROJECT_NAME:");
-    expect(devCompose).toContain("curl -fsS http://127.0.0.1:8504/api/normal-auth/status");
+    expect(devCompose).toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/health");
     expect(devCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
@@ -169,7 +169,7 @@ describe("Docker command assets", () => {
     expect(web).toContain("depends_on:\n      data-init:\n        condition: service_completed_successfully");
     expect(web).not.toContain("depends_on:\n      sessiond:");
     // This gateway-owned endpoint works before sessiond starts, unlike daemon health.
-    expect(web).toContain("/api/normal-auth/status");
+    expect(web).toContain("/api/pi-web/health");
     const command = await readRepoFile("docker/pi-web-docker");
     expect(command).toMatch(/^#![^\r\n]*\n/u);
     expect(command).not.toContain("\r");

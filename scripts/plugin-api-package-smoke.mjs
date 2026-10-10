@@ -1,0 +1,297 @@
+import { cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import ts from "typescript";
+import { smokeInstalledCaptainsLog } from "./captains-log-package-smoke.mjs";
+
+const publicApiDeclarationPaths = [
+  "plugin-api.d.ts",
+  "server-plugin-api.d.ts",
+  "shared/pluginApiTypes.d.ts",
+];
+const expectedPackageDeclarationPaths = [
+  ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
+  "plugin-api.d.ts",
+  "server-plugin-api.d.ts",
+].sort();
+const minimalPluginPlatformReleaseFloor = "1.202609.1";
+const workspaceProviderExamplePiWebRange = `^${minimalPluginPlatformReleaseFloor}`;
+const pluginConsumerCompilerModes = [
+  {
+    name: "NodeNext",
+    options: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    },
+  },
+  {
+    name: "Bundler",
+    options: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+    },
+  },
+];
+
+export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRoot }) {
+  await smokeInstalledCaptainsLog({ packageRoot, fixtureRoot });
+  await assertPublicApiBaseline(packageRoot, repoRoot);
+  await assertInstalledDeclarationArtifacts(packageRoot);
+  await assertExampleCompatibilityFloor(packageRoot);
+
+  const consumerRoot = join(fixtureRoot, "plugin-api-consumers");
+  await cp(join(repoRoot, "test-fixtures", "plugin-api-consumers"), consumerRoot, { recursive: true });
+  await cp(join(packageRoot, "examples", "workspace-provider-plugin"), join(consumerRoot, "dual-entry"), { recursive: true });
+  await cp(join(packageRoot, "examples", "session-bridge-plugin"), join(consumerRoot, "session-bridge"), { recursive: true });
+  await Promise.all([
+    mkdir(join(consumerRoot, "node_modules", "@chainingintention"), { recursive: true }),
+    mkdir(join(consumerRoot, "node_modules", "@types"), { recursive: true }),
+    writeFile(join(consumerRoot, "package.json"), '{"private":true,"type":"module"}\n', "utf8"),
+  ]);
+  await Promise.all([
+    symlink(packageRoot, join(consumerRoot, "node_modules", "@chainingintention", "pi-web-cn"), "dir"),
+    symlink(join(repoRoot, "node_modules", "@earendil-works"), join(consumerRoot, "node_modules", "@earendil-works"), "dir"),
+    symlink(join(repoRoot, "node_modules", "@types", "node"), join(consumerRoot, "node_modules", "@types", "node"), "dir"),
+  ]);
+  await assertServerRuntimeApi(consumerRoot);
+
+  const browserPath = join(consumerRoot, "browser.ts");
+  const serverPath = join(consumerRoot, "server.ts");
+  const dualEntryPaths = [
+    join(consumerRoot, "dual-entry", "src", "browser", "index.ts"),
+    join(consumerRoot, "dual-entry", "src", "server.ts"),
+  ];
+
+  await buildSessionBridgeExample(join(consumerRoot, "session-bridge"), repoRoot);
+
+  for (const mode of pluginConsumerCompilerModes) {
+    assertPluginApiResolution(browserPath, mode.options, packageRoot);
+    assertStrictPluginConsumer("browser-only", [browserPath], mode, packageRoot, repoRoot, [
+      "dist/plugin-api.d.ts",
+      "dist/shared/pluginApiTypes.d.ts",
+    ]);
+    assertStrictPluginConsumer("server-only", [serverPath], mode, packageRoot, repoRoot, [
+      "dist/server-plugin-api.d.ts",
+      "dist/shared/pluginApiTypes.d.ts",
+    ]);
+    assertStrictPluginConsumer("session-bridge browser/backend", [
+      join(consumerRoot, "session-bridge", "src", "browser", "index.ts"),
+      join(consumerRoot, "session-bridge", "src", "server.ts"),
+    ], mode, packageRoot, repoRoot, [
+      "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/shared/pluginApiTypes.d.ts",
+    ], ["node"]);
+    assertStrictPluginConsumer("dual-entry example", dualEntryPaths, mode, packageRoot, repoRoot, [
+      "dist/plugin-api.d.ts",
+      "dist/server-plugin-api.d.ts",
+      "dist/shared/pluginApiTypes.d.ts",
+    ], ["node"]);
+  }
+}
+
+async function buildSessionBridgeExample(exampleRoot, repoRoot) {
+  const manifest = JSON.parse(await readFile(join(exampleRoot, "package.json"), "utf8"));
+  if (manifest.devDependencies?.["@chainingintention/pi-web-cn"] !== workspaceProviderExamplePiWebRange) {
+    throw new Error("Session bridge example must use the plugin platform release floor");
+  }
+  const configPath = join(exampleRoot, "tsconfig.json");
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (config.error) throw new Error(formatDiagnostics([config.error], repoRoot));
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, exampleRoot);
+  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const diagnostics = [...parsed.errors, ...ts.getPreEmitDiagnostics(program)];
+  if (diagnostics.length) throw new Error(formatDiagnostics(diagnostics, repoRoot));
+  const emitted = program.emit();
+  if (emitted.emitSkipped || emitted.diagnostics.length) throw new Error("Session bridge example build failed");
+  // Resolve the shipped manifest, not hardcoded output locations.
+  const entry = manifest.piWeb.plugins[0];
+  const server = await import(pathToFileURL(join(exampleRoot, entry.serverModule)).href);
+  const browser = await import(pathToFileURL(join(exampleRoot, entry.module)).href);
+  await readFile(join(exampleRoot, manifest.pi.extensions[0]), "utf8");
+  if (server.default.apiVersion !== 3 || browser.default.apiVersion !== 4
+    || server.default.requires.length !== 2 || entry.machineSpecific !== true) {
+    throw new Error("Session bridge example manifest/runtime entries are incompatible");
+  }
+}
+
+async function assertPublicApiBaseline(packageRoot, repoRoot) {
+  for (const declarationPath of publicApiDeclarationPaths) {
+    const [actual, baseline] = await Promise.all([
+      readFile(join(packageRoot, "dist", declarationPath), "utf8"),
+      readFile(join(repoRoot, "test-fixtures", "plugin-api-baseline", declarationPath), "utf8"),
+    ]);
+    if (normalizeLineEndings(actual) !== normalizeLineEndings(baseline)) {
+      throw new Error(`Installed public API declaration differs from its committed baseline; update it only for an intentional API change: ${declarationPath}`);
+    }
+  }
+}
+
+async function assertInstalledDeclarationArtifacts(packageRoot) {
+  const actualPaths = await packageDeclarationPaths(packageRoot);
+  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPackageDeclarationPaths)) {
+    throw new Error(`Installed package declaration artifacts differ from the explicit public API set; update the baseline only for an intentional API change.\nExpected: ${JSON.stringify(expectedPackageDeclarationPaths, null, 2)}\nReceived: ${JSON.stringify(actualPaths, null, 2)}`);
+  }
+}
+
+async function assertExampleCompatibilityFloor(packageRoot) {
+  const manifestPath = join(packageRoot, "examples", "workspace-provider-plugin", "package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const actualRange = manifest?.devDependencies?.["@chainingintention/pi-web-cn"];
+  if (actualRange !== workspaceProviderExamplePiWebRange) {
+    throw new Error(`Installed workspace-provider example must require @chainingintention/pi-web-cn ${workspaceProviderExamplePiWebRange}; received ${JSON.stringify(actualRange)}`);
+  }
+  const captainsLog = JSON.parse(await readFile(join(packageRoot, "dist", "pi-packages", "captains-log", "package.json"), "utf8"));
+  for (const field of ["devDependencies", "peerDependencies"]) {
+    if (captainsLog[field]?.["@chainingintention/pi-web-cn"] !== workspaceProviderExamplePiWebRange) {
+      throw new Error(`Installed Captain's Log ${field} must require @chainingintention/pi-web-cn ${workspaceProviderExamplePiWebRange}`);
+    }
+  }
+}
+
+async function assertServerRuntimeApi(consumerRoot) {
+  const fixturePath = join(consumerRoot, "server-runtime.mjs");
+  await writeFile(fixturePath, `
+    import {
+      PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+      PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
+      PI_WEB_HOST_WORKSPACES_CAPABILITY,
+    } from "@chainingintention/pi-web-cn/server-plugin-api";
+    export default [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY];
+  `, "utf8");
+  const serverApi = await import(pathToFileURL(fixturePath).href);
+  const [workspacesCapability, piSessionsCapability, sessionEventsCapability] = serverApi.default;
+  if (!Object.isFrozen(sessionEventsCapability) || sessionEventsCapability?.pluginId !== "pi-web.host"
+    || sessionEventsCapability?.id !== "pi-session-events" || sessionEventsCapability?.version !== 1
+    || typeof sessionEventsCapability?.parse !== "function") {
+    throw new Error("Installed server plugin API does not expose the exact pi-web.host/pi-session-events v1 token");
+  }
+  if (!Object.isFrozen(workspacesCapability)
+    || workspacesCapability?.pluginId !== "pi-web.host"
+    || workspacesCapability?.id !== "workspaces"
+    || workspacesCapability?.version !== 1
+    || typeof workspacesCapability?.parse !== "function") {
+    throw new Error("Installed server plugin API does not expose the exact pi-web.host/workspaces v1 token");
+  }
+  if (!Object.isFrozen(piSessionsCapability)
+    || piSessionsCapability?.pluginId !== "pi-web.host"
+    || piSessionsCapability?.id !== "pi-sessions"
+    || piSessionsCapability?.version !== 1
+    || typeof piSessionsCapability?.parse !== "function") {
+    throw new Error("Installed server plugin API does not expose the exact pi-web.host/pi-sessions v1 token");
+  }
+}
+
+async function packageDeclarationPaths(packageRoot) {
+  const declarationPaths = [];
+
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (directory === packageRoot && entry.name === "node_modules") continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path);
+      } else if (entry.isFile() && isDeclarationPath(entry.name)) {
+        declarationPaths.push(normalizePath(relative(packageRoot, path)));
+      }
+    }
+  }
+
+  await visit(packageRoot);
+  return declarationPaths.sort();
+}
+
+function isDeclarationPath(path) {
+  return path.endsWith(".d.ts") || path.endsWith(".d.mts") || path.endsWith(".d.cts");
+}
+
+function assertPluginApiResolution(consumerPath, compilerOptions, packageRoot) {
+  const expectedDeclarations = new Map([
+    ["@chainingintention/pi-web-cn/plugin-api", join(packageRoot, "dist", "plugin-api.d.ts")],
+    ["@chainingintention/pi-web-cn/server-plugin-api", join(packageRoot, "dist", "server-plugin-api.d.ts")],
+  ]);
+  for (const [specifier, expected] of expectedDeclarations) {
+    const resolved = ts.resolveModuleName(specifier, consumerPath, compilerOptions, ts.sys).resolvedModule;
+    if (resolved === undefined || canonicalPath(resolved.resolvedFileName) !== canonicalPath(expected)) {
+      throw new Error(`${specifier} did not resolve to the installed public declaration under the consumer compiler mode`);
+    }
+  }
+
+  for (const specifier of [
+    "@chainingintention/pi-web-cn/plugin-api/unstable",
+    "@chainingintention/pi-web-cn/dist/plugin-api",
+    "@chainingintention/pi-web-cn/dist/shared/pluginApiTypes",
+    "@chainingintention/pi-web-cn/package.json",
+  ]) {
+    if (ts.resolveModuleName(specifier, consumerPath, compilerOptions, ts.sys).resolvedModule !== undefined) {
+      throw new Error(`Unsupported package path resolved from the installed package: ${specifier}`);
+    }
+  }
+}
+
+function assertStrictPluginConsumer(label, rootNames, mode, packageRoot, repoRoot, expectedPackageDeclarations, types = []) {
+  const program = ts.createProgram({
+    rootNames,
+    options: {
+      ...mode.options,
+      strict: true,
+      exactOptionalPropertyTypes: true,
+      noUncheckedIndexedAccess: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types,
+      verbatimModuleSyntax: true,
+    },
+  });
+  const diagnostics = ts.getPreEmitDiagnostics(program);
+  if (diagnostics.length > 0) {
+    throw new Error(`${label} consumer failed under ${mode.name}:\n${formatDiagnostics(diagnostics, repoRoot)}`);
+  }
+
+  const realPackageRoot = canonicalPath(packageRoot);
+  const sourcePaths = program.getSourceFiles().map((sourceFile) => canonicalPath(sourceFile.fileName));
+  const packageDeclarations = sourcePaths
+    .map((sourcePath) => normalizePath(relative(realPackageRoot, sourcePath)))
+    .filter((sourcePath) => sourcePath.startsWith("dist/") && sourcePath.endsWith(".d.ts"))
+    .sort();
+  const expectedDeclarations = [...expectedPackageDeclarations].sort();
+  if (JSON.stringify(packageDeclarations) !== JSON.stringify(expectedDeclarations)) {
+    throw new Error(`${label} consumer loaded an unexpected installed declaration graph under ${mode.name}: ${JSON.stringify(packageDeclarations)}`);
+  }
+
+  const unrelatedDependencyMarkers = [
+    "/node_modules/@earendil-works/pi-",
+    "/node_modules/@anthropic-ai/",
+    "/node_modules/@google/",
+    "/node_modules/google-auth-library/",
+    "/node_modules/google-logging-utils/",
+    "/node_modules/@modelcontextprotocol/",
+  ];
+  const normalizedSourcePaths = sourcePaths.map(normalizePath);
+  const unrelatedSources = normalizedSourcePaths.filter((sourcePath) =>
+    unrelatedDependencyMarkers.some((marker) => sourcePath.includes(marker))
+  );
+  if (unrelatedSources.length > 0) {
+    throw new Error(`${label} consumer loaded unrelated dependency declarations under ${mode.name}: ${JSON.stringify(unrelatedSources)}`);
+  }
+}
+
+function canonicalPath(path) {
+  return ts.sys.realpath?.(path) ?? resolve(path);
+}
+
+function normalizePath(path) {
+  return path.split(sep).join("/");
+}
+
+function normalizeLineEndings(contents) {
+  return contents.replaceAll("\r\n", "\n");
+}
+
+function formatDiagnostics(diagnostics, repoRoot) {
+  return ts.formatDiagnostics(diagnostics, {
+    getCanonicalFileName: (fileName) => fileName,
+    getCurrentDirectory: () => repoRoot,
+    getNewLine: () => "\n",
+  });
+}

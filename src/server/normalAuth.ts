@@ -270,6 +270,7 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
 
 function requiresNormalAuth(request: FastifyRequest): boolean {
   const pathname = new URL(request.url, "http://pi-web.local").pathname;
+  if (pathname === "/api/pi-web/health" && (request.method === "GET" || request.method === "HEAD")) return false;
   return pathname === "/pi-web-plugins/manifest.json"
     || (pathname.startsWith("/api/") && !pathname.startsWith("/api/normal-auth/"));
 }

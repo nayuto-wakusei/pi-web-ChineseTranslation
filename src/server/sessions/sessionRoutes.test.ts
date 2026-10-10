@@ -923,6 +923,24 @@ describe("session routes", () => {
     }
   });
 
+  it("keeps the originating management identity on warning dismissals", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const hub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, hub);
+    const context: ManagementEmbedContext = { user: { id: "managed-user", rootUserId: "root", roles: [], permissions: [] }, projects: [{ id: "managed", name: "Managed" }] };
+    try {
+      const cwd = resolve("/managed");
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/warnings/dismiss", headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) }, payload: { cwd, dismissId: "warning" } });
+      expect(response.statusCode).toBe(200);
+      expect(routeService.dismissWarningCalls).toEqual([{ lookup: { id: "session-1", cwd }, dismissId: "warning", managementContext: context }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("rejects a warning dismiss without a dismissId", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -1112,7 +1130,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly calls: unknown[] = [];
   readonly reloadCalls: SessionRouteLookup[] = [];
   readonly clearQueueCalls: SessionRouteLookup[] = [];
-  readonly dismissWarningCalls: { lookup: SessionRouteLookup; dismissId: string }[] = [];
+  readonly dismissWarningCalls: { lookup: SessionRouteLookup; dismissId: string; managementContext?: ManagementEmbedContext }[] = [];
   readonly notificationInboxCalls: SessionRef[] = [];
   readonly acknowledgeUnreadCalls: { sessionId: string; request: SessionUnreadAcknowledgeRequest }[] = [];
   readonly unreadCatalogResponse: SessionUnreadCatalogSnapshot = { catalogId: "catalog-test", catalogRevision: 1, sessions: [] };
@@ -1252,8 +1270,8 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve({ id: "session-1", path: "/tmp/session-1.jsonl", cwd, created: "2026-06-25T00:00:00.000Z", modified: "2026-06-25T00:00:00.000Z", messageCount: 0, firstMessage: "" });
   }
 
-  dismissWarning(lookup: SessionRouteLookup, dismissId: string): Promise<SessionStatus> {
-    this.dismissWarningCalls.push({ lookup, dismissId });
+  dismissWarning(lookup: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<SessionStatus> {
+    this.dismissWarningCalls.push({ lookup, dismissId, ...(managementContext === undefined ? {} : { managementContext }) });
     if (this.dismissWarningError !== undefined) return Promise.reject(this.dismissWarningError);
     return Promise.resolve({
       sessionId: sessionIdFromLookup(lookup),

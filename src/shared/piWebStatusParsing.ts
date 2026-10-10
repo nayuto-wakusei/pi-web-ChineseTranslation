@@ -1,4 +1,4 @@
-import type { PiWebComponentStatus, PiWebInstallationInfo, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebVersionResponse } from "./apiTypes.js";
+import type { PiWebComponentStatus, PiWebDeprecatedAgentInput, PiWebInstallationInfo, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebVersionResponse } from "./apiTypes.js";
 import { parseActiveAgentProfileDescriptor } from "./activeAgentProfile.js";
 import { parseKnownPiWebCapabilities } from "./capabilities.js";
 
@@ -37,6 +37,7 @@ export function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponen
   const capabilities = parseKnownPiWebCapabilities(value["capabilities"]);
   const activeAgentProfileValue = value["activeAgentProfile"];
   const activeAgentProfile = activeAgentProfileValue === undefined ? undefined : parseActiveAgentProfileDescriptor(activeAgentProfileValue);
+  const deprecatedAgentInputs = parseDeprecatedAgentInputs(value["deprecatedAgentInputs"]);
   const error = value["error"];
   if (component !== "web" && component !== "sessiond") return undefined;
   if (typeof label !== "string" || label === "" || typeof available !== "boolean" || capabilities === undefined) return undefined;
@@ -49,8 +50,26 @@ export function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponen
     available,
     capabilities,
     ...(activeAgentProfile === undefined ? {} : { activeAgentProfile }),
+    ...(deprecatedAgentInputs === undefined ? {} : { deprecatedAgentInputs }),
     ...(typeof error === "string" ? { error } : {}),
   };
+}
+
+/** Advisory entries are filtered without invalidating a cross-version runtime. */
+export function parseDeprecatedAgentInputs(value: unknown): PiWebDeprecatedAgentInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const inputs: PiWebDeprecatedAgentInput[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const source = entry["source"];
+    const name = entry["name"];
+    const replacement = entry["replacement"];
+    if (source !== "environment" && source !== "config") continue;
+    if (typeof name !== "string" || name === "") continue;
+    if (replacement !== undefined && (typeof replacement !== "string" || replacement === "")) continue;
+    inputs.push({ source, name, ...(replacement === undefined ? {} : { replacement }) });
+  }
+  return inputs;
 }
 
 export function parsePiWebComponentStatus(value: unknown): PiWebComponentStatus | undefined {

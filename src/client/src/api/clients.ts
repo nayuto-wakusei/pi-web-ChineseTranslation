@@ -70,6 +70,9 @@ import {
   parseWorkspacePathOperationResponse,
 } from "./parsers";
 import { machineGitDiffPath, messagePath, workspaceFileDownloadUrl } from "./urls";
+import { currentApiScope } from "./managementEmbed";
+import { parseWorkspaceProviderResolution } from "./parsers";
+import type { WorkspaceProviderResolution } from "../../../shared/apiTypes";
 
 const machinePrefix = (machineId = "local") => `api/machines/${encodeURIComponent(machineId)}`;
 
@@ -118,7 +121,7 @@ function sessionBody(session: SessionRef, fields: Record<string, unknown> = {}):
 
 function sessionBulkMutationBody(sessions: readonly SessionRef[], scopeProjectId?: string): string {
   const body: SessionBulkMutationRequest = {
-    sessions: [...sessions] satisfies SessionBulkMutationRef[],
+    sessions: sessions.map(({ id, cwd }): SessionBulkMutationRef => ({ id, cwd })),
     ...(scopeProjectId === undefined ? {} : { scopeProjectId }),
   };
   return JSON.stringify(body);
@@ -230,8 +233,22 @@ function writeWorkspaceFile(projectId: string, workspaceId: string, path: string
   );
 }
 
+function workspaceResolution(projectId: string, machineId = "local", options?: { signal?: AbortSignal | undefined }): Promise<WorkspaceProviderResolution> {
+  return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces`, (value) => {
+    const resolution = parseWorkspaceProviderResolution(value);
+    if (resolution.projectId !== projectId) throw new Error("Workspace resolution project does not match request");
+    return resolution;
+  }, options?.signal === undefined ? undefined : { signal: options.signal });
+}
+
 export const workspacesApi = {
-  workspaces: (projectId: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces`, arrayOf(parseWorkspace), options?.signal === undefined ? undefined : { signal: options.signal }),
+  workspaceResolution,
+  workspaces: async (projectId: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => {
+    if (currentApiScope() === "management") {
+      return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces`, arrayOf(parseWorkspace), options?.signal === undefined ? undefined : { signal: options.signal });
+    }
+    return [...(await workspaceResolution(projectId, machineId, options)).workspaces];
+  },
   deleteWorkspace: (projectId: string, workspaceId: string, precondition: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE", body: JSON.stringify({ precondition }), headers: { "Content-Type": "application/json" } }),
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse, options),
   workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") => {

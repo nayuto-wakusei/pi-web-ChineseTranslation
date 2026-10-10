@@ -46,7 +46,14 @@ export interface MachineHealth {
   error?: string;
 }
 
+export interface PiWebDeprecatedAgentInput {
+  readonly source: "environment" | "config";
+  readonly name: string;
+  readonly replacement?: string;
+}
+
 export interface MachineRuntime {
+  deprecatedAgentInputs?: readonly PiWebDeprecatedAgentInput[];
   machineId: string;
   ok: boolean;
   checkedAt: string;
@@ -345,7 +352,7 @@ export interface WorkspaceEffectiveConfig {
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject { [key: string]: JsonValue }
-export interface WorkspaceProviderCapabilities { request: boolean; remove: boolean }
+export interface WorkspaceProviderCapabilities { request?: boolean; remove: boolean }
 export interface WorkspaceProviderMetadata {
   pluginId: string;
   capabilities: WorkspaceProviderCapabilities;
@@ -1390,14 +1397,15 @@ export interface PiWebComponentStatus {
 
 /** Secret-free identity of the Pi-compatible CLI/state profile fixed for one sessiond lifetime. */
 export interface ActiveAgentProfileDescriptor {
-  readonly schemaVersion: 1;
-  readonly revision: string;
-  readonly command: string;
+  readonly schemaVersion: 1 | 2;
+  readonly revision?: string;
+  readonly command?: string;
   readonly dir: string;
-  readonly sessionDirEnvKeys: readonly string[];
+  readonly sessionDirEnvKeys?: readonly string[];
 }
 
 export interface PiWebRuntimeComponent {
+  deprecatedAgentInputs?: readonly PiWebDeprecatedAgentInput[];
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;

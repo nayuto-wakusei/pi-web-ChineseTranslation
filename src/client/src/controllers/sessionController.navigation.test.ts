@@ -11,6 +11,18 @@ const expected: NavigationSelection = { machineId: "local", projectId: project.i
 const fresh = (isCurrent: () => boolean): NavigationFreshness => ({ generation: 1, scope: ["machine", "project", "workspace", "session"], isCurrent });
 
 describe("SessionController navigation ownership", () => {
+  it("clears the previous session tree unless the caller preserves it explicitly", async () => {
+    const tree = { nodes: [], activeLeafId: null, activePathIds: [] };
+    const fixture = createSessionControllerTestFixture({
+      initialState: { ...selectedState(), treeDialog: tree },
+      api: { messages: () => Promise.resolve(emptyPage), status: () => Promise.resolve(status(replacementSession.id)), streamSnapshot: () => Promise.resolve({ seq: 1, partial: null }) },
+    });
+    await fixture.controller.selectSession(replacementSession, { preserveTreeDialog: true });
+    expect(fixture.state.treeDialog).toBe(tree);
+    await fixture.controller.selectSession(oldSession);
+    expect(fixture.state.treeDialog).toBeUndefined();
+    fixture.controller.dispose();
+  });
   it("does not begin a retired selection", async () => {
     const messages = vi.fn();
     const fixture = createSessionControllerTestFixture({ api: { messages } });

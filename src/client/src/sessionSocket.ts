@@ -1,14 +1,11 @@
 import { realtimeEvents, sessionEvents } from "./api";
-import { parseModelScopeChangedEvent, parseServerNoticeEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent } from "./api/parsers";
-import { parseMachineStatusSnapshot } from "../../shared/machineStatus";
-import type { GlobalSessionEvent, RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
+import { parseRealtimeStreamEvent, parseSessionStreamEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent, parseTerminalInfo, parseWorkspaceActivity } from "./api/parsers";
+import type { RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 import type { SocketScope } from "./api/sockets";
 
 export type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes";
 
 export type BrowserRealtimeEvent = Exclude<RealtimeEvent, { type: "notifications.summary" }>;
-type BrowserGlobalSessionEvent = Exclude<GlobalSessionEvent, { type: "notifications.summary" }>;
-type NonGlobalBrowserRealtimeEvent = Exclude<BrowserRealtimeEvent, BrowserGlobalSessionEvent>;
 
 export class SessionSocket {
   private socket: WebSocket | undefined;
@@ -169,35 +166,35 @@ export function parseSessionSocketEvent(event: unknown): SessionUiEvent | undefi
   // behalf, so they are validated rather than accepted on their type alone.
   if (type === "dialog.opened") return safelyParseValidatedEvent(() => parseSessionDialogOpenedEvent(event));
   if (type === "dialog.closed") return safelyParseValidatedEvent(() => parseSessionDialogClosedEvent(event));
-  return isLegacySessionUiEvent(event) ? event : undefined;
+  const parsed = safelyParseValidatedEvent(() => parseSessionStreamEvent(event));
+  return parsed === undefined ? undefined : withTransportSeq(parsed, event);
 }
 
 export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent | undefined {
-  if (eventType(event) === "machine.status") {
-    if (typeof event !== "object" || event === null || !("status" in event)) return undefined;
-    const status = parseMachineStatusSnapshot(event.status);
-    return status === undefined ? undefined : { type: "machine.status", status };
-  }
   if (eventType(event) === "sessions.unread") return safelyParseValidatedEvent(() => parseSessionUnreadEvent(event));
-  if (eventType(event) === "notices.updated") return safelyParseValidatedEvent(() => parseServerNoticeEvent(event));
-  if (eventType(event) === "models.changed") return safelyParseValidatedEvent(() => parseModelScopeChangedEvent(event));
   if (eventType(event) === "session.startup") return safelyParseValidatedEvent(() => parseSessionStartupProgressEvent(event));
-  if (isLegacyGlobalSessionEvent(event) || isLegacyRealtimeEvent(event)) return event;
-  return undefined;
+  if (typeof event === "object" && event !== null) {
+    if (eventType(event) === "terminal.created" || eventType(event) === "terminal.exited") {
+      if (!("terminal" in event)) return undefined;
+      const terminal = safelyParseValidatedEvent(() => parseTerminalInfo(event.terminal));
+      return terminal === undefined ? undefined : { type: eventType(event) === "terminal.created" ? "terminal.created" : "terminal.exited", terminal };
+    }
+    if (eventType(event) === "terminal.closed") {
+      if (!("terminalId" in event) || typeof event.terminalId !== "string" || !("cwd" in event) || typeof event.cwd !== "string") return undefined;
+      return { type: "terminal.closed", terminalId: event.terminalId, cwd: event.cwd };
+    }
+    if (eventType(event) === "workspace.activity") {
+      if (!("activity" in event)) return undefined;
+      const activity = safelyParseValidatedEvent(() => parseWorkspaceActivity(event.activity));
+      return activity === undefined ? undefined : { type: "workspace.activity", activity };
+    }
+  }
+  return safelyParseValidatedEvent(() => parseRealtimeStreamEvent(event));
 }
 
-function isLegacySessionUiEvent(event: unknown): event is SessionUiEvent {
-  return ["message.append", "assistant.delta", "assistant.thinking.delta", "tool.start", "tool.update", "tool.end", "shell.start", "shell.chunk", "shell.end", "agent.start", "agent.end", "message.end", "status.update", "activity.update", "command.output", "session.error", "session.name", "session.created", "pi.event"].includes(eventType(event));
-}
-
-function isLegacyGlobalSessionEvent(event: unknown): event is BrowserGlobalSessionEvent {
-  const type = eventType(event);
-  return type === "status.update" || type === "activity.update" || type === "session.name" || type === "session.created";
-}
-
-function isLegacyRealtimeEvent(event: unknown): event is NonGlobalBrowserRealtimeEvent {
-  const type = eventType(event);
-  return type === "terminal.created" || type === "terminal.exited" || type === "terminal.closed" || type === "workspace.activity";
+function withTransportSeq(event: SessionUiEvent, raw: unknown): SessionUiEvent {
+  if (typeof raw !== "object" || raw === null || !("seq" in raw)) return event;
+  return typeof raw.seq === "number" ? { ...event, seq: raw.seq } : event;
 }
 
 function safelyParseNotificationEvent<T>(parse: () => T): T | undefined {

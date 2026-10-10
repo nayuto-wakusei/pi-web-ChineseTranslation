@@ -5,7 +5,7 @@ import { defineRelaysPanelElement } from "./relaysPanelElement.js";
 const plugin: PiWebPlugin = {
   apiVersion: 4,
   name: "中继",
-  activate: ({ pluginId, html, svg }) => {
+  activate: ({ runtimePluginId, html, svg }) => {
     defineRelaysPanelElement();
 
     return {
@@ -19,7 +19,7 @@ const plugin: PiWebPlugin = {
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
-              context.selectWorkspaceTool(`${pluginId}:workspace.relays`);
+              context.selectWorkspaceTool(`${runtimePluginId}:workspace.relays`);
             },
           },
         ],

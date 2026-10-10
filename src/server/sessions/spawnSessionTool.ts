@@ -39,7 +39,7 @@ const SpawnSessionParams = Type.Object({
     description: "新会话的工作目录。必须是与当前会话同一项目下的工作区（worktree 或根目录）。默认使用当前会话的工作目录。",
   })),
   model: Type.Optional(Type.String({
-    description: '新会话使用的模型，必须是精确的“provider/model-id”，例如“anthropic/claude-sonnet-4-5”。当用户在请求中以 #provider/model-id 引用模型时，将该值传入这里。未知值会被拒绝；省略时继承当前会话的模型。',
+    description: '新会话的模型覆盖，必须是精确的“provider/model-id”。仅在明确要求使用指定模型或选择合适模型时填写。用户以 #provider/model-id 引用模型时传入该值；否则省略时继承当前会话模型。未知值会被拒绝。',
   })),
 });
 
@@ -53,8 +53,8 @@ export function createSpawnSessionToolDefinition(spawningCwd: string, deps: Spaw
   return defineTool<typeof SpawnSessionParams, SpawnSessionToolDetails>({
     name: "spawn_session",
     label: "派生会话",
-    description: "启动一个新的独立 pi-web 会话，并发送初始提示。可用于派遣新的代理继续工作或执行计划。新会话会自行运行，人类可以打开并交互；你不会收到它的输出。",
-    promptSnippet: "spawn_session：使用第一条提示启动新的独立会话",
+    description: "启动完全独立的会话，其记录与结果无法在这里获取。仅在用户或当前工作流明确要求单独会话时使用。",
+    promptSnippet: "spawn_session：独立会话；此处无法获取结果；仅用于明确请求",
     parameters: SpawnSessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       // Failures throw: the agent loop turns the thrown message into an error

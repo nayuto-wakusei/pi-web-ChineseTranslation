@@ -11,8 +11,8 @@ it("bundles Mermaid and DOMPurify as one package-local sandbox engine", async ()
     build: expect.objectContaining({
       outDir: "output/mermaid",
       emptyOutDir: false,
-      lib: expect.objectContaining({ entry: resolve("source/mermaid/mermaidRuntime.ts"), formats: ["iife"] }),
+      lib: expect.objectContaining({ entry: resolve("source/mermaid/mermaid-engine.ts"), formats: ["iife"] }),
     }),
   }));
-  expect(build.mock.calls[0][0].build.lib.fileName()).toBe("mermaidRuntime.js");
+  expect(build.mock.calls[0][0].build.lib.fileName()).toBe("mermaid-engine.js");
 });

@@ -123,14 +123,6 @@ export interface TerminalCommandRunHandle {
   completed: Promise<TerminalCommandRun>;
 }
 
-export interface TerminalCommandRunFilter {
-  projectId?: string;
-  workspaceId?: string;
-  terminalId?: string;
-  statuses?: TerminalCommandRunStatus[];
-  metadata?: Record<string, string>;
-}
-
 export type PiWebServiceComponent = "web" | "sessiond";
 export type PiWebStatusSeverity = "info" | "warning" | "error";
 export type PiWebInstallationKind = "pi-package" | "npm-global" | "local" | "docker" | "unknown";

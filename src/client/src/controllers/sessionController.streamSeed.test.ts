@@ -253,7 +253,7 @@ describe("SessionController stream seed + watermark reconciliation", () => {
     expect(updatedToolLine?.parts[0]).toMatchObject({ resultText: "fresh output" });
   });
 
-  it("loads the transcript and streams live even when the snapshot fetch fails (older/un-restarted peer)", async () => {
+  it("rejects a join when the authoritative stream snapshot is unavailable", async () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
     const api: typeof defaultApi = {
@@ -272,20 +272,13 @@ describe("SessionController stream seed + watermark reconciliation", () => {
       { api, socket },
     );
 
-    await controller.selectSession(oldSession, { updateUrl: false });
-
-    // The core transcript still loads (no error banner, no dropped history).
-    expect(state.error).toBeFalsy();
-    expect(state.messages).toEqual([{ role: "user", parts: [{ type: "text", text: "question" }], transcriptIndex: 0 }]);
-
-    // With a fallback watermark of 0, fresh live deltas still stream in.
+    await expect(controller.selectSession(oldSession, { updateUrl: false, propagateRefreshError: true })).rejects.toThrow("Not Found");
+    expect(state.messages).toEqual([]);
+    expect(Object.values(state.browserErrors).some((error) => error.message.includes("Not Found"))).toBe(true);
     socket.emit({ type: "assistant.delta", text: "live answer", seq: 1 });
     runPendingAnimationFrames();
-
-    expect(state.messages).toEqual([
-      { role: "user", parts: [{ type: "text", text: "question" }], transcriptIndex: 0 },
-      { role: "assistant", parts: [{ type: "text", text: "live answer" }] },
-    ]);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "live answer" }] }]);
+    controller.dispose();
   });
 
   it("does not seed a partial and does not filter events for an idle join", async () => {

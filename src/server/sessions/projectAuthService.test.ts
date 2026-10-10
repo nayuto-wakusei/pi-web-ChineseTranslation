@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Project } from "../types.js";
 import { ProjectAuthService, projectAuthStoragePaths } from "./projectAuthService.js";
 import { WorkspaceProviderRegistry } from "../workspaces/workspaceProviderRegistry.js";
@@ -15,6 +15,84 @@ afterEach(async () => {
 });
 
 describe("ProjectAuthService", () => {
+  it("bootstraps the real global provider baseline separately for each project and freezes later mutations", async () => {
+    const root = await tempRoot();
+    const agentDir = join(root, "global");
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(join(agentDir, "extensions", "provider.js"), 'export default function(pi) { pi.registerProvider("project-baseline-fixture", { api: "openai-completions", baseUrl: "https://baseline.invalid", apiKey: "test-baseline-secret", models: [] }); }');
+    const owners = [project("a", join(root, "a")), project("b", join(root, "b"))];
+    const logEntries: Record<string, unknown>[] = [];
+    const record = (details: Record<string, unknown>) => { logEntries.push(details); };
+    const auth = new ProjectAuthService({ projects: { list: () => Promise.resolve(owners) }, workspaces: { list: (owner) => Promise.resolve([{ path: owner.path }]) }, dataDir: join(root, "data"), globalAgentDir: agentDir, createModelRuntime: offlineModelRuntime, offline: true, logger: { info: record, warn: record, error: record } });
+    try {
+      const first = await auth.forProject("a");
+      const second = await auth.forProject("b");
+      expect(first.modelRuntime).not.toBe(second.modelRuntime);
+      expect(first.modelRuntime.getRegisteredProviderConfig("project-baseline-fixture")?.baseUrl).toBe("https://baseline.invalid");
+      first.modelRuntime.registerProvider("project-baseline-fixture", { baseUrl: "https://project-mutation.invalid" });
+      expect(first.modelRuntime.getRegisteredProviderConfig("project-baseline-fixture")?.baseUrl).toBe("https://baseline.invalid");
+      expect(second.modelRuntime.getRegisteredProviderConfig("project-baseline-fixture")?.baseUrl).toBe("https://baseline.invalid");
+      expect(JSON.stringify(logEntries)).not.toContain("test-baseline-secret");
+    } finally {
+      await auth.dispose();
+    }
+  });
+
+  it("does not publish a registry or restart catalog timers when bootstrap finishes after disposal", async () => {
+    const root = await tempRoot();
+    const owner = project("a", join(root, "a"));
+    let releaseBootstrap: (() => void) | undefined;
+    const bootstrap = new Promise<void>((resolve) => { releaseBootstrap = resolve; });
+    let startedBootstrap: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { startedBootstrap = resolve; });
+    const createCatalogRefresher = vi.fn(() => ({ start() { /* no-op */ }, requestRefresh() { /* no-op */ }, dispose() { /* no-op */ }, isRefreshInFlight: () => false }));
+    const auth = new ProjectAuthService({ projects: { list: () => Promise.resolve([owner]) }, workspaces: { list: () => Promise.resolve([{ path: owner.path }]) }, dataDir: join(root, "data"), globalAgentDir: join(root, "global"), createModelRuntime: offlineModelRuntime, bootstrapProviders: () => { startedBootstrap?.(); return bootstrap; }, createCatalogRefresher });
+    const pending = auth.forProject("a");
+    await started;
+    const rejected = expect(pending).rejects.toThrow("disposed");
+    const disposed = auth.dispose();
+    releaseBootstrap?.();
+    await rejected;
+    await disposed;
+    expect(createCatalogRefresher).not.toHaveBeenCalled();
+  });
+  it("owns one provider baseline and catalog refresher per project registry", async () => {
+    const root = await tempRoot();
+    const owners = [project("a", join(root, "a")), project("b", join(root, "b"))];
+    const bootstrapProviders = vi.fn((runtime: ModelRuntime) => { void runtime; return Promise.resolve(); });
+    const refreshers = owners.map(() => ({ start: vi.fn(), requestRefresh: vi.fn(), dispose: vi.fn(), isRefreshInFlight: () => false }));
+    let refresherIndex = 0;
+    const auth = new ProjectAuthService({
+      projects: { list: () => Promise.resolve(owners) }, workspaces: { list: (owner) => Promise.resolve([{ path: owner.path }]) },
+      dataDir: join(root, "data"), globalAgentDir: join(root, "global"), createModelRuntime: offlineModelRuntime,
+      bootstrapProviders,
+      createCatalogRefresher: () => {
+        const refresher = refreshers[refresherIndex++];
+        if (refresher === undefined) throw new Error("unexpected registry");
+        return refresher;
+      },
+    });
+    try {
+      const first = await auth.forProject("a");
+      const owner = owners[0];
+      if (owner === undefined) throw new Error("Expected project fixture");
+      expect(await auth.forCwd(owner.path)).toBe(first);
+      const second = await auth.forProject("b");
+      expect(bootstrapProviders.mock.calls).toHaveLength(2);
+      expect(bootstrapProviders.mock.calls[0]?.[0]).toBe(first.modelRuntime);
+      expect(bootstrapProviders.mock.calls[1]?.[0]).toBe(second.modelRuntime);
+      expect(refreshers[0]?.start).toHaveBeenCalledOnce();
+      expect(refreshers[1]?.start).toHaveBeenCalledOnce();
+      await first.saveApiKey("anthropic", "project-only-test-key");
+      expect(refreshers[0]?.requestRefresh).toHaveBeenCalledOnce();
+      expect(refreshers[1]?.requestRefresh).not.toHaveBeenCalled();
+    } finally {
+      await auth.dispose();
+    }
+    expect(refreshers[0]?.dispose).toHaveBeenCalledOnce();
+    expect(refreshers[1]?.dispose).toHaveBeenCalledOnce();
+    await expect(auth.forProject("a")).rejects.toThrow("disposed");
+  });
   it("resolves provider-owned workspaces consistently for auth and spawned sessions", async () => {
     const root = await tempRoot();
     const owner = project("provider-project", join(root, "project"));

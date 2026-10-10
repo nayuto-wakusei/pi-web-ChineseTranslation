@@ -19,11 +19,13 @@ export function agentProfileActivationState(
   activeProfile: ActiveAgentProfileDescriptor | undefined,
 ): AgentProfileActivationState {
   const desiredProfile = config?.effectiveConfig.agent;
-  if (desiredProfile?.command === undefined || desiredProfile.dir === undefined || activeProfile === undefined) return "unavailable";
+  if (desiredProfile?.dir === undefined || activeProfile === undefined) return "unavailable";
+  if (activeProfile.schemaVersion === 2) return desiredProfile.dir === activeProfile.dir ? "active" : "restart-required";
+  if (desiredProfile.command === undefined) return "unavailable";
   const desiredSessionDirEnvKeys = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"];
   return desiredProfile.command === activeProfile.command
     && desiredProfile.dir === activeProfile.dir
-    && sameStrings(activeProfile.sessionDirEnvKeys, desiredSessionDirEnvKeys)
+    && sameStrings(activeProfile.sessionDirEnvKeys ?? [], desiredSessionDirEnvKeys)
     ? "active"
     : "restart-required";
 }

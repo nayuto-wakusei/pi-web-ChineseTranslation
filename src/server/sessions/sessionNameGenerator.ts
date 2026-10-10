@@ -5,7 +5,7 @@ const SESSION_NAME_TIMEOUT_MS = 10_000;
 const SESSION_NAME_MAX_INPUT_CHARS = 4_000;
 const SESSION_NAME_MAX_LENGTH = 60;
 const FALLBACK_SESSION_NAME_MAX_WORDS = 6;
-const RELAY_HANDOFF_FIRST_LINE = /^Relay\s+"([^"\n]+)"\s+leg\s+(\d+)\s+begins now\.?\s*(?:\n|$)/;
+const RELAY_HANDOFF_FIRST_LINE = /^Relay\s+"([^"\n]+)"\s+leg\s+(\S+)\s+begins now\.?\s*(?:\n|$)/;
 
 export function deterministicSessionName(firstMessage: unknown): string | undefined {
   if (typeof firstMessage !== "string") return undefined;

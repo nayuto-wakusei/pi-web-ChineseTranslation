@@ -1,4 +1,4 @@
-// Bundled as an IIFE and executed only in an opaque-origin sandbox frame.
+// Built as one IIFE, executed only inside an opaque-origin sandbox frame.
 import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 
@@ -26,10 +26,11 @@ parent.postMessage({ type: "mermaid-ready" }, "*");
 async function draw(text: string): Promise<void> {
   try {
     const { svg } = await mermaid.render("diagram", text);
-    document.body.innerHTML = DOMPurify.sanitize(svg, {
+    const clean = DOMPurify.sanitize(svg, {
       USE_PROFILES: { svg: true, svgFilters: true },
       FORBID_TAGS: ["foreignObject", "a", "script", "image", "use"],
     });
+    document.body.innerHTML = clean;
     parent.postMessage({ type: "mermaid-rendered", height: document.body.scrollHeight }, "*");
   } catch {
     document.body.replaceChildren();

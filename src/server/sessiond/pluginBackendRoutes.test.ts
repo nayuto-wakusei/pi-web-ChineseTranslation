@@ -13,6 +13,7 @@ let app: FastifyInstance;
 let projectRoot: string;
 let requestProject: Project | undefined;
 let mutatedScope: string | undefined;
+let backendFailure: boolean;
 const normalProject: Project = { id: "normal", name: "Normal", path: "/normal", createdAt: new Date(0).toISOString() };
 
 beforeEach(async () => {
@@ -20,12 +21,14 @@ beforeEach(async () => {
   projectRoot = await mkdtemp(join(tmpdir(), "pi-web-managed-plugin-"));
   requestProject = undefined;
   mutatedScope = undefined;
+  backendFailure = false;
   registerPluginBackendRoutes(app, {
     projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },
     managementProjectRoot: projectRoot,
     backends: {
       request: (request: WorkspaceProviderRequest) => {
         requestProject = request.project;
+        if (backendFailure) return Promise.reject(new Error("partially mutated"));
         return Promise.resolve({ ok: true });
       },
     },
@@ -39,6 +42,12 @@ afterEach(async () => {
 });
 
 describe("sessiond plugin backend project resolution", () => {
+  it("invalidates topology after an admitted backend fails", async () => {
+    backendFailure = true;
+    const response = await app.inject({ method: "POST", url: "/paired-plugin-backends/git/projects/normal/workspaces/main/list", payload: { revision: "v1", input: {} } });
+    expect(response.statusCode).toBe(502);
+    expect(mutatedScope).toBe("normal");
+  });
   it("keeps ordinary requests on ProjectStore resolution", async () => {
     const response = await app.inject({
       method: "POST",

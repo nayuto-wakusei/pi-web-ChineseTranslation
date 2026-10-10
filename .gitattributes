@@ -1,2 +1,3 @@
+* text=auto eol=lf
 docker/internal/** text eol=lf
 docker/pi-web-docker text eol=lf

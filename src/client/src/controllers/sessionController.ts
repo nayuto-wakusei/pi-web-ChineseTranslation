@@ -380,6 +380,7 @@ export class SessionController {
       sessionSearchTarget: undefined,
       ...cached,
       isLoadingEarlierMessages: false,
+      ...(options?.preserveTreeDialog === true ? {} : { treeDialog: undefined }),
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
       activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
       pendingAsk: session.archived === true ? undefined : this.selectedPendingAsk(this.getState().sessionStatuses[session.id]),
@@ -1339,7 +1340,7 @@ export class SessionController {
       const [page, status, streamSnapshot] = await Promise.all([
         this.api.messages(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId),
         this.api.status(target.session, target.machineId),
-        this.streamSnapshot(target.session, target.machineId).catch((): SessionStreamSnapshot => ({ seq: 0, partial: null })),
+        this.streamSnapshot(target.session, target.machineId),
         this.notifications?.refreshSelectedSession(target.session, target.machineId) ?? Promise.resolve(),
       ]);
       if (!this.isCurrentRefreshTarget(target)) return;

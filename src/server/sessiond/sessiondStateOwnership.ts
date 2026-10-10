@@ -77,12 +77,16 @@ export async function claimSessiondStateOwnership(options: ClaimSessiondStateOwn
   };
   await mkdir(dataDir, { recursive: true });
   const deadline = Date.now() + graceMs;
+  let reportedWaiting = false;
   for (;;) {
     const existing = await readOwnershipRecord(markerPath);
     if (existing !== undefined && existing !== "invalid") {
       if (existing.pid !== ownPid && isAlive(existing)) {
         if (Date.now() >= deadline) throw new SessiondStateOwnershipConflictError({ dataDir, markerPath, owner: existing });
-        logger?.warn({ markerPath, owner: existing }, "another live session daemon owns this state; waiting for release");
+        if (!reportedWaiting) {
+          reportedWaiting = true;
+          logger?.warn({ markerPath, owner: existing }, "another live session daemon owns this state; waiting for release");
+        }
         await sleep(pollIntervalMs);
         continue;
       }

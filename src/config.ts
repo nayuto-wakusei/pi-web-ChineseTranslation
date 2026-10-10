@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import type { PiWebAgentDirEnvSource, PiWebConfigValues } from "./shared/apiTypes.js";
+import type { PiWebAgentDirEnvSource, PiWebConfigValues, PiWebDeprecatedAgentInput } from "./shared/apiTypes.js";
 import { isPiCompanionCommand, usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
 import { parsePiWebConfig as parseBasePiWebConfig, piWebConfigRecord as basePiWebConfigRecord } from "./shared/piWebConfigParsing.js";
 
@@ -13,6 +13,7 @@ export interface LoadedPiWebConfig {
   path: string;
   exists: boolean;
   config: PiWebConfig;
+  deprecatedAgentInputs: readonly PiWebDeprecatedAgentInput[];
 }
 
 export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "subsessions" | "askUser" | "environmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
@@ -78,6 +79,18 @@ export const PI_WEB_AGENT_DIR_ENV = "PI_WEB_AGENT_DIR";
 export const PI_WEB_AGENT_SESSION_DIR_ENV = "PI_WEB_AGENT_SESSION_DIR";
 export const PI_CODING_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
 export const PI_CODING_AGENT_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR";
+
+export type DeprecatedAgentInput = PiWebDeprecatedAgentInput;
+
+export function detectDeprecatedAgentInputs(env: Readonly<NodeJS.ProcessEnv>, config: Pick<PiWebConfig, "agent"> = {}): DeprecatedAgentInput[] {
+  const inputs: DeprecatedAgentInput[] = [];
+  if (isEnvSet(env[PI_WEB_AGENT_COMMAND_ENV])) inputs.push({ source: "environment", name: PI_WEB_AGENT_COMMAND_ENV });
+  if (isEnvSet(env[PI_WEB_AGENT_DIR_ENV])) inputs.push({ source: "environment", name: PI_WEB_AGENT_DIR_ENV, replacement: PI_CODING_AGENT_DIR_ENV });
+  if (isEnvSet(env[PI_WEB_AGENT_SESSION_DIR_ENV])) inputs.push({ source: "environment", name: PI_WEB_AGENT_SESSION_DIR_ENV, replacement: PI_CODING_AGENT_SESSION_DIR_ENV });
+  if (config.agent?.command !== undefined) inputs.push({ source: "config", name: "agent.command" });
+  if (config.agent?.dir !== undefined) inputs.push({ source: "config", name: "agent.dir", replacement: PI_CODING_AGENT_DIR_ENV });
+  return inputs;
+}
 
 export interface EffectivePiWebAgentConfig {
   command: string;
@@ -159,12 +172,13 @@ export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = proc
 export function loadPiWebConfig(options: LoadOptions = {}): LoadedPiWebConfig {
   const env = options.env ?? process.env;
   const path = piWebConfigPath(env, options.cwd ?? process.cwd());
-  if (!existsSync(path)) return { path, exists: false, config: {} };
+  if (!existsSync(path)) return { path, exists: false, config: {}, deprecatedAgentInputs: detectDeprecatedAgentInputs(env) };
 
   const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
   if (!isRecord(parsed)) throw new Error(`PI WEB config must be a JSON object: ${path}`);
 
-  return { path, exists: true, config: parsePiWebConfig(parsed, path) };
+  const config = parsePiWebConfig(parsed, path);
+  return { path, exists: true, config, deprecatedAgentInputs: detectDeprecatedAgentInputs(env, config) };
 }
 
 export function effectivePiWebConfig(options: LoadOptions = {}): LoadedEffectivePiWebConfig {
@@ -290,7 +304,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-  return { path, exists: true, config: normalized };
+  return { path, exists: true, config: normalized, deprecatedAgentInputs: detectDeprecatedAgentInputs(env, normalized) };
 }
 
 function readExistingConfigObject(path: string): Record<string, unknown> {

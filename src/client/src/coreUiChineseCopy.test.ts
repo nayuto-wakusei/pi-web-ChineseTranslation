@@ -178,8 +178,8 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes shared content renderer and Mermaid preview controls",
-    paths: ["components/ContentRendererHost.ts", "../../../pi-web-plugins/mermaid/mermaidPreviewElement.ts", "../../../pi-web-plugins/mermaid/pi-web-plugin.ts"],
-    expected: ["渲染", "原始", "预览", "复制源码", "已复制源码", "复制源码失败", "预览失败，已显示原始源码。", "title = \"图表\"", "name: \"图表\""],
+    paths: ["components/ContentRendererHost.ts", "../../../pi-web-plugins/mermaid/MermaidPreview.ts", "../../../pi-web-plugins/mermaid/pi-web-plugin.ts"],
+    expected: ["渲染", "原始", "预览", "复制源码", "已复制源码", "复制源码失败", "预览失败，已显示原始源码。", "title=\"图表\"", "正在渲染图表", "name: \"图表\""],
     forbidden: ["Copy source", "Copied source", "Failed to copy source", "Preview failed", "Rendering diagram", "name: \"Mermaid\""],
   },
   {

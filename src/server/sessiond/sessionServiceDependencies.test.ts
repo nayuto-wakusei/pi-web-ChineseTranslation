@@ -60,7 +60,7 @@ describe("sessiond session service dependency assembly", () => {
   it("uses the provider catalog for both project auth and spawn ownership", async () => {
     const source = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
 
-    expect(source).toMatch(/new ProjectAuthService\(\{ projects, workspaces: workspaceProviders \}\)/u);
+    expect(source).toMatch(/new ProjectAuthService\(\{ projects, workspaces: workspaceProviders,/u);
     expect(source).toMatch(/new ProjectScopedSpawnTargetResolver\(\{ projects: \{ list: projectsForScope \}, workspaces: workspaceProviders \}\)/u);
   });
 
@@ -70,6 +70,11 @@ describe("sessiond session service dependency assembly", () => {
     expect(sessiondSource).toMatch(
       /AuthService\.create\(\{\s*agentDir:\s*join\(piWebDataDir\(\),\s*"management-embed"\)/u,
     );
+  });
+
+  it("passes the loaded normal unread store and owning catalog status to live sessions", async () => {
+    const source = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
+    expect(source).toMatch(/new PiSessionService\(eventHub,\s*\{[\s\S]*?workspaceActivity,\s*unreadStore,\s*catalogRefreshStatus:\s*projectAuth,/u);
   });
 
   it("wires the effective ask-user preference into the live daemon assembly", async () => {

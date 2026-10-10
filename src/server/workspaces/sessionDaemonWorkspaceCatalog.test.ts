@@ -9,6 +9,20 @@ const context: ManagementEmbedContext = {
 };
 
 describe("session daemon workspace catalog proxy", () => {
+  it("accepts upstream provider capabilities without legacy request metadata", async () => {
+    const catalog = new SessionDaemonWorkspaceCatalog({ request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({
+      status: "provider", projectId: "project-1", ownerPluginId: "git", diagnostics: [],
+      workspaces: [{ id: "main", projectId: "project-1", path: process.cwd(), label: "Main", isMain: true, provider: { pluginId: "git", capabilities: { remove: false } } }],
+    }) }) });
+    await expect(catalog.resolveProject("project-1")).resolves.toMatchObject({ workspaces: [{ provider: { capabilities: { remove: false } } }] });
+  });
+
+  it("preserves dispose lifecycle failures from provider runtime", async () => {
+    const catalog = new SessionDaemonWorkspaceCatalog({ request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({
+      protocolVersion: 2, terminalMode: "required", health: [], diagnostics: [], records: [{ pluginId: "git", source: "bundled", scope: "bundled", moduleRevision: "r1", settingsRevision: "s1", machineSpecific: true, state: "failed", phase: "dispose", message: "cleanup failed" }],
+    }) }) });
+    await expect(catalog.providerRuntime()).resolves.toMatchObject({ records: [{ phase: "dispose" }] });
+  });
   it.each([
     { protocolVersion: 1, terminalMode: "required" },
     { protocolVersion: 2 },

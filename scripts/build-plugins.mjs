@@ -33,10 +33,10 @@ async function buildAll() {
   for (const target of buildTargets) {
     await rm(target.outDir, { recursive: true, force: true });
     const filesSource = resolve(target.rootDir, "files");
-    const hasFiles = target.label === "plugin" && (await stat(filesSource).catch(() => undefined))?.isDirectory() === true;
+    const hasFiles = target.label === "plugin";
     const excluded = hasFiles ? new Set([await realpath(filesSource)]) : new Set();
     const mermaidSource = resolve(target.rootDir, "mermaid");
-    const hasMermaid = target.label === "plugin" && (await stat(resolve(mermaidSource, "mermaidRuntime.ts")).catch(() => undefined))?.isFile() === true;
+    const hasMermaid = target.label === "plugin";
     if (hasMermaid) excluded.add(await realpath(mermaidSource));
     const terminalSource = resolve(target.rootDir, "terminal");
     if (target.label === "plugin") excluded.add(await realpath(terminalSource));
@@ -46,7 +46,7 @@ async function buildAll() {
     if (hasFiles) await buildFilesBrowserPackage(filesSource, resolve(target.outDir, "files"));
     if (hasMermaid) await buildMermaidPackage(mermaidSource, resolve(target.outDir, "mermaid"));
     if (target.label === "plugin") await buildTerminalPackage(terminalSource, resolve(target.outDir, "terminal"));
-    if (target.label === "package" && await stat(resolve(target.rootDir, "captains-log/vite.config.mjs")).catch(() => undefined)) {
+    if (target.label === "package") {
       await buildCaptainsLogBrowserPackage(resolve(target.rootDir, "captains-log"), resolve(target.outDir, "captains-log"));
     }
     const suffix = result.transpiled === 1 ? "file" : "files";
@@ -132,7 +132,7 @@ export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = as
       target: "es2022",
       minify: true,
       reportCompressedSize: false,
-      lib: { entry: resolve(sourceDir, "mermaidRuntime.ts"), name: "MermaidEngine", formats: ["iife"], fileName: () => "mermaidRuntime.js" },
+      lib: { entry: resolve(sourceDir, "mermaid-engine.ts"), name: "MermaidEngine", formats: ["iife"], fileName: () => "mermaid-engine.js" },
     },
   });
 }
@@ -266,7 +266,7 @@ async function buildFile(file, outputPath) {
  * symlinked build inputs, so editing a canonical file living outside the
  * plugin tree still triggers a rebuild.
  */
-async function findWatchDirs(dir) {
+export async function findWatchDirs(dir) {
   const dirs = [];
   const visited = new Set();
   const pending = [dir];

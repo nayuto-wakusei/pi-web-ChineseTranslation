@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine, Project, Workspace } from "../../api";
 import type { UnreadPresence } from "../../unreadPresence";
+import type { WorkspaceLabelItem } from "../../plugins/types";
 import { MachineList } from "../MachineList";
 import { MachineSwitcher } from "../MachineSwitcher";
 import { ProjectList } from "../ProjectList";
@@ -77,6 +78,34 @@ describe("section sizing", () => {
     expect(styles).toContain("machine-list, project-list, workspace-list, session-list { flex: 1 1 0px;");
     expect(styles).toContain("session-list[collapsed] { flex: 0 0 auto; min-height: auto;");
     expect(styles).not.toContain("max-height: 26%");
+  });
+});
+
+describe("stable child inputs", () => {
+  it("keeps callback identity while delegating to the latest parent action and refreshing labels", async () => {
+    const panel = new AppNavigationPanel();
+    const original = vi.fn();
+    const replacement = vi.fn();
+    panel.onSelectProject = original;
+    document.body.append(panel);
+    await panel.updateComplete;
+    const projects = panel.shadowRoot?.querySelector("project-list");
+    const workspaces = panel.shadowRoot?.querySelector("workspace-list");
+    if (!(projects instanceof ProjectList) || !(workspaces instanceof WorkspaceList)) throw new Error("Missing child lists");
+    const selectProject = projects.onSelect;
+    const oldLabelItems = workspaces.workspaceLabelItems;
+    const labelItems = (): WorkspaceLabelItem[] => [{ type: "text", text: "New label" }];
+    panel.onSelectProject = replacement;
+    panel.workspaceLabelItems = labelItems;
+    await panel.updateComplete;
+    expect(projects.onSelect).toBe(selectProject);
+    expect(workspaces.workspaceLabelItems).toBe(labelItems);
+    expect(workspaces.workspaceLabelItems).not.toBe(oldLabelItems);
+    const target: Project = { id: "p", path: "/repo", name: "Project", createdAt: "now" };
+    if (selectProject === undefined) throw new Error("Missing select callback");
+    selectProject(target);
+    expect(original).not.toHaveBeenCalled();
+    expect(replacement).toHaveBeenCalledWith(target);
   });
 });
 

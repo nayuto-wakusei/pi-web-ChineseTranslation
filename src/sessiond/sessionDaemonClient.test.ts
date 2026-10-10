@@ -10,6 +10,12 @@ const activeAgentProfile = {
 };
 
 describe("SessionDaemonClient active agent profile protocol", () => {
+  it("accepts upstream v2 without command or environment-key extensions", async () => {
+    const client = new SessionDaemonClient();
+    const profile = { schemaVersion: 2, dir: "/opt/agent" };
+    vi.spyOn(client, "request").mockResolvedValue(runtimeResponse(profile));
+    await expect(client.getActiveAgentProfile()).resolves.toEqual({ status: "available", profile });
+  });
   it("returns the validated immutable profile from the daemon runtime endpoint", async () => {
     const client = new SessionDaemonClient();
     const request = vi.spyOn(client, "request").mockResolvedValue(runtimeResponse(activeAgentProfile));

@@ -31,8 +31,8 @@ import { registerManagementTerminalRoutes } from "./terminals/terminalRoutes.js"
 import { REQUIRED_TERMINAL_SERVICE_CAPABILITY, unavailableRequiredTerminalService } from "./terminals/requiredTerminalService.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, piWebDataDir } from "../config.js";
-import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
+import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir } from "../config.js";
+import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
 import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sessiond/sessiondStateOwnership.js";
 import { dockerEnvironmentPromptSections } from "./sessions/dockerEnvironmentFacts.js";
@@ -78,7 +78,7 @@ import { createFilePiWebConfigService } from "./configRoutes.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
-const { config } = effectivePiWebConfig({ env: daemonEnvironment });
+const { config, deprecatedAgentInputs } = effectivePiWebConfig({ env: daemonEnvironment });
 // Request-time defaults must observe Settings edits without restarting sessiond.
 const configService = createFilePiWebConfigService({ env: daemonEnvironment });
 // The embedded Pi SDK and every child process use the same resolved profile.
@@ -91,7 +91,7 @@ if (sessionDirOverride !== undefined) {
 }
 process.env[PI_WEB_SESSION_ENV] = "1";
 daemonEnvironment[PI_WEB_SESSION_ENV] = "1";
-scrubNonAgentVisibleEnvKeys(process.env);
+const scrubbedEnvKeys = scrubNonAgentVisibleEnvKeys(process.env);
 let stateOwnership: SessiondStateOwnership | undefined;
 const activeAgentProfile = createActiveAgentProfileDescriptor({
   command: config.agent.command,
@@ -99,6 +99,13 @@ const activeAgentProfile = createActiveAgentProfileDescriptor({
   sessionDirEnvKeys: agentSessionDirEnvKeys(config.agent.command),
 });
 const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(daemonEnvironment, config) });
+if (deprecatedAgentInputs.length > 0) {
+  app.log.warn({ deprecatedAgentInputs }, "deprecated agent configuration inputs detected; support will be removed in a future release");
+}
+app.log.info({ scrubbedEnvKeys }, "daemon-only environment keys hidden from agent processes");
+if (serverPluginRecovery.safeStartDiagnostic !== undefined) {
+  app.log.error({ component: "server-plugins", configPath: serverPluginRecovery.path }, serverPluginRecovery.safeStartDiagnostic);
+}
 let serverQuiescing = false;
 app.addHook("onRequest", async (_request, reply) => {
   if (serverQuiescing) await reply.code(503).send({ error: "Session daemon is shutting down" });
@@ -199,7 +206,7 @@ await runSessionDaemonStartup({
       serverPlugins.catalogDiagnostics(),
     );
     registerCleanup(() => workspaceProviders.closeAll());
-    const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders });
+    const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders, globalAgentDir: activeAgentProfile.dir, logger: app.log, offline: offlineModeEnabled(daemonEnvironment) });
     constructed.projectAuth = projectAuth;
     const managementAuth = await AuthService.create({
       agentDir: join(piWebDataDir(), "management-embed"),
@@ -289,6 +296,8 @@ await runSessionDaemonStartup({
       dataDir: piWebDataDir(),
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
+      unreadStore,
+      catalogRefreshStatus: projectAuth,
       onUnreadChanged: (scope, hasNewCompletion) => {
         machineStatus.notifyChanged(scope);
         if (scope === NORMAL_SESSION_EVENT_SCOPE && hasNewCompletion) projectLifecycleRef.current?.scheduleCleanup();
@@ -378,8 +387,8 @@ await runSessionDaemonStartup({
     registerCleanup(() => pluginBackends.closeAll());
     registerCleanup(() => workspaceRemovals.closeAll());
     const runtimeComponent = Object.freeze({
-      ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
-      activeAgentProfile,
+      ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES, deprecatedAgentInputs),
+      activeAgentProfile: publicActiveAgentProfileDescriptor(activeAgentProfile),
     });
     projectLifecycle.scheduleCleanup();
     let shutdownPromise: Promise<void> | undefined;

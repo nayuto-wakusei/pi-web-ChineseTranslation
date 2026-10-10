@@ -8,6 +8,7 @@ import type { SessionController } from "./sessionController";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, type WorkspaceSelectionMemory } from "./workspaceSelection";
 
+const WORKSPACE_TOPOLOGY_REFRESH_DEBOUNCE_MS = 50;
 const WORKSPACE_SELECTION_SCOPE = ["machine", "project", "workspace", "session"] as const;
 
 export interface WorkspaceControllerDependencies {
@@ -16,6 +17,7 @@ export interface WorkspaceControllerDependencies {
   captureNavigation?: () => NavigationSelection;
   beginNavigationOperation?: (scope: readonly NavigationScope[]) => NavigationFreshness;
   onBackgroundError?: (message: string, error: unknown) => void;
+  topologyRefreshDebounceMs?: number;
 }
 
 interface WorkspaceMutationGuard {
@@ -32,7 +34,7 @@ export class WorkspaceController {
   private readonly beginNavigationOperation: WorkspaceControllerDependencies["beginNavigationOperation"];
   private readonly onBackgroundError: (message: string, error: unknown) => void;
   private readonly browserErrors: BrowserErrorReporter;
-  private readonly topologyRefreshes = new TrailingRefreshCoordinator<string>();
+  private readonly topologyRefreshes: TrailingRefreshCoordinator<string>;
 
   constructor(
     private readonly getState: GetState,
@@ -48,6 +50,9 @@ export class WorkspaceController {
     this.beginNavigationOperation = deps.beginNavigationOperation;
     this.onBackgroundError = deps.onBackgroundError ?? ((message, error) => { console.warn(message, error); });
     this.browserErrors = new BrowserErrorReporter(getState, setState);
+    this.topologyRefreshes = new TrailingRefreshCoordinator(
+      deps.topologyRefreshDebounceMs ?? WORKSPACE_TOPOLOGY_REFRESH_DEBOUNCE_MS,
+    );
   }
 
   clearSelection(options?: { updateUrl?: boolean | undefined }) {

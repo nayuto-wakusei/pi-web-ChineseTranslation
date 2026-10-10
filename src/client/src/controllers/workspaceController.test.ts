@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppState } from "../appState";
 import { initialAppState } from "../appState";
 import type { Machine, Project, SessionInfo, Workspace } from "../api";
@@ -54,6 +54,7 @@ function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces, loa
     {
       api: { workspaces: loadWorkspaces, sessions: vi.fn<(path: string, machineId?: string) => Promise<SessionInfo[]>>().mockImplementation(loadSessions) },
       onBackgroundError: (message, error) => { backgroundErrors.push({ message, error }); },
+      topologyRefreshDebounceMs: 0,
       ...deps,
     },
   );
@@ -61,6 +62,24 @@ function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces, loa
 }
 
 describe("WorkspaceController.refreshSelectedProjectTopology", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("debounces topology refresh bursts through the upstream quiet period", async () => {
+    vi.useFakeTimers();
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const loadWorkspaces = vi.fn().mockResolvedValue([main]);
+    const test = harness({ selectedProject: repo, projects: [repo], selectedWorkspace: main }, loadWorkspaces, undefined, { topologyRefreshDebounceMs: 50 });
+    const first = test.controller.refreshSelectedProjectTopology();
+    await vi.advanceTimersByTimeAsync(40);
+    const second = test.controller.refreshSelectedProjectTopology();
+    await vi.advanceTimersByTimeAsync(49);
+    expect(loadWorkspaces).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([first, second]);
+    expect(loadWorkspaces).toHaveBeenCalledOnce();
+  });
+
   it("surfaces a worktree created outside PI WEB in both the selected list and the per-project cache", async () => {
     const repo = project("p1", "/repo");
     const main = workspace(repo.id, repo.path, { isMain: true });

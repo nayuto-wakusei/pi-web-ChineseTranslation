@@ -1,6 +1,6 @@
 import type { ActiveAgentProfileDescriptor } from "./apiTypes.js";
 
-export const ACTIVE_AGENT_PROFILE_SCHEMA_VERSION = 1 as const;
+export const ACTIVE_AGENT_PROFILE_SCHEMA_VERSION = 2 as const;
 
 export function isPiCompanionCommand(command: string): boolean {
   const name = command.split(/[\\/]/u).at(-1)?.toLowerCase() ?? command.toLowerCase();
@@ -23,6 +23,12 @@ const SAFE_BARE_AGENT_COMMAND_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._+-]*$/u;
 const ACTIVE_SESSION_DIR_ENV_KEYS = new Set(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
 
 export function parseActiveAgentProfileDescriptor(value: unknown): ActiveAgentProfileDescriptor | undefined {
+  if (isRecord(value) && value["schemaVersion"] === ACTIVE_AGENT_PROFILE_SCHEMA_VERSION) {
+    if (Object.keys(value).some((key) => key !== "schemaVersion" && key !== "dir")) return undefined;
+    const dir = value["dir"];
+    if (typeof dir !== "string" || !isPortableAbsolutePath(dir)) return undefined;
+    return Object.freeze({ schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION, dir });
+  }
   if (!isRecord(value) || Object.keys(value).some((key) => !ACTIVE_AGENT_PROFILE_FIELDS.has(key))) return undefined;
 
   const schemaVersion = value["schemaVersion"];
@@ -30,7 +36,7 @@ export function parseActiveAgentProfileDescriptor(value: unknown): ActiveAgentPr
   const command = value["command"];
   const dir = value["dir"];
   const sessionDirEnvKeys = value["sessionDirEnvKeys"];
-  if (schemaVersion !== ACTIVE_AGENT_PROFILE_SCHEMA_VERSION) return undefined;
+  if (schemaVersion !== 1) return undefined;
   if (typeof revision !== "string" || !SHA256_REVISION_PATTERN.test(revision)) return undefined;
   if (typeof command !== "string" || !isPortableAgentCommand(command)) return undefined;
   if (typeof dir !== "string" || !isPortableAbsolutePath(dir)) return undefined;

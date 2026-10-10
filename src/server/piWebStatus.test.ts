@@ -30,6 +30,27 @@ afterEach(() => {
 });
 
 describe("PI WEB status", () => {
+  it("reports deprecated inputs separately for web and daemon and rechecks edited config", async () => {
+    const daemonInputs = [{ source: "environment" as const, name: "PI_WEB_AGENT_SESSION_DIR", replacement: "PI_CODING_AGENT_SESSION_DIR" }];
+    const daemon = daemonWithRuntime({ component: "sessiond", label: "Session daemon", available: true, capabilities: [], deprecatedAgentInputs: daemonInputs });
+    let deprecatedAgentInputs = [{ source: "config" as const, name: "agent.command" }];
+    const loadConfig = () => ({ path: "/tmp/config.json", exists: true, config: {}, deprecatedAgentInputs });
+    const first = await getPiWebRuntime(daemon, { loadConfig });
+    expect(first.components.web.deprecatedAgentInputs).toEqual(deprecatedAgentInputs);
+    expect(first.components.sessiond.deprecatedAgentInputs).toEqual(daemonInputs);
+    deprecatedAgentInputs = [];
+    expect((await getPiWebRuntime(daemon, { loadConfig })).components.web).not.toHaveProperty("deprecatedAgentInputs");
+  });
+
+  it("contains config detection failure without blanking machine versions or daemon diagnostics", async () => {
+    const daemon = daemonWithRuntime({ component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", available: true, capabilities: [] });
+    const runtime = await getPiWebRuntime(daemon, { loadConfig: () => { throw new Error("Invalid config"); } });
+    expect(runtime.components.web.available).toBe(true);
+    expect(runtime.components.web.runtimeVersion).toBeDefined();
+    expect(runtime.components.web.error).toContain("Invalid config");
+    expect(runtime.components.web).not.toHaveProperty("deprecatedAgentInputs");
+    expect(runtime.components.sessiond.runtimeVersion).toBe("1.0.0");
+  });
   it("compares semver-shaped CalVer versions", () => {
     expect(comparePackageVersions("1.202605.9", "1.202605.8")).toBeGreaterThan(0);
     expect(comparePackageVersions("1.202605.8", "1.202605.8")).toBe(0);

@@ -67,7 +67,7 @@ describe("createSubsessionToolDefinitions", () => {
       spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" })),
     });
 
-    expect(spawnTool.description).toBe("Start a tracked child session to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
+    expect(spawnTool.description).toBe("在当前会话的工作目录启动受跟踪子会话，执行当前任务的一部分并立即返回。完成后可在这里读取其记录与结果。");
     expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in this workspace; result available after completion");
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
@@ -137,7 +137,7 @@ describe("createSubsessionToolDefinitions", () => {
     expect(spawnTool.parameters).toMatchObject({
       properties: {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- stringMatching yields `any` against the loosely typed tool schema.
-        model: { description: expect.stringMatching(/provider\/model-id.*#provider\/model-id.*省略时继承/s) },
+        model: { description: expect.stringMatching(/provider\/model-id.*仅在明确要求.*#provider\/model-id.*省略时继承/s) },
       },
     });
   });

@@ -78,7 +78,7 @@ const SpawnSubsessionParams = Type.Object({
     description: "Initial instruction for the tracked child.",
   }),
   model: Type.Optional(Type.String({
-    description: '子会话使用的模型，必须是精确的“provider/model-id”，例如“anthropic/claude-sonnet-4-5”。当用户在请求中以 #provider/model-id 引用模型时，将该值传入这里。未知值会被拒绝；省略时继承当前会话的模型。',
+    description: '子会话的模型覆盖，必须是精确的“provider/model-id”。仅在明确要求使用指定模型或选择合适模型时填写。用户以 #provider/model-id 引用模型时传入该值；否则省略时继承当前会话模型。未知值会被拒绝。',
   })),
 });
 
@@ -192,7 +192,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({
     name: "spawn_subsession",
     label: "Spawn subsession",
-    description: "Start a tracked child session to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.",
+    description: "在当前会话的工作目录启动受跟踪子会话，执行当前任务的一部分并立即返回。完成后可在这里读取其记录与结果。",
     promptSnippet: "spawn_subsession: tracked child work in this workspace; result available after completion",
     parameters: SpawnSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

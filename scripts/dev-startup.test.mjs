@@ -115,6 +115,7 @@ it("removes stale readiness and exits when the real initial build fails", { time
   try {
     await mkdir(join(cwd, "pi-web-plugins"));
     await writeTerminalBuildFixture(cwd);
+    await writeRequiredBrowserBuildFixtures(cwd);
     await mkdir(join(cwd, "dist"));
     await writeFile(join(cwd, "dist", ".plugins-ready"), "stale");
     await writeFile(join(cwd, "pi-web-plugins", "broken.ts"), "export const = ;");
@@ -140,6 +141,7 @@ it("publishes real builds and recovers from a later failure without stopping the
   try {
     await mkdir(join(cwd, "pi-web-plugins"));
     await writeTerminalBuildFixture(cwd);
+    await writeRequiredBrowserBuildFixtures(cwd);
     const source = join(cwd, "pi-web-plugins", "entry.ts");
     await writeFile(source, "export const value = 1;");
     child = fork(fileURLToPath(new URL("./build-plugins.mjs", import.meta.url)), ["--watch"], { cwd, execArgv: [], stdio: "ignore" });
@@ -169,4 +171,21 @@ async function writeTerminalBuildFixture(cwd) {
   await writeFile(join(terminalRoot, "package.json"), JSON.stringify({ type: "module", piWeb: { plugins: [{ id: "pi-web.terminal", browserRoot: "browser", module: "browser/pi-web-plugin.js", serverModule: "server-plugin.js", machineSpecific: true }] } }));
   await writeFile(join(terminalRoot, "server", "server-plugin.ts"), "export default { apiVersion: 3, activate: () => ({ contributions: {} }) };");
   await writeFile(join(terminalRoot, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
+}
+
+async function writeRequiredBrowserBuildFixtures(cwd) {
+  for (const id of ["files", "mermaid"]) {
+    const root = join(cwd, "pi-web-plugins", id);
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));
+    await writeFile(join(root, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
+    if (id === "mermaid") await writeFile(join(root, "mermaid-engine.ts"), "globalThis.fixtureMermaidEngine = true;");
+  }
+  const packageRoot = join(cwd, "pi-packages", "captains-log");
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(join(packageRoot, "package.json"), JSON.stringify({ type: "module" }));
+  await writeFile(join(packageRoot, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
+  await writeFile(join(packageRoot, "vite.config.mjs"), `import { fileURLToPath } from "node:url";
+export default { build: { lib: { entry: fileURLToPath(new URL("./pi-web-plugin.ts", import.meta.url)), formats: ["es"], fileName: () => "pi-web-plugin.js" } } };
+`);
 }

@@ -22,6 +22,22 @@ function registry(provider: WorkspaceProvider): WorkspaceProviderRegistry {
 }
 
 describe("workspace provider shutdown", () => {
+  it("advertises removal only for the individual workspace presenting it", async () => {
+    const providers = registry({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([
+        { key: "main", path: project.path, label: "Main", isMain: true },
+        { key: "feature", path: resolve("repo-feature"), label: "Feature", isMain: false, removal: { actionLabel: "Remove", confirmation: "Remove?" } },
+      ]),
+      prepareRemove: () => Promise.resolve({ title: "Remove", command: "true" }),
+    });
+    try {
+      const result = await providers.resolve(project);
+      expect(result.workspaces.map((workspace) => workspace.provider?.capabilities.remove)).toEqual([false, true]);
+    } finally {
+      await providers.closeAll();
+    }
+  });
   it("cancels admitted work, drains the raw callback, and rejects new work", async () => {
     const started = deferred<boolean>();
     const callback = deferred<ProviderClaim>();

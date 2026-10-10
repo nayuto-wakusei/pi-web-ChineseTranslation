@@ -19,7 +19,7 @@ describe("buildApp local machine aliases", () => {
     });
     const project = addResponse.json<Project>();
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/machines/local/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    const workspace = workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces[0];
     if (workspace === undefined) throw new Error("Expected workspace");
 
     const terminalResponse = await appTestContext.app.inject({
@@ -82,6 +82,6 @@ describe("buildApp local machine aliases", () => {
 
     const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/machines/local/projects/${project.id}/workspaces` });
     expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<Workspace[]>()).toEqual([expect.objectContaining({ projectId: project.id, path: appTestContext.projectDir })]);
+    expect(workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces).toEqual([expect.objectContaining({ projectId: project.id, path: appTestContext.projectDir })]);
   });
 });

@@ -1,6 +1,7 @@
 import type { TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus, SessionWarning } from "../api";
+import { parseSessionStatus } from "../api/parsers";
 import {
   notificationTargetKey,
   notificationTrayIsCollapsed,
@@ -114,6 +115,20 @@ describe("ChatView queued-message clear wiring", () => {
 });
 
 describe("chatSessionWarningRows", () => {
+  it("projects cross-instance advisory presence from validated API status without a dismiss or lock", () => {
+    const warning = {
+      severity: "info" as const,
+      message: "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
+      source: "PI-WEB",
+    };
+    const wireStatus = warningStatus([warning]);
+    const status = parseSessionStatus(wireStatus);
+    expect(chatSessionWarningRows(status)).toEqual([{ ...warning, severityClass: "session-warning info" }]);
+    expect(status.isStreaming).toBe(wireStatus.isStreaming);
+    expect(status.isBashRunning).toBe(false);
+    expect(status.pendingMessageCount).toBe(0);
+  });
+
   // Warning-row content (severity class, message, path, source, dismiss
   // capability, ordering) is derived by a pure exported seam rather than scraped
   // from rendered `TemplateResult` markup, per the testing-guide rule that

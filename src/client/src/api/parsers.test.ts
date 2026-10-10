@@ -119,6 +119,19 @@ describe("API parsers", () => {
     });
   });
 
+  it("parses advisory deprecated inputs while dropping invalid cross-version entries", () => {
+    const inputs = [{ source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" }, { source: "unknown", name: "invalid" }, { source: "config", name: "agent.command", replacement: 2 }, null];
+    expect(parseMachineRuntime({ machineId: "remote", ok: true, checkedAt: "now", deprecatedAgentInputs: inputs }).deprecatedAgentInputs).toEqual([inputs[0]]);
+    expect(() => parseMachineRuntime({ machineId: "remote", ok: true, checkedAt: "now", deprecatedAgentInputs: "invalid" })).toThrow("deprecated agent inputs");
+    expect(parsePiWebRuntimeResponse({
+      packageName: "@chainingintention/pi-web-cn", generatedAt: "now", capabilities: [],
+      components: {
+        web: { component: "web", label: "Web", available: true, capabilities: [], deprecatedAgentInputs: inputs },
+        sessiond: { component: "sessiond", label: "Daemon", available: true, capabilities: [], deprecatedAgentInputs: "invalid" },
+      },
+    })).toMatchObject({ components: { web: { deprecatedAgentInputs: [inputs[0]] }, sessiond: { available: true } } });
+  });
+
   it("retains portable active profiles in machine runtime snapshots and rejects invalid ownership", () => {
     const profile = {
       schemaVersion: 1,

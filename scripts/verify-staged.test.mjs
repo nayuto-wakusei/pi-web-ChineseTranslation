@@ -6,6 +6,11 @@ import {
 } from "./verify-staged.mjs";
 
 describe("staged validation planning", () => {
+  it("includes delivery config lint and both public declaration entrypoints", () => {
+    const plan = createValidationPlan(["vitest.artifacts.config.ts", "plugin-api.d.ts", "server-plugin-api.d.ts"], { pathExists: () => true });
+    expect(plan.lint).toEqual({ mode: "scoped", files: ["vitest.artifacts.config.ts"] });
+    expect(plan.tests).toEqual({ mode: "related", files: ["plugin-api.d.ts", "server-plugin-api.d.ts"] });
+  });
   it("parses NUL-delimited Git paths without breaking spaces", () => {
     expect(parseNullDelimitedPaths(Buffer.from("src/one.ts\0src/path with spaces/two.ts\0"))).toEqual([
       "src/one.ts",

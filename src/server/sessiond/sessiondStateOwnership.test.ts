@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { claimSessiondStateOwnership, parseOwnershipRecord, SESSIOND_OWNER_MARKER_FILENAME, SessiondStateOwnershipConflictError } from "./sessiondStateOwnership.js";
 
 const dirs: string[] = [];
@@ -11,6 +11,18 @@ afterEach(async () => {
 });
 
 describe("session daemon state ownership", () => {
+  it("warns once while waiting through repeated live-owner polls", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-owner-"));
+    dirs.push(dir);
+    const first = await claimSessiondStateOwnership({ env: { PI_WEB_DATA_DIR: dir }, ownPid: 101, isAlive: () => false });
+    const warn = vi.fn();
+    let polls = 0;
+    const second = await claimSessiondStateOwnership({ env: { PI_WEB_DATA_DIR: dir }, ownPid: 202, isAlive: () => polls < 3, graceMs: 1_000, sleep: () => { polls += 1; return Promise.resolve(); }, logger: { warn, info: vi.fn() } });
+    expect(polls).toBe(3);
+    expect(warn).toHaveBeenCalledOnce();
+    await first.release();
+    await second.release();
+  });
   it("claims and releases one data directory", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-web-owner-"));
     dirs.push(dir);

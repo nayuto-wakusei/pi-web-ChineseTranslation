@@ -5,7 +5,7 @@ import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js
 const plugin: PiWebPlugin = {
   apiVersion: 4,
   name: "工作区任务",
-  activate: ({ pluginId, html, svg }) => {
+  activate: ({ runtimePluginId, html, svg }) => {
     defineTasksPanelElement();
 
     return {
@@ -19,7 +19,7 @@ const plugin: PiWebPlugin = {
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
-              context.selectWorkspaceTool(`${pluginId}:workspace.tasks`);
+              context.selectWorkspaceTool(`${runtimePluginId}:workspace.tasks`);
             },
           },
         ],

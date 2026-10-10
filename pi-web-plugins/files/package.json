@@ -7,7 +7,8 @@
       {
         "id": "files",
         "browserRoot": "browser",
-        "module": "browser/pi-web-plugin.js"
+        "module": "browser/pi-web-plugin.js",
+        "machineSpecific": false
       }
     ]
   }

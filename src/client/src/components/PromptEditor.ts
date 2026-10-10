@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
 import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap, placeholder } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, placeholder } from "@codemirror/view";
 import { promptArgumentHintExtension, setPromptArgumentHint } from "../promptArgumentHint";
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
@@ -294,6 +294,7 @@ export class PromptEditor extends LitElement {
           indentUnit.of("  "),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           EditorView.lineWrapping,
+          drawSelection(),
           EditorView.contentAttributes.of((view) => inputAssistanceContentAttributes(view.state.sliceDoc(0, view.state.selection.main.head))),
           EditorView.domEventHandlers({
             keyup: (event) => this.handleEditorKeyUp(event),
@@ -381,7 +382,7 @@ export class PromptEditor extends LitElement {
           replaceFrom: trigger.from,
           replaceTo: trigger.to,
           insertText: `/${command.name}`,
-          detail: command.argumentHint ?? slashCommandSourceLabel(command.source),
+          detail: slashCommandSourceLabel(command.source),
           ...(command.description === undefined ? {} : { description: command.description }),
           ...(command.argumentHint === undefined ? {} : { argumentHint: command.argumentHint }),
         }));

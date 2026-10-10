@@ -45,6 +45,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check delivery artifacts
+        run: npm run check:artifacts
+
       - name: Smoke test npm 12 global package install
         run: npm run smoke:package-install
 
@@ -52,7 +55,8 @@ jobs:
         env:
           # Force npm to use Trusted Publishing OIDC instead of the legacy token.
           NODE_AUTH_TOKEN: ""
-        run: npm publish --access public --provenance --tag latest
+        # Publish the exact artifacts verified above without rebuilding them.
+        run: npm publish --access public --provenance --tag latest --ignore-scripts
 
   deprecate:
     name: Deprecate npm version

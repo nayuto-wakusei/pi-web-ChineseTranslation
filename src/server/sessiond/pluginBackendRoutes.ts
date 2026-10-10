@@ -88,12 +88,12 @@ export function registerPluginBackendRoutes(
           `Server plugin ${pluginId} operation ${operation} result`,
           PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
         );
-        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
         return await reply.type("application/json; charset=utf-8").send(serialized);
       } catch (error) {
         return await pluginBackendRequestFailed(reply, error, pluginId, operation);
       } finally {
         cancellation.dispose();
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
       }
     },
   );

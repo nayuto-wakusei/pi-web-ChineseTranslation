@@ -78,6 +78,8 @@ describe("sessionNameGenerator", () => {
   it("builds deterministic names for relay handoff prompts", () => {
     expect(deterministicSessionName('Relay "handoff-check" leg 2 begins now.\n\nYou are the next runner.'))
       .toBe("Relay handoff-check leg 2");
+    expect(deterministicSessionName('Relay "handoff-check" leg review-final begins now.'))
+      .toBe("Relay handoff-check leg review-final");
   });
 
   it("preserves the relay leg when truncating deterministic relay names", () => {

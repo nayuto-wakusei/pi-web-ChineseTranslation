@@ -2,7 +2,8 @@ import { css, html, LitElement, type PropertyValues, type TemplateResult } from 
 import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues, PiWebShortcutConfig } from "../../api";
-import { isComposerShortcut } from "../../composerShortcuts";
+import { composerShortcutActions, isComposerShortcut } from "../../composerShortcuts";
+import { shortcutPreferenceForAction } from "../../keyboardShortcuts";
 import { formatShortcut, parseShortcutInput, resolveShortcutBindings, shortcutSequenceTimeoutMs, shortcutTokenFromEvent, type ShortcutBindingResolution } from "../../keyboardShortcuts";
 import { readPromptEnterPreference, writePromptEnterPreference, type PromptEnterPreference } from "../../promptEnterBehavior";
 import "./SettingsPanelFrame";
@@ -74,7 +75,8 @@ export class SettingsShortcutsPanel extends LitElement {
     this.localError = "";
     this.drafts = { [recording.actionId]: tokens.join(" ") };
     this.recording = { actionId: recording.actionId, tokens };
-    this.armRecordingTimer();
+    if (isComposerShortcut(recording.actionId)) this.stopRecording();
+    else this.armRecordingTimer();
   };
 
   protected override willUpdate(changed: PropertyValues<this>): void {
@@ -166,7 +168,7 @@ export class SettingsShortcutsPanel extends LitElement {
 
   private renderShortcutRow(action: AppAction, resolution: ShortcutBindingResolution | undefined): TemplateResult {
     const shortcuts = this.configResponse?.config.shortcuts;
-    const configured = shortcutPreference(action.id, shortcuts);
+    const configured = shortcutPreferenceForAction(action, shortcuts);
     const state = shortcutState(action, shortcuts);
     const inputText = this.shortcutInputText(action);
     const parsedInput = inputText.trim() === "" ? undefined : parseShortcutInput(inputText);
@@ -219,7 +221,7 @@ export class SettingsShortcutsPanel extends LitElement {
   private shortcutInputText(action: AppAction): string {
     const draft = this.drafts[action.id];
     if (draft !== undefined) return draft;
-    const configured = shortcutPreference(action.id, this.configResponse?.config.shortcuts);
+    const configured = shortcutPreferenceForAction(action, this.configResponse?.config.shortcuts);
     if (configured === null) return "";
     return configured ?? action.shortcut ?? "";
   }
@@ -244,6 +246,10 @@ export class SettingsShortcutsPanel extends LitElement {
       this.localError = parsed.message;
       return;
     }
+    if (isComposerShortcut(action.id) && parsed.tokens.length > 1) {
+      this.localError = "发送快捷键只能使用一个组合键，不能使用按键序列。";
+      return;
+    }
     this.localError = "";
     await this.saveShortcutPreference(action.id, parsed.shortcut);
   }
@@ -263,7 +269,8 @@ export class SettingsShortcutsPanel extends LitElement {
   private async saveShortcutPreference(actionId: string, shortcut: string | null | undefined): Promise<void> {
     const config: PiWebConfigValues = { ...(this.configResponse?.config ?? {}) };
     const currentShortcuts = config.shortcuts ?? {};
-    const shortcuts = shortcut === undefined ? withoutShortcutPreference(currentShortcuts, actionId) : { ...currentShortcuts, [actionId]: shortcut };
+    const action = this.actions.find((candidate) => candidate.id === actionId);
+    const shortcuts = shortcut === undefined ? withoutShortcutPreferences(currentShortcuts, [actionId, ...action?.shortcutAliases ?? []]) : { ...currentShortcuts, [actionId]: shortcut };
     if (Object.keys(shortcuts).length === 0) {
       delete config.shortcuts;
     } else {
@@ -273,7 +280,12 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private shortcutResolutions(): Map<string, ShortcutBindingResolution> {
-    return new Map(resolveShortcutBindings(this.actions, this.previewShortcutConfig(), { enabledOnly: true }).map((resolution) => [resolution.action.id, resolution]));
+    const shortcuts = this.previewShortcutConfig();
+    const resolutions = [
+      ...resolveShortcutBindings(this.actions.filter((action) => !isComposerShortcut(action.id)), shortcuts, { enabledOnly: true }),
+      ...composerShortcutActions().flatMap((action) => resolveShortcutBindings([action], shortcuts)),
+    ];
+    return new Map(resolutions.map((resolution) => [resolution.action.id, resolution]));
   }
 
   private previewShortcutConfig(): PiWebShortcutConfig | undefined {
@@ -441,23 +453,19 @@ function compareActions(left: AppAction, right: AppAction): number {
   return (left.group ?? "其他").localeCompare(right.group ?? "其他") || left.title.localeCompare(right.title);
 }
 
-function shortcutPreference(actionId: string, shortcuts: PiWebShortcutConfig | undefined): string | null | undefined {
-  if (shortcuts === undefined || !Object.hasOwn(shortcuts, actionId)) return undefined;
-  return shortcuts[actionId];
-}
-
-function withoutShortcutPreference(shortcuts: PiWebShortcutConfig, actionId: string): PiWebShortcutConfig {
-  return Object.fromEntries(Object.entries(shortcuts).filter(([shortcutActionId]) => shortcutActionId !== actionId));
+function withoutShortcutPreferences(shortcuts: PiWebShortcutConfig, actionIds: readonly string[]): PiWebShortcutConfig {
+  const removed = new Set(actionIds);
+  return Object.fromEntries(Object.entries(shortcuts).filter(([shortcutActionId]) => !removed.has(shortcutActionId)));
 }
 
 function effectiveShortcut(action: AppAction, shortcuts: PiWebShortcutConfig | undefined): string | undefined {
-  const configured = shortcutPreference(action.id, shortcuts);
+  const configured = shortcutPreferenceForAction(action, shortcuts);
   if (configured === null) return undefined;
   return configured ?? action.shortcut;
 }
 
 function shortcutState(action: AppAction, shortcuts: PiWebShortcutConfig | undefined): ShortcutState {
-  const configured = shortcutPreference(action.id, shortcuts);
+  const configured = shortcutPreferenceForAction(action, shortcuts);
   if (configured === null) return "disabled";
   if (configured !== undefined) return "custom";
   return action.shortcut === undefined || action.shortcut === "" ? "unassigned" : "default";

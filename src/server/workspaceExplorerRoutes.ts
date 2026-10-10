@@ -13,6 +13,7 @@ import { resolveRouteWorkspaceContext } from "./workspaces/workspaceRouteContext
 import { pathAccessForWorkspaceContext } from "./workspaces/effectivePathAccess.js";
 import type { ManagementEmbedRuntime } from "./managementEmbed.js";
 import type { WorkspaceCatalogInput } from "./workspaces/workspaceCatalog.js";
+import { sendWorkspaceRequestError } from "./workspaces/workspaceRouteErrors.js";
 
 export interface WorkspaceExplorerRouteOptions {
   fileSuggestions?: FileSuggestionCatalog;
@@ -30,7 +31,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTreeBatch(context.root, readFileTreeBatchPaths(request.body), await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -39,7 +40,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTree(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -52,7 +53,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         if (request.query.optional === "true") return reply.code(204).send();
         return reply.code(404).send({ error: error.message });
       }
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -67,7 +68,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -78,7 +79,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -92,7 +93,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -107,7 +108,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .send(download.body);
     } catch (error) {
       applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -118,7 +119,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -129,7 +130,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -140,7 +141,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -157,7 +158,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .send(preview.body);
     } catch (error) {
       applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 
@@ -169,7 +170,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       if (request.query.mode === "path") return await listPathSuggestions(context.root, query, pathAccess);
       return await listFileSuggestions(context.root, query, { kind: request.query.kind, scope: request.query.scope, pathAccess }, { catalog: fileSuggestions, catalogKey: JSON.stringify([context.managementContext?.user, context.project.id, context.workspace.id]) });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return sendWorkspaceRequestError(reply, error, 400);
     }
   });
 }

@@ -320,7 +320,7 @@ describe("buildApp", () => {
     const requestJson = vi.fn(() => Promise.resolve({
       statusCode: 200,
       headers: { "content-type": "application/json" },
-      body: { plugins: [{ id: "remote-tools", module: "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123", source: "local", scope: "local", machineSpecific: true }] },
+      body: { lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "remote-tools", module: "/pi-web-plugins/remote-tools/pi-web-plugin.js?v=123", source: "local", scope: "local", machineSpecific: true }] },
     }));
     const request = vi.fn(() => Promise.resolve({
       statusCode: 200,
@@ -333,6 +333,7 @@ describe("buildApp", () => {
     const scopedPluginId = machineScopedPluginId(remote.id, "remote-tools");
     expect(manifestResponse.statusCode).toBe(200);
     expect(manifestResponse.json()).toEqual({
+      lifecycleVersion: 2, terminalMode: "recovery-disabled",
       plugins: [{ id: "remote-tools", module: `../../../../pi-web-plugins/${scopedPluginId}/pi-web-plugin.js?v=123`, source: "local", scope: "local", machineSpecific: true }],
     });
     expect(requestJson).toHaveBeenCalledWith("GET", "/pi-web-plugins/manifest.json", undefined, { timeoutMs: 10000 });
@@ -353,6 +354,7 @@ describe("buildApp", () => {
         statusCode: 200,
         headers: { "content-type": "application/json" },
         body: {
+          lifecycleVersion: 2, terminalMode: "recovery-disabled",
           plugins: [
             { id: "safe-tools", module: "nested/pi-web-plugin.js?v=1", source: "local", scope: "local" },
             { id: "traversal-tools", module: "..%2F..%2Fapi%2Fconfig", source: "local", scope: "local" },
@@ -366,6 +368,7 @@ describe("buildApp", () => {
 
     expect(manifestResponse.statusCode).toBe(200);
     expect(manifestResponse.json()).toEqual({
+      lifecycleVersion: 2, terminalMode: "recovery-disabled",
       plugins: [{ id: "safe-tools", module: `../../../../pi-web-plugins/${machineScopedPluginId(remote.id, "safe-tools")}/nested/pi-web-plugin.js?v=1`, source: "local", scope: "local" }],
     });
   });
@@ -462,7 +465,7 @@ describe("buildApp", () => {
     const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
 
     expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+    expect(workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces).toEqual([
       expect.objectContaining({
         projectId: project.id,
         effectiveConfig: {
@@ -481,7 +484,7 @@ describe("buildApp", () => {
     });
     const project = addResponse.json<Project>();
     const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-    const workspace = workspacesResponse.json<Workspace[]>()[0];
+    const workspace = workspacesResponse.json<{ workspaces: Workspace[] }>().workspaces[0];
     if (workspace === undefined) throw new Error("Expected workspace");
 
     const missingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}` });

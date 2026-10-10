@@ -122,7 +122,7 @@ export async function getSessionDaemonActiveAgentProfile(client: SessionDaemonRe
   if (runtime.activeAgentProfile === undefined) {
     return { status: "invalid", error: "session daemon runtime response did not include an active agent profile" };
   }
-  if (!isSafeAgentCommandForHost(runtime.activeAgentProfile.command) || !isHostAbsoluteAgentDir(runtime.activeAgentProfile.dir)) {
+  if ((runtime.activeAgentProfile.command !== undefined && !isSafeAgentCommandForHost(runtime.activeAgentProfile.command)) || !isHostAbsoluteAgentDir(runtime.activeAgentProfile.dir)) {
     return { status: "invalid", error: "session daemon active agent profile was not valid for this host" };
   }
   return { status: "available", profile: runtime.activeAgentProfile };

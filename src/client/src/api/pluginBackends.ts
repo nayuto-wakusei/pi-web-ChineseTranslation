@@ -90,6 +90,7 @@ export async function requestPluginBackend(
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
   } catch (error) {
+    if (options.signal?.aborted === true) throw abortError(options.signal);
     throw new Error(`Plugin backend request unavailable: ${errorMessage(error)}`, { cause: error });
   }
 

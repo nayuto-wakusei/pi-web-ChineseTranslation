@@ -388,10 +388,12 @@ describe("PluginBackendRegistry", () => {
 
   it("cancels workspace authority resolution before a direct callback starts", async () => {
     const controller = new AbortController();
+    let probeSignal: AbortSignal | undefined;
     let resolveStarted: (() => void) | undefined;
     const started = new Promise<void>((resolvePromise) => { resolveStarted = resolvePromise; });
     const workspaces = providerRegistry([providerContribution("git", {
       probe: (_project, signal) => new Promise((_resolve, rejectPromise) => {
+        probeSignal = signal;
         resolveStarted?.();
         signal.addEventListener("abort", () => {
           const reason: unknown = signal.reason;
@@ -418,8 +420,7 @@ describe("PluginBackendRegistry", () => {
     controller.abort(new DOMException("Browser disconnected", "AbortError"));
 
     await expect(pending).rejects.toMatchObject({ code: "request-cancelled", statusCode: 499 });
-    // Local workspace resolution does not accept a caller signal, so probe
-    // cancellation is not part of this contract. The peer callback still must not start.
+    expect(probeSignal?.aborted).toBe(true);
     expect(request).not.toHaveBeenCalled();
   });
 

@@ -42,6 +42,7 @@ import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
 import { SessionCommandService } from "./sessionCommandService.js";
+import { SessionActivityMarker } from "./sessionActivityMarker.js";
 import { projectSessionTree, type ProjectableSessionTreeNode } from "./sessionTreeProjection.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
 import { findArchiveCandidateByIdOrPrefix, planSessionArchiveTree } from "./sessionArchiveTree.js";
@@ -1214,6 +1215,7 @@ export class PiSessionService {
   private readonly startupSessions = new Map<string, ManagedStartupSession>();
   private readonly activities = new SessionActivityCoordinator();
   private readonly heartbeat: NodeJS.Timeout;
+  private readonly activityMarker: SessionActivityMarker;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   /** Runtime-identity gate held while Pi may await abandoned-branch summarization. */
   private readonly treeNavigations = new WeakSet<PiAgentSession>();
@@ -1318,6 +1320,10 @@ export class PiSessionService {
     this.managementAudit = deps.managementAudit;
     this.managementProjectIdForCwd = deps.managementProjectIdForCwd;
     this.now = deps.now ?? (() => new Date());
+    this.activityMarker = new SessionActivityMarker({
+      now: () => this.now().getTime(),
+      onError: (error) => { this.logger.info({ err: error }, "Could not update advisory session activity marker"); },
+    });
     this.notificationStore = deps.notificationStore ?? new SessionNotificationStore();
     this.unreadStore = deps.unreadStore ?? new SessionUnreadStore();
     this.onUnreadChanged = deps.onUnreadChanged;
@@ -1490,7 +1496,7 @@ export class PiSessionService {
       this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd(), active.eventScope);
       await active.runtime.session.abort();
       await active.runtime.dispose();
-    }));
+    })).finally(() => this.activityMarker.dispose());
     await this.publishUnreadMutations([]);
   }
 
@@ -2424,6 +2430,9 @@ export class PiSessionService {
 
   async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     const session = await this.sessionForStatusOrDialogClose(ref, managementContext);
+    if (this.eventScopeForSession(session) === NORMAL_SESSION_EVENT_SCOPE) {
+      await this.activityMarker.refresh(session.sessionFile, this.hasActiveWork(session));
+    }
     if (this.hasActiveWork(session)) return this.statusFromSession(session);
     const branch = await this.readableSessionBranch(session);
     return this.statusFromSession(session, transcriptMessageCount(branch));
@@ -3468,6 +3477,7 @@ export class PiSessionService {
     try {
       await this.abortSessionOperations(active.runtime.session);
     } finally {
+      if (active.eventScope === NORMAL_SESSION_EVENT_SCOPE) await this.activityMarker.release(active.runtime.session.sessionFile);
       await active.runtime.dispose();
     }
   }
@@ -3899,6 +3909,7 @@ export class PiSessionService {
       // the session still reports active work transiently, so the event-driven
       // latch may not fire. The heartbeat re-checks once the session settles.
       this.updateSubsessionTracking(session);
+      void this.refreshActivityMarker(session);
       const activity = this.activities.get(activeSessionKey(session.sessionId, active.eventScope));
       if (!this.hasActiveWork(session)) {
         if (activity?.phase === "active") this.publishStatus(session);
@@ -4199,7 +4210,20 @@ export class PiSessionService {
     this.observeUnreadActivityState(session);
   }
 
+  private async refreshActivityMarker(session: PiAgentSession): Promise<void> {
+    const eventScope = this.eventScopeForSession(session);
+    if (eventScope !== NORMAL_SESSION_EVENT_SCOPE
+      || this.activeForSessionIdAndScope(session.sessionId, eventScope)?.runtime.session !== session) return;
+    const previous = this.activityMarker.isActiveElsewhere(session.sessionFile);
+    await this.activityMarker.refresh(session.sessionFile, this.hasActiveWork(session));
+    if (this.activeForSessionIdAndScope(session.sessionId, eventScope)?.runtime.session === session
+      && previous !== this.activityMarker.isActiveElsewhere(session.sessionFile)) {
+      this.publishStatus(session);
+    }
+  }
+
   private publishStatus(session: PiAgentSession): void {
+    void this.refreshActivityMarker(session);
     const status = this.statusFromSession(session);
     this.clearStaleActiveActivity(session);
     const eventScope = this.eventScopeForSession(session);
@@ -4287,6 +4311,14 @@ export class PiSessionService {
   private warningsForSession(session: PiAgentSession): SessionWarning[] {
     const runtime = [...this.active.values()].find((active) => active.runtime.session === session)?.runtime;
     const warnings = runtime === undefined ? [] : collectRuntimeWarnings(runtime);
+    if (this.eventScopeForSession(session) === NORMAL_SESSION_EVENT_SCOPE
+      && this.activityMarker.isActiveElsewhere(session.sessionFile)) {
+      warnings.push({
+        severity: "info",
+        message: "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
+        source: "PI-WEB",
+      });
+    }
     const anthropic = anthropicSubscriptionWarning(session, join(this.agentDir, "auth.json"));
     if (anthropic !== undefined) warnings.push(anthropic);
     return warnings;

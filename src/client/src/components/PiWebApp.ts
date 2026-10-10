@@ -1,5 +1,7 @@
 import { css, LitElement, html, type TemplateResult } from "lit";
+import { deprecatedAgentInputsBanner, deprecatedAgentInputsWarnings } from "./deprecatedAgentInputsBanner";
 import { customElement, query, state } from "lit/decorators.js";
+import { guard } from "lit/directives/guard.js";
 import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState, type ModelDialogOrigin } from "../appState";
@@ -88,7 +90,7 @@ import type { NormalAuthDialogMode, NormalAuthPasswordForm } from "./NormalAuthD
 import "./ProjectDialog";
 import "./MachineDialog";
 import type { MachineDialogSubmit } from "./MachineDialog";
-import { hasRenderedModal } from "./modalLayerRegistry";
+import { deepActiveElement, focusElement, hasRenderedModal } from "./modalLayerRegistry";
 import "./SettingsDialog";
 import "./WorkspacePanel";
 import type { WorkspacePanelEmptyState } from "./WorkspacePanel";
@@ -428,6 +430,7 @@ export class PiWebApp extends LitElement {
     { id: "themes", plugin: themePackPlugin },
   ]).then(({ failures }) => {
     if (failures.length > 0) throw failures[0]?.error;
+    this.invalidateWorkspaceSurface();
   });
   private readonly pluginLoads = new MachinePluginLoadCoordinator(
     (label, load, machineId) => this.registerExternalPlugins(label, load, machineId),
@@ -632,6 +635,9 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.keyboard.reset();
+    void this.builtInPluginsReady.catch(() => undefined);
+    this.plugins.beginShutdown();
+    void this.plugins.dispose();
     this.auth.dispose();
     this.sessions.dispose();
     this.notifications.dispose();
@@ -1023,6 +1029,7 @@ export class PiWebApp extends LitElement {
     const generation = ++this.navigationGeneration;
     for (const field of scope) this.navigationFieldGenerations[field] = generation;
     this.workspaceNavigationGeneration += 1;
+    this.invalidateWorkspaceSurface();
   }
 
   private retireRouteRestoreForSynchronousNavigation(): void {
@@ -1826,6 +1833,32 @@ export class PiWebApp extends LitElement {
     else void this.invalidateWorkspacePanels(tool);
   }
 
+  @state() private workspaceSurfaceRevision = 0;
+
+  private invalidateWorkspaceSurface(): void {
+    this.workspaceSurfaceRevision += 1;
+  }
+
+  private workspaceSurfaceInputs(): unknown[] {
+    // Workspace plugins consume runtime state, not the live transcript.
+    // Plugin-owned data invalidates through host.requestRender().
+    const state = this.state;
+    return [
+      state.selectedMachine, state.selectedWorkspace, state.selectedSession,
+      state.workspaceTool, state.mainView, state.piWebStatus, this.appShell.isMobileNavigationLayout,
+      state.selectedProject, state.projects, state.workspaces,
+      state.isLoadingProjects, state.isLoadingWorkspaces, this.requestedWorkspacePanelError(),
+      this.workspaceUploadDefaultFolder, this.workspaceSurfaceRevision,
+      this.navigationPreferences, this.appShell.isMobileNavigationLayout, this.appShell.isDesktopSideBySideLayout,
+      // The retained core fallback also consumes local file/Git state.
+      state.fileTree, state.expandedDirs, state.selectedFilePath, state.selectedFileContent,
+      state.selectedFileLoadError, state.fileTreeStale, state.workspaceUploadBatches,
+      state.gitStatus, state.selectedDiffPath, state.selectedDiff, state.selectedStagedDiff, state.gitStale,
+      state.activeTerminalCount, state.selectedTerminalId,
+      window.location.href,
+    ];
+  }
+
   private renderWorkspacePanel() {
     const workspace = this.state.selectedWorkspace;
     const panelContext = workspace === undefined ? undefined : this.createWorkspacePanelContext(workspace);
@@ -2065,6 +2098,41 @@ export class PiWebApp extends LitElement {
     };
   }
 
+  // Stable callbacks keep transcript deltas from invalidating navigation children.
+  private readonly navigationActions = {
+    toggleMachines: () => { this.navigationSections.toggle("machines"); },
+    selectMachine: (machine: Machine) => this.selectNavigationItem("machines", "projects", () => this.selectMachineWithMemory(machine)),
+    removeMachine: (machine: Machine) => { void this.removeMachine(machine); },
+    showActions: () => { this.setState({ actionPaletteOpen: true }); },
+    toggleProjects: () => { this.navigationSections.toggle("projects"); },
+    toggleWorkspaces: () => { this.navigationSections.toggle("workspaces"); },
+    toggleSessions: () => { this.navigationSections.toggle("sessions"); },
+    selectProject: (project: Project) => this.selectNavigationItem("projects", "workspaces", () => this.navigateToProjectFromController(project)),
+    closeProject: (project: Project) => this.projects.closeProject(project.id),
+    selectWorkspace: (workspace: Workspace) => this.selectNavigationItem("workspaces", "sessions", () => this.navigateToWorkspaceFromController(workspace)),
+    deleteWorkspace: (workspace: Workspace) => { void this.deleteWorkspace(workspace); },
+    archivedCollapsed: () => { void this.sessions.clearSelectionAfterArchivedCollapse(); },
+    startSession: () => this.startSessionFromNavigation(),
+    selectSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.navigateToSessionFromController(session)),
+    markSessionRead: (session: SessionInfo) => { this.markSessionsRead([session]); },
+    markSessionsRead: (sessions: SessionInfo[]) => { this.markSessionsRead(sessions); },
+    searchSessions: () => { this.openSessionSearchDialog(); },
+    toggleSessionPin: (session: SessionInfo) => { this.sessions.togglePinned(session); },
+    archiveSession: (session: SessionInfo) => this.sessions.archiveSession(session),
+    archiveSessionWithDescendants: (session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session),
+    archiveSessions: (sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions),
+    restoreSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.restoreSession(session)),
+    deleteCachedNewSession: (session: SessionInfo) => this.sessions.deleteCachedNewSession(session),
+    deleteArchivedSession: (session: SessionInfo) => this.sessions.deleteArchivedSessions([session]),
+    deleteArchivedSessions: (sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions),
+    renameSession: (session: SessionInfo, name: string) => this.sessions.renameSession(session, name),
+    detachParentSession: (session: SessionInfo) => this.sessions.detachParent(session),
+    reloadSession: (session: SessionInfo) => this.sessions.reloadSession(session),
+    cleanupSessions: () => { this.openSessionCleanupDialog(); },
+    focusNavigationTarget: (target: NavigationFocusTarget) => { void this.focusNavigationTarget(target); },
+    cancelKeyboardNavigation: () => { void this.focusChatComposer(); },
+  };
+
   private renderNavigationPanel() {
     return html`
       <app-navigation-panel
@@ -2075,9 +2143,9 @@ export class PiWebApp extends LitElement {
         .machineStatusSnapshots=${this.state.machineStatusSnapshots}
         .machineActivities=${this.state.machineActivities}
         .machinesCollapsed=${this.navigationSections.isCollapsed("machines")}
-        .onToggleMachines=${() => { this.navigationSections.toggle("machines"); }}
-        .onSelectMachine=${(machine: Machine) => this.selectNavigationItem("machines", "projects", () => this.selectMachineWithMemory(machine))}
-        .onRemoveMachine=${(machine: Machine) => { void this.removeMachine(machine); }}
+        .onToggleMachines=${this.navigationActions.toggleMachines}
+        .onSelectMachine=${this.navigationActions.selectMachine}
+        .onRemoveMachine=${this.navigationActions.removeMachine}
         .projects=${this.state.projects}
         .selectedProject=${this.state.selectedProject}
         .workspaceActivities=${this.state.workspaceActivities}
@@ -2108,36 +2176,36 @@ export class PiWebApp extends LitElement {
         .projectsCollapsed=${this.navigationSections.isCollapsed("projects")}
         .workspacesCollapsed=${this.navigationSections.isCollapsed("workspaces")}
         .sessionsCollapsed=${this.navigationSections.isCollapsed("sessions")}
-        .workspaceLabelItems=${(workspace: Workspace) => this.workspaceLabelItems(workspace)}
+        .workspaceLabelItems=${guard(this.workspaceSurfaceInputs(), () => (workspace: Workspace) => this.workspaceLabelItems(workspace))}
         .refreshControl=${this.appShell.shouldShowAppRefreshInHeader() ? this.renderAppRefresh() : undefined}
-        .onShowActions=${this.apiScope === "management" ? undefined : () => { this.setState({ actionPaletteOpen: true }); }}
-        .onToggleProjects=${() => { this.navigationSections.toggle("projects"); }}
-        .onToggleWorkspaces=${() => { this.navigationSections.toggle("workspaces"); }}
-        .onToggleSessions=${() => { this.navigationSections.toggle("sessions"); }}
-        .onSelectProject=${(project: Project) => this.selectNavigationItem("projects", "workspaces", () => this.navigateToProjectFromController(project))}
-        .onCloseProject=${(project: Project) => this.projects.closeProject(project.id)}
-        .onSelectWorkspace=${(workspace: Workspace) => this.selectNavigationItem("workspaces", "sessions", () => this.navigateToWorkspaceFromController(workspace))}
-        .onDeleteWorkspace=${(workspace: Workspace) => { void this.deleteWorkspace(workspace); }}
-        .onArchivedCollapsed=${() => { void this.sessions.clearSelectionAfterArchivedCollapse(); }}
-        .onStartSession=${() => this.startSessionFromNavigation()}
-        .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.navigateToSessionFromController(session))}
-        .onMarkSessionRead=${(session: SessionInfo) => { this.markSessionsRead([session]); }}
-        .onMarkSessionsRead=${(sessions: SessionInfo[]) => { this.markSessionsRead(sessions); }}
-        .onSearchSessions=${() => { this.openSessionSearchDialog(); }}
-        .onToggleSessionPin=${(session: SessionInfo) => { this.sessions.togglePinned(session); }}
-        .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
-        .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
-        .onArchiveSessions=${(sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions)}
-        .onRestoreSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.restoreSession(session))}
-        .onDeleteCachedNewSession=${(session: SessionInfo) => this.sessions.deleteCachedNewSession(session)}
-        .onDeleteArchivedSession=${(session: SessionInfo) => this.sessions.deleteArchivedSessions([session])}
-        .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions)}
-        .onRenameSession=${(session: SessionInfo, name: string) => this.sessions.renameSession(session, name)}
-        .onDetachParentSession=${(session: SessionInfo) => this.sessions.detachParent(session)}
-        .onReloadSession=${(session: SessionInfo) => this.sessions.reloadSession(session)}
-        .onCleanupSessions=${() => { this.openSessionCleanupDialog(); }}
-        .onFocusNavigationTarget=${(target: NavigationFocusTarget) => { void this.focusNavigationTarget(target); }}
-        .onCancelKeyboardNavigation=${() => { void this.focusChatComposer(); }}
+        .onShowActions=${this.apiScope === "management" ? undefined : this.navigationActions.showActions}
+        .onToggleProjects=${this.navigationActions.toggleProjects}
+        .onToggleWorkspaces=${this.navigationActions.toggleWorkspaces}
+        .onToggleSessions=${this.navigationActions.toggleSessions}
+        .onSelectProject=${this.navigationActions.selectProject}
+        .onCloseProject=${this.navigationActions.closeProject}
+        .onSelectWorkspace=${this.navigationActions.selectWorkspace}
+        .onDeleteWorkspace=${this.navigationActions.deleteWorkspace}
+        .onArchivedCollapsed=${this.navigationActions.archivedCollapsed}
+        .onStartSession=${this.navigationActions.startSession}
+        .onSelectSession=${this.navigationActions.selectSession}
+        .onMarkSessionRead=${this.navigationActions.markSessionRead}
+        .onMarkSessionsRead=${this.navigationActions.markSessionsRead}
+        .onSearchSessions=${this.navigationActions.searchSessions}
+        .onToggleSessionPin=${this.navigationActions.toggleSessionPin}
+        .onArchiveSession=${this.navigationActions.archiveSession}
+        .onArchiveSessionWithDescendants=${this.navigationActions.archiveSessionWithDescendants}
+        .onArchiveSessions=${this.navigationActions.archiveSessions}
+        .onRestoreSession=${this.navigationActions.restoreSession}
+        .onDeleteCachedNewSession=${this.navigationActions.deleteCachedNewSession}
+        .onDeleteArchivedSession=${this.navigationActions.deleteArchivedSession}
+        .onDeleteArchivedSessions=${this.navigationActions.deleteArchivedSessions}
+        .onRenameSession=${this.navigationActions.renameSession}
+        .onDetachParentSession=${this.navigationActions.detachParentSession}
+        .onReloadSession=${this.navigationActions.reloadSession}
+        .onCleanupSessions=${this.navigationActions.cleanupSessions}
+        .onFocusNavigationTarget=${this.navigationActions.focusNavigationTarget}
+        .onCancelKeyboardNavigation=${this.navigationActions.cancelKeyboardNavigation}
       ></app-navigation-panel>
     `;
   }
@@ -2376,14 +2444,15 @@ export class PiWebApp extends LitElement {
 
   private createWorkspaceHost(): WorkspaceHost {
     return {
-      requestRender: () => { this.requestUpdate(); },
+      requestRender: () => { this.invalidateWorkspaceSurface(); },
     };
   }
 
   private createWorkspacePanelContext(workspace: Workspace, machine = pluginMachineFromState(this.state), restoredQuery?: ContributionQueryRecord): WorkspacePanelContext {
     const machineId = machine.id;
     const createContext = (binding: WorkspacePluginBinding, contributionId?: QualifiedContributionId, aliases: readonly QualifiedContributionId[] = []): WorkspacePanelContext => {
-      const navigation = this.beginNavigationOperation(NAVIGATION_SCOPES);
+      // Session selection does not retire a panel in the same workspace.
+      const navigation = this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE);
       const generation = this.workspaceNavigationGeneration;
       const isCurrent = () => {
         const route = readRoute();
@@ -2591,7 +2660,7 @@ export class PiWebApp extends LitElement {
         const batch = await this.plugins.registerBatch(result.registrations.filter(allowed), { declarations, failures: externalRegistryFailures(result, declarations) });
         for (const failure of batch.failures) console.warn(`Failed to register PI WEB plugin ${failure.declaration.id} (${failure.phase})`, failure.error);
         this.applyPreferredTheme(false);
-        this.requestUpdate();
+        this.invalidateWorkspaceSurface();
         return batch.failures.length === 0;
       }
       if (result.terminalMode === "recovery-disabled") {
@@ -2699,7 +2768,7 @@ export class PiWebApp extends LitElement {
       }
       this.reconcilePluginLoadSelection(urlAtLoad);
       this.applyPreferredTheme(false);
-      this.requestUpdate();
+      this.invalidateWorkspaceSurface();
       return complete;
     } catch (error) {
       console.warn(`Failed to load ${label}`, error);
@@ -2709,13 +2778,13 @@ export class PiWebApp extends LitElement {
       this.reconcilePluginLoadSelection(urlAtLoad);
       this.applyPreferredTheme(false);
       this.setRequiredPluginFailure(machineId, `加载 ${label} 失败：${errorMessage(error)}`);
-      this.requestUpdate();
+      this.invalidateWorkspaceSurface();
       return false;
     }
   }
 
   private reconcilePluginLoadSelection(urlAtLoad: string): void {
-    if (window.location.href === urlAtLoad) this.requestUpdate();
+    if (window.location.href === urlAtLoad) this.invalidateWorkspaceSurface();
   }
 
   private setRequiredPluginFailure(machineId: string, message: string): void {
@@ -2753,7 +2822,7 @@ export class PiWebApp extends LitElement {
 
   private clearRequiredTerminal(machineId: string): void {
     this.requiredTerminalByMachine.delete(machineId);
-    this.requestUpdate();
+    this.invalidateWorkspaceSurface();
     this.pluginLoads.invalidateMachine(machineId);
     if (selectedMachineId(this.state) !== machineId) return;
     this.cancelWorkspaceDeletionRefresh();
@@ -3362,10 +3431,7 @@ export class PiWebApp extends LitElement {
     void this.sessions.clearServerQueue();
   };
 
-  private readonly handleMessageAction = (entryId: string, action: "fork" | "back"): void => {
-    // The controller reports failures to the originating session's error scope.
-    void this.sessions.actOnMessage(entryId, action).catch(() => undefined);
-  };
+  private readonly handleMessageAction = (entryId: string, action: "fork" | "back") => this.sessions.actOnMessage(entryId, action);
 
   private readonly handleDismissWarning = (dismissId: string): void => {
     void this.sessions.dismissWarning(dismissId);
@@ -3454,7 +3520,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .messageActionsDisabled=${session.archived === true || state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity)} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 
@@ -3551,8 +3617,28 @@ export class PiWebApp extends LitElement {
     ];
   }
 
-  private readonly showNavigation = () => { this.navigationDialogOpen = true; };
-  private readonly closeNavigation = () => { this.navigationDialogOpen = false; };
+  private navigationOpener: HTMLElement | undefined;
+  private readonly showNavigation = () => {
+    const active = deepActiveElement(this.ownerDocument);
+    this.navigationOpener = active instanceof HTMLElement ? active : undefined;
+    this.navigationDialogOpen = true;
+  };
+  private readonly closeNavigation = () => {
+    this.navigationDialogOpen = false;
+    const opener = this.navigationOpener;
+    this.navigationOpener = undefined;
+    void this.updateComplete.then(() => {
+      if (this.navigationDialogOpen || hasRenderedModal(this.ownerDocument)) return;
+      if (opener !== undefined && focusElement(opener)) return;
+      const restored = deepActiveElement(this.ownerDocument);
+      if (restored instanceof HTMLElement && restored !== this && restored !== this.ownerDocument.body
+        && restored !== this.ownerDocument.documentElement && focusElement(restored)) return;
+      for (const host of this.renderRoot.querySelectorAll("app-context-bar, app-mobile-main-tabs, workspace-panel")) {
+        const button = host.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]');
+        if (button !== null && button !== undefined && focusElement(button)) return;
+      }
+    });
+  };
   private readonly changeNavigationPreferences = (preferences: NavigationPreferences) => {
     this.navigationPreferences = preferences;
     saveNavigationPreferences(preferences);
@@ -3595,8 +3681,9 @@ export class PiWebApp extends LitElement {
         ${this.renderNavigationPanelEdgeControl()}
         <main class=${mainViewClass(state.mainView)}>
           ${this.renderContextBar()}
-          ${this.renderMobileMainTabs()}
+          ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds, this.unreadPresence], () => this.renderMobileMainTabs())}
           ${this.renderServerNoticeBanners()}
+          ${this.apiScope === "management" ? null : deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
           ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
           ${this.renderBrowserErrorBanners(state)}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
@@ -3612,7 +3699,7 @@ export class PiWebApp extends LitElement {
           ` : html`<div class=${this.routeContentError() === "" ? "empty" : "empty route-target-error"} role=${this.routeContentError() === "" ? "status" : "alert"}>${this.sessionEmptyMessage()}</div>`}
         </main>
         ${this.renderWorkspacePanelEdgeControl()}
-        ${this.renderWorkspacePanel()}
+        ${guard(this.workspaceSurfaceInputs(), () => this.renderWorkspacePanel())}
         ${state.authDialog !== undefined ? html`<auth-dialog .state=${state.authDialog} .onChooseMethod=${(authType: "oauth" | "api_key") => { void this.auth.chooseLoginMethod(authType); }} .onSelectProvider=${(providerId: string, authType: "oauth" | "api_key") => { void this.auth.selectLoginProvider(providerId, authType); }} .onApiKeyInput=${(value: string) => { this.auth.updateApiKey(value); }} .onSaveApiKey=${() => { void this.auth.saveApiKey(); }} .onLogoutProvider=${(providerId: string) => { void this.auth.logoutProvider(providerId); }} .onOAuthInput=${(value: string) => { this.auth.updateOAuthInput(value); }} .onOAuthRespond=${(value?: string) => { void this.auth.respondOAuth(value); }} .onOAuthCancel=${() => { void this.auth.cancelOAuth(); }} .onCancel=${() => { this.auth.closeDialog(); }}></auth-dialog>` : null}
         ${this.navigationDialogOpen ? html`<navigation-dialog
           .tabs=${this.availableNavigationTabs()}

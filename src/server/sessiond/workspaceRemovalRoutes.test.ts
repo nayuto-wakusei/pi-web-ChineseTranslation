@@ -14,6 +14,7 @@ let projectRoot: string;
 let removedProject: Project | undefined;
 let removedManagementContext: ManagementEmbedContext | undefined;
 let mutatedScope: string | undefined;
+let removalFailure: boolean;
 const normalProject: Project = { id: "normal", name: "Normal", path: "/normal", createdAt: new Date(0).toISOString() };
 
 beforeEach(async () => {
@@ -22,6 +23,7 @@ beforeEach(async () => {
   removedProject = undefined;
   removedManagementContext = undefined;
   mutatedScope = undefined;
+  removalFailure = false;
   registerWorkspaceRemovalRoutes(app, {
     projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },
     managementProjectRoot: projectRoot,
@@ -29,6 +31,7 @@ beforeEach(async () => {
       remove: (project: Project, _workspaceId, _precondition, _signal, managementContext): Promise<TerminalCommandRun> => {
         removedProject = project;
         removedManagementContext = managementContext;
+        if (removalFailure) return Promise.reject(new Error("partially removed"));
         return Promise.resolve({
           id: "run-1",
           origin: "core",
@@ -53,6 +56,12 @@ afterEach(async () => {
 });
 
 describe("sessiond workspace removal project resolution", () => {
+  it("invalidates topology after an admitted removal fails", async () => {
+    removalFailure = true;
+    const response = await app.inject({ method: "DELETE", url: "/workspace-removals/projects/normal/workspaces/feature", payload: { precondition: "feature" } });
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect(mutatedScope).toBe("normal");
+  });
   it("keeps ordinary removals on ProjectStore resolution", async () => {
     const response = await app.inject({
       method: "DELETE",

@@ -39,7 +39,7 @@ describe("PI WEB config persistence", () => {
 
     const saved = savePiWebConfig(requestedConfig, testOptions());
 
-    expect(saved).toEqual({ path: configPath, exists: true, config: normalizedConfig });
+    expect(saved).toEqual({ path: configPath, exists: true, config: normalizedConfig, deprecatedAgentInputs: [] });
     expect(loadPiWebConfig(testOptions())).toEqual(saved);
   });
 

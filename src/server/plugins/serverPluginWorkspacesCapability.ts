@@ -43,7 +43,7 @@ export function createServerPluginWorkspacesCapabilityFactory(
             const projectProjection = snapshotProject(project, requested.projectId, context.pluginId);
             let workspaces: readonly WorkspaceListing[];
             try {
-              const resolution = await options.workspaces.resolve(project);
+              const resolution = await options.workspaces.resolve(project, context.lifetimeSignal);
               if (resolution.projectId !== projectProjection.id) {
                 throw new Error("Workspace authority returned a mismatched project id");
               }

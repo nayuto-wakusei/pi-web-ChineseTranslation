@@ -74,7 +74,7 @@ export class SessionTreeNavigator extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .label=${"浏览会话树"}>
+      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .initialFocus=${this.selectedId === undefined ? ".close-button" : "[data-tree-node-id][tabindex='0']"} .label=${"浏览会话树"}>
           <header>
             <div>
               <span class="eyebrow">对话历史</span>
