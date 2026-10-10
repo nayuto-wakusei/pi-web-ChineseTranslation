@@ -18,13 +18,15 @@ import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceO
 import { isSessionActive } from "../../../shared/activity";
 import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionStartupProgressEvent } from "../../../shared/apiTypes";
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
-import { selectedMachineId, type GetState, type SetState, type UpdateUrl } from "./types";
+import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationFreshness, type NavigationScope, type NavigationSelection, type SetState, type UpdateUrl } from "./types";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { isTransientSessionDaemonRequestError, sessionDaemonErrorText } from "../sessionDaemonError";
 
 const MESSAGE_PAGE_SIZE = 100;
 const SEARCH_JUMP_PAGE_SIZE = 500;
 const SESSION_LIST_REFRESH_MS = 5000;
+const PENDING_SESSION_START_SCOPE = ["machine", "project", "workspace", "session"] as const;
+const SESSION_RESTORE_SCOPE = ["machine", "project", "workspace", "session"] as const;
 
 export interface SessionEventSocket {
   connect(
@@ -70,6 +72,9 @@ export interface SessionControllerDependencies {
   isPendingSessionStartRouteCurrent?: (navigation: PendingSessionStartNavigation) => boolean;
   onPendingSessionStartCommitted?: (navigation: PendingSessionStartNavigation, session: SessionInfo) => void;
   onModelScopeChanged?: (revision: number) => void;
+  navigateToSession?: (session: SessionInfo | undefined, options?: NavigationDestinationOptions) => Promise<boolean>;
+  captureNavigation?: () => NavigationSelection;
+  beginNavigationOperation?: (scope: readonly NavigationScope[]) => NavigationFreshness;
 }
 
 interface BulkSessionMutationResult {
@@ -93,6 +98,9 @@ interface PendingSessionStart {
   workspaceId: string;
   cwd: string;
   machineId: string;
+  expectedNavigation: NavigationSelection;
+  navigation?: NavigationFreshness | undefined;
+  pendingUrlPublished: boolean;
   session: ClientPendingStartSessionInfo;
   queuedSends: QueuedPendingSessionSend[];
   discarded: boolean;
@@ -109,6 +117,14 @@ interface SelectedSessionRefreshTarget {
   machineId: string;
   selectionSeq: number;
   errorOwner: SessionBrowserErrorOwner;
+  navigation?: NavigationFreshness | undefined;
+}
+
+export interface SessionSelectionOptions {
+  updateUrl?: boolean | undefined;
+  preserveTreeDialog?: boolean | undefined;
+  propagateRefreshError?: boolean | undefined;
+  navigation?: NavigationFreshness | undefined;
 }
 
 export class SessionController {
@@ -122,6 +138,9 @@ export class SessionController {
   private readonly isPendingSessionStartRouteCurrent: SessionControllerDependencies["isPendingSessionStartRouteCurrent"];
   private readonly onPendingSessionStartCommitted: SessionControllerDependencies["onPendingSessionStartCommitted"];
   private readonly onModelScopeChanged: SessionControllerDependencies["onModelScopeChanged"];
+  private readonly navigateToSession: SessionControllerDependencies["navigateToSession"];
+  private readonly captureNavigation: SessionControllerDependencies["captureNavigation"];
+  private readonly beginNavigationOperation: SessionControllerDependencies["beginNavigationOperation"];
   private readonly browserErrors: BrowserErrorReporter;
   private selectionSeq = 0;
   private disposed = false;
@@ -158,6 +177,9 @@ export class SessionController {
     this.isPendingSessionStartRouteCurrent = deps.isPendingSessionStartRouteCurrent;
     this.onPendingSessionStartCommitted = deps.onPendingSessionStartCommitted;
     this.onModelScopeChanged = deps.onModelScopeChanged;
+    this.navigateToSession = deps.navigateToSession;
+    this.captureNavigation = deps.captureNavigation;
+    this.beginNavigationOperation = deps.beginNavigationOperation;
     this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
 
@@ -214,19 +236,43 @@ export class SessionController {
     if (options?.updateUrl !== false) this.updateUrl();
   }
 
-  clearSelectionAfterArchivedCollapse(): void {
-    const state = this.getState();
-    if (!shouldDeselectAfterArchivedCollapse(state.sessions, state.selectedSession)) return;
+  private async selectSessionAfterNavigation(session: SessionInfo, expected: NavigationSelection, options?: { updateUrl?: boolean | undefined }): Promise<void> {
+    if (this.navigateToSession !== undefined) {
+      await this.navigateToSession(session, { ...(options?.updateUrl === false ? { replace: true } : {}), expected });
+      return;
+    }
+    await this.selectSession(session, { updateUrl: options?.updateUrl });
+  }
+
+  private async clearSessionAfterNavigation(expected: NavigationSelection): Promise<void> {
+    if (!this.navigationSelectionMatchesState(expected)) return;
+    const cwd = this.getState().selectedSession?.cwd ?? this.getState().selectedWorkspace?.path;
+    if (this.navigateToSession !== undefined) {
+      if (cwd !== undefined) this.sessionSelection.forgetWorkspace(this.workspaceSelectionKey(cwd));
+      await this.navigateToSession(undefined, { expected });
+      return;
+    }
     this.deselectSession({ forgetRememberedSelection: true });
   }
 
-  async startSession(beforeCreate?: () => Promise<boolean>) {
+  async clearSelectionAfterArchivedCollapse(): Promise<void> {
+    const state = this.getState();
+    if (!shouldDeselectAfterArchivedCollapse(state.sessions, state.selectedSession)) return;
+    await this.clearSessionAfterNavigation(this.navigationSelection());
+  }
+
+  async startSession(optionsOrBeforeCreate?: { updateUrl?: boolean | undefined } | (() => Promise<boolean>)) {
     const workspace = this.getState().selectedWorkspace;
     if (!workspace) return;
     const machineId = selectedMachineId(this.getState());
-    const pending = this.createPendingSessionStart(workspace, machineId);
+    const beforeCreate = typeof optionsOrBeforeCreate === "function" ? optionsOrBeforeCreate : undefined;
+    const options = typeof optionsOrBeforeCreate === "function" ? undefined : optionsOrBeforeCreate;
+    const pendingUrlPublished = options?.updateUrl !== false;
+    const pending = this.createPendingSessionStart(workspace, machineId, this.navigationSelection(), pendingUrlPublished);
     this.pendingSessionStarts.set(pending.tempId, pending);
-    this.insertAndSelectPendingSession(pending.session);
+    this.insertAndSelectPendingSession(pending.session, options);
+    if (pendingUrlPublished) pending.expectedNavigation = this.navigationSelection();
+    pending.navigation = this.beginNavigationOperation?.(PENDING_SESSION_START_SCOPE);
     try {
       if (beforeCreate !== undefined && !(await beforeCreate())) {
         this.cancelUnstartedSession(pending);
@@ -313,8 +359,8 @@ export class SessionController {
     return selectPreferredSession(sessions, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
   }
 
-  async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined; preserveTreeDialog?: boolean | undefined; propagateRefreshError?: boolean | undefined }) {
-    if (this.disposed) return;
+  async selectSession(session: SessionInfo, options?: SessionSelectionOptions) {
+    if (this.disposed || !navigationIsCurrent(options?.navigation)) return;
     if (isClientPendingStartSessionInfo(session)) {
       this.selectClientPendingStartSession(session, options);
       return;
@@ -344,10 +390,11 @@ export class SessionController {
     let buffered: SessionUiEvent[] | undefined;
     try {
       if (session.archived === true) {
-        const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, selectedMachineId(this.getState()));
-        if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
+        const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, machineId);
+        if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id || !navigationIsCurrent(options?.navigation)) return;
         const history = this.transcripts.mergeHistory(transcriptKey, page);
         this.setState({ ...history, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingAsk: undefined, pendingDialogs: [], closedDialogs: [] });
+        this.onSelectedSessionReady?.({ machineId, session });
         if (options?.updateUrl !== false) this.updateUrl();
         return;
       }
@@ -360,23 +407,25 @@ export class SessionController {
         machineId,
         () => { void this.notifications?.refreshSelectedSession(session, machineId); },
       );
-      await this.requestSelectedSessionRefresh({ session, machineId, selectionSeq: seq, errorOwner });
-      if (!this.isCurrentRefreshTarget({ session, machineId, selectionSeq: seq, errorOwner })) return;
+      const refreshTarget: SelectedSessionRefreshTarget = { session, machineId, selectionSeq: seq, errorOwner, ...(options?.navigation === undefined ? {} : { navigation: options.navigation }) };
+      await this.requestSelectedSessionRefresh(refreshTarget);
+      if (!this.isCurrentRefreshTarget(refreshTarget) || !navigationIsCurrent(options?.navigation)) return;
       void this.refreshAvailableThinkingLevels();
       for (const event of socketBuffer) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
       this.onSelectedSessionReady?.({ machineId, session });
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) {
+      const navigationCurrent = navigationIsCurrent(options?.navigation);
+      if (!navigationCurrent || seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) {
         this.reportSessionError(session, machineId, error, errorOwner);
         // Tree navigation still needs to know when a same-session reselection's
         // shared trailing refresh failed, even though this selection is stale.
-        if (options?.propagateRefreshError === true && this.isSelectedSessionIdentity(session.id, machineId)) throw error;
+        if (options?.propagateRefreshError === true && navigationCurrent && this.isSelectedSessionIdentity(session.id, machineId)) throw error;
         return;
       }
       if (isCachedNewSessionInfo(session) && isSessionNotFoundError(error)) {
-        await this.recreateCachedNewSession(session, options);
+        await this.recreateCachedNewSession(session, options, seq, errorOwner);
         return;
       }
       // A failed join refresh must not strand the socket on its temporary
@@ -388,6 +437,11 @@ export class SessionController {
       }
       this.reportSessionError(session, machineId, error, errorOwner);
       if (options?.propagateRefreshError === true) throw error;
+    } finally {
+      if (buffered !== undefined && !navigationIsCurrent(options?.navigation) && this.isCurrentSessionSelection(session.id, machineId, seq)) {
+        buffered.length = 0;
+        this.socket.close();
+      }
     }
   }
 
@@ -564,10 +618,11 @@ export class SessionController {
     // message. Inserting the raw text here would leave a line that doesn't
     // converge with server history and disappears on reload. Surface the same
     // per-session sending indicator that send() uses for the pre-receipt window.
+    const expected = this.navigationSelection();
     this.markSendingPrompt(session.id, true);
     try {
       const result = await this.api.runCommand(session, text, machineId);
-      if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
+      if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) await this.applyCommandResult(result, expected);
       else if (result.type === "select" || result.type === "tree") this.reportSessionError(session, machineId, `排队命令“${text}”需要输入；请打开会话并重新运行。`);
       this.markCachedNewSessionPersisted(session);
       return true;
@@ -592,10 +647,11 @@ export class SessionController {
     const session = this.getState().selectedSession;
     if (!session) return;
     const machineId = selectedMachineId(this.getState());
+    const expected = this.navigationSelection();
     this.setState({ commandDialog: undefined });
     try {
       const result = await this.api.respondToCommand(session, requestId, value, machineId);
-      if (this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
+      if (this.isSelectedSessionIdentity(session.id, machineId)) await this.applyCommandResult(result, expected);
     } catch (error) {
       this.reportSessionError(session, machineId, error);
     }
@@ -690,6 +746,7 @@ export class SessionController {
     }
 
     const machineId = selectedMachineId(state);
+    const expected = this.navigationSelection();
     const originalCacheKey = machineSessionKey(machineId, session.id);
     let result: SessionTreeForkResult;
     try {
@@ -706,8 +763,14 @@ export class SessionController {
 
     if (!this.isSelectedSessionIdentity(session.id, machineId)) return result;
     const sessions = [forked, ...this.getState().sessions.filter((candidate) => candidate.id !== forked.id)];
-    this.setState({ sessions, treeDialog: undefined });
-    void this.selectSession(forked);
+    this.setState({ sessions });
+    if (this.navigateToSession !== undefined) {
+      const navigated = await this.navigateToSession(forked, { expected });
+      if (navigated && this.isSelectedSessionIdentity(forked.id, machineId) && this.getState().treeDialog === tree) this.setState({ treeDialog: undefined });
+    } else {
+      this.setState({ treeDialog: undefined });
+      await this.selectSession(forked);
+    }
     return result;
   }
 
@@ -752,9 +815,9 @@ export class SessionController {
       const sessions = markSessionArchived(state.sessions, session.id, new Date().toISOString());
       const selectionChange = selectionAfterArchivingSession(sessions, state.selectedSession?.id, session.id);
       this.setState({ sessions });
-
-      if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-      else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+      const expected = this.navigationSelection();
+      if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
+      else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
     } catch (error) {
       this.reportSessionError(session, machineId, error);
     }
@@ -770,9 +833,9 @@ export class SessionController {
       const sessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
       const selectionChange = selectionAfterArchivingSessions(sessions, state.selectedSession?.id, archivedIds);
       this.setState({ sessions });
-
-      if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-      else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+      const expected = this.navigationSelection();
+      if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
+      else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
     } catch (error) {
       this.reportSessionError(session, machineId, error);
     }
@@ -792,9 +855,9 @@ export class SessionController {
         const nextSessions = markSessionsArchived(state.sessions, archivedIds, generatedAt ?? new Date().toISOString());
         const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
         this.setState({ sessions: nextSessions });
-
-        if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-        else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+        const expected = this.navigationSelection();
+        if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
+        else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
       }
       this.applyBulkSessionFailures("归档", failures, machineId, originWorkspace, candidates[0]);
     } catch (error) {
@@ -816,9 +879,10 @@ export class SessionController {
         const nextSessions = state.sessions.filter((session) => !deletedIdSet.has(session.id));
         this.setState({ sessions: nextSessions });
         if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
+          const expected = this.navigationSelection();
           const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
-          if (next !== undefined) await this.selectSession(next);
-          else this.deselectSession({ forgetRememberedSelection: true });
+          if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
+          else await this.clearSessionAfterNavigation(expected);
         }
         await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
@@ -854,15 +918,15 @@ export class SessionController {
         sessionActivities: omitKeys(state.sessionActivities, affectedIds),
         ...(selectedAffected ? { status: undefined, activity: undefined, pendingAsk: undefined, pendingDialogs: [], closedDialogs: [] } : {}),
       });
-
+      const expected = this.navigationSelection();
       if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
         const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
-        if (next !== undefined) await this.selectSession(next);
-        else this.deselectSession({ forgetRememberedSelection: true });
+        if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
+        else await this.clearSessionAfterNavigation(expected);
       } else {
         const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
-        if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-        else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
+        if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
+        else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
       }
     }
     await this.refreshCurrentWorkspaceSessions(machineId);
@@ -879,6 +943,7 @@ export class SessionController {
       const selectedSession = this.getState().selectedSession;
       this.setState({ sessions });
       void this.refreshPinnedSessions(workspace.path, machineId);
+      const expected = this.navigationSelection();
       if (selectedSession === undefined) return;
       const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
       if (refreshedSelected !== undefined) {
@@ -886,8 +951,8 @@ export class SessionController {
         return;
       }
       const next = sessions.find((session) => session.archived !== true) ?? sessions[0];
-      if (next !== undefined) await this.selectSession(next);
-      else this.deselectSession({ forgetRememberedSelection: true });
+      if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
+      else await this.clearSessionAfterNavigation(expected);
     } catch (error) {
       if (isTransientSessionDaemonRequestError(error)) {
         console.warn("Workspace session list refresh timed out", error);
@@ -928,26 +993,32 @@ export class SessionController {
       clientQueuedSessionMessages: omitKey(state.clientQueuedSessionMessages, session.id),
     });
     if (this.getState().selectedSession?.id !== session.id) return;
+    const expected = this.navigationSelection();
     const next = sessions.find((candidate) => candidate.archived !== true) ?? sessions[0];
-    if (next !== undefined) await this.selectSession(next);
-    else {
-      this.clearActiveSession();
-      this.updateUrl();
-    }
+    if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
+    else await this.clearSessionAfterNavigation(expected);
   }
 
   async restoreSession(session = this.getState().selectedSession) {
     if (!session) return;
     const machineId = selectedMachineId(this.getState());
+    const errorOwner = this.captureSessionErrorOwner(session);
+    const selectionSeq = this.selectionSeq;
+    const navigation = this.beginNavigationOperation?.(SESSION_RESTORE_SCOPE);
     try {
       await this.api.restore(session, machineId, this.archiveScopeProjectId());
-      const restored = { ...session };
-      delete restored.archived;
-      delete restored.archivedAt;
-      this.replaceSession(restored);
-      if (this.getState().selectedSession?.id === restored.id) await this.selectSession(restored);
     } catch (error) {
-      this.reportSessionError(session, machineId, error);
+      this.reportSessionError(session, machineId, error, errorOwner);
+      return;
+    }
+    if (!this.isCurrentRestoreOperation(machineId, selectionSeq, navigation)) return;
+    const restored = { ...session };
+    delete restored.archived;
+    delete restored.archivedAt;
+    const wasSelected = this.getState().selectedSession?.id === restored.id;
+    this.replaceSession(restored);
+    if (wasSelected) {
+      await this.selectSession(restored, { updateUrl: false, ...(navigation === undefined ? {} : { navigation }) });
     }
   }
 
@@ -1303,11 +1374,15 @@ export class SessionController {
   }
 
   private isCurrentRefreshTarget(target: SelectedSessionRefreshTarget): boolean {
-    return this.isCurrentSessionSelection(target.session.id, target.machineId, target.selectionSeq);
+    return this.isCurrentSessionSelection(target.session.id, target.machineId, target.selectionSeq) && navigationIsCurrent(target.navigation);
   }
 
   private isCurrentSessionSelection(sessionId: string, machineId: string, selectionSeq: number): boolean {
     return selectionSeq === this.selectionSeq && this.isSelectedSessionIdentity(sessionId, machineId);
+  }
+
+  private isCurrentRestoreOperation(machineId: string, selectionSeq: number, navigation?: NavigationFreshness): boolean {
+    return selectionSeq === this.selectionSeq && selectedMachineId(this.getState()) === machineId && navigationIsCurrent(navigation);
   }
 
   private isSelectedSessionIdentity(sessionId: string, machineId: string): boolean {
@@ -1379,7 +1454,19 @@ export class SessionController {
     });
   }
 
-  private createPendingSessionStart(workspace: Workspace, machineId: string): PendingSessionStart {
+  private navigationSelection(): NavigationSelection {
+    if (this.captureNavigation !== undefined) return this.captureNavigation();
+    const state = this.getState();
+    return { machineId: selectedMachineId(state), projectId: state.selectedProject?.id, workspaceId: state.selectedWorkspace?.id, sessionId: state.selectedSession?.id };
+  }
+
+  private navigationSelectionMatchesState(expected: NavigationSelection): boolean {
+    const current = this.navigationSelection();
+    return current.machineId === expected.machineId && current.projectId === expected.projectId && current.workspaceId === expected.workspaceId
+      && current.sessionId === expected.sessionId && current.tool === expected.tool && current.view === expected.view;
+  }
+
+  private createPendingSessionStart(workspace: Workspace, machineId: string, expectedNavigation: NavigationSelection, pendingUrlPublished: boolean): PendingSessionStart {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     const tempId = `creating:${token}`;
     const now = new Date().toISOString();
@@ -1396,14 +1483,15 @@ export class SessionController {
       clientPendingStart: true,
       machineId,
     };
-    return { tempId, originWorkspace: workspace, workspaceId: workspace.id, cwd: workspace.path, machineId, session, queuedSends: [], discarded: false };
+    return { tempId, originWorkspace: workspace, workspaceId: workspace.id, cwd: workspace.path, machineId, expectedNavigation, pendingUrlPublished, session, queuedSends: [], discarded: false };
   }
 
-  private insertAndSelectPendingSession(session: ClientPendingStartSessionInfo): void {
+  private insertAndSelectPendingSession(session: ClientPendingStartSessionInfo, options?: { updateUrl?: boolean | undefined }): void {
     const state = this.getState();
     this.selectClientPendingStartSession(session, {
       activity: creatingPendingSessionActivity(session.id),
       sessions: [session, ...state.sessions.filter((candidate) => candidate.id !== session.id)],
+      updateUrl: options?.updateUrl,
     });
   }
 
@@ -1411,13 +1499,14 @@ export class SessionController {
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;
     this.socket.close();
+    this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
     const state = this.getState();
     const pendingStart = this.pendingSessionStarts.get(session.id);
     const activity = options?.activity ?? state.sessionActivities[session.id] ?? (pendingStart !== undefined ? creatingPendingSessionActivity(session.id, pendingStart.queuedSends.length) : undefined);
     this.setState({
-      ...(options?.sessions === undefined ? {} : { sessions: options.sessions }),
+      sessions: options?.sessions ?? (state.sessions.some((candidate) => candidate.id === session.id) ? state.sessions : [session, ...state.sessions]),
       selectedSession: session,
       messages: [],
       messagePageStart: 0,
@@ -1467,15 +1556,16 @@ export class SessionController {
 
     const state = this.getState();
     const wasSelected = state.selectedSession?.id === tempId;
-    const navigation: PendingSessionStartNavigation = {
+    const legacyNavigation: PendingSessionStartNavigation = {
       machineId: pending.machineId,
       projectId: pending.originWorkspace.projectId,
       workspaceId: pending.workspaceId,
       sessionId: tempId,
     };
-    const shouldHandoffSelection = wasSelected
-      && (this.isPendingSessionStartRouteCurrent?.(navigation) ?? true);
-    if (wasSelected && !shouldHandoffSelection) this.clearActiveSession();
+    const useNavigation = wasSelected && (this.navigateToSession !== undefined || !pending.pendingUrlPublished);
+    const shouldHandoffSelection = wasSelected && !useNavigation
+      && (this.isPendingSessionStartRouteCurrent?.(legacyNavigation) ?? true);
+    if (wasSelected && !useNavigation && !shouldHandoffSelection) this.clearActiveSession();
     this.setState({
       sessions: replacePendingSessionInList(state.sessions, tempId, cachedSession),
       sessionActivities: omitSessionActivity(state.sessionActivities, tempId),
@@ -1485,12 +1575,62 @@ export class SessionController {
       error: "",
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
-    if (shouldHandoffSelection) {
-      this.onPendingSessionStartCommitted?.(navigation, cachedSession);
+    if (useNavigation) await this.reconcileCompletedPendingSelection(pending, cachedSession);
+    else if (shouldHandoffSelection) {
+      this.onPendingSessionStartCommitted?.(legacyNavigation, cachedSession);
       if (this.onPendingSessionStartCommitted === undefined) this.updateUrl({ replace: true });
-      await this.selectSession(cachedSession, { updateUrl: false });
+      await this.selectSession(cachedSession, { updateUrl: false, navigation: pending.navigation });
     }
     await this.flushQueuedPendingSends(cachedSession, pending.machineId, queuedSends);
+  }
+
+  private async reconcileCompletedPendingSelection(pending: PendingSessionStart, session: SessionInfo): Promise<void> {
+    const navigation = pending.navigation;
+    if (!pending.pendingUrlPublished && !navigationIsCurrent(navigation)) {
+      this.clearUnreconciledPendingSelection(pending, session);
+      return;
+    }
+    pending.expectedNavigation = this.pendingStartExpectedNavigation(pending);
+    if (this.navigateToSession !== undefined) {
+      try {
+        const accepted = await this.navigateToSession(session, {
+          ...(pending.pendingUrlPublished ? { replace: true, creationHandoff: true } : {}),
+          expected: pending.expectedNavigation,
+        });
+        if (accepted && this.getState().selectedSession?.id !== pending.tempId) return;
+        this.clearUnreconciledPendingSelection(pending, session, accepted || pending.pendingUrlPublished || !navigationIsCurrent(navigation)
+          ? undefined : "会话已启动，但选中完成前导航已改变，请从会话列表选择。");
+      } catch (error) {
+        this.clearUnreconciledPendingSelection(pending, session, `会话已启动，但无法选中：${errorMessage(error)}`);
+      }
+      return;
+    }
+    try {
+      await this.selectSession(session, { updateUrl: false, navigation });
+      if (!navigationIsCurrent(navigation)) {
+        this.clearUnreconciledPendingSelection(pending, session);
+        return;
+      }
+      if (this.getState().selectedSession?.id !== session.id) {
+        this.clearUnreconciledPendingSelection(pending, session, "会话已启动，但导航完成前选择已改变，请从会话列表选择。");
+        return;
+      }
+      this.updateUrl(pending.pendingUrlPublished ? { replace: true } : undefined);
+    } catch (error) {
+      this.clearUnreconciledPendingSelection(pending, session, `会话已启动，但无法选中：${errorMessage(error)}`);
+    }
+  }
+
+  private pendingStartExpectedNavigation(pending: PendingSessionStart): NavigationSelection {
+    if (pending.pendingUrlPublished) return { machineId: pending.machineId, projectId: pending.originWorkspace.projectId, workspaceId: pending.workspaceId, sessionId: pending.tempId };
+    return { ...this.navigationSelection(), sessionId: pending.expectedNavigation.sessionId };
+  }
+
+  private clearUnreconciledPendingSelection(pending: PendingSessionStart, session: SessionInfo, message?: string): void {
+    const selectedId = this.getState().selectedSession?.id;
+    if (selectedId !== pending.tempId && selectedId !== session.id) return;
+    this.clearActiveSession();
+    if (message !== undefined) this.browserErrors.report(workspaceBrowserErrorScope(pending.machineId, pending.originWorkspace.projectId, pending.workspaceId), message);
   }
 
   private cancelUnstartedSession(pending: PendingSessionStart): void {
@@ -1599,20 +1739,28 @@ export class SessionController {
     return [...pending, ...sessions.filter((session) => !pendingIds.has(session.id))];
   }
 
-  private async recreateCachedNewSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }): Promise<void> {
+  private async recreateCachedNewSession(session: SessionInfo, options?: SessionSelectionOptions, selectionSeq = this.selectionSeq, errorOwner = this.captureSessionErrorOwner(session)): Promise<void> {
     const machineId = selectedMachineId(this.getState());
+    const expected = this.navigationSelection();
     try {
       const replacement = await this.api.startSession(session.cwd, machineId);
+      if (!this.isCurrentSessionSelection(session.id, machineId, selectionSeq) || !navigationIsCurrent(options?.navigation)) return;
       rememberCachedNewSession(replacement, machineId);
       moveDraft(this.sessionCacheKey(session.id), this.sessionCacheKey(replacement.id));
       moveStagedAttachments(this.sessionCacheKey(session.id), this.sessionCacheKey(replacement.id));
       forgetCachedNewSession(session.id, machineId);
       const cachedReplacement = markCachedNewSessionInfo(replacement, machineId);
       this.setState({ sessions: [cachedReplacement, ...this.getState().sessions.filter((candidate) => candidate.id !== session.id)], error: "" });
-      await this.selectSession(cachedReplacement, { updateUrl: false });
-      this.updateUrl(options?.updateUrl === false ? { replace: true } : undefined);
+      if (this.navigateToSession !== undefined) {
+        const latest = this.navigationSelection();
+        const accepted = await this.navigateToSession(cachedReplacement, { ...(options?.updateUrl === false ? { replace: true } : {}), expected: { ...expected, tool: latest.tool, view: latest.view } });
+        if (!accepted && this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.clearActiveSession();
+      } else {
+        await this.selectSession(cachedReplacement, { updateUrl: false });
+        this.updateUrl(options?.updateUrl === false ? { replace: true } : undefined);
+      }
     } catch (error) {
-      this.reportSessionError(session, machineId, error);
+      this.reportSessionError(session, machineId, error, errorOwner);
     }
   }
 
@@ -1622,7 +1770,7 @@ export class SessionController {
     this.replaceSession(stripCachedNewSessionMarker(latest));
   }
 
-  private applyCommandResult(result: CommandResult) {
+  private async applyCommandResult(result: CommandResult, expected: NavigationSelection): Promise<void> {
     if (result.type === "select") {
       this.setState({ commandDialog: result });
       return;
@@ -1637,8 +1785,10 @@ export class SessionController {
       if (result.promptDraft !== undefined) saveDraft(this.sessionCacheKey(result.session.id), result.promptDraft);
       const current = this.getState().selectedSession;
       const sessions = [result.session, ...this.getState().sessions.filter((session) => session.id !== result.session?.id)];
-      this.setState({ sessions, selectedSession: current?.id === result.session.id ? result.session : current });
-      if (current?.id !== result.session.id) void this.selectSession(result.session);
+      this.setState({ sessions, ...(current?.id === result.session.id ? { selectedSession: result.session } : {}) });
+      if (current?.id === result.session.id || !this.navigationSelectionMatchesState(expected)) return;
+      if (this.navigateToSession !== undefined) await this.navigateToSession(result.session, { expected });
+      else await this.selectSession(result.session);
     }
   }
 
@@ -1942,7 +2092,7 @@ export class SessionController {
   }
 
   async selectSearchMatch(session: SessionInfo, match: SessionContentSearchMatch, query: string): Promise<void> {
-    await this.selectSession(session);
+    await this.selectSessionAfterNavigation(session, this.navigationSelection());
     const machineId = selectedMachineId(this.getState());
     const selectionSeq = this.selectionSeq;
     try {
@@ -2132,5 +2282,9 @@ function isSessionNotFoundError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return message.includes("session not found") || message.includes("未找到会话");
+}
+
+function navigationIsCurrent(navigation: NavigationFreshness | undefined): boolean {
+  return navigation === undefined || navigation.isCurrent();
 }
 

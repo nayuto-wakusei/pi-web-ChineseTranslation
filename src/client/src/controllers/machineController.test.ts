@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Machine, type MachineHealth } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { MachineController } from "./machineController";
+import { deferred } from "./sessionController.testSupport";
 
 const localMachine: Machine = {
   id: "local",
@@ -40,6 +41,39 @@ const offlineHealth: MachineHealth = {
 describe("MachineController", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("passes the initiating route to the navigator after an add completion", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine], selectedMachine: localMachine };
+    const creation = deferred<Machine>();
+    const expected = { machineId: "local", projectId: "p1", workspaceId: "w1", sessionId: "s1", view: "chat" };
+    const navigateToMachine = vi.fn().mockResolvedValue(false);
+    vi.spyOn(api, "addMachine").mockReturnValue(creation.promise);
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() }, {
+      captureNavigation: () => expected, navigateToMachine,
+    });
+    const adding = controller.addMachine({ name: addedMachine.name, baseUrl: addedMachine.baseUrl ?? "" });
+    state = { ...state, selectedMachine: remoteMachine };
+    creation.resolve(addedMachine);
+    await adding;
+    expect(navigateToMachine).toHaveBeenCalledWith(addedMachine, { expected });
+    expect(state.selectedMachine?.id).toBe(remoteMachine.id);
+    expect(state.machines).toContainEqual(addedMachine);
+  });
+
+  it("does not take fallback navigation after the user leaves a machine being deleted", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine, addedMachine], selectedMachine: remoteMachine };
+    const deletion = deferred<{ removed: boolean }>();
+    const navigateToMachine = vi.fn();
+    vi.spyOn(api, "deleteMachine").mockReturnValue(deletion.promise);
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() }, { navigateToMachine });
+    const deleting = controller.deleteMachine();
+    state = { ...state, selectedMachine: addedMachine };
+    deletion.resolve({ removed: true });
+    expect(await deleting).toBeUndefined();
+    expect(navigateToMachine).not.toHaveBeenCalled();
+    expect(state.selectedMachine?.id).toBe(addedMachine.id);
+    expect(state.machines).toEqual([localMachine, addedMachine]);
   });
 
   it("selects a newly added machine and clears stale workspace state", async () => {

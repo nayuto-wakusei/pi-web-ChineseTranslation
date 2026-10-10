@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isCreatingSessionId, readRoute, routeMatchesSessionCreation, writeRoute, type AppRoute, type SessionCreationRouteIdentity } from "./route";
+import { isCreatingSessionId, readRoute, resolveWorkspacePanelRouteValue, routeMatchesSessionCreation, writeRoute, type AppRoute, type SessionCreationRouteIdentity } from "./route";
 
 const originalWindow = globalThis.window;
 
@@ -95,8 +95,8 @@ describe("route helpers", () => {
       projectId: "p1",
       workspaceId: "w1",
       sessionId: "s1",
-      tool: "core:workspace.git",
-      view: "core:workspace.files",
+      tool: "git",
+      view: "files",
     });
   });
 
@@ -106,10 +106,13 @@ describe("route helpers", () => {
     expect(readRoute()).toMatchObject({ tool: "terminal", view: "terminal" });
   });
 
-  it("ignores unsupported tool and view values", () => {
+  it("retains unknown routes until the selected machine's registry can resolve them", () => {
     installWindow("http://localhost/app?tool=settings&view=settings");
 
-    expect(readRoute()).toMatchObject({ tool: undefined, view: undefined });
+    expect(readRoute()).toMatchObject({ tool: "settings", view: "settings" });
+    expect(resolveWorkspacePanelRouteValue(readRoute().tool, () => "example:settings")).toBe("example:settings");
+    expect(resolveWorkspacePanelRouteValue("unknown", () => undefined)).toBeUndefined();
+    expect(resolveWorkspacePanelRouteValue("example:unavailable", () => undefined)).toBe("example:unavailable");
   });
 
   it("writes compact URLs with push history and preserves path/hash", () => {

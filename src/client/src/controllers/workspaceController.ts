@@ -3,18 +3,33 @@ import { resetWorkspaceScopedState, type AppState } from "../appState";
 import { BrowserErrorReporter, projectBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
 import { mergeCachedNewSessions } from "../cachedNewSessions";
 import { machineProjectKey } from "../machineKeys";
-import { selectedMachineId, type GetState, type RouteTarget, type SetState, type UpdateUrl } from "./types";
+import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationFreshness, type NavigationScope, type NavigationSelection, type RouteTarget, type SetState, type UpdateUrl } from "./types";
 import type { SessionController } from "./sessionController";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, type WorkspaceSelectionMemory } from "./workspaceSelection";
 
+const WORKSPACE_SELECTION_SCOPE = ["machine", "project", "workspace", "session"] as const;
+
 export interface WorkspaceControllerDependencies {
   api?: Pick<typeof defaultApi, "sessions" | "workspaces">;
+  navigateToWorkspace?: (workspace: Workspace | undefined, options?: NavigationDestinationOptions) => Promise<boolean>;
+  captureNavigation?: () => NavigationSelection;
+  beginNavigationOperation?: (scope: readonly NavigationScope[]) => NavigationFreshness;
   onBackgroundError?: (message: string, error: unknown) => void;
 }
 
+interface WorkspaceMutationGuard {
+  signal?: AbortSignal | undefined;
+  isCurrent?: (() => boolean) | undefined;
+}
+
+type WorkspaceSelectionTarget = RouteTarget & WorkspaceMutationGuard;
+
 export class WorkspaceController {
   private readonly api: Pick<typeof defaultApi, "sessions" | "workspaces">;
+  private readonly navigateToWorkspace: WorkspaceControllerDependencies["navigateToWorkspace"];
+  private readonly captureNavigation: WorkspaceControllerDependencies["captureNavigation"];
+  private readonly beginNavigationOperation: WorkspaceControllerDependencies["beginNavigationOperation"];
   private readonly onBackgroundError: (message: string, error: unknown) => void;
   private readonly browserErrors: BrowserErrorReporter;
   private readonly topologyRefreshes = new TrailingRefreshCoordinator<string>();
@@ -28,6 +43,9 @@ export class WorkspaceController {
     deps: WorkspaceControllerDependencies = {},
   ) {
     this.api = deps.api ?? defaultApi;
+    this.navigateToWorkspace = deps.navigateToWorkspace;
+    this.captureNavigation = deps.captureNavigation;
+    this.beginNavigationOperation = deps.beginNavigationOperation;
     this.onBackgroundError = deps.onBackgroundError ?? ((message, error) => { console.warn(message, error); });
     this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
@@ -46,50 +64,91 @@ export class WorkspaceController {
     this.setState({ workspacesByProjectId });
   }
 
-  async selectProject(project: Project, target?: RouteTarget) {
+  async selectProject(project: Project, target?: WorkspaceSelectionTarget): Promise<string | undefined> {
+    const navigation = target?.navigation ?? this.beginNavigationOperation?.(WORKSPACE_SELECTION_SCOPE);
+    if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
     const machineId = selectedMachineId(this.getState());
     const errorScope = projectBrowserErrorScope(machineId, project.id);
     this.sessions.clearActiveSession();
     this.setState({ selectedProject: project, selectedWorkspace: undefined, workspaces: [], isLoadingWorkspaces: true, ...resetWorkspaceScopedState() });
     try {
-      const workspaces = await this.api.workspaces(project.id, machineId);
-      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedProject?.id !== project.id) return;
+      const workspaces = target?.signal === undefined
+        ? await this.api.workspaces(project.id, machineId)
+        : await this.api.workspaces(project.id, machineId, { signal: target.signal });
+      if (!this.navigationIsCurrent(navigation)
+        || !workspaceMutationIsCurrent(target)
+        || selectedMachineId(this.getState()) !== machineId
+        || this.getState().selectedProject?.id !== project.id) return;
       this.setState({ workspaces, workspacesByProjectId: { ...this.getState().workspacesByProjectId, [project.id]: workspaces }, isLoadingWorkspaces: false });
       const workspace = selectPreferredWorkspace(workspaces, { targetWorkspaceId: target?.workspaceId, latestWorkspaceId: this.workspaceSelection.latestWorkspaceId(machineProjectKey(machineId, project.id)) });
-      if (workspace) await this.selectWorkspace(workspace, { sessionId: target?.sessionId, updateUrl: target?.updateUrl });
-      else if (target?.workspaceId !== undefined && target.workspaceId !== "") this.browserErrors.report(errorScope, `找不到工作区：${target.workspaceId}`);
-      else if (target?.updateUrl !== false) this.updateUrl();
+      if (workspace) {
+        return await this.selectWorkspace(workspace, { ...target, sessionId: target?.sessionId, updateUrl: target?.updateUrl, navigation });
+      }
+      if (target?.workspaceId !== undefined && target.workspaceId !== "") {
+        this.browserErrors.report(errorScope, `找不到工作区：${target.workspaceId}`);
+        return `找不到工作区：${target.workspaceId}`;
+      }
+      if (target?.updateUrl !== false && this.navigationIsCurrent(navigation)) this.updateUrl();
     } catch (error) {
-      if (selectedMachineId(this.getState()) === machineId && this.getState().selectedProject?.id === project.id) this.setState({ isLoadingWorkspaces: false });
-      this.browserErrors.report(errorScope, String(error));
+      if (this.navigationIsCurrent(navigation)
+        && workspaceMutationIsCurrent(target)
+        && selectedMachineId(this.getState()) === machineId
+        && this.getState().selectedProject?.id === project.id) this.setState({ isLoadingWorkspaces: false });
+      if (target?.signal?.aborted !== true) this.browserErrors.report(errorScope, String(error));
+      return String(error);
     }
+    return undefined;
   }
 
-  async selectWorkspace(workspace: Workspace, target?: { sessionId?: string | undefined; updateUrl?: boolean | undefined }) {
+  async selectWorkspace(workspace: Workspace, target?: WorkspaceSelectionTarget): Promise<string | undefined> {
+    const navigation = target?.navigation ?? this.beginNavigationOperation?.(WORKSPACE_SELECTION_SCOPE);
+    if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
     const machineId = selectedMachineId(this.getState());
     const errorScope = workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id);
     this.workspaceSelection.rememberWorkspace({ ...workspace, projectId: machineProjectKey(machineId, workspace.projectId) });
     this.sessions.clearActiveSession();
     this.setState({ selectedWorkspace: workspace, isLoadingWorkspaces: false, ...resetWorkspaceScopedState() });
     try {
-      const sessions = mergeCachedNewSessions(workspace.path, await this.api.sessions(workspace.path, machineId), machineId);
-      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedWorkspace?.id !== workspace.id || this.getState().selectedProject?.id !== workspace.projectId) return;
+      const loadedSessions = target?.signal === undefined
+        ? await this.api.sessions(workspace.path, machineId)
+        : await this.api.sessions(workspace.path, machineId, { signal: target.signal });
+      const sessions = mergeCachedNewSessions(workspace.path, loadedSessions, machineId);
+      if (!this.navigationIsCurrent(navigation)
+        || !workspaceMutationIsCurrent(target)
+        || selectedMachineId(this.getState()) !== machineId
+        || this.getState().selectedWorkspace?.id !== workspace.id
+        || this.getState().selectedProject?.id !== workspace.projectId) return;
       this.setState({ sessions });
       const session = this.sessions.preferredSession(workspace.path, sessions, target?.sessionId);
-      if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl });
-      else if (target?.sessionId !== undefined && target.sessionId !== "") this.browserErrors.report(errorScope, `找不到会话：${target.sessionId}`);
+      if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
+      if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl, ...(navigation === undefined ? {} : { navigation }) });
+      else if (target?.sessionId !== undefined && target.sessionId !== "") {
+        this.browserErrors.report(errorScope, `找不到会话：${target.sessionId}`);
+        return `找不到会话：${target.sessionId}`;
+      }
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      this.browserErrors.report(errorScope, String(error));
+      if (target?.signal?.aborted !== true) this.browserErrors.report(errorScope, String(error));
+      return String(error);
     }
+    return undefined;
   }
 
 
-  async refreshProjectWorkspaces(projectId: string): Promise<Workspace[]> {
+  async refreshProjectWorkspaces(
+    projectId: string,
+    machineId = selectedMachineId(this.getState()),
+    options?: WorkspaceMutationGuard,
+  ): Promise<Workspace[]> {
+    if (!workspaceMutationIsCurrent(options)) return [];
     const project = this.getState().projects.find((candidate) => candidate.id === projectId);
     if (project === undefined) throw new Error("找不到项目");
-    const workspaces = await this.api.workspaces(project.id, selectedMachineId(this.getState()));
-    this.applyProjectWorkspaces(project.id, workspaces);
+    const workspaces = options?.signal === undefined
+      ? await this.api.workspaces(project.id, machineId)
+      : await this.api.workspaces(project.id, machineId, { signal: options.signal });
+    if (workspaceMutationIsCurrent(options) && selectedMachineId(this.getState()) === machineId) {
+      this.applyProjectWorkspaces(project.id, workspaces);
+    }
     return workspaces;
   }
 
@@ -127,14 +186,28 @@ export class WorkspaceController {
     });
   }
 
-  async refreshAfterWorkspaceDeleted(projectId: string, workspaceId: string): Promise<void> {
-    const workspaces = await this.refreshProjectWorkspaces(projectId);
+  async refreshAfterWorkspaceDeleted(
+    projectId: string,
+    workspaceId: string,
+    machineId = selectedMachineId(this.getState()),
+    options?: WorkspaceMutationGuard,
+  ): Promise<void> {
+    if (!workspaceMutationIsCurrent(options)) return;
+    const navigation = this.beginNavigationOperation?.(WORKSPACE_SELECTION_SCOPE);
+    const workspaces = await this.refreshProjectWorkspaces(projectId, machineId, options);
+    if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(options)) return;
     const state = this.getState();
-    if (state.selectedProject?.id !== projectId || state.selectedWorkspace?.id !== workspaceId) return;
+    if (selectedMachineId(state) !== machineId || state.selectedProject?.id !== projectId || state.selectedWorkspace?.id !== workspaceId) return;
 
+    const expected = navigationSelection(this.getState(), this.captureNavigation);
     const fallback = selectFallbackWorkspace(workspaces);
-    if (fallback !== undefined) await this.selectWorkspace(fallback);
-    else this.clearSelection();
+    if (this.navigateToWorkspace !== undefined) {
+      await this.navigateToWorkspace(fallback, { expected });
+    } else if (fallback !== undefined) {
+      await this.selectWorkspace(fallback, { ...options, ...(navigation === undefined ? {} : { navigation }) });
+    } else if (this.navigationIsCurrent(navigation) && workspaceMutationIsCurrent(options)) {
+      this.clearSelection();
+    }
   }
 
   private applyProjectWorkspaces(projectId: string, workspaces: Workspace[]): void {
@@ -158,21 +231,51 @@ export class WorkspaceController {
   private refreshedSelection(selected: Workspace | undefined, workspaces: Workspace[]): Pick<AppState, "selectedWorkspace"> | undefined {
     if (selected === undefined) return undefined;
     const refreshed = workspaces.find((candidate) => candidate.id === selected.id);
-    if (refreshed === undefined || sameWorkspaceMetadata(selected, refreshed)) return undefined;
+    if (refreshed === undefined || sameBrowserObservableValue(selected, refreshed)) return undefined;
     return { selectedWorkspace: refreshed };
   }
+
+  private navigationIsCurrent(navigation: NavigationFreshness | undefined): boolean {
+    return navigation === undefined || navigation.isCurrent();
+  }
+}
+
+function navigationSelection(state: ReturnType<GetState>, captureNavigation?: () => NavigationSelection): NavigationSelection {
+  return captureNavigation?.() ?? {
+    machineId: selectedMachineId(state),
+    projectId: state.selectedProject?.id,
+    workspaceId: state.selectedWorkspace?.id,
+    ...(state.selectedSession === undefined || Reflect.get(state.selectedSession, "clientPendingStart") !== true ? { sessionId: state.selectedSession?.id } : {}),
+  };
+}
+
+function workspaceMutationIsCurrent(options: WorkspaceMutationGuard | undefined): boolean {
+  return options?.signal?.aborted !== true && options?.isCurrent?.() !== false;
 }
 
 function selectFallbackWorkspace(workspaces: Workspace[]): Workspace | undefined {
   return workspaces.find((workspace) => workspace.isMain) ?? workspaces[0];
 }
 
-function sameWorkspaceMetadata(left: Workspace, right: Workspace): boolean {
-  return left.path === right.path
-    && left.label === right.label
-    && left.branch === right.branch
-    && left.isMain === right.isMain
-    && left.isGitRepo === right.isGitRepo
-    && left.isGitWorktree === right.isGitWorktree;
+/** Compare the complete parsed workspace payload, including future additive fields. */
+function sameBrowserObservableValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => sameBrowserObservableValue(value, right[index]));
+  }
+  if (!isBrowserObservableRecord(left) || !isBrowserObservableRecord(right)) return false;
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.hasOwn(right, key)
+      && sameBrowserObservableValue(left[key], right[key]));
+}
+
+function isBrowserObservableRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

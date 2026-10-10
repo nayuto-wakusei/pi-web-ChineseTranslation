@@ -1,6 +1,6 @@
 import { api as defaultApi, type Project } from "../api";
 import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScope } from "../browserErrors";
-import { selectedMachineId, type GetState, type SetState } from "./types";
+import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
 
 export interface ProjectTrustChoice {
@@ -11,12 +11,16 @@ export interface ProjectTrustChoice {
 export interface ProjectControllerDependencies {
   api?: Pick<typeof defaultApi, "projects" | "addProject" | "closeProject"> & Partial<Pick<typeof defaultApi, "workspaces" | "setWorkspaceTrust">>;
   onProjectsApplied?: (machineId: string) => void;
+  navigateToProject?: (project: Project | undefined, options?: NavigationDestinationOptions) => Promise<boolean>;
+  captureNavigation?: () => NavigationSelection;
 }
 
 export class ProjectController {
   private readonly api: NonNullable<ProjectControllerDependencies["api"]>;
   private readonly onProjectsApplied: ((machineId: string) => void) | undefined;
   private readonly browserErrors: BrowserErrorReporter;
+  private readonly navigateToProject: ProjectControllerDependencies["navigateToProject"];
+  private readonly captureNavigation: ProjectControllerDependencies["captureNavigation"];
 
   constructor(
     private readonly getState: GetState,
@@ -26,11 +30,16 @@ export class ProjectController {
   ) {
     this.api = deps.api ?? defaultApi;
     this.onProjectsApplied = deps.onProjectsApplied;
+    this.navigateToProject = deps.navigateToProject;
+    this.captureNavigation = deps.captureNavigation;
     this.browserErrors = new BrowserErrorReporter(getState, setState);
   }
 
+  readonly loadErrors = new Map<string, string>();
+
   async loadProjects() {
     const machineId = selectedMachineId(this.getState());
+    this.loadErrors.delete(machineId);
     this.setState({ isLoadingProjects: true });
     try {
       const projects = await this.api.projects(machineId);
@@ -40,6 +49,7 @@ export class ProjectController {
       this.setState({ projects, workspacesByProjectId });
       this.onProjectsApplied?.(machineId);
     } catch (error) {
+      this.loadErrors.set(machineId, String(error));
       this.browserErrors.report(machineBrowserErrorScope(machineId), String(error));
     } finally {
       if (selectedMachineId(this.getState()) === machineId) this.setState({ isLoadingProjects: false });
@@ -49,6 +59,7 @@ export class ProjectController {
   async addProject(path: string, create?: boolean, trustChoice?: ProjectTrustChoice) {
     if (path.trim() === "") return;
     const machineId = selectedMachineId(this.getState());
+    const expected = navigationSelection(this.getState(), this.captureNavigation);
     let project: Project;
     try {
       project = await this.api.addProject(path.trim(), undefined, create, machineId);
@@ -69,7 +80,8 @@ export class ProjectController {
         await (this.api.setWorkspaceTrust ?? defaultApi.setWorkspaceTrust)(project.id, main.id, trustChoice.trusted, machineId);
       }
       if (selectedMachineId(this.getState()) !== machineId) return;
-      await this.workspaces.selectProject(project);
+      if (this.navigateToProject !== undefined) await this.navigateToProject(project, { expected });
+      else await this.workspaces.selectProject(project);
     } catch (error) {
       this.browserErrors.report(projectBrowserErrorScope(machineId, project.id), String(error));
     }
@@ -84,9 +96,21 @@ export class ProjectController {
       const state = this.getState();
       this.setState({ projects: state.projects.filter((p) => p.id !== projectId) });
       this.onProjectsApplied?.(machineId);
-      if (state.selectedProject?.id === projectId) this.workspaces.clearSelection();
+      if (state.selectedProject?.id !== projectId) return;
+      const expected = navigationSelection(this.getState(), this.captureNavigation);
+      if (this.navigateToProject !== undefined) await this.navigateToProject(undefined, { expected });
+      else this.workspaces.clearSelection();
     } catch (error) {
       this.browserErrors.report(projectBrowserErrorScope(machineId, projectId), String(error));
     }
   }
+}
+
+function navigationSelection(state: ReturnType<GetState>, captureNavigation?: () => NavigationSelection): NavigationSelection {
+  return captureNavigation?.() ?? {
+    machineId: selectedMachineId(state),
+    projectId: state.selectedProject?.id,
+    workspaceId: state.selectedWorkspace?.id,
+    ...(state.selectedSession === undefined || Reflect.get(state.selectedSession, "clientPendingStart") !== true ? { sessionId: state.selectedSession?.id } : {}),
+  };
 }

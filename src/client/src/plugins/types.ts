@@ -201,7 +201,7 @@ export interface PluginRuntimeContext {
   openThemePicker: () => void;
   openModelPicker: () => void | Promise<void>;
   openThinkingLevelPicker: () => void | Promise<void>;
-  selectMainView: (view: AppState["mainView"]) => void;
+  selectMainView: (view: AppState["mainView"] | "workspace") => void;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
   openTerminal: (options?: { terminalId?: string | undefined }) => void;
   refreshFiles: () => void | Promise<void>;

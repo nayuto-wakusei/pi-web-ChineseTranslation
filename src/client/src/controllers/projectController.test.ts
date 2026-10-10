@@ -3,6 +3,7 @@ import type { AppState } from "../appState";
 import { initialAppState } from "../appState";
 import type { Project, Workspace } from "../api";
 import { ProjectController } from "./projectController";
+import { deferred } from "./sessionController.testSupport";
 
 function project(id: string, path: string): Project {
   return { id, name: id, path, createdAt: "now" };
@@ -13,12 +14,54 @@ function workspace(projectId: string, path: string): Workspace {
 }
 
 describe("ProjectController", () => {
+  it("keeps trust persistence owned by creation but passes the original route to navigation", async () => {
+    const added = project("added", "/added");
+    const main = workspace(added.id, added.path);
+    let state: AppState = initialAppState();
+    const creation = deferred<Project>();
+    const expected = { machineId: "local", projectId: "original", workspaceId: "original-main", view: "chat" };
+    const navigateToProject = vi.fn().mockResolvedValue(false);
+    const setWorkspaceTrust = vi.fn().mockResolvedValue({ path: main.path, trusted: true, decision: true });
+    const selectProject = vi.fn();
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; }, { selectProject, forgetProject: vi.fn(), clearSelection: vi.fn() }, {
+      api: { projects: vi.fn(), addProject: () => creation.promise, closeProject: vi.fn(), workspaces: vi.fn().mockResolvedValue([main]), setWorkspaceTrust },
+      captureNavigation: () => expected, navigateToProject,
+    });
+    const adding = controller.addProject(added.path, false, { trusted: true, changed: true });
+    state = { ...state, selectedProject: project("newer", "/newer") };
+    creation.resolve(added);
+    await adding;
+    expect(setWorkspaceTrust).toHaveBeenCalledWith(added.id, main.id, true, "local");
+    expect(navigateToProject).toHaveBeenCalledWith(added, { expected });
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(state.selectedProject?.id).toBe("newer");
+  });
+
+  it("does not clear a newer selection when closing the former project completes", async () => {
+    const closed = project("closed", "/closed");
+    const newer = project("newer", "/newer");
+    let state: AppState = { ...initialAppState(), projects: [closed, newer], selectedProject: closed };
+    const deletion = deferred<{ closed: true }>();
+    const navigateToProject = vi.fn();
+    const forgetProject = vi.fn();
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; }, { selectProject: vi.fn(), forgetProject, clearSelection: vi.fn() }, {
+      api: { projects: vi.fn(), addProject: vi.fn(), closeProject: () => deletion.promise }, navigateToProject,
+    });
+    const closing = controller.closeProject(closed.id);
+    state = { ...state, selectedProject: newer };
+    deletion.resolve({ closed: true });
+    await closing;
+    expect(forgetProject).toHaveBeenCalledWith(closed.id);
+    expect(navigateToProject).not.toHaveBeenCalled();
+    expect(state.selectedProject?.id).toBe(newer.id);
+  });
+
   it.each([true, false])("persists an explicit trust choice %s before session selection", async (trusted) => {
     const addedProject = project("added", "/added");
     const mainWorkspace = workspace(addedProject.id, addedProject.path);
     let state: AppState = initialAppState();
     const setWorkspaceTrust = vi.fn().mockResolvedValue({ path: mainWorkspace.path, decision: trusted, trusted });
-    const selectProject = vi.fn(() => { expect(setWorkspaceTrust).toHaveBeenCalledWith(addedProject.id, mainWorkspace.id, trusted, "local"); return Promise.resolve(); });
+    const selectProject = vi.fn(() => { expect(setWorkspaceTrust).toHaveBeenCalledWith(addedProject.id, mainWorkspace.id, trusted, "local"); return Promise.resolve(undefined); });
     const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; },
       { selectProject, forgetProject: vi.fn(), clearSelection: vi.fn() }, {
         api: { projects: vi.fn(), closeProject: vi.fn(), addProject: vi.fn().mockResolvedValue(addedProject), workspaces: vi.fn().mockResolvedValue([mainWorkspace]), setWorkspaceTrust },
@@ -94,10 +137,10 @@ describe("ProjectController", () => {
     const addedProject = project("added", "/added");
     let state: AppState = { ...initialAppState(), projectDialogOpen: true };
     const events: string[] = [];
-    const selectProject = vi.fn((selected: Project): Promise<void> => {
+    const selectProject = vi.fn((selected: Project): Promise<undefined> => {
       events.push("select");
       expect(selected).toBe(addedProject);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     });
     const onProjectsApplied = vi.fn((machineId: string) => {
       events.push("applied");

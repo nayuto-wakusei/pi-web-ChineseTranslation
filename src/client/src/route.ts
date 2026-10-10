@@ -12,6 +12,18 @@ export interface AppRoute {
   view: "chat" | WorkspacePanelRouteId | undefined;
 }
 
+export interface ParsedAppRoute extends Omit<AppRoute, "tool" | "view"> {
+  tool: string | undefined;
+  view: string | undefined;
+}
+
+export type WorkspacePanelRouteResolver = (value: string) => QualifiedContributionId | undefined;
+
+export function resolveWorkspacePanelRouteValue(value: string | undefined, resolve: WorkspacePanelRouteResolver): QualifiedContributionId | undefined {
+  if (value === undefined) return undefined;
+  return resolve(value) ?? (isQualifiedId(value) ? value : undefined);
+}
+
 export interface SessionCreationRouteIdentity {
   machineId: string;
   projectId: string;
@@ -24,26 +36,26 @@ export function isCreatingSessionId(sessionId: string | undefined): sessionId is
   return sessionId?.startsWith("creating:") === true;
 }
 
-export function routeMatchesSessionCreation(route: AppRoute, identity: SessionCreationRouteIdentity): boolean {
+export function routeMatchesSessionCreation(route: ParsedAppRoute, identity: SessionCreationRouteIdentity): boolean {
   return (route.machineId ?? "local") === identity.machineId
     && route.projectId === identity.projectId
     && route.workspaceId === identity.workspaceId
     && route.sessionId === identity.sessionId;
 }
 
-export function readRoute(): AppRoute {
+export function readRoute(): ParsedAppRoute {
   const params = new URLSearchParams(window.location.search);
   return {
     machineId: params.get("machine") ?? undefined,
     projectId: params.get("project") ?? undefined,
     workspaceId: params.get("workspace") ?? undefined,
     sessionId: params.get("session") ?? undefined,
-    tool: parseTool(params.get("tool")),
-    view: parseView(params.get("view")),
+    tool: nonEmpty(params.get("tool")),
+    view: nonEmpty(params.get("view")),
   };
 }
 
-export function writeRoute(route: AppRoute, options?: { replace?: boolean | undefined }): void {
+export function writeRoute(route: ParsedAppRoute, options?: { replace?: boolean | undefined }): void {
   const url = new URL(window.location.href);
   url.searchParams.delete("machine");
   url.searchParams.delete("project");
@@ -55,8 +67,8 @@ export function writeRoute(route: AppRoute, options?: { replace?: boolean | unde
   if (route.projectId !== undefined && route.projectId !== "") url.searchParams.set("project", route.projectId);
   if (route.workspaceId !== undefined && route.workspaceId !== "") url.searchParams.set("workspace", route.workspaceId);
   if (route.sessionId !== undefined && route.sessionId !== "") url.searchParams.set("session", route.sessionId);
-  if (route.tool !== undefined) url.searchParams.set("tool", route.tool);
-  if (route.view !== undefined) url.searchParams.set("view", route.view);
+  if (route.tool !== undefined && route.tool !== "") url.searchParams.set("tool", route.tool);
+  if (route.view !== undefined && route.view !== "") url.searchParams.set("view", route.view);
   const next = `${url.pathname}${url.search}${url.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (next === current) return;
@@ -64,19 +76,8 @@ export function writeRoute(route: AppRoute, options?: { replace?: boolean | unde
   else window.history.pushState({}, "", url);
 }
 
-function parseTool(value: string | null): WorkspacePanelRouteId | undefined {
-  if (value === "files") return "core:workspace.files";
-  if (value === "git") return "core:workspace.git";
-  if (value === "terminal") return "terminal";
-  return isQualifiedId(value) ? value : undefined;
-}
-
-function parseView(value: string | null): "chat" | WorkspacePanelRouteId | undefined {
-  if (value === "chat") return "chat";
-  if (value === "files") return "core:workspace.files";
-  if (value === "git") return "core:workspace.git";
-  if (value === "terminal") return "terminal";
-  return isQualifiedId(value) ? value : undefined;
+function nonEmpty(value: string | null): string | undefined {
+  return value === null || value === "" ? undefined : value;
 }
 
 function isQualifiedId(value: string | null): value is QualifiedContributionId {
