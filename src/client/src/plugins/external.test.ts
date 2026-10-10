@@ -7,10 +7,34 @@ beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe("external plugin manifests", () => {
+  it("retains attempted declarations after a bounded import failure and continues independent imports", async () => {
+    vi.useFakeTimers();
+    const loading = loadExternalPlugins(undefined, {
+      machineId: "remote-a",
+      plugins: [
+        { id: "blocked", source: "bundled", scope: "machine", module: "./blocked.js", machineSpecific: true },
+        { id: "independent", module: "./independent.js", machineSpecific: false },
+      ],
+      moduleLoader: (url) => url.endsWith("blocked.js") ? new Promise(() => undefined)
+        : Promise.resolve({ default: { apiVersion: 4, name: "Independent", activate: () => ({ contributions: {} }) } }),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await loading;
+    expect(result.declarations).toEqual([
+      { id: machineScopedPluginId("remote-a", "blocked"), sourcePluginId: "blocked", machineId: "remote-a", machineSpecific: true, manifestSource: "bundled", manifestScope: "machine" },
+      { id: machineScopedPluginId("remote-a", "independent"), sourcePluginId: "independent", machineId: "remote-a", machineSpecific: false },
+    ]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.error).toBeInstanceOf(Error);
+    expect(result.registrations).toMatchObject([{ sourcePluginId: "independent" }]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("accepts a host-validated bundled namespace on the owning remote machine", async () => {
     const result = await loadExternalPlugins(undefined, {
       machineId: "remote-a",
@@ -57,7 +81,7 @@ describe("external plugin manifests", () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 404 })));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(loadExternalPlugins()).resolves.toEqual({ registrations: [], failures: [] });
+    await expect(loadExternalPlugins()).resolves.toEqual({ declarations: [], registrations: [], failures: [] });
 
     expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", { cache: "no-store" });
   });

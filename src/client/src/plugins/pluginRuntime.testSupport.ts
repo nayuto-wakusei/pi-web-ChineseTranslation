@@ -16,6 +16,7 @@ export function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): Plugi
     selectWorkspaceTool: noop,
     openTerminal: noop,
     refreshFiles: noop,
+    refreshWorkspacePanels: noop,
     refreshGit: noop,
     refreshAppData: noop,
     reloadPage: noop,

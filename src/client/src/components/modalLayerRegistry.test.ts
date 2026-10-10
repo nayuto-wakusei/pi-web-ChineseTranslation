@@ -19,6 +19,21 @@ afterEach(() => {
 });
 
 describe("rendered modal layer visibility", () => {
+  it("recognizes native plugin dialogs inside nested shadow roots", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const nested = document.createElement("div");
+    shadow.append(nested);
+    const dialog = document.createElement("dialog");
+    nested.attachShadow({ mode: "open" }).append(dialog);
+    expect(hasRenderedModal(document)).toBe(false);
+    dialog.setAttribute("open", "");
+    expect(hasRenderedModal(document)).toBe(true);
+    dialog.removeAttribute("open");
+    expect(hasRenderedModal(document)).toBe(false);
+  });
+
   it("stops counting a layer that its view hides, and counts it again when the view returns", () => {
     const trigger = appendTrigger("Open review");
     trigger.focus();

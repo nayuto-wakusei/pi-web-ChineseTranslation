@@ -36,6 +36,8 @@ import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sess
 import { dockerEnvironmentPromptSections } from "./sessions/dockerEnvironmentFacts.js";
 import { PI_WEB_SESSION_ENV, sessionEnvironmentPromptSections } from "./sessions/sessionEnvironmentFacts.js";
 import { runSessionDaemonStartup } from "./sessiond/sessionDaemonStartup.js";
+import { runSessionDaemonShutdown } from "./sessiond/sessionDaemonShutdown.js";
+import { applyAgentHttpIdleTimeout } from "./sessiond/agentHttpDispatcher.js";
 import { requestLoggerOptions } from "./requestLogging.js";
 import { WorkbenchAccessStateStore } from "./workbench/accessStateStore.js";
 import { registerWorkbenchAccessStateRoutes } from "./workbench/accessStateRoutes.js";
@@ -95,6 +97,10 @@ const activeAgentProfile = createActiveAgentProfileDescriptor({
   sessionDirEnvKeys: agentSessionDirEnvKeys(config.agent.command),
 });
 const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(daemonEnvironment, config) });
+let serverQuiescing = false;
+app.addHook("onRequest", async (_request, reply) => {
+  if (serverQuiescing) await reply.code(503).send({ error: "Session daemon is shutting down" });
+});
 const serverPluginCatalog = new PiWebPluginCatalog({
   cwd: process.cwd(),
   agentDir: activeAgentProfile.dir,
@@ -102,11 +108,34 @@ const serverPluginCatalog = new PiWebPluginCatalog({
   warningSink: (message) => { app.log.warn({ component: "server-plugins" }, message); },
 });
 await app.register(fastifyWebsocket);
+let runtimeShutdown: (() => Promise<void>) | undefined;
+let pendingShutdownSignal: NodeJS.Signals | undefined;
+let shutdownStarted = false;
+async function requestShutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shutdownStarted) return;
+  if (runtimeShutdown === undefined) {
+    pendingShutdownSignal = signal;
+    return;
+  }
+  shutdownStarted = true;
+  app.log.info({ signal }, "shutting down session daemon");
+  await runtimeShutdown();
+}
+process.once("SIGINT", (signal) => { void requestShutdown(signal); });
+process.once("SIGTERM", (signal) => { void requestShutdown(signal); });
 
 await runSessionDaemonStartup({
   logger: app.log,
-  async createRuntime() {
+  async createRuntime(registerCleanup) {
     stateOwnership = await claimSessiondStateOwnership({ env: daemonEnvironment, logger: app.log });
+    registerCleanup(() => stateOwnership?.release());
+    registerCleanup(() => app.close());
+    const appliedHttpIdleTimeout = applyAgentHttpIdleTimeout({ agentDir: activeAgentProfile.dir, cwd: process.cwd() });
+    if (appliedHttpIdleTimeout.warning !== undefined) {
+      app.log.warn({ httpIdleTimeoutMs: appliedHttpIdleTimeout.timeoutMs }, appliedHttpIdleTimeout.warning);
+    } else {
+      app.log.info({ httpIdleTimeoutMs: appliedHttpIdleTimeout.timeoutMs }, "applied agent profile HTTP idle timeout to the session daemon HTTP stack");
+    }
     void reconcileAutoInstallablePiPackages({
       profileDir: activeAgentProfile.dir,
       packageProvider: new DefaultPiPackageProvider(process.cwd(), activeAgentProfile.dir),
@@ -127,6 +156,20 @@ await runSessionDaemonStartup({
       },
     });
     await unreadStore.load();
+    registerCleanup(() => unreadStore.flush());
+    let normalToolAudit: NormalToolAuditStore | undefined;
+    let managementAudit: ManagementAuditStore | undefined;
+    const constructed: {
+      projectAuth?: ProjectAuthService;
+      managementAuth?: AuthService;
+      sessions?: PiSessionService;
+    } = {};
+    // Construction failures must keep auth and sessions alive until plugin cleanup finishes.
+    registerCleanup(() => normalToolAudit?.close());
+    registerCleanup(() => managementAudit?.close());
+    registerCleanup(() => constructed.projectAuth?.dispose());
+    registerCleanup(() => { constructed.managementAuth?.dispose(); });
+    registerCleanup(() => constructed.sessions?.dispose());
     const serverPlugins = await createServerPluginRuntime({
       catalog: serverPluginCatalog,
       dataDir: piWebDataDir(),
@@ -139,6 +182,7 @@ await runSessionDaemonStartup({
         PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
       ],
     });
+    registerCleanup(() => serverPlugins.stop());
     const providerHealth = await serverPlugins.inspectHealth();
     const workspaceProviders = new WorkspaceProviderRegistry({
       contributions: eligibleWorkspaceProviderContributions(serverPlugins.providerContributions(), providerHealth),
@@ -150,13 +194,15 @@ await runSessionDaemonStartup({
       serverPlugins.safeStartLevel(),
       serverPlugins.catalogDiagnostics(),
     );
+    registerCleanup(() => workspaceProviders.closeAll());
     const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders });
+    constructed.projectAuth = projectAuth;
     const managementAuth = await AuthService.create({
       agentDir: join(piWebDataDir(), "management-embed"),
     });
+    constructed.managementAuth = managementAuth;
     const accessStates = new WorkbenchAccessStateStore();
     const normalAuditConfig = config.auditLog?.normalMode;
-    let normalToolAudit: NormalToolAuditStore | undefined;
     if (normalAuditConfig?.enabled !== false) {
       try {
         normalToolAudit = new NormalToolAuditStore({
@@ -172,7 +218,6 @@ await runSessionDaemonStartup({
       }
     }
     const managementAuditConfig = config.auditLog?.managementMode;
-    let managementAudit: ManagementAuditStore | undefined;
     if (managementAuditConfig?.enabled === true && managementAuditConfig.baseUrl !== undefined) {
       const apiKeyValue = daemonEnvironment["PI_WEB_AUDIT_ES_API_KEY"]?.trim();
       const usernameValue = daemonEnvironment["PI_WEB_AUDIT_ES_USERNAME"]?.trim();
@@ -267,6 +312,7 @@ await runSessionDaemonStartup({
         sessionDirEnvKeys: activeAgentProfile.sessionDirEnvKeys,
       }),
     });
+    constructed.sessions = sessions;
     await serverPlugins.resumeWithHostCapabilityFactories([
       createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
       createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
@@ -297,10 +343,12 @@ await runSessionDaemonStartup({
       },
     });
     projectLifecycleRef.current = projectLifecycle;
+    registerCleanup(() => projectLifecycle.closeAll());
     machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     const terminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices, managementAllowPrivileged);
+    registerCleanup(() => { terminals.dispose(); });
     const pluginHealth = await serverPlugins.inspectHealth();
     const pluginBackends = new PluginBackendRegistry({
       contributions: eligiblePluginBackendContributions(serverPlugins.pairedBackendContributions(), pluginHealth),
@@ -308,13 +356,44 @@ await runSessionDaemonStartup({
       logger: app.log,
     });
     const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, terminals, { notices: serverNotices });
+    registerCleanup(() => pluginBackends.closeAll());
+    registerCleanup(() => workspaceRemovals.closeAll());
     const runtimeComponent = Object.freeze({
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES),
       activeAgentProfile,
     });
     projectLifecycle.scheduleCleanup();
-    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects };
+    let shutdownPromise: Promise<void> | undefined;
+    const shutdown = (): Promise<void> => {
+      shutdownPromise ??= runSessionDaemonShutdown({
+        logger: app.log,
+        onFailure: () => { process.exitCode = 1; },
+        dependencies: {
+          quiesceServer: async () => {
+            serverQuiescing = true;
+            await projectLifecycle.closeAll();
+          },
+          serverPlugins,
+          catalogRefresher: { dispose: () => undefined },
+          auth: managementAuth,
+          projectAuth,
+          sessions,
+          terminals,
+          unreadStore,
+          pluginBackends,
+          workspaceProviders,
+          workspaceRemovals,
+          closeServer: () => app.close(),
+          ...(normalToolAudit === undefined ? {} : { normalToolAudit }),
+          ...(managementAudit === undefined ? {} : { managementAudit }),
+          releaseStateOwnership: () => stateOwnership?.release(),
+        },
+      });
+      return shutdownPromise;
+    };
+    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects, shutdown };
   },
+  disposeRuntime: ({ shutdown }) => shutdown(),
   registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, terminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
     registerProjectMutationRoutes(app, projectLifecycle);
     registerWorkspaceActivityRoutes(app, workspaceActivity);
@@ -356,35 +435,12 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ projectAuth, managementAuth, projectLifecycle, sessions, terminals, normalToolAudit, managementAudit, serverPlugins, pluginBackends }) {
-    let shuttingDown = false;
-    async function shutdown(signal: NodeJS.Signals): Promise<void> {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      app.log.info({ signal }, "shutting down session daemon");
-      await projectLifecycle.closeAll();
-      terminals.dispose();
-      await pluginBackends.closeAll();
-      await serverPlugins.stop();
-      await projectAuth.dispose();
-      managementAuth.dispose();
-      await sessions.dispose();
-      try {
-        normalToolAudit?.close();
-      } catch (error) {
-        app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to close ordinary-mode tool audit database");
-      }
-      try {
-        await managementAudit?.close();
-      } catch (error) {
-        app.log.info({ error: error instanceof Error ? error.message : String(error) }, "failed to flush management audit Elasticsearch queue");
-      }
-      await stateOwnership?.release();
-      await app.close();
+  async listen({ shutdown }) {
+    runtimeShutdown = shutdown;
+    if (pendingShutdownSignal !== undefined) {
+      await requestShutdown(pendingShutdownSignal);
+      return;
     }
-
-    process.once("SIGINT", (signal) => { void shutdown(signal); });
-    process.once("SIGTERM", (signal) => { void shutdown(signal); });
 
     const portValue = daemonEnvironment["PI_WEB_SESSIOND_PORT"];
     const port = portValue !== undefined && portValue !== "" ? Number(portValue) : undefined;
@@ -393,7 +449,7 @@ await runSessionDaemonStartup({
     if (port !== undefined) {
       await app.listen({ port, host });
     } else {
-      const path = sessiondSocketPath();
+      const path = sessiondSocketPath(daemonEnvironment);
       await mkdir(dirname(path), { recursive: true });
       await rm(path, { force: true });
       await app.listen({ path });

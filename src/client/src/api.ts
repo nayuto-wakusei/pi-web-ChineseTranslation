@@ -13,3 +13,5 @@ export type { ActiveAgentProfileDescriptor, ArchiveSessionsResponse, AuthProvide
 export type { SessionModelScopeMode } from "../../shared/apiTypes";
 export type { AskUserCloseResponse, AskUserQuestion, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, PendingAskUser, PendingExtensionDialog, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, SessionTreeSummaryChoice, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionUnreadEvent, SessionUnreadSummary, SessionWarning, SessionWarningSeverity } from "../../shared/apiTypes";
 export type { ServerNotice, ServerNoticeDismissRequest, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot } from "../../shared/apiTypes";
+export { trustApi } from "./api/clients";
+export type { WorkspaceTrustResponse } from "../../shared/apiTypes";

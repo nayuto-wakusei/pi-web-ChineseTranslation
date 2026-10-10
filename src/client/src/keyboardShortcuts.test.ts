@@ -1,6 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppAction } from "./actions";
 import { KeyboardShortcutDispatcher, parseShortcutInput, resolveShortcutBindings, shortcutTokenFromEvent, type ShortcutKeyEvent } from "./keyboardShortcuts";
+
+afterEach(() => {
+  document.body.replaceChildren();
+  localStorage.clear();
+});
 
 function keyEvent(key: string, modifiers: Partial<ShortcutKeyEvent> = {}): ShortcutKeyEvent {
   return {
@@ -46,7 +53,7 @@ describe("KeyboardShortcutDispatcher", () => {
     const dispatcher = new KeyboardShortcutDispatcher();
     const { value, run } = action("r");
 
-    const handled = dispatcher.handle(keyEvent("r"), [value]);
+    const handled = dispatcher.handle(keyEvent("r", { target: document.createElement("input") }), [value]);
 
     expect(handled).toBe(false);
     expect(run).not.toHaveBeenCalled();
@@ -66,7 +73,7 @@ describe("KeyboardShortcutDispatcher", () => {
     const dispatcher = new KeyboardShortcutDispatcher();
     const { value, run } = action("shift+r");
 
-    const handled = dispatcher.handle(keyEvent("r", { shiftKey: true }), [value]);
+    const handled = dispatcher.handle(keyEvent("r", { shiftKey: true, target: document.createElement("textarea") }), [value]);
 
     expect(handled).toBe(false);
     expect(run).not.toHaveBeenCalled();
@@ -99,6 +106,17 @@ describe("KeyboardShortcutDispatcher", () => {
     expect(run).not.toHaveBeenCalled();
     expect(dispatcher.handle(keyEvent("p"), [value])).toBe(true);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs unmodified sequences outside editors but not across an editor boundary", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("g p");
+    expect(dispatcher.handle(keyEvent("g"), [value])).toBe(true);
+    expect(dispatcher.handle(keyEvent("p", { target: document.createElement("input") }), [value])).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(dispatcher.handle(keyEvent("g"), [value])).toBe(true);
+    expect(dispatcher.handle(keyEvent("p"), [value])).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("deterministically runs the lowest action id when default shortcuts conflict", () => {

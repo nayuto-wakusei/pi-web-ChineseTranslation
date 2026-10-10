@@ -1,26 +1,50 @@
-import { LitElement, html } from "lit";
+import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { api, type FileSuggestion } from "../api";
+import { api, trustApi, type FileSuggestion, type WorkspaceTrustResponse } from "../api";
+import type { ProjectTrustChoice } from "../controllers/projectController";
 import { css } from "lit";
 import "./ModalSurface";
 
+interface ProjectTrustState extends WorkspaceTrustResponse {
+  loading: boolean;
+  error?: string;
+}
+
 @customElement("project-dialog")
 export class ProjectDialog extends LitElement {
-  @property({ attribute: false }) onSubmit?: (path: string, create: boolean) => void;
+  @property({ attribute: false }) onSubmit?: (path: string, create: boolean, trust: ProjectTrustChoice | undefined) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @property() machineId = "local";
+  @property({ type: Boolean }) managementMode = false;
   @state() private path = "";
   @state() private createMissing = true;
   @state() private suggestions: FileSuggestion[] = [];
   @state() private selected = 0;
   @state() private loading = false;
+  @state() private trust: ProjectTrustState | undefined;
+  @state() private trustTouched = false;
   @query("input") private pathInput?: HTMLInputElement;
 
   private requestId = 0;
+  private trustRequestId = 0;
 
   override connectedCallback(): void {
     super.connectedCallback();
     void this.loadSuggestions();
+  }
+
+  override disconnectedCallback(): void {
+    this.requestId++;
+    this.trustRequestId++;
+    super.disconnectedCallback();
+  }
+
+  protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("machineId") || changed.has("managementMode")) {
+      this.trustTouched = false;
+      void this.loadSuggestions();
+      void this.loadTrust();
+    }
   }
 
   private async loadSuggestions() {
@@ -41,7 +65,9 @@ export class ProjectDialog extends LitElement {
   private setPath(value: string) {
     this.path = value;
     this.selected = 0;
+    this.trustTouched = false;
     void this.loadSuggestions();
+    void this.loadTrust();
   }
 
   private pick(suggestion: FileSuggestion) {
@@ -50,7 +76,7 @@ export class ProjectDialog extends LitElement {
 
   private submit() {
     if (this.path.trim() === "") return;
-    this.onSubmit?.(this.path, this.createMissing);
+    this.onSubmit?.(this.path, this.createMissing, this.trust === undefined ? undefined : { trusted: this.trust.trusted, changed: this.trustTouched });
   }
 
   private onPathInput(event: InputEvent) {
@@ -61,6 +87,50 @@ export class ProjectDialog extends LitElement {
   private onCreateMissingChange(event: InputEvent) {
     if (!(event.target instanceof HTMLInputElement)) return;
     this.createMissing = event.target.checked;
+  }
+
+  /**
+   * Server-resolved existing trust for the entered path (never the raw path
+   * trusted verbatim). Dropped when a newer path input or an explicit user
+   * toggle supersedes it, so a stale read can not clobber the user's choice.
+   */
+  private async loadTrust() {
+    const requestId = ++this.trustRequestId;
+    const trimmed = this.path.trim();
+    if (trimmed === "" || this.managementMode) {
+      if (requestId === this.trustRequestId) this.trust = undefined;
+      return;
+    }
+    this.trust = { path: trimmed, decision: null, trusted: false, loading: true };
+    try {
+      const result = await trustApi.projectTrust(trimmed, this.machineId);
+      if (requestId !== this.trustRequestId || this.trustTouched) return;
+      this.trust = { path: result.path, decision: result.decision, trusted: result.trusted, loading: false };
+    } catch (error) {
+      if (requestId !== this.trustRequestId || this.trustTouched) return;
+      this.trust = { path: trimmed, decision: null, trusted: false, loading: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private onTrustChange(checked: boolean) {
+    this.trustTouched = true;
+    if (this.trust !== undefined) this.trust = { ...this.trust, trusted: checked, loading: false };
+  }
+
+  private renderTrustChoice() {
+    if (this.managementMode) return null;
+    const unavailable = this.trust === undefined || this.trust.loading || this.trust.error !== undefined;
+    return html`
+      <label class="check">
+        <input type="checkbox" .checked=${this.trust?.trusted ?? false} ?disabled=${unavailable} @change=${(event: InputEvent) => { if (event.target instanceof HTMLInputElement) this.onTrustChange(event.target.checked); }} />
+        <span>信任此项目</span>
+      </label>
+      <small class="trust-hint">
+        信任后允许 pi 加载此项目的 .pi 设置、扩展、技能和包。
+        <a href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">了解项目信任</a>
+      </small>
+      ${this.trust?.error === undefined ? null : html`<small class="trust-error">无法读取信任状态： ${this.trust.error}</small>`}
+    `;
   }
 
   private onKeyDown(event: KeyboardEvent) {
@@ -107,6 +177,7 @@ export class ProjectDialog extends LitElement {
               <input type="checkbox" .checked=${this.createMissing} @change=${(event: InputEvent) => { this.onCreateMissingChange(event); }} />
               如果文件夹不存在则创建
             </label>
+            ${this.renderTrustChoice()}
           </div>
           <footer>
             <button @click=${() => { this.onCancel?.(); }}>取消</button>
@@ -129,6 +200,9 @@ export class ProjectDialog extends LitElement {
     .suggestions button { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-bottom: 1px solid var(--pi-border); border-radius: 0; background: transparent; color: var(--pi-text); padding: 8px 10px; text-align: left; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .suggestions button.selected, .suggestions button:hover { background: var(--pi-selection-bg); }
     .hint { padding: 12px; color: var(--pi-muted); }
+    .trust-error { color: var(--pi-danger, #c0392b); }
+    .trust-hint { color: var(--pi-muted); line-height: 1.3; }
+    .trust-hint a { color: var(--pi-accent); }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
     header button { border: 0; background: transparent; color: var(--pi-muted); font-size: 22px; padding: 0 8px; }
     .primary { border-color: var(--pi-success-border); background: var(--pi-success-border); }

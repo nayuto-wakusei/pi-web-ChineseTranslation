@@ -67,7 +67,16 @@ export function registerRenderedModal(layer: RenderedModalLayer): RenderedModalR
 
 /** True only while a visibly rendered modal is registered in this document. */
 export function hasRenderedModal(ownerDocument: Document | undefined): boolean {
-  return ownerDocument !== undefined && topModalLayer(ownerDocument) !== undefined;
+  return ownerDocument !== undefined
+    && (topModalLayer(ownerDocument) !== undefined || hasComposedOpenDialog(ownerDocument));
+}
+
+function hasComposedOpenDialog(root: Document | ShadowRoot): boolean {
+  if (root.querySelector("dialog[open]") !== null) return true;
+  for (const element of root.querySelectorAll("*")) {
+    if (element.shadowRoot !== null && hasComposedOpenDialog(element.shadowRoot)) return true;
+  }
+  return false;
 }
 
 function restoreAfterModalClose(registered: RegisteredModalLayer): void {

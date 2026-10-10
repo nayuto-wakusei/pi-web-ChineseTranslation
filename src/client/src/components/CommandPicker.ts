@@ -16,10 +16,11 @@ export class CommandPicker extends LitElement {
   @property({ attribute: false }) defaultValue?: string;
   @property({ type: Boolean }) defaultsLoading = false;
   @property({ attribute: false }) onPick?: (value: string) => void;
-  @property({ attribute: false }) onSetDefault?: (value: string) => void;
+  @property({ attribute: false }) onSetDefault?: (value: string) => Promise<unknown>;
   @property({ attribute: false }) onCancel?: () => void;
   @state() private selectedIndex = 0;
   @state() private query = "";
+  @state() private defaultPending = false;
 
   override render() {
     const options = this.filteredOptions();
@@ -51,7 +52,20 @@ export class CommandPicker extends LitElement {
       </button>
     `;
     if (this.onSetDefault === undefined) return row;
-    return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading, () => { this.onSetDefault?.(option.value); })}</div>`;
+    return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading || this.defaultPending, () => { void this.setDefault(option.value); })}</div>`;
+  }
+
+  private async setDefault(value: string): Promise<void> {
+    if (this.onSetDefault === undefined || this.defaultsLoading || this.defaultPending) return;
+    this.defaultPending = true;
+    try {
+      await this.onSetDefault(value);
+    } catch (error) {
+      // The host reports user-facing errors; unexpected rejections remain observable.
+      console.warn("Failed to set default option", error);
+    } finally {
+      this.defaultPending = false;
+    }
   }
 
   private selectInitialValue(): void {

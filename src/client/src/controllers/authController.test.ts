@@ -22,6 +22,46 @@ describe("parseAuthSlashCommand", () => {
 });
 
 describe("AuthController", () => {
+  it("keeps a newer login dialog when an older key save finishes", async () => {
+    let finish!: (value: { accepted: true }) => void;
+    const saved = new Promise<{ accepted: true }>((resolve) => { finish = resolve; });
+    const { controller, getState } = createController({
+      authDialog: { step: "apiKey", provider: authProvider("openai", "api_key"), value: "test-key", target: normalTarget() },
+    }, { saveApiKey: () => saved });
+    const pending = controller.saveApiKey();
+    await controller.openLogin();
+    finish({ accepted: true });
+    await pending;
+    expect(getState().authDialog).toMatchObject({ step: "method" });
+  });
+
+  it("does not reopen a cancelled dialog when provider discovery finishes", async () => {
+    let resolve!: (value: { providers: AuthProviderOption[] }) => void;
+    const providers = new Promise<{ providers: AuthProviderOption[] }>((done) => { resolve = done; });
+    const { controller, getState } = createController({}, { authProviders: () => providers });
+    await controller.openLogin();
+    const pending = controller.chooseLoginMethod("oauth");
+    controller.closeDialog();
+    resolve({ providers: [authProvider("openai", "oauth")] });
+    await pending;
+    expect(getState().authDialog).toBeUndefined();
+  });
+
+  it("does not revive an obsolete OAuth response after opening another dialog", async () => {
+    let resolve!: (value: OAuthFlowState) => void;
+    const response = new Promise<OAuthFlowState>((done) => { resolve = done; });
+    const flow = oauthFlow({ prompt: { requestId: "request-1", message: "Callback", kind: "manual" } });
+    const { controller, getState } = createController(
+      { authDialog: { step: "oauth", flow, target: normalTarget() } },
+      { respondOAuthFlow: () => response },
+    );
+    const pending = controller.respondOAuth("callback");
+    await controller.openLogin();
+    resolve(flow);
+    await pending;
+    expect(getState().authDialog).toMatchObject({ step: "method", target: normalTarget() });
+  });
+
   it("requires a selected project before opening normal-mode auth", async () => {
     const { controller, getState } = createController({ selectedProject: undefined });
 

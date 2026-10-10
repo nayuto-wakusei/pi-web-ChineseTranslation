@@ -1,9 +1,8 @@
 import { pluginsApi, type Machine } from "../api";
 import { isManagementEmbedMode } from "../api/managementEmbed";
-import { loadExternalPlugins, type PluginManifestEntry } from "./external";
-import type { PiWebPluginRegistration } from "./types";
+import { loadExternalPlugins, type ExternalPluginLoadResult, type PluginManifestEntry } from "./external";
 
-type RegisterPlugins = (label: string, load: () => Promise<PiWebPluginRegistration[]>) => Promise<boolean>;
+type RegisterPlugins = (label: string, load: () => Promise<ExternalPluginLoadResult>) => Promise<boolean>;
 
 export class MachinePluginLoadCoordinator {
   private gatewayLoad: Promise<boolean> | undefined;
@@ -18,7 +17,7 @@ export class MachinePluginLoadCoordinator {
   ensureGatewayLoaded(): Promise<boolean> {
     this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => {
       const plugins = await managementPluginEntries();
-      return (await loadExternalPlugins("pi-web-plugins/manifest.json", plugins === undefined ? {} : { plugins })).registrations;
+      return loadExternalPlugins("pi-web-plugins/manifest.json", plugins === undefined ? {} : { plugins });
     });
     return this.gatewayLoad;
   }
@@ -31,10 +30,10 @@ export class MachinePluginLoadCoordinator {
 
     const load = this.registerPlugins(
       `来自 ${machine.name} 的 PI WEB 插件`,
-      async () => (await loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
+      () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
-      })).registrations,
+      }),
     )
       .then((loaded) => { if (loaded) this.loadedMachineIds.add(machine.id); })
       .finally(() => { this.machineLoads.delete(machine.id); });

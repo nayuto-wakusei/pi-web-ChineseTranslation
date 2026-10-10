@@ -79,12 +79,13 @@ export class ModelPicker extends LitElement {
   @property({ attribute: false }) defaultValue?: string;
   @property({ type: Boolean }) defaultsLoading = false;
   @property({ attribute: false }) onPick?: (value: string) => void;
-  @property({ attribute: false }) onSetDefault?: (value: string) => void;
+  @property({ attribute: false }) onSetDefault?: (value: string) => Promise<unknown>;
   @property({ attribute: false }) onCancel?: () => void;
   @property({ attribute: false }) onToggleEnabled?: (provider: string, modelId: string, enabled: boolean) => unknown;
   @property({ attribute: false }) onSetScope?: (mode: SessionModelScopeMode) => unknown;
 
   @state() private mode: ModelPickerMode = "enabled";
+  @state() private defaultPending = false;
   @state() private selectedIndex = 0;
   @state() private query = "";
   @state() private pendingToggles: ReadonlySet<string> = new Set();
@@ -187,13 +188,26 @@ export class ModelPicker extends LitElement {
         </button>
       `;
       if (this.onSetDefault === undefined) return row;
-      return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading || this.membershipChangePending, () => { this.onSetDefault?.(option.value); })}</div>`;
+      return html`<div class="default-row">${row}${defaultPin(option.label, option.value === this.defaultValue, this.defaultsLoading || this.defaultPending || this.membershipChangePending || this.catalog.find((entry) => modelCatalogEntryValue(entry) === option.value)?.enabled === false, () => { void this.setDefault(option.value); })}</div>`;
     });
   }
 
   private renderCatalogList(): TemplateResult {
     const rows = modelCatalogView(this.catalog, this.query, this.catalogOrder).rows;
     return html`${repeat(rows, modelCatalogEntryValue, (entry, index) => this.renderCatalogRow(entry, index))}`;
+  }
+
+  private async setDefault(value: string): Promise<void> {
+    if (this.onSetDefault === undefined || this.defaultsLoading || this.defaultPending || this.membershipChangePending) return;
+    if (this.catalog.find((entry) => modelCatalogEntryValue(entry) === value)?.enabled === false) return;
+    this.defaultPending = true;
+    try {
+      await this.onSetDefault(value);
+    } catch (error) {
+      console.warn("Failed to set default model", error);
+    } finally {
+      this.defaultPending = false;
+    }
   }
 
   private renderCatalogRow(entry: SessionModelCatalogEntry, index: number): TemplateResult {

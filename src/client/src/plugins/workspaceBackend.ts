@@ -25,10 +25,14 @@ export function createPluginPeer(
     projectId: workspace.projectId,
     workspaceId: workspace.id,
   };
-  return {
-    ...(binding.pairedRequestVersion === 1 ? { request: (operation: string, input: JsonValue, options?: PluginBackendRequestOptions) => request(target, operation, input, options) } : {}),
-    ...(binding.pairedChannelVersion === 1 ? { openChannel: (operation: string, input: JsonValue, options: Parameters<typeof openPluginBackendChannel>[3]) => openPluginBackendChannel(target, operation, input, options) } : {}),
-  };
+  const openChannel = (operation: string, input: JsonValue, options: Parameters<typeof openPluginBackendChannel>[3]) => openPluginBackendChannel(target, operation, input, options);
+  if (binding.pairedRequestVersion === 1) {
+    return {
+      request: (operation, input, options) => request(target, operation, input, options),
+      ...(binding.pairedChannelVersion === 1 ? { openChannel } : {}),
+    };
+  }
+  return { openChannel };
 }
 
 export function createPluginWorkspaceBackend(

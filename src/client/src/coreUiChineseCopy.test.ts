@@ -14,6 +14,12 @@ interface CopyCase {
 
 const copyCases: readonly CopyCase[] = [
   {
+    name: "localizes explicit project trust controls",
+    paths: ["components/ProjectDialog.ts", "components/WorkspaceList.ts"],
+    expected: ["信任此项目", "了解项目信任", "无法读取信任状态", "已信任"],
+    forbidden: ["Trust this project", "Learn about project trust", "Could not read trust"],
+  },
+  {
     name: "localizes session defaults, message history actions, and composer shortcut labels",
     paths: ["components/DefaultPin.ts", "components/ChatView.ts", "composerShortcuts.ts", "promptCompletions.ts", "components/PromptEditor.ts"],
     expected: ["新会话默认", "已是新会话默认", "从这条消息分叉", "回退到这条消息", "当前会话保持不变", "未保存的输入不会保留", "发送消息", "聊天输入框", "内置", "扩展", "提示词", "技能", "slashCommandSourceLabel(command.source)"],

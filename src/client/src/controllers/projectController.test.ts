@@ -13,6 +13,46 @@ function workspace(projectId: string, path: string): Workspace {
 }
 
 describe("ProjectController", () => {
+  it.each([true, false])("persists an explicit trust choice %s before session selection", async (trusted) => {
+    const addedProject = project("added", "/added");
+    const mainWorkspace = workspace(addedProject.id, addedProject.path);
+    let state: AppState = initialAppState();
+    const setWorkspaceTrust = vi.fn().mockResolvedValue({ path: mainWorkspace.path, decision: trusted, trusted });
+    const selectProject = vi.fn(() => { expect(setWorkspaceTrust).toHaveBeenCalledWith(addedProject.id, mainWorkspace.id, trusted, "local"); return Promise.resolve(); });
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; },
+      { selectProject, forgetProject: vi.fn(), clearSelection: vi.fn() }, {
+        api: { projects: vi.fn(), closeProject: vi.fn(), addProject: vi.fn().mockResolvedValue(addedProject), workspaces: vi.fn().mockResolvedValue([mainWorkspace]), setWorkspaceTrust },
+      });
+    await controller.addProject("/added", false, { trusted, changed: true });
+    expect(selectProject).toHaveBeenCalledOnce();
+  });
+
+  it("does not pin an untouched trust default", async () => {
+    let state: AppState = initialAppState();
+    const setWorkspaceTrust = vi.fn();
+    const workspaces = vi.fn();
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; },
+      { selectProject: vi.fn(), forgetProject: vi.fn(), clearSelection: vi.fn() }, {
+        api: { projects: vi.fn(), closeProject: vi.fn(), addProject: vi.fn().mockResolvedValue(project("added", "/added")), workspaces, setWorkspaceTrust },
+      });
+    await controller.addProject("/added", false, { trusted: true, changed: false });
+    expect(setWorkspaceTrust).not.toHaveBeenCalled();
+    expect(workspaces).not.toHaveBeenCalled();
+  });
+
+  it("does not start a session when persisting explicit trust fails", async () => {
+    const addedProject = project("added", "/added");
+    let state: AppState = initialAppState();
+    const selectProject = vi.fn();
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; },
+      { selectProject, forgetProject: vi.fn(), clearSelection: vi.fn() }, {
+        api: { projects: vi.fn(), closeProject: vi.fn(), addProject: vi.fn().mockResolvedValue(addedProject), workspaces: vi.fn().mockResolvedValue([workspace(addedProject.id, addedProject.path)]), setWorkspaceTrust: vi.fn().mockRejectedValue(new Error("write denied")) },
+      });
+    await controller.addProject("/added", false, { trusted: true, changed: true });
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(Object.values(state.browserErrors).some((error) => error.message.includes("write denied"))).toBe(true);
+    expect(state.projects).toContainEqual(addedProject);
+  });
   it("notifies ownership discovery after an applied project reload", async () => {
     const currentProject = project("current", "/current");
     const removedProject = project("removed", "/removed");

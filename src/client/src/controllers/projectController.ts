@@ -3,13 +3,18 @@ import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScop
 import { selectedMachineId, type GetState, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
 
+export interface ProjectTrustChoice {
+  trusted: boolean;
+  changed: boolean;
+}
+
 export interface ProjectControllerDependencies {
-  api?: Pick<typeof defaultApi, "projects" | "addProject" | "closeProject">;
+  api?: Pick<typeof defaultApi, "projects" | "addProject" | "closeProject"> & Partial<Pick<typeof defaultApi, "workspaces" | "setWorkspaceTrust">>;
   onProjectsApplied?: (machineId: string) => void;
 }
 
 export class ProjectController {
-  private readonly api: Pick<typeof defaultApi, "projects" | "addProject" | "closeProject">;
+  private readonly api: NonNullable<ProjectControllerDependencies["api"]>;
   private readonly onProjectsApplied: ((machineId: string) => void) | undefined;
   private readonly browserErrors: BrowserErrorReporter;
 
@@ -41,7 +46,7 @@ export class ProjectController {
     }
   }
 
-  async addProject(path: string, create?: boolean) {
+  async addProject(path: string, create?: boolean, trustChoice?: ProjectTrustChoice) {
     if (path.trim() === "") return;
     const machineId = selectedMachineId(this.getState());
     let project: Project;
@@ -51,11 +56,19 @@ export class ProjectController {
       this.browserErrors.report(machineBrowserErrorScope(machineId), String(error));
       return;
     }
-    if (selectedMachineId(this.getState()) !== machineId) return;
     try {
-      const projects = this.getState().projects;
-      this.setState({ projects: [...projects.filter((p) => p.id !== project.id), project], projectDialogOpen: false });
-      this.onProjectsApplied?.(machineId);
+      if (selectedMachineId(this.getState()) === machineId) {
+        const projects = this.getState().projects;
+        this.setState({ projects: [...projects.filter((p) => p.id !== project.id), project], projectDialogOpen: false });
+        this.onProjectsApplied?.(machineId);
+      }
+      if (trustChoice?.changed === true) {
+        const workspaces = await (this.api.workspaces ?? defaultApi.workspaces)(project.id, machineId);
+        const main = workspaces.find((workspace) => workspace.projectId === project.id && workspace.isMain);
+        if (main === undefined) throw new Error(`无法保存项目 ${project.id} 的信任选择：主工作区不可用`);
+        await (this.api.setWorkspaceTrust ?? defaultApi.setWorkspaceTrust)(project.id, main.id, trustChoice.trusted, machineId);
+      }
+      if (selectedMachineId(this.getState()) !== machineId) return;
       await this.workspaces.selectProject(project);
     } catch (error) {
       this.browserErrors.report(projectBrowserErrorScope(machineId, project.id), String(error));

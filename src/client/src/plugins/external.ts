@@ -3,7 +3,7 @@ import { requirePluginBackendRevision } from "../../../shared/pluginBackendProto
 import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
 import { withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
-import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
+import type { PiWebPlugin, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration } from "./types";
 import { adaptPublicPlugin } from "./publicContext";
 
 export interface PluginManifestEntry {
@@ -33,6 +33,7 @@ export interface ExternalPluginLoadFailure {
 }
 
 export interface ExternalPluginLoadResult {
+  declarations: PiWebPluginRegistrationDeclaration[];
   registrations: PiWebPluginRegistration[];
   failures: ExternalPluginLoadFailure[];
 }
@@ -40,30 +41,41 @@ export interface ExternalPluginLoadResult {
 export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest.json", options: LoadExternalPluginsOptions = {}): Promise<ExternalPluginLoadResult> {
   const resolvedManifestUrl = resolveAppUrl(withManagementEmbed(manifestUrl));
   const manifest = await fetchPluginManifest(resolvedManifestUrl, options.plugins);
-  if (manifest === undefined) return { registrations: [], failures: [] };
+  if (manifest === undefined) return { declarations: [], registrations: [], failures: [] };
 
+  const declarations: PiWebPluginRegistrationDeclaration[] = [];
   const registrations: PiWebPluginRegistration[] = [];
   const failures: ExternalPluginLoadFailure[] = [];
   for (const entry of manifest.plugins) {
     if (options.shouldLoadPlugin?.(entry) === false) continue;
+    const declaration = registrationDeclaration(entry, options.machineId);
+    declarations.push(declaration);
     try {
       const moduleUrl = resolvePluginModuleUrl(entry.module, resolvedManifestUrl);
-      const module = await (options.moduleLoader ?? importPluginModule)(moduleUrl);
+      const module = await loadPluginModule(moduleUrl, options.moduleLoader ?? importPluginModule);
       const plugin = parsePluginModule(module, moduleUrl);
       registrations.push({
-        id: options.machineId === undefined ? entry.id : machineScopedManifestPluginId(options.machineId, entry.id),
+        ...declaration,
         plugin,
-        machineSpecific: entry.machineSpecific,
         ...(entry.backendRevision === undefined ? {} : { backendRevision: entry.backendRevision }),
         ...(entry.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: entry.pairedRequestVersion }),
         ...(entry.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: entry.pairedChannelVersion }),
-        ...(options.machineId === undefined ? {} : { machineId: options.machineId, sourcePluginId: entry.id }),
       });
     } catch (error) {
       failures.push({ entry, error });
     }
   }
-  return { registrations, failures };
+  return { declarations, registrations, failures };
+}
+
+function registrationDeclaration(entry: PluginManifestEntry, machineId: string | undefined): PiWebPluginRegistrationDeclaration {
+  return Object.freeze({
+    id: machineId === undefined ? entry.id : machineScopedManifestPluginId(machineId, entry.id),
+    machineSpecific: entry.machineSpecific,
+    ...(entry.source === undefined ? {} : { manifestSource: entry.source }),
+    ...(entry.scope === undefined ? {} : { manifestScope: entry.scope }),
+    ...(machineId === undefined ? {} : { machineId, sourcePluginId: entry.id }),
+  });
 }
 
 export function resolvePluginModuleUrl(moduleReference: string, manifestUrl: string, appUrlContext?: AppUrlContext): string {
@@ -73,6 +85,18 @@ export function resolvePluginModuleUrl(moduleReference: string, manifestUrl: str
 
 async function importPluginModule(moduleUrl: string): Promise<unknown> {
   return import(/* @vite-ignore */ moduleUrl);
+}
+
+async function loadPluginModule(moduleUrl: string, loader: (url: string) => Promise<unknown>): Promise<unknown> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => { reject(new Error(`Browser plugin import timed out after 10000ms: ${moduleUrl}`)); }, 10_000);
+  });
+  try {
+    return await Promise.race([Promise.resolve().then(() => loader(moduleUrl)), deadline]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function fetchPluginManifest(manifestUrl: string, plugins: readonly PluginManifestEntry[] | undefined): Promise<PluginManifest | undefined> {

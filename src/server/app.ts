@@ -22,6 +22,7 @@ import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type NormalProjectCwdResolver, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
+import { registerProjectTrustRoutes } from "./projectTrustRoutes.js";
 import { GitStatusCache } from "./git/gitService.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerPluginBackendProxyRoutes } from "./plugins/pluginBackendProxyRoutes.js";
@@ -292,6 +293,16 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   registerLocalProjectRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });
   registerLocalProjectRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed });
+  const projectTrustDeps = {
+    agentDir: async () => (await requireActiveAgentProfile(agentProfileProvider)).dir,
+    authorize: async (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
+      if (await managementContextForRequest(request, managementEmbed, reply) === undefined) return true;
+      await reply.code(403).send({ error: "Project trust is unavailable in management embed mode" });
+      return false;
+    },
+  };
+  registerProjectTrustRoutes(app, projects, asWorkspaceCatalog(projects, workspaceInput), projectTrustDeps);
+  registerProjectTrustRoutes(app, projects, asWorkspaceCatalog(projects, workspaceInput), projectTrustDeps, "/api/machines/local");
 
   registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);

@@ -94,8 +94,8 @@ export interface ContentRendererContribution {
   fileExtensions?: readonly string[];
   /** Defaults to manual: render is not called until the user chooses 渲染. */
   renderMode?: "manual" | "automatic";
-  /** Synchronous Lit template or DOM node; own async work in a component and honor signal. */
-  render(input: ContentRendererInput): TemplateResult | Node;
+  /** Synchronous Lit template; own async work in a component and honor signal. */
+  render(input: ContentRendererInput): TemplateResult;
 }
 
 export interface ContentRenderRequest {
@@ -207,13 +207,13 @@ export interface PluginRuntimeContext {
   configureAuth: () => void | Promise<void>;
   logoutAuth: () => void | Promise<void>;
   openThemePicker: () => void;
-  selectMainView: (view: string) => void;
+  selectMainView: (view: "navigation" | "chat" | "workspace") => void;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
   openTerminal: (options?: { terminalId?: string | undefined }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
   /** Invalidate plugin workspace-panel data for the selected workspace, optionally targeting one qualified panel id. */
-  refreshWorkspacePanels?: (panelId?: QualifiedContributionId) => void | Promise<void>;
+  refreshWorkspacePanels: (panelId?: QualifiedContributionId) => void | Promise<void>;
   refreshAppData: () => void | Promise<void>;
   /** Force a fresh PI WEB release check on the selected machine. Optional for compatibility with older hosts. */
   checkForPiWebUpdates?: () => void | Promise<void>;
@@ -353,10 +353,15 @@ export interface PluginPeerChannelOptions {
   readonly onData: (data: JsonValue) => void;
 }
 
-export interface PluginPeer {
-  request?(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
-  openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
-}
+export type PluginPeer =
+  | {
+      request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+      openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+    }
+  | {
+      request?: undefined;
+      openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+    };
 
 export interface WorkspaceHost {
   requestRender(): void;

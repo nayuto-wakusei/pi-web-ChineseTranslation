@@ -1602,3 +1602,8 @@ export type GlobalSessionEvent =
   | ModelScopeChangedEvent
   | ServerNoticeEvent;
 export type RealtimeEvent = GlobalSessionEvent | TerminalUiEvent | WorkspaceActivityUiEvent | MachineStatusUiEvent;
+export interface WorkspaceTrustResponse {
+  path: string;
+  decision: boolean | null;
+  trusted: boolean;
+}

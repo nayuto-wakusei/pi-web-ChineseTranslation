@@ -63,6 +63,7 @@ import {
   parseThinkingLevelsResponse,
   parseWriteWorkspaceFileResponse,
   parseWorkspace,
+  parseWorkspaceTrustResponse,
   parseWorkspaceActivityResponse,
   requireMachineStatusSnapshot,
   parseWorkspaceDeleteResponse,
@@ -71,6 +72,12 @@ import {
 import { machineGitDiffPath, messagePath, workspaceFileDownloadUrl } from "./urls";
 
 const machinePrefix = (machineId = "local") => `api/machines/${encodeURIComponent(machineId)}`;
+
+export const trustApi = {
+  projectTrust: (path: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/trust?${new URLSearchParams({ path })}`, parseWorkspaceTrustResponse),
+  workspaceTrust: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/trust`, parseWorkspaceTrustResponse),
+  setWorkspaceTrust: (projectId: string, workspaceId: string, trusted: boolean, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/trust`, parseWorkspaceTrustResponse, { method: "PUT", body: JSON.stringify({ trusted }) }),
+};
 
 type SessionLookup = SessionRef;
 
@@ -431,6 +438,7 @@ export const api = {
   ...machineStatusApi,
   ...noticesApi,
   ...projectsApi,
+  ...trustApi,
   ...workspacesApi,
   ...sessionsApi,
   ...terminalsApi,

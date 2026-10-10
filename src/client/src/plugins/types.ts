@@ -12,15 +12,22 @@ export type HtmlTemplateTag = (strings: TemplateStringsArray, ...values: unknown
 export type SvgTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
 type MaybePromise<T> = T | Promise<T>;
 
-export interface PiWebPluginRegistration {
+export type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
+
+export interface PiWebPluginRegistrationDeclaration {
   id: PluginId;
-  plugin: PiWebPlugin;
   machineId?: string;
   sourcePluginId?: PluginId;
+  manifestSource?: string;
+  manifestScope?: string;
+  machineSpecific?: boolean;
+}
+
+export interface PiWebPluginRegistration extends PiWebPluginRegistrationDeclaration {
+  plugin: PiWebPlugin;
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
-  machineSpecific?: boolean;
 }
 
 export interface WorkspacePluginBinding {
@@ -119,10 +126,15 @@ export interface PluginPeerChannelOptions {
   readonly onData: (data: JsonValue) => void;
 }
 
-export interface PluginPeer {
-  request?(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
-  openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
-}
+export type PluginPeer =
+  | {
+      request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+      openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+    }
+  | {
+      request?: undefined;
+      openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+    };
 
 export interface WorkspaceHost {
   requestRender(): void;
@@ -195,7 +207,7 @@ export interface PluginRuntimeContext {
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
   /** Invalidate plugin workspace-panel data for the selected workspace. */
-  refreshWorkspacePanels?: (panelId?: QualifiedContributionId) => void | Promise<void>;
+  refreshWorkspacePanels: (panelId?: QualifiedContributionId) => void | Promise<void>;
   refreshAppData: () => void | Promise<void>;
   checkForPiWebUpdates?: () => void | Promise<void>;
   reloadPage: () => void;

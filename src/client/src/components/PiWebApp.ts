@@ -13,7 +13,7 @@ import { FileExplorerController } from "../controllers/fileExplorerController";
 import { GitController } from "../controllers/gitController";
 import { MachineController } from "../controllers/machineController";
 import { MachineStatusController } from "../controllers/machineStatusController";
-import { ProjectController } from "../controllers/projectController";
+import { ProjectController, type ProjectTrustChoice } from "../controllers/projectController";
 import { ProjectActivityOwnershipCoordinator } from "../controllers/projectActivityOwnershipCoordinator";
 import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { SessionController, type PendingSessionStartNavigation } from "../controllers/sessionController";
@@ -39,7 +39,8 @@ import type { ServerNotice } from "../../../shared/apiTypes";
 import { HttpRequestError } from "../api/http";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
-import type { PiWebPluginRegistration, PluginMachine, PluginNavigationDestination, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePluginBinding } from "../plugins/types";
+import type { PluginMachine, PluginNavigationDestination, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePluginBinding } from "../plugins/types";
+import type { ExternalPluginLoadResult } from "../plugins/external";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
@@ -386,6 +387,13 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreAttempt = 0;
   private remoteRouteRestoreInProgress = false;
   private readonly plugins = createPluginRegistry();
+  private readonly resetKeyboardSequence = () => { this.keyboard.reset(); };
+  private readonly builtInPluginsReady = this.plugins.registerBatch([
+    { id: "core", plugin: corePlugin },
+    { id: "themes", plugin: themePackPlugin },
+  ]).then(({ failures }) => {
+    if (failures.length > 0) throw failures[0]?.error;
+  });
   private readonly pluginLoads = new MachinePluginLoadCoordinator(
     (label, load) => this.registerExternalPlugins(label, load),
     (id, machineSpecific) => this.plugins.shouldLoadRemotePlugin(id, machineSpecific) && !(this.apiScope === "management" && id === "pi-web.terminal"),
@@ -525,6 +533,8 @@ export class PiWebApp extends LitElement {
     this.browserResume.connect();
     this.git.connect();
     window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
+    window.addEventListener("focusin", this.resetKeyboardSequence);
+    window.addEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
     void this.initializeNormalAuth(this.normalAuthInitSeq);
@@ -582,6 +592,8 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("pageshow", this.onPageShow);
     this.browserResume.disconnect();
     window.removeEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
+    window.removeEventListener("focusin", this.resetKeyboardSequence);
+    window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.keyboard.reset();
     this.auth.dispose();
@@ -2288,19 +2300,25 @@ export class PiWebApp extends LitElement {
     await this.pluginLoads.loadForMachine(machine);
   }
 
-  private async registerExternalPlugins(label: string, load: () => Promise<PiWebPluginRegistration[]>): Promise<boolean> {
+  private async registerExternalPlugins(label: string, load: () => Promise<ExternalPluginLoadResult>): Promise<boolean> {
     try {
-      const registrations = (await load()).filter((registration) => !(this.apiScope === "management" && registration.id === "pi-web.terminal"));
-      for (const registration of registrations) {
-        try {
-          await this.plugins.register(registration);
-        } catch (error) {
-          console.warn(`Failed to register PI WEB plugin ${registration.id}`, error);
-        }
+      await this.builtInPluginsReady;
+      const loaded = await load();
+      const allowed = (id: string) => !(this.apiScope === "management" && id === "pi-web.terminal");
+      const declarations = loaded.declarations.filter(({ id, sourcePluginId }) => allowed(sourcePluginId ?? id));
+      const result = await this.plugins.registerBatch(loaded.registrations.filter(({ id, sourcePluginId }) => allowed(sourcePluginId ?? id)), {
+        declarations,
+        failures: loaded.failures.flatMap((failure) => {
+          const declaration = declarations.find(({ id, sourcePluginId }) => (sourcePluginId ?? id) === failure.entry.id);
+          return declaration === undefined ? [] : [{ declaration, phase: "import" as const, error: failure.error }];
+        }),
+      });
+      for (const failure of result.failures) {
+        console.warn(`Failed to register PI WEB plugin ${failure.declaration.id} (${failure.phase})`, failure.error);
       }
       this.applyPreferredTheme(false);
       this.requestUpdate();
-      return true;
+      return result.failures.length === 0;
     } catch (error) {
       console.warn(`Failed to load ${label}`, error);
       return false;
@@ -3032,9 +3050,9 @@ export class PiWebApp extends LitElement {
             ${this.renderStatusBar(state)}
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog === undefined ? null : state.modelDialog.catalog === undefined
-              ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${(value: string) => { void this.pinSessionDefault("model", value); }} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>`
-              : html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${(value: string) => { void this.pinSessionDefault("model", value); }} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>`}
-            ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .selectedValue=${state.thinkingDialog.selectedValue} .defaultValue=${state.thinkingDialog.defaultValue} .defaultsLoading=${state.thinkingDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickThinking(value); }} .onSetDefault=${(value: string) => { void this.pinSessionDefault("thinking", value); }} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
+              ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${(value: string) => this.pinSessionDefault("model", value)} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>`
+              : html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${(value: string) => this.pinSessionDefault("model", value)} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>`}
+            ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .selectedValue=${state.thinkingDialog.selectedValue} .defaultValue=${state.thinkingDialog.defaultValue} .defaultsLoading=${state.thinkingDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickThinking(value); }} .onSetDefault=${(value: string) => this.pinSessionDefault("thinking", value)} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
           ` : html`<div class=${this.routeContentError() === "" ? "empty" : "empty route-target-error"} role=${this.routeContentError() === "" ? "status" : "alert"}>${this.sessionEmptyMessage()}</div>`}
         </main>
         ${this.renderWorkspacePanelEdgeControl()}
@@ -3051,7 +3069,7 @@ export class PiWebApp extends LitElement {
         ></navigation-dialog>` : null}
         ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(action: AppAction) => { this.setState({ actionPaletteOpen: false }); this.runAction(action); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
         ${this.renderSessionTreeNavigator(state)}
-        ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
+        ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .managementMode=${this.apiScope === "management"} .onSubmit=${(path: string, create: boolean, trust: ProjectTrustChoice | undefined) => this.projects.addProject(path, create, trust)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
@@ -3084,10 +3102,7 @@ function modelValueFromStatus(status: AppState["status"]): string | undefined {
 }
 
 function createPluginRegistry(): PluginRegistry {
-  const registry = new PluginRegistry();
-  void registry.register({ id: "core", plugin: corePlugin });
-  void registry.register({ id: "themes", plugin: themePackPlugin });
-  return registry;
+  return new PluginRegistry();
 }
 
 function initializeApiScope(): ApiScope {

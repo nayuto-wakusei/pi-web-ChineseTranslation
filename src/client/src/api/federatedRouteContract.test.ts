@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../../shared/apiTypes";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
-import { activityApi, configApi, filesApi, gitApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { activityApi, configApi, filesApi, gitApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, trustApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./sockets";
 import { workspaceFileDownloadUrl, workspaceImagePreviewUrl } from "./urls";
 
@@ -113,6 +113,9 @@ describe("federated route contract", () => {
       ignoreParseFailure(piPackagesApi.update("npm:@acme/tools", machineId)),
       ignoreParseFailure(activityApi.workspaceActivity(machineId)),
       ignoreParseFailure(projectsApi.projects(machineId)),
+      ignoreParseFailure(trustApi.projectTrust("/repo", machineId)),
+      ignoreParseFailure(trustApi.workspaceTrust("p 1", "w 1", machineId)),
+      ignoreParseFailure(trustApi.setWorkspaceTrust("p 1", "w 1", true, machineId)),
       ignoreParseFailure(projectsApi.addProject("/repo", "Repo", false, machineId)),
       ignoreParseFailure(projectsApi.closeProject("p 1", machineId)),
       ignoreParseFailure(projectsApi.projectDirectories("/r", machineId)),

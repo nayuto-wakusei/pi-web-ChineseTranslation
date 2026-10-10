@@ -1,12 +1,35 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest";
-import { html, svg } from "lit";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { html, render, svg } from "lit";
 import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
 import { mermaidFrameDocument } from "./mermaidEngine.js";
 import { sanitizeMermaidSvg } from "./mermaidSvg.js";
 
+vi.mock("./mermaidEngine.js", async (original) => ({
+  ...await original<typeof import("./mermaidEngine.js")>(),
+  loadMermaidEngine: vi.fn(() => Promise.resolve("window.engineReady = true;")),
+}));
+
+afterEach(() => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+
 describe("bundled Mermaid plugin", () => {
+  it("renders its sandbox through the public TemplateResult contract", () => {
+    const activation = plugin.activate(activationContext());
+    if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
+    const renderer = activation.contributions.contentRenderers?.[0];
+    if (renderer === undefined) throw new Error("Missing Mermaid renderer");
+    const host = document.createElement("div");
+    document.body.append(host);
+    render(renderer.render({ text: "sequenceDiagram\nA->>B: request", fail: vi.fn(), signal: new AbortController().signal }), host);
+    const frame = host.querySelector("iframe");
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+  });
+
   it("activates as a browser-only manual renderer without a server plugin", () => {
     expect(plugin.apiVersion).toBe(4);
     expect(plugin.requires).toEqual([expect.objectContaining({ pluginId: "pi-web", id: "content-rendering", version: 1 })]);

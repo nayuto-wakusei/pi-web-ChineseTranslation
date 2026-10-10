@@ -71,8 +71,7 @@ export class KeyboardShortcutDispatcher {
       const handledPending = this.handleSequence([...this.pendingTokens, token], shortcuts);
       if (handledPending) return true;
       this.clearPending();
-      if (!isShortcutSequenceStarter(token)) return false;
-    } else if (!isShortcutSequenceStarter(token)) return false;
+    }
 
     return this.handleSequence([token], shortcuts);
   }
@@ -207,9 +206,7 @@ function shortcutBindingForAction(action: AppAction, shortcuts: ShortcutPreferen
   const shortcut = configured ?? action.shortcut;
   if (shortcut === undefined || shortcut === "") return undefined;
   const tokens = normalizeShortcut(shortcut);
-  const firstToken = tokens[0];
-  // Unmodified sequences stay configurable, but the live dispatcher must not capture typing.
-  if (firstToken === undefined || !isShortcutSequenceStarter(firstToken)) return undefined;
+  if (tokens.length === 0) return undefined;
   return {
     action,
     shortcut: tokens.join(" "),

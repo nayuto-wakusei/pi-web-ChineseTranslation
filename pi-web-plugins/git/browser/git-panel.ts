@@ -409,7 +409,7 @@ function createGitActions(panelId: string, controller: GitUiController): PluginA
       shortcutAliases: ["core:view.git"],
       group: "导航",
       enabled: hasGitWorkspace,
-      run: (context) => { context.selectMainView(panelId); },
+      run: (context) => { context.selectWorkspaceTool(panelId); },
     },
     {
       id: "workspace.refresh-git",
@@ -418,7 +418,7 @@ function createGitActions(panelId: string, controller: GitUiController): PluginA
       shortcutAliases: ["core:workspace.refresh-git"],
       group: "工作区",
       enabled: hasGitWorkspace,
-      run: (context) => context.refreshWorkspacePanels?.(panelId),
+      run: (context) => context.refreshWorkspacePanels(panelId),
     },
   ];
 }

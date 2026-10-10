@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   bootstrapAndFreezeGlobalExtensionProviders,
@@ -326,6 +326,9 @@ describe("immutable global provider bootstrap acceptance", () => {
         });
       }
     `);
+
+    // This scenario tests provider policy after an explicit project trust decision.
+    new ProjectTrustStore(agentDir).set(cwd, true);
 
     const session = await service.start(cwd);
     const ref = { id: session.id, cwd };

@@ -1,15 +1,21 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { trustApi } from "../api";
 import type { Workspace, WorkspaceActivity } from "../api";
 import { WorkspaceList } from "./WorkspaceList";
 
 let restoreClipboardStub: () => void = () => undefined;
 
+beforeEach(() => {
+  vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo", decision: null, trusted: false });
+});
+
 afterEach(() => {
   restoreClipboardStub();
   restoreClipboardStub = () => undefined;
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 describe("workspace unread indicator", () => {
@@ -100,6 +106,47 @@ function openMenu(list: WorkspaceList, workspaceLabel: string): void {
   if (toggle === null) throw new Error(`Expected a menu toggle for ${workspaceLabel}`);
   toggle.click();
 }
+
+describe("workspace trust", () => {
+  it("writes only an explicit checkbox change to the owning machine", async () => {
+    const setTrust = vi.spyOn(trustApi, "setWorkspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
+    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    list.machineId = "remote-a";
+    await list.updateComplete;
+    openMenu(list, "ws-a");
+    await vi.waitFor(() => { expect(list.shadowRoot?.querySelector<HTMLInputElement>(".workspace-menu-trust input")?.disabled).toBe(false); });
+    expect(setTrust).not.toHaveBeenCalled();
+    list.shadowRoot?.querySelector<HTMLInputElement>(".workspace-menu-trust input")?.click();
+    await vi.waitFor(() => { expect(setTrust).toHaveBeenCalledWith("project-1", "ws-a", true, "remote-a"); });
+  });
+
+  it("drops a pending read when a reused workspace id belongs to another project", async () => {
+    let resolveOld!: (result: { path: string; decision: boolean; trusted: boolean }) => void;
+    vi.mocked(trustApi.workspaceTrust).mockImplementation((projectId) => projectId === "project-1"
+      ? new Promise((resolve) => { resolveOld = resolve; })
+      : Promise.resolve({ path: "/other", decision: false, trusted: false }));
+    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    openMenu(list, "ws-a");
+    await list.updateComplete;
+    list.workspaces = [{ ...workspace("ws-a"), projectId: "project-2", path: "/other" }];
+    await list.updateComplete;
+    openMenu(list, "ws-a");
+    await vi.waitFor(() => { expect(list.shadowRoot?.querySelector<HTMLInputElement>(".workspace-menu-trust input")?.disabled).toBe(false); });
+    resolveOld({ path: "/repo/ws-a", decision: true, trusted: true });
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector<HTMLInputElement>(".workspace-menu-trust input")?.checked).toBe(false);
+  });
+
+  it("hides trust and performs no normal-store requests in management mode", async () => {
+    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    list.managementMode = true;
+    await list.updateComplete;
+    openMenu(list, "ws-a");
+    await list.updateComplete;
+    expect(trustApi.workspaceTrust).not.toHaveBeenCalled();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-trust")).toBeNull();
+  });
+});
 
 function detailCopyButton(list: WorkspaceList, label: string): HTMLButtonElement {
   const buttons = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".workspace-menu-panel .detail-copy") ?? [])];

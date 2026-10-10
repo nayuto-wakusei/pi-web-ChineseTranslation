@@ -416,6 +416,9 @@ describe("buildApp", () => {
       expect((await app.inject({ method: "POST", url, payload: { revision: "rev", input: {} }, headers })).statusCode, url).not.toBe(403);
     }
     for (const prefix of ["/api", "/api/machines/local"]) {
+      expect((await app.inject({ method: "GET", url: `${prefix}/projects/trust?path=${encodeURIComponent(projectDir)}`, headers })).statusCode).toBe(403);
+      expect((await app.inject({ method: "GET", url: `${prefix}/projects/p1/workspaces/w1/trust`, headers })).statusCode).toBe(403);
+      expect((await app.inject({ method: "PUT", url: `${prefix}/projects/p1/workspaces/w1/trust`, payload: { trusted: true }, headers })).statusCode).toBe(403);
       expect((await app.inject({ method: "PUT", url: `${prefix}/config`, payload: { config: {} }, headers })).statusCode).toBe(403);
       expect((await app.inject({ method: "POST", url: `${prefix}/pi-packages/install`, payload: { source: "npm:untrusted" }, headers })).statusCode).toBe(403);
     }

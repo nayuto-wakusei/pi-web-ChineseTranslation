@@ -1093,6 +1093,14 @@ pi-web audit vacuum</code></pre>
               </div>
             </section>
 
+            <section id="project-trust">
+              <h2>项目信任</h2>
+              <p>普通模式遵循 Pi 的项目信任机制。包含需要信任的 <code>.pi</code> 资源的未信任项目不会加载项目设置、扩展、技能、提示词和包；没有此类资源的目录仍可正常启动会话。升级不会自动把已有项目设为可信或改写既有决定。</p>
+              <p>添加项目时可显式勾选“信任此项目”；未操作复选框不会写入新的决定。已注册工作区可在操作菜单中切换“已信任”。写入路径由服务器解析，远端决定保存在工作区所属机器上。</p>
+              <p>决定保存在当前 Pi agent 配置目录的 <code>trust.json</code>，与 Pi CLI 共用。Pi 全局 <code>settings.json</code> 的 <code>defaultProjectTrust</code> 默认为 <code>ask</code>；PI WEB 不弹出运行时信任对话框，因此无决定的 <code>ask</code> 和 <code>never</code> 都跳过需要信任的项目资源，<code>always</code> 允许加载。全局扩展的 <code>project_trust</code> 处理器仍按 Pi 的优先级参与决定并可保存决定。这不是 <code>.pi-web/config.json</code> 的键。</p>
+              <p>决定在下次创建或重新打开会话运行时时读取；菜单切换不会立即影响已运行会话，<code>/reload</code> 保留当前运行时的信任状态。项目级 provider 认证、模型及 <code>settings.preferences.json</code> 保持原有独立存储，不迁入共享 agent 配置。管理嵌入不访问普通模式信任接口，继续采用独立授权资源与沙箱。</p>
+            </section>
+
             <section id="extension-dialogs">
               <h2>扩展对话框</h2>
               <p>

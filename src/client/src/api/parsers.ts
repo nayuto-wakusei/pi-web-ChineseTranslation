@@ -1988,3 +1988,9 @@ function numberOrNull(record: Record<string, unknown>, key: string): number | nu
 function optionalField(key: string, value: unknown): object {
   return value === undefined ? {} : { [key]: value };
 }
+export function parseWorkspaceTrustResponse(value: unknown): import("../../../shared/apiTypes").WorkspaceTrustResponse {
+  const record = requireRecord(value);
+  const decision = record["decision"];
+  if (decision !== true && decision !== false && decision !== null) throw new Error("Invalid workspace trust decision");
+  return { path: requireString(record, "path"), decision, trusted: requireBoolean(record, "trusted") };
+}

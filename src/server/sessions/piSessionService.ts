@@ -18,6 +18,8 @@ import {
   createWriteToolDefinition,
   defineTool,
   ModelRuntime,
+  ProjectTrustStore,
+  hasTrustRequiringProjectResources,
   readStoredCredential,
   SessionManager,
   type AgentSessionRuntimeDiagnostic,
@@ -54,6 +56,7 @@ import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENG
 import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";
+import { resolveWebProjectTrusted } from "./projectTrust.js";
 import type { SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
@@ -896,11 +899,13 @@ function createDefaultRuntimeFactory(
       });
     }
 
+    const projectTrustRequiring = hasTrustRequiringProjectResources(cwd);
     const settingsManager = await createScopedSettingsManager({
       cwd,
       scopeDirectory: await resolveSettingsScope(cwd, "normal"),
       globalAgentDir: agentDir,
       mode: "normal",
+      projectTrusted: !projectTrustRequiring,
     });
     // Package event buses are normal-mode only. Management runtimes never
     // register one, so connectSessionEvents cannot attach to them.
@@ -910,12 +915,24 @@ function createDefaultRuntimeFactory(
       eventBus,
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     };
+    const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
       modelRuntime: scopedModelRuntime,
       settingsManager,
       resourceLoaderOptions,
+      ...(projectTrustRequiring ? {
+        resourceLoaderReloadOptions: {
+          resolveProjectTrust: async ({ extensionsResult }) => resolveWebProjectTrusted({
+            cwd,
+            trustStore: new ProjectTrustStore(agentDir),
+            settingsManager,
+            extensionsResult,
+            onExtensionError: (message) => projectTrustDiagnostics.push({ type: "warning", message }),
+          }),
+        },
+      } : {}),
     });
     const modelOptions = await resolveSessionModelOptions({
       services,
@@ -935,7 +952,7 @@ function createDefaultRuntimeFactory(
       ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
     });
     sessionEvents.register(result.session, eventBus);
-    return { ...result, services, diagnostics: services.diagnostics };
+    return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
   };
 }
 

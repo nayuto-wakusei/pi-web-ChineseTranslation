@@ -56,6 +56,16 @@ Process restarts depend on the key:
 - Pi package install/remove/update: not a PI WEB config key; after a mutation, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for PI WEB browser plugin changes. If a global Pi extension adds or removes a provider, or changes a provider's connection settings, manually restart `pi-web-sessiond.service`; `/reload` cannot change the startup provider baseline. A known provider refreshing only its own model list is applied without a restart. See [Pi extension provider baseline](#pi-extension-provider-baseline).
 - `shortcuts`: saved settings apply in the browser after config refresh/save.
 
+## 项目信任
+
+普通模式遵循 Pi 的项目信任机制。项目包含需要信任的 `.pi` 资源时，未信任项目的设置、扩展、技能、提示词和包不会加载；没有此类资源的目录仍可正常启动会话。升级不会自动把已有项目设为可信，也不会改写已有信任决定。
+
+添加项目时可显式勾选“信任此项目”；未操作复选框不会写入新的决定。已注册工作区可在工作区操作菜单中切换“已信任”。信任写入由服务器解析的工作区路径，不接受任意路径写入；远端工作区的决定保存在该机器上。
+
+信任决定由当前 Pi agent 配置目录的 `trust.json` 管理，与 Pi CLI 共用。Pi 的全局 `settings.json` 中 `defaultProjectTrust` 默认为 `ask`；PI WEB 不弹出运行时信任对话框，因此尚无决定的 `ask` 与 `never` 都不加载需要信任的项目资源，`always` 则允许加载。全局扩展的 `project_trust` 处理器仍按 Pi 的优先级参与决定，并可显式保存决定。该设置属于 Pi，不是 `.pi-web/config.json` 的键。
+
+决定在下次创建或重新打开会话运行时时读取；已运行会话不会因菜单切换立即重新加载资源，`/reload` 保留该运行时已有的信任状态。普通模式的项目级 provider 认证、模型及 `settings.preferences.json` 仍保存在各自的 PI WEB 管理存储中，不迁入 `trust.json` 或共享 agent 配置。管理嵌入不读取或写入普通模式的信任接口，继续采用独立的授权资源与沙箱边界。
+
 ## Global config example
 
 ```json

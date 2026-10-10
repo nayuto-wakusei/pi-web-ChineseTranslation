@@ -81,7 +81,7 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
           shortcutAliases: ["core:workspace.refresh-files"],
           group: "工作区",
           enabled: (runtimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
-          run: (runtimeContext) => runtimeContext.refreshWorkspacePanels?.(panelId),
+          run: (runtimeContext) => runtimeContext.refreshWorkspacePanels(panelId),
         },
       ],
     },

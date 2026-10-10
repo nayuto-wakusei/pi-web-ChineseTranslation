@@ -170,6 +170,8 @@ export class AppNavigationPanel extends LitElement {
         .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
       ></project-list>
       <workspace-list
+        .machineId=${this.selectedMachine?.id ?? "local"}
+        .managementMode=${this.managementMode}
         .workspaces=${this.workspaces}
         .selected=${this.selectedWorkspace}
         .activities=${this.workspaceActivities}

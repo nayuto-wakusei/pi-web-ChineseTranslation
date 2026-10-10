@@ -90,6 +90,22 @@ describe("modal-surface refocus on request", () => {
 });
 
 describe("modal-surface close contract", () => {
+  it("leaves composing Escape to the IME without closing or leaking it", async () => {
+    const onClose = vi.fn<() => void>();
+    const surface = await mountSurface({
+      content: `<button>Inside</button>`,
+      configure: (element) => { element.onClose = onClose; },
+    });
+    const bodySpy = vi.fn();
+    document.body.addEventListener("keydown", bodySpy, { once: true });
+    const event = new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, composed: true, cancelable: true });
+    contentButton(surface).dispatchEvent(event);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(bodySpy).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    document.body.removeEventListener("keydown", bodySpy);
+  });
+
   it("routes Escape to the close callback without leaking the key", async () => {
     const onClose = vi.fn<() => void>();
     const surface = await mountSurface({

@@ -75,6 +75,7 @@ export async function createScopedSettingsManager(options: {
   scopeDirectory: string;
   globalAgentDir: string;
   mode: SessionSettingsMode;
+  projectTrusted?: boolean;
 }): Promise<ScopedSettingsManager> {
   await mkdir(options.scopeDirectory, { recursive: true, mode: 0o700 });
   migrateLegacyPreferenceOverrides(options.scopeDirectory, options.mode);
@@ -83,7 +84,7 @@ export async function createScopedSettingsManager(options: {
     globalAgentDir: options.globalAgentDir,
     scopeDirectory: options.scopeDirectory,
     mode: options.mode,
-  })), {
+  }), options.projectTrusted === undefined ? {} : { projectTrusted: options.projectTrusted }), {
     piWebScopeKey: resolve(options.scopeDirectory),
     piWebModelScopeEditable: options.mode === "normal",
   });

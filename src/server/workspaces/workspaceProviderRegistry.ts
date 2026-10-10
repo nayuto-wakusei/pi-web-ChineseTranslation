@@ -19,6 +19,7 @@ import type {
   WorkspaceRemovalPresentation as PublicWorkspaceRemovalPresentation,
 } from "../../shared/apiTypes.js";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
+import { PluginCallbackDrain } from "../pluginCallbackDrain.js";
 import {
   cloneBoundedPluginBackendJson,
   PLUGIN_BACKEND_DISPATCH_TIMEOUT_MS,
@@ -183,6 +184,10 @@ export class WorkspaceProviderRegistry {
   private readonly requestTimeoutMs: number;
   private readonly pathInspector: WorkspacePathInspector;
   private readonly pendingResolutions = new Map<string, Promise<WorkspaceProviderAuthorityResolution>>();
+  private readonly shutdown = new AbortController();
+  private readonly providerOperations = new Set<Promise<unknown>>();
+  private readonly providerCallbacks = new PluginCallbackDrain();
+  private closePromise: Promise<void> | undefined;
 
   constructor(private readonly options: WorkspaceProviderRegistryOptions) {
     this.contributions = Object.freeze([...options.contributions]
@@ -203,8 +208,11 @@ export class WorkspaceProviderRegistry {
    * Only identical work already in flight is shared; the entry is removed before
    * callers observe completion so ownership and topology are never cached.
    */
-  async resolve(project: Project): Promise<WorkspaceProviderAuthorityResolution> {
+  async resolve(project: Project, signal?: AbortSignal): Promise<WorkspaceProviderAuthorityResolution> {
+    throwIfAborted(this.shutdown.signal);
     const input = snapshotProject(project);
+    // Cancellable resolutions cannot share work with unrelated callers.
+    if (signal !== undefined) return await this.resolveSnapshot(input, signal);
     const key = workspaceResolutionKey(input);
     const existing = this.pendingResolutions.get(key);
     if (existing !== undefined) return existing;
@@ -218,11 +226,12 @@ export class WorkspaceProviderRegistry {
     }
   }
 
-  private async resolveSnapshot(input: ProjectInput): Promise<WorkspaceProviderAuthorityResolution> {
+  private async resolveSnapshot(input: ProjectInput, signal?: AbortSignal): Promise<WorkspaceProviderAuthorityResolution> {
+    throwIfAborted(signal);
     const diagnostics: WorkspaceProviderDiagnostic[] = [];
 
     for (const tier of ["primary", "fallback"] as const) {
-      const selection = await this.selectInTier(input, tier, diagnostics);
+      const selection = await this.selectInTier(input, tier, diagnostics, signal);
       if (selection.kind === "none") continue;
       if (selection.kind === "conflict") {
         const message = `Workspace provider conflict in ${tier} tier: ${selection.pluginIds.join(", ")}`;
@@ -236,9 +245,11 @@ export class WorkspaceProviderRegistry {
         this.options.logger.warn({ projectId: input.id, tier, pluginIds: selection.pluginIds }, "workspace provider claim conflict");
         return degradedResolution(input, diagnostics);
       }
-      return await this.resolveWinner(input, tier, selection.contribution, diagnostics);
+      return await this.resolveWinner(input, tier, selection.contribution, diagnostics, signal);
     }
 
+    throwIfAborted(signal);
+    throwIfAborted(this.shutdown.signal);
     return Object.freeze({
       status: "folder",
       projectId: input.id,
@@ -253,7 +264,7 @@ export class WorkspaceProviderRegistry {
    */
   async request(request: WorkspaceProviderRequest): Promise<JsonValue> {
     try {
-      return await runBoundedProviderOperation(
+      return await this.runProviderOperation(
         request.pluginId,
         "request",
         this.requestTimeoutMs,
@@ -273,6 +284,7 @@ export class WorkspaceProviderRegistry {
     workspaceId: string,
     signal?: AbortSignal,
   ): Promise<WorkspaceProviderRemovalTarget> {
+    throwIfAborted(this.shutdown.signal);
     const input = snapshotProject(project);
     if (workspaceId === "") throw providerRemovalError("workspace-not-found", 404, "Workspace not found");
     const diagnostics: WorkspaceProviderDiagnostic[] = [];
@@ -291,7 +303,7 @@ export class WorkspaceProviderRegistry {
       const contribution = selection.contribution;
       let validated: ValidatedProviderWorkspace[];
       try {
-        const listed: unknown = await runBoundedProviderOperation(
+        const listed: unknown = await this.runProviderOperation(
           contribution.pluginId,
           "list",
           this.providerTimeoutMs,
@@ -301,6 +313,7 @@ export class WorkspaceProviderRegistry {
         validated = await validateProviderWorkspaces(input, contribution, listed, this.pathInspector, signal);
       } catch (error) {
         if (signal?.aborted === true) throw abortError(signal);
+        throwIfAborted(this.shutdown.signal);
         if (error instanceof WorkspaceProviderTimeoutError) {
           throw providerRemovalError("resolution-timeout", 504, boundedErrorMessage(error), error);
         }
@@ -337,7 +350,7 @@ export class WorkspaceProviderRegistry {
         prepare: async () => {
           let value: unknown;
           try {
-            value = await runBoundedProviderOperation(
+            value = await this.runProviderOperation(
               contribution.pluginId,
               "prepareRemove",
               this.providerTimeoutMs,
@@ -350,6 +363,7 @@ export class WorkspaceProviderRegistry {
             );
           } catch (error) {
             if (signal?.aborted === true) throw abortError(signal);
+            throwIfAborted(this.shutdown.signal);
             if (error instanceof WorkspaceProviderTimeoutError) {
               throw providerRemovalError("preparation-timeout", 504, boundedErrorMessage(error), error);
             }
@@ -374,6 +388,38 @@ export class WorkspaceProviderRegistry {
       );
     }
     throw providerRemovalError("owner-unavailable", 409, `No workspace provider currently owns project ${input.id}`);
+  }
+
+  closeAll(reason = "Session daemon shutdown"): Promise<void> {
+    this.closePromise ??= this.closeProviderOperations(reason);
+    return this.closePromise;
+  }
+
+  private async closeProviderOperations(reason: string): Promise<void> {
+    this.shutdown.abort(new DOMException(reason, "AbortError"));
+    await Promise.allSettled([...this.providerOperations]);
+    await this.providerCallbacks.waitForSettled(Math.max(this.providerTimeoutMs, this.requestTimeoutMs), "Workspace provider callbacks");
+  }
+
+  private async runProviderOperation<T>(
+    pluginId: string,
+    operation: ProviderOperation,
+    timeoutMs: number,
+    callback: (signal: AbortSignal) => T | Promise<T>,
+    parentSignal?: AbortSignal,
+  ): Promise<T> {
+    throwIfAborted(this.shutdown.signal);
+    const signal = parentSignal === undefined
+      ? this.shutdown.signal
+      : AbortSignal.any([parentSignal, this.shutdown.signal]);
+    const pending = runBoundedProviderOperation(pluginId, operation, timeoutMs, callback, signal,
+      (providerCallback) => { this.providerCallbacks.track(providerCallback); });
+    this.providerOperations.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.providerOperations.delete(pending);
+    }
   }
 
   private async dispatchRequest(request: WorkspaceProviderRequest, dispatchSignal: AbortSignal): Promise<JsonValue> {
@@ -446,7 +492,7 @@ export class WorkspaceProviderRegistry {
 
       let result: unknown;
       try {
-        result = await runBoundedProviderOperation(
+        result = await this.runProviderOperation(
           pluginId,
           "request",
           this.providerTimeoutMs,
@@ -504,7 +550,7 @@ export class WorkspaceProviderRegistry {
     dispatchSignal: AbortSignal,
   ): Promise<ValidatedProviderWorkspace[]> {
     try {
-      const listed: unknown = await runBoundedProviderOperation(
+      const listed: unknown = await this.runProviderOperation(
         contribution.pluginId,
         "list",
         this.providerTimeoutMs,
@@ -537,7 +583,7 @@ export class WorkspaceProviderRegistry {
 
     for (const contribution of candidates) {
       try {
-        const claim = await runBoundedProviderOperation(
+        const claim = await this.runProviderOperation(
           contribution.pluginId,
           "probe",
           this.providerTimeoutMs,
@@ -550,6 +596,7 @@ export class WorkspaceProviderRegistry {
         if (claim === "claim") claimants.push(contribution);
       } catch (error) {
         if (dispatchSignal?.aborted === true) throw abortError(dispatchSignal);
+        throwIfAborted(this.shutdown.signal);
         const message = errorMessage(error);
         diagnostics.push(freezeDiagnostic({
           code: "probe-failed",
@@ -581,15 +628,18 @@ export class WorkspaceProviderRegistry {
     tier: ProviderTier,
     contribution: ServerPluginProviderContribution,
     diagnostics: WorkspaceProviderDiagnostic[],
+    dispatchSignal?: AbortSignal,
   ): Promise<WorkspaceProviderAuthorityResolution> {
     try {
-      const listed: unknown = await runBoundedProviderOperation(
+      const listed: unknown = await this.runProviderOperation(
         contribution.pluginId,
         "list",
         this.providerTimeoutMs,
         (signal) => contribution.provider.list(project, signal),
+        dispatchSignal,
       );
-      const validated = await validateProviderWorkspaces(project, contribution, listed, this.pathInspector);
+      const validated = await validateProviderWorkspaces(project, contribution, listed, this.pathInspector, dispatchSignal);
+      throwIfAborted(this.shutdown.signal);
       return Object.freeze({
         status: "provider",
         projectId: project.id,
@@ -598,6 +648,8 @@ export class WorkspaceProviderRegistry {
         diagnostics: Object.freeze([...diagnostics]),
       });
     } catch (error) {
+      if (dispatchSignal?.aborted === true) throw abortError(dispatchSignal);
+      throwIfAborted(this.shutdown.signal);
       const message = errorMessage(error);
       diagnostics.push(freezeDiagnostic({
         code: "list-failed",
@@ -800,6 +852,7 @@ async function runBoundedProviderOperation<T>(
   timeoutMs: number,
   callback: (signal: AbortSignal) => T | Promise<T>,
   parentSignal?: AbortSignal,
+  onCallbackStarted?: (callback: Promise<T>) => void,
 ): Promise<T> {
   const controller = new AbortController();
   const abortFromParent = (): void => {
@@ -819,6 +872,7 @@ async function runBoundedProviderOperation<T>(
   const result = controller.signal.aborted
     ? new Promise<T>(() => { /* parent deadline already won */ })
     : Promise.resolve().then(() => callback(controller.signal));
+  if (!controller.signal.aborted) onCallbackStarted?.(result);
   try {
     return await Promise.race([result, deadline]);
   } finally {

@@ -99,6 +99,40 @@ describe("WorkspaceRemovalService management scope", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(records).toEqual([]);
   });
+
+  it("cancels admitted removal planning on shutdown and rejects later removals", async () => {
+    const project: Project = { id: "project", name: "Project", path: resolve("repo-main"), createdAt: "now" };
+    let planningSignal: AbortSignal | undefined;
+    let planningStarted!: () => void;
+    const started = new Promise<void>((resolvePromise) => { planningStarted = resolvePromise; });
+    const runCommand = vi.fn();
+    const closeForCwd = vi.fn();
+    const service = new WorkspaceRemovalService(
+      {
+        resolveRemoval: (_project, _workspaceId, signal) => {
+          planningSignal = signal;
+          planningStarted();
+          return new Promise((_resolvePromise, rejectPromise) => {
+            signal.addEventListener("abort", () => {
+              rejectPromise(signal.reason instanceof Error ? signal.reason : new Error("Removal cancelled"));
+            }, { once: true });
+          });
+        },
+      },
+      { closeForCwd, runCommand },
+    );
+    const removal = service.remove(project, "feature", "remove-feature");
+    const rejected = expect(removal).rejects.toMatchObject({ name: "AbortError" });
+    await started;
+    const closing = service.closeAll();
+    expect(service.closeAll()).toBe(closing);
+    await closing;
+    await rejected;
+    expect(planningSignal?.aborted).toBe(true);
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(closeForCwd).not.toHaveBeenCalled();
+    await expect(service.remove(project, "feature", "remove-feature")).rejects.toMatchObject({ name: "AbortError" });
+  });
 });
 
 function workspace(project: Project, id: string, path: string, isMain: boolean, precondition?: string): WorkspaceListing {
