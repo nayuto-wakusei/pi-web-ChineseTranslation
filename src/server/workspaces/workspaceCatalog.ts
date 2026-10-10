@@ -1,4 +1,5 @@
 import type { ServerPluginSafeStart } from "../../serverPluginRecovery.js";
+import { terminalPluginModeForSafeStart, type TerminalPluginMode } from "../../shared/requiredTerminalPlugin.js";
 import type { WorkspaceListing, WorkspaceProviderAuthorityResolution } from "../../shared/apiTypes.js";
 import type {
   ServerPluginHealthInspection,
@@ -12,7 +13,7 @@ export interface WorkspaceCatalogProjectReader {
   requireProject(projectId: string): Promise<import("../types.js").Project>;
 }
 
-export const WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION = 1;
+export const WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION = 2;
 
 export interface WorkspaceCatalogRequestOptions {
   managementContext?: ManagementEmbedContext;
@@ -58,6 +59,7 @@ function isWorkspaceCatalog(value: WorkspaceCatalogInput): value is WorkspaceCat
 /** Immutable sessiond startup snapshot used to reconcile desired web plugins. */
 export interface WorkspaceProviderRuntimeSnapshot {
   protocolVersion: typeof WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION;
+  terminalMode: TerminalPluginMode;
   safeStart?: ServerPluginSafeStart;
   records: readonly ServerPluginRuntimeRecord[];
   health: readonly ServerPluginHealthInspection[];
@@ -76,6 +78,7 @@ export function createWorkspaceProviderRuntimeSnapshot(
 ): WorkspaceProviderRuntimeSnapshot {
   return Object.freeze({
     protocolVersion: WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION,
+    terminalMode: terminalPluginModeForSafeStart(safeStart),
     ...(safeStart === undefined ? {} : { safeStart }),
     records: Object.freeze(records.map((record) => Object.freeze({ ...record }))),
     health: Object.freeze(health.map((inspection) => Object.freeze({

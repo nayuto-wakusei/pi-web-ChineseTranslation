@@ -20,7 +20,7 @@ beforeEach(async () => {
   registerWorkspaceCatalogRoutes(app, {
     projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },
     managementProjectRoot: projectRoot,
-    providerRuntime: { protocolVersion: 1, records: [], health: [], diagnostics: [] },
+    providerRuntime: { protocolVersion: 2, terminalMode: "recovery-disabled", safeStart: "none", records: [], health: [], diagnostics: [] },
     workspaces: {
       resolve: (project: Project): Promise<WorkspaceProviderAuthorityResolution> => {
         resolvedProject = project;

@@ -70,7 +70,7 @@ export function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
 }
 
 export function pluginsResponse(plugins: PiWebPluginInfo[]): PiWebPluginsResponse {
-  return { plugins };
+  return { lifecycleVersion: 2, plugins, diagnostics: [], serverRuntime: { status: "available", terminalMode: "required", restartRequired: false, recovery: { ...PI_WEB_PLUGIN_RECOVERY_COMMANDS } } };
 }
 
 export function pluginInfo(id: string, enabled: boolean): PiWebPluginInfo {
@@ -81,6 +81,7 @@ export function pluginInfo(id: string, enabled: boolean): PiWebPluginInfo {
     scope: "local",
     machineSpecific: false,
     enabled,
+    discovered: true,
   };
 }
 
@@ -206,3 +207,4 @@ interface SettingsNoticeLike {
 function isSettingsNotice(value: unknown): value is SettingsNoticeLike {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
+import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../../shared/pluginRecoveryCommands";

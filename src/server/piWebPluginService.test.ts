@@ -3,7 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActiveAgentProfileAccessError } from "./activeAgentProfileProvider.js";
-import { PiWebPluginService, type PiPackageProvider } from "./piWebPluginService.js";
+import { PiWebPluginService as RuntimePiWebPluginService, type PiPackageProvider, type PiWebPluginServiceOptions } from "./piWebPluginService.js";
+import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
+
+// Asset/catalog tests intentionally run against an active no-Terminal recovery runtime.
+class PiWebPluginService extends RuntimePiWebPluginService {
+  constructor(options: PiWebPluginServiceOptions = {}) {
+    super({ ...options, runtimeProvider: options.runtimeProvider ?? { providerRuntime: () => Promise.resolve(createWorkspaceProviderRuntimeSnapshot([], [], "none")) } });
+  }
+}
 
 let tempDir: string;
 
@@ -32,7 +40,7 @@ describe("PiWebPluginService", () => {
     });
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
     expect((await service.manifest()).plugins).toEqual([]);
-    expect((await service.plugins()).diagnostics?.some((diagnostic) => diagnostic.kind === "discovery" && diagnostic.message.includes("browserRoot"))).toBe(true);
+    expect((await service.plugins()).diagnostics.some((diagnostic) => diagnostic.kind === "discovery" && diagnostic.message.includes("browserRoot"))).toBe(true);
     await expect(service.readAsset("legacy", "plugin.js")).resolves.toBeUndefined();
   });
 
@@ -75,7 +83,7 @@ describe("PiWebPluginService", () => {
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
 
     await expect(service.manifest()).resolves.toEqual({
-      lifecycleVersion: 1,
+      lifecycleVersion: 2, terminalMode: "recovery-disabled",
       plugins: [expect.objectContaining({ id: "info", source: "test", scope: "local", machineSpecific: false })],
     });
     const manifest = await service.manifest();
@@ -189,7 +197,7 @@ describe("PiWebPluginService", () => {
     await writeFile(join(updatedAgentDir, "settings.json"), `${JSON.stringify({ packages: [packageDir] }, null, 2)}\n`, "utf8");
     const service = new PiWebPluginService({ roots: [], cwd: tempDir, agentDirProvider: () => activeAgentDir });
 
-    await expect(service.manifest()).resolves.toEqual({ lifecycleVersion: 1, plugins: [] });
+    await expect(service.manifest()).resolves.toEqual({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [] });
 
     activeAgentDir = updatedAgentDir;
 
@@ -333,8 +341,8 @@ describe("PiWebPluginService", () => {
       files: { "pi-web-plugin.js": "export default {};" },
     });
 
-    await expect(new PiWebPluginService({ roots: [{ path: legacyRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ lifecycleVersion: 1, plugins: [] });
-    await expect(new PiWebPluginService({ roots: [{ path: unsafeRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ lifecycleVersion: 1, plugins: [] });
+    await expect(new PiWebPluginService({ roots: [{ path: legacyRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [] });
+    await expect(new PiWebPluginService({ roots: [{ path: unsafeRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [] });
   });
 
   it("continues discovering valid plugins when another local plugin is invalid", async () => {

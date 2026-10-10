@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { JsonObject, JsonValue, ServerNotice, ServerNoticeSeverity, ServerNoticeSnapshot } from "../../shared/apiTypes.js";
+import type { JsonObject, JsonValue, ServerNotice, ServerNoticeScope, ServerNoticeSeverity, ServerNoticeSnapshot } from "../../shared/apiTypes.js";
+import type { JsonObject as PluginJsonObject, JsonValue as PluginJsonValue } from "../../shared/pluginApiTypes.js";
+import { parseServerNoticeScope } from "../../shared/serverNoticeContract.js";
 
 export interface ServerNoticeInput {
   severity: ServerNoticeSeverity;
   message: string;
   source?: string;
-  context?: JsonObject;
+  scope?: ServerNoticeScope;
+  context?: PluginJsonObject;
 }
 
 export interface ServerNoticeStoreOptions {
@@ -46,6 +49,7 @@ export class ServerNoticeStore {
   record(input: ServerNoticeInput): ServerNoticeRecordResult {
     requireSeverity(input.severity);
     if (input.message.trim() === "") throw new Error("Notice message must not be empty");
+    const scope = input.scope === undefined ? undefined : parseServerNoticeScope(input.scope, "Notice scope");
 
     const notice: ServerNotice = Object.freeze({
       id: `${this.daemonInstanceId}:${this.createNoticeId()}`,
@@ -53,11 +57,12 @@ export class ServerNoticeStore {
       message: input.message,
       createdAt: this.now().toISOString(),
       ...(input.source === undefined ? {} : { source: input.source }),
+      ...(scope === undefined ? {} : { scope }),
       ...(input.context === undefined ? {} : { context: copyJsonObject(input.context) }),
     });
     this.notices.set(notice.id, notice);
     this.revision = incrementSafe(this.revision, "Notice revision exhausted");
-    return { notice, snapshot: this.snapshot() };
+    return { notice: copyNotice(notice), snapshot: this.snapshot() };
   }
 
   snapshot(): ServerNoticeSnapshot {
@@ -86,24 +91,29 @@ function requireSeverity(value: unknown): asserts value is ServerNoticeSeverity 
 function copyNotice(notice: ServerNotice): ServerNotice {
   return {
     ...notice,
+    ...(notice.scope === undefined ? {} : { scope: { ...notice.scope } }),
     ...(notice.context === undefined ? {} : { context: copyJsonObject(notice.context) }),
   };
 }
 
-function copyJsonObject(value: JsonObject): JsonObject {
+function copyJsonObject(value: PluginJsonObject): JsonObject {
   return Object.freeze(Object.fromEntries(
     Object.entries(value).map(([key, item]) => [key, copyJsonValue(item)]),
   ));
 }
 
-function copyJsonValue(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(copyJsonValue);
+function copyJsonValue(value: PluginJsonValue): JsonValue {
+  if (isJsonArray(value)) return value.map(copyJsonValue);
   if (isJsonObject(value)) return copyJsonObject(value);
   return value;
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
+function isJsonObject(value: PluginJsonValue): value is PluginJsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJsonArray(value: PluginJsonValue): value is readonly PluginJsonValue[] {
+  return Array.isArray(value);
 }
 
 function incrementSafe(value: number, message: string): number {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
+import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../../shared/pluginRecoveryCommands";
 import type { PiWebConfigValues, TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
 import { configApi, filesApi, machinesApi, normalAuthApi, piPackagesApi, piWebApi, pluginsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { setApiScope } from "./http";
@@ -767,7 +768,12 @@ function piWebConfigResponse(config: PiWebConfigValues) {
 }
 
 function piWebPluginsResponse() {
-  return { plugins: [{ id: "info", module: "/pi-web-plugins/info/plugin.js", source: "test", scope: "local", machineSpecific: false, enabled: true }] };
+  return {
+    lifecycleVersion: 2,
+    plugins: [{ id: "info", module: "/pi-web-plugins/info/plugin.js", source: "test", scope: "local", machineSpecific: false, enabled: true, discovered: true, conflict: false }],
+    diagnostics: [],
+    serverRuntime: { status: "available", terminalMode: "recovery-disabled", safeStart: "none", restartRequired: false, recovery: { ...PI_WEB_PLUGIN_RECOVERY_COMMANDS } },
+  };
 }
 
 function jsonResponse(value: unknown): Response {

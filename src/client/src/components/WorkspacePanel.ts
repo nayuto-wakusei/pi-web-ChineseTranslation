@@ -4,7 +4,6 @@ import type { Workspace } from "../api";
 import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspacePanelContext } from "../plugins/types";
 import { isNavigationPinned } from "../navigationPreferences";
 import { renderBuiltinTabIcon } from "./tabIcons";
-import { type TerminalPanelHostElement } from "./terminalPanelElement";
 import { WorkspaceFilesPanel } from "./WorkspaceFilesPanel";
 
 const workspacePanelStyles = css`
@@ -108,7 +107,6 @@ export class WorkspacePanel extends LitElement {
   override updated(): void {
     this.observeWorkspaceHeaderStrip();
     this.updateWorkspaceHeaderScrollState();
-    this.bindTerminalPanelHost();
     this.bindFilesPanelHost();
   }
 
@@ -183,19 +181,6 @@ export class WorkspacePanel extends LitElement {
     host.context = context;
   }
 
-  private bindTerminalPanelHost(): void {
-    const host = this.renderRoot.querySelector("pi-web-terminal-host");
-    const context = this.panelContext;
-    if (!isTerminalPanelHost(host) || context === undefined) return;
-    host.panel = {
-      workspace: context.workspace,
-      machineId: context.machine.id,
-      selectedTerminalId: context.selectedTerminalId,
-      autoStart: context.terminalAutoStart,
-      onSelectTerminal: context.onSelectTerminal,
-    };
-  }
-
   private panelTabClass(panel: QualifiedWorkspacePanelContribution, selected: boolean): string {
     return [
       ...(panel.icon === undefined ? [] : ["icon-tab"]),
@@ -262,8 +247,4 @@ export class WorkspacePanel extends LitElement {
   }
 
   static override styles = workspacePanelStyles;
-}
-
-function isTerminalPanelHost(value: Element | null): value is TerminalPanelHostElement {
-  return value instanceof LitElement && value.tagName === "PI-WEB-TERMINAL-HOST";
 }

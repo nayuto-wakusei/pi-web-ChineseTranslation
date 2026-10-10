@@ -3,9 +3,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket, type RawData } from "ws";
+import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER } from "../managementEmbed.js";
 import type { TerminalCommandRun, TerminalCommandRunFilter } from "../../shared/apiTypes.js";
 import type { RunTerminalCommandOptions, TerminalInfo } from "./terminalService.js";
-import { registerTerminalRoutes, type TerminalRouteService } from "./terminalRoutes.js";
+import { registerManagementTerminalRoutes, registerTerminalRoutes, type TerminalRouteService } from "./terminalRoutes.js";
 
 let app: FastifyInstance;
 let terminals: FakeTerminals;
@@ -23,6 +24,32 @@ afterEach(async () => {
 });
 
 describe("terminal routes", () => {
+  it("keeps daemon legacy endpoints management-only and denies interactive access", async () => {
+    const isolated = Fastify({ logger: false });
+    await isolated.register(fastifyWebsocket);
+    const managed = new FakeTerminals();
+    registerManagementTerminalRoutes(isolated, managed);
+    const context = {
+      user: { id: "user-1", rootUserId: "root-1", roles: [], permissions: [] },
+      projects: [{ id: "p1", name: "Managed", root: "/repo" }],
+      tools: { allow: ["terminal-command-runs"] },
+    };
+    const payload = { origin: "core", projectId: "p1", workspaceId: "w1", cwd: "/repo", title: "Build", command: "true", managementContext: context };
+    const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
+    try {
+      expect((await isolated.inject({ method: "POST", url: "/terminal-command-runs", payload })).statusCode).toBe(410);
+      expect((await isolated.inject({ method: "GET", url: "/terminals?cwd=/repo", headers })).statusCode).toBe(403);
+      expect((await isolated.inject({ method: "POST", url: "/terminals", headers, payload: { cwd: "/repo" } })).statusCode).toBe(403);
+      expect((await isolated.inject({ method: "DELETE", url: "/terminals/t1", headers })).statusCode).toBe(403);
+      const run = await isolated.inject({ method: "POST", url: "/terminal-command-runs", headers, payload });
+      expect(run.statusCode).toBe(200);
+      expect(run.json<TerminalCommandRun>().status).toBe("running");
+      expect((await isolated.inject({ method: "GET", url: "/terminal-command-runs", headers })).statusCode).toBe(200);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("applies the initial socket size before attaching and replaying output", async () => {
     const socket = new WebSocket(`${serverUrl(app)}/terminals/t1/socket?cols=120.9&rows=40.2`);
 

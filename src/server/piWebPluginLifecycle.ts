@@ -8,6 +8,7 @@ import {
   type PiWebPluginServerInfo,
 } from "../shared/apiTypes.js";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS, pluginDisableRecoveryCommand } from "../shared/pluginRecoveryCommands.js";
+import { REQUIRED_TERMINAL_PLUGIN_ID } from "../shared/requiredTerminalPlugin.js";
 import type { ServerPluginHealthInspection, ServerPluginRuntimeRecord } from "./plugins/serverPluginRuntime.js";
 import type {
   PiWebPluginCatalogDiagnostic,
@@ -49,9 +50,10 @@ export function reconcilePiWebPluginLifecycle(
   const browserPlugins: ReconciledBrowserPlugin[] = [];
   const activeSafeStart = activeSnapshot?.safeStart ?? "off";
   const effectiveDesiredSafeStart = desiredSafeStart ?? activeSafeStart;
+  const terminalMode = activeSnapshot?.terminalMode ?? "required";
 
   const plugins = [...pluginIds]
-    .sort((left, right) => left.localeCompare(right))
+    .sort(requiredTerminalIdFirst)
     .map((pluginId): PiWebPluginInfo => {
       const plugin = desiredById.get(pluginId);
       const record = recordsById.get(pluginId);
@@ -59,7 +61,10 @@ export function reconcilePiWebPluginLifecycle(
         ? serverInfo(pluginId, plugin, record, healthById.get(pluginId), runtime.status, activeSafeStart, effectiveDesiredSafeStart)
         : undefined;
 
-      if (plugin?.browserModule !== undefined && shouldPublishBrowserPlugin(plugin, server)) {
+      if (activeSnapshot !== undefined
+        && plugin?.browserModule !== undefined
+        && (terminalMode === "required" || plugin.id !== REQUIRED_TERMINAL_PLUGIN_ID)
+        && shouldPublishBrowserPlugin(plugin, server)) {
         browserPlugins.push({
           plugin,
           ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
@@ -71,7 +76,12 @@ export function reconcilePiWebPluginLifecycle(
       if (plugin !== undefined) {
         return {
           id: plugin.id,
-          ...(plugin.browserModule === undefined ? {} : { module: browserModuleUrl(plugin) }),
+          ...(plugin.id === REQUIRED_TERMINAL_PLUGIN_ID ? { required: true as const } : {}),
+          ...(activeSnapshot === undefined
+            || plugin.browserModule === undefined
+            || (terminalMode === "recovery-disabled" && plugin.id === REQUIRED_TERMINAL_PLUGIN_ID)
+            ? {}
+            : { module: browserModuleUrl(plugin) }),
           ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
           ...(record?.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: record.pairedRequestVersion }),
           ...(record?.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: record.pairedChannelVersion }),
@@ -88,6 +98,7 @@ export function reconcilePiWebPluginLifecycle(
       if (record === undefined || server === undefined) throw new Error(`Missing active server plugin record: ${pluginId}`);
       return {
         id: record.pluginId,
+        ...(record.pluginId === REQUIRED_TERMINAL_PLUGIN_ID ? { required: true as const } : {}),
         source: record.source,
         scope: record.scope,
         machineSpecific: record.machineSpecific,
@@ -111,6 +122,7 @@ export function reconcilePiWebPluginLifecycle(
       diagnostics,
       serverRuntime: {
         status: runtime.status,
+        terminalMode,
         ...(activeSnapshot?.safeStart === undefined ? {} : { safeStart: activeSnapshot.safeStart }),
         ...(desiredSafeStart === undefined ? {} : { desiredSafeStart }),
         restartRequired,
@@ -120,6 +132,12 @@ export function reconcilePiWebPluginLifecycle(
     },
     browserPlugins: Object.freeze(browserPlugins),
   };
+}
+
+function requiredTerminalIdFirst(left: string, right: string): number {
+  if (left === REQUIRED_TERMINAL_PLUGIN_ID) return right === REQUIRED_TERMINAL_PLUGIN_ID ? 0 : -1;
+  if (right === REQUIRED_TERMINAL_PLUGIN_ID) return 1;
+  return left.localeCompare(right);
 }
 
 function serverInfo(

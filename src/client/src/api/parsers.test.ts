@@ -232,8 +232,10 @@ describe("API parsers", () => {
   it("parses PI WEB plugin status responses", () => {
     expect(parsePiWebPluginsResponse({
       plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", machineSpecific: true, enabled: false }],
-    })).toEqual({
+    })).toMatchObject({
       plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", machineSpecific: true, enabled: false }],
+      lifecycleVersion: 2,
+      serverRuntime: { status: "incompatible", terminalMode: "required", message: "此 PI WEB 不支持插件生命周期诊断。请更新并重启 PI WEB 后重试。" },
     });
   });
 

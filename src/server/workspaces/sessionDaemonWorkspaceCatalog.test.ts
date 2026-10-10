@@ -9,6 +9,20 @@ const context: ManagementEmbedContext = {
 };
 
 describe("session daemon workspace catalog proxy", () => {
+  it.each([
+    { protocolVersion: 1, terminalMode: "required" },
+    { protocolVersion: 2 },
+    { protocolVersion: 2, terminalMode: "recovery-disabled" },
+    { protocolVersion: 2, terminalMode: "required", safeStart: "none" },
+  ])("rejects incompatible Terminal runtime snapshots: %j", async (metadata) => {
+    const catalog = new SessionDaemonWorkspaceCatalog({ request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ ...metadata, records: [], health: [], diagnostics: [] }) }) });
+    await expect(catalog.providerRuntime()).rejects.toThrow();
+  });
+
+  it("recognizes intentional Terminal recovery only from safe-start-none", async () => {
+    const catalog = new SessionDaemonWorkspaceCatalog({ request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ protocolVersion: 2, terminalMode: "recovery-disabled", safeStart: "none", records: [], health: [], diagnostics: [] }) }) });
+    await expect(catalog.providerRuntime()).resolves.toMatchObject({ terminalMode: "recovery-disabled", safeStart: "none" });
+  });
   const diagnosticCodes = ["invalid-package", "reserved-id", "duplicate-id", "required-plugin-config"] as const satisfies readonly PiWebPluginCatalogDiagnosticCode[];
 
   it.each(diagnosticCodes)("preserves %s diagnostics without rejecting active plugin runtimes", async (code) => {
@@ -18,7 +32,7 @@ describe("session daemon workspace catalog proxy", () => {
       request: (method, path) => {
         expect(method).toBe("GET");
         expect(path).toBe("/workspace-catalog/provider-runtime");
-        return Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ protocolVersion: 1, records: [record], health: [], diagnostics: [diagnostic] }) });
+        return Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ protocolVersion: 2, terminalMode: "required", records: [record], health: [], diagnostics: [diagnostic] }) });
       },
     });
 
@@ -27,7 +41,7 @@ describe("session daemon workspace catalog proxy", () => {
 
   it.each(["unknown-code", "", null, 1])("rejects unknown or malformed diagnostic code %s", async (code) => {
     const catalog = new SessionDaemonWorkspaceCatalog({
-      request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ protocolVersion: 1, records: [], health: [], diagnostics: [{ code, source: "/plugins/invalid", message: "Invalid plugin" }] }) }),
+      request: () => Promise.resolve({ statusCode: 200, headers: {}, body: JSON.stringify({ protocolVersion: 2, terminalMode: "required", records: [], health: [], diagnostics: [{ code, source: "/plugins/invalid", message: "Invalid plugin" }] }) }),
     });
 
     await expect(catalog.providerRuntime()).rejects.toThrow("provider runtime diagnostic 1 code is invalid");
@@ -68,7 +82,7 @@ describe("session daemon workspace catalog proxy", () => {
         statusCode: 200,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: 1,
+          protocolVersion: 2, terminalMode: "required",
           records: [{
             pluginId: "git",
             source: "bundled",

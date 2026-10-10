@@ -1,15 +1,26 @@
-import type { PluginCapability } from "../../shared/pluginApiTypes.js";
+import type { PluginCapability } from "../../server-plugin-api.js";
 import type { TerminalCommandRun } from "../../shared/apiTypes.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
 
-/**
- * Host-only composition port for the bundled Terminal plugin.
- *
- * sessiond still constructs `TerminalService` and owns `/terminals`. Moving PTY
- * ownership into the plugin would drop management-embed sandboxing and the
- * Windows shell fallback that live on that service. This snapshot is the typed
- * view core can hand a future plugin server entry without changing that ownership.
- */
+export interface RequiredTerminalCommandFailureNotice {
+  readonly message: string;
+  readonly context: Readonly<Record<string, string>>;
+}
+
+export interface RunTerminalCommandOptions {
+  projectId: string;
+  workspaceId: string;
+  cwd: string;
+  origin: string;
+  title: string;
+  command: string;
+  metadata?: unknown;
+  /** Private host-composition intent; never part of the browser Terminal protocol. */
+  failureNotice?: RequiredTerminalCommandFailureNotice;
+  cols?: number;
+  rows?: number;
+}
+
 export interface RequiredTerminalActivity {
   id: string;
   cwd: string;
@@ -21,9 +32,10 @@ export interface RequiredTerminalActivitySink {
   removeTerminal(terminalId: string, cwd?: string): void;
 }
 
+/** Privileged host-only composition port supplied by the required bundled Terminal; not third-party API. */
 export interface RequiredTerminalService {
   closeForCwd(cwd: string): void;
-  runCommand(options: unknown): TerminalCommandRun;
+  runCommand(options: RunTerminalCommandOptions): TerminalCommandRun;
   bindActivitySink(sink: RequiredTerminalActivitySink): void;
 }
 
@@ -35,6 +47,10 @@ export const REQUIRED_TERMINAL_SERVICE_CAPABILITY = Object.freeze({
   parse: snapshotRequiredTerminalService,
 }) satisfies PluginCapability<RequiredTerminalService, 1>;
 
+export class RequiredTerminalUnavailableError extends Error {
+  override name = "RequiredTerminalUnavailableError";
+}
+
 export function snapshotRequiredTerminalService(value: unknown): RequiredTerminalService {
   if (!isRecord(value)) throw new Error("Required Terminal server entry did not provide its composition service");
   const closeForCwd = value["closeForCwd"];
@@ -45,13 +61,26 @@ export function snapshotRequiredTerminalService(value: unknown): RequiredTermina
   }
   return Object.freeze({
     closeForCwd: (cwd: string) => { Reflect.apply(closeForCwd, value, [cwd]); },
-    runCommand: (options: unknown) => requireCommandRun(Reflect.apply(runCommand, value, [options])),
+    runCommand: (options: RunTerminalCommandOptions) => requireCommandRun(Reflect.apply(runCommand, value, [options])),
     bindActivitySink: (sink: RequiredTerminalActivitySink) => {
       Reflect.apply(bindActivitySink, value, [Object.freeze({
         updateTerminal: (terminal: RequiredTerminalActivity) => { sink.updateTerminal(terminal); },
         removeTerminal: (terminalId: string, cwd?: string) => { sink.removeTerminal(terminalId, cwd); },
       })]);
     },
+  });
+}
+
+export function unavailableRequiredTerminalService(): RequiredTerminalService {
+  const unavailable = (): never => {
+    throw new RequiredTerminalUnavailableError(
+      "Required Terminal plugin is unavailable in recovery safe start; workspace removal cannot continue",
+    );
+  };
+  return Object.freeze({
+    closeForCwd: unavailable,
+    runCommand: unavailable,
+    bindActivitySink: () => undefined,
   });
 }
 

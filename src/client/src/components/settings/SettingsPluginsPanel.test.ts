@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateResult } from "lit";
 import type { PiWebPluginInfo } from "../../api";
-import { SettingsPluginsPanel } from "./SettingsPluginsPanel";
-import { flattenTemplateContent, configResponse, expectTextOrder, pluginInfo } from "../SettingsDialog.testSupport";
+import { SettingsPluginsPanel, settingsPluginRows, type SettingsPluginRow } from "./SettingsPluginsPanel";
+import { flattenTemplateContent, configResponse, expectTextOrder, pluginInfo, pluginsResponse } from "../SettingsDialog.testSupport";
 import { templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-plugins-panel layout", () => {
@@ -10,7 +10,7 @@ describe("settings-plugins-panel layout", () => {
     const panel = new SettingsPluginsPanel();
     panel.targetLabel = "Lab Mac (remote machine)";
     panel.configResponse = configResponse({ plugins: { "remote-enabled": { enabled: true } } });
-    panel.pluginsResponse = { plugins: [pluginInfo("remote-enabled", true)] };
+    panel.pluginsResponse = pluginsResponse([pluginInfo("remote-enabled", true)]);
     panel.error = "Failed to load PI WEB plugin settings from Lab Mac: PI WEB plugins: timed out.";
     panel.savedMessage = "Config saved.";
 
@@ -18,10 +18,10 @@ describe("settings-plugins-panel layout", () => {
 
     expectTextOrder(rendered, [
       "PI WEB 插件",
-      "启用或禁用 ",
+      "比较期望插件配置与以下机器的 sessiond 活动启动快照：",
       "Lab Mac (remote machine)",
       "Failed to load PI WEB plugin settings from Lab Mac: PI WEB plugins: timed out.",
-      "Config saved. 重新加载浏览器标签页以应用插件更改。",
+      "Config saved. 重新加载浏览器标签页以应用仅浏览器插件的更改。",
       "受信代码警告：",
       "Lab Mac (remote machine) 上的配置键：",
       "remote-enabled",
@@ -42,11 +42,11 @@ describe("settings-plugins-panel layout", () => {
   it("shows the empty plugin state only after a plugin response has loaded", () => {
     const panel = new SettingsPluginsPanel();
     panel.targetLabel = "Lab Mac (remote machine)";
-    panel.pluginsResponse = { plugins: [] };
+    panel.pluginsResponse = pluginsResponse([]);
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("在 Lab Mac (remote machine) 上未发现 PI WEB 浏览器插件。");
+    expect(rendered).toContain("在 Lab Mac (remote machine) 上未发现或启用任何 PI WEB 插件。");
     expect(rendered).not.toContain("插件列表不可用");
     expect(rendered).not.toContain("受信代码警告");
   });
@@ -54,7 +54,7 @@ describe("settings-plugins-panel layout", () => {
   it("keeps loaded plugins visible but disabled when selected-machine config is unavailable", () => {
     const panel = new SettingsPluginsPanel();
     panel.targetLabel = "Lab Mac (remote machine)";
-    panel.pluginsResponse = { plugins: [pluginInfo("remote-disabled", false)] };
+    panel.pluginsResponse = pluginsResponse([pluginInfo("remote-disabled", false)]);
 
     const rendered = flattenTemplateContent(panel.render());
 
@@ -85,10 +85,12 @@ describe("settings-plugins-panel layout", () => {
 function renderPluginTemplate(panel: SettingsPluginsPanel, plugin: PiWebPluginInfo): TemplateResult {
   const renderPlugin: unknown = Reflect.get(panel, "renderPlugin");
   if (!isPanelRenderPlugin(renderPlugin)) throw new Error("SettingsPluginsPanel.renderPlugin is not callable");
-  return renderPlugin.call(panel, plugin);
+  const row = settingsPluginRows(pluginsResponse([plugin]), panel.configResponse)[0];
+  if (row === undefined) throw new Error("Missing settings plugin row");
+  return renderPlugin.call(panel, row);
 }
 
-function isPanelRenderPlugin(value: unknown): value is (this: SettingsPluginsPanel, plugin: PiWebPluginInfo) => TemplateResult {
+function isPanelRenderPlugin(value: unknown): value is (this: SettingsPluginsPanel, plugin: SettingsPluginRow) => TemplateResult {
   return typeof value === "function";
 }
 

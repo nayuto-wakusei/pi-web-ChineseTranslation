@@ -52,4 +52,32 @@ describe("ServerNoticeStore", () => {
 
     expect(recorded.context).toEqual({ projectId: "project-1", details: { workspaceId: "workspace-1" } });
   });
+
+  it("detaches readonly plugin metadata and scope throughout record and snapshots", () => {
+    const nested = { workspaceId: "diagnostic-workspace" };
+    const context = Object.freeze({ items: Object.freeze([nested, Object.freeze(["first"])]) });
+    const scope = { projectId: "project-1", workspaceId: "workspace-1" };
+    const store = new ServerNoticeStore({ daemonInstanceId: "daemon-a", createNoticeId: () => "1" });
+    const result = store.record({ severity: "error", message: "failure", source: "plugin:pi-web.terminal", scope, context });
+    nested.workspaceId = "changed";
+    scope.projectId = "changed";
+    expect(result.notice.scope).toEqual({ projectId: "project-1", workspaceId: "workspace-1" });
+    expect(result.notice.context).toEqual({ items: [{ workspaceId: "diagnostic-workspace" }, ["first"]] });
+    const items = result.notice.context?.["items"];
+    if (!Array.isArray(items)) throw new Error("Expected detached items");
+    items.push("external mutation");
+    const projected = store.snapshot().notices[0];
+    if (projected?.scope === undefined) throw new Error("Expected scope");
+    projected.scope.projectId = "external mutation";
+    expect(store.snapshot().notices[0]).toMatchObject({
+      scope: { projectId: "project-1", workspaceId: "workspace-1" },
+      context: { items: [{ workspaceId: "diagnostic-workspace" }, ["first"]] },
+    });
+  });
+
+  it("rejects malformed notice scope before changing current state", () => {
+    const store = new ServerNoticeStore({ daemonInstanceId: "daemon-a" });
+    expect(() => store.record({ severity: "error", message: "failure", scope: { projectId: "" } })).toThrow("scope");
+    expect(store.snapshot()).toEqual({ daemonInstanceId: "daemon-a", revision: 0, notices: [] });
+  });
 });

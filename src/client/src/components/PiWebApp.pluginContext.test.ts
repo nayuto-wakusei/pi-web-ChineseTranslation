@@ -22,6 +22,7 @@ afterEach(() => {
 function createApp(): PiWebApp {
   window.history.replaceState({}, "", "/?project=p1&workspace=w1&tool=example%3Apanel&view=example%3Apanel&legacy.panel--file=old");
   const app = new PiWebApp();
+  Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"]]));
   Reflect.set(app, "state", { ...initialAppState(), selectedProject: { id: "p1", name: "Project", path: "/repo", createdAt: "now" }, selectedWorkspace: workspace, workspaceTool: "example:panel", mainView: "example:panel" });
   return app;
 }
@@ -75,7 +76,7 @@ describe("PiWebApp plugin context ownership", () => {
     const disabledReason = vi.fn(() => "Unavailable");
     const run = vi.fn<(context: PluginRuntimeContext) => void>();
     const loaded = await loadExternalPlugins(undefined, {
-      plugins: [{ id: "external", module: "./external/plugin.js", machineSpecific: false }],
+      manifest: { lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "external", module: "./external/plugin.js", machineSpecific: false }] },
       moduleLoader: () => Promise.resolve({ default: { apiVersion: 4, name: "External", activate: () => ({
         contributions: { workspacePanels: [{ id: "panel", title: "Panel", render }],
           actions: [{ id: "action", title: "Action", enabled, disabledReason, run }] },

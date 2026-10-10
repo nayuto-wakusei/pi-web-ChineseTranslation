@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { FastifyInstance, InjectOptions, LightMyRequestCallback, LightMyRequestChain, LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+import { recoveryPluginsResponse } from "./app.testSupport.js";
 import { ProjectService } from "./projects/projectService.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import type { MachineClient } from "./machines/machineClient.js";
@@ -56,8 +57,8 @@ beforeEach(async () => {
     config: fakeConfigService(),
     piPackages: fakePiPackageService(),
     piWebPlugins: {
-      manifest: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
-      plugins: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] }),
+      manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
+      plugins: () => Promise.resolve(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }])),
       readAsset: (pluginId, assetPath) => Promise.resolve(pluginId === "fake" && assetPath === "plugin.js" ? { content: Buffer.from("export default {};"), contentType: "application/javascript; charset=utf-8" } : undefined),
     },
     clientDist: false,
@@ -294,15 +295,15 @@ describe("buildApp", () => {
   it("serves the PI WEB plugin manifest and plugin assets", async () => {
     const manifestResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);
-    expect(manifestResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] });
+    expect(manifestResponse.json()).toEqual({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] });
 
     const pluginsResponse = await app.inject({ method: "GET", url: "/api/plugins" });
     expect(pluginsResponse.statusCode).toBe(200);
-    expect(pluginsResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] });
+    expect(pluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }]));
 
     const localMachinePluginsResponse = await app.inject({ method: "GET", url: "/api/machines/local/plugins" });
     expect(localMachinePluginsResponse.statusCode).toBe(200);
-    expect(localMachinePluginsResponse.json()).toEqual({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] });
+    expect(localMachinePluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }]));
 
     const assetResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/fake/plugin.js?v=1" });
     expect(assetResponse.statusCode).toBe(200);
@@ -391,8 +392,8 @@ describe("buildApp", () => {
       sessionDaemon: fakeSessionDaemon(projects),
       config: fakeConfigService(),
       piWebPlugins: {
-        manifest: () => Promise.resolve({ plugins: [] }),
-        plugins: () => Promise.resolve({ plugins: [] }),
+        manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [] }),
+        plugins: () => Promise.resolve(recoveryPluginsResponse([])),
         readAsset: () => Promise.resolve(undefined),
       },
       managementEmbed,
@@ -407,7 +408,7 @@ describe("buildApp", () => {
     for (const url of ["/api/plugins", "/api/machines/local/plugins"]) {
       const response = await app.inject({ method: "GET", url, headers });
       expect(response.statusCode, url).toBe(200);
-      expect(response.json()).toEqual({ plugins: [] });
+      expect(response.json()).toEqual(recoveryPluginsResponse([]));
     }
     for (const url of [
       "/api/paired-plugin-backends/git/projects/project/workspaces/workspace/status",

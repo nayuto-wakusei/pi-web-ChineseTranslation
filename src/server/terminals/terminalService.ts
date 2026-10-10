@@ -64,9 +64,10 @@ export class TerminalService {
       .map(toInfo);
   }
 
-  closeForCwd(cwd: string): void {
+  closeForCwd(cwd: string, managementContext?: ManagementEmbedContext): void {
     if (cwd === "") throw new Error("cwd is required");
-    for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd)) this.close(terminal.id);
+    const scope = eventScopeFromManagementContext(managementContext);
+    for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd && candidate.eventScope === scope)) this.close(terminal.id);
   }
 
   create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo {
@@ -279,11 +280,12 @@ export class TerminalService {
       completedAt: new Date().toISOString(),
     };
     this.commandRuns.set(runId, completed);
-    if (completed.status === "failed" && isWorkspaceDeletionRun(completed)) {
+    if (completed.status === "failed" && isWorkspaceDeletionRun(completed) && this.commandRunScopes.get(runId) === NORMAL_SESSION_EVENT_SCOPE) {
       this.notices?.record({
         severity: "error",
         message: "工作区移除失败。请查看终端输出。",
         source: workspaceDeleteOperation,
+        scope: { projectId: completed.projectId },
         context: {
           commandRunId: completed.id,
           projectId: completed.projectId,

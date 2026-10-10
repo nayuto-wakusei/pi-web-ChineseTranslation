@@ -1,4 +1,4 @@
-import type { ServerPluginNoticeScope as ServerNoticeScope } from "../server-plugin-api.js";
+import type { ServerNoticeScope } from "./apiTypes.js";
 
 /** Reserved host-derived attribution prefix for plugin-authored notices. */
 export const SERVER_PLUGIN_NOTICE_SOURCE_PREFIX = "plugin:";

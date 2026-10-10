@@ -12,6 +12,13 @@ const remoteMachine: Machine = {
 };
 
 describe("selected-machine settings target helpers", () => {
+  it("offers exact offline plugin recovery only on local or lifecycle-capable remote runtimes", () => {
+    const target = settingsMachineTarget(remoteMachine);
+    expect(pluginLifecycleSupport(settingsMachineTarget(undefined), undefined).state).toBe("supported");
+    expect(pluginLifecycleSupport(target, undefined).state).toBe("unknown");
+    expect(pluginLifecycleSupport(target, { ok: true, capabilities: [] }).state).toBe("unsupported");
+    expect(pluginLifecycleSupport(target, { ok: true, capabilities: [PI_WEB_CAPABILITIES.pluginLifecycle] }).state).toBe("supported");
+  });
   it("uses the selected machine when present and falls back to the local gateway", () => {
     expect(settingsMachineTarget(undefined)).toEqual({ id: "local", name: "本机", kind: "local" });
     expect(settingsMachineTarget(remoteMachine)).toEqual({ id: "remote-a", name: "Lab Mac", kind: "remote" });
@@ -67,3 +74,5 @@ describe("selected-machine settings target helpers", () => {
     expect(friendlySelectedMachineSettingsErrorMessage("Not Found", { id: "local", name: "local", kind: "local" })).toBe("Not Found");
   });
 });
+import { pluginLifecycleSupport } from "./settingsMachineTarget";
+import { PI_WEB_CAPABILITIES } from "../../../../shared/capabilities";

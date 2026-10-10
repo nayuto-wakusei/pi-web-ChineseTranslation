@@ -1,20 +1,18 @@
-import type { PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginRuntimeContext, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
+import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
+import { TERMINAL_BROWSER_FACADE_CAPABILITY, TerminalFacade, type RequiredTerminalBrowserFacadeV1 } from "./TerminalFacade";
+import { TerminalPanel } from "./TerminalPanel";
+import { TerminalSoftKeys } from "./TerminalSoftKeys";
 
-/**
- * Browser entry for the bundled terminal panel.
- *
- * Server ownership stays in core until a later cutover. sessiond still constructs
- * TerminalService and registers `/terminals`, because management-embed Bubblewrap
- * sandboxing and the Windows shell fallback live there. This package has no
- * server plugin and must not take over PTY ownership.
- *
- * The panel renders the host `<pi-web-terminal-host>` element. The host fills
- * that tag with the existing Chinese `<terminal-panel>`, which already uses
- * terminalsApi and the terminal socket. Do not add a plugin peer channel here.
- */
 export const TERMINAL_PLUGIN_ID = "pi-web.terminal";
 export const TERMINAL_PANEL_ID = "workspace.terminal";
 export const TERMINAL_PANEL_ROUTE_ALIASES = ["terminal", "core:workspace.terminal"] as const;
+
+export const TERMINAL_PANEL_ELEMENT = terminalPanelElementName("pi-web.terminal");
+export const TERMINAL_SOFT_KEYS_ELEMENT = terminalSoftKeysElementName("pi-web.terminal");
+
+const terminalCustomElementOwnersKey = Symbol.for("pi-web.terminal.custom-element-owners.v1");
 
 const plugin = {
   apiVersion: 4,
@@ -24,28 +22,54 @@ const plugin = {
 
 export default plugin;
 
-export function activateTerminalPlugin(context: PluginActivationContext): PluginActivationResult {
-  if (context.pluginId !== TERMINAL_PLUGIN_ID) {
-    throw new Error(`Terminal browser entry must activate as plugin id ${TERMINAL_PLUGIN_ID}, received ${context.pluginId}`);
+export function activateTerminalPlugin(
+  context: PluginActivationContext,
+  runtime = new TerminalBrowserRuntime(),
+  facade: RequiredTerminalBrowserFacadeV1 & Partial<Pick<TerminalFacade, "dispose">> = new TerminalFacade(),
+): PluginActivationResult {
+  if (context.pluginId !== "pi-web.terminal") {
+    throw new Error(`Terminal browser entry must activate as plugin id pi-web.terminal, received ${context.pluginId}`);
   }
   if (isManagementEmbedMode()) return { contributions: {} };
-  const panelId = `${context.runtimePluginId}:${TERMINAL_PANEL_ID}`;
-  return {
+  const panelElement = terminalPanelElementName(context.runtimePluginId);
+  const softKeysElement = terminalSoftKeysElementName(context.runtimePluginId);
+  defineTerminalCustomElements(panelElement, softKeysElement);
+  const panelTag = unsafeStatic(panelElement);
+  const legacyPanelId = `${TERMINAL_PLUGIN_ID}:${TERMINAL_PANEL_ID}` as const;
+  const navigationAliases = context.runtimePluginId === TERMINAL_PLUGIN_ID
+    ? ["core:workspace.terminal"]
+    : ["core:workspace.terminal", legacyPanelId];
+  const icon = context.svg`
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <path d="m7 9 3 3-3 3M13 15h4"></path>
+    </svg>
+  `;
+  let disposed = false;
+  const disposeResources = (): void => {
+    if (disposed) return;
+    disposed = true;
+    runtime.dispose();
+    facade.dispose?.();
+  };
+  context.lifetimeSignal.addEventListener("abort", disposeResources, { once: true });
+  return Object.freeze({
+    provides: [{ capability: TERMINAL_BROWSER_FACADE_CAPABILITY, value: facade }],
+    dispose: () => {
+      context.lifetimeSignal.removeEventListener("abort", disposeResources);
+      disposeResources();
+    },
     contributions: {
       workspacePanels: [{
-        id: TERMINAL_PANEL_ID,
+        id: "workspace.terminal",
         title: "终端",
-        icon: context.svg`
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-            <path d="m7 9 3 3-3 3M13 15h4"></path>
-          </svg>
-        `,
+        icon,
         order: 30,
-        routeAliases: [...TERMINAL_PANEL_ROUTE_ALIASES],
-        navigationAliases: ["core:workspace.terminal"],
-        badge: (workspaceContext) => terminalBadgeCount(workspaceContext),
-        render: () => context.html`<pi-web-terminal-host></pi-web-terminal-host>`,
+        routeAliases: [...TERMINAL_PANEL_ROUTE_ALIASES, ...(context.runtimePluginId === TERMINAL_PLUGIN_ID ? [] : [legacyPanelId])],
+        navigationAliases,
+        badge: (workspaceContext: WorkspacePanelContext) => runtime.activeTerminalBadge(workspaceContext),
+        onInvalidate: (workspaceContext: WorkspacePanelContext) => runtime.invalidate(workspaceContext),
+        render: (workspaceContext: WorkspacePanelContext) => context.html`${staticHtml`<${panelTag} .context=${workspaceContext} .runtime=${runtime} .softKeysElementName=${softKeysElement}></${panelTag}>`}`,
       }],
       actions: [{
         id: "view.terminal",
@@ -54,15 +78,67 @@ export function activateTerminalPlugin(context: PluginActivationContext): Plugin
         shortcutAliases: ["core:view.terminal"],
         group: "导航",
         enabled: (runtimeContext: PluginRuntimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
-        run: (runtimeContext: PluginRuntimeContext) => { runtimeContext.selectWorkspaceTool(panelId); },
+        run: (runtimeContext: PluginRuntimeContext) => { runtimeContext.openTerminal(); },
       }],
     },
-  };
+  });
 }
 
-function terminalBadgeCount(context: object): number | undefined {
-  const count: unknown = Reflect.get(context, "activeTerminalCount");
-  return typeof count === "number" && count > 0 ? count : undefined;
+export function defineTerminalCustomElements(
+  panelElement = TERMINAL_PANEL_ELEMENT,
+  softKeysElement = TERMINAL_SOFT_KEYS_ELEMENT,
+): void {
+  if (typeof customElements === "undefined") throw new Error("Terminal requires browser Custom Elements support");
+  // A CustomElementRegistry permits one constructor under only one name. Each
+  // registration gets tiny local subclasses while sharing package-owned logic.
+  defineCustomElement(softKeysElement, class extends TerminalSoftKeys {});
+  defineCustomElement(panelElement, class extends TerminalPanel {});
+}
+
+export function terminalPanelElementName(runtimePluginId: string): string {
+  return `pi-web-terminal-panel-${terminalElementSuffix(runtimePluginId)}`;
+}
+
+export function terminalSoftKeysElementName(runtimePluginId: string): string {
+  return `pi-web-terminal-soft-keys-${terminalElementSuffix(runtimePluginId)}`;
+}
+
+function terminalElementSuffix(runtimePluginId: string): string {
+  const suffix = runtimePluginId.replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "");
+  if (suffix === "") throw new Error("Terminal runtime plugin id cannot produce a custom element name");
+  return suffix;
+}
+
+function defineCustomElement(name: string, constructor: CustomElementConstructor): void {
+  const existing = customElements.get(name);
+  const owners = terminalCustomElementOwners();
+  if (existing === undefined) {
+    customElements.define(name, constructor);
+    owners.set(name, constructor);
+    return;
+  }
+  if (existing === constructor) {
+    owners.set(name, constructor);
+    return;
+  }
+  // Portable copies loaded from distinct machine module URLs have distinct
+  // constructors. Reuse the first same-source implementation; each rendered
+  // element still receives this activation's machine-scoped context/runtime.
+  if (owners.get(name) === existing) return;
+  throw new Error(`Terminal custom element name is already owned: ${name}`);
+}
+
+function terminalCustomElementOwners(): Map<string, CustomElementConstructor> {
+  const existing: unknown = Reflect.get(globalThis, terminalCustomElementOwnersKey);
+  if (existing instanceof Map) {
+    // The Symbol.for key is private to this bundled source and all values are
+    // written only by defineCustomElement above.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Reflect.get cannot preserve this private registry's value type.
+    return existing as Map<string, CustomElementConstructor>;
+  }
+  const owners = new Map<string, CustomElementConstructor>();
+  Reflect.set(globalThis, terminalCustomElementOwnersKey, owners);
+  return owners;
 }
 
 function isManagementEmbedMode(): boolean {

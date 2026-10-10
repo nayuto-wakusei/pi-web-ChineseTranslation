@@ -17,7 +17,7 @@ function event(value: ServerNoticeSnapshot): ServerNoticeEvent {
 describe("visibleServerNotices", () => {
   it("keeps unscoped notices visible while hiding a project notice outside its project", () => {
     const globalNotice = notice("global");
-    const projectNotice = { ...notice("project"), context: { projectId: "project-a" } };
+    const projectNotice = { ...notice("project"), scope: { projectId: "project-a" } };
 
     expect(visibleServerNotices([globalNotice, projectNotice], { projectId: "project-a" })).toEqual([globalNotice, projectNotice]);
     expect(visibleServerNotices([globalNotice, projectNotice], { projectId: "project-b" })).toEqual([globalNotice]);
@@ -27,6 +27,7 @@ describe("visibleServerNotices", () => {
     const deletionNotice = {
       ...notice("deletion"),
       source: "workspace.delete",
+      scope: { projectId: "project-a" },
       context: { projectId: "project-a", workspaceId: "target-worktree" },
     };
 
@@ -34,13 +35,31 @@ describe("visibleServerNotices", () => {
     expect(visibleServerNotices([deletionNotice], { projectId: "project-b", workspaceId: "other-worktree" })).toEqual([]);
   });
 
-  it("matches ordinary workspace and session notice context to the active namespace", () => {
-    const workspaceNotice = { ...notice("workspace"), context: { projectId: "project-a", workspaceId: "workspace-a" } };
-    const sessionNotice = { ...notice("session"), context: { projectId: "project-a", workspaceId: "workspace-a", sessionId: "session-a" } };
+  it("matches ordinary workspace and session notice scope to the active namespace", () => {
+    const workspaceNotice = { ...notice("workspace"), scope: { projectId: "project-a", workspaceId: "workspace-a" } };
+    const sessionNotice = { ...notice("session"), scope: { projectId: "project-a", workspaceId: "workspace-a", sessionId: "session-a" } };
     const context: ServerNoticeDisplayContext = { projectId: "project-a", workspaceId: "workspace-a", sessionId: "session-a" };
 
     expect(visibleServerNotices([workspaceNotice, sessionNotice], context)).toEqual([workspaceNotice, sessionNotice]);
     expect(visibleServerNotices([workspaceNotice, sessionNotice], { projectId: "project-a", workspaceId: "workspace-b", sessionId: "session-b" })).toEqual([]);
+  });
+
+  it("never treats diagnostic context as visibility selectors", () => {
+    const global = { ...notice("global"), context: { projectId: "diagnostic", workspaceId: "diagnostic" } };
+    const scoped = { ...notice("scoped"), scope: { projectId: "project-a" }, context: { projectId: "project-b" } };
+    expect(visibleServerNotices([global, scoped], { projectId: "project-a" })).toEqual([global, scoped]);
+    expect(visibleServerNotices([global, scoped], { projectId: "project-b" })).toEqual([global]);
+  });
+
+  it("detaches visibility scope when installing machine projections", async () => {
+    const api = fakeApi();
+    const scope = { projectId: "project-a" };
+    api.snapshot.mockResolvedValue(snapshot(1, [{ ...notice("scoped"), scope }]));
+    const controller = new ServerNoticesController({ api });
+    await controller.refresh("remote-a");
+    scope.projectId = "changed";
+    expect(controller.projection("remote-a")?.notices[0]?.scope).toEqual({ projectId: "project-a" });
+    expect(controller.projection("remote-b")).toBeUndefined();
   });
 });
 

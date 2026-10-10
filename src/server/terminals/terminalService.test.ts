@@ -1,11 +1,14 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { RealtimeEvent, ServerNotice, TerminalInfo } from "../../shared/apiTypes.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { IPty, spawn } from "node-pty";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
+import type { RealtimeEvent, TerminalInfo } from "../../shared/apiTypes.js";
 import { workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import type { ServerNoticeCreator } from "../notices/serverNoticeService.js";
+import { ServerNoticeStore } from "../notices/serverNoticeStore.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { interactiveShellArgs, TerminalService } from "./terminalService";
 
@@ -21,6 +24,46 @@ describe("interactive shell arguments", () => {
     { shell: "cmd.exe", expected: [] },
   ])("uses login mode only for a supported shell: $shell", ({ shell, expected }) => {
     expect(interactiveShellArgs(shell)).toEqual(expected);
+  });
+});
+
+describe("management Terminal cleanup isolation", () => {
+  it("closes only the matching management scope at the same cwd", () => {
+    const kills: ReturnType<typeof vi.fn<IPty["kill"]>>[] = [];
+    const spawnPty = vi.fn<typeof spawn>(() => {
+      const kill = vi.fn<IPty["kill"]>();
+      kills.push(kill);
+      return {
+        pid: kills.length, cols: 100, rows: 30, process: "test", handleFlowControl: false,
+        onData: () => ({ dispose: () => undefined }), onExit: () => ({ dispose: () => undefined }),
+        write: () => undefined, resize: () => undefined, clear: () => undefined,
+        pause: () => undefined, resume: () => undefined, kill,
+      } satisfies IPty;
+    });
+    const context = (userId: string): ManagementEmbedContext => ({
+      user: { id: userId, rootUserId: userId, roles: [], permissions: [] },
+      projects: [{ id: "project", name: "Project" }], tools: { allow: ["terminal-command-runs"] },
+    });
+    const first = context("first");
+    const second = context("second");
+    const service = new TerminalService(undefined, undefined, spawnPty);
+    try {
+      const options = { cwd: process.cwd(), projectId: "project", workspaceId: "workspace",
+        origin: "test", title: "Command", command: "true" };
+      const normal = service.runCommand(options);
+      const firstRun = service.runCommand({ ...options, managementContext: first });
+      const secondRun = service.runCommand({ ...options, managementContext: second });
+      service.closeForCwd(process.cwd(), context("first"));
+      expect(service.get(firstRun.terminalId)).toBeUndefined();
+      expect(service.get(normal.terminalId)).toBeDefined();
+      expect(service.get(secondRun.terminalId)).toBeDefined();
+      expect(kills[0]).not.toHaveBeenCalled();
+      expect(kills[1]).toHaveBeenCalledOnce();
+      expect(kills[2]).not.toHaveBeenCalled();
+      service.closeForCwd(process.cwd());
+      expect(service.get(normal.terminalId)).toBeUndefined();
+      expect(service.get(secondRun.terminalId)).toBeDefined();
+    } finally { service.dispose(); }
   });
 });
 
@@ -203,7 +246,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
     const notices: ServerNoticeCreator = {
       record: (input) => {
         records.push(input);
-        return { id: "notice-1", createdAt: "2026-08-01T00:00:00.000Z", ...input } satisfies ServerNotice;
+        return new ServerNoticeStore({ daemonInstanceId: "daemon-a", createNoticeId: () => "notice-1" }).record(input).notice;
       },
     };
     const service = new TerminalService(undefined, undefined, undefined, notices);
@@ -224,6 +267,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
         severity: "error",
         message: "工作区移除失败。请查看终端输出。",
         source: "workspace.delete",
+        scope: { projectId: "p1" },
         context: { commandRunId: run.id, projectId: "p1", workspaceId: "w1" },
       }]);
     } finally {

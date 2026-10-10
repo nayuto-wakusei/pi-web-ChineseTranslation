@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+  PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
   type JsonValue,
   type ServerPluginPeerChannelOpenContext,
@@ -10,6 +11,7 @@ import {
 } from "../../server-plugin-api.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import type { Project } from "../types.js";
+import { REQUIRED_TERMINAL_SERVICE_CAPABILITY } from "../terminals/requiredTerminalService.js";
 import { WorkspaceProviderRegistry } from "../workspaces/workspaceProviderRegistry.js";
 import type {
   ServerPluginPairedBackendContribution,
@@ -118,7 +120,12 @@ describe("PluginBackendRegistry", () => {
     })).resolves.toEqual({ path: project.path, provider: null });
   });
 
-  it("rejects management dispatch to a plugin that requires a normal-only host capability", async () => {
+  it.each([
+    PI_WEB_HOST_WORKSPACES_CAPABILITY,
+    PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+    PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
+    REQUIRED_TERMINAL_SERVICE_CAPABILITY,
+  ])("rejects management dispatch requiring normal-only capability $pluginId/$id", async (capability) => {
     const workspaces = providerRegistry([]);
     const workspaceId = (await workspaces.resolve(project)).workspaces[0]?.id;
     if (workspaceId === undefined) throw new Error("Expected folder workspace");
@@ -128,9 +135,9 @@ describe("PluginBackendRegistry", () => {
     });
     const registry = new PluginBackendRegistry({
       contributions: [
-        { ...backendContribution("companion", request), requires: [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY] },
+        { ...backendContribution("companion", request), requires: [capability] },
         backendContribution("notes", request),
-        { ...channelContribution("companion-events", openChannel), requires: [PI_WEB_HOST_PI_SESSIONS_CAPABILITY] },
+        { ...channelContribution("companion-events", openChannel), requires: [capability] },
       ],
       workspaces,
     });
@@ -172,6 +179,41 @@ describe("PluginBackendRegistry", () => {
       managementContext,
     }, channelTransport().value)).rejects.toMatchObject({ code: "invalid-scope", closeCode: 1008 });
     expect(openChannel).not.toHaveBeenCalled();
+    await expect(registry.request({
+      pluginId: "companion",
+      moduleRevision: "companion-r1",
+      project,
+      workspaceId,
+      operation: "companion.run",
+      input: null,
+    })).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenCalledTimes(2);
+    await registry.closeAll();
+  });
+
+  it("rejects management Terminal requests and channels even without host capability requirements", async () => {
+    const workspaces = providerRegistry([]);
+    const workspaceId = (await workspaces.resolve(project)).workspaces[0]?.id;
+    if (workspaceId === undefined) throw new Error("Expected folder workspace");
+    const request = vi.fn(() => ({ ok: true }));
+    const openChannel = vi.fn(() => { throw new Error("Terminal channel must not open"); });
+    const registry = new PluginBackendRegistry({
+      contributions: [{ ...backendContribution("pi-web.terminal", request), backend: { request, openChannel } }],
+      workspaces,
+    });
+    const managementContext: ManagementEmbedContext = {
+      user: { id: "user-1", rootUserId: "root-1", roles: [], permissions: [] },
+      projects: [{ id: project.id, name: project.name, root: project.path }],
+    };
+    const base = { pluginId: "pi-web.terminal", moduleRevision: "pi-web.terminal-r1", project, workspaceId, input: null, managementContext };
+    await expect(registry.request({ ...base, operation: "terminal.create" }))
+      .rejects.toMatchObject({ code: "invalid-scope", statusCode: 403 });
+    await expect(registry.openChannel({ ...base, operation: "terminal.attach" }, channelTransport().value))
+      .rejects.toMatchObject({ code: "invalid-scope", closeCode: 1008 });
+    expect(registry.requiresNormalOnlyHostCapability("pi-web.terminal")).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(openChannel).not.toHaveBeenCalled();
+    await registry.closeAll();
   });
 
   it("attributes stale revisions, missing workspaces, and invalid JSON boundaries", async () => {

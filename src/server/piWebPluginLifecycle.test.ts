@@ -66,6 +66,7 @@ function runtimeRecord(plugin: PiWebPluginCatalogEntry): ServerPluginRuntimeReco
 function runtimeSnapshot(record: ServerPluginRuntimeRecord): WorkspaceProviderRuntimeSnapshot {
   return {
     protocolVersion: WORKSPACE_PROVIDER_RUNTIME_PROTOCOL_VERSION,
+    terminalMode: "required",
     records: [record],
     health: [],
     diagnostics: [],

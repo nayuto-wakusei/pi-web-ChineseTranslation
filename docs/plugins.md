@@ -214,6 +214,10 @@ Plugin preferences are stored under the top-level `plugins` config key in the PI
 
 插件默认启用，除非包清单声明 `defaultEnabled: false`。显式 `enabled` 设置覆盖包默认值；设为 `false` 后，下一次加载不会导入或激活该插件。内置 Terminal 按上游规则不能通过普通 `enabled` 设置禁用。可选 `settings` 对象用于插件自身配置。
 
+普通终端由内置 Terminal 插件独立提供浏览器面板、PTY 和 request/channel 通信。正常启动与仅内置插件启动都必须有来自内置来源、机器专属且包含浏览器和服务端入口的 Terminal；缺失、禁用、激活失败或健康检查失败会阻止启动，不回退到宿主终端。浏览器清单必须符合当前生命周期版本并明确提供 `terminalMode`，旧清单会报错。管理嵌入不能使用该普通终端，受控命令执行仍使用独立权限与沙箱。
+
+更新后需同步重启 Web 和会话守护进程，再刷新浏览器。需要修复配置时，可显式运行 `pi-web plugins safe-start set none --restart` 进入不启用服务端插件的恢复模式；该模式不提供普通终端或工作区移除命令。修复后运行 `pi-web plugins safe-start clear --restart` 恢复正常模式。旧终端导航链接与机器范围内的选择偏好保留，不自动重写插件或用户数据。
+
 After changing plugin enablement, reload the PI WEB browser tab. Already-loaded plugin JavaScript is not unloaded from the current page.
 
 ## Built-in plugins

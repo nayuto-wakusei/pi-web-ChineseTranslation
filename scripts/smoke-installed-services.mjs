@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -58,6 +59,13 @@ export async function smokeInstalledServices(packageRoot) {
         throw new Error(`Installed ${name} is unavailable or mismatched: ${JSON.stringify(status)}`);
       }
     }
+    await smokeDaemonTerminal(packageRoot, root, webUrl, cookie);
+    const web = processes.find((entry) => entry.name === "web");
+    web.child.kill("SIGTERM");
+    await web.done;
+    const survivingDaemon = await waitForJson(`http://127.0.0.1:${daemonPort}/health`, processes.filter((entry) => entry.name === "sessiond"));
+    if (survivingDaemon.ok !== true) throw new Error("Daemon did not survive the web shutdown");
+    console.log("Installed Terminal gateway request/channel, command completion and daemon ownership passed.");
     console.log(`Installed web and daemon startup passed (${manifest.version}, Pi ${health.version.piVersion}).`);
   } catch (error) {
     throw new Error(`${String(error)}\n${processes.map((entry) => `${entry.name}:\n${entry.output}`).join("\n")}`, { cause: error });
@@ -69,6 +77,65 @@ export async function smokeInstalledServices(packageRoot) {
       clearTimeout(forceKill);
     }
     await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function smokeDaemonTerminal(packageRoot, root, webUrl, cookie) {
+  const headers = { cookie, "content-type": "application/json" };
+  async function json(path, body) {
+    const response = await fetch(`${webUrl}/${path}`, {
+      headers, signal: AbortSignal.timeout(10_000),
+      ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}: ${JSON.stringify(result)}`);
+    return result;
+  }
+  const manifest = await json("pi-web-plugins/manifest.json");
+  const terminal = manifest.plugins?.find((entry) => entry.id === "pi-web.terminal");
+  if (manifest.lifecycleVersion !== 2 || manifest.terminalMode !== "required" || !terminal?.backendRevision
+    || terminal.pairedRequestVersion !== 1 || terminal.pairedChannelVersion !== 1 || terminal.machineSpecific !== true) {
+    throw new Error(`Required Terminal manifest is not paired: ${JSON.stringify(manifest)}`);
+  }
+  const workspaceRoot = join(root, "terminal-workspace");
+  await mkdir(workspaceRoot);
+  const project = await json("api/machines/local/projects", { path: workspaceRoot, name: "Terminal package smoke" });
+  const workspaces = await json(`api/machines/local/projects/${encodeURIComponent(project.id)}/workspaces`);
+  const workspace = workspaces.find((entry) => entry.isMain);
+  if (!workspace?.id) throw new Error("Installed Terminal workspace is missing");
+  const base = `api/paired-plugin-backends/pi-web.terminal/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}`;
+  const request = (operation, input) => json(`${base}/${operation}`, { revision: terminal.backendRevision, input });
+  const marker = "INSTALLED_TERMINAL_DAEMON_PEER_OK";
+  const run = await request("terminal.run", { origin: "package-smoke", title: "Native daemon PTY", command: `printf '%s' '${marker}'` });
+  if (!run?.id || !run.terminalId) throw new Error("Installed Terminal run did not return identifiers");
+  const { WebSocket } = createRequire(join(packageRoot, "package.json"))("ws");
+  const socket = new WebSocket(`${webUrl.replace(/^http/, "ws")}/${base}/channels/terminal.attach`, { headers: { cookie } });
+  let output = "";
+  try {
+    await new Promise((resolvePromise, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Installed Terminal channel timed out: ${JSON.stringify(output)}`)), 10_000);
+      const fail = (error) => { clearTimeout(timeout); reject(error); };
+      socket.once("error", fail);
+      socket.once("open", () => socket.send(JSON.stringify({ version: 1, kind: "open", revision: terminal.backendRevision, input: { terminalId: run.terminalId } })));
+      socket.on("message", (data) => {
+        try {
+          const frame = JSON.parse(data.toString());
+          if (frame.kind === "error") throw new Error(`Installed Terminal channel: ${frame.code}: ${frame.message}`);
+          if (frame.kind !== "data") return;
+          if (frame.data.type === "output") output += frame.data.data;
+          if (frame.data.type === "exit") {
+            if (frame.data.exitCode !== 0 || !output.includes(marker)) throw new Error(`Native daemon Terminal failed: ${JSON.stringify(frame)}, ${JSON.stringify(output)}`);
+            clearTimeout(timeout);
+            resolvePromise();
+          }
+        } catch (error) { fail(error); }
+      });
+    });
+    const completed = await request("terminal.get-run", { runId: run.id });
+    if (completed.status !== "succeeded") throw new Error(`Terminal command did not complete: ${JSON.stringify(completed)}`);
+  } finally {
+    socket.terminate();
+    await request("terminal.close", { terminalId: run.terminalId });
   }
 }
 

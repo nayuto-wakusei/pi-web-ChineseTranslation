@@ -41,7 +41,10 @@ describe("server notice routes", () => {
   });
 
   it("reads the current snapshot and dismisses an exact event identity", async () => {
-    const notice = service.record({ severity: "error", message: "Workspace removal failed", source: "workspace.delete" });
+    const notice = service.record({ severity: "error", message: "Workspace removal failed", source: "plugin:pi-web.terminal",
+      scope: { projectId: "project-1", workspaceId: "workspace-1" },
+      context: Object.freeze({ targets: Object.freeze(["workspace-1"]) }),
+    });
 
     const snapshot = await app.inject({ method: "GET", url: "/notices" });
     const dismissed = await app.inject({
@@ -51,7 +54,10 @@ describe("server notice routes", () => {
     });
 
     expect(snapshot.statusCode).toBe(200);
-    expect(snapshot.json()).toMatchObject({ daemonInstanceId: "daemon-a", revision: 1, notices: [{ id: notice.id, source: "workspace.delete" }] });
+    expect(snapshot.json()).toMatchObject({ daemonInstanceId: "daemon-a", revision: 1, notices: [{ id: notice.id,
+      source: "plugin:pi-web.terminal", scope: { projectId: "project-1", workspaceId: "workspace-1" },
+      context: { targets: ["workspace-1"] },
+    }] });
     expect(dismissed.statusCode).toBe(200);
     expect(dismissed.json()).toEqual({ daemonInstanceId: "daemon-a", revision: 2, notices: [] });
   });

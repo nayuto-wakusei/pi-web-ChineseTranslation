@@ -1,6 +1,8 @@
+import { PI_WEB_PLUGIN_LIFECYCLE_VERSION } from "../../../shared/apiTypes";
 import { machineScopedManifestPluginId } from "../../../shared/machinePluginIds";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
+import { REQUIRED_TERMINAL_PLUGIN_ID, type TerminalPluginMode } from "../../../shared/requiredTerminalPlugin";
 import { withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
 import type { PiWebPlugin, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration } from "./types";
@@ -17,6 +19,7 @@ export interface PluginManifestEntry {
   machineSpecific: boolean;
 }
 interface PluginManifest {
+  terminalMode: TerminalPluginMode;
   plugins: PluginManifestEntry[];
 }
 
@@ -24,7 +27,7 @@ export interface LoadExternalPluginsOptions {
   machineId?: string;
   shouldLoadPlugin?: (entry: PluginManifestEntry) => boolean;
   moduleLoader?: (moduleUrl: string) => Promise<unknown>;
-  plugins?: readonly PluginManifestEntry[];
+  manifest?: unknown;
 }
 
 export interface ExternalPluginLoadFailure {
@@ -33,6 +36,7 @@ export interface ExternalPluginLoadFailure {
 }
 
 export interface ExternalPluginLoadResult {
+  terminalMode: TerminalPluginMode;
   declarations: PiWebPluginRegistrationDeclaration[];
   registrations: PiWebPluginRegistration[];
   failures: ExternalPluginLoadFailure[];
@@ -40,8 +44,7 @@ export interface ExternalPluginLoadResult {
 
 export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest.json", options: LoadExternalPluginsOptions = {}): Promise<ExternalPluginLoadResult> {
   const resolvedManifestUrl = resolveAppUrl(withManagementEmbed(manifestUrl));
-  const manifest = await fetchPluginManifest(resolvedManifestUrl, options.plugins);
-  if (manifest === undefined) return { declarations: [], registrations: [], failures: [] };
+  const manifest = await fetchPluginManifest(resolvedManifestUrl, options.manifest);
 
   const declarations: PiWebPluginRegistrationDeclaration[] = [];
   const registrations: PiWebPluginRegistration[] = [];
@@ -63,9 +66,12 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
       });
     } catch (error) {
       failures.push({ entry, error });
+      if (manifest.terminalMode === "required" && entry.id === REQUIRED_TERMINAL_PLUGIN_ID) {
+        return { terminalMode: manifest.terminalMode, declarations, registrations: [], failures };
+      }
     }
   }
-  return { declarations, registrations, failures };
+  return { terminalMode: manifest.terminalMode, declarations, registrations, failures };
 }
 
 function registrationDeclaration(entry: PluginManifestEntry, machineId: string | undefined): PiWebPluginRegistrationDeclaration {
@@ -99,16 +105,17 @@ async function loadPluginModule(moduleUrl: string, loader: (url: string) => Prom
   }
 }
 
-async function fetchPluginManifest(manifestUrl: string, plugins: readonly PluginManifestEntry[] | undefined): Promise<PluginManifest | undefined> {
-  if (plugins !== undefined) return parseManifest({ plugins: [...plugins] });
+async function fetchPluginManifest(manifestUrl: string, manifest: unknown): Promise<PluginManifest> {
+  if (manifest !== undefined) return parseManifest(manifest);
   const response = await fetch(manifestUrl, { cache: "no-store" });
-  if (response.status === 404) return undefined;
   if (!response.ok) throw new Error(await pluginManifestResponseError(response));
   return parseManifest(await response.json());
 }
 
 function parseManifest(value: unknown): PluginManifest {
   if (!isRecord(value) || !Array.isArray(value["plugins"])) throw new Error("Invalid plugin manifest");
+  if (value["lifecycleVersion"] !== PI_WEB_PLUGIN_LIFECYCLE_VERSION) throw new Error("Unsupported plugin manifest lifecycle version");
+  const terminalMode = parseTerminalMode(value["terminalMode"]);
   const plugins = value["plugins"].map((entry) => {
     if (!isRecord(entry) || typeof entry["id"] !== "string" || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
     const id = entry["id"];
@@ -141,7 +148,23 @@ function parseManifest(value: unknown): PluginManifest {
     if (ids.has(plugin.id)) throw new Error(`Duplicate plugin manifest id: ${plugin.id}`);
     ids.add(plugin.id);
   }
-  return { plugins };
+  const terminal = plugins.find(({ id }) => id === REQUIRED_TERMINAL_PLUGIN_ID);
+  if (terminalMode === "required") {
+    if (terminal === undefined || plugins[0] !== terminal || !terminal.machineSpecific) {
+      throw new Error("Required Terminal plugin manifest entry is unavailable or out of order");
+    }
+    if (terminal.backendRevision === undefined || terminal.pairedRequestVersion !== 1 || terminal.pairedChannelVersion !== 1) {
+      throw new Error("Required Terminal plugin manifest entry is incompatible");
+    }
+  } else if (terminal !== undefined) {
+    throw new Error("Recovery-disabled plugin manifest must not publish Terminal");
+  }
+  return { terminalMode, plugins };
+}
+
+function parseTerminalMode(value: unknown): TerminalPluginMode {
+  if (value === "required" || value === "recovery-disabled") return value;
+  throw new Error("Invalid plugin manifest Terminal mode");
 }
 
 async function pluginManifestResponseError(response: Response): Promise<string> {
@@ -151,9 +174,11 @@ async function pluginManifestResponseError(response: Response): Promise<string> 
     if (isRecord(value)) {
       const error = value["error"];
       const responseDetail = value["detail"];
+      const message = value["message"];
       detail = typeof responseDetail === "string"
         ? `${typeof error === "string" ? `${error}: ` : ""}${responseDetail}`
-        : typeof error === "string" ? error : undefined;
+        : typeof message === "string" ? message
+          : typeof error === "string" ? error : undefined;
     }
   } catch {
     // Status metadata remains a useful bounded error when the body is not JSON.

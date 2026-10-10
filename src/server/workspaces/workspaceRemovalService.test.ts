@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { ServerNotice, TerminalCommandRun, WorkspaceListing } from "../../shared/apiTypes.js";
+import type { TerminalCommandRun, WorkspaceListing } from "../../shared/apiTypes.js";
+import { ServerNoticeStore } from "../notices/serverNoticeStore.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import type { ServerNoticeCreator } from "../notices/serverNoticeService.js";
 import type { Project } from "../types.js";
@@ -17,6 +18,7 @@ describe("WorkspaceRemovalService management scope", () => {
     };
     const main = workspace(project, "main", project.path, true);
     const target = workspace(project, "feature", resolve("repo-feature"), false, "remove-feature");
+    const closeForCwd = vi.fn();
     const runCommand = vi.fn((options: RunTerminalCommandOptions): TerminalCommandRun => ({
       id: "run-1",
       origin: options.origin,
@@ -38,13 +40,14 @@ describe("WorkspaceRemovalService management scope", () => {
           prepare: () => Promise.resolve({ title: "删除工作区", command: "git worktree remove feature" }),
         }),
       },
-      { closeForCwd: vi.fn(), runCommand },
+      { closeForCwd, runCommand },
       { preRemoveHook: { isExecutable: () => Promise.resolve(false) } },
     );
 
     await service.remove(project, target.id, "remove-feature", undefined, context);
 
     expect(runCommand).toHaveBeenCalledWith(expect.objectContaining({ managementContext: context }));
+    expect(closeForCwd).toHaveBeenCalledWith(target.path, context);
   });
 
   it("records a server notice when removal fails before command creation", async () => {
@@ -53,7 +56,7 @@ describe("WorkspaceRemovalService management scope", () => {
     const notices: ServerNoticeCreator = {
       record: (input) => {
         records.push(input);
-        return { id: "notice-1", createdAt: "2026-08-01T00:00:00.000Z", ...input } satisfies ServerNotice;
+        return new ServerNoticeStore().record(input).notice;
       },
     };
     const service = new WorkspaceRemovalService(
@@ -67,6 +70,7 @@ describe("WorkspaceRemovalService management scope", () => {
       severity: "error",
       message: "工作区移除失败：workspace has unsubmitted changes",
       source: "workspace.delete",
+      scope: { projectId: project.id },
       context: { projectId: project.id, workspaceId: "feature" },
     }]);
   });
@@ -77,7 +81,7 @@ describe("WorkspaceRemovalService management scope", () => {
     const notices: ServerNoticeCreator = {
       record: (input) => {
         records.push(input);
-        return { id: "notice-1", createdAt: "2026-08-01T00:00:00.000Z", ...input } satisfies ServerNotice;
+        return new ServerNoticeStore().record(input).notice;
       },
     };
     const service = new WorkspaceRemovalService(

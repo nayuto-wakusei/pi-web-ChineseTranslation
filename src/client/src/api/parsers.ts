@@ -5,6 +5,7 @@ import type { WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
 import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
+import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -808,12 +809,14 @@ function parseServerNotice(value: unknown): ServerNotice {
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid server notice creation time");
   const source = optionalString(record, "source");
   const context = record["context"] === undefined ? undefined : parseJsonObject(record["context"], "server notice context");
+  const scope = record["scope"] === undefined ? undefined : parseServerNoticeScope(record["scope"], "server notice scope");
   return {
     id: requireNonEmptyString(record, "id"),
     severity: parseServerNoticeSeverity(record["severity"]),
     message: requireString(record, "message"),
     createdAt,
     ...optionalField("source", source),
+    ...optionalField("scope", scope),
     ...optionalField("context", context),
   };
 }
@@ -1598,21 +1601,46 @@ function parsePiPackageMutationAction(value: unknown): PiPackageMutationAction {
 
 export function parsePiWebPluginsResponse(value: unknown): PiWebPluginsResponse {
   const record = requireRecord(value);
-  return { plugins: arrayOf(parsePiWebPluginInfo)(record["plugins"]) };
+  const plugins = arrayOf(parsePiWebPluginInfo)(record["plugins"]);
+  if (record["lifecycleVersion"] === undefined) {
+    return {
+      lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION,
+      plugins,
+      diagnostics: [],
+      serverRuntime: {
+        status: "incompatible",
+        terminalMode: "required",
+        restartRequired: false,
+        message: "此 PI WEB 不支持插件生命周期诊断。请更新并重启 PI WEB 后重试。",
+        recovery: legacyPluginRecoveryCommands(),
+      },
+    };
+  }
+  if (record["lifecycleVersion"] !== PI_WEB_PLUGIN_LIFECYCLE_VERSION) throw new Error("Unsupported PI WEB plugin lifecycle version");
+  return {
+    lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION,
+    plugins,
+    diagnostics: arrayOf(parsePiWebPluginDiagnostic)(record["diagnostics"]),
+    serverRuntime: parsePiWebPluginRuntimeInfo(record["serverRuntime"]),
+  };
 }
 
 function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
   const record = requireRecord(value);
-  const module = optionalString(record, "module");
+  const id = requireString(record, "id");
+  const server = record["server"] === undefined ? undefined : parsePiWebPluginServerInfo(record["server"], id);
   const backendRevision = optionalString(record, "backendRevision");
   const pairedRequestVersion = parsePairedCapabilityVersion(record["pairedRequestVersion"]);
   const pairedChannelVersion = parsePairedCapabilityVersion(record["pairedChannelVersion"]);
   if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) {
     throw new Error("Invalid PI WEB plugin paired capability");
   }
+  const required = parseOptionalBoolean(record["required"], "required");
+  if (required === false) throw new Error("Invalid PI WEB required plugin marker");
   return {
-    id: requireString(record, "id"),
-    ...(module === undefined ? {} : { module }),
+    id,
+    ...(required === true ? { required: true as const } : {}),
+    ...optionalField("module", optionalString(record, "module")),
     ...(backendRevision === undefined ? {} : { backendRevision }),
     ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
     ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
@@ -1620,7 +1648,108 @@ function parsePiWebPluginInfo(value: unknown): PiWebPluginInfo {
     scope: parsePiWebPluginScope(record["scope"]),
     machineSpecific: parseOptionalBoolean(record["machineSpecific"], "machineSpecific") ?? false,
     enabled: requireBoolean(record, "enabled"),
+    discovered: parseOptionalBoolean(record["discovered"], "discovered") ?? true,
+    conflict: parseOptionalBoolean(record["conflict"], "conflict") ?? false,
+    ...(server === undefined ? {} : { server }),
   };
+}
+
+function parsePiWebPluginServerInfo(value: unknown, pluginId: string): NonNullable<PiWebPluginInfo["server"]> {
+  const record = requireRecord(value);
+  const state = record["state"];
+  const phase = record["phase"];
+  if (state !== "active" && state !== "failed" && state !== "incompatible" && state !== "disabled" && state !== "missing" && state !== "unknown") {
+    throw new Error("Invalid PI WEB server plugin state");
+  }
+  if (phase !== undefined && phase !== "import" && phase !== "activate" && phase !== "validate" && phase !== "start" && phase !== "health" && phase !== "dispose") {
+    throw new Error("Invalid PI WEB server plugin phase");
+  }
+  const health = record["health"] === undefined ? undefined : parsePiWebPluginHealth(record["health"]);
+  const disableCommand = requireString(record, "disableCommand");
+  if (disableCommand !== pluginDisableRecoveryCommand(pluginId)) throw new Error("Invalid PI WEB server plugin recovery command");
+  return {
+    state,
+    ...optionalField("desiredRevision", optionalString(record, "desiredRevision")),
+    ...optionalField("activeRevision", optionalString(record, "activeRevision")),
+    ...(phase === undefined ? {} : { phase }),
+    ...optionalField("message", optionalString(record, "message")),
+    ...(health === undefined ? {} : { health }),
+    staleRevision: requireBoolean(record, "staleRevision"),
+    restartRequired: requireBoolean(record, "restartRequired"),
+    disableCommand,
+  };
+}
+
+function parsePiWebPluginHealth(value: unknown): NonNullable<NonNullable<PiWebPluginInfo["server"]>["health"]> {
+  const record = requireRecord(value);
+  const status = record["status"];
+  if (status !== "healthy" && status !== "degraded" && status !== "unhealthy") throw new Error("Invalid PI WEB server plugin health status");
+  return { status, ...optionalField("message", optionalString(record, "message")) };
+}
+
+function parsePiWebPluginDiagnostic(value: unknown): PiWebPluginsResponse["diagnostics"][number] {
+  const record = requireRecord(value);
+  const kind = record["kind"];
+  const snapshot = record["snapshot"];
+  if (kind !== "conflict" && kind !== "discovery") throw new Error("Invalid PI WEB plugin diagnostic kind");
+  if (snapshot !== "desired" && snapshot !== "active") throw new Error("Invalid PI WEB plugin diagnostic snapshot");
+  return {
+    kind,
+    snapshot,
+    source: requireString(record, "source"),
+    message: requireString(record, "message"),
+    ...optionalField("pluginId", optionalString(record, "pluginId")),
+  };
+}
+
+function parsePiWebPluginRuntimeInfo(value: unknown): PiWebPluginsResponse["serverRuntime"] {
+  const record = requireRecord(value);
+  const status = record["status"];
+  const terminalMode = record["terminalMode"];
+  const safeStart = record["safeStart"];
+  const desiredSafeStart = record["desiredSafeStart"];
+  if (status !== "available" && status !== "unavailable" && status !== "incompatible") throw new Error("Invalid PI WEB server-plugin runtime status");
+  if (terminalMode !== "required" && terminalMode !== "recovery-disabled") throw new Error("Invalid PI WEB Terminal plugin mode");
+  if (safeStart !== undefined && safeStart !== "bundled-only" && safeStart !== "none") throw new Error("Invalid PI WEB server-plugin safe-start state");
+  if (desiredSafeStart !== undefined && desiredSafeStart !== "off" && desiredSafeStart !== "bundled-only" && desiredSafeStart !== "none") {
+    throw new Error("Invalid desired PI WEB server-plugin safe-start state");
+  }
+  if (status !== "available" && terminalMode === "recovery-disabled") {
+    throw new Error("Unavailable PI WEB runtime cannot declare Terminal recovery mode");
+  }
+  if ((safeStart === "none") !== (terminalMode === "recovery-disabled") && status === "available") {
+    throw new Error("PI WEB Terminal plugin mode does not match safe start");
+  }
+  return {
+    status,
+    terminalMode,
+    ...(safeStart === undefined ? {} : { safeStart }),
+    ...(desiredSafeStart === undefined ? {} : { desiredSafeStart }),
+    restartRequired: requireBoolean(record, "restartRequired"),
+    ...optionalField("message", optionalString(record, "message")),
+    recovery: parsePiWebPluginRecoveryCommands(record["recovery"]),
+  };
+}
+
+function parsePiWebPluginRecoveryCommands(value: unknown): PiWebPluginsResponse["serverRuntime"]["recovery"] {
+  const record = requireRecord(value);
+  const commands = {
+    showSafeStart: requireString(record, "showSafeStart"),
+    bundledOnly: requireString(record, "bundledOnly"),
+    noServerPlugins: requireString(record, "noServerPlugins"),
+    clearSafeStart: requireString(record, "clearSafeStart"),
+  };
+  if (commands.showSafeStart !== PI_WEB_PLUGIN_RECOVERY_COMMANDS.showSafeStart
+    || commands.bundledOnly !== PI_WEB_PLUGIN_RECOVERY_COMMANDS.bundledOnly
+    || commands.noServerPlugins !== PI_WEB_PLUGIN_RECOVERY_COMMANDS.noServerPlugins
+    || commands.clearSafeStart !== PI_WEB_PLUGIN_RECOVERY_COMMANDS.clearSafeStart) {
+    throw new Error("Invalid PI WEB server plugin recovery commands");
+  }
+  return commands;
+}
+
+function legacyPluginRecoveryCommands(): PiWebPluginsResponse["serverRuntime"]["recovery"] {
+  return { ...PI_WEB_PLUGIN_RECOVERY_COMMANDS };
 }
 
 function parsePairedCapabilityVersion(value: unknown): 1 | undefined {
@@ -1994,3 +2123,5 @@ export function parseWorkspaceTrustResponse(value: unknown): import("../../../sh
   if (decision !== true && decision !== false && decision !== null) throw new Error("Invalid workspace trust decision");
   return { path: requireString(record, "path"), decision, trusted: requireBoolean(record, "trusted") };
 }
+import { PI_WEB_PLUGIN_LIFECYCLE_VERSION } from "../../../shared/apiTypes";
+import { PI_WEB_PLUGIN_RECOVERY_COMMANDS, pluginDisableRecoveryCommand } from "../../../shared/pluginRecoveryCommands";

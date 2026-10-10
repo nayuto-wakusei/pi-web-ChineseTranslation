@@ -14,7 +14,8 @@ import { WorkspaceService } from "./workspaces/workspaceService.js";
 import type { PiPackageService } from "./piPackageService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
-import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues, PiWebPluginInfo, PiWebPluginsResponse } from "../shared/apiTypes.js";
+import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../shared/pluginRecoveryCommands.js";
 import type { SessionDaemonAgentProfileResult } from "../sessiond/sessionDaemonClient.js";
 import { registerProjectMutationRoutes } from "./sessiond/projectMutationRoutes.js";
 
@@ -115,8 +116,8 @@ export function registerAppTestHooks(): void {
       config: fakeConfigService(),
       piPackages: fakePiPackageService(),
       piWebPlugins: {
-        manifest: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
-        plugins: () => Promise.resolve({ plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }] }),
+        manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
+        plugins: () => Promise.resolve(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }])),
         readAsset: fakePiWebPluginAsset,
       },
       clientDist: false,
@@ -179,6 +180,13 @@ function withDefaultAuthCookie(options: InjectOptions | string, cookie: string):
   const headers = options.headers ?? {};
   if (headers.cookie !== undefined) return options;
   return { ...options, headers: { ...headers, cookie } };
+}
+
+export function recoveryPluginsResponse(plugins: PiWebPluginInfo[]): PiWebPluginsResponse {
+  return {
+    lifecycleVersion: 2, plugins, diagnostics: [],
+    serverRuntime: { status: "available", terminalMode: "recovery-disabled", safeStart: "none", restartRequired: false, recovery: { ...PI_WEB_PLUGIN_RECOVERY_COMMANDS } },
+  };
 }
 
 function fakePiWebPluginAsset(pluginId: string, assetPath: string): Promise<{ content: Buffer; contentType: string } | undefined> {

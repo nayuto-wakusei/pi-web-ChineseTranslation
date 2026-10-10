@@ -6,8 +6,10 @@
     "plugins": [
       {
         "id": "pi-web.terminal",
-        "browserRoot": ".",
-        "module": "pi-web-plugin.js"
+        "browserRoot": "browser",
+        "module": "browser/pi-web-plugin.js",
+        "serverModule": "server-plugin.js",
+        "machineSpecific": true
       }
     ]
   }

@@ -264,6 +264,8 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
                 <li><code>pi-web-plugins/info/infoInternals.ts</code> holds the bundled panel and action implementation, which you can ignore or replace when copying the plugin.</li>
                 <li><code>dist/pi-web-plugins/info/pi-web-plugin.js</code> is the built browser module in a checkout.</li>
               </ul>
+              <p>普通终端由内置 Terminal 插件独立提供浏览器面板、PTY 和 request/channel 通信。正常启动与仅内置插件启动都必须有来自内置来源、机器专属且包含浏览器和服务端入口的 Terminal；缺失、禁用、激活失败或健康检查失败会阻止启动，不回退到宿主终端。浏览器清单必须符合当前生命周期版本并明确提供 <code>terminalMode</code>，旧清单会报错。管理嵌入不能使用该普通终端，受控命令执行仍使用独立权限与沙箱。</p>
+              <p>更新后需同步重启 Web 和会话守护进程，再刷新浏览器。需要修复配置时，可显式运行 <code>pi-web plugins safe-start set none --restart</code> 进入不启用服务端插件的恢复模式；该模式不提供普通终端或工作区移除命令。修复后运行 <code>pi-web plugins safe-start clear --restart</code> 恢复正常模式。旧终端导航链接与机器范围内的选择偏好保留，不自动重写插件或用户数据。</p>
               <p>
                 Read it on GitHub:
                 <a href="https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/info">pi-web-plugins/info</a>.

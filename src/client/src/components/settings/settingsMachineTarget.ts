@@ -1,4 +1,5 @@
 import type { Machine, MachineKind, MachineRuntime } from "../../api";
+import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../../shared/capabilities";
 
 export interface SettingsMachineTarget {
   id: string;
@@ -14,6 +15,14 @@ export interface SelectedMachineSettingsSupport {
 }
 
 export type AgentProfileSettingsSupport = SelectedMachineSettingsSupport;
+export type PluginLifecycleSupport = SelectedMachineSettingsSupport;
+
+export function pluginLifecycleSupport(target: SettingsMachineTarget, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): PluginLifecycleSupport {
+  if (target.kind === "local") return { state: "supported" };
+  if (runtime?.ok !== true) return { state: "unknown" };
+  if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.pluginLifecycle)) return { state: "supported" };
+  return { state: "unsupported", message: `${target.name} 不支持插件生命周期诊断。加载依赖服务端的插件前，请更新并重启该机器上的 PI WEB。` };
+}
 
 export function settingsMachineTarget(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): SettingsMachineTarget {
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };

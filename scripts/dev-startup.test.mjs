@@ -114,6 +114,7 @@ it("removes stale readiness and exits when the real initial build fails", { time
   let child;
   try {
     await mkdir(join(cwd, "pi-web-plugins"));
+    await writeTerminalBuildFixture(cwd);
     await mkdir(join(cwd, "dist"));
     await writeFile(join(cwd, "dist", ".plugins-ready"), "stale");
     await writeFile(join(cwd, "pi-web-plugins", "broken.ts"), "export const = ;");
@@ -138,6 +139,7 @@ it("publishes real builds and recovers from a later failure without stopping the
   let child;
   try {
     await mkdir(join(cwd, "pi-web-plugins"));
+    await writeTerminalBuildFixture(cwd);
     const source = join(cwd, "pi-web-plugins", "entry.ts");
     await writeFile(source, "export const value = 1;");
     child = fork(fileURLToPath(new URL("./build-plugins.mjs", import.meta.url)), ["--watch"], { cwd, execArgv: [], stdio: "ignore" });
@@ -160,3 +162,11 @@ it("publishes real builds and recovers from a later failure without stopping the
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+async function writeTerminalBuildFixture(cwd) {
+  const terminalRoot = join(cwd, "pi-web-plugins", "terminal");
+  await mkdir(join(terminalRoot, "server"), { recursive: true });
+  await writeFile(join(terminalRoot, "package.json"), JSON.stringify({ type: "module", piWeb: { plugins: [{ id: "pi-web.terminal", browserRoot: "browser", module: "browser/pi-web-plugin.js", serverModule: "server-plugin.js", machineSpecific: true }] } }));
+  await writeFile(join(terminalRoot, "server", "server-plugin.ts"), "export default { apiVersion: 3, activate: () => ({ contributions: {} }) };");
+  await writeFile(join(terminalRoot, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
+}

@@ -11,7 +11,9 @@ describe("ServerNoticeService", () => {
       { publishGlobal: (event) => { events.push(event); } },
     );
 
-    const notice = service.record({ severity: "error", message: "Failed" });
+    const notice = service.record({ severity: "error", message: "Failed", scope: { projectId: "project-1" },
+      context: Object.freeze({ targets: Object.freeze(["workspace-1"]) }),
+    });
     const dismissed = service.dismiss({ daemonInstanceId: "daemon-a", noticeId: notice.id });
     service.dismiss({ daemonInstanceId: "daemon-a", noticeId: notice.id });
 

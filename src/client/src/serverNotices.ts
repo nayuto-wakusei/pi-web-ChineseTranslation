@@ -1,6 +1,5 @@
 import { noticesApi } from "./api";
 import type { ServerNotice, ServerNoticeEvent, ServerNoticeSnapshot } from "../../shared/apiTypes";
-import { workspaceDeleteOperation } from "../../shared/workspaceDeletion";
 
 const MAX_BUFFERED_NETWORK_EVENTS = 100;
 
@@ -23,7 +22,6 @@ export interface ServerNoticeDisplayContext {
 
 /**
  * Keep the server snapshot complete and scope only its front-end presentation.
- * Worktree deletion is project-owned because the operation spans two worktrees.
  */
 export function visibleServerNotices(notices: readonly ServerNotice[], context: ServerNoticeDisplayContext): ServerNotice[] {
   return notices.filter((notice) => serverNoticeIsVisible(notice, context));
@@ -346,24 +344,11 @@ export class ServerNoticesController {
 }
 
 function serverNoticeIsVisible(notice: ServerNotice, context: ServerNoticeDisplayContext): boolean {
-  const noticeContext = notice.context;
-  if (notice.source === workspaceDeleteOperation) {
-    const projectId = contextValue(noticeContext, "projectId");
-    return projectId === undefined || projectId === context.projectId;
-  }
-
-  const projectId = contextValue(noticeContext, "projectId");
-  const workspaceId = contextValue(noticeContext, "workspaceId");
-  const sessionId = contextValue(noticeContext, "sessionId");
-  if (projectId === undefined && workspaceId === undefined && sessionId === undefined) return true;
-  return (projectId === undefined || projectId === context.projectId)
-    && (workspaceId === undefined || workspaceId === context.workspaceId)
-    && (sessionId === undefined || sessionId === context.sessionId);
-}
-
-function contextValue(context: ServerNotice["context"], key: string): string | undefined {
-  const value = context?.[key];
-  return typeof value === "string" ? value : undefined;
+  const scope = notice.scope;
+  if (scope === undefined) return true;
+  return (scope.projectId === undefined || scope.projectId === context.projectId)
+    && (scope.workspaceId === undefined || scope.workspaceId === context.workspaceId)
+    && (scope.sessionId === undefined || scope.sessionId === context.sessionId);
 }
 
 function projectionFromSnapshot(snapshot: ServerNoticeSnapshot): ProjectionData {
@@ -372,6 +357,7 @@ function projectionFromSnapshot(snapshot: ServerNoticeSnapshot): ProjectionData 
     revision: snapshot.revision,
     notices: snapshot.notices.map((notice) => ({
       ...notice,
+      ...(notice.scope === undefined ? {} : { scope: { ...notice.scope } }),
       ...(notice.context === undefined ? {} : { context: { ...notice.context } }),
     })),
   };

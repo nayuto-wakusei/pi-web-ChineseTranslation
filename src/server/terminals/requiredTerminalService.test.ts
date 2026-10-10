@@ -1,52 +1,84 @@
 import { describe, expect, it, vi } from "vitest";
-import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
-import { REQUIRED_TERMINAL_SERVICE_CAPABILITY, snapshotRequiredTerminalService } from "./requiredTerminalService.js";
+import {
+  REQUIRED_TERMINAL_SERVICE_CAPABILITY,
+  snapshotRequiredTerminalService,
+  unavailableRequiredTerminalService,
+} from "./requiredTerminalService.js";
 
-describe("required terminal service snapshot", () => {
-  it("freezes the host composition methods without taking PTY ownership", () => {
+const run = {
+  id: "run-1",
+  origin: "core",
+  projectId: "project-1",
+  workspaceId: "workspace-1",
+  terminalId: "terminal-1",
+  title: "Remove workspace",
+  command: "true",
+  status: "running" as const,
+  createdAt: "now",
+  metadata: {},
+};
+
+describe("required Terminal server composition port", () => {
+  it("snapshots only close, command-run, and activity binding operations", () => {
     const closeForCwd = vi.fn();
-    const runCommand = vi.fn(() => commandRun());
+    const runCommand = vi.fn(() => run);
     const bindActivitySink = vi.fn();
-    const service = snapshotRequiredTerminalService({ closeForCwd, runCommand, bindActivitySink, extra: true });
-
     expect(REQUIRED_TERMINAL_SERVICE_CAPABILITY).toMatchObject({
-      pluginId: REQUIRED_TERMINAL_PLUGIN_ID,
+      pluginId: "pi-web.terminal",
       id: "service",
       version: 1,
     });
+    const service = REQUIRED_TERMINAL_SERVICE_CAPABILITY.parse({ closeForCwd, runCommand, bindActivitySink, extra: vi.fn() });
+
     service.closeForCwd("/repo");
-    expect(service.runCommand({ command: "echo hi" })).toMatchObject({ id: "run-1", status: "succeeded" });
-    const sink = { updateTerminal: vi.fn(), removeTerminal: vi.fn() };
-    service.bindActivitySink(sink);
+    const options = {
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      cwd: "/repo",
+      origin: "core",
+      title: "Remove workspace",
+      command: "true",
+      failureNotice: {
+        message: "Workspace removal failed. See terminal output.",
+        context: { targetWorkspaceId: "workspace-2" },
+      },
+    };
+    expect(service.runCommand(options)).toEqual(run);
+    service.bindActivitySink({ updateTerminal: vi.fn(), removeTerminal: vi.fn() });
 
     expect(closeForCwd).toHaveBeenCalledWith("/repo");
-    expect(runCommand).toHaveBeenCalledWith({ command: "echo hi" });
+    expect(runCommand).toHaveBeenCalledWith(options);
     expect(bindActivitySink).toHaveBeenCalledOnce();
-    expect(Object.isFrozen(service)).toBe(true);
+    expect(service).not.toHaveProperty("legacyRoutes");
   });
 
-  it("rejects a server entry that does not provide the composition service", () => {
-    expect(() => snapshotRequiredTerminalService({ closeForCwd() { return undefined; } })).toThrow(/composition service/);
-    expect(() => snapshotRequiredTerminalService({
-      closeForCwd() { return undefined; },
-      runCommand: () => ({ id: "run-1" }),
-      bindActivitySink() { return undefined; },
-    }).runCommand({})).toThrow(/invalid command run/);
+  it("rejects malformed service and command-run contributions", () => {
+    expect(() => snapshotRequiredTerminalService({})).toThrow("did not provide its composition service");
+    const service = snapshotRequiredTerminalService({
+      closeForCwd: vi.fn(),
+      runCommand: () => ({ id: "incomplete" }),
+      bindActivitySink: vi.fn(),
+    });
+    expect(() => service.runCommand({
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      cwd: "/repo",
+      origin: "core",
+      title: "Remove workspace",
+      command: "true",
+    })).toThrow("invalid command run");
+  });
+
+  it("fails recovery commands before callers can report success", () => {
+    const service = unavailableRequiredTerminalService();
+    expect(() => { service.closeForCwd("/repo"); }).toThrow("unavailable in recovery safe start");
+    expect(() => service.runCommand({
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      cwd: "/repo",
+      origin: "core",
+      title: "Remove workspace",
+      command: "true",
+    })).toThrow("unavailable in recovery safe start");
   });
 });
-
-function commandRun() {
-  return {
-    id: "run-1",
-    origin: "test",
-    projectId: "project-1",
-    workspaceId: "workspace-1",
-    terminalId: "terminal-1",
-    title: "Echo",
-    command: "echo hi",
-    status: "succeeded",
-    exitCode: 0,
-    createdAt: "2026-09-28T00:00:00.000Z",
-    metadata: { source: "test" },
-  };
-}

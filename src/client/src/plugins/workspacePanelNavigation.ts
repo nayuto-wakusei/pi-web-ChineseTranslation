@@ -16,11 +16,12 @@ export function createWorkspacePanelNavigation(
     query,
     set: (key: string, value: ContributionQueryValue | undefined | null, options?: { replace?: boolean | undefined }) => {
       if (!isContributionQueryLocalKey(key)) throw new Error(`Invalid contribution navigation key: ${key}`);
-      if (!isCurrent() || !sameQuery(readContributionQuery(contributionId, aliases), expectedQuery)) return;
+      if (!isCurrent() || !sameQuery(readContributionQuery(contributionId, aliases), expectedQuery)) return false;
       if (setContributionQueryKey(contributionId, aliases, key, value, options)) {
         expectedQuery = readContributionQuery(contributionId, aliases);
         onChange();
       }
+      return true;
     },
   });
 }

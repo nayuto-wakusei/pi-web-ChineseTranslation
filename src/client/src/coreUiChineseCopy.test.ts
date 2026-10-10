@@ -51,7 +51,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes the terminal panel controls visible above the shell",
-    paths: ["components/TerminalPanel.ts"],
+    paths: ["../../../pi-web-plugins/terminal/TerminalPanel.ts"],
     expected: ["按键", "+ 终端", "终端复制控件", "全部复制"],
     forbidden: [">Keys<", "+ Shell", "Terminal copy controls", "Copy all", "No terminal output to copy"],
   },
@@ -172,7 +172,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes shortcut guidance, status copy, and core session actions",
-    paths: ["components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsSessiondPanel.ts", "components/StatusBar.ts", "plugins/core/actions.ts", "terminalKeys.ts", "formatting/markdown.ts"],
+    paths: ["components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsSessiondPanel.ts", "components/StatusBar.ts", "plugins/core/actions.ts", "../../../pi-web-plugins/terminal/terminalKeys.ts", "formatting/markdown.ts"],
     expected: ["正在录制", "需要重启", "代理可以启动自己持续关联的子会话", "~/.pi/agent 或 ~/agent-profiles/work", "尚无会话状态", "选择模型", "选择思考级别", "ariaLabel: \"删除键\"", "setAttribute(\"aria-label\", \"表格\")"],
     forbidden: ["Recording:", "Beta：", "测试版：", "~/.pi/agent or ~/agent-profiles/work", "Pi-compatible agent profile restart required", "No session status yet", "Select Model", "Select Thinking Level", "ariaLabel: \"Delete\"", "setAttribute(\"aria-label\", \"Table\")"],
   },

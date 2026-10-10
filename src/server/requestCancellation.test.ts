@@ -50,6 +50,8 @@ describe("requestCancellation", () => {
 
   it("aborts when the client disconnects while the handler is still working", async () => {
     let abortReason = "";
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolveStarted) => { markStarted = resolveStarted; });
     const observed = new Promise<void>((resolveObserved) => {
       app.delete("/resource", async (request, reply) => {
         const cancellation = requestCancellation(request, reply);
@@ -59,6 +61,7 @@ describe("requestCancellation", () => {
               abortReason = cancellation.signal.reason instanceof Error ? cancellation.signal.reason.message : "";
               resolveAbort();
             }, { once: true });
+            markStarted();
           });
           resolveObserved();
           return {};
@@ -76,8 +79,10 @@ describe("requestCancellation", () => {
       body: JSON.stringify({ precondition: "v1.confirmed" }),
       signal: controller.signal,
     });
-    setTimeout(() => { controller.abort(); }, 20);
-    await expect(pending).rejects.toThrow();
+    const rejected = expect(pending).rejects.toThrow();
+    await started;
+    controller.abort();
+    await rejected;
 
     await observed;
     expect(abortReason).toBe("HTTP request cancelled");

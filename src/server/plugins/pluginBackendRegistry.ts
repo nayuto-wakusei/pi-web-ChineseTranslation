@@ -16,6 +16,7 @@ import {
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
 } from "../../server-plugin-api.js";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
+import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
 import {
   boundedPluginBackendChannelCloseReason,
   cloneBoundedPluginBackendJson,
@@ -35,6 +36,7 @@ import {
 } from "../../shared/pluginBackendProtocol.js";
 import type { WorkspaceListing } from "../../shared/apiTypes.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { REQUIRED_TERMINAL_SERVICE_CAPABILITY } from "../terminals/requiredTerminalService.js";
 import type { Project } from "../types.js";
 import type {
   ServerPluginHealthInspection,
@@ -47,6 +49,7 @@ const NORMAL_ONLY_HOST_CAPABILITY_KEYS = new Set([
   capabilityKey(PI_WEB_HOST_WORKSPACES_CAPABILITY),
   capabilityKey(PI_WEB_HOST_PI_SESSIONS_CAPABILITY),
   capabilityKey(PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY),
+  capabilityKey(REQUIRED_TERMINAL_SERVICE_CAPABILITY),
 ]);
 
 /** True when the plugin declared a host capability that exists only in normal mode. */
@@ -319,7 +322,7 @@ export class PluginBackendRegistry {
         `Server plugin ${pluginId} backend revision is stale for channel operation ${operation}; reload after the session daemon restarts`,
       );
     }
-    if (request.managementContext !== undefined && pluginRequiresNormalOnlyHostCapability(contribution.requires)) {
+    if (request.managementContext !== undefined && (pluginId === REQUIRED_TERMINAL_PLUGIN_ID || pluginRequiresNormalOnlyHostCapability(contribution.requires))) {
       throw channelError(
         "invalid-scope",
         1008,
@@ -516,7 +519,7 @@ export class PluginBackendRegistry {
    */
   requiresNormalOnlyHostCapability(pluginId: string): boolean {
     const contribution = this.contributions.find((candidate) => candidate.pluginId === pluginId);
-    return pluginRequiresNormalOnlyHostCapability(contribution?.requires);
+    return pluginId === REQUIRED_TERMINAL_PLUGIN_ID || pluginRequiresNormalOnlyHostCapability(contribution?.requires);
   }
 
   private channelsAreShuttingDown(): boolean {
@@ -559,7 +562,7 @@ export class PluginBackendRegistry {
         `Workspace not found for server plugin ${pluginId} operation ${operation}`,
       );
     }
-    if (request.managementContext !== undefined && pluginRequiresNormalOnlyHostCapability(contribution.requires)) {
+    if (request.managementContext !== undefined && (pluginId === REQUIRED_TERMINAL_PLUGIN_ID || pluginRequiresNormalOnlyHostCapability(contribution.requires))) {
       throw normalOnlyHostCapabilityError(pluginId, operation);
     }
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PiPackagesResponse, PiWebConfigResponse, PiWebPluginsResponse } from "../../api";
 import { loadGatewaySettingsData, loadPiPackagesData } from "./settingsDataLoading";
 import type { PiPackageManagementSupport } from "./piPackageSettings";
+import { pluginsResponse as pluginLifecycleResponse } from "../SettingsDialog.testSupport";
 
 const configResponse: PiWebConfigResponse = {
   path: "/home/test/.config/pi-web/config.json",
@@ -11,7 +12,7 @@ const configResponse: PiWebConfigResponse = {
   envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
 };
 
-const pluginsResponse: PiWebPluginsResponse = { plugins: [] };
+const pluginsResponse: PiWebPluginsResponse = pluginLifecycleResponse([]);
 const packagesResponse: PiPackagesResponse = { packages: [{ source: "npm:@acme/tools", scope: "user", filtered: false }] };
 
 const remoteTarget = { id: "remote-a", name: "Lab Mac", kind: "remote" } as const;

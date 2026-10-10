@@ -1,4 +1,5 @@
 import type { MachineStatusUiEvent } from "./machineStatus.js";
+import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type { WorkspaceFileMediaType } from "./workspaceFiles.js";
 
 export type MachineKind = "local" | "remote";
@@ -186,7 +187,7 @@ export interface PiWebManagementEmbedConfig {
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
 
-export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 1;
+export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 2;
 export type PiWebPluginServerState = "active" | "failed" | "incompatible" | "disabled" | "missing" | "unknown";
 export type PiWebPluginLifecyclePhase = "import" | "activate" | "validate" | "start" | "health" | "dispose";
 export type PiWebPluginHealthStatus = "healthy" | "degraded" | "unhealthy";
@@ -222,6 +223,7 @@ export interface PiWebPluginRecoveryCommands {
 
 export interface PiWebPluginRuntimeInfo {
   status: PiWebPluginRuntimeStatus;
+  terminalMode: TerminalPluginMode;
   safeStart?: PiWebPluginSafeStart;
   desiredSafeStart?: PiWebPluginSafeStart | "off";
   restartRequired: boolean;
@@ -231,6 +233,7 @@ export interface PiWebPluginRuntimeInfo {
 
 export interface PiWebPluginInfo {
   id: string;
+  required?: true;
   module?: string;
   backendRevision?: string;
   /** Versioned transport metadata used to expose `context.peer.request`. */
@@ -247,10 +250,10 @@ export interface PiWebPluginInfo {
 }
 
 export interface PiWebPluginsResponse {
-  lifecycleVersion?: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
+  lifecycleVersion: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
   plugins: PiWebPluginInfo[];
-  diagnostics?: PiWebPluginDiagnostic[];
-  serverRuntime?: PiWebPluginRuntimeInfo;
+  diagnostics: PiWebPluginDiagnostic[];
+  serverRuntime: PiWebPluginRuntimeInfo;
 }
 
 export type PiPackageScope = "user" | "project";
@@ -399,12 +402,21 @@ export interface SessionRef {
 
 export type ServerNoticeSeverity = "info" | "warning" | "error";
 
+/** Browser-visibility selectors for one server notice. */
+export type ServerNoticeScope =
+  | { projectId: string; workspaceId?: string; sessionId?: string }
+  | { projectId?: string; workspaceId: string; sessionId?: string }
+  | { projectId?: string; workspaceId?: string; sessionId: string };
+
 export interface ServerNotice {
   id: string;
   severity: ServerNoticeSeverity;
   message: string;
   createdAt: string;
   source?: string;
+  /** Omitted for global visibility. */
+  scope?: ServerNoticeScope;
+  /** Detached diagnostic metadata that never controls visibility. */
   context?: JsonObject;
 }
 

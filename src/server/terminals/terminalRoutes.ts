@@ -21,6 +21,24 @@ export interface TerminalRouteService {
   cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun;
 }
 
+/** Keep controlled management command runs separate from the ordinary plugin PTY. */
+export function registerManagementTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService): void {
+  app.register((routes, _options, done) => {
+    routes.addHook("onRequest", async (request, reply) => {
+      const context = managementContextFromHeaders(request.headers);
+      if (context === undefined) {
+        return await reply.code(410).send({ error: "Ordinary terminals use the bundled Terminal plugin peer" });
+      }
+      const path = request.url.split("?", 1)[0] ?? "";
+      if (path !== "/terminal-command-runs" && !path.startsWith("/terminal-command-runs/")) {
+        return await reply.code(403).send({ error: "Interactive terminal is disabled in management embed mode" });
+      }
+    });
+    registerTerminalRoutes(routes, terminals);
+    done();
+  });
+}
+
 export function registerTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/terminals`, (request, reply) => {
     if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });

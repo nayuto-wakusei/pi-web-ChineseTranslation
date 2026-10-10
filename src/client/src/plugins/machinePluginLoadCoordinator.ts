@@ -2,7 +2,7 @@ import { pluginsApi, type Machine } from "../api";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { loadExternalPlugins, type ExternalPluginLoadResult, type PluginManifestEntry } from "./external";
 
-type RegisterPlugins = (label: string, load: () => Promise<ExternalPluginLoadResult>) => Promise<boolean>;
+type RegisterPlugins = (label: string, load: () => Promise<ExternalPluginLoadResult>, machineId?: string) => Promise<boolean>;
 
 export class MachinePluginLoadCoordinator {
   private gatewayLoad: Promise<boolean> | undefined;
@@ -16,10 +16,20 @@ export class MachinePluginLoadCoordinator {
 
   ensureGatewayLoaded(): Promise<boolean> {
     this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => {
-      const plugins = await managementPluginEntries();
-      return loadExternalPlugins("pi-web-plugins/manifest.json", plugins === undefined ? {} : { plugins });
+      const manifest = await managementPluginManifest();
+      return loadExternalPlugins("pi-web-plugins/manifest.json", {
+        ...(manifest === undefined ? {} : { manifest }),
+        shouldLoadPlugin: (entry) => !isManagementEmbedMode() || entry.id !== "pi-web.terminal",
+      });
+    }).then((loaded) => {
+      if (!loaded) this.gatewayLoad = undefined;
+      return loaded;
     });
     return this.gatewayLoad;
+  }
+
+  invalidateMachine(machineId: string): void {
+    this.loadedMachineIds.delete(machineId);
   }
 
   async loadForMachine(machine: Machine): Promise<void> {
@@ -34,6 +44,7 @@ export class MachinePluginLoadCoordinator {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
       }),
+      machine.id,
     )
       .then((loaded) => { if (loaded) this.loadedMachineIds.add(machine.id); })
       .finally(() => { this.machineLoads.delete(machine.id); });
@@ -42,10 +53,11 @@ export class MachinePluginLoadCoordinator {
   }
 }
 
-async function managementPluginEntries(): Promise<readonly PluginManifestEntry[] | undefined> {
+async function managementPluginManifest(): Promise<{ lifecycleVersion: number; terminalMode: "required" | "recovery-disabled"; plugins: readonly PluginManifestEntry[] } | undefined> {
   if (!isManagementEmbedMode()) return undefined;
   const response = await pluginsApi.plugins();
-  return response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined ? [] : [{
+  if (response.serverRuntime.status !== "available") throw new Error(response.serverRuntime.message ?? "PI WEB 插件运行时不可用");
+  const plugins = response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined ? [] : [{
     id: plugin.id,
     module: plugin.module,
     source: plugin.source,
@@ -55,4 +67,5 @@ async function managementPluginEntries(): Promise<readonly PluginManifestEntry[]
     ...(plugin.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: plugin.pairedRequestVersion }),
     ...(plugin.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: plugin.pairedChannelVersion }),
   }]);
+  return { lifecycleVersion: response.lifecycleVersion, terminalMode: response.serverRuntime.terminalMode, plugins };
 }

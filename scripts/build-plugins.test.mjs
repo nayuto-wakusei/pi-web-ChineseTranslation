@@ -3,9 +3,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig, buildCaptainsLogBrowserPackage, buildMermaidPackage } from "./build-plugins.mjs";
+import { buildDirectory, buildPiPackages, buildFilesBrowserPackage, filesBrowserBuildConfig, buildCaptainsLogBrowserPackage, buildMermaidPackage, buildTerminalPackage } from "./build-plugins.mjs";
 
 let tempDir;
+
+describe("Terminal package build boundary", () => {
+  it("materializes only the server graph and browser bundle without shipping tests or private browser sources", async () => {
+    const source = join(tempDir, "terminal");
+    const target = join(tempDir, "out");
+    await mkdir(join(source, "server"), { recursive: true });
+    await writeFile(join(source, "package.json"), JSON.stringify({ type: "module" }));
+    await writeFile(join(source, "server/server-plugin.ts"), 'import "./terminalService.js"; export default {};');
+    await writeFile(join(source, "server/terminalService.ts"), "export const service = true;");
+    await writeFile(join(source, "server/terminalService.test.ts"), "must not ship");
+    await writeFile(join(source, "browserPrivate.ts"), "must not ship");
+    const configs = [];
+    await buildTerminalPackage(source, target, (config) => { configs.push(config); return Promise.resolve(); });
+    expect((await readdir(target)).sort()).toEqual(["package.json", "server-plugin.js", "terminalService.js"]);
+    expect(await readFile(join(target, "server-plugin.js"), "utf8")).toContain('./terminalService.js');
+    expect(configs[0].base).toBe("./");
+    expect(configs[0].build.outDir).toBe(join(target, "browser"));
+    expect(configs[0].build.rollupOptions.external).toBeUndefined();
+  });
+
+  it("fails rather than falling back to legacy transpilation when the server graph is missing", async () => {
+    const source = join(tempDir, "terminal");
+    await mkdir(source);
+    await writeFile(join(source, "package.json"), "{}");
+    await expect(buildTerminalPackage(source, join(tempDir, "out"), () => Promise.resolve())).rejects.toThrow();
+  });
+});
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "pi-web-build-plugins-"));

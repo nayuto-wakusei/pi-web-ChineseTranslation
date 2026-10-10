@@ -15,6 +15,7 @@ import { mergeSelectedMachineAccessConfig } from "./settings/settingsMachineAcce
 import { agentProfileSettingsSupport, friendlySelectedMachineSettingsErrorMessage, isAgentProfileSettingsSupported, isSelectedMachineSettingsUnsupported, selectedMachineSettingsSupport, selectedMachineSettingsSupportKey, settingsMachineTarget, settingsMachineTargetLabel, type AgentProfileSettingsSupport, type SelectedMachineSettingsSupport, type SettingsMachineTarget } from "./settings/settingsMachineTarget";
 import { mergeSelectedMachinePluginConfig, pluginEnabledConfigPatch } from "./settings/settingsPluginConfig";
 import { mergeSelectedMachineSessiondConfig } from "./settings/settingsSessiondConfig";
+import { pluginLifecycleSupport } from "./settings/settingsMachineTarget";
 
 @customElement("settings-dialog")
 export class SettingsDialog extends LitElement {
@@ -185,6 +186,7 @@ export class SettingsDialog extends LitElement {
           .pluginsResponse=${this.selectedPluginsResponse}
           .loading=${this.pluginLoading}
           .saving=${this.saving}
+          .recoveryCommandsSupported=${pluginLifecycleSupport(this.settingsTarget(), this.machineRuntime).state === "supported"}
           .error=${this.pluginError}
           .savedMessage=${this.savedMessage}
           .targetLabel=${settingsMachineTargetLabel(this.settingsTarget())}
@@ -346,6 +348,7 @@ export class SettingsDialog extends LitElement {
   }
 
   private async togglePlugin(pluginId: string, enabled: boolean): Promise<void> {
+    if (pluginId === REQUIRED_TERMINAL_PLUGIN_ID || this.selectedPluginsResponse?.plugins.find(({ id }) => id === pluginId)?.required === true) return;
     if (this.saving) return;
     const target = this.settingsTarget();
     const support = this.selectedMachineSettingsSupport(target);
@@ -700,3 +703,4 @@ export function activeSettingsPanelTag(section: SettingsSection): SettingsPanelT
       return "settings-general-panel";
   }
 }
+import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../../shared/requiredTerminalPlugin";

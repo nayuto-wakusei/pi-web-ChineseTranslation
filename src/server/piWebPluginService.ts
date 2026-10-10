@@ -1,5 +1,6 @@
 import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, type PiWebPluginSafeStart, type PiWebPluginsResponse, type PiWebPluginScope } from "../shared/apiTypes.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
+import { REQUIRED_TERMINAL_PLUGIN_ID, type TerminalPluginMode } from "../shared/requiredTerminalPlugin.js";
 import {
   PiWebPluginCatalog,
   readPiWebPluginPackageArtifact,
@@ -28,8 +29,19 @@ export {
 } from "./piWebPluginCatalog.js";
 
 export interface PiWebPluginManifest {
-  lifecycleVersion?: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
+  lifecycleVersion: typeof PI_WEB_PLUGIN_LIFECYCLE_VERSION;
+  terminalMode: TerminalPluginMode;
   plugins: PiWebPluginManifestEntry[];
+}
+
+export class PiWebPluginManifestRuntimeError extends Error {
+  override name = "PiWebPluginManifestRuntimeError";
+  readonly statusCode: 409 | 503;
+
+  constructor(readonly runtimeStatus: "unavailable" | "incompatible", message: string) {
+    super(message);
+    this.statusCode = runtimeStatus === "unavailable" ? 503 : 409;
+  }
 }
 
 export interface PiWebPluginManifestEntry {
@@ -84,6 +96,13 @@ export class PiWebPluginService {
 
   async manifest(): Promise<PiWebPluginManifest> {
     const lifecycle = await this.lifecycle();
+    const runtime = lifecycle.response.serverRuntime;
+    if (runtime.status !== "available") {
+      throw new PiWebPluginManifestRuntimeError(
+        runtime.status,
+        requiredRuntimeFailureMessage(runtime.status, runtime.message),
+      );
+    }
     const plugins: PiWebPluginManifestEntry[] = [];
     for (const { plugin, backendRevision, pairedRequestVersion, pairedChannelVersion } of lifecycle.browserPlugins) {
       const artifact = await this.captureBrowserArtifact(plugin, backendRevision);
@@ -99,7 +118,9 @@ export class PiWebPluginService {
         machineSpecific: plugin.machineSpecific,
       });
     }
-    return { lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, plugins };
+    const terminalMode = lifecycle.response.serverRuntime.terminalMode;
+    if (terminalMode === "required") requireTerminalManifestEntry(plugins);
+    return { lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, terminalMode, plugins };
   }
 
   async plugins(): Promise<PiWebPluginsResponse> {
@@ -239,6 +260,23 @@ function browserModuleUrl(plugin: PiWebPluginCatalogEntry): string {
   if (browserModule === undefined) throw new Error(`PI WEB plugin has no browser module: ${plugin.id}`);
   const path = browserModule.path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
   return `/pi-web-plugins/${encodeURIComponent(plugin.id)}/${path}?${pluginModuleQuery(plugin.id, browserModule.revision)}`;
+}
+
+function requiredRuntimeFailureMessage(status: "unavailable" | "incompatible", message: string | undefined): string {
+  const detail = message === undefined || message === "" ? "没有可用的运行时详情" : message;
+  return `必需的终端插件运行时${status === "unavailable" ? "不可用" : "不兼容"}：${detail}。请在会话守护进程可用且兼容后重试；仅已生效的 safe-start none 恢复模式可禁用终端。`;
+}
+
+function requireTerminalManifestEntry(plugins: readonly PiWebPluginManifestEntry[]): void {
+  const terminal = plugins.find(({ id }) => id === REQUIRED_TERMINAL_PLUGIN_ID);
+  if (terminal === undefined) throw new Error("必需的终端浏览器入口不可用；请使用 safe start none 进行恢复");
+  if (terminal.scope !== "bundled" || terminal.source !== "bundled" || !terminal.machineSpecific) {
+    throw new Error("必需的终端浏览器入口不是内置的机器专属包");
+  }
+  if (terminal.backendRevision === undefined || terminal.pairedRequestVersion !== 1 || terminal.pairedChannelVersion !== 1) {
+    throw new Error("必需的终端浏览器/服务端配对不兼容；请重启或使用 safe start none 进行恢复");
+  }
+  if (plugins[0] !== terminal) throw new Error("必需的终端浏览器入口必须先于普通插件激活");
 }
 
 function pluginModuleQuery(pluginId: string, revision: string): string {

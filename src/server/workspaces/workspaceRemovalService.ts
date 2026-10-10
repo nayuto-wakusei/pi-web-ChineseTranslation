@@ -9,7 +9,7 @@ import {
 import type { Project } from "../types.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
-import type { RunTerminalCommandOptions } from "../terminals/terminalService.js";
+import type { RunTerminalCommandOptions as RequiredTerminalCommandOptions } from "../terminals/requiredTerminalService.js";
 import {
   WorkspaceProviderRemovalError,
   type WorkspaceProviderRemovalTarget,
@@ -30,8 +30,8 @@ export interface WorkspaceRemovalProvider {
 }
 
 export interface WorkspaceRemovalTerminalHost {
-  closeForCwd(cwd: string): void;
-  runCommand(options: RunTerminalCommandOptions): TerminalCommandRun;
+  closeForCwd(cwd: string, managementContext?: ManagementEmbedContext): void;
+  runCommand(options: RequiredTerminalCommandOptions & { managementContext?: ManagementEmbedContext }): TerminalCommandRun;
 }
 
 export interface WorkspaceRemovalServiceOptions {
@@ -173,7 +173,7 @@ export class WorkspaceRemovalService {
         throwIfAborted(signal);
 
         try {
-          this.terminals.closeForCwd(target.path);
+          this.terminals.closeForCwd(target.path, managementContext);
         } catch (error) {
           throw new WorkspaceRemovalError(
             `Failed to close workspace terminals: ${errorMessage(error)}`,
@@ -192,6 +192,10 @@ export class WorkspaceRemovalService {
             title: plan.title,
             command,
             metadata: workspaceDeletionMetadata(target),
+            failureNotice: {
+              message: "工作区移除失败，请查看终端输出。",
+              context: { targetWorkspaceId: target.id },
+            },
             ...(managementContext === undefined ? {} : { managementContext }),
           });
         } catch (error) {
@@ -206,10 +210,11 @@ export class WorkspaceRemovalService {
       const failure = error instanceof WorkspaceRemovalDeadlineError
         ? new WorkspaceRemovalError(error.message, 504, { cause: error })
         : error;
-      if (!isAbortError(failure)) this.notices?.record({
+      if (!isAbortError(failure) && managementContext === undefined) this.notices?.record({
         severity: "error",
         message: `工作区移除失败：${errorMessage(failure)}`,
         source: workspaceDeleteOperation,
+        scope: { projectId: project.id },
         context: { projectId: project.id, workspaceId },
       });
       throw failure;

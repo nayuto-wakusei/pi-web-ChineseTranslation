@@ -9,9 +9,16 @@ afterEach(() => {
 });
 
 describe("settings-dialog session daemon machine targeting", () => {
+  it("never sends ordinary disable config for required Terminal", async () => {
+    const save = vi.spyOn(configApi, "saveConfig");
+    const dialog = new SettingsDialog();
+    setDialogProperty(dialog, "selectedPluginConfigResponse", configResponse({ plugins: { "pi-web.terminal": { enabled: true } } }));
+    await callDialogPromise(dialog, "togglePlugin", "pi-web.terminal", false);
+    expect(save).not.toHaveBeenCalled();
+  });
   it("keeps gateway settings loads on the gateway config/plugin endpoints", async () => {
     const config = configResponse({ host: "127.0.0.1" });
-    const plugins: PiWebPluginsResponse = { plugins: [] };
+    const plugins: PiWebPluginsResponse = pluginsResponse([]);
     const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(config);
     const pluginsSpy = vi.spyOn(pluginsApi, "plugins").mockResolvedValue(plugins);
     const dialog = new SettingsDialog();

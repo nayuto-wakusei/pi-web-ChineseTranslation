@@ -7,6 +7,7 @@ const notice = {
   message: "A warning",
   createdAt: "2026-08-01T00:00:00.000Z",
   source: "workspace.delete",
+  scope: { projectId: "project-1" },
   context: { projectId: "project-1", workspaceId: "workspace-1" },
 };
 
@@ -23,5 +24,18 @@ describe("server notice parsers", () => {
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, createdAt: "not-a-time" }] })).toThrow("creation time");
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [notice, notice] })).toThrow("Duplicate server notice id");
     expect(() => parseServerNoticeEvent({ type: "notices.updated", snapshot: { ...{ daemonInstanceId: "daemon-a", revision: 0, notices: [] }, revision: -1 } })).toThrow("safe integer");
+  });
+
+  it.each([{}, { projectId: "" }, { projectId: 1 }, { cwd: "/private" }, { sessionId: "x".repeat(513) }])("rejects invalid visibility scope %j", (scope) => {
+    expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 1, notices: [{ ...notice, scope }] }))
+      .toThrow("scope");
+  });
+
+  it("detaches the validated scope and keeps diagnostic selectors separate", () => {
+    const scope = { projectId: "project-1", workspaceId: "workspace-1", sessionId: "session-1" };
+    const parsed = parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 1, notices: [{ ...notice, scope }] });
+    scope.projectId = "changed";
+    expect(parsed.notices[0]?.scope).toEqual({ projectId: "project-1", workspaceId: "workspace-1", sessionId: "session-1" });
+    expect(parsed.notices[0]?.context).toEqual(notice.context);
   });
 });
