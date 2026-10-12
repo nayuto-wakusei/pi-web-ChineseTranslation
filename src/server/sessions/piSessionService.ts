@@ -60,7 +60,7 @@ import { createLocalOnlyModelRuntime, type AuthChange } from "./authService.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
+import { isManagedAgentsFile, workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { managementPrivilegeRequested, managementPrivileges } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
@@ -554,6 +554,17 @@ interface SkillCollectionResult {
 
 const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
+export function filterPrivilegedManagementContextFiles(cwd: string, context: ManagementEmbedContext, base: AgentContextFilesResult): AgentContextFilesResult {
+  const injectedInstructions = context.projects.flatMap((project) => [
+    ...(project.agentsInstructions === undefined ? [] : [project.agentsInstructions]),
+    ...(project.agentsInstructionsReplaceIfMatches ?? []),
+  ]).map((content) => content.trim());
+  return {
+    agentsFiles: base.agentsFiles.filter((file) => !isManagedAgentsFile(file.content)
+      && !(basename(file.path) === "AGENTS.md" && pathInsideOrEqual(dirname(file.path), cwd) && injectedInstructions.includes(file.content.trim()))),
+  };
+}
+
 export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
   return {
     agentsFiles: base.agentsFiles.filter((file) => {
@@ -997,6 +1008,7 @@ function createManagementRuntimeFactory(
         settingsManager,
         resourceLoaderOptions: fullPrivileges ? {
           ...piWebResourceLoaderOptions(appendSystemPromptSections),
+          agentsFilesOverride: (base) => filterPrivilegedManagementContextFiles(cwd, managementContext, base),
           skillsOverride: (base) => deduplicateBundledRelaySkills(cwd, base),
         } : {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
@@ -1025,9 +1037,7 @@ function createManagementRuntimeFactory(
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        ...(fullPrivileges
-          ? { excludeTools: managementContext.tools?.deny ?? [] }
-          : { tools: managementAgentToolNames(managementContext, extraToolNames, privileges) }),
+        ...(fullPrivileges ? {} : { tools: managementAgentToolNames(managementContext, extraToolNames, privileges) }),
         ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
         ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),

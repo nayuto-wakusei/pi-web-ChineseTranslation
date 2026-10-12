@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202610.1
+
+### Patch Changes
+
+- Remove remaining management tool deny lists and platform-injected read-only AGENTS instructions from fully privileged agent sessions so they follow normal-mode tool and local resource rules. Preserve sandbox restrictions for other management sessions and retain shared files and user-authored instructions.
+
 ## 1.202610.0
 
 ### Patch Changes

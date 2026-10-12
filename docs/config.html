@@ -692,10 +692,12 @@ pi-web audit vacuum</code></pre>
                 <code>privileged.bash</code> and <code>privileged.network</code>, the entire agent runtime uses
                 normal-mode tools and local resources. File tools and the SDK shell are not sandboxed; global
                 AGENTS, Skills, and configured extension tools follow normal-mode local rules. This does not grant
-                OS administrator privileges. The managed <code>tools.allow</code> list no longer restricts this runtime,
-                but explicit <code>tools.deny</code> remains authoritative, including for extension tools. The operator's
+                OS administrator privileges. Neither the managed <code>tools.allow</code> nor <code>tools.deny</code>
+                list restricts this runtime. Platform-managed AGENTS instructions, including legacy instructions
+                matching the signed context, are omitted from its prompt without deleting shared files. Genuine
+                user-authored project and global instructions remain available. The operator's
                 normal permission configuration is preserved. Managed Relay templates and Workbench Skill bundles are
-                not force-synchronized. Single grants retain their sandbox behavior. Management identity, separate
+                not force-synchronized. Single grants retain their sandbox behavior and explicit tool denies. Management identity, separate
                 provider credentials and preferences, audit attribution, Workbench authorization, and spawned-session
                 management context remain intact. Browser interactive-terminal endpoints are unchanged.
               </p>

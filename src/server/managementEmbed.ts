@@ -469,7 +469,7 @@ function normalizeAgentsInstructions(instructions: string): string {
   return instructions.endsWith("\n") ? instructions : `${instructions}\n`;
 }
 
-function isManagedAgentsFile(content: string): boolean {
+export function isManagedAgentsFile(content: string): boolean {
   const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
   return firstLine.startsWith(MANAGED_AGENTS_MARKER_PREFIX) && firstLine.endsWith(MANAGED_AGENTS_MARKER_SUFFIX);
 }
