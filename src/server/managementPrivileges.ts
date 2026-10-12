@@ -3,6 +3,7 @@ import type { ManagementEmbedContext } from "./managementEmbed.js";
 export interface ManagementPrivileges {
   bash: boolean;
   network: boolean;
+  full?: boolean;
 }
 
 export const DISABLED_MANAGEMENT_PRIVILEGES: ManagementPrivileges = { bash: false, network: false };
@@ -16,6 +17,7 @@ export function managementPrivileges(
   return {
     bash: context.privileged?.bash === true && !deny.has("bash"),
     network: context.privileged?.network === true,
+    ...(context.privileged?.bash === true && context.privileged.network === true ? { full: true } : {}),
   };
 }
 

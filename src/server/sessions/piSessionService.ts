@@ -869,7 +869,7 @@ function createDefaultRuntimeFactory(
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged, appendSystemPromptSections)({
         cwd,
         agentDir,
         sessionManager,
@@ -930,13 +930,16 @@ function createManagementRuntimeFactory(
   managementAudit: ManagementAuditRecorder | undefined,
   managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
   managementAllowPrivileged = false,
+  appendSystemPromptSections: readonly string[] = [],
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled = true }) => {
-    await ensureManagedRelaySkills(cwd);
+    const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
+    const fullPrivileges = privileges.full === true;
+    if (!fullPrivileges) await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
     const state = workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
-    const receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
+    const receipt = state === undefined || fullPrivileges ? undefined : await workbench?.skills.synchronize(cwd, state, {
       ...(managementAudit === undefined ? {} : { recorder: managementAudit }),
       ...auditIdentity,
       sessionId: sessionManager.getSessionId(),
@@ -971,7 +974,6 @@ function createManagementRuntimeFactory(
       ...workbenchTools,
     ];
     const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
-    const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
     if (!managementAllowPrivileged && managementPrivilegeRequested(managementContext)) {
       logger.info({
         userId: managementContext.user.id,
@@ -980,8 +982,8 @@ function createManagementRuntimeFactory(
       }, "management privileged grant ignored because managementEmbed.allowPrivileged is disabled");
     }
     const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
-    return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+    const policyAgentDir = fullPrivileges ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
+    return withRuntimeCreationEnvironment(fullPrivileges ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const settingsManager = await createScopedSettingsManager({
         cwd,
         scopeDirectory: await resolveSettingsScope(cwd, "management"),
@@ -993,7 +995,10 @@ function createManagementRuntimeFactory(
         agentDir,
         modelRuntime,
         settingsManager,
-        resourceLoaderOptions: {
+        resourceLoaderOptions: fullPrivileges ? {
+          ...piWebResourceLoaderOptions(appendSystemPromptSections),
+          skillsOverride: (base) => deduplicateBundledRelaySkills(cwd, base),
+        } : {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
           skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
         },
@@ -1006,7 +1011,10 @@ function createManagementRuntimeFactory(
       });
       services.diagnostics.push(...modelOptions.diagnostics);
       const managedToolOptions = createManagedAgentToolOptions(cwd);
-      const customTools = [
+      const customTools = fullPrivileges ? [
+        ...createPiWebCustomToolDefinitions(cwd, delegationToolsEnabled, scopedSpawn, scopedSubsessions, askUser),
+        ...workbenchTools,
+      ] : [
         ...managedAgentToolDefinitions(cwd, managedToolOptions),
         createManagedPythonToolDefinition(cwd, managementContext, { network: privileges.network }),
         createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network, hostFilesystem: privileges.bash }),
@@ -1017,7 +1025,9 @@ function createManagementRuntimeFactory(
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        tools: managementAgentToolNames(managementContext, extraToolNames, privileges),
+        ...(fullPrivileges
+          ? { excludeTools: managementContext.tools?.deny ?? [] }
+          : { tools: managementAgentToolNames(managementContext, extraToolNames, privileges) }),
         ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
         ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),

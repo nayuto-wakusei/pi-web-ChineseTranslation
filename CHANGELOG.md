@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202610.0
+
+### Patch Changes
+
+- Let fully privileged management agent sessions use normal-mode tools and local resources when the machine opts in and the signed token grants both bash and network. Preserve explicit tool denies, management identity, separate credentials, and audit attribution; single grants remain sandboxed.
+
 ## 1.202609.12
 
 ### Patch Changes

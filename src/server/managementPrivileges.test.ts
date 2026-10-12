@@ -13,13 +13,13 @@ describe("managementPrivileges", () => {
   it("enables only the grants present on the signed context", () => {
     expect(managementPrivileges(privilegedContext({ bash: true }), { allowPrivileged: true })).toEqual({ bash: true, network: false });
     expect(managementPrivileges(privilegedContext({ network: true }), { allowPrivileged: true })).toEqual({ bash: false, network: true });
-    expect(managementPrivileges(privilegedContext({ bash: true, network: true }), { allowPrivileged: true })).toEqual({ bash: true, network: true });
+    expect(managementPrivileges(privilegedContext({ bash: true, network: true }), { allowPrivileged: true })).toEqual({ bash: true, network: true, full: true });
   });
 
   it("lets an explicit bash deny veto a privileged bash grant", () => {
     const context = privilegedContext({ bash: true, network: true }, { deny: ["bash"] });
 
-    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: false, network: true });
+    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: false, network: true, full: true });
   });
 
   it("does not treat a tools allow list as a privileged grant", () => {
