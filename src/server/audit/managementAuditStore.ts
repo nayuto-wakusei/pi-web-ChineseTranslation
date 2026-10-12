@@ -31,7 +31,6 @@ export interface ManagementAuditEvent extends ManagementAuditIdentity {
   durationMs?: number;
   retryCount?: number;
   resultCount?: number;
-  content?: unknown;
 }
 
 export interface ManagementAuditRecorder {
@@ -63,7 +62,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = DAY_MS;
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
-const TEMPLATE_VERSION = 3;
+const TEMPLATE_VERSION = 4;
 
 export class ManagementAuditStore implements ManagementAuditRecorder {
   private readonly fetchImpl: typeof fetch;
@@ -195,7 +194,6 @@ export class ManagementAuditStore implements ManagementAuditRecorder {
               session: { properties: { id: { type: "keyword" }, agent_session_id: { type: "keyword" } } },
               workspace: { properties: { cwd: { type: "keyword", ignore_above: 4096 } } },
               tool: { properties: { name: { type: "keyword" }, call_id: { type: "keyword" } } },
-              content: { enabled: false },
               workbench: { properties: {
                 authorization_revision: { type: "integer" }, capability_name: { type: "keyword" }, capability_version: { type: "keyword" },
                 knowledge_name: { type: "keyword" }, knowledge_version: { type: "keyword" },
@@ -247,7 +245,6 @@ function managementAuditDocument(id: string, timestamp: Date, event: ManagementA
     session: { id: event.sessionId, ...(event.agentSessionId === undefined ? {} : { agent_session_id: event.agentSessionId }) },
     workspace: { cwd: event.cwd },
     ...((event.toolName === undefined && event.toolCallId === undefined) ? {} : { tool: { ...(event.toolName === undefined ? {} : { name: event.toolName }), ...(event.toolCallId === undefined ? {} : { call_id: event.toolCallId }) } }),
-    ...(event.content === undefined ? {} : { content: event.content }),
     workbench: compact({
       authorization_revision: event.authorizationRevision,
       capability_name: event.capabilityName,

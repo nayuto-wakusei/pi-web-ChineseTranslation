@@ -74,12 +74,18 @@ describe("staged validation planning", () => {
     });
   });
 
-  it("adds the plugin public API test for shipped Pi packages", () => {
+  it("adds the plugin public API test for Pi packages shipped alongside bundled plugins", () => {
     const plan = createValidationPlan(["pi-packages/relays/relayDiscovery.ts"], { pathExists: () => true });
 
     expect(plan.tests.files).toContain("pi-web-plugins/pluginPublicApi.test.ts");
   });
 
+  it("includes both public declaration entrypoints in related type-aware checks", () => {
+    const plan = createValidationPlan(["plugin-api.d.ts", "server-plugin-api.d.ts"], { pathExists: () => true });
+
+    expect(plan.lint).toEqual({ mode: "skip", files: [] });
+    expect(plan.tests).toEqual({ mode: "related", files: ["plugin-api.d.ts", "server-plugin-api.d.ts"] });
+  });
   it("runs only the affected full validator when its configuration changes", () => {
     const eslintPlan = createValidationPlan(["eslint.config.js"], { pathExists: () => true });
     expect(eslintPlan.lint).toEqual({ mode: "full", files: [] });
@@ -88,6 +94,10 @@ describe("staged validation planning", () => {
     const vitestPlan = createValidationPlan(["vitest.config.ts"], { pathExists: () => true });
     expect(vitestPlan.lint).toEqual({ mode: "scoped", files: ["vitest.config.ts"] });
     expect(vitestPlan.tests).toEqual({ mode: "full", files: [] });
+
+    const artifactPlan = createValidationPlan(["vitest.artifacts.config.ts"], { pathExists: () => true });
+    expect(artifactPlan.lint).toEqual({ mode: "scoped", files: ["vitest.artifacts.config.ts"] });
+    expect(artifactPlan.tests).toEqual({ mode: "skip", files: [] });
 
     const typescriptPlan = createValidationPlan(["tsconfig.json"], { pathExists: () => true });
     expect(typescriptPlan.lint).toEqual({ mode: "full", files: [] });

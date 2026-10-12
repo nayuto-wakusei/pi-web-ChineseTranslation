@@ -12,8 +12,8 @@
  * The block tells the agent the nesting exists and which precautions follow,
  * so it learns the rules before discovering them by breaking its own session:
  * use a distinct data dir, socket, and ports for another instance; require an
- * explicit user override before restarting the hosting daemon; and restart
- * the web/API process before the session daemon.
+ * explicit user override before stopping or restarting the hosting daemon;
+ * and restart the web/API process before the session daemon.
  */
 
 import { piWebDataDir } from "../../config.js";

@@ -1,6 +1,5 @@
 import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { Machine, Project, SessionInfo, SessionUnreadEvent, SessionUnreadSummary, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import type { BrowserRealtimeEvent } from "../sessionSocket";
@@ -28,7 +27,7 @@ describe("PiWebApp session unread wiring", () => {
 
     handleRealtimeEvent(app, unreadEvent(1, unreadSummary(background, 1)));
     expect([...navigationUnreadSessionIds(app)]).toEqual([background.id]);
-    expect(mobileNavigationTab(app)).toMatchObject({ badge: 1, badgeLabel: "1 unread", badgeTone: "unread" });
+    expect(mobileNavigationTab(app)).toMatchObject({ badge: 1, badgeLabel: "1 条未读", badgeTone: "unread" });
 
     setState(app, { selectedSession: background });
     // Selection alone cannot clear unread before the new transcript is ready
@@ -129,7 +128,7 @@ describe("PiWebApp session unread wiring", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fetches initial state after the selected runtime is healthy", async () => {
+  it("fetches the durable server snapshot when the machine list loads without optional capability metadata", async () => {
     const background = session("background");
     const durable = { catalogId: "catalog-a", catalogRevision: 1, sessions: [unreadSummary(background, 1)] };
     const fetchMock = stubJsonFetch(durable);
@@ -152,8 +151,7 @@ describe("PiWebApp session unread wiring", () => {
       mainView: "chat",
     });
 
-    setState(app, { machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } });
-    await refreshUnread(app, "local");
+    setState(app, { machines: [localMachine] });
     await vi.waitFor(() => { expect([...navigationUnreadSessionIds(app)]).toEqual([background.id]); });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://pi.example.test/api/machines/local/sessions/unread");
@@ -202,7 +200,7 @@ describe("PiWebApp session unread wiring", () => {
       machines: [localMachine],
       selectedMachine: localMachine,
       machineRuntimes: {
-        local: { machineId: "local", ok: true, checkedAt: "before", capabilities: [PI_WEB_CAPABILITIES.sessionsUnread] },
+        local: { machineId: "local", ok: true, checkedAt: "before", capabilities: ["sessions.unread"] },
       },
     });
     const machines: unknown = Reflect.get(app, "machines");
@@ -278,7 +276,6 @@ describe("PiWebApp session unread wiring", () => {
     stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
     const app = createApp();
     enableUnread(app);
-    enableUnreadMachine(app, "remote");
     const selected = session("selected");
     setAppState(app, {
       ...initialAppState(),
@@ -421,16 +418,8 @@ function handleMachineActivityEvent(app: PiWebApp, machineId: string, event: Bro
 
 function enableUnread(app: PiWebApp): void {
   if (!Reflect.set(app, "unreadConnected", true)) throw new Error("Could not connect PiWebApp unread state");
-  enableUnreadMachine(app, "local");
 }
 
-function enableUnreadMachine(app: PiWebApp, machineId: string): void {
-  const controller: unknown = Reflect.get(app, "sessionUnread");
-  if (typeof controller !== "object" || controller === null) throw new Error("PiWebApp unread controller is unavailable");
-  const setCapability: unknown = Reflect.get(controller, "setCapability");
-  if (typeof setCapability !== "function") throw new Error("PiWebApp unread capability setter is unavailable");
-  Reflect.apply(setCapability, controller, [machineId, "supported"]);
-}
 
 function exposeSelectedChat(app: PiWebApp): void {
   const state: unknown = Reflect.get(app, "state");
@@ -545,7 +534,7 @@ function project(id: string): Project {
 }
 
 function workspace(id: string, projectId: string, path: string): Workspace {
-  return { id, projectId, path, label: id, isMain: true, isGitRepo: true, isGitWorktree: false };
+  return { id, projectId, path, label: id, effectiveConfig: {}, isMain: true, isGitRepo: true, isGitWorktree: false };
 }
 
 function session(id: string): SessionInfo {

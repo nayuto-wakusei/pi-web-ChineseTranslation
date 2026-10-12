@@ -15,10 +15,6 @@ export const SERVER_PLUGIN_NOTICE_PER_SOURCE_LIMIT = 25;
 /** Maximum retained plugin-authored notices across all plugin sources. */
 export const SERVER_PLUGIN_NOTICE_GLOBAL_LIMIT = 100;
 
-export function isPluginServerNoticeSource(source: string | undefined): source is `plugin:${string}` {
-  return source?.startsWith(SERVER_PLUGIN_NOTICE_SOURCE_PREFIX) === true;
-}
-
 const SERVER_NOTICE_SCOPE_KEYS = ["projectId", "workspaceId", "sessionId"] as const;
 type ServerNoticeScopeKey = typeof SERVER_NOTICE_SCOPE_KEYS[number];
 
@@ -48,6 +44,10 @@ export function parseServerNoticeScope(value: unknown, label: string): ServerNot
   if (scope.workspaceId !== undefined) return Object.freeze({ ...scope, workspaceId: scope.workspaceId });
   if (scope.sessionId !== undefined) return Object.freeze({ ...scope, sessionId: scope.sessionId });
   throw new Error(`${label} must contain at least one visibility selector`);
+}
+
+export function isPluginServerNoticeSource(source: string | undefined): source is `plugin:${string}` {
+  return source?.startsWith(SERVER_PLUGIN_NOTICE_SOURCE_PREFIX) === true;
 }
 
 /** Return as soon as a string cannot fit within a notice UTF-8 byte budget. */

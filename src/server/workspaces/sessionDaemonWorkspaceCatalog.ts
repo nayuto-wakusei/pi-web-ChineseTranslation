@@ -70,7 +70,10 @@ export class SessionDaemonWorkspaceCatalog implements WorkspaceCatalog {
   private async requestJson(path: string, managementContext?: ManagementEmbedContext): Promise<unknown> {
     let response: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
     try {
-      response = await this.daemon.request("GET", path, undefined, managementHeaders(managementContext, this.managementEmbed));
+      const headers = managementHeaders(managementContext, this.managementEmbed);
+      response = headers === undefined
+        ? await this.daemon.request("GET", path)
+        : await this.daemon.request("GET", path, undefined, headers);
     } catch (error) {
       throw new WorkspaceCatalogUnavailableError(
         `Session daemon workspace authority unavailable: ${errorMessage(error)}`,
@@ -197,7 +200,7 @@ function parseWorkspace(value: unknown, label: string): WorkspaceListing {
   const branch = optionalString(value, "branch", label);
   const provider = value["provider"] === undefined ? undefined : parseProvider(value["provider"], label);
   const removal = value["removal"] === undefined ? undefined : parseRemoval(value["removal"], label);
-  return {
+  return Object.freeze({
     id: requireString(value, "id", label),
     projectId: requireString(value, "projectId", label),
     path,
@@ -206,7 +209,7 @@ function parseWorkspace(value: unknown, label: string): WorkspaceListing {
     isMain: requireBoolean(value, "isMain", label),
     ...(provider === undefined ? {} : { provider }),
     ...(removal === undefined ? {} : { removal }),
-  };
+  });
 }
 
 function parseProvider(value: unknown, workspaceLabel: string): NonNullable<WorkspaceListing["provider"]> {
@@ -215,24 +218,24 @@ function parseProvider(value: unknown, workspaceLabel: string): NonNullable<Work
   const capabilities = value["capabilities"];
   if (!isRecord(capabilities)) throw protocolError(`${label} capabilities must be an object`);
   const metadata = value["metadata"] === undefined ? undefined : parseJsonObject(value["metadata"], `${label} metadata`);
-  return {
+  return Object.freeze({
     pluginId: requirePluginId(value, "pluginId", label),
-    capabilities: {
+    capabilities: Object.freeze({
       ...(capabilities["request"] === undefined ? {} : { request: requireBoolean(capabilities, "request", `${label} capabilities`) }),
       remove: requireBoolean(capabilities, "remove", `${label} capabilities`),
-    },
+    }),
     ...(metadata === undefined ? {} : { metadata }),
-  };
+  });
 }
 
 function parseRemoval(value: unknown, workspaceLabel: string): NonNullable<WorkspaceListing["removal"]> {
   const label = `${workspaceLabel} removal`;
   if (!isRecord(value)) throw protocolError(`${label} must be an object`);
-  return {
+  return Object.freeze({
     actionLabel: requireString(value, "actionLabel", label),
     confirmation: requireString(value, "confirmation", label),
     precondition: requireString(value, "precondition", label),
-  };
+  });
 }
 
 function parseProviderRuntimeSnapshot(value: unknown): WorkspaceProviderRuntimeSnapshot {
@@ -272,8 +275,8 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
   const name = optionalString(value, "name", label);
   const message = optionalString(value, "message", label);
   const browserRevision = optionalString(value, "browserRevision", label);
-  const pairedRequestVersion = optionalCapabilityVersion(value, "pairedRequestVersion", label);
-  const pairedChannelVersion = optionalCapabilityVersion(value, "pairedChannelVersion", label);
+  const pairedRequestVersion = parsePairedCapabilityVersion(value["pairedRequestVersion"], label, "request");
+  const pairedChannelVersion = parsePairedCapabilityVersion(value["pairedChannelVersion"], label, "channel");
   return Object.freeze({
     pluginId: requirePluginId(value, "pluginId", label),
     source: requireString(value, "source", label),
@@ -289,6 +292,12 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
     ...(phase === undefined ? {} : { phase }),
     ...(message === undefined ? {} : { message }),
   });
+}
+
+function parsePairedCapabilityVersion(value: unknown, label: string, capability: "request" | "channel"): 1 | undefined {
+  if (value === undefined) return undefined;
+  if (value !== 1) throw protocolError(`${label} paired ${capability} version is invalid`);
+  return value;
 }
 
 function parseCatalogDiagnostic(value: unknown, index: number): PiWebPluginCatalogDiagnostic {
@@ -335,15 +344,15 @@ function parseHealth(value: unknown, inspectionLabel: string): ServerPluginHealt
   });
 }
 
+function parseTerminalMode(value: unknown): TerminalPluginMode {
+  if (value === "required" || value === "recovery-disabled") return value;
+  throw protocolError("provider runtime terminalMode is invalid");
+}
+
 function parseSafeStart(value: unknown): ServerPluginSafeStart | undefined {
   if (value === undefined) return undefined;
   if (value === "bundled-only" || value === "none") return value;
   throw protocolError("provider runtime safeStart is invalid");
-}
-
-function parseTerminalMode(value: unknown): TerminalPluginMode {
-  if (value === "required" || value === "recovery-disabled") return value;
-  throw protocolError("provider runtime terminalMode is invalid");
 }
 
 function parseArray<T>(value: unknown, label: string, parse: (item: unknown, index: number) => T): T[] {
@@ -376,12 +385,6 @@ function requireString(record: Record<string, unknown>, field: string, label: st
   const value = record[field];
   if (typeof value !== "string" || value === "") throw protocolError(`${label} ${field} must be a non-empty string`);
   return value;
-}
-
-function optionalCapabilityVersion(record: Record<string, unknown>, field: string, label: string): 1 | undefined {
-  if (!Object.hasOwn(record, field) || record[field] === undefined) return undefined;
-  if (record[field] !== 1) throw protocolError(`${label} ${field} is invalid`);
-  return 1;
 }
 
 function optionalString(record: Record<string, unknown>, field: string, label: string): string | undefined {

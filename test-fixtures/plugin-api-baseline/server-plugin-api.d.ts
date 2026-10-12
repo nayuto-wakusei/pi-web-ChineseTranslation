@@ -285,7 +285,7 @@ export interface WorkspaceProvider {
     fallback?: boolean;
     probe(project: ProjectInput, signal: AbortSignal): Promise<ProviderClaim>;
     list(project: ProjectInput, signal: AbortSignal): Promise<ProviderWorkspace[]>;
-    /** Legacy owner request, retained only while bundled Git migrates to peer.request. */
+    /** Legacy owner request compatibility; new plugins use peer.request. */
     request?(context: ProviderRequestContext): Promise<ProviderResponse>;
     prepareRemove?(context: ProviderRemoveContext): Promise<WorkspaceRemovePlan>;
 }

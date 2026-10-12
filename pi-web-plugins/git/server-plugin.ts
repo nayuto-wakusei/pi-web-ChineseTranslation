@@ -49,7 +49,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
     fallback: true,
     async probe(project: ProjectInput, signal: AbortSignal): Promise<ProviderClaim> {
       const result = await runGit(context, project.path, ["rev-parse", "--is-inside-work-tree"], signal);
-      if (result.signal !== null) throw new Error(`git repository probe ended from signal ${result.signal}`);
+      if (result.signal !== null) throw new Error(`Git 仓库探测因信号 ${result.signal} 结束`);
       if (result.exitCode !== 0) return "pass";
       return result.stdout.trim() === "true" ? "claim" : "pass";
     },
@@ -63,7 +63,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
       const mainRoot = resolve(mainRootOutput);
       const commonDirectoryResult = await requireGit(
         runGit(context, project.path, ["rev-parse", "--git-common-dir"], signal),
-        "resolve the Git common directory",
+        "解析 Git 公共目录",
       );
       const commonDirectoryOutput = commonDirectoryResult.stdout.trim();
       if (commonDirectoryOutput === "") throw new Error("Git 返回了空的公共目录");
@@ -198,7 +198,7 @@ async function runGit(
     signal,
   });
   if (result.stdoutTruncated || result.stderrTruncated) {
-    throw new Error(`git ${args.join(" ")} exceeded the host output limit`);
+    throw new Error(`git ${args.join(" ")} 超出宿主输出限制`);
   }
   return result;
 }
@@ -210,6 +210,6 @@ async function requireGit(
   const result = await resultPromise;
   if (result.signal === null && result.exitCode === 0) return result;
   const detail = result.stderr.trim();
-  const outcome = result.signal === null ? `exit ${String(result.exitCode)}` : `signal ${result.signal}`;
-  throw new Error(`Unable to ${action} (${outcome})${detail === "" ? "" : `: ${detail}`}`);
+  const outcome = result.signal === null ? `退出码 ${String(result.exitCode)}` : `信号 ${result.signal}`;
+  throw new Error(`无法${action}（${outcome}）${detail === "" ? "" : `：${detail}`}`);
 }

@@ -1,7 +1,8 @@
-import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
-import type { WorkspaceTreeBatchRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
+import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { WorkspaceTreeBatchRequest, WorkspaceRemovalRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
 import { parseSessionDefaults } from "../../../shared/sessionDefaults";
 import { request, requestOptional } from "./http";
+import { scopedApiUrl } from "./http";
 import {
   arrayOf,
   parseAborted,
@@ -11,16 +12,15 @@ import {
   parseAuthProvidersResponse,
   parseClosed,
   parseCommandResult,
-  parseDeleted,
   parseDeleteWorkspaceFileResponse,
   parseDetached,
+  parseDeleted,
+  parseTerminalCommandRun,
   parseExtensionDialogCloseResponse,
   parseFileContentResponse,
   parseFileSuggestion,
   parseWorkspaceTreeBatchResponse,
   parseFileTreeResponse,
-  parseGitDiffResponse,
-  parseGitStatusResponse,
   parseMachine,
   parseMachineHealth,
   parseMachineRuntime,
@@ -58,8 +58,6 @@ import {
   parseSessionUnreadCatalogSnapshot,
   parseSlashCommand,
   parseStopped,
-  parseTerminalCommandRun,
-  parseTerminalInfo,
   parseThinkingLevelsResponse,
   parseWriteWorkspaceFileResponse,
   parseWorkspace,
@@ -69,7 +67,7 @@ import {
   parseWorkspaceDeleteResponse,
   parseWorkspacePathOperationResponse,
 } from "./parsers";
-import { machineGitDiffPath, messagePath, workspaceFileDownloadUrl } from "./urls";
+import { messagePath, workspaceFileDownloadUrl } from "./urls";
 import { currentApiScope } from "./managementEmbed";
 import { parseWorkspaceProviderResolution } from "./parsers";
 import type { WorkspaceProviderResolution } from "../../../shared/apiTypes";
@@ -98,7 +96,6 @@ interface AuthProvidersOptions extends AuthRequestTarget {
 function sessionBasePath(session: SessionRef, machineId = "local"): string {
   return `${machinePrefix(machineId)}/sessions/${encodeURIComponent(session.id)}`;
 }
-
 function sessionPath(session: SessionRef, endpoint: string, machineId = "local"): string {
   return `${sessionBasePath(session, machineId)}/${endpoint}`;
 }
@@ -249,7 +246,10 @@ export const workspacesApi = {
     }
     return [...(await workspaceResolution(projectId, machineId, options)).workspaces];
   },
-  deleteWorkspace: (projectId: string, workspaceId: string, precondition: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, parseTerminalCommandRun, { method: "DELETE", body: JSON.stringify({ precondition }), headers: { "Content-Type": "application/json" } }),
+  deleteWorkspace: (projectId: string, workspaceId: string, precondition: string, machineId = "local") => {
+    const body: WorkspaceRemovalRequest = { precondition };
+    return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, (value): unknown => value, { method: "DELETE", body: JSON.stringify(body) });
+  },
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse, options),
   workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") => {
     const body: WorkspaceTreeBatchRequest = { paths: [...paths] };
@@ -291,9 +291,9 @@ export const sessionsApi = {
     const body: SessionUnreadAcknowledgeRequest = { cwd: session.cwd, catalogId, throughCompletionOrder };
     return request(sessionPath(session, "unread/acknowledge", machineId), parseSessionUnreadCatalogSnapshot, { method: "POST", body: JSON.stringify(body) });
   },
-  notificationInbox: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "notifications", machineId), parseSessionNotificationInboxSnapshot),
-  dismissNotification: (session: SessionLookup, daemonInstanceId: string, notificationId: string, machineId = "local") => request(sessionPath(session, "notifications/dismiss", machineId), parseSessionNotificationInboxSnapshot, { method: "POST", body: sessionBody(session, { daemonInstanceId, notificationId }) }),
-  dismissAllNotifications: (session: SessionLookup, daemonInstanceId: string, through: SessionNotificationDismissThrough, machineId = "local") => request(sessionPath(session, "notifications/dismiss-all", machineId), parseSessionNotificationInboxSnapshot, { method: "POST", body: sessionBody(session, { daemonInstanceId, throughOrder: through.order, throughOverflowWatermark: through.overflowWatermark }) }),
+  notificationInbox: (session: SessionRef, machineId = "local") => request(sessionQueryPath(session, "notifications", machineId), parseSessionNotificationInboxSnapshot),
+  dismissNotification: (session: SessionRef, daemonInstanceId: string, notificationId: string, machineId = "local") => request(sessionPath(session, "notifications/dismiss", machineId), parseSessionNotificationInboxSnapshot, { method: "POST", body: sessionBody(session, { daemonInstanceId, notificationId }) }),
+  dismissAllNotifications: (session: SessionRef, daemonInstanceId: string, through: SessionNotificationDismissThrough, machineId = "local") => request(sessionPath(session, "notifications/dismiss-all", machineId), parseSessionNotificationInboxSnapshot, { method: "POST", body: sessionBody(session, { daemonInstanceId, throughOrder: through.order, throughOverflowWatermark: through.overflowWatermark }) }),
   startSession: (cwd: string, machineId = "local", startupToken?: string) => request(`${machinePrefix(machineId)}/sessions`, parseSessionInfo, { method: "POST", body: JSON.stringify(startupToken === undefined ? { cwd } : { cwd, startupToken }) }),
   cleanupPreview: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup/preview`, parseSessionCleanupPreviewResponse, { method: "POST", body: JSON.stringify(input) }),
   cleanup: (input: SessionCleanupRequest, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/cleanup`, parseSessionCleanupExecuteResponse, { method: "POST", body: JSON.stringify(input) }),
@@ -323,10 +323,7 @@ export const sessionsApi = {
     method: "POST",
     body: sessionBody(session, { targetId: navigation.targetId, expectedLeafId: navigation.expectedLeafId, summary: navigation.summary }),
   }),
-  forkTree: (session: SessionLookup, fork: SessionTreeForkRequest, machineId = "local") => request(sessionPath(session, "tree/fork", machineId), parseSessionTreeForkResult, {
-    method: "POST",
-    body: sessionBody(session, { entryId: fork.entryId, expectedLeafId: fork.expectedLeafId }),
-  }),
+  forkTree: (session: SessionLookup, fork: SessionTreeForkRequest, machineId = "local") => requestSessionTreeFork(session, fork, machineId),
   abort: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "abort", machineId), parseAborted, { method: "POST", body: sessionBody(session) }),
   stop: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "stop", machineId), parseStopped, { method: "POST", body: sessionBody(session) }),
   archive: (session: SessionLookup, machineId = "local", scopeProjectId?: string) => request(sessionPath(session, "archive", machineId), parseArchived, { method: "POST", body: sessionBody(session, scopeProjectId === undefined ? {} : { scopeProjectId }) }),
@@ -359,11 +356,6 @@ export const sessionsApi = {
 };
 
 export const terminalsApi = {
-  terminals: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals`, arrayOf(parseTerminalInfo)),
-  startTerminal: (projectId: string, workspaceId: string, options?: { name?: string; cols?: number; rows?: number }, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals`, parseTerminalInfo, { method: "POST", body: JSON.stringify(options ?? {}) }),
-  closeWorkspaceTerminals: (projectId: string, workspaceId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals`, parseClosed, { method: "DELETE" }),
-  closeTerminal: (projectId: string, workspaceId: string, terminalId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}`, parseClosed, { method: "DELETE" }),
-  continueTerminal: (projectId: string, workspaceId: string, terminalId: string, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/continue`, parseTerminalInfo, { method: "POST" }),
   runTerminalCommand: (origin: string, input: RunTerminalCommandInput, machineId = "local") => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(input.workspace.projectId)}/workspaces/${encodeURIComponent(input.workspace.id)}/terminal-command-runs`, parseTerminalCommandRun, { method: "POST", body: JSON.stringify({ origin, title: input.title, command: input.command, metadata: input.metadata ?? {} }) }),
   listCommandRuns: (filter?: TerminalCommandRunFilter, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/terminal-command-runs${terminalCommandRunFilterQuery(filter)}`, arrayOf(parseTerminalCommandRun), options?.signal === undefined ? undefined : { signal: options.signal }),
   getCommandRun: (runId: string, machineId = "local") => getOptionalTerminalCommandRun(runId, machineId),
@@ -372,6 +364,38 @@ export const terminalsApi = {
 
 async function getOptionalTerminalCommandRun(runId: string, machineId: string): Promise<TerminalCommandRun | undefined> {
   return requestOptional(`${machinePrefix(machineId)}/terminal-command-runs/${encodeURIComponent(runId)}`, parseTerminalCommandRun);
+}
+
+/**
+ * Raised when an older session daemon cannot serve the specific `tree/fork`
+ * route. The message is user-facing and explains how to enable the operation.
+ */
+export class SessionTreeForkUnavailableError extends Error {
+  constructor() {
+    super("会话树分叉暂不可用，请重启会话守护进程以启用。");
+    this.name = "SessionTreeForkUnavailableError";
+  }
+}
+
+async function requestSessionTreeFork(session: SessionRef, fork: SessionTreeForkRequest, machineId: string): Promise<SessionTreeForkResult> {
+  const response = await fetch(scopedApiUrl(sessionPath(session, "tree/fork", machineId)), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: sessionBody(session, { entryId: fork.entryId, expectedLeafId: fork.expectedLeafId }),
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch((): unknown => ({}));
+    if (isMissingSessionTreeForkRoute(response.status, body)) throw new SessionTreeForkUnavailableError();
+    throw new Error(apiErrorMessage(body) ?? response.statusText);
+  }
+  return parseSessionTreeForkResult(await response.json());
+}
+
+function isMissingSessionTreeForkRoute(status: number, value: unknown): boolean {
+  if (status !== 404 || !isRecord(value)) return false;
+  if (value["statusCode"] !== 404 || value["error"] !== "Not Found") return false;
+  const message = value["message"];
+  return typeof message === "string" && /^Route POST:.*\/tree\/fork not found$/i.test(message);
 }
 
 function terminalCommandRunFilterQuery(filter: TerminalCommandRunFilter | undefined): string {
@@ -426,39 +450,38 @@ export interface FileSuggestionQueryOptions {
 }
 
 export const filesApi = {
-  files: (cwd: string, query: string, options: FileSuggestionQueryOptions = {}) => {
+  files: (cwdOrQuery: string, queryOrOptions: string | FileSuggestionQueryOptions, legacyOptions: FileSuggestionQueryOptions = {}) => {
+    const legacy = typeof queryOrOptions === "string";
+    const cwd = legacy ? cwdOrQuery : "";
+    const query = legacy ? queryOrOptions : cwdOrQuery;
+    const options = legacy ? legacyOptions : queryOrOptions;
     const params = new URLSearchParams({ q: query });
     if (options.kind !== undefined) params.set("kind", options.kind);
     if (options.mode !== undefined) params.set("mode", options.mode);
     if (options.scope !== undefined) params.set("scope", options.scope);
-    if (options.workspaceScoped === true && options.projectId !== undefined && options.workspaceId !== undefined) {
+    if ((!legacy || options.workspaceScoped === true) && options.projectId !== undefined && options.workspaceId !== undefined) {
       return request(`${machinePrefix(options.machineId)}/projects/${encodeURIComponent(options.projectId)}/workspaces/${encodeURIComponent(options.workspaceId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion), { signal: options.signal ?? null });
     }
+    if (!legacy) throw new Error("File suggestions require a project and workspace");
     params.set("cwd", cwd);
     return request(`${machinePrefix(options.machineId)}/files?${params.toString()}`, arrayOf(parseFileSuggestion), { signal: options.signal ?? null });
   },
 };
 
-export const gitApi = {
-  gitStatus: (projectId: string, workspaceId: string, machineId = "local", refresh = false) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/git/status${refresh ? "?refresh=true" : ""}`, parseGitStatusResponse),
-  gitDiff: (projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }, machineId = "local") => request(machineGitDiffPath(machineId, projectId, workspaceId, options), parseGitDiffResponse),
-};
-
 export const api = {
   ...piWebApi,
   ...machinesApi,
+  ...noticesApi,
   ...configApi,
   ...normalAuthApi,
   ...pluginsApi,
   ...piPackagesApi,
   ...activityApi,
   ...machineStatusApi,
-  ...noticesApi,
   ...projectsApi,
   ...trustApi,
   ...workspacesApi,
   ...sessionsApi,
-  ...terminalsApi,
   ...filesApi,
-  ...gitApi,
+  ...terminalsApi,
 };

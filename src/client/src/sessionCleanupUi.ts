@@ -52,14 +52,19 @@ export function sessionCleanupRequestKey(request: SessionCleanupRequest | undefi
 }
 
 export function canRunSessionCleanup(input: {
-  canCleanup: boolean;
+  canCleanup?: boolean;
+  previewRequest?: SessionCleanupRequest | undefined;
   draft: SessionCleanupDraft;
   preview: SessionCleanupPreviewResponse | undefined;
   loading?: boolean;
   running?: boolean;
 }): boolean {
-  if (!input.canCleanup || input.loading === true || input.running === true || input.preview === undefined) return false;
-  if (!sessionCleanupPreviewMatchesDraft(input.draft, input.preview)) return false;
+  if (input.canCleanup === false || input.loading === true || input.running === true || input.preview === undefined) return false;
+  const validation = validateSessionCleanupDraft(input.draft);
+  if (!validation.ok) return false;
+  if (input.previewRequest === undefined) {
+    if (input.canCleanup !== true || !sessionCleanupPreviewMatchesDraft(input.draft, input.preview)) return false;
+  } else if (sessionCleanupThresholdKey(validation.request) !== sessionCleanupThresholdKey(input.previewRequest)) return false;
   return sessionCleanupPreviewHasTargets(input.preview);
 }
 

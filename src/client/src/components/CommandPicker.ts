@@ -28,7 +28,7 @@ export class CommandPicker extends LitElement {
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${this.searchable ? "input" : ".options"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.title}</strong>
-            <button @click=${() => this.onCancel?.()}>×</button>
+            <button aria-label="关闭" @click=${() => this.onCancel?.()}>×</button>
           </header>
           ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
           ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}

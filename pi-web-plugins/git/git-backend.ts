@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
+import { GitStatusCache } from "./gitStatusCache.js";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type {
   JsonValue,
@@ -17,9 +18,10 @@ import {
 } from "./browser/git-contract.js";
 
 export { GIT_DIFF_OPERATION, GIT_STATUS_OPERATION } from "./browser/git-contract.js";
-export type { GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse } from "./browser/git-contract.js";
+export type { GitDiffResponse, GitStatusResponse } from "./browser/git-contract.js";
 
 const GIT_COMMAND_TIMEOUT_MS = 10_000;
+const statusCaches = new WeakMap<ServerPluginActivationContext, GitStatusCache>();
 const GIT_LOCAL_ENV_VARS = Object.freeze([
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -53,7 +55,13 @@ export async function requestGitBackend(
   const runGit = createGitRunner(activationContext, request.signal);
   if (request.operation === GIT_STATUS_OPERATION) {
     requireStatusInput(request.input);
-    return statusPeerResponse(await gitStatusWithRunner(runGit, request.workspace.path));
+    let cache = statusCaches.get(activationContext);
+    if (cache === undefined) {
+      cache = new GitStatusCache((cwd, signal) => gitStatus(activationContext, cwd, signal));
+      statusCaches.set(activationContext, cache);
+    }
+    const key = JSON.stringify([request.project.id, request.project.path, request.workspace.id, request.workspace.path, request.workspace.provider]);
+    return statusPeerResponse(await cache.get(key, request.workspace.path, request.signal, request.input !== null));
   }
   if (request.operation === GIT_DIFF_OPERATION) {
     return diffPeerResponse(await gitDiffWithRunner(runGit, request.workspace.path, parseDiffInput(request.input)));
@@ -86,6 +94,14 @@ interface ParsedStatus {
   behind?: number;
   files: GitStatusFile[];
   submodules: SubmoduleRecord[];
+}
+
+export async function gitStatus(
+  context: ServerPluginActivationContext,
+  cwd: string,
+  signal: AbortSignal,
+): Promise<GitStatusResponse> {
+  return gitStatusWithRunner(createGitRunner(context, signal), cwd);
 }
 
 async function gitStatusWithRunner(runGit: RunGit, cwd: string): Promise<GitStatusResponse> {
@@ -183,6 +199,15 @@ async function resolveSubmoduleToCommit(runGit: RunGit, cwd: string | undefined,
   const head = await runGit(cwd, ["rev-parse", "HEAD"]);
   const resolved = head.stdout.trim();
   return head.code === 0 && resolved !== "" ? resolved : sub.indexOid;
+}
+
+export async function gitDiff(
+  context: ServerPluginActivationContext,
+  cwd: string,
+  options: { path?: string; staged?: boolean },
+  signal: AbortSignal,
+): Promise<GitDiffResponse> {
+  return gitDiffWithRunner(createGitRunner(context, signal), cwd, options);
 }
 
 async function gitDiffWithRunner(runGit: RunGit, cwd: string, options: { path?: string; staged?: boolean }): Promise<GitDiffResponse> {

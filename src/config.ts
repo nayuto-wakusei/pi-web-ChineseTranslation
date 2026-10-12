@@ -80,6 +80,9 @@ export const PI_WEB_AGENT_SESSION_DIR_ENV = "PI_WEB_AGENT_SESSION_DIR";
 export const PI_CODING_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
 export const PI_CODING_AGENT_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR";
 
+/** Deprecated PI WEB override remains first during the compatibility window. */
+export const AGENT_SESSION_DIR_ENV_KEYS = [PI_WEB_AGENT_SESSION_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV] as const;
+
 export type DeprecatedAgentInput = PiWebDeprecatedAgentInput;
 
 export function detectDeprecatedAgentInputs(env: Readonly<NodeJS.ProcessEnv>, config: Pick<PiWebConfig, "agent"> = {}): DeprecatedAgentInput[] {
@@ -102,17 +105,23 @@ export function effectiveAgentConfig(env: NodeJS.ProcessEnv = process.env, confi
   const command = parseAgentCommand(envValue(env, PI_WEB_AGENT_COMMAND_ENV) ?? config.agent?.command ?? DEFAULT_AGENT_COMMAND, "agent.command", "environment", "current");
   // Keep the deprecated PI WEB alias first for compatibility, then the
   // canonical Pi SDK variable, then the project config alias and SDK default.
-  const configuredDir = envValue(env, PI_WEB_AGENT_DIR_ENV) ?? envValue(env, PI_CODING_AGENT_DIR_ENV) ?? config.agent?.dir ?? defaultAgentDirForCommand(command, env);
+  const sources: readonly (readonly [string, string | undefined])[] = [
+    [PI_WEB_AGENT_DIR_ENV, envValue(env, PI_WEB_AGENT_DIR_ENV)],
+    [PI_CODING_AGENT_DIR_ENV, envValue(env, PI_CODING_AGENT_DIR_ENV)],
+    ["agent.dir", config.agent?.dir],
+  ];
+  const configured = sources.find((source): source is readonly [string, string] => source[1] !== undefined);
+  const [sourceName, configuredDir] = configured ?? ["the agent directory default", defaultAgentDirForCommand(command, env)];
   return {
     command,
-    dir: resolveAgentDirPath(configuredDir, env, "agent.dir", "environment"),
+    dir: resolveAgentDirPath(configuredDir, env, sourceName, "environment"),
     sessionDirEnvKeys: agentSessionDirEnvKeys(command),
   };
 }
 
 export function agentSessionDirEnvKeys(command = DEFAULT_AGENT_COMMAND): string[] {
   void command;
-  return [PI_WEB_AGENT_SESSION_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV];
+  return [...AGENT_SESSION_DIR_ENV_KEYS];
 }
 
 /** Resolve the session store override using the same old-alias-first policy. */
@@ -298,6 +307,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["spawnSessions"];
   delete existing["subsessions"];
   delete existing["askUser"];
+  delete existing["respectProjectTrust"];
   delete existing["environmentFacts"];
   delete existing["agent"];
   delete existing["workbenchIntegration"];

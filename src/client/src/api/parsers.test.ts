@@ -1,3 +1,4 @@
+import { parseWorkspaceProviderResolution } from "./parsers";
 import { describe, expect, it } from "vitest";
 
 describe("slash command argument hints", () => {
@@ -104,18 +105,15 @@ describe("API parsers", () => {
           available: true,
           capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
           activeAgentProfile: {
-            schemaVersion: 1,
-            revision: `sha256:${"a".repeat(64)}`,
-            command: "agent-lab",
+            schemaVersion: 2,
             dir: "/srv/agent-lab",
-            sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
           },
         },
       },
       capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage, "future.capability"],
     })).toMatchObject({
       capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage],
-      components: { sessiond: { activeAgentProfile: { command: "agent-lab", dir: "/srv/agent-lab" } } },
+      components: { sessiond: { activeAgentProfile: { schemaVersion: 2, dir: "/srv/agent-lab" } } },
     });
   });
 
@@ -134,11 +132,8 @@ describe("API parsers", () => {
 
   it("retains portable active profiles in machine runtime snapshots and rejects invalid ownership", () => {
     const profile = {
-      schemaVersion: 1,
-      revision: `sha256:${"b".repeat(64)}`,
-      command: "C:\\tools\\pi.exe",
+      schemaVersion: 2,
       dir: "C:\\agent-profiles\\work",
-      sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
     };
     const components = {
       web: { component: "web", label: "Web/UI", available: true, capabilities: [] },
@@ -147,7 +142,7 @@ describe("API parsers", () => {
 
     const parsed = parseMachineRuntime({ machineId: "remote-a", ok: true, checkedAt: "now", components, capabilities: [] });
 
-    expect(parsed.components?.sessiond.activeAgentProfile).toMatchObject({ command: profile.command, dir: profile.dir });
+    expect(parsed.components?.sessiond.activeAgentProfile).toEqual(profile);
     expect(Object.isFrozen(parsed.components?.sessiond.activeAgentProfile)).toBe(true);
     expect(() => parseMachineRuntime({
       machineId: "remote-a",
@@ -156,6 +151,17 @@ describe("API parsers", () => {
       components: { ...components, web: { ...components.web, activeAgentProfile: profile } },
       capabilities: [],
     })).toThrow("Invalid active agent profile descriptor");
+    for (const invalidProfile of [
+      { schemaVersion: 1, dir: profile.dir, command: "C:\\tools\\pi.exe", revision: `sha256:${"b".repeat(64)}`, sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"] },
+      { ...profile, command: "C:\\tools\\pi.exe" },
+      { ...profile, revision: `sha256:${"b".repeat(64)}` },
+      { ...profile, sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"] },
+    ]) {
+      expect(() => parseMachineRuntime({
+        machineId: "remote-a", ok: true, checkedAt: "now", capabilities: [],
+        components: { ...components, sessiond: { ...components.sessiond, activeAgentProfile: invalidProfile } },
+      })).toThrow("Invalid active agent profile descriptor");
+    }
     expect(() => parseMachineRuntime({
       machineId: "remote-a",
       ok: true,
@@ -171,7 +177,7 @@ describe("API parsers", () => {
       exists: true,
       config: {},
       effectiveConfig: {},
-      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, agentDirSource: "future" },
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentDirSource: "future" },
     })).toThrow("Invalid PI WEB agentDirSource field");
   });
 
@@ -252,8 +258,8 @@ describe("API parsers", () => {
     });
   });
 
-  it("accepts legacy array message pages and paged message responses", () => {
-    expect(parseMessagePage(["a", "b"])).toEqual({ messages: ["a", "b"], start: 0, total: 2 });
+  it("rejects legacy array message pages and accepts paged message responses", () => {
+    expect(() => parseMessagePage(["a", "b"])).toThrow();
     expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
   });
 
@@ -535,7 +541,7 @@ describe("API parsers", () => {
     expect(parseWorkspace(structuredClone(expected))).toEqual(expected);
   });
 
-  it("accepts legacy workspace responses without effective config", () => {
+  it("rejects legacy workspace responses without effective config", () => {
     const expected = {
       id: "w1",
       projectId: "p1",
@@ -546,7 +552,7 @@ describe("API parsers", () => {
       isGitWorktree: false,
     };
 
-    expect(parseWorkspace(structuredClone(expected))).toEqual(expected);
+    expect(() => parseWorkspace(structuredClone(expected))).toThrow("Expected workspace effectiveConfig field");
   });
 
   it("parses workspace activity snapshots", () => {
@@ -1027,3 +1033,483 @@ function notificationInboxWire() {
     dismissThrough: { order: 1, overflowWatermark: 0 },
   };
 }
+
+
+describe("Upstream transport and navigation contracts", () => {
+  it("preserves interactive API-key flow hints and defaults providers without one", () => {
+    const base = { id: "openai", name: "OpenAI", authType: "api_key", status: { configured: false } };
+
+    expect(parseAuthProvidersResponse({ providers: [{ ...base, loginFlow: "interactive" }, base] }).providers).toEqual([
+      { ...base, loginFlow: "interactive" },
+      base,
+    ]);
+  });
+
+  it("preserves OAuth interaction semantics", () => {
+    expect(parseOAuthFlowState({
+      flowId: "flow-1",
+      providerId: "provider",
+      providerName: "Provider",
+      status: "running",
+      auth: {
+        url: "https://example.test/device",
+        instructions: "Enter code",
+        deviceCode: { userCode: "ABCD", intervalSeconds: 5, expiresInSeconds: 900 },
+      },
+      prompt: { requestId: "prompt-1", message: "Secret", promptType: "secret", allowEmpty: false, placeholder: "token" },
+      select: { requestId: "select-1", message: "Choose", options: [{ value: "work", label: "Work", description: "Company account" }] },
+      progress: ["Read the guide"],
+      info: [{ message: "Read the guide", links: [{ url: "https://example.test/docs", label: "Guide" }] }],
+    })).toMatchObject({
+      auth: { deviceCode: { userCode: "ABCD", intervalSeconds: 5, expiresInSeconds: 900 } },
+      prompt: { promptType: "secret", allowEmpty: false },
+      select: { options: [{ value: "work", description: "Company account" }] },
+      info: [{ links: [{ url: "https://example.test/docs", label: "Guide" }] }],
+    });
+  });
+
+  it("requires semantic prompt types on OAuth wire prompts", () => {
+    const flow = {
+      flowId: "flow-1",
+      providerId: "provider",
+      providerName: "Provider",
+      status: "running",
+      progress: [],
+    };
+
+    expect(() => parseOAuthFlowState({ ...flow, prompt: { requestId: "text", message: "Value" } })).toThrow("Invalid OAuth prompt type");
+    expect(() => parseOAuthFlowState({ ...flow, prompt: { requestId: "text", message: "Value", promptType: "kind" } })).toThrow("Invalid OAuth prompt type");
+  });
+
+  it("rejects malformed PI WEB attachments config fields", () => {
+    const response = {
+      path: "/tmp/config.json",
+      exists: true,
+      config: {},
+      effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+
+    expect(() => parsePiWebConfigResponse({ ...response, config: { attachments: "saved/attachments" } })).toThrow("Invalid PI WEB attachments field");
+    expect(() => parsePiWebConfigResponse({ ...response, effectiveConfig: { attachments: [] } })).toThrow("Invalid PI WEB attachments field");
+  });
+
+  it("parses deprecated agent input reports in machine runtime snapshots", () => {
+    const parsed = parseMachineRuntime({
+      machineId: "remote-a",
+      ok: true,
+      checkedAt: "now",
+      deprecatedAgentInputs: [
+        { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+        { source: "config", name: "agent.command" },
+      ],
+    });
+
+    expect(parsed.deprecatedAgentInputs).toEqual([
+      { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+      { source: "config", name: "agent.command" },
+    ]);
+  });
+
+  it("drops malformed deprecated-input entries but rejects a non-array report", () => {
+    const parsed = parseMachineRuntime({
+      machineId: "remote-a",
+      ok: true,
+      checkedAt: "now",
+      deprecatedAgentInputs: [
+        { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+        { source: "process", name: "PI_WEB_AGENT_DIR" },
+        { source: "config" },
+      ],
+    });
+
+    expect(parsed.deprecatedAgentInputs).toEqual([
+      { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+    ]);
+
+    expect(() => parseMachineRuntime({ machineId: "remote-a", ok: true, checkedAt: "now", deprecatedAgentInputs: "PI_WEB_AGENT_DIR" }))
+      .toThrow("Invalid PI WEB deprecated agent inputs");
+  });
+
+  it("rejects config responses missing a required override flag", () => {
+    const envOverrides = { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false };
+    for (const flag of ["host", "port", "allowedHosts", "spawnSessions", "subsessions", "askUser"] as const) {
+      const incomplete = Object.fromEntries(Object.entries(envOverrides).filter(([key]) => key !== flag));
+      expect(() => parsePiWebConfigResponse({
+        path: "/tmp/config.json",
+        exists: true,
+        config: {},
+        effectiveConfig: {},
+        envOverrides: incomplete,
+      })).toThrow(`Expected boolean field: ${flag}`);
+    }
+  });
+
+  it("parses installable known package suggestions when present and omits the field when absent", () => {
+    const installableKnownPackages = [{ id: "@jmfederico/pi-relay", label: "Relays", description: "Relay method prompts and skill.", source: "/pi-web/dist/pi-packages/relays" }];
+
+    expect(parsePiPackagesResponse({ packages: [], installableKnownPackages })).toEqual({ packages: [], installableKnownPackages });
+    expect(parsePiPackagesResponse({ packages: [] })).toEqual({ packages: [] });
+    expect(parsePiPackageMutationResponse({ action: "install", packages: [], installableKnownPackages })).toEqual({
+      action: "install",
+      packages: [],
+      installableKnownPackages,
+    });
+  });
+
+  it("parses desired and active PI WEB plugin lifecycle responses", () => {
+    const recovery = {
+      showSafeStart: "pi-web plugins safe-start show",
+      bundledOnly: "pi-web plugins safe-start set bundled-only --restart",
+      noServerPlugins: "pi-web plugins safe-start set none --restart",
+      clearSafeStart: "pi-web plugins safe-start clear --restart",
+    };
+    const response = {
+      lifecycleVersion: 2,
+      plugins: [
+        {
+          id: "info",
+          module: "/pi-web-plugins/info/pi-web-plugin.js?v=1",
+          source: "bundled",
+          scope: "bundled",
+          machineSpecific: true,
+          enabled: false,
+          discovered: true,
+          conflict: true,
+          server: {
+            state: "active",
+            desiredRevision: "2",
+            activeRevision: "1",
+            health: { status: "degraded", message: "tool unavailable" },
+            staleRevision: true,
+            restartRequired: true,
+            disableCommand: "pi-web plugins disable info --restart",
+          },
+        },
+        { id: "workspace-provider", source: "local", scope: "user", enabled: true, discovered: false, conflict: false },
+      ],
+      diagnostics: [{ kind: "conflict", snapshot: "desired", source: "local", message: "Duplicate id", pluginId: "info" }],
+      serverRuntime: { status: "available", terminalMode: "required", safeStart: "bundled-only", desiredSafeStart: "off", restartRequired: true, recovery },
+    };
+
+    expect(parsePiWebPluginsResponse(response)).toEqual({
+      ...response,
+      plugins: [response.plugins[0], { ...response.plugins[1], machineSpecific: false }],
+    });
+  });
+
+  it("marks legacy plugin-list responses as lifecycle-incompatible without losing browser plugins", () => {
+    const parsed = parsePiWebPluginsResponse({
+      plugins: [{ id: "info", module: "/pi-web-plugins/info/pi-web-plugin.js?v=1", source: "bundled", scope: "bundled", enabled: true }],
+    });
+
+    expect(parsed.plugins).toEqual([expect.objectContaining({ id: "info", enabled: true, discovered: true, conflict: false })]);
+    expect(parsed.serverRuntime).toMatchObject({ status: "incompatible", terminalMode: "required", restartRequired: false });
+    expect(parsed.serverRuntime.message).toContain("更新并重启 PI WEB");
+  });
+
+  it("rejects malformed plugin lifecycle versions and recovery state", () => {
+    expect(() => parsePiWebPluginsResponse({ lifecycleVersion: 3, plugins: [], diagnostics: [], serverRuntime: {} }))
+      .toThrow("Unsupported PI WEB plugin lifecycle version");
+    expect(() => parsePiWebPluginsResponse({
+      lifecycleVersion: 2,
+      plugins: [],
+      diagnostics: [],
+      serverRuntime: {
+        status: "available",
+        terminalMode: "required",
+        desiredSafeStart: "future",
+        restartRequired: false,
+        recovery: {
+          showSafeStart: "show",
+          bundledOnly: "bundled",
+          noServerPlugins: "none",
+          clearSafeStart: "clear",
+        },
+      },
+    })).toThrow("Invalid desired PI WEB server-plugin safe-start state");
+    expect(() => parsePiWebPluginsResponse({
+      lifecycleVersion: 2,
+      plugins: [],
+      diagnostics: [],
+      serverRuntime: {
+        status: "available",
+        terminalMode: "required",
+        restartRequired: false,
+        recovery: {
+          showSafeStart: "pi-web plugins safe-start show --token secret",
+          bundledOnly: "pi-web plugins safe-start set bundled-only --restart",
+          noServerPlugins: "pi-web plugins safe-start set none --restart",
+          clearSafeStart: "pi-web plugins safe-start clear --restart",
+        },
+      },
+    })).toThrow("Invalid PI WEB server plugin recovery commands");
+    expect(() => parsePiWebPluginsResponse({
+      lifecycleVersion: 2,
+      plugins: [],
+      diagnostics: [],
+      serverRuntime: {
+        status: "unavailable",
+        terminalMode: "recovery-disabled",
+        restartRequired: false,
+        recovery: {
+          showSafeStart: "pi-web plugins safe-start show",
+          bundledOnly: "pi-web plugins safe-start set bundled-only --restart",
+          noServerPlugins: "pi-web plugins safe-start set none --restart",
+          clearSafeStart: "pi-web plugins safe-start clear --restart",
+        },
+      },
+    })).toThrow("Unavailable PI WEB runtime cannot declare Terminal recovery mode");
+  });
+
+  it("parses paged message responses and rejects legacy array message pages", () => {
+    expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
+    expect(() => parseMessagePage(["a", "b"])).toThrow("Expected array response");
+  });
+
+  it("parses the model catalog with enabled state and natural catalog positions", () => {
+    expect(parseSessionModelCatalogResponse({
+      models: [
+        { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", contextWindow: 200_000, reasoning: { effort: "high" }, enabled: true, catalogIndex: 1 },
+        { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false, editable: false, catalogIndex: 0 },
+      ],
+    })).toEqual({
+      models: [
+        { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", contextWindow: 200_000, reasoning: { effort: "high" }, enabled: true, catalogIndex: 1 },
+        { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false, editable: false, catalogIndex: 0 },
+      ],
+    });
+  });
+
+  it("rejects malformed model catalog entries", () => {
+    expect(() => parseSessionModelCatalogResponse({ models: [{ id: "m", enabled: true }] })).toThrow("Expected string field: provider");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", enabled: true }] })).toThrow("Expected string field: id");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: "yes" }] })).toThrow("Expected boolean field: enabled");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", name: 4, enabled: true }] })).toThrow("Expected optional string field: name");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: true, editable: "yes" }] })).toThrow("Invalid PI WEB editable field");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: true, catalogIndex: -1 }] })).toThrow("Expected non-negative safe integer field: catalogIndex");
+    expect(() => parseSessionModelCatalogResponse({})).toThrow("Expected array response");
+  });
+
+  it("parses generic workspace provider and removal metadata", () => {
+    expect(parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/secondary",
+      label: "secondary",
+      isMain: false,
+      provider: {
+        pluginId: "workspace-provider",
+        capabilities: { remove: true },
+        metadata: { changeId: "abc", nested: [1, true, null] },
+      },
+      removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?", precondition: "v1.confirmed" },
+      effectiveConfig: {},
+    })).toEqual({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/secondary",
+      label: "secondary",
+      isMain: false,
+      provider: {
+        pluginId: "workspace-provider",
+        capabilities: { remove: true },
+        metadata: { changeId: "abc", nested: [1, true, null] },
+      },
+      removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?", precondition: "v1.confirmed" },
+      effectiveConfig: {},
+    });
+  });
+
+  it("freezes host-owned workspace snapshots recursively", () => {
+    const workspace = parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/secondary",
+      label: "secondary",
+      isMain: false,
+      provider: {
+        pluginId: "workspace-provider",
+        capabilities: { remove: true },
+        metadata: { nested: [{ ready: true }] },
+      },
+      removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?", precondition: "v1.confirmed" },
+      effectiveConfig: { uploads: { defaultFolder: "manual/uploads" }, attachments: { defaultFolder: "saved/attachments" } },
+    });
+    const nested = workspace.provider?.metadata?.["nested"];
+    if (!Array.isArray(nested)) throw new Error("Expected nested workspace metadata fixture");
+
+    expect(Object.isFrozen(workspace)).toBe(true);
+    expect(Object.isFrozen(workspace.provider)).toBe(true);
+    expect(Object.isFrozen(workspace.provider?.capabilities)).toBe(true);
+    expect(Object.isFrozen(workspace.provider?.metadata)).toBe(true);
+    expect(Object.isFrozen(nested)).toBe(true);
+    expect(Object.isFrozen(nested[0])).toBe(true);
+    expect(Object.isFrozen(workspace.removal)).toBe(true);
+    expect(Object.isFrozen(workspace.effectiveConfig)).toBe(true);
+    expect(Object.isFrozen(workspace.effectiveConfig.uploads)).toBe(true);
+    expect(Object.isFrozen(workspace.effectiveConfig.attachments)).toBe(true);
+  });
+
+  it("parses provider-neutral workspace resolution ownership and diagnostics", () => {
+    const resolution = parseWorkspaceProviderResolution({
+      status: "degraded",
+      projectId: "p1",
+      ownerPluginId: "replacement",
+      workspaces: [{
+        id: "w1",
+        projectId: "p1",
+        path: "/repo",
+        label: "main",
+        isMain: true,
+        effectiveConfig: {},
+      }],
+      diagnostics: [{
+        code: "claim-conflict",
+        message: "Two primary providers claimed the project",
+        tier: "primary",
+        pluginIds: ["one", "two"],
+      }],
+    });
+
+    expect(resolution).toEqual({
+      status: "degraded",
+      projectId: "p1",
+      ownerPluginId: "replacement",
+      workspaces: [expect.objectContaining({ id: "w1", projectId: "p1" })],
+      diagnostics: [{
+        code: "claim-conflict",
+        message: "Two primary providers claimed the project",
+        tier: "primary",
+        pluginIds: ["one", "two"],
+      }],
+    });
+    expect(Object.isFrozen(resolution)).toBe(true);
+    expect(Object.isFrozen(resolution.workspaces)).toBe(true);
+    expect(Object.isFrozen(resolution.diagnostics)).toBe(true);
+    expect(Object.isFrozen(resolution.diagnostics[0])).toBe(true);
+    expect(Object.isFrozen(resolution.diagnostics[0]?.pluginIds)).toBe(true);
+  });
+
+  it("rejects malformed workspace resolution ownership and diagnostics", () => {
+    const workspace = {
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      effectiveConfig: {},
+    };
+
+    expect(() => parseWorkspaceProviderResolution({
+      status: "provider",
+      projectId: "p1",
+      workspaces: [workspace],
+      diagnostics: [],
+    })).toThrow("missing ownerPluginId");
+    expect(() => parseWorkspaceProviderResolution({
+      status: "folder",
+      projectId: "p1",
+      workspaces: [workspace],
+      diagnostics: [{ code: "future", message: "bad", tier: "primary" }],
+    })).toThrow("diagnostic code");
+  });
+
+  it("rejects removal metadata without a host-issued precondition", () => {
+    expect(() => parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/secondary",
+      label: "secondary",
+      isMain: false,
+      removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?" },
+      effectiveConfig: {},
+    })).toThrow("Expected string field: precondition");
+  });
+
+  it("rejects empty workspace removal wording", () => {
+    expect(() => parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/secondary",
+      label: "secondary",
+      isMain: false,
+      removal: { actionLabel: "", confirmation: "Remove secondary?", precondition: "v1.confirmed" },
+      effectiveConfig: {},
+    })).toThrow("Expected non-empty string field: actionLabel");
+  });
+
+  it("rejects non-JSON workspace provider metadata", () => {
+    expect(() => parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      provider: {
+        pluginId: "workspace-provider",
+        capabilities: { remove: false },
+        metadata: { invalid: undefined },
+      },
+      effectiveConfig: {},
+    })).toThrow("Invalid workspace provider metadata field");
+  });
+
+  it("rejects workspace responses without effective config", () => {
+    expect(() => parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+    })).toThrow("Expected workspace effectiveConfig field");
+  });
+
+  it("parses slash command argument hints and rejects malformed ones", () => {
+    expect(parseSlashCommand({ name: "pr", source: "prompt", description: "Review PRs from URLs", argumentHint: "<PR-URL>" })).toEqual({
+      name: "pr",
+      source: "prompt",
+      description: "Review PRs from URLs",
+      argumentHint: "<PR-URL>",
+    });
+    expect(parseSlashCommand({ name: "tree", source: "builtin" })).toEqual({ name: "tree", source: "builtin" });
+    expect(() => parseSlashCommand({ name: "pr", source: "prompt", argumentHint: 7 })).toThrow("Expected optional string field: argumentHint");
+  });
+
+  it("strictly parses session tree fork results", () => {
+    const session = {
+      id: "forked-session",
+      path: "/sessions/forked-session.jsonl",
+      cwd: "/repo",
+      created: "2026-01-01T00:00:00.000Z",
+      modified: "2026-01-01T00:01:00.000Z",
+      messageCount: 2,
+      firstMessage: "original prompt",
+    };
+    expect(parseSessionTreeForkResult({ cancelled: false, session })).toEqual({ cancelled: false, session });
+    expect(parseSessionTreeForkResult({ cancelled: false, session, promptDraft: "resend me" })).toEqual({ cancelled: false, session, promptDraft: "resend me" });
+    expect(parseSessionTreeForkResult({ cancelled: true })).toEqual({ cancelled: true });
+    expect(parseSessionTreeForkResult({ cancelled: false, session, promptDraft: "resend me", operationId: "future-metadata" })).toEqual({ cancelled: false, session, promptDraft: "resend me" });
+    expect(parseSessionTreeForkResult({ cancelled: true, operationId: "future-metadata" })).toEqual({ cancelled: true });
+
+    expect(() => parseSessionTreeForkResult({ cancelled: false })).toThrow("Expected object response");
+    expect(() => parseSessionTreeForkResult({ cancelled: false, session: { ...session, id: 42 } })).toThrow("Expected string field: id");
+    expect(() => parseSessionTreeForkResult({ cancelled: false, session, promptDraft: 42 })).toThrow("promptDraft");
+    expect(() => parseSessionTreeForkResult({ cancelled: true, session })).toThrow("session");
+    expect(() => parseSessionTreeForkResult({ cancelled: true, promptDraft: "wrong branch" })).toThrow("promptDraft");
+    expect(() => parseSessionTreeForkResult({ session })).toThrow("cancelled");
+  });
+
+  it("parses an open ask", () => {
+    const parsed = parseSessionStatus({ ...statusWire(), pendingAsk: pendingAskWire() });
+
+    expect(parsed.pendingAsk).toEqual({
+      askId: "ask-1",
+      askedAt: "2026-07-20T00:00:00.000Z",
+      questions: [
+        { id: "q1", question: "Which database?", detail: "Pick the primary store", options: [{ value: "pg", label: "Postgres", detail: "Relational" }, { value: "sqlite", label: "SQLite" }], allowOther: true },
+        { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], multiple: true, allowOther: true },
+      ],
+    });
+  });
+});

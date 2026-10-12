@@ -5,7 +5,7 @@ import { browserErrorScopeKey, machineBrowserErrorScope, workspaceBrowserErrorSc
 import { HttpRequestError } from "../api/http";
 import { ServerNoticesController } from "../serverNotices";
 import type { Machine, Workspace } from "../api";
-import type { AppRoute } from "../route";
+import type { AppRoute, ParsedAppRoute } from "../route";
 import { PluginRegistry } from "../plugins/registry";
 import { PiWebApp } from "./PiWebApp";
 import { AppShellController } from "../appShell/appShellController";
@@ -51,7 +51,7 @@ function setState(app: PiWebApp, patch: Partial<AppState>): AppState {
 type ReportWorkspaceRemovalFailure = (workspace: Workspace, machineId: string, scope: ReturnType<typeof workspaceBrowserErrorScope>, error: unknown) => Promise<void>;
 type SetRemoteRouteRestoreMessage = (route: AppRoute, options?: { exhausted?: boolean }) => void;
 type RunAction = (action: AppAction) => void;
-type RestoreRouteFor = (route: AppRoute, updateUrl: boolean) => Promise<void>;
+type RestoreRouteFor = (route: ParsedAppRoute, updateUrl: boolean) => Promise<void>;
 type RouteContentError = () => string;
 
 function setRemoteRouteRestoreMessage(app: PiWebApp): SetRemoteRouteRestoreMessage {
@@ -99,7 +99,7 @@ function privateRestoreRouteFor(app: PiWebApp): RestoreRouteFor {
 }
 
 function routeContentError(app: PiWebApp): RouteContentError {
-  const method: unknown = Reflect.get(app, "routeContentError");
+  const method: unknown = Reflect.get(app, "contentError");
   if (!isRouteContentError(method)) throw new Error("Route error boundary was unavailable");
   return () => method.call(app);
 }
@@ -127,7 +127,7 @@ describe("PiWebApp browser error boundaries", () => {
     const shell: unknown = Reflect.get(app, "appShell");
     if (!(shell instanceof AppShellController)) throw new Error("App shell was unavailable");
     shell.isMobileNavigationLayout = true;
-    shell.isStackedWorkspaceLayout = true;
+    shell.isDesktopSideBySideLayout = false;
     stubSelectedMachinePluginLoad(app);
     await privateRestoreRouteFor(app)({ machineId: undefined, projectId: "missing", workspaceId: undefined, sessionId: "session-1", tool: undefined, view }, false);
     expect(appState(app).mainView).toBe(view ?? "navigation");
@@ -237,20 +237,22 @@ describe("PiWebApp route restoration", () => {
     Reflect.set(app, "loadPluginsForSelectedMachine", async () => { await Promise.resolve(); loaded = true; });
     const panelId = "machine.remote-1.notes:workspace.notes";
 
-    await privateRestoreRouteFor(app)({ machineId: remote.id, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool: panelId, view: panelId }, false);
+    await privateRestoreRouteFor(app)({ machineId: remote.id, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool: panelId, view: "workspace" }, false);
 
     expect(loaded).toBe(true);
     expect(appState(app).workspaceTool).toBe(panelId);
-    expect(appState(app).mainView).toBe(panelId);
+    expect(appState(app).mainView).toBe("workspace");
   });
 
   it("reports unavailable workspace panels instead of silently selecting another", () => {
     const app = createApp();
-    const method: unknown = Reflect.get(app, "requestedWorkspacePanelError");
+    setState(app, { selectedWorkspace: workspace });
+    installSearch("?project=project-1&workspace=workspace-1&tool=missing%3Apanel&view=workspace");
+    const method: unknown = Reflect.get(app, "workspaceContentError");
     if (typeof method !== "function") throw new Error("Workspace panel error boundary was unavailable");
 
-    expect(Reflect.apply(method, app, [{ machineId: undefined, projectId: undefined, workspaceId: undefined, sessionId: undefined, tool: "missing:panel", view: "missing:panel" }]))
-      .toBe("工作区工具不可用：missing:panel");
+    expect(Reflect.apply(method, app, []))
+      .toBe("工作区面板不可用：missing:panel");
   });
 
   it("restores the terminal view alias after the bundled plugin loads", async () => {
@@ -266,7 +268,7 @@ describe("PiWebApp route restoration", () => {
     await privateRestoreRouteFor(app)({ machineId: undefined, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool: "terminal", view: "terminal" }, false);
 
     expect(appState(app).workspaceTool).toBe("pi-web.terminal:workspace.terminal");
-    expect(appState(app).mainView).toBe("pi-web.terminal:workspace.terminal");
+    expect(appState(app).mainView).toBe("workspace");
   });
 });
 
@@ -277,11 +279,23 @@ describe("PiWebApp workspace removal browser error boundary", () => {
     const noticesValue: unknown = Reflect.get(app, "serverNotices");
     if (!(noticesValue instanceof ServerNoticesController)) throw new Error("Server notices controller was unavailable");
     const notices = noticesValue;
-    vi.spyOn(notices, "hasNotice").mockReturnValue(true);
+    const hasNotice = vi.spyOn(notices, "hasNotice").mockImplementation((machineId, matches) => {
+      expect(machineId).toBe("local");
+      return matches({
+        id: "notice-1",
+        severity: "error",
+        message: "工作区移除失败：workspace has unsubmitted changes",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        source: "workspace.delete",
+        scope: { projectId: workspace.projectId },
+        context: { targetWorkspaceId: workspace.id },
+      });
+    });
     const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
 
     await reportWorkspaceRemovalFailure(app)(workspace, "local", scope, new HttpRequestError("workspace has unsubmitted changes", 400));
 
+    expect(hasNotice).toHaveBeenCalledTimes(2);
     expect(appState(app).browserErrors).toEqual({});
   });
 

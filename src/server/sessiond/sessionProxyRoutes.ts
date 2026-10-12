@@ -73,28 +73,21 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   });
 
   app.get<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
-    void managementContextForRequest(request, managementEmbed).then(async (context) => {
+    bridgeAuthorizedSocket(socket, async () => {
+      const context = await managementContextForRequest(request, managementEmbed);
       await managementBody(stripPrefix(request.url, prefix), undefined, context, managementEmbed);
-      bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context, managementEmbed)));
-    }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
-    });
+      return managementHeaders(context, managementEmbed);
+    }, (headers) => daemon.connectWebSocket(stripPrefix(request.url, prefix), headers));
   });
 
   app.get(`${prefix}/sessions/events`, { websocket: true }, (socket, request) => {
-    void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket("/sessions/events", managementHeaders(context, managementEmbed)));
-    }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
-    });
+    bridgeAuthorizedSocket(socket, async () => managementHeaders(await managementContextForRequest(request, managementEmbed), managementEmbed),
+      (headers) => daemon.connectWebSocket("/sessions/events", headers));
   });
 
   app.get(`${prefix}/events`, { websocket: true }, (socket, request) => {
-    void managementContextForRequest(request, managementEmbed).then((context) => {
-      bridgeSockets(socket, daemon.connectWebSocket("/events", managementHeaders(context, managementEmbed)));
-    }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
-    });
+    bridgeAuthorizedSocket(socket, async () => managementHeaders(await managementContextForRequest(request, managementEmbed), managementEmbed),
+      (headers) => daemon.connectWebSocket("/events", headers));
   });
 
   app.all(`${prefix}/activity`, (request, reply) => proxy(request, reply));
@@ -247,6 +240,23 @@ function normalizeScopeCwd(value: unknown): string {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function bridgeAuthorizedSocket(client: WebSocket, authorize: () => Promise<Record<string, string> | undefined>, connect: (headers: Record<string, string> | undefined) => WebSocket): void {
+  let disconnected = client.readyState !== WebSocket.OPEN;
+  const onDisconnect = (): void => { disconnected = true; };
+  // Capture disconnects before authentication or managed cwd checks begin awaiting.
+  client.once("close", onDisconnect);
+  client.once("error", onDisconnect);
+  void authorize().then((headers) => {
+    if (disconnected || client.readyState !== WebSocket.OPEN) return;
+    bridgeSockets(client, connect(headers));
+  }).catch((error: unknown) => {
+    if (!disconnected && client.readyState === WebSocket.OPEN) closeSocketWithError(client, error);
+  }).finally(() => {
+    client.removeListener("close", onDisconnect);
+    client.removeListener("error", onDisconnect);
+  });
 }
 
 function bridgeSockets(client: WebSocket, upstream: WebSocket): void {

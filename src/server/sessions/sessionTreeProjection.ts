@@ -40,15 +40,15 @@ export function projectSessionTree(
   while (stack.length > 0) {
     const candidate = stack.pop();
     if (candidate === undefined) continue;
-    if (!isProjectableSessionTreeNode(candidate)) throw new Error("Pi returned a malformed session-tree node");
+    if (!isProjectableSessionTreeNode(candidate)) throw new Error("Pi 返回的会话树节点格式无效");
     const node = candidate;
     if (visitedNodes.has(node)) continue;
     visitedNodes.add(node);
 
     if (!isProjectableSessionEntry(node.entry)) {
-      throw new Error("Pi returned a malformed session-tree entry");
+      throw new Error("Pi 返回的会话树条目格式无效");
     }
-    if (projectedIds.has(node.entry.id)) throw new Error("Pi returned duplicate session-tree entry IDs");
+    if (projectedIds.has(node.entry.id)) throw new Error("Pi 返回了重复的会话树条目 ID");
     projectedIds.add(node.entry.id);
     nodes.push(projectNode(node, node.entry));
 
@@ -59,7 +59,7 @@ export function projectSessionTree(
   }
 
   if (activeLeafId !== null && (activeLeafId.trim() === "" || !projectedIds.has(activeLeafId))) {
-    throw new Error("Pi returned an invalid active session-tree leaf");
+    throw new Error("Pi 返回的当前会话树叶节点无效");
   }
 
   return {
@@ -90,63 +90,63 @@ function projectEntry(entry: ProjectableSessionEntry): EntryProjection {
     case "custom_message":
       return projectCustomMessage(entry);
     case "compaction":
-      return { kind: "compaction", summary: summary(entry["summary"], "Compaction summary") };
+      return { kind: "compaction", summary: summary(entry["summary"], "上下文压缩摘要") };
     case "branch_summary":
-      return { kind: "branch-summary", summary: summary(entry["summary"], "Branch summary") };
+      return { kind: "branch-summary", summary: summary(entry["summary"], "分支摘要") };
     case "model_change":
       return { kind: "model-change", summary: modelChangeSummary(entry) };
     case "thinking_level_change":
-      return { kind: "thinking-level-change", summary: namedSummary("Thinking level", entry["thinkingLevel"], "Thinking level changed") };
+      return { kind: "thinking-level-change", summary: namedSummary("思考级别", entry["thinkingLevel"], "思考级别已改变") };
     case "session_info":
-      return { kind: "session-info", summary: namedSummary("Session name", entry["name"], "Session info changed") };
+      return { kind: "session-info", summary: namedSummary("会话名称", entry["name"], "会话信息已更新") };
     case "label":
-      return { kind: "label", summary: namedSummary("Label", entry["label"], "Label removed") };
+      return { kind: "label", summary: namedSummary("标签", entry["label"], "标签已移除") };
     case "custom":
-      return { kind: "custom", summary: namedSummary("Custom entry", entry["customType"], "Custom entry") };
+      return { kind: "custom", summary: namedSummary("自定义条目", entry["customType"], "自定义条目") };
     default:
-      return { kind: "other", summary: namedSummary("Entry", entry.type, "Other session entry") };
+      return { kind: "other", summary: namedSummary("条目", entry.type, "其他会话条目") };
   }
 }
 
 function projectMessage(value: unknown): EntryProjection {
-  if (!isRecord(value)) return { kind: "other", summary: "Message" };
+  if (!isRecord(value)) return { kind: "other", summary: "消息" };
   switch (value["role"]) {
     case "user":
-      return { kind: "user", summary: summary(contentPreview(value["content"], true), "User message") };
+      return { kind: "user", summary: summary(contentPreview(value["content"], true), "用户消息") };
     case "assistant":
       return { kind: "assistant", summary: assistantSummary(value) };
     case "toolResult":
       return { kind: "tool-result", summary: toolResultSummary(value) };
     case "bashExecution":
-      return { kind: "bash", summary: namedSummary("Shell", value["command"], "Shell command") };
+      return { kind: "bash", summary: namedSummary("命令", value["command"], "Shell 命令") };
     case "custom":
       return projectCustomMessage(value);
     case "compactionSummary":
-      return { kind: "compaction", summary: summary(value["summary"], "Compaction summary") };
+      return { kind: "compaction", summary: summary(value["summary"], "上下文压缩摘要") };
     case "branchSummary":
-      return { kind: "branch-summary", summary: summary(value["summary"], "Branch summary") };
+      return { kind: "branch-summary", summary: summary(value["summary"], "分支摘要") };
     default:
-      return { kind: "other", summary: "Message" };
+      return { kind: "other", summary: "消息" };
   }
 }
 
 function projectCustomMessage(value: Record<string, unknown>): EntryProjection {
-  if (value["display"] !== true) return { kind: "custom-message", summary: "Hidden custom message" };
+  if (value["display"] !== true) return { kind: "custom-message", summary: "隐藏的自定义消息" };
   const customType = optionalPlainText(value["customType"], NAMED_FIELD_MAX_LENGTH);
   const content = contentPreview(value["content"], true);
-  const prefix = customType === undefined ? "Custom message" : `Custom message (${customType})`;
+  const prefix = customType === undefined ? "自定义消息" : `自定义消息 (${customType})`;
   return { kind: "custom-message", summary: summary(content === "" ? prefix : `${prefix}: ${content}`, prefix) };
 }
 
 function assistantSummary(message: Record<string, unknown>): string {
   const text = contentPreview(message["content"], false);
-  if (text !== "") return summary(text, "Assistant response");
+  if (text !== "") return summary(text, "助手回复");
 
   const toolNames = assistantToolNames(message["content"]);
-  if (toolNames.length > 0) return summary(`Tool call: ${toolNames.join(", ")}`, "Assistant tool call");
-  if (message["stopReason"] === "error") return "Assistant error";
-  if (message["stopReason"] === "aborted") return "Assistant response aborted";
-  return "Assistant response";
+  if (toolNames.length > 0) return summary(`工具调用: ${toolNames.join(", ")}`, "助手工具调用");
+  if (message["stopReason"] === "error") return "助手错误";
+  if (message["stopReason"] === "aborted") return "助手回复已终止";
+  return "助手回复";
 }
 
 function assistantToolNames(content: unknown): string[] {
@@ -165,8 +165,8 @@ function toolResultSummary(message: Record<string, unknown>): string {
   const isError = message["isError"] === true;
   const toolName = optionalPlainText(message["toolName"], NAMED_FIELD_MAX_LENGTH);
   const prefix = toolName === undefined
-    ? isError ? "Tool error" : "Tool result"
-    : `${isError ? "Tool error" : "Tool result"} (${toolName})`;
+    ? isError ? "工具错误" : "工具结果"
+    : `${isError ? "工具错误" : "工具结果"} (${toolName})`;
   const content = contentPreview(message["content"], true);
   return summary(content === "" ? prefix : `${prefix}: ${content}`, prefix);
 }
@@ -174,8 +174,8 @@ function toolResultSummary(message: Record<string, unknown>): string {
 function modelChangeSummary(entry: Record<string, unknown>): string {
   const provider = optionalPlainText(entry["provider"], NAMED_FIELD_MAX_LENGTH);
   const modelId = optionalPlainText(entry["modelId"], NAMED_FIELD_MAX_LENGTH);
-  if (provider !== undefined && modelId !== undefined) return summary(`Model: ${provider}/${modelId}`, "Model changed");
-  return namedSummary("Model", modelId ?? provider, "Model changed");
+  if (provider !== undefined && modelId !== undefined) return summary(`模型: ${provider}/${modelId}`, "模型已改变");
+  return namedSummary("模型", modelId ?? provider, "模型已改变");
 }
 
 function contentPreview(content: unknown, includeImageMarkers: boolean): string {
@@ -194,7 +194,7 @@ function contentPreview(content: unknown, includeImageMarkers: boolean): string 
     for (const part of content) {
       if (!isRecord(part)) continue;
       if (part["type"] === "text" && typeof part["text"] === "string") append(part["text"]);
-      else if (includeImageMarkers && part["type"] === "image") append("[image]");
+      else if (includeImageMarkers && part["type"] === "image") append("[图片]");
       if (remaining <= 0) break;
     }
   }

@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { pbkdf2Sync } from "node:crypto";
+import { createHash, pbkdf2Sync } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -13,7 +13,8 @@ import { ProjectStore } from "./storage/projectStore.js";
 import type { MachineClient } from "./machines/machineClient.js";
 import { MachineService } from "./machines/machineService.js";
 import { MachineStore } from "./machines/machineStore.js";
-import { WorkspaceService } from "./workspaces/workspaceService.js";
+import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
+import { resolveSessiondProject } from "./sessiond/managementProjectResolver.js";
 import type { PiPackageService } from "./piPackageService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
@@ -34,9 +35,10 @@ beforeEach(async () => {
   remoteClient = undefined;
   piWebConfig = {};
   const projects = new ProjectService(new ProjectStore(join(tempDir, "projects.json")));
+  const sessionDaemon = fakeSessionDaemon(projects);
   app = await buildApp({
     projects,
-    workspaces: new WorkspaceService(),
+    workspaceCatalog: new SessionDaemonWorkspaceCatalog(sessionDaemon),
     machines: new MachineService(new MachineStore(join(tempDir, "machines.json")), {
       remoteClientFactory: () => {
         if (remoteClient === undefined) throw new Error("No remote machine client configured");
@@ -53,12 +55,12 @@ beforeEach(async () => {
         capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
       }),
     }),
-    sessionDaemon: fakeSessionDaemon(projects),
+    sessionDaemon,
     config: fakeConfigService(),
     piPackages: fakePiPackageService(),
     piWebPlugins: {
       manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
-      plugins: () => Promise.resolve(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }])),
+      plugins: () => Promise.resolve(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true, discovered: true, conflict: false }])),
       readAsset: (pluginId, assetPath) => Promise.resolve(pluginId === "fake" && assetPath === "plugin.js" ? { content: Buffer.from("export default {};"), contentType: "application/javascript; charset=utf-8" } : undefined),
     },
     clientDist: false,
@@ -299,11 +301,11 @@ describe("buildApp", () => {
 
     const pluginsResponse = await app.inject({ method: "GET", url: "/api/plugins" });
     expect(pluginsResponse.statusCode).toBe(200);
-    expect(pluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }]));
+    expect(pluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true, discovered: true, conflict: false }]));
 
     const localMachinePluginsResponse = await app.inject({ method: "GET", url: "/api/machines/local/plugins" });
     expect(localMachinePluginsResponse.statusCode).toBe(200);
-    expect(localMachinePluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }]));
+    expect(localMachinePluginsResponse.json()).toEqual(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true, discovered: true, conflict: false }]));
 
     const assetResponse = await app.inject({ method: "GET", url: "/pi-web-plugins/fake/plugin.js?v=1" });
     expect(assetResponse.statusCode).toBe(200);
@@ -388,11 +390,12 @@ describe("buildApp", () => {
     const managedMachinesService = new MachineService(new MachineStore(join(tempDir, "managed-machines.json")));
     await managedMachinesService.add({ name: "Private Remote", baseUrl: "https://remote.example.test" });
     const projects = new ProjectService(new ProjectStore(join(tempDir, "managed-projects.json")));
+    const sessionDaemon = fakeSessionDaemon(projects, managementRoot);
     app = await buildApp({
       projects,
-      workspaces: new WorkspaceService(),
+      workspaceCatalog: new SessionDaemonWorkspaceCatalog(sessionDaemon, managementEmbed),
       machines: managedMachinesService,
-      sessionDaemon: fakeSessionDaemon(projects),
+      sessionDaemon,
       config: fakeConfigService(),
       piWebPlugins: {
         manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [] }),
@@ -705,9 +708,18 @@ function fakePiPackageService(): PiPackageService {
   };
 }
 
-function fakeSessionDaemon(projects: ProjectService): SessionProxyDaemon {
+function fakeSessionDaemon(projects: ProjectService, managementProjectRoot?: string): SessionProxyDaemon {
   return {
-    request: async (method, path, body) => {
+    request: async (method, path, body, headers) => {
+      const catalogMatch = /^\/workspace-catalog\/projects\/([^/]+)\/workspaces(?:\/([^/]+))?$/u.exec(path);
+      if (method === "GET" && catalogMatch?.[1] !== undefined) {
+        const project = await resolveSessiondProject(headers ?? {}, decodeURIComponent(catalogMatch[1]), { projects, managementProjectRoot });
+        const workspace = { id: createHash("sha1").update(`${project.id}:${project.path}`).digest("hex").slice(0, 12), projectId: project.id, path: project.path, label: project.name, isMain: true };
+        const response = catalogMatch[2] === undefined
+          ? { status: "folder", projectId: project.id, workspaces: [workspace], diagnostics: [] }
+          : workspace;
+        return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(response) };
+      }
       if (method === "POST" && path === "/projects" && isRecord(body) && typeof body["path"] === "string") {
         const project = await projects.add({
           path: body["path"],

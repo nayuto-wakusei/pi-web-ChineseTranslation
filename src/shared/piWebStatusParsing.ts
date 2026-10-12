@@ -55,7 +55,13 @@ export function parsePiWebRuntimeComponent(value: unknown): PiWebRuntimeComponen
   };
 }
 
-/** Advisory entries are filtered without invalidating a cross-version runtime. */
+/**
+ * Parse deprecated agent-configuration inputs reported by another component or
+ * machine. The payload only feeds an advisory warning banner, so malformed
+ * entries are dropped rather than failing the whole runtime snapshot: a
+ * cross-version peer must never blank a machine's runtime over a warning.
+ * Returns undefined when the field itself is absent or not an array.
+ */
 export function parseDeprecatedAgentInputs(value: unknown): PiWebDeprecatedAgentInput[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const inputs: PiWebDeprecatedAgentInput[] = [];

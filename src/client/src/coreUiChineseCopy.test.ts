@@ -27,7 +27,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes the navigation search and pinned destination controls",
-    paths: ["components/appShell/NavigationDialog.ts", "components/WorkspacePanel.ts", "components/PiWebApp.ts"],
+    paths: ["components/appShell/NavigationDialog.ts", "components/WorkspacePanel.ts", "components/PiWebApp.ts", "controllers/workspaceController.ts"],
     expected: ["打开导航", "搜索导航目标", "导航目标", "没有匹配的导航目标", "固定到标签栏", "取消固定", "显示全部标签", "移动导航显示方式", "展开", "折叠", "导航目标不可用", "找不到机器：", "找不到项目：", "找不到工作区：", "找不到会话："],
     forbidden: ["Search navigation", "No destinations found", "Pin to tab bar", "Show all tabs", "Destination unavailable"],
   },
@@ -96,7 +96,7 @@ const copyCases: readonly CopyCase[] = [
     paths: [
       "components/settings/SettingsPackagesPanel.ts", "components/settings/piPackageSettings.ts", "components/settings/settingsMachineTarget.ts",
       "components/settings/SettingsPanelFrame.ts", "components/settings/SettingsShortcutsPanel.ts", "components/settings/SettingsPluginsPanel.ts",
-      "components/SettingsDialog.ts", "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "components/UnifiedDiffViewer.ts",
+      "components/SettingsDialog.ts", "components/MachineSwitcher.ts", "components/ToolExecutionView.ts", "../../../pi-web-plugins/git/browser/git-panel.ts",
       "components/settings/SettingsGeneralPanel.ts", "components/settings/SettingsSessiondPanel.ts",
     ],
     expected: ["Pi 包来源", "受信代码警告", "本地网关", "远程机器", "用户范围", "机器专属", "设置通知", "无默认快捷键", "机器操作", "没有差异", "\"命令\" | \"文件\" | \"输入\"", "主机地址", "允许的主机名", "配套 CLI 命令", "代理配置档案", "配置档案状态", "允许代理启动受跟踪的子会话"],
@@ -166,7 +166,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "localizes workspace files, git, machine, project, and workspace controls",
-    paths: ["components/WorkspaceFilesPanel.ts", "components/WorkspaceGitPanel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "../../../pi-web-plugins/files/pi-web-plugin.ts", "../../../pi-web-plugins/terminal/pi-web-plugin.ts"],
+    paths: ["../../../pi-web-plugins/files/FilesPanel.ts", "../../../pi-web-plugins/git/browser/git-panel.ts", "components/MachineSwitcher.ts", "components/MachineList.ts", "components/ProjectList.ts", "components/WorkspaceList.ts", "../../../pi-web-plugins/files/pi-web-plugin.ts", "../../../pi-web-plugins/terminal/pi-web-plugin.ts"],
     expected: ["拖放文件以上传", "工作区上传", "没有更改。", "全部展开", "机器活动中", "项目活动中", "工作区活动中", "复制路径", "title: \"文件\"", "title: \"终端\""],
     forbidden: ["Drop files to upload", "Workspace uploads", "No changes.", "Expand all", "Machine active", "Project active", "Workspace active", "Copy path", "title: \"Files\"", "title: \"Terminal\""],
   },
@@ -184,7 +184,7 @@ const copyCases: readonly CopyCase[] = [
   },
   {
     name: "keeps the file upload control as one visible Chinese button",
-    paths: ["components/WorkspaceFilesPanel.ts"],
+    paths: ["../../../pi-web-plugins/files/FilesPanel.ts"],
     expected: ["aria-label=\"上传文件\"", "type=\"file\" multiple hidden"],
     forbidden: [">选择文件<", "Choose file", "未选择文件"],
   },

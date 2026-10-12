@@ -1,9 +1,11 @@
+import { noticesApi, SessionTreeForkUnavailableError } from "./clients";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../../shared/pluginRecoveryCommands";
 import type { PiWebConfigValues, TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
 import { configApi, filesApi, machinesApi, normalAuthApi, piPackagesApi, piWebApi, pluginsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 import { setApiScope } from "./http";
+import { requestPairedPluginBackend } from "./pluginBackends";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -13,6 +15,7 @@ const workspace: Workspace = {
   isMain: true,
   isGitRepo: true,
   isGitWorktree: true,
+  effectiveConfig: {},
 };
 
 function piWebStatusResponse() {
@@ -578,15 +581,16 @@ describe("machine-scoped terminal command-run API", () => {
     expect(JSON.parse(requestBody(init))).toEqual({ origin: "core", title: "Build", command: "npm test", metadata: {} });
   });
 
-  it("closes all workspace terminals through the selected machine scope", async () => {
+  it("closes an ordinary terminal through its revision-paired selected machine scope", async () => {
     const fetchMock = stubJsonFetch({ closed: true });
 
-    await terminalsApi.closeWorkspaceTerminals("p 1", "w/1", "remote a");
+    await requestPairedPluginBackend({ pluginId: "pi-web.terminal", backendRevision: "terminal-r1", projectId: "p 1", workspaceId: "w/1", machineId: "remote a" }, "terminal.close", { terminalId: "t1" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/terminals");
-    expect(init?.method).toBe("DELETE");
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20a/paired-plugin-backends/pi-web.terminal/projects/p%201/workspaces/w%2F1/terminal.close");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(requestBody(init))).toEqual({ revision: "terminal-r1", input: { terminalId: "t1" } });
   });
 
   it("lists, reads, and cancels command runs through the selected machine scope", async () => {
@@ -783,3 +787,167 @@ function piWebPluginsResponse() {
 function jsonResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
 }
+
+function sessionInfoResponse(id: string) {
+  return { id, path: `/tmp/${id}.jsonl`, cwd: "/repo", created: "now", modified: "now", messageCount: 0, firstMessage: "" };
+}
+describe("Upstream transport and navigation contracts", () => {
+  it("reads scoped notices and dismisses them through the selected machine route", async () => {
+    const snapshot = {
+      daemonInstanceId: "daemon-a",
+      revision: 1,
+      notices: [{
+        id: "notice-1",
+        severity: "warning",
+        message: "Remote warning",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        source: "plugin:remote",
+        scope: { projectId: "project-1" },
+        context: { projectId: "metadata-only" },
+      }],
+    };
+    const fetchMock = stubSequenceFetch([jsonResponse(snapshot), jsonResponse({ ...snapshot, revision: 2, notices: [] })]);
+
+    await expect(noticesApi.snapshot("remote a")).resolves.toEqual(snapshot);
+    await noticesApi.dismiss("remote a", "daemon-a", "notice-1");
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/machines/remote%20a/notices",
+      "https://pi.example.test/api/machines/remote%20a/notices/dismiss",
+    ]);
+    expect(fetchCall(fetchMock, 0)[1]?.cache).toBe("no-store");
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ daemonInstanceId: "daemon-a", noticeId: "notice-1" });
+  });
+
+  it("reads and acknowledges daemon-owned unread state through encoded machine routes", async () => {
+    const unread = {
+      catalogId: "catalog-a",
+      catalogRevision: 1,
+      sessions: [{ sessionId: "s /?", cwd: "/repo", completionOrder: 1, completedAt: "2026-07-20T00:00:01.000Z" }],
+    };
+    const cleared = { catalogId: "catalog-a", catalogRevision: 2, sessions: [] };
+    const fetchMock = stubSequenceFetch([jsonResponse(unread), jsonResponse(cleared)]);
+
+    await expect(sessionsApi.unreadCatalog("remote a")).resolves.toEqual(unread);
+    await expect(sessionsApi.acknowledgeUnread({ id: "s /?", cwd: "/repo" }, "catalog-a", 1, "remote a")).resolves.toEqual(cleared);
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/unread");
+    expect(fetchCall(fetchMock, 0)[1]?.cache).toBe("no-store");
+    expect(fetchCall(fetchMock, 1)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%20%2F%3F/unread/acknowledge");
+    expect(fetchCall(fetchMock, 1)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({
+      cwd: "/repo",
+      catalogId: "catalog-a",
+      throughCompletionOrder: 1,
+    });
+  });
+
+  it("carries a create's correlation token in the start request body when one is supplied", async () => {
+    const fetchMock = stubSequenceFetch([
+      jsonResponse(sessionInfoResponse("s 1")),
+      jsonResponse(sessionInfoResponse("s 2")),
+    ]);
+
+    await sessionsApi.startSession("/repo", "remote a", "pending-session-3-k2x9");
+    await sessionsApi.startSession("/repo", "remote a");
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ cwd: "/repo", startupToken: "pending-session-3-k2x9" });
+    // The token is optional, so a caller with no row to label sends none rather
+    // than an empty one.
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ cwd: "/repo" });
+  });
+
+  it("recognizes an old daemon only from the missing tree/fork route response", async () => {
+    stubResponseFetch(new Response(JSON.stringify({
+      statusCode: 404,
+      error: "Not Found",
+      message: "Route POST:/sessions/s-1/tree/fork not found",
+    }), { status: 404, headers: { "content-type": "application/json" } }));
+
+    const request = sessionsApi.forkTree({ id: "s-1", cwd: "/repo" }, { entryId: "entry-1", expectedLeafId: "leaf-1" });
+
+    await expect(request).rejects.toBeInstanceOf(SessionTreeForkUnavailableError);
+    await expect(request).rejects.toThrow("重启会话守护进程");
+  });
+
+  it.each([
+    { status: 404, message: "Session not found" },
+    { status: 404, message: "Machine not found" },
+    { status: 502, message: "Remote machine unavailable" },
+  ])("preserves a genuine API error: $message", async ({ status, message }) => {
+    stubResponseFetch(new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "content-type": "application/json" },
+    }));
+
+    const request = sessionsApi.forkTree({ id: "s-1", cwd: "/repo" }, { entryId: "entry-1", expectedLeafId: "leaf-1" });
+
+    await expect(request).rejects.toThrow(message);
+    await expect(request).rejects.not.toBeInstanceOf(SessionTreeForkUnavailableError);
+  });
+
+  it("uses the workspace-scoped route", async () => {
+    const fetchMock = stubJsonFetch([]);
+
+    await filesApi.files("README", { projectId: "p 1", workspaceId: "w/1", scope: "tracked", machineId: "remote a" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/files?q=README&scope=tracked");
+  });
+
+  it("keeps project ids in one encoded route segment and preserves provider diagnostics", async () => {
+    const projectId = "../p /?";
+    const listedWorkspace = { ...workspace, projectId };
+    const response = {
+      status: "degraded",
+      projectId,
+      ownerPluginId: "replacement",
+      workspaces: [listedWorkspace],
+      diagnostics: [{ code: "list-failed", message: "backend unavailable", tier: "primary", pluginId: "replacement" }],
+    };
+    const fetchMock = stubSequenceFetch([jsonResponse(response), jsonResponse(response)]);
+
+    const resolution = await workspacesApi.workspaceResolution(projectId, "remote a");
+    const listed = await workspacesApi.workspaces(projectId, "remote a");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/projects/..%2Fp%20%2F%3F/workspaces");
+    expect(fetchCall(fetchMock, 1)[0]).toBe(fetchCall(fetchMock, 0)[0]);
+    expect(resolution).toMatchObject({
+      status: "degraded",
+      ownerPluginId: "replacement",
+      diagnostics: [{ code: "list-failed", pluginId: "replacement" }],
+    });
+    expect(listed).toEqual([listedWorkspace]);
+  });
+
+  it("deletes workspaces through the selected machine scope with the confirmed host precondition", async () => {
+    const fetchMock = stubJsonFetch(commandRun);
+
+    await workspacesApi.deleteWorkspace("p 1", "w/1", "v1.confirmed", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1");
+    expect(init?.method).toBe("DELETE");
+    expect(init?.body).toBe(JSON.stringify({ precondition: "v1.confirmed" }));
+  });
+
+  it("forwards caller cancellation through selected-machine tree and file requests", async () => {
+    const fetchMock = stubSequenceFetch([
+      jsonResponse({ path: "src", entries: [], scannedAt: "2026-06-25T00:00:00.000Z", truncated: false }),
+      jsonResponse({ path: "README.md", encoding: "utf8", size: 2, modifiedAt: "2026-06-25T00:00:00.000Z", content: "hi", truncated: false, binary: false }),
+    ]);
+    const controller = new AbortController();
+
+    await workspacesApi.workspaceTree("p 1", "w/1", "src", "remote a", { signal: controller.signal });
+    await workspacesApi.workspaceFile("p 1", "w/1", "README.md", "remote a", { signal: controller.signal });
+
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/tree?path=src");
+    expect(fetchCall(fetchMock, 1)[0]).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/file?path=README.md");
+    expect(fetchCall(fetchMock, 0)[1]?.signal).toBe(controller.signal);
+    expect(fetchCall(fetchMock, 1)[1]?.signal).toBe(controller.signal);
+  });
+});

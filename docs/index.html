@@ -38,7 +38,7 @@
         "downloadUrl": "https://www.npmjs.com/package/@chainingintention/pi-web-cn",
         "codeRepository": "https://github.com/jmfederico/pi-web",
         "description": "PI WEB is a web UI for Pi Coding Agent that keeps persistent agent sessions running in real workspaces on your machine or server.",
-        "softwareRequirements": "Node.js 22.19.0 or newer and Pi Coding Agent >=0.82.1 <0.83",
+        "softwareRequirements": "Node.js 22.19.0 或更新版本与已测试的 Pi Coding Agent 0.86.1 或 0.87.0",
         "license": "https://github.com/jmfederico/pi-web/blob/main/LICENSE"
       }
     </script>
@@ -59,19 +59,19 @@
   </head>
   <body class="home-page">
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
             <a href="remote-first">Remote-first</a>
-            <a href="machines">Fleet</a>
+            <a href="machines">机器</a>
             <a href="install">Install</a>
-            <a href="config">Config</a>
-            <a href="plugins">Plugins</a>
-            <a href="faq">FAQ</a>
+            <a href="config">配置</a>
+            <a href="plugins">插件</a>
+            <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="GitHub 上的 PI WEB">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path
                   fill="currentColor"
@@ -80,7 +80,7 @@
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗主题">
               <span data-theme-icon aria-hidden="true">◐</span>
               <span data-theme-label>Theme</span>
             </button>
@@ -249,9 +249,8 @@
               <div class="card-icon">⇄</div>
               <h3>Any browser can supervise the work</h3>
               <p>
-                Your device is replaceable. The sessions are not. Move between laptop, phone, tablet, and desktop
-                without moving the development environment. Under the hood, PI WEB coordinates the running sessions,
-                files, terminals, Pi package management, and remote machines like a browser-based control plane.
+                设备可以切换，会话无需搬迁。使用电脑、手机、平板或桌面浏览器监督同一开发环境，
+                在同一界面管理会话、文件、终端、包与远端机器。
               </p>
             </article>
             <article class="card">
@@ -357,12 +356,12 @@
             <a href="faq#is-this-linux-only">Read compatibility notes →</a>
           </article>
           <article class="doc-card">
-            <h3>Local UI plugins?</h3>
+            <h3>定制工作流</h3>
             <p>
-              Ask AI agents to add trusted local UI plugins from <code>~/.pi-web/plugins</code> without rebuilding or
-              restarting the session daemon.
+              通过可信插件添加面板、工具和工作区工作流，无需重建 PI WEB。
+              在各机器管理插件，或请求代理创建符合项目工作流的插件。
             </p>
-            <a href="plugins">Build a plugin →</a>
+            <a href="plugins#possibilities">探索插件 →</a>
           </article>
           <article class="doc-card">
             <h3>Node or tools not found?</h3>
@@ -381,15 +380,15 @@
         <span>PI WEB · web UI for persistent Pi Coding Agent sessions.</span>
         <div class="footer-links">
           <a href="remote-first">Remote-first</a>
-          <a href="machines">Fleet</a>
+          <a href="machines">机器</a>
           <a href="install">Install</a>
-          <a href="config">Config</a>
-          <a href="plugins">Plugins</a>
-          <a href="faq">FAQ</a>
+          <a href="config">配置</a>
+          <a href="plugins">插件</a>
+          <a href="faq">常见问题</a>
           <a href="https://www.npmjs.com/package/@chainingintention/pi-web-cn">npm</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/">Dev</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/">开发版</a>
           </span>
         </div>
       </div>

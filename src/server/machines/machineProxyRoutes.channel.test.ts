@@ -106,12 +106,12 @@ describe("machine plugin backend channel proxy", () => {
       });
     });
     registerPluginBackendChannelProxyRoutes(app, {
-      connectWebSocket(path, headers, maxPayload) {
-        const socket = new WebSocket(`${webSocketServerUrl(remoteServer)}${path}`, { headers, maxPayload });
+      connectWebSocket(path, options) {
+        const socket = new WebSocket(`${webSocketServerUrl(remoteServer)}${path}`, options);
         sockets.push(socket);
         return socket;
       },
-    }, "/api", undefined, admissions);
+    }, "/api", admissions);
     const remoteClient = vi.fn(() => Promise.resolve(undefined));
     registerMachineProxyRoutes(app, { remoteClient }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });

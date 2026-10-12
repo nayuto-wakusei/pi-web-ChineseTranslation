@@ -62,7 +62,7 @@ export class KeyboardShortcutDispatcher {
     }
 
     const editable = isEditableShortcutEvent(event);
-    // Filter by the first chord so a modified sequence can still finish with a plain key.
+    // Filter by the first chord so modified sequences can still finish with plain keys.
     const shortcuts = resolveShortcutBindings(actions, options.shortcuts, { enabledOnly: true })
       .filter((binding) => binding.active && (!editable || isShortcutSequenceStarter(binding.tokens[0] ?? "")))
       .map((binding) => ({ action: binding.action, tokens: binding.tokens }));

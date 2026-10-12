@@ -25,7 +25,7 @@ function workspace(projectId: string, path: string): Workspace {
     projectId,
     path,
     label: path,
-    isMain: path === "/repo",
+    effectiveConfig: {}, isMain: path === "/repo",
     isGitRepo: true,
     isGitWorktree: true,
   };

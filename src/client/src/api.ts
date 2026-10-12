@@ -1,5 +1,5 @@
-export { activityApi, api, configApi, filesApi, gitApi, machinesApi, machineStatusApi, normalAuthApi, noticesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, workspacesApi } from "./api/clients";
-export { globalSessionEvents, realtimeEvents, sessionEvents, terminalSocket } from "./api/sockets";
+export { activityApi, api, configApi, filesApi, machinesApi, machineStatusApi, normalAuthApi, noticesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, SessionTreeForkUnavailableError, sessionsApi, terminalsApi, workspacesApi } from "./api/clients";
+export { globalSessionEvents, realtimeEvents, sessionEvents } from "./api/sockets";
 export { setApiScope } from "./api/http";
 export type { ApiScope } from "./api/managementEmbed";
 export type { JsonValue } from "../../shared/apiTypes";
@@ -15,3 +15,12 @@ export type { AskUserCloseResponse, AskUserQuestion, AskUserSubmission, Extensio
 export type { ServerNotice, ServerNoticeDismissRequest, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot } from "../../shared/apiTypes";
 export { trustApi } from "./api/clients";
 export type { WorkspaceTrustResponse } from "../../shared/apiTypes";
+export {
+  openPairedPluginBackendChannel,
+  pairedPluginBackendChannelPath,
+  pairedPluginBackendChannelUrl,
+  pairedPluginBackendRequestPath,
+  pairedPluginBackendRequestUrl,
+  requestPairedPluginBackend,
+} from "./api/pluginBackends";
+export type { JsonObject, JsonPrimitive, PiWebDeprecatedAgentInput, WorkspaceProviderCapabilities, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderMetadata, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier, WorkspaceRemovalPresentation, WorkspaceRemovalRequest } from "../../shared/apiTypes";

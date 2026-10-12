@@ -45,6 +45,6 @@ const plugin: PiWebPlugin = {
       },
     };
   },
-};
+} satisfies PiWebPlugin;
 
 export default plugin;

@@ -3,49 +3,45 @@ import type { AppState } from "../appState";
 import { createPwaDisplayModeMedia, detectPwaDisplayMode } from "../pwaDisplayMode";
 import { ViewportPositionRepairer } from "./viewportPositionRepair";
 
+export const DESKTOP_SIDE_BY_SIDE_MEDIA_QUERY = "(min-width: 1181px)";
 export const MOBILE_NAVIGATION_MEDIA_QUERY = "(max-width: 760px)";
-export const STACKED_WORKSPACE_MEDIA_QUERY = "(max-width: 1180px)";
 
 export interface AppShellControllerOptions {
+  desktopSideBySideMedia?: MediaQueryList | undefined;
   mobileNavigationMedia?: MediaQueryList | undefined;
-  stackedWorkspaceMedia?: MediaQueryList | undefined;
   pwaDisplayModeMedia?: MediaQueryList[] | undefined;
   viewportPositionRepairer?: ViewportPositionRepairer | undefined;
 }
 
 export class AppShellController implements ReactiveController {
+  private readonly desktopSideBySideMedia: MediaQueryList | undefined;
+  isDesktopSideBySideLayout: boolean;
   private readonly mobileNavigationMedia: MediaQueryList | undefined;
-  private readonly stackedWorkspaceMedia: MediaQueryList | undefined;
   private readonly pwaDisplayModeMedia: MediaQueryList[];
   private readonly viewportPositionRepairer: ViewportPositionRepairer;
   isMobileNavigationLayout: boolean;
-  isStackedWorkspaceLayout: boolean;
   isPwaDisplayMode: boolean;
-
-  get isDesktopSideBySideLayout(): boolean {
-    return !this.isStackedWorkspaceLayout;
-  }
 
   constructor(private readonly host: ReactiveControllerHost, options: AppShellControllerOptions = {}) {
     host.addController(this);
-    this.mobileNavigationMedia = options.mobileNavigationMedia ?? createMobileNavigationMedia();
-    this.stackedWorkspaceMedia = options.stackedWorkspaceMedia ?? createStackedWorkspaceMedia();
+    this.desktopSideBySideMedia = options.desktopSideBySideMedia ?? createLayoutMedia(DESKTOP_SIDE_BY_SIDE_MEDIA_QUERY);
+    this.isDesktopSideBySideLayout = this.desktopSideBySideMedia?.matches ?? true;
+    this.mobileNavigationMedia = options.mobileNavigationMedia ?? createLayoutMedia(MOBILE_NAVIGATION_MEDIA_QUERY);
     this.pwaDisplayModeMedia = options.pwaDisplayModeMedia ?? createPwaDisplayModeMedia();
     this.viewportPositionRepairer = options.viewportPositionRepairer ?? new ViewportPositionRepairer();
     this.isMobileNavigationLayout = this.mobileNavigationMedia?.matches ?? false;
-    this.isStackedWorkspaceLayout = this.stackedWorkspaceMedia?.matches ?? false;
     this.isPwaDisplayMode = detectPwaDisplayMode(this.pwaDisplayModeMedia);
   }
 
   hostConnected(): void {
+    this.desktopSideBySideMedia?.addEventListener("change", this.onDesktopSideBySideMediaChange);
     this.mobileNavigationMedia?.addEventListener("change", this.onMobileNavigationMediaChange);
-    this.stackedWorkspaceMedia?.addEventListener("change", this.onStackedWorkspaceMediaChange);
     for (const media of this.pwaDisplayModeMedia) media.addEventListener("change", this.onPwaDisplayModeChange);
   }
 
   hostDisconnected(): void {
+    this.desktopSideBySideMedia?.removeEventListener("change", this.onDesktopSideBySideMediaChange);
     this.mobileNavigationMedia?.removeEventListener("change", this.onMobileNavigationMediaChange);
-    this.stackedWorkspaceMedia?.removeEventListener("change", this.onStackedWorkspaceMediaChange);
     for (const media of this.pwaDisplayModeMedia) media.removeEventListener("change", this.onPwaDisplayModeChange);
     this.viewportPositionRepairer.clear();
   }
@@ -63,15 +59,7 @@ export class AppShellController implements ReactiveController {
   }
 
   defaultRouteView(): AppState["mainView"] {
-    return this.normalizedMainView(undefined, false);
-  }
-
-  normalizedMainView(view: AppState["mainView"] | undefined, hasSelectedSession: boolean): AppState["mainView"] {
-    return normalizeMainViewForLayout(view, {
-      isMobileNavigationLayout: this.isMobileNavigationLayout,
-      isStackedWorkspaceLayout: this.isStackedWorkspaceLayout,
-      hasSelectedSession,
-    });
+    return this.isMobileNavigationLayout ? "navigation" : "chat";
   }
 
   repairViewportPosition(): void {
@@ -82,15 +70,15 @@ export class AppShellController implements ReactiveController {
     return this.isMobileNavigationLayout || this.isPwaDisplayMode;
   }
 
-  private readonly onMobileNavigationMediaChange = (event: MediaQueryListEvent) => {
-    if (this.isMobileNavigationLayout === event.matches) return;
-    this.isMobileNavigationLayout = event.matches;
+  private readonly onDesktopSideBySideMediaChange = (event: MediaQueryListEvent) => {
+    if (this.isDesktopSideBySideLayout === event.matches) return;
+    this.isDesktopSideBySideLayout = event.matches;
     this.host.requestUpdate();
   };
 
-  private readonly onStackedWorkspaceMediaChange = (event: MediaQueryListEvent) => {
-    if (this.isStackedWorkspaceLayout === event.matches) return;
-    this.isStackedWorkspaceLayout = event.matches;
+  private readonly onMobileNavigationMediaChange = (event: MediaQueryListEvent) => {
+    if (this.isMobileNavigationLayout === event.matches) return;
+    this.isMobileNavigationLayout = event.matches;
     this.host.requestUpdate();
   };
 
@@ -102,25 +90,7 @@ export class AppShellController implements ReactiveController {
   };
 }
 
-function createMobileNavigationMedia(): MediaQueryList | undefined {
+function createLayoutMedia(query: string): MediaQueryList | undefined {
   if (typeof window === "undefined" || !("matchMedia" in window)) return undefined;
-  return window.matchMedia(MOBILE_NAVIGATION_MEDIA_QUERY);
-}
-
-function createStackedWorkspaceMedia(): MediaQueryList | undefined {
-  if (typeof window === "undefined" || !("matchMedia" in window)) return undefined;
-  return window.matchMedia(STACKED_WORKSPACE_MEDIA_QUERY);
-}
-
-export function normalizeMainViewForLayout(
-  view: AppState["mainView"] | undefined,
-  options: {
-    isMobileNavigationLayout: boolean;
-    isStackedWorkspaceLayout: boolean;
-    hasSelectedSession: boolean;
-  },
-): AppState["mainView"] {
-  const effectiveView = view ?? (options.isMobileNavigationLayout ? "navigation" : "chat");
-  if (options.isMobileNavigationLayout || !options.isStackedWorkspaceLayout || !options.hasSelectedSession) return effectiveView;
-  return effectiveView === "navigation" || effectiveView === "chat" ? effectiveView : "chat";
+  return window.matchMedia(query);
 }

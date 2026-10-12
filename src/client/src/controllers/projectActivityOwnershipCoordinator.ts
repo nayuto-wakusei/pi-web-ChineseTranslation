@@ -1,6 +1,5 @@
 import { workspacesApi as defaultApi, type Project, type Workspace } from "../api";
-import { isWorkspaceActivityActive } from "../../../shared/activity";
-import { projectOwnsWorkspacePath } from "../workspaceActivity";
+import { isWorkspaceActivityActive, projectOwnsWorkspacePath } from "../workspaceActivity";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 
 export interface ProjectActivityOwnershipFailure {

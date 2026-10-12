@@ -1,6 +1,7 @@
 import type { RunningComponentId } from "../piWebVersionReport.js";
 import type { NativeServiceBackend, NativeServiceId, NativeServiceManagerRef } from "./servicePlan.js";
 
+/** A service under lifecycle control: its stable id plus its manager-specific unit, label, and log names. */
 export interface LifecycleServiceRef extends NativeServiceManagerRef {
   id: NativeServiceId;
 }
@@ -9,6 +10,9 @@ export type ServiceLifecycleAction = "start" | "stop" | "restart";
 
 export const serviceStartOrder: readonly NativeServiceId[] = ["sessiond", "web", "uiDev"];
 export const serviceStopOrder: readonly NativeServiceId[] = ["web", "uiDev", "sessiond"];
+// Restart web/UI before sessiond: when `pi-web restart` runs in a pi-web
+// terminal (owned by sessiond), restarting sessiond kills the command, so any
+// services handled after it would never be restarted.
 export const serviceRestartOrder: readonly NativeServiceId[] = ["web", "uiDev", "sessiond"];
 
 const LAUNCHD_UNLOAD_SETTLE_TIMEOUT_MS = 10_000;
@@ -17,6 +21,7 @@ const SERVICE_READINESS_TIMEOUT_MS = 30_000;
 const DEV_SERVICE_READINESS_TIMEOUT_MS = 120_000;
 const SERVICE_READINESS_INTERVAL_MS = 1_000;
 
+/** Bounded-wait budgets. Tests inject small values together with an instant sleep. */
 export interface ServiceActionTiming {
   launchdUnloadSettleTimeoutMs?: number;
   launchdUnloadSettleIntervalMs?: number;
@@ -24,19 +29,32 @@ export interface ServiceActionTiming {
   readinessIntervalMs?: number;
 }
 
+/**
+ * Effect boundary for lifecycle operations. Command runners only report the
+ * exit status; the orchestrator decides what failure means. Probes and sleep
+ * are injected so tests can script manager state and user-facing readiness
+ * without real processes, services, timers, or network.
+ */
 export interface ServiceActionDeps {
+  /** Run a command with inherited stdio; resolves with its exit status. */
   run(command: string, args: string[]): number;
+  /** Run a command with captured (discarded) output; resolves with its exit status. */
   runQuiet(command: string, args: string[]): number;
+  /** Wait between polls. */
   sleep(ms: number): Promise<void>;
+  /** Manager-reported running state (systemd active / launchd state running). */
   isServiceRunning(ref: LifecycleServiceRef): boolean;
+  /** User-facing readiness of a running component (web/API version endpoint, session daemon health). */
   isComponentReady(component: RunningComponentId): Promise<boolean>;
 }
 
+/** launchd-specific locations needed to bootstrap a service. */
 export interface LaunchdServiceContext {
   domain: string;
   plistPath(ref: LifecycleServiceRef): string;
 }
 
+/** A service-manager command exited nonzero; carries the exact invocation for diagnosis. */
 export class ServiceCommandError extends Error {
   readonly command: string;
   readonly args: readonly string[];
@@ -79,6 +97,7 @@ export function launchdServiceTarget(domain: string, ref: LifecycleServiceRef): 
   return `${domain}/${ref.launchdLabel}`;
 }
 
+/** Order refs by service id, dropping ids that are not present. */
 export function orderServices<T extends LifecycleServiceRef>(refs: readonly T[], order: readonly NativeServiceId[]): T[] {
   const byId = new Map(refs.map((ref) => [ref.id, ref]));
   return order.flatMap((id) => {
@@ -93,6 +112,11 @@ function orderForAction(action: ServiceLifecycleAction): readonly NativeServiceI
   return serviceStartOrder;
 }
 
+/**
+ * The running component a service must make responsive: the API-serving
+ * services (production web, development UI/API) back the web component; the
+ * session daemon backs itself.
+ */
 export function readinessComponentForService(id: NativeServiceId): RunningComponentId {
   return id === "sessiond" ? "sessiond" : "web";
 }
@@ -106,6 +130,16 @@ function launchdServiceLoaded(target: string, deps: Pick<ServiceActionDeps, "run
   return deps.runQuiet("launchctl", launchdPrintArgs(target)) === 0;
 }
 
+/**
+ * Wait until launchd has fully unloaded a service after bootout. `launchctl
+ * bootout` only requests teardown: the label keeps resolving while launchd
+ * unloads asynchronously, and acting on the still-loaded record races the
+ * unload (a kickstart can succeed against the dying record just before the
+ * label disappears for good). A label that was never loaded settles
+ * immediately. Returns false when the label is still loaded after the
+ * timeout; the caller then falls back to the checked kickstart path, which
+ * keeps the outcome truthful instead of silently losing the service.
+ */
 export async function settleLaunchdServiceUnload(
   target: string,
   deps: Pick<ServiceActionDeps, "runQuiet" | "sleep">,
@@ -121,6 +155,10 @@ export async function settleLaunchdServiceUnload(
   return !launchdServiceLoaded(target, deps);
 }
 
+/**
+ * Start (or kick) one LaunchAgent: bootstrap and enable only when the label
+ * is not loaded, then kickstart. Any manager failure throws ServiceCommandError.
+ */
 export function startLaunchdService(
   ref: LifecycleServiceRef,
   context: LaunchdServiceContext,
@@ -134,6 +172,12 @@ export function startLaunchdService(
   runChecked(deps, "launchctl", launchdKickstartArgs(target));
 }
 
+/**
+ * Restart one LaunchAgent without racing launchd's asynchronous unload:
+ * bootout, wait for the label to disappear, then start. A settle timeout
+ * falls through to the start path, whose kickstart is checked, so a stuck
+ * unload surfaces as a failure instead of an exit-0-while-gone restart.
+ */
 export async function restartLaunchdService(
   ref: LifecycleServiceRef,
   context: LaunchdServiceContext,
@@ -146,6 +190,12 @@ export async function restartLaunchdService(
   startLaunchdService(ref, context, deps);
 }
 
+/**
+ * Wait until every service is manager-reported running and its user-facing
+ * component responds. Manager state gates the component probe: a service that
+ * is not running yet is not probed. Returns the services still unready when
+ * the bounded wait expires.
+ */
 export async function awaitServicesReady(
   refs: readonly LifecycleServiceRef[],
   deps: Pick<ServiceActionDeps, "sleep" | "isServiceRunning" | "isComponentReady">,
@@ -173,9 +223,17 @@ export interface ServiceActionInput {
 }
 
 export interface ServiceActionResult {
+  /** Services still unready when the bounded wait expired; always empty for `stop`. */
   unreadyServices: LifecycleServiceRef[];
 }
 
+/**
+ * Perform a start/stop/restart against the native service manager, then — for
+ * start and restart — verify that each affected service actually becomes
+ * ready. Restarts and development starts gate web/UI readiness before touching
+ * sessiond. Separate systemd jobs are essential: argument order is not execution
+ * order. launchd restarts also settle each asynchronous bootout before starting.
+ */
 export async function performServiceAction(
   input: ServiceActionInput,
   deps: ServiceActionDeps,
@@ -183,7 +241,6 @@ export async function performServiceAction(
 ): Promise<ServiceActionResult> {
   const developmentStart = input.action === "start" && input.refs.some((ref) => ref.id === "uiDev");
   const refs = orderServices(input.refs, developmentStart ? serviceRestartOrder : orderForAction(input.action));
-  // systemd argument order is not job order. Gate the web-owned build in a separate stage.
   const webFirst = input.action === "restart" || developmentStart;
   const stages = webFirst
     ? [refs.filter((ref) => ref.id !== "sessiond"), refs.filter((ref) => ref.id === "sessiond")]
@@ -206,6 +263,7 @@ export async function performServiceAction(
       ? { ...timing, readinessTimeoutMs: timing.readinessTimeoutMs ?? DEV_SERVICE_READINESS_TIMEOUT_MS }
       : timing;
     const unreadyServices = await awaitServicesReady(stage, deps, readinessTiming);
+    // Fail closed: a web build/readiness failure must leave sessiond untouched.
     if (unreadyServices.length > 0) return { unreadyServices };
   }
   return { unreadyServices: [] };

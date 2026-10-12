@@ -27,8 +27,6 @@ Options:
   --bind-address ADDR     Host bind address (default: 127.0.0.1)
   --port PORT             Host port (default: 8504)
   --pi-web-version VER    npm @chainingintention/pi-web-cn version pin (default: latest)
-  --pi-version VER        npm @earendil-works/pi-coding-agent version pin
-                          (default: latest)
   --opensuse-image IMAGE  openSUSE base image (default: opensuse/tumbleweed)
   --nodejs-major MAJOR    Node.js major version package to install (default: 22)
   --nodejs-repo REPO      Node.js zypper repository URL, auto, or disabled
@@ -39,6 +37,14 @@ Options:
   --asset-ref REF         Fetch Docker assets from a Git ref (default: main)
   --skip-compose          Write assets/.env but skip build and service recreate
   -h, --help              Show this help
+
+Where it runs:
+  On the host, the installer detects the Docker host setup. Inside a PI WEB
+  container it reuses the host facts recorded in .env, because a container
+  cannot observe its host: from inside a Linux container, a Docker Desktop for
+  Mac host looks like native Linux Docker. Rerun the installer on the host
+  after changing the host itself, such as moving the Docker socket or the
+  docker group.
 
 Progressive host setup:
   The installer supports native Linux Docker Engine and Docker Desktop for Mac.
@@ -373,6 +379,9 @@ if [ ! -e "$custom_image_hooks_dir/.gitkeep" ]; then
 fi
 
 if [ "${PI_WEB_DOCKER_HOST_PROFILE_REUSED:-0}" = 1 ]; then
+  # Container identity and the Docker group are host facts too: a container sees
+  # its own account and its own view of the mounted socket, so keep what the
+  # host installer recorded.
   pi_web_uid=$(value_from_env_or_existing_or_default PI_WEB_UID "$(id -u)")
   pi_web_gid=$(value_from_env_or_existing_or_default PI_WEB_GID "$(id -g)")
   docker_gid=$(value_from_env_or_existing_or_default DOCKER_GID "$(pi_web_docker_host_detect_docker_gid)")

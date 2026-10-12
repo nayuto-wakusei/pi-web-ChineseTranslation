@@ -50,6 +50,8 @@ export function reconcilePiWebPluginLifecycle(
   const browserPlugins: ReconciledBrowserPlugin[] = [];
   const activeSafeStart = activeSnapshot?.safeStart ?? "off";
   const effectiveDesiredSafeStart = desiredSafeStart ?? activeSafeStart;
+  // Only sessiond's immutable snapshot may declare intentional no-Terminal
+  // recovery. Without one, normal required mode remains fail-closed.
   const terminalMode = activeSnapshot?.terminalMode ?? "required";
 
   const plugins = [...pluginIds]

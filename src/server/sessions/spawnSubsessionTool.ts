@@ -16,14 +16,20 @@ export type SpawnSubsessionModel = NonNullable<ExtensionContext["model"]>;
 export type SpawnSubsessionThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
 
 export interface SpawnSubsessionInvocation {
-  /** cwd of the parent session; tracked children always run in this workspace. */
+  /**
+   * cwd of the session that invoked the tool. A tracked child always runs in
+   * this workspace, so it is both the project-scope check input and the target.
+   */
   spawningCwd: string;
   /** Session id of the parent; the spawned session is tracked against it. */
   parentSessionId: string;
   /** Session file of the parent, recorded in the child's `parentSession` header. */
   parentSessionFile: string | undefined;
   prompt: string;
-  /** Optional only for non-tool callers so cross-workspace requests can be rejected explicitly. */
+  /**
+   * Requested target workspace. The tool never sets it; other callers may, and
+   * anything other than {@link spawningCwd} is refused rather than retargeted.
+   */
   cwd?: string;
   /** Current model from the dispatching session, used as the spawned session's default. */
   model?: SpawnSubsessionModel;
@@ -184,9 +190,9 @@ function renderTranscript(result: SubsessionReadResult): string {
  *
  * A subsession records its parent in its session header, the parent is notified
  * when it stops working, and the parent may read its transcript/result. The
- * tools are constructed per-session, carrying the parent workspace as both
- * the project-scope validation input and child target; the parent's identity
- * is taken from the live extension context at call time.
+ * tools are constructed per-session, carrying the spawning cwd, which is both
+ * the project-scope validation input and the child's workspace; the parent's
+ * identity is taken from the live extension context at call time.
  */
 export function createSubsessionToolDefinitions(spawningCwd: string, deps: SubsessionToolDeps) {
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({

@@ -1,11 +1,20 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { WebSocket } from "ws";
-import type { PiWebAgentConfig } from "../../shared/apiTypes.js";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../shared/federatedRoutes.js";
-import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH, PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES } from "../../shared/pluginBackendProtocol.js";
-import { type PluginBackendChannelProxyAdmissionPool, type PluginBackendChannelProxyScope, pluginBackendChannelProxyAdmissionPool } from "../plugins/pluginBackendChannelProxyAdmission.js";
-import { coordinatePluginBackendChannelProxy, PluginBackendChannelProxyConnectionError } from "../plugins/pluginBackendChannelProxyCoordinator.js";
+import {
+  PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH,
+  PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
+} from "../../shared/pluginBackendProtocol.js";
 import { mergeSelectedMachineConfig, parsePiWebConfigResponseBody, parseSelectedMachineConfigRequest, selectedMachineConfigResponse } from "../configRoutes.js";
+import {
+  type PluginBackendChannelProxyAdmissionPool,
+  type PluginBackendChannelProxyScope,
+  pluginBackendChannelProxyAdmissionPool,
+} from "../plugins/pluginBackendChannelProxyAdmission.js";
+import {
+  coordinatePluginBackendChannelProxy,
+  PluginBackendChannelProxyConnectionError,
+} from "../plugins/pluginBackendChannelProxyCoordinator.js";
 import { requestCancellation } from "../requestCancellation.js";
 import { bridgeSockets, markPluginBackendChannelUpgradeRequest } from "../webSocketBridge.js";
 import { applyWorkspaceFilePreviewErrorResponsePolicy, applyWorkspaceFilePreviewResponsePolicy } from "../workspaces/filePreviewResponseHeaders.js";
@@ -159,15 +168,17 @@ async function proxyHttpRequest(
         error: "Remote machine plugin lifecycle is incompatible",
         code: "plugin-lifecycle-incompatible",
         machineId,
-        detail: "The remote machine does not support workspace provider backend requests. Update and restart PI WEB on the remote machine.",
+        detail: "The remote machine does not support this plugin backend route. Update and restart PI WEB on the remote machine.",
       });
     }
     reply.code(upstream.statusCode);
     applySafeHeaders(reply, upstream.headers);
     if (previewPolicy !== undefined) {
-      applyWorkspaceFilePreviewResponsePolicy(reply, isSuccessfulStatus(upstream.statusCode) ? previewPolicy : workspaceFilePreviewErrorResponsePolicy());
+      const enforcedPolicy = isSuccessfulStatus(upstream.statusCode) ? previewPolicy : workspaceFilePreviewErrorResponsePolicy();
+      applyWorkspaceFilePreviewResponsePolicy(reply, enforcedPolicy);
     }
     if (responseBody === undefined) return await reply.send();
+    // A bounded body is authoritative over whatever length the remote claimed.
     if (Buffer.isBuffer(responseBody)) reply.header("Content-Length", String(responseBody.byteLength));
     else if (preview !== undefined) reply.removeHeader("Content-Length");
     return await reply.send(responseBody);
@@ -190,8 +201,7 @@ async function proxySelectedMachineConfigRequest(client: MachineClient, machineI
 
     const current = parsePiWebConfigResponseBody(currentResponse.body, "Remote machine config response");
     const merged = mergeSelectedMachineConfig(current.config, patch);
-    const updateResponse = await client.requestJson("PUT", remotePath, { config: merged });
-    return sendSelectedMachineConfigResponse(reply, updateResponse, machineId, patch.agent);
+    return sendSelectedMachineConfigResponse(reply, await client.requestJson("PUT", remotePath, { config: merged }), machineId);
   }
 
   return reply.code(405).send({ error: "Method not allowed" });
@@ -201,23 +211,12 @@ function configPayload(body: unknown): unknown {
   return isRecord(body) ? body["config"] : undefined;
 }
 
-function sendSelectedMachineConfigResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string, expectedAgentProfile?: PiWebAgentConfig): FastifyReply {
+function sendSelectedMachineConfigResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string): FastifyReply {
   if (!isSuccessfulStatus(upstream.statusCode)) return sendUpstreamJsonResponse(reply, upstream, machineId);
   const response = parsePiWebConfigResponseBody(upstream.body, "Remote machine config response");
-  if (expectedAgentProfile !== undefined && !sameAgentProfile(response.config.agent, expectedAgentProfile)) {
-    return reply.code(409).send({
-      error: "Remote machine did not persist the requested agent profile",
-      machineId,
-      detail: "Update and restart PI WEB on the remote machine before changing its agent profile.",
-    });
-  }
   reply.code(upstream.statusCode);
   applySafeHeaders(reply, upstream.headers);
   return reply.send(selectedMachineConfigResponse(response));
-}
-
-function sameAgentProfile(actual: PiWebAgentConfig | undefined, expected: PiWebAgentConfig): boolean {
-  return actual !== undefined && actual.command === expected.command && actual.dir === expected.dir;
 }
 
 function sendUpstreamJsonResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string): FastifyReply {
@@ -327,6 +326,8 @@ function remoteFilePreviewRequest(spec: FederatedHttpRouteSpec, remotePath: stri
   const download = downloadValue === "1" || downloadValue === "true";
   return {
     policy: workspaceFilePreviewResponsePolicy(path, { download }),
+    // Inline previews keep the local inline contract even when the remote is
+    // hostile or racy; attachment downloads stay deliberately uncapped.
     responseBodyLimit: download ? undefined : spec.responseBodyLimit,
   };
 }
@@ -354,7 +355,9 @@ function isUnknownRemotePluginBackendRoute(
   statusCode: number,
   body: NodeJS.ReadableStream | Buffer | undefined,
 ): boolean {
-  if (!spec.path.startsWith("/paired-plugin-backends/") || statusCode !== 404 || !(body instanceof Buffer)) return false;
+  if (!spec.path.startsWith("/paired-plugin-backends/")
+    || statusCode !== 404
+    || !(body instanceof Buffer)) return false;
   try {
     const value: unknown = JSON.parse(body.toString("utf8"));
     if (!isRecord(value) || value["statusCode"] !== 404 || value["error"] !== "Not Found") return false;
@@ -398,6 +401,8 @@ function readBoundedRemoteBody(body: NodeJS.ReadableStream, maxBytes: number, ti
       fail(new RemoteMachineRequestError("Remote machine response body timed out", 504));
     }, timeoutMs);
     timeout.unref();
+    // An inbound disconnect must release the upstream connection instead of
+    // draining a remote body nobody is waiting for any more.
     const onAbort = (): void => {
       fail(new RemoteMachineRequestError("Remote machine request cancelled", 502));
     };

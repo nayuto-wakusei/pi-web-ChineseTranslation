@@ -19,7 +19,6 @@ export function setApiScope(scope: ApiScope): void {
 export function scopedApiUrl(url: string): string {
   return resolveAppUrl(withManagementEmbed(url, undefined, apiScope));
 }
-
 export async function request<T>(url: string, parse: (value: unknown) => T, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
@@ -42,7 +41,7 @@ export async function requestOptional<T>(url: string, parse: (value: unknown) =>
   if (response.status === 404) return undefined;
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new Error(errorMessage(body) ?? response.statusText);
+    throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
   }
   removeManagementEntryToken(apiScope);
   return parse(await response.json());

@@ -3,11 +3,12 @@ import { parseMessagePage, parseWorkspaceProviderResolution } from "./parsers";
 import { parseRealtimeSocketEvent, parseSessionSocketEvent } from "../sessionSocket";
 
 describe("upstream response boundaries", () => {
-  it("validates durable transcript ids in paged and legacy messages", () => {
+  it("validates durable transcript ids in paged messages and rejects legacy arrays", () => {
     const message = { role: "user", entryId: 7, content: "hello" };
     expect(() => parseMessagePage({ messages: [message], start: 0, total: 1 })).toThrow("entryId");
-    expect(() => parseMessagePage([message])).toThrow("entryId");
-    expect(parseMessagePage([{ ...message, entryId: "entry" }]).messages).toHaveLength(1);
+    expect(() => parseMessagePage([message])).toThrow("Expected array response");
+    expect(() => parseMessagePage([{ ...message, entryId: "entry" }])).toThrow("Expected array response");
+    expect(parseMessagePage({ messages: [{ ...message, entryId: "entry" }], start: 0, total: 1 }).messages).toHaveLength(1);
   });
 
   it("drops malformed stream payloads while preserving the transport watermark", () => {

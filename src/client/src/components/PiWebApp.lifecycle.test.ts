@@ -6,6 +6,7 @@ import { MachineStatusController } from "../controllers/machineStatusController"
 import { ServerNoticesController } from "../serverNotices";
 import { RealtimeSocket } from "../sessionSocket";
 import { PiWebApp } from "./PiWebApp";
+import type { WorkspacePanelContext } from "../plugins/types";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -58,13 +59,18 @@ describe("PiWebApp connection lifecycle", () => {
     expect(startAuthenticatedApp).not.toHaveBeenCalled();
   });
 
-  it("does not refresh interactive terminals in management embed mode", async () => {
+  it("does not refresh interactive terminals in management embed mode", () => {
     const app = createConnectedApp("?embed=management");
-    const terminals = vi.spyOn(terminalsApi, "terminals");
+    const terminals = vi.spyOn(terminalsApi, "listCommandRuns");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
 
-    await callAsyncMethod(app, "refreshActiveTerminals", workspace);
+    const context: unknown = method(app, "createWorkspacePanelContext").call(app, workspace);
+    if (!isWorkspacePanelContext(context)) throw new Error("Missing panel terminal capability");
+    context.terminal.open();
 
     expect(terminals).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each(["", "?embed=management"])("refreshes server notices on reconnect only in normal mode (%s)", (search) => {
@@ -152,7 +158,7 @@ const workspace: Workspace = {
   projectId: "project-1",
   path: "/repo",
   label: "repo",
-  isMain: true,
+  effectiveConfig: {}, isMain: true,
   isGitRepo: true,
   isGitWorktree: false,
 };
@@ -180,6 +186,12 @@ function replaceMethod<F extends (...args: never[]) => unknown>(target: object, 
 }
 
 type Callable = (this: object, ...args: unknown[]) => unknown;
+
+function isWorkspacePanelContext(value: unknown): value is WorkspacePanelContext {
+  if (typeof value !== "object" || value === null || !("terminal" in value)) return false;
+  const terminal = value.terminal;
+  return typeof terminal === "object" && terminal !== null && "open" in terminal && typeof terminal.open === "function";
+}
 
 function method(target: object, name: string): Callable {
   const value: unknown = Reflect.get(target, name);

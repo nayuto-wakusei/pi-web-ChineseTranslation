@@ -209,6 +209,8 @@ enforce_non_root_dev_uid() {
 
 enforce_dev_root_safety
 
+# Dev Compose commands also run inside detached helper containers, which cannot
+# observe the Docker host. Reuse the host facts recorded on the last host run.
 if ! pi_web_docker_host_resolve_profile \
   "$(generated_env_value PI_WEB_DOCKER_HOST_PROFILE 2>/dev/null || true)" \
   "$(generated_env_value HOSTEXEC_MODE 2>/dev/null || true)" \

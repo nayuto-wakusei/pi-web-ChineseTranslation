@@ -16,14 +16,13 @@ import type {
   WorkspaceProviderAuthorityResolution,
   WorkspaceProviderDiagnostic,
   WorkspaceProviderTier,
-  WorkspaceRemovalPresentation as PublicWorkspaceRemovalPresentation,
+  WorkspaceRemovalHostState,
 } from "../../shared/apiTypes.js";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
 import { PluginCallbackDrain } from "../pluginCallbackDrain.js";
 import {
   cloneBoundedPluginBackendJson,
   PLUGIN_BACKEND_DISPATCH_TIMEOUT_MS,
-  PLUGIN_BACKEND_REQUEST_TIMEOUT_MS,
   PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
   requirePluginBackendOperation,
   requirePluginBackendRevision,
@@ -36,10 +35,9 @@ import type {
 export type {
   WorkspaceProviderAuthorityResolution,
   WorkspaceProviderDiagnostic,
-  WorkspaceProviderDiagnosticCode,
 } from "../../shared/apiTypes.js";
 
-const DEFAULT_PROVIDER_TIMEOUT_MS = PLUGIN_BACKEND_REQUEST_TIMEOUT_MS;
+const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
 
 type ProviderTier = WorkspaceProviderTier;
 type ProviderOperation = "probe" | "list" | "request" | "prepareRemove";
@@ -156,7 +154,7 @@ interface TierSelectionConflict {
 
 interface ValidatedProviderWorkspace {
   workspace: WorkspaceListing;
-  providerWorkspace: ProviderWorkspace;
+  providerWorkspace: Readonly<ProviderWorkspace>;
 }
 
 type TierSelection = TierSelectionNone | TierSelectionWinner | TierSelectionConflict;
@@ -209,10 +207,12 @@ export class WorkspaceProviderRegistry {
    * callers observe completion so ownership and topology are never cached.
    */
   async resolve(project: Project, signal?: AbortSignal): Promise<WorkspaceProviderAuthorityResolution> {
-    throwIfAborted(this.shutdown.signal);
+    this.assertAccepting();
     const input = snapshotProject(project);
-    // Cancellable resolutions cannot share work with unrelated callers.
+    // A cancellable request must own its resolution work. Sharing it would let
+    // one disconnected caller abort another caller's authority lookup.
     if (signal !== undefined) return await this.resolveSnapshot(input, signal);
+
     const key = workspaceResolutionKey(input);
     const existing = this.pendingResolutions.get(key);
     if (existing !== undefined) return existing;
@@ -284,7 +284,7 @@ export class WorkspaceProviderRegistry {
     workspaceId: string,
     signal?: AbortSignal,
   ): Promise<WorkspaceProviderRemovalTarget> {
-    throwIfAborted(this.shutdown.signal);
+    this.assertAccepting();
     const input = snapshotProject(project);
     if (workspaceId === "") throw providerRemovalError("workspace-not-found", 404, "Workspace not found");
     const diagnostics: WorkspaceProviderDiagnostic[] = [];
@@ -313,7 +313,7 @@ export class WorkspaceProviderRegistry {
         validated = await validateProviderWorkspaces(input, contribution, listed, this.pathInspector, signal);
       } catch (error) {
         if (signal?.aborted === true) throw abortError(signal);
-        throwIfAborted(this.shutdown.signal);
+        this.throwIfShuttingDown();
         if (error instanceof WorkspaceProviderTimeoutError) {
           throw providerRemovalError("resolution-timeout", 504, boundedErrorMessage(error), error);
         }
@@ -363,7 +363,7 @@ export class WorkspaceProviderRegistry {
             );
           } catch (error) {
             if (signal?.aborted === true) throw abortError(signal);
-            throwIfAborted(this.shutdown.signal);
+            this.throwIfShuttingDown();
             if (error instanceof WorkspaceProviderTimeoutError) {
               throw providerRemovalError("preparation-timeout", 504, boundedErrorMessage(error), error);
             }
@@ -396,7 +396,7 @@ export class WorkspaceProviderRegistry {
   }
 
   private async closeProviderOperations(reason: string): Promise<void> {
-    this.shutdown.abort(new DOMException(reason, "AbortError"));
+    if (!this.shutdown.signal.aborted) this.shutdown.abort(new DOMException(reason, "AbortError"));
     await Promise.allSettled([...this.providerOperations]);
     await this.providerCallbacks.waitForSettled(Math.max(this.providerTimeoutMs, this.requestTimeoutMs), "Workspace provider callbacks");
   }
@@ -408,7 +408,7 @@ export class WorkspaceProviderRegistry {
     callback: (signal: AbortSignal) => T | Promise<T>,
     parentSignal?: AbortSignal,
   ): Promise<T> {
-    throwIfAborted(this.shutdown.signal);
+    this.assertAccepting();
     const signal = parentSignal === undefined
       ? this.shutdown.signal
       : AbortSignal.any([parentSignal, this.shutdown.signal]);
@@ -596,7 +596,7 @@ export class WorkspaceProviderRegistry {
         if (claim === "claim") claimants.push(contribution);
       } catch (error) {
         if (dispatchSignal?.aborted === true) throw abortError(dispatchSignal);
-        throwIfAborted(this.shutdown.signal);
+        this.throwIfShuttingDown();
         const message = errorMessage(error);
         diagnostics.push(freezeDiagnostic({
           code: "probe-failed",
@@ -649,7 +649,7 @@ export class WorkspaceProviderRegistry {
       });
     } catch (error) {
       if (dispatchSignal?.aborted === true) throw abortError(dispatchSignal);
-      throwIfAborted(this.shutdown.signal);
+      this.throwIfShuttingDown();
       const message = errorMessage(error);
       diagnostics.push(freezeDiagnostic({
         code: "list-failed",
@@ -663,6 +663,13 @@ export class WorkspaceProviderRegistry {
       );
       return degradedResolution(project, diagnostics, contribution.pluginId);
     }
+  }
+  private assertAccepting(): void {
+    this.throwIfShuttingDown();
+  }
+
+  private throwIfShuttingDown(): void {
+    if (this.shutdown.signal.aborted) throw abortError(this.shutdown.signal);
   }
 }
 
@@ -710,23 +717,21 @@ async function validateProviderWorkspaces(
     const publicRemoval = removal === undefined
       ? undefined
       : hostRemovalPresentation(project, contribution, candidate.key, path, removal);
+    const provider = Object.freeze({
+      pluginId: contribution.pluginId,
+      capabilities: Object.freeze({ ...(contribution.provider.request === undefined ? {} : { request: true }), remove: removal !== undefined }),
+      ...(metadata === undefined ? {} : { metadata }),
+    });
     const workspace: WorkspaceListing = {
       id: workspaceId(project.id, candidate.key),
       projectId: project.id,
       path,
       label: candidate.label,
       isMain: candidate.isMain,
-      provider: {
-        pluginId: contribution.pluginId,
-        capabilities: {
-          request: contribution.provider.request !== undefined,
-          remove: removal !== undefined,
-        },
-        ...(metadata === undefined ? {} : { metadata }),
-      },
+      provider,
       ...(publicRemoval === undefined ? {} : { removal: publicRemoval }),
     };
-    const providerWorkspace: ProviderWorkspace = Object.freeze({
+    const providerWorkspace: Readonly<ProviderWorkspace> = Object.freeze({
       key: candidate.key,
       path,
       label: candidate.label,
@@ -781,7 +786,7 @@ function hostRemovalPresentation(
   providerKey: string,
   path: string,
   removal: ProviderWorkspaceRemovalPresentation,
-): PublicWorkspaceRemovalPresentation {
+): WorkspaceRemovalHostState {
   const digest = createHash("sha256").update(JSON.stringify([
     contribution.pluginId,
     contribution.moduleRevision,

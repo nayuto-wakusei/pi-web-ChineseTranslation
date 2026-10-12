@@ -1,4 +1,4 @@
-import type { Machine, MachineHealth, MachineRuntime, PiWebComponentStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebStatusResponse } from "../../shared/apiTypes.js";
+import type { Machine, MachineHealth, MachineRuntime, PiWebComponentStatus, PiWebDeprecatedAgentInput, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebStatusResponse } from "../../shared/apiTypes.js";
 import { parsePiWebRuntimeResponse } from "../../shared/piWebStatusParsing.js";
 import { getPiWebRuntime } from "../piWebStatus.js";
 import { DEFAULT_REMOTE_HEALTH_TIMEOUT_MS, RemoteMachineClient, type MachineClient, validateConfiguredMachineHeaders } from "./machineClient.js";
@@ -238,9 +238,15 @@ function machineRuntime(machineId: string, checkedAt: string, runtime: PiWebRunt
   };
 }
 
-function mergeComponentDeprecatedAgentInputs(components: PiWebRuntimeResponse["components"]): import("../../shared/apiTypes.js").PiWebDeprecatedAgentInput[] {
+/**
+ * Per-machine union of the web and session daemon deprecated-input reports,
+ * deduplicated by input: the config file is read by both processes, and the
+ * same env var can reach both, so identical reports collapse into one warning
+ * attributed to the machine rather than one per component.
+ */
+function mergeComponentDeprecatedAgentInputs(components: PiWebRuntimeResponse["components"]): PiWebDeprecatedAgentInput[] {
   const seen = new Set<string>();
-  const merged: import("../../shared/apiTypes.js").PiWebDeprecatedAgentInput[] = [];
+  const merged: PiWebDeprecatedAgentInput[] = [];
   for (const component of [components.web, components.sessiond]) {
     for (const input of component.deprecatedAgentInputs ?? []) {
       const key = `${input.source}\n${input.name}`;

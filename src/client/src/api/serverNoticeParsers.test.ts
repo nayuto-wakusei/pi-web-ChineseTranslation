@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseServerNoticeEvent, parseServerNoticeSnapshot } from "./parsers";
+import { parseRealtimeStreamEvent, parseServerNoticeEvent, parseServerNoticeSnapshot } from "./parsers";
 
 const notice = {
   id: "daemon-a:notice-1",
@@ -8,21 +8,25 @@ const notice = {
   createdAt: "2026-08-01T00:00:00.000Z",
   source: "workspace.delete",
   scope: { projectId: "project-1" },
-  context: { projectId: "project-1", workspaceId: "workspace-1" },
+  context: { projectId: "metadata-only", workspaceId: "workspace-1" },
 };
 
 describe("server notice parsers", () => {
-  it("parses snapshots and realtime frames with optional trace context", () => {
+  it("parses snapshots and realtime frames with separate scope and trace context", () => {
     const snapshot = { daemonInstanceId: "daemon-a", revision: 3, notices: [notice] };
 
     expect(parseServerNoticeSnapshot(snapshot)).toEqual(snapshot);
     expect(parseServerNoticeEvent({ type: "notices.updated", snapshot })).toEqual({ type: "notices.updated", snapshot });
+    expect(parseRealtimeStreamEvent({ type: "notices.updated", snapshot })).toEqual({ type: "notices.updated", snapshot });
   });
 
   it("rejects malformed notice identity, severity, timestamps, and duplicate ids", () => {
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, severity: "fatal" }] })).toThrow("severity");
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, createdAt: "not-a-time" }] })).toThrow("creation time");
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [notice, notice] })).toThrow("Duplicate server notice id");
+    expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, scope: {} }] })).toThrow("must contain at least one");
+    expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, scope: { projectId: "project-1", other: "value" } }] })).toThrow("Unsupported server notice scope field");
+    expect(() => parseRealtimeStreamEvent({ type: "notices.updated", snapshot: { daemonInstanceId: "daemon-a", revision: -1, notices: [] } })).toThrow("safe integer");
     expect(() => parseServerNoticeEvent({ type: "notices.updated", snapshot: { ...{ daemonInstanceId: "daemon-a", revision: 0, notices: [] }, revision: -1 } })).toThrow("safe integer");
   });
 

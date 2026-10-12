@@ -216,7 +216,7 @@ describe("workspace-file-viewer", () => {
     await viewer.updateComplete;
     const request = renderMarkdown.mock.calls[0]?.[0];
     expect(request).toMatchObject({ machineId: "remote", text: markdown.content, truncated: false });
-    expect(request?.toSafeHtml("![remote](https://evil.test/pixel)")).toContain("Image omitted");
+    expect(request?.toSafeHtml("![remote](https://evil.test/pixel)")).toContain("已省略图片");
     expect(request?.toSafeHtml("![remote](https://evil.test/pixel)")).not.toContain("<img");
     expect(viewer.shadowRoot?.querySelector(".plugin-markdown")).not.toBeNull();
   });
@@ -303,7 +303,7 @@ describe("workspace-file-viewer", () => {
     expect(preview.querySelector("h1")?.textContent).toBe("Rendered");
     expect(preview.querySelector("script, img, iframe, object, embed, svg")).toBeNull();
     expect(preview.textContent).toContain("<script>alert(1)</script>");
-    expect(preview.textContent).toContain("[Image omitted: remote]");
+    expect(preview.textContent).toContain("[已省略图片：remote]");
     const renderedLink = requiredElement(preview.querySelector("a"), "rendered Markdown link");
     expect(renderedLink.getAttribute("target")).toBe("_blank");
     expect(renderedLink.getAttribute("rel")).toBe("noopener noreferrer");

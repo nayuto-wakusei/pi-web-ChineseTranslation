@@ -10,6 +10,18 @@ afterEach(() => {
 });
 
 describe("settings-dialog session daemon machine targeting", () => {
+  it("saves session-daemon toggles on the selected remote machine", async () => {
+    stubWindowTimers();
+    const patch = { spawnSessions: false, subsessions: true };
+    const saved = configResponse(patch);
+    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(saved);
+    const dialog = new SettingsDialog();
+    dialog.machine = remoteMachine;
+    await callDialogPromise(dialog, "saveSessiondConfig", patch);
+    expect(saveSpy).toHaveBeenCalledExactlyOnceWith(patch, remoteMachine.id);
+    expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(saved);
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+  });
   it("keeps gateway settings loads on the gateway config/plugin endpoints", async () => {
     const config = configResponse({ host: "127.0.0.1" });
     const plugins: PiWebPluginsResponse = pluginsResponse([]);
@@ -161,7 +173,8 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "loadPluginsForTarget");
 
     expect(configSpy).toHaveBeenCalledWith(remoteMachine.id);
-    expect(pluginsSpy).toHaveBeenCalledWith(remoteMachine.id);
+    expect(pluginsSpy).not.toHaveBeenCalled();
+    expect(getDialogProperty(dialog, "pluginError")).toContain("不支持插件生命周期诊断");
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "accessConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeDefined();

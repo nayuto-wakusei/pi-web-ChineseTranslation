@@ -19,11 +19,6 @@ export function globalSessionEvents(machineId = "local", scope: SocketScope = cu
   return new WebSocket(resolveAppWebSocketUrl(path));
 }
 
-export function terminalSocket(projectId: string, workspaceId: string, terminalId: string, initialSize?: { cols: number; rows: number }, machineId = "local"): WebSocket {
-  const sizeQuery = initialSize === undefined ? "" : `?${new URLSearchParams({ cols: String(initialSize.cols), rows: String(initialSize.rows) }).toString()}`;
-  return new WebSocket(resolveAppWebSocketUrl(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/socket${sizeQuery}`));
-}
-
 export function realtimeEvents(machineId = "local", scope: SocketScope = currentApiScope()): WebSocket {
   const path = withManagementEmbedQuery(`${machinePrefix(machineId)}/events`, undefined, scope);
   return new WebSocket(resolveAppWebSocketUrl(path));

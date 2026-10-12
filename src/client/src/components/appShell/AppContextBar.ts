@@ -3,6 +3,7 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
 import { browserGatewayDisplayUrl, machineIconUrl } from "../../instanceIdentity";
 import { shortSessionId } from "../../sessionLabels";
+import { renderNavigationMenuIcon } from "../tabIcons";
 import type { NavigationSection } from "../../appShell/navigationState";
 
 @customElement("app-context-bar")
@@ -16,9 +17,9 @@ export class AppContextBar extends LitElement {
   @property({ attribute: false }) session?: SessionInfo;
   @property({ attribute: false }) refreshControl: unknown;
   @property({ attribute: false }) onOpenSection?: (section: NavigationSection) => void;
+  @property({ attribute: false }) onShowActions?: () => void;
   @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ type: Boolean }) hiddenActiveDestination = false;
-  @property({ attribute: false }) onShowActions?: () => void;
   @query(".context-items") private contextItems?: HTMLElement | null;
   @state() private canScrollLeft = false;
   @state() private canScrollRight = false;
@@ -45,6 +46,8 @@ export class AppContextBar extends LitElement {
   override render() {
     const machine = displayMachine(this.machine, this.machines);
     const machineChoice = this.machines.length > 1;
+    // The chip is a machine picker whenever a choice exists; the location
+    // identity it carries is a PWA-only affordance (the browser shows the URL).
     const showMachineChip = machineChoice || this.locationIndicator;
     const machineChipClass = machine === undefined ? "context-chip machine-chip empty" : "context-chip machine-chip";
     const projectLabel = projectContextLabel(this.project);
@@ -61,6 +64,7 @@ export class AppContextBar extends LitElement {
                   ${this.renderMachineChipContent(machine, this.locationIndicator)}
                 </button>
               ` : html`
+                <!-- 未选择机器 choice: the chip is the instance identity, not a control. -->
                 <span class="${machineChipClass} static" title=${machineContextTitle(machine)}>
                   ${this.renderMachineChipContent(machine, true)}
                 </span>
@@ -86,13 +90,15 @@ export class AppContextBar extends LitElement {
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.renderNavigationButton()}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
       </nav>
     `;
   }
 
   private renderMachineChipContent(machine: Machine | undefined, locationIndicator: boolean) {
     if (machine === undefined) return html`<span class="context-value">未选择机器</span>`;
+    // Browser mode keeps the chip a plain machine picker; the location identity
+    // (favicon and host) only shows where the browser chrome does not.
     if (!locationIndicator) return html`<span class="context-value">${machineSelectionLabel(machine)}</span>`;
     const detail = machineContextDetail(machine, browserGatewayDisplayUrl());
     return html`
@@ -117,32 +123,15 @@ export class AppContextBar extends LitElement {
     `;
   }
 
-  private renderNavigationButton() {
-    if (this.onShowNavigation === undefined) return null;
-    return html`
-      <button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowNavigation?.(); }}>
-        <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M4 5h16M4 12h16M4 19h16"></path>
-        </svg>
-      </button>
-    `;
-  }
-
   private contextBarClass(): string {
     const classes = ["context-bar"];
-    if (this.hasContextActions()) classes.push("has-context-actions");
-    if (this.contextActionCount() > 1) classes.push("has-context-actions-double");
     if (this.canScrollLeft) classes.push("can-scroll-left");
     if (this.canScrollRight) classes.push("can-scroll-right");
     return classes.join(" ");
   }
 
   private hasContextActions(): boolean {
-    return this.contextActionCount() > 0;
-  }
-
-  private contextActionCount(): number {
-    return Number(this.refreshControl !== undefined) + Number(this.onShowActions !== undefined) + Number(this.onShowNavigation !== undefined);
+    return this.refreshControl !== undefined || this.onShowActions !== undefined || this.onShowNavigation !== undefined;
   }
 
   private observeContextItems(): void {
@@ -186,14 +175,12 @@ export class AppContextBar extends LitElement {
     .context-bar.can-scroll-left::before, .context-bar.can-scroll-right::after { opacity: 1; }
     .context-bar-label { display: none; }
     .context-items { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; gap: 5px; margin: 0; padding: 0 8px; list-style: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-padding-inline: 8px; scrollbar-width: thin; }
-    .context-bar.has-context-actions .context-items { padding-right: 58px; scroll-padding-inline: 8px 58px; }
-    .context-bar.has-context-actions-double .context-items { padding-right: 102px; scroll-padding-inline: 8px 102px; }
     .context-item { flex: 0 0 auto; min-width: 0; display: flex; }
-    .context-actions { position: absolute; top: 6px; right: 0; bottom: 6px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--pi-bg); pointer-events: none; }
+    .context-actions { position: relative; flex: 0 0 auto; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--pi-bg); pointer-events: none; }
     .context-actions::before { content: ""; position: absolute; top: 0; bottom: 0; left: -24px; z-index: 0; width: 24px; background: linear-gradient(90deg, transparent, var(--pi-bg)); pointer-events: none; }
     app-refresh-control, .context-action-button { position: relative; z-index: 1; pointer-events: auto; }
     .context-action-button { box-sizing: border-box; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 0; line-height: 1; }
-    .context-action-button:hover, .context-action-button:focus-visible, .context-action-button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .context-action-button.selected, .context-action-button:hover, .context-action-button:focus-visible { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
     .context-action-icon { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
     .context-chip { flex: 0 0 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 8px; font: inherit; text-align: left; }
     .context-chip-icon { flex: 0 0 auto; width: 14px; height: 14px; }
@@ -207,6 +194,10 @@ export class AppContextBar extends LitElement {
   `;
 }
 
+/**
+ * The machine chip always shows the machine the UI acts on, falling back to
+ * the local machine before an explicit selection lands.
+ */
 function displayMachine(machine: Machine | undefined, machines: readonly Machine[]): Machine | undefined {
   return machine ?? machines.find((candidate) => candidate.id === "local") ?? machines[0];
 }
@@ -215,10 +206,15 @@ function machineContextLabel(machine: Machine | undefined): string {
   return machine?.name ?? "未选择机器";
 }
 
+/** The plain picker label used in browser mode, where the chip carries no location identity. */
 function machineSelectionLabel(machine: Machine): string {
   return `${machine.name}${machine.kind === "remote" ? " · 远程" : ""}`;
 }
 
+/**
+ * The host the machine is reached at: the serving gateway for the local
+ * machine (what a PWA hides), the remote host otherwise.
+ */
 export function machineContextDetail(machine: Machine, gatewayDisplay: string): string | undefined {
   if (machine.kind === "local" || machine.baseUrl === undefined) return gatewayDisplay;
   try {

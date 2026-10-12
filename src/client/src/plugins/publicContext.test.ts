@@ -57,19 +57,10 @@ it("projects state for every external workspace callback without changing the ho
     signal: new AbortController().signal, lifetimeSignal: new AbortController().signal });
   const unused = () => { throw new Error("Unexpected host call"); };
   const context: WorkspacePanelContext = {
-    fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined,
-    gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined,
-    gitStale: false, fileTreeStale: false, activeTerminalCount: 0, selectedTerminalId: undefined,
-    terminalAutoStart: false, workspaceUploadDefaultFolder: "",
-    onRefreshFiles: unused, onExpandDir: unused, onCreateFile: unused, onCreateDirectory: unused,
-    onMoveSelectedPath: unused, onDeleteSelectedPath: unused, onDownloadSelectedFile: unused,
-    onSelectDirectory: unused, onSelectFile: unused, onStartWorkspaceUpload: unused,
-    onCancelWorkspaceUpload: unused, onClearWorkspaceUpload: unused, onRefreshGit: unused,
-    onSelectDiff: unused, onSelectTerminal: unused,
     navigate: () => Promise.resolve(),
     state: { ...initialAppState(), selectedSession: session },
     machine: { id: "remote", name: "Remote", kind: "remote" },
-    workspace: { id: "workspace", projectId: "project", path: "/workspace", label: "Workspace", isMain: true, isGitRepo: true, isGitWorktree: false, effectiveConfig: {} },
+    workspace: { id: "workspace", projectId: "project", path: "/workspace", label: "Workspace", isMain: true, effectiveConfig: {} },
     files: { readFile: unused, listFiles: unused, writeFile: unused, deleteFile: unused, moveFile: unused },
     prompt: { insertText: unused, getText: unused, getSelection: unused },
     terminal: { open: unused, runCommand: unused }, host: { requestRender: unused },
@@ -94,7 +85,7 @@ it("projects state for every external workspace callback without changing the ho
 });
 
 it("maps local panel views to the public workspace view without exposing machine transport", () => {
-  const state: AppState = { ...initialAppState(), mainView: "files:files", selectedMachine: {
+  const state: AppState = { ...initialAppState(), mainView: "workspace", workspaceTool: "files:files", selectedMachine: {
     id: "remote", name: "Remote", kind: "remote" as const, baseUrl: "https://private.example",
     createdAt: "now", updatedAt: "now",
   } };

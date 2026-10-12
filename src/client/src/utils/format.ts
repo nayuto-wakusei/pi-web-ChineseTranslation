@@ -7,7 +7,7 @@ export function formatTokenCount(count: number): string {
   return `${String(Math.round(count / 1_000_000))}M`;
 }
 
-/** Human-readable byte size shared by workspace file surfaces. */
+/** Human-readable byte size shared by every workspace file surface. */
 export function formatFileSize(size: number): string {
   if (!Number.isFinite(size) || size < 0) return "0 B";
   if (size < 1024) return `${String(size)} B`;

@@ -27,38 +27,67 @@ export interface RunningVersionInfo {
   sessiondError?: string;
 }
 
-export type RunningComponentId = PiWebComponentStatus["component"];
-
 export interface PiWebVersionReportOptions {
+  /** Environment used only to select and resolve the web/API config. */
   configEnv?: NodeJS.ProcessEnv;
+  /** A prior config-selection failure that makes a web/API probe untrustworthy. */
   webEndpointError?: string;
+  /** Injectable HTTP boundary for deterministic readiness tests. */
+  fetch?: typeof globalThis.fetch;
 }
 
+export type RunningComponentId = PiWebComponentStatus["component"];
+
+/**
+ * Readiness rule for `pi-web doctor`: an expected running component is ready
+ * only when the report carries its status and that status is available and not
+ * stale. A component missing from the report (an error-only entry) is not
+ * ready. Components that are not expected stay informational regardless of
+ * state.
+ */
 export function runningComponentsReady(info: RunningVersionInfo, expected: readonly RunningComponentId[]): boolean {
   return expected.every((id) => {
     const status = info[id];
-    if (status !== undefined) return status.available && !status.stale;
-    return id === "web" && info.webAuthenticationRequired === true;
+    return status !== undefined && status.available && !status.stale;
   });
 }
 
-/** Authentication-required means the web service is reachable, but its version cannot be verified. */
-export async function probeRunningComponentReady(component: RunningComponentId, options: Pick<PiWebVersionReportOptions, "configEnv"> = {}): Promise<boolean> {
-  if (component === "sessiond") return (await collectRunningSessiondInfo()).component !== undefined;
+/**
+ * Readiness probe for service lifecycle waits: the web component is ready when
+ * dependency-free web health endpoint responds. Older hosts fall back to
+ * version/status reporting. The session daemon is ready when its own health
+ * endpoint serves version information.
+ */
+export async function probeRunningComponentReady(
+  component: RunningComponentId,
+  options: Pick<PiWebVersionReportOptions, "configEnv" | "fetch"> = {},
+): Promise<boolean> {
+  if (component === "sessiond") {
+    const sessiond = await collectRunningSessiondInfo();
+    return sessiond.component !== undefined;
+  }
   const endpoint = webVersionEndpoint(options.configEnv);
   if (endpoint.endpoint === undefined) return false;
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
   try {
-    await fetchPiWebVersionResponse(endpoint.endpoint);
+    const response = await fetchImplementation(new URL("./health", endpoint.endpoint).href, {
+      signal: AbortSignal.timeout(PI_WEB_VERSION_TIMEOUT_MS),
+    });
+    if (response.status !== 404) {
+      if (!response.ok) return false;
+      const health: unknown = await response.json();
+      return typeof health === "object" && health !== null && "ok" in health && health.ok === true;
+    }
+    await fetchPiWebVersionResponse(endpoint.endpoint, fetchImplementation);
     return true;
   } catch (error) {
-    if (isAuthenticationRequired(error)) return true;
     const statusEndpoint = statusEndpointFor(endpoint.endpoint);
     if (!isHttpNotFound(error) || statusEndpoint === endpoint.endpoint) return false;
     try {
-      await fetchPiWebVersionResponse(statusEndpoint);
+      await fetchPiWebVersionResponse(statusEndpoint, fetchImplementation);
       return true;
-    } catch (statusError) {
-      return isAuthenticationRequired(statusError);
+    } catch {
+      return false;
     }
   }
 }
@@ -100,9 +129,9 @@ function parsePackageInfo(value: unknown, path: string): PackageInfo | undefined
   return { name, version, path };
 }
 
-function webVersionEndpoint(env: NodeJS.ProcessEnv = process.env): { endpoint?: string; error?: string } {
+function webVersionEndpoint(configEnv: NodeJS.ProcessEnv | undefined): { endpoint?: string; error?: string } {
   try {
-    const { config } = effectivePiWebConfig({ env });
+    const { config } = effectivePiWebConfig(configEnv === undefined ? {} : { env: configEnv });
     const host = httpClientHost(config.host);
     const port = config.port ?? 8504;
     return { endpoint: `http://${urlHost(host)}:${String(port)}${PI_WEB_VERSION_ENDPOINT_PATH}` };
@@ -127,8 +156,11 @@ function statusEndpointFor(versionEndpoint: string): string {
   return `${versionEndpoint.slice(0, -PI_WEB_VERSION_ENDPOINT_PATH.length)}${PI_WEB_STATUS_ENDPOINT_PATH}`;
 }
 
-async function fetchPiWebVersionResponse(endpoint: string): Promise<PiWebVersionResponse> {
-  const response = await fetch(endpoint, {
+async function fetchPiWebVersionResponse(
+  endpoint: string,
+  fetchImplementation: typeof globalThis.fetch,
+): Promise<PiWebVersionResponse> {
+  const response = await fetchImplementation(endpoint, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(PI_WEB_VERSION_TIMEOUT_MS),
   });
@@ -143,9 +175,10 @@ async function collectRunningVersionInfo(options: PiWebVersionReportOptions): Pr
   const endpoint = options.webEndpointError === undefined
     ? webVersionEndpoint(options.configEnv)
     : { error: options.webEndpointError };
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
   if (endpoint.endpoint !== undefined) {
     try {
-      const status = await fetchPiWebVersionResponse(endpoint.endpoint);
+      const status = await fetchPiWebVersionResponse(endpoint.endpoint, fetchImplementation);
       return { generatedAt: status.generatedAt, web: status.components.web, sessiond: status.components.sessiond };
     } catch (error) {
       let webError = `${endpoint.endpoint}: ${errorMessage(error)}`;
@@ -155,7 +188,7 @@ async function collectRunningVersionInfo(options: PiWebVersionReportOptions): Pr
       const statusEndpoint = statusEndpointFor(endpoint.endpoint);
       if (statusEndpoint !== endpoint.endpoint && isHttpNotFound(error)) {
         try {
-          const status = await fetchPiWebVersionResponse(statusEndpoint);
+          const status = await fetchPiWebVersionResponse(statusEndpoint, fetchImplementation);
           return { generatedAt: status.generatedAt, web: status.components.web, sessiond: status.components.sessiond };
         } catch (statusError) {
           if (isAuthenticationRequired(statusError)) {

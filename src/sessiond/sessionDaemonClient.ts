@@ -1,10 +1,11 @@
 import http from "node:http";
 import { WebSocket } from "ws";
-import { isHostAbsoluteAgentDir, isSafeAgentCommandForHost } from "../config.js";
+import { isHostAbsoluteAgentDir } from "../config.js";
 import type { ActiveAgentProfileDescriptor } from "../shared/apiTypes.js";
 import { parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
 import { sessiondHttpUrl, sessiondSocketPath } from "./config.js";
 import { normalizeSessionDaemonRequestError } from "./sessionDaemonErrors.js";
+import { parseLegacyActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "./activeAgentProfile.js";
 
 const SESSIOND_SOCKET_AGENT = new http.Agent({ keepAlive: true, maxSockets: 256, maxFreeSockets: 32 });
 
@@ -13,8 +14,13 @@ export type SessionDaemonAgentProfileResult =
   | { status: "unavailable"; error: string }
   | { status: "invalid"; error: string };
 
+export interface SessionDaemonRequestOptions {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
 export interface SessionDaemonRequestClient {
-  request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
+  request(method: string, path: string, body?: unknown, headersOrOptions?: Record<string, string> | SessionDaemonRequestOptions, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
 }
 
 /** Talks to the local session daemon. A dead socket fails immediately, so there is no default request deadline; a busy agent turn is not a hang. Callers may still pass an AbortSignal. */
@@ -22,18 +28,21 @@ export class SessionDaemonClient {
   private readonly baseUrl = sessiondHttpUrl();
   private readonly socketPath = sessiondSocketPath();
 
-  async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+  async request(method: string, path: string, body?: unknown, headersOrOptions: Record<string, string> | SessionDaemonRequestOptions = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+    const options = requestOptions(headersOrOptions, signal);
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload, headers, signal);
-    return this.requestSocket(method, path, payload, headers, signal);
+    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload, options.headers, options.signal);
+    return this.requestSocket(method, path, payload, options.headers, options.signal);
   }
 
   getActiveAgentProfile(): Promise<SessionDaemonAgentProfileResult> {
     return getSessionDaemonActiveAgentProfile(this);
   }
 
-  connectWebSocket(path: string, headers: Record<string, string> = {}, maxPayload?: number): WebSocket {
-    const options = { headers, ...(maxPayload === undefined ? {} : { maxPayload }) };
+  connectWebSocket(path: string, headersOrOptions: Record<string, string> | { headers?: Record<string, string>; maxPayload?: number } = {}, maxPayload?: number): WebSocket {
+    const options = isHeaders(headersOrOptions)
+      ? { headers: headersOrOptions, ...(maxPayload === undefined ? {} : { maxPayload }) }
+      : headersOrOptions;
     if (this.baseUrl !== undefined && this.baseUrl !== "") {
       const url = new URL(path, this.baseUrl);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -96,6 +105,20 @@ export class SessionDaemonClient {
   }
 }
 
+function requestOptions(headersOrOptions: Record<string, string> | SessionDaemonRequestOptions, signal: AbortSignal | undefined): SessionDaemonRequestOptions {
+  return isHeaders(headersOrOptions)
+    ? { headers: headersOrOptions, ...(signal === undefined ? {} : { signal }) }
+    : headersOrOptions;
+}
+
+function isHeaders(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((header) => typeof header === "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export async function getSessionDaemonActiveAgentProfile(client: SessionDaemonRequestClient): Promise<SessionDaemonAgentProfileResult> {
   let response: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
   try {
@@ -115,6 +138,10 @@ export async function getSessionDaemonActiveAgentProfile(client: SessionDaemonRe
     return { status: "invalid", error: "session daemon runtime response was not valid JSON" };
   }
 
+  if (isRecord(value)) {
+    const legacy = parseLegacyActiveAgentProfileDescriptor(value["activeAgentProfile"]);
+    if (legacy !== undefined) value = { ...value, activeAgentProfile: publicActiveAgentProfileDescriptor(legacy) };
+  }
   const runtime = parsePiWebRuntimeComponent(value);
   if (runtime?.component !== "sessiond") {
     return { status: "invalid", error: "session daemon runtime response was invalid" };
@@ -122,7 +149,7 @@ export async function getSessionDaemonActiveAgentProfile(client: SessionDaemonRe
   if (runtime.activeAgentProfile === undefined) {
     return { status: "invalid", error: "session daemon runtime response did not include an active agent profile" };
   }
-  if ((runtime.activeAgentProfile.command !== undefined && !isSafeAgentCommandForHost(runtime.activeAgentProfile.command)) || !isHostAbsoluteAgentDir(runtime.activeAgentProfile.dir)) {
+  if (!isHostAbsoluteAgentDir(runtime.activeAgentProfile.dir)) {
     return { status: "invalid", error: "session daemon active agent profile was not valid for this host" };
   }
   return { status: "available", profile: runtime.activeAgentProfile };

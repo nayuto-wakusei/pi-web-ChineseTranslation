@@ -17,6 +17,8 @@ export const PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_TREE_FORK_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const WORKSPACE_FILE_FEDERATION_TIMEOUT_MS = 30_000;
+// Accommodates the bounded 1,000-entry tree and escaped paths/content while
+// keeping every workspace-file JSON hop finite after response headers.
 export const WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES = 32 * 1024 * 1024;
 export const WORKSPACE_FILE_PREVIEW_ROUTE_PATH = "/projects/:projectId/workspaces/:workspaceId/file/preview";
 
@@ -25,7 +27,7 @@ export interface FederatedHttpRouteSpec {
   path: string;
   timeoutMs?: number;
   bodyLimit?: number;
-  /** Inline response limit; attachment downloads may explicitly bypass it. */
+  /** Bound JSON/inline responses; attachment downloads intentionally bypass the preview limit. */
   responseBodyLimit?: number;
   /** Propagate an inbound disconnect through the remote request. */
   propagateCancellation?: boolean;
@@ -41,6 +43,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/pi-packages/remove", timeoutMs: PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS },
   { method: "POST", path: "/pi-packages/update", timeoutMs: PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS },
   { method: "GET", path: "/projects" },
+  // The server resolves the path before looking up existing project trust.
   { method: "GET", path: "/projects/trust" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/trust" },
   { method: "PUT", path: "/projects/:projectId/workspaces/:workspaceId/trust" },
@@ -109,8 +112,6 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
   { method: "PATCH", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
   { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/directory" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/status" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/diff" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },
   { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },
   { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },

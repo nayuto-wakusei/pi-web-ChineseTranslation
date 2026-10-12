@@ -1,6 +1,10 @@
 import type { ActivityIndicatorKind } from "./components/activityBadge";
 import type { Project, Workspace, WorkspaceActivity } from "./api";
 
+export function isWorkspaceActivityActive(activity: WorkspaceActivity | undefined): boolean {
+  return activity !== undefined && (activity.hasSessionActivity || activity.hasTerminalActivity);
+}
+
 export function workspaceActivityFor(workspace: Workspace, activities: Record<string, WorkspaceActivity>): WorkspaceActivity | undefined {
   return activities[workspace.path];
 }

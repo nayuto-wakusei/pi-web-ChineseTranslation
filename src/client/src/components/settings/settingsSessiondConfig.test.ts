@@ -16,13 +16,12 @@ describe("session daemon settings config helpers", () => {
       { agent: { command: "effective-agent", dir: "/effective" } },
     );
 
-    expect(agentProfileActivationState(config, activeProfile("effective-agent", "/effective"))).toBe("active");
-    expect(agentProfileActivationState(config, activeProfile("other-agent", "/effective"))).toBe("restart-required");
-    expect(agentProfileActivationState(config, activeProfile("effective-agent", "/other"))).toBe("restart-required");
-    expect(agentProfileActivationState(configResponse({}, {}, { agent: { command: "pi", dir: "/effective" } }), activeProfile("pi", "/effective", ["PI_WEB_AGENT_SESSION_DIR"]))).toBe("restart-required");
-    expect(agentProfileActivationState(configResponse({}, {}, { agent: { command: "pi", dir: "/effective" } }), activeProfile("pi", "/effective", ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]))).toBe("active");
+    expect(agentProfileActivationState(config, activeProfile("/effective"))).toBe("active");
+    expect(agentProfileActivationState(config, activeProfile("/other"))).toBe("restart-required");
+    expect(agentProfileActivationState(configResponse({}, {}, { agent: { dir: "/effective" } }), activeProfile("/effective"))).toBe("active");
+    expect(agentProfileActivationState(configResponse({}), activeProfile("/effective"))).toBe("unavailable");
     expect(agentProfileActivationState(config, undefined)).toBe("unavailable");
-    expect(agentProfileActivationState(undefined, activeProfile("effective-agent", "/effective"))).toBe("unavailable");
+    expect(agentProfileActivationState(undefined, activeProfile("/effective"))).toBe("unavailable");
   });
 
   it("keeps canonical directory overrides active for every command", () => {
@@ -55,7 +54,7 @@ describe("session daemon settings config helpers", () => {
     });
     const selectedMachine = configResponse(
       { spawnSessions: true, subsessions: true, agent: { command: "machine-agent", dir: "/srv/machine-agent" } },
-      { spawnSessions: true, subsessions: false, agentCommand: true, agentDir: false, agentDirSource: "pi-compatibility", agentSessionDir: true },
+      { spawnSessions: true, subsessions: false },
       { spawnSessions: true, subsessions: true, agent: { command: "env-agent", dir: "/srv/machine-agent" } },
     );
 
@@ -88,22 +87,18 @@ describe("session daemon settings config helpers", () => {
         spawnSessions: true,
         subsessions: false,
         askUser: false,
-        agentCommand: true,
+        agentCommand: false,
         agentDir: false,
-        agentDirSource: "pi-compatibility",
-        agentSessionDir: true,
+        agentSessionDir: false,
       },
     });
   });
 });
 
-function activeProfile(command: string, dir: string, sessionDirEnvKeys: readonly string[] = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]): ActiveAgentProfileDescriptor {
+function activeProfile(dir: string): ActiveAgentProfileDescriptor {
   return {
-    schemaVersion: 1,
-    revision: `sha256:${"a".repeat(64)}`,
-    command,
+    schemaVersion: 2,
     dir,
-    sessionDirEnvKeys,
   };
 }
 

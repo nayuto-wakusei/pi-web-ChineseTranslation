@@ -1,14 +1,14 @@
 import type { AppState } from "../appState";
 import { LOCAL_MACHINE_ID } from "../machineKeys";
-import type { AppRoute } from "../route";
 import { normalizeContributionQueryRecord, type ContributionQueryRecord } from "../namespacedQueryArgs";
+import { parseMainView, type AppRoute } from "../route";
 import { browserSessionStorage, PersistentValueMap, type KeyValueStorage } from "./sessionStorageMemory";
+
+const LEGACY_FILES_QUERY_PARAMETER = "core.workspace.files--file";
+const LEGACY_TERMINAL_QUERY_PARAMETER = "core.workspace.terminal--terminal";
 
 export interface WorkspaceRouteSurface {
   contributionQuery?: ContributionQueryRecord | undefined;
-  selectedFilePath?: string | undefined;
-  selectedDiffPath?: string | undefined;
-  selectedTerminalId?: string | undefined;
 }
 
 export interface MachineNavigationSnapshot {
@@ -17,7 +17,7 @@ export interface MachineNavigationSnapshot {
   workspaceId?: string | undefined;
   sessionId?: string | undefined;
   tool?: AppRoute["tool"];
-  view?: AppState["mainView"] | undefined;
+  view?: AppRoute["view"];
   surface: WorkspaceRouteSurface;
 }
 
@@ -71,20 +71,22 @@ export function emptyMachineNavigationSnapshot(machineId: string): MachineNaviga
   return { machineId, surface: {} };
 }
 
-export function machineNavigationSnapshotFromState(state: AppState, contributionQuery?: ContributionQueryRecord): MachineNavigationSnapshot {
+export function machineNavigationSnapshotFromState(
+  state: AppState,
+  contributionQuery: Readonly<ContributionQueryRecord> = {},
+): MachineNavigationSnapshot {
   const hasWorkspace = state.selectedWorkspace !== undefined;
+  const boundedQuery = hasWorkspace ? normalizeContributionQueryRecord(contributionQuery) : {};
+  const selectedSessionId = state.selectedSession?.id;
   return {
     machineId: state.selectedMachine?.id ?? LOCAL_MACHINE_ID,
     projectId: state.selectedProject?.id,
     workspaceId: state.selectedWorkspace?.id,
-    sessionId: state.selectedSession?.id,
+    sessionId: selectedSessionId,
     tool: state.workspaceTool,
     view: state.mainView,
     surface: {
-      ...(contributionQuery === undefined ? {} : { contributionQuery: hasWorkspace ? normalizeContributionQueryRecord(contributionQuery) : {} }),
-      selectedFilePath: hasWorkspace ? state.selectedFilePath : undefined,
-      selectedDiffPath: hasWorkspace ? state.selectedDiffPath : undefined,
-      selectedTerminalId: hasWorkspace ? state.selectedTerminalId : undefined,
+      ...(Object.keys(boundedQuery).length === 0 ? {} : { contributionQuery: boundedQuery }),
     },
   };
 }
@@ -96,14 +98,18 @@ export function routeFromMachineNavigationSnapshot(snapshot: MachineNavigationSn
     workspaceId: snapshot.workspaceId,
     sessionId: snapshot.sessionId,
     tool: snapshot.tool,
-    view: snapshot.view === "navigation" ? undefined : snapshot.view,
+    view: snapshot.view,
   };
 }
 
 function cloneSnapshot(snapshot: MachineNavigationSnapshot): MachineNavigationSnapshot {
+  const contributionQuery = snapshot.surface.contributionQuery;
   return {
     ...snapshot,
-    surface: { ...snapshot.surface, ...(snapshot.surface.contributionQuery === undefined ? {} : { contributionQuery: normalizeContributionQueryRecord(snapshot.surface.contributionQuery) }) },
+    surface: {
+      ...snapshot.surface,
+      ...(contributionQuery === undefined ? {} : { contributionQuery: normalizeContributionQueryRecord(contributionQuery) }),
+    },
   };
 }
 
@@ -111,8 +117,12 @@ function parseMachineNavigationSnapshot(value: unknown): MachineNavigationSnapsh
   if (!isRecord(value)) return undefined;
   const machineId = optionalStringField(value, "machineId");
   if (machineId === undefined) return undefined;
-  const tool = parseQualifiedId(optionalStringField(value, "tool"));
-  const view = parseMainView(optionalStringField(value, "view"));
+  const storedView = optionalStringField(value, "view");
+  const legacyTool = storedView === "files" || storedView === "core:workspace.files" ? "core:workspace.files"
+    : storedView === "git" || storedView === "core:workspace.git" ? "core:workspace.git"
+    : storedView === "terminal" || storedView === "core:workspace.terminal" ? "core:workspace.terminal" : undefined;
+  const tool = parseQualifiedId(optionalStringField(value, "tool")) ?? legacyTool;
+  const view = parseMainView(storedView) ?? (legacyTool === undefined ? undefined : "workspace");
   return {
     machineId,
     projectId: optionalStringField(value, "projectId"),
@@ -126,28 +136,20 @@ function parseMachineNavigationSnapshot(value: unknown): MachineNavigationSnapsh
 
 function parseWorkspaceRouteSurface(value: unknown): WorkspaceRouteSurface {
   if (!isRecord(value)) return {};
+  const storedContributionQuery = isRecord(value["contributionQuery"]) ? value["contributionQuery"] : {};
+  const legacySelectedFilePath = optionalStringField(value, "selectedFilePath");
+  const legacySelectedTerminalId = optionalStringField(value, "selectedTerminalId");
+  const legacySelectedDiffPath = optionalStringField(value, "selectedDiffPath");
+  const contributionQuery = normalizeContributionQueryRecord({
+    ...(legacySelectedFilePath === undefined ? {} : { [LEGACY_FILES_QUERY_PARAMETER]: legacySelectedFilePath }),
+    ...(legacySelectedTerminalId === undefined ? {} : { [LEGACY_TERMINAL_QUERY_PARAMETER]: legacySelectedTerminalId }),
+    ...(legacySelectedDiffPath === undefined ? {} : { "core.workspace.git--diff": legacySelectedDiffPath }),
+    ...storedContributionQuery,
+  });
   return {
-    ...(value["contributionQuery"] === undefined ? {} : { contributionQuery: normalizeContributionQueryRecord(value["contributionQuery"]) }),
-    selectedFilePath: optionalStringField(value, "selectedFilePath"),
-    selectedDiffPath: optionalStringField(value, "selectedDiffPath"),
-    selectedTerminalId: optionalStringField(value, "selectedTerminalId"),
+    ...(Object.keys(contributionQuery).length === 0 ? {} : { contributionQuery }),
   };
 }
-
-function parseMainView(value: string | undefined): AppState["mainView"] | undefined {
-  if (value === "navigation" || value === "chat") return value;
-  return parsePanelId(value);
-}
-
-function parsePanelId(value: string | undefined): Extract<AppState["mainView"], `${string}:${string}`> | undefined {
-  if (value === undefined || !/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u.test(value)) return undefined;
-  const separator = value.indexOf(":");
-  const pluginId = value.slice(0, separator);
-  const localId = value.slice(separator + 1);
-  if (pluginId === "" || localId === "") return undefined;
-  return `${pluginId}:${localId}`;
-}
-
 type QualifiedRouteId = NonNullable<AppRoute["tool"]>;
 
 function parseQualifiedId(value: string | undefined): AppRoute["tool"] | undefined {

@@ -21,7 +21,12 @@ export interface NavigationSelection {
 
 export type NavigationScope = "machine" | "project" | "workspace" | "session" | "tool" | "view";
 
-/** URL-field ownership is decided by the route coordinator, not by its consumers. */
+/**
+ * Freshness for an asynchronous operation that can apply URL-derived state.
+ * The route coordinator owns the generation and decides which URL fields are
+ * relevant to the operation; consumers only need to ask whether the token is
+ * still current before each state mutation.
+ */
 export interface NavigationFreshness {
   readonly generation: number;
   readonly scope: readonly NavigationScope[];

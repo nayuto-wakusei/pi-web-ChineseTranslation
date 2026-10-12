@@ -34,11 +34,24 @@ describe("machine crumb", () => {
   });
 
   it("keeps the browser-mode multi-machine chip as a plain picker", async () => {
-    const chip = machineChip(await mountBar([machine("local"), machine("remote-a")]));
+    const bar = await mountBar([machine("local"), machine("remote-a")]);
+    const opened: string[] = [];
+    bar.onOpenSection = (section) => { opened.push(section); };
+    const chip = machineChip(bar);
     expect(chip?.tagName).toBe("BUTTON");
     expect(chip?.textContent).toContain("本地");
     expect(chip?.querySelector("img")).toBeNull();
     expect(chip?.textContent).not.toContain(document.location.host);
+    chip?.click();
+    expect(opened).toEqual(["machines"]);
+  });
+
+  it("keeps local location identity on the multi-machine picker in PWA mode", async () => {
+    const chip = machineChip(await mountBar([machine("local"), machine("remote-a")], true));
+    expect(chip?.tagName).toBe("BUTTON");
+    expect(chip?.textContent).toContain("本地");
+    expect(chip?.querySelector("img")).not.toBeNull();
+    expect(chip?.textContent).toContain(document.location.host);
   });
 
   it("shows selected remote location identity in PWA mode", async () => {

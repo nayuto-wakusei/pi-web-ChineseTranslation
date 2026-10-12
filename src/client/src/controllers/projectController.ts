@@ -3,6 +3,11 @@ import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScop
 import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
 
+/**
+ * Trust choice the add-project dialog submits with the path. `changed` is
+ * false for the pre-filled existing/default value, so adding a project never
+ * pins a decision the user did not make in this dialog.
+ */
 export interface ProjectTrustChoice {
   trusted: boolean;
   changed: boolean;
@@ -73,11 +78,10 @@ export class ProjectController {
         this.setState({ projects: [...projects.filter((p) => p.id !== project.id), project], projectDialogOpen: false });
         this.onProjectsApplied?.(machineId);
       }
+      // The explicit decision belongs to creation, not to the navigation that
+      // may have been superseded. Persist it before selecting the project.
       if (trustChoice?.changed === true) {
-        const workspaces = await (this.api.workspaces ?? defaultApi.workspaces)(project.id, machineId);
-        const main = workspaces.find((workspace) => workspace.projectId === project.id && workspace.isMain);
-        if (main === undefined) throw new Error(`无法保存项目 ${project.id} 的信任选择：主工作区不可用`);
-        await (this.api.setWorkspaceTrust ?? defaultApi.setWorkspaceTrust)(project.id, main.id, trustChoice.trusted, machineId);
+        await this.applyTrustChoice(project, trustChoice.trusted, machineId);
       }
       if (selectedMachineId(this.getState()) !== machineId) return;
       if (this.navigateToProject !== undefined) await this.navigateToProject(project, { expected });
@@ -85,6 +89,18 @@ export class ProjectController {
     } catch (error) {
       this.browserErrors.report(projectBrowserErrorScope(machineId, project.id), String(error));
     }
+  }
+
+  /**
+   * Pin the dialog's trust choice once the project's main workspace exists.
+   * The write goes through the id-based trust route (server-resolved path),
+   * never a client-chosen path or the currently selected workspace.
+   */
+  private async applyTrustChoice(project: Project, trusted: boolean, machineId: string): Promise<void> {
+    const workspaces = await (this.api.workspaces ?? defaultApi.workspaces)(project.id, machineId);
+    const mainWorkspace = workspaces.find((workspace) => workspace.projectId === project.id && workspace.isMain);
+    if (mainWorkspace === undefined) throw new Error(`无法保存项目 ${project.id} 的信任选择：主工作区不可用`);
+    await (this.api.setWorkspaceTrust ?? defaultApi.setWorkspaceTrust)(project.id, mainWorkspace.id, trusted, machineId);
   }
 
   async closeProject(projectId: string) {

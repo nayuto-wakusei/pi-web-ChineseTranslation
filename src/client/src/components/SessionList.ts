@@ -11,7 +11,7 @@ import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
-import { listStyles } from "./shared";
+import { listStyles, scrollBoundaryShadow } from "./shared";
 
 function sessionLabel(session: SessionInfo): string {
   if (session.name !== undefined && session.name !== "") return session.name;
@@ -96,6 +96,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     currentSelectableSessions: SessionInfo[];
     archivedRows: SessionRow[];
     archivedSessions: SessionInfo[];
+    descendantCounts?: Map<string, number>;
   } | undefined;
 
   private sessionTree() {
@@ -192,7 +193,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   }
 
   override render() {
-    const { currentRows, currentSelectableSessions, archivedRows, archivedSessions } = this.sessionTree();
+    const tree = this.sessionTree();
+    const { currentRows, currentSelectableSessions, archivedRows, archivedSessions } = tree;
+    if (!this.collapsed) tree.descendantCounts ??= unarchivedDescendantCounts(this.sessions);
     const unreadCount = unreadSessionCount(currentSelectableSessions, this.unreadSessionIds);
     const visibleCurrentRows = currentRows.slice(0, this.currentVisibleLimit);
     const visibleCurrentSessions = visibleCurrentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current");
@@ -304,11 +307,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const archivableSessions = selectedSessions.filter((session) => isArchivableSessionInfo(session, this.statuses[session.id], this.sessionPersistenceOptions()));
     const unreadSelectedSessions = selectedSessions.filter((session) => this.unreadSessionIds.has(session.id));
     return html`
-      <div class="bulk-row selecting">
+      <div class="selection-toolbar"><div class="bulk-row selecting">
         ${this.renderSelectionControls("current", visibleSessions)}
         <button ?disabled=${archivableSessions.length === 0} @click=${() => { this.archiveSelectedCurrent(); }}>归档</button>
         <button ?disabled=${unreadSelectedSessions.length === 0} @click=${() => { this.markSelectedCurrentRead(); }}>标记已读</button>
-      </div>
+      </div></div>
     `;
   }
 
@@ -317,11 +320,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
     const selectedSessions = this.selectedSessions("archived");
     return html`
-      <div class="bulk-row selecting">
+      <div class="selection-toolbar"><div class="bulk-row selecting">
         ${this.renderSelectionControls("archived", visibleSessions)}
         <button class="danger" title=${this.canDeleteArchived ? "永久删除所选已归档会话" : this.archivedDeleteUnavailableMessage} ?disabled=${selectedSessions.length === 0 || !this.canDeleteArchived} @click=${() => { this.confirmDeleteSelectedArchived(); }}>删除</button>
         ${this.canDeleteArchived ? null : html`<small class="capability-hint">${this.archivedDeleteUnavailableMessage}</small>`}
-      </div>
+      </div></div>
     `;
   }
 
@@ -335,8 +338,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return html`
       ${selectedCount === 0
         ? html`<button @click=${() => { this.selectVisibleSessions(visibleSessions); }}>选择可见</button>`
-        : html`<button @click=${() => { this.clearSelection(scope); }}>清除所选</button>`}
-      <small>已选 ${selectedCount}${visibleSelectedCount !== selectedCount ? html` · 可见 ${visibleSelectedCount}` : null}</small>
+        : html`<button @click=${() => { this.clearSelection(scope); }}>清除所选（${selectedCount}）</button>`}
+      ${visibleSelectedCount !== selectedCount ? html`<small>可见 ${visibleSelectedCount}</small>` : null}
     `;
   }
 
@@ -358,7 +361,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const canReloadSession = canArchive && this.canReload;
     const pinned = this.pinnedSessionIds.includes(session.id);
     const canPin = session.persisted !== false;
-    const descendantCount = this.openMenuSessionId === session.id ? unarchivedDescendantCount(this.sessions, session) : 0;
+    const descendantCount = this.openMenuSessionId === session.id ? (this.sessionTree().descendantCounts?.get(session.id) ?? 0) : 0;
     return html`
       <div
         class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${pinned ? "pinned" : ""} ${this.openMenuSessionId === session.id ? "menu-open" : ""}"
@@ -625,7 +628,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .start-session-button { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 9px; }
     .cleanup-entry { flex: 0 0 auto; padding: 5px 7px; font-size: 12px; text-transform: none; }
     .bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
-    .bulk-row button { padding: 5px 7px; font-size: 12px; }
+    .bulk-row button { padding: 5px 7px; font-size: 12px; white-space: nowrap; }
+    .bulk-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; }
     .bulk-row small { display: inline; min-width: 0; color: var(--pi-muted); }
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .action-row.unread .action-name { color: var(--pi-text-bright); font-weight: 650; }
@@ -645,7 +649,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     /* Same glyph as a normal child marker, dimmed: the row is a child whose parent is not displayed here. */
     .orphan-marker { color: var(--pi-dim); opacity: .65; }
     .bulk-row .capability-hint { flex: 1 0 100%; color: var(--pi-warning); }
-    .bulk-row.selecting { padding: 6px; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: color-mix(in srgb, var(--pi-surface) 65%, transparent); }
+    .selection-toolbar { position: sticky; top: 0; z-index: 4; }
+    .selection-toolbar::before { content: ""; position: absolute; top: 0; right: 0; left: 0; z-index: 0; height: 8px; background: var(--pi-bg); pointer-events: none; }
+    .selection-toolbar .bulk-row.selecting { position: relative; z-index: 1; margin-bottom: 0; padding: 6px; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: var(--pi-surface); box-shadow: ${scrollBoundaryShadow}; }
     button.danger, .action-menu-panel button.danger { color: var(--pi-danger); }
     button.danger:hover, .action-menu-panel button.danger:hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
     .action-row.bulk-selected .action-main { border-color: var(--pi-accent); box-shadow: inset 3px 0 0 var(--pi-accent); }
@@ -688,6 +694,34 @@ function removeSessionIds(sessionIds: ReadonlySet<string>, removedIds: readonly 
   const removed = new Set(removedIds);
   return new Set([...sessionIds].filter((sessionId) => !removed.has(sessionId)));
 }
+
+function unarchivedDescendantCounts(sessions: SessionInfo[]): Map<string, number> {
+  const childrenByParentPath = new Map<string, SessionInfo[]>();
+  for (const session of sessions) {
+    if (session.parentSessionPath === undefined) continue;
+    const parentKey = normalizeSessionPath(session.parentSessionPath);
+    const children = childrenByParentPath.get(parentKey) ?? [];
+    children.push(session);
+    childrenByParentPath.set(parentKey, children);
+  }
+
+  const countFor = (session: SessionInfo, seenPaths: Set<string>): number => {
+    const sessionKey = normalizeSessionPath(session.path);
+    if (seenPaths.has(sessionKey)) return 0;
+    const nextSeenPaths = new Set(seenPaths);
+    nextSeenPaths.add(sessionKey);
+    let count = 0;
+    for (const child of childrenByParentPath.get(sessionKey) ?? []) {
+      if (nextSeenPaths.has(normalizeSessionPath(child.path))) continue;
+      if (child.archived !== true) count += 1;
+      count += countFor(child, nextSeenPaths);
+    }
+    return count;
+  };
+
+  return new Map(sessions.map((session) => [session.id, countFor(session, new Set())]));
+}
+
 
 export function unarchivedDescendantCount(sessions: SessionInfo[], root: SessionInfo): number {
   const childrenByParentPath = new Map<string, SessionInfo[]>();

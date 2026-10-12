@@ -12,7 +12,7 @@ describe("ManagementAuditStore", () => {
     expect(managementAuditIndexName("pi-web-management-audit", new Date("2021-01-03T16:00:00.000Z"))).toBe("pi-web-management-audit-2021-w01");
   });
 
-  it("writes complete management content through the bulk API", async () => {
+  it("writes only management metadata through the bulk API, ignoring extra sensitive fields", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ acknowledged: true }))
       .mockResolvedValueOnce(jsonResponse({ deleted: 0 }))
@@ -29,7 +29,16 @@ describe("ManagementAuditStore", () => {
     });
 
     await store.initialize();
-    store.record({ ...toolEvent(), content: { path: "/workspace", includeHidden: true } });
+    const untypedEvent = {
+      ...toolEvent(),
+      content: "private content",
+      arguments: { token: "private token" },
+      result: "private result",
+      prompt: "private prompt",
+      reply: "private reply",
+      credential: "private credential",
+    };
+    store.record(untypedEvent);
     await store.flush();
 
     const [url, init] = fetchImpl.mock.calls[2] ?? [];
@@ -45,9 +54,12 @@ describe("ManagementAuditStore", () => {
       project: { id: "project-1" },
       session: { id: "session-1" },
       tool: { name: "read", call_id: "call-1" },
-      content: { path: "/workspace", includeHidden: true },
     });
     expect(body).not.toContain("private-api-key");
+    for (const secret of ["private content", "private token", "private result", "private prompt", "private reply", "private credential"]) {
+      expect(body).not.toContain(secret);
+    }
+    expect(lines[1]).not.toHaveProperty("content");
 
     await store.close();
   });

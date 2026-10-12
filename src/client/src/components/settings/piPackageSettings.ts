@@ -72,6 +72,12 @@ export function piPackageInstalledPathLabel(packageInfo: Pick<PiPackageInfo, "in
   return packageInfo.installedPath ?? "Pi 未报告安装路径";
 }
 
+/**
+ * Carries a mutation response's refreshed package list, and the refreshed
+ * installable-known-package suggestions if the server reported any, forward
+ * into panel state — so a one-click (re)install or removal updates the
+ * "Available packages" suggestions without a separate reload.
+ */
 export function piPackagesResponseAfterMutation(response: Pick<PiPackageMutationResponse, "packages" | "installableKnownPackages">): PiPackagesResponse {
   return {
     packages: response.packages,

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { isReview, type Review } from "./browser/protocol.js";
 
 /** Only host-resolved ids enter the scope hash; peer input is never a filesystem path. */
@@ -10,6 +10,8 @@ export function reviewScope(projectId: string, workspaceId: string): string {
 }
 
 export class ReviewStore {
+  private static readonly pending = new Map<string, Promise<void>>();
+
   constructor(private readonly dataDirectory: string) {}
 
   private async directory(scope: string): Promise<string> {
@@ -20,8 +22,13 @@ export class ReviewStore {
     return directory;
   }
 
-  async save(scope: string, review: Review): Promise<void> {
-    if (!isReview(review)) throw new Error("Invalid review record");
+  save(scope: string, review: Review): Promise<void> {
+    if (!isReview(review)) return Promise.reject(new Error("Invalid review record"));
+    const snapshot = { ...review };
+    return this.enqueue(scope, review.id, () => this.saveRecord(scope, snapshot));
+  }
+
+  private async saveRecord(scope: string, review: Review): Promise<void> {
     const directory = await this.directory(scope);
     const temporary = join(directory, `.${randomUUID()}.tmp`);
     try {
@@ -31,8 +38,12 @@ export class ReviewStore {
     } finally { await rm(temporary, { force: true }); }
   }
 
-  async read(scope: string, id: unknown): Promise<Review> {
-    if (typeof id !== "string" || !/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid review id");
+  read(scope: string, id: unknown): Promise<Review> {
+    if (typeof id !== "string" || !/^[a-f0-9-]{36}$/.test(id)) return Promise.reject(new Error("Invalid review id"));
+    return this.enqueue(scope, id, () => this.readRecord(scope, id));
+  }
+
+  private async readRecord(scope: string, id: string): Promise<Review> {
     const path = join(await this.directory(scope), `${id}.json`);
     // O_NOFOLLOW is not enforced on Windows; reject existing links there too.
     if (!(await lstat(path)).isFile()) throw new Error("Invalid review file");
@@ -44,6 +55,18 @@ export class ReviewStore {
       if (!isReview(value) || value.id !== id) throw new Error("Invalid saved review");
       return value;
     } finally { await file.close(); }
+  }
+
+  private enqueue<T>(scope: string, id: string, operation: () => Promise<T>): Promise<T> {
+    const key = resolve(this.dataDirectory, scope, id);
+    // Windows cannot replace a file while our own read handle is still open.
+    const result = (ReviewStore.pending.get(key) ?? Promise.resolve()).then(operation);
+    const settled = result.then(() => undefined, () => undefined);
+    ReviewStore.pending.set(key, settled);
+    void settled.then(() => {
+      if (ReviewStore.pending.get(key) === settled) ReviewStore.pending.delete(key);
+    });
+    return result;
   }
 
   async list(scope: string): Promise<Review[]> {

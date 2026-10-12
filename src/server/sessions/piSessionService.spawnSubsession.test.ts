@@ -6,7 +6,7 @@ import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
 import type { SpawnTargetDecision } from "./spawnTargetResolver.js";
-import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, fakeRuntime, fakeSessionManager, resolveSessionFileFromList, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -56,7 +56,7 @@ describe("PiSessionService", () => {
       const { child, service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace"); // bring the parent online so it can be notified
 
-      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace" });
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice" });
 
       expect(result).toEqual({ sessionId: "child-1", cwd: "/workspace" });
       expect(child.calls.prompt).toEqual([{ text: "do the slice", options: undefined }]);
@@ -112,6 +112,25 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
+    it("accepts a target that names the parent's own cwd in a non-canonical form", async () => {
+      const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
+      await service.start("/workspace");
+
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace/" });
+
+      expect(result).toEqual({ sessionId: "child-1", cwd: "/workspace" });
+      await service.dispose();
+    });
+
+    it("refuses to spawn a tracked child from an unregistered workspace", async () => {
+      const { service } = subsessionService({ allowed: false, reason: "not-registered" });
+      await service.start("/workspace");
+
+      await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice" }))
+        .rejects.toThrow("派生会话不在已注册项目中");
+      await service.dispose();
+    });
+
     it("uses the parent model and thinking level and disables delegation before creating the tracked child runtime", async () => {
       const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
       const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace") });
@@ -141,7 +160,7 @@ describe("PiSessionService", () => {
       });
 
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace", model, thinkingLevel: "max" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", model, thinkingLevel: "max" });
 
       expect(initialModels).toEqual([undefined, model]);
       expect(initialThinkingLevels).toEqual([undefined, "max"]);
@@ -176,7 +195,7 @@ describe("PiSessionService", () => {
       });
 
       await service.start("/workspace");
-      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace", modelSpec: "anthropic/claude-sonnet-4-5-20250929" });
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", modelSpec: "anthropic/claude-sonnet-4-5-20250929" });
 
       expect(initialModels[1]).toBe(scoped);
       expect(result).toEqual({ sessionId: "child-1", cwd: "/workspace", model: "anthropic/claude-sonnet-4-5-20250929" });
@@ -221,7 +240,7 @@ describe("PiSessionService", () => {
       });
 
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice" });
 
       expect(parentPersisted).toEqual([
         {
@@ -238,21 +257,21 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("hydrates persisted child links after a service restart so the parent can inspect them", async () => {
+    it("hydrates a legacy persisted child link in another workspace after a service restart", async () => {
       const tempDir = await mkdtemp(join(tmpdir(), "pi-web-subsession-"));
       const parentFile = join(tempDir, "parent.jsonl");
       const childFile = join(tempDir, "child.jsonl");
       await writeFile(parentFile, `${JSON.stringify({ type: "session", version: 3, id: "parent-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/workspace" })}\n`, "utf8");
-      await writeFile(childFile, `${JSON.stringify({ type: "session", version: 3, id: "child-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/workspace", parentSession: parentFile })}\n`, "utf8");
+      await writeFile(childFile, `${JSON.stringify({ type: "session", version: 3, id: "child-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/workspace-feature", parentSession: parentFile })}\n`, "utf8");
 
       try {
-        const childManager = fakeSessionManager("/workspace", {
+        const childManager = fakeSessionManager("/workspace-feature", {
           getBranch: () => [{ type: "message", message: { role: "assistant", content: "finished" } }],
         });
         const parent = fakeRuntime("parent-1", {
           sessionFile: parentFile,
           sessionManager: fakeSessionManager("/workspace", {
-            getEntries: () => [{ type: "custom", customType: "pi-web.subsession.link", data: { version: 1, spawnedBySessionId: "parent-1", spawnedSessionId: "child-1", spawnedSessionFile: childFile, cwd: "/workspace" } }],
+            getEntries: () => [{ type: "custom", customType: "pi-web.subsession.link", data: { version: 1, spawnedBySessionId: "parent-1", spawnedSessionId: "child-1", spawnedSessionFile: childFile, cwd: "/workspace-feature" } }],
           }),
         });
         const child = fakeRuntime("child-1", { sessionFile: childFile, sessionManager: childManager });
@@ -267,7 +286,7 @@ describe("PiSessionService", () => {
             index += 1;
             return Promise.resolve(runtime);
           },
-          sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open },
+          sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open },
           archiveStore: emptyArchiveStore(),
           heartbeatIntervalMs: 60_000,
         });
@@ -276,7 +295,7 @@ describe("PiSessionService", () => {
 
         await expect(service.checkSubsession("parent-1", "child-1")).resolves.toEqual({
           sessionId: "child-1",
-          cwd: "/workspace",
+          cwd: "/workspace-feature",
           status: "idle",
           finalText: "finished",
           messageCount: 1,
@@ -306,7 +325,7 @@ describe("PiSessionService", () => {
           agentDir: TEST_AGENT_DIR,
           modelRuntime: testModelRuntime,
           createAgentRuntime: runtimeCreator(parent.runtime),
-          sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
+          sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open: () => fakeSessionManager() },
           archiveStore: emptyArchiveStore(),
           heartbeatIntervalMs: 60_000,
         });
@@ -332,7 +351,7 @@ describe("PiSessionService", () => {
         agentDir: TEST_AGENT_DIR,
         modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
-        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
+        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
         heartbeatIntervalMs: 60_000,
       });
@@ -355,7 +374,7 @@ describe("PiSessionService", () => {
         agentDir: TEST_AGENT_DIR,
         modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
-        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
+        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
         heartbeatIntervalMs: 60_000,
       });
@@ -377,7 +396,7 @@ describe("PiSessionService", () => {
         agentDir: TEST_AGENT_DIR,
         modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(parent.runtime),
-        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([childRecord]), open: () => fakeSessionManager() },
+        sessionManager: { create: () => parent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([childRecord]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
         heartbeatIntervalMs: 60_000,
       });
@@ -399,7 +418,7 @@ describe("PiSessionService", () => {
         agentDir: TEST_AGENT_DIR,
         modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(forkedParent.runtime),
-        sessionManager: { create: () => forkedParent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), open: () => fakeSessionManager() },
+        sessionManager: { create: () => forkedParent.session.sessionManager, list: () => Promise.resolve([]), listAll: () => Promise.resolve([]), invalidateSessionFile: () => undefined, resolveSessionFile: () => Promise.resolve(undefined), open: () => fakeSessionManager() },
         archiveStore: emptyArchiveStore(),
         heartbeatIntervalMs: 60_000,
       });
@@ -448,6 +467,8 @@ describe("PiSessionService", () => {
             create: () => childManager,
             list: () => Promise.resolve([{ ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile }]),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([{ ...sessionRecord("child-1", "/workspace-feature"), path: childFile, parentSessionPath: parentFile }])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -517,6 +538,11 @@ describe("PiSessionService", () => {
               { ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile },
             ]),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([
+              { ...sessionRecord("parent-1-fork", "/workspace"), path: forkParentFile },
+              { ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile },
+            ])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -576,6 +602,8 @@ describe("PiSessionService", () => {
             create: () => childManager,
             list: () => Promise.resolve([{ ...sessionRecord("child-1", "/workspace"), path: copiedChildFile, parentSessionPath: parentFile }]),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([{ ...sessionRecord("child-1", "/workspace-feature"), path: copiedChildFile, parentSessionPath: parentFile }])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -640,6 +668,8 @@ describe("PiSessionService", () => {
             create: () => parentManager,
             list: (cwd: string) => Promise.resolve(cwd === "/workspace" ? [{ ...sessionRecord("child-1", "/workspace"), path: copiedChildFile, parentSessionPath: parentFile }] : []),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList((cwd: string) => Promise.resolve(cwd === "/workspace" ? [{ ...sessionRecord("child-1", "/workspace"), path: copiedChildFile, parentSessionPath: parentFile }] : [])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -722,6 +752,11 @@ describe("PiSessionService", () => {
               { ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile },
             ]),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([
+              { ...sessionRecord("parent-1", "/workspace"), path: copiedParentFile },
+              { ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile },
+            ])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -785,6 +820,8 @@ describe("PiSessionService", () => {
             create: () => childManager,
             list: () => Promise.resolve([{ ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile }]),
             listAll: () => Promise.resolve([]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([{ ...sessionRecord("child-1", "/workspace-feature"), path: childFile, parentSessionPath: parentFile }])),
             open,
           },
           archiveStore: {
@@ -840,6 +877,8 @@ describe("PiSessionService", () => {
             create: () => childManager,
             list: () => Promise.resolve([{ ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: mismatchedParentFile }]),
             listAll: () => Promise.resolve([{ ...sessionRecord("parent-1", "/workspace"), path: actualParentFile }]),
+            invalidateSessionFile: () => undefined,
+            resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([{ ...sessionRecord("child-1", "/workspace-feature"), path: childFile, parentSessionPath: mismatchedParentFile }])),
             open,
           },
           archiveStore: emptyArchiveStore(),
@@ -879,6 +918,8 @@ describe("PiSessionService", () => {
           create: () => childManager,
           list: () => Promise.resolve([{ ...sessionRecord("child-fork-1", "/workspace"), path: childFile, parentSessionPath: parentFile }]),
           listAll: () => Promise.resolve([]),
+          invalidateSessionFile: () => undefined,
+          resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([{ ...sessionRecord("child-fork-1", "/workspace-feature"), path: childFile, parentSessionPath: parentFile }])),
           open,
         },
         archiveStore: emptyArchiveStore(),
@@ -904,7 +945,7 @@ describe("PiSessionService", () => {
         { type: "message", message: { role: "assistant", content: "all done" } },
       ];
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
       parent.calls.prompt.length = 0; // ignore the spawn prompt to the child; focus on the parent notification
 
       child.session.isStreaming = true;
@@ -932,7 +973,7 @@ describe("PiSessionService", () => {
         { type: "message", message: { role: "assistant", content: longOutput } },
       ];
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
       child.session.isStreaming = true;
       child.emit({ type: "agent_start" });
@@ -960,8 +1001,8 @@ describe("PiSessionService", () => {
       const [first, second] = children;
       if (first === undefined || second === undefined) throw new Error("Expected two child fixtures");
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "first", cwd: "/workspace" });
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "second", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "first" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "second" });
 
       first.session.isStreaming = true;
       first.emit({ type: "agent_start" });
@@ -995,7 +1036,7 @@ describe("PiSessionService", () => {
     it("notifies via the heartbeat when the child settles without a further event", async () => {
       const { parent, child, service } = subsessionService({ allowed: true, cwd: "/workspace" }, 10);
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
       parent.calls.prompt.length = 0;
 
       // The child works, then settles silently: agent_end arrives while it still
@@ -1020,14 +1061,14 @@ describe("PiSessionService", () => {
     it("does not notify the parent when a tracked child is archived", async () => {
       const { parent, child, service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
       // Arm the notification, as a real working child would.
       child.session.isStreaming = true;
       child.emit({ type: "agent_start" });
       child.session.isStreaming = false;
       parent.calls.sendCustomMessage.length = 0;
 
-      await service.archive("child-1");
+      await service.archive(sessionRef("child-1", "/workspace"));
       // Let any pending notification settle, then confirm the archived child
       // never notified the parent.
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -1039,9 +1080,9 @@ describe("PiSessionService", () => {
     it("reports a missing tracked child file as unknown in the subsession list", async () => {
       const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
-      await service.archive("child-1");
+      await service.archive(sessionRef("child-1", "/workspace"));
 
       await expect(service.listSubsessions("parent-1")).resolves.toEqual([
         { sessionId: "child-1", cwd: "/workspace", status: "unknown" },
@@ -1052,7 +1093,7 @@ describe("PiSessionService", () => {
     it("check_subsession and read_subsession refuse sessions that are not the caller's children", async () => {
       const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace");
-      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace" });
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
       await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
       await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");

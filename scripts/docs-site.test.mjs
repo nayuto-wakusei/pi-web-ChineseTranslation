@@ -40,7 +40,7 @@ describe("configuration documentation navigation", () => {
       for (const table of tables) {
         expect(table.closest("details")).toBeNull();
         expect([...table.querySelectorAll("thead th")].map((cell) => cell.textContent)).toEqual([
-          "Setting", "Applies to", "Default", "What it changes", "Apply / restart",
+          "设置", "作用范围", "默认值", "改变什么", "生效 / 重启",
         ]);
         for (const row of table.querySelectorAll("tbody tr")) {
           expect(row.children.length).toBe(5);
@@ -53,8 +53,7 @@ describe("configuration documentation navigation", () => {
     }
   });
 
-  it("keeps local links and copy targets valid in config.html", () => {
-    const page = "config.html";
+  it.each(["config.html", "plugins.html", "faq.html", "machines.html", "index.html", "install.html", "remote-first.html"])("keeps local links and copy targets valid in %s", (page) => {
     const window = new Window({ url: `https://pi-web.dev/${page}` });
     try {
       window.document.write(readFileSync(new URL(`../docs/${page}`, import.meta.url), "utf8"));
@@ -73,7 +72,9 @@ describe("configuration documentation navigation", () => {
             const headings = [...content.matchAll(/^#{1,6} (.+)$/gm)].map((match) =>
               match[1].toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s/g, "-"),
             );
-            expect(headings, href).toContain(fragment);
+            const document = new window.DOMParser().parseFromString(content, "text/html");
+            const explicitAnchors = [...document.querySelectorAll("[id]")].map((element) => element.id);
+            expect([...headings, ...explicitAnchors], href).toContain(fragment);
           } else {
             const document = new window.DOMParser().parseFromString(content, "text/html");
             expect(document.getElementById(fragment), href).not.toBeNull();
@@ -86,6 +87,38 @@ describe("configuration documentation navigation", () => {
     } finally {
       window.close();
     }
+  });
+});
+
+describe("fork installation and documentation build", () => {
+  it("documents the tested SDK versions and the fork's actual one-line installer", () => {
+    const window = new Window();
+    try {
+      window.document.write(readFileSync(new URL("../docs/install.html", import.meta.url), "utf8"));
+      const requirements = window.document.querySelector("#requirements").textContent;
+      expect(requirements).toContain("0.86.1");
+      expect(requirements).toContain("0.87.0");
+      expect(requirements).not.toContain(">=0.87.0");
+      expect(window.document.querySelector("#one-line-install").textContent).toContain(
+        "https://raw.githubusercontent.com/nayuto-wakusei/pi-web-ChineseTranslation/main/install.sh",
+      );
+      const installer = readFileSync(new URL("../install.sh", import.meta.url), "utf8");
+      expect(installer).toContain("npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty");
+      expect(installer).not.toContain("@jmfederico/pi-web");
+    } finally {
+      window.close();
+    }
+  });
+
+  it("keeps the development docs workflow build-only without upstream deployment credentials", () => {
+    const workflow = readFileSync(new URL("../.github/workflows/docs-dev.yml", import.meta.url), "utf8");
+    expect(workflow).toContain("node scripts/build-docs-dev.mjs");
+    expect(workflow).toContain("scripts/docs-site.test.mjs");
+    expect(workflow).toContain("test -s docs/.deploy/dev/dev/index.html");
+    expect(workflow).not.toContain("cloudflare/wrangler-action");
+    expect(workflow).not.toContain("CLOUDFLARE_API_TOKEN");
+    expect(workflow).not.toContain("CLOUDFLARE_ACCOUNT_ID");
+    expect(workflow).not.toContain("command: deploy");
   });
 });
 
@@ -131,6 +164,7 @@ describe("PI WEB docs homepage intro", () => {
   it("finishes every intro animation as soon as the page scrolls", () => {
     const window = createAnimatedHomePage();
     try {
+      expect(animationState(window, ".site-header")).toMatchObject({ opacity: "0" });
       window.dispatchEvent(new window.Event("scroll"));
 
       expect(window.document.body.classList.contains("intro-skipped")).toBe(true);

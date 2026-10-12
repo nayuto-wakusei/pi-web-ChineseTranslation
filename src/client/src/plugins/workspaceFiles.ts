@@ -1,17 +1,24 @@
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
-import { uploadWorkspaceFile as defaultUploadWorkspaceFile, workspaceUploadPath, WorkspaceUploadCancelledError } from "../api/workspaceUploads";
-import { workspaceFilePreviewUrl } from "../api/urls";
-import type { WorkspaceFileReferenceOptions, WorkspaceFileRequestOptions, WorkspaceFilesCapabilityV1 } from "./types";
-import type { WorkspaceInvalidation } from "./types";
-
-export interface WorkspaceFilesOptions {
-  readonly defaultUploadFolder?: string;
-  readonly uploadWorkspaceFile?: typeof defaultUploadWorkspaceFile;
-  readonly onInvalidate?: (invalidation: WorkspaceInvalidation) => void;
-}
-
-const mutationInvalidation: WorkspaceInvalidation = Object.freeze({ reason: "mutation", resources: Object.freeze(["workspace.files"] as const) });
+import {
+  uploadWorkspaceFile as defaultUploadWorkspaceFile,
+  workspaceUploadPath,
+  WorkspaceUploadCancelledError,
+  type DeleteWorkspaceFileResponse,
+  type FileContentResponse,
+  type FileTreeResponse,
+  type MoveWorkspaceFileOptions,
+  type MoveWorkspaceFileResponse,
+  type WriteWorkspaceFileOptions,
+  type WriteWorkspaceFileResponse,
+  type Workspace,
+} from "../api";
+import { workspaceFilePreviewUrl as defaultWorkspaceFilePreviewUrl } from "../api/urls";
+import type {
+  WorkspaceFileReferenceOptions,
+  WorkspaceFileRequestOptions,
+  WorkspaceFilesCapabilityV1,
+  WorkspaceInvalidation,
+} from "./types";
 
 /**
  * API surface the workspace files helper needs. Structurally satisfied by
@@ -28,53 +35,96 @@ export interface WorkspaceFilesApi {
   moveWorkspaceFile(projectId: string, workspaceId: string, fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions, machineId?: string): Promise<MoveWorkspaceFileResponse>;
 }
 
+export interface CreateWorkspaceFilesOptions {
+  readonly defaultUploadFolder: string;
+  readonly maxInlinePreviewBytes?: number;
+  readonly onInvalidate?: (invalidation: WorkspaceInvalidation) => void;
+  readonly uploadWorkspaceFile?: typeof defaultUploadWorkspaceFile;
+  readonly workspaceFilePreviewUrl?: typeof defaultWorkspaceFilePreviewUrl;
+}
+
+export type WorkspaceFilesOptions = Partial<CreateWorkspaceFilesOptions>;
+
+const workspaceFilesMutationInvalidation: WorkspaceInvalidation = Object.freeze({
+  reason: "mutation",
+  resources: Object.freeze(["workspace.files"] as const),
+});
+
 /**
- * Build the `files` helper exposed to workspace panel and label callbacks.
- * Every call is bound to the callback's workspace and machine, so local and
- * federated machines behave the same. `onFilesChanged` runs after a mutation
- * succeeds so the host can refresh its file explorer.
+ * Build the versioned `files` capability exposed to workspace callbacks.
+ * Authority is captured here: callers cannot choose a project, workspace, or
+ * machine. Host adapters retain URL resolution, federation, and transport.
  */
-export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Workspace, "id" | "projectId">, machineId: string, onFilesChanged?: () => void, options: WorkspaceFilesOptions = {}): WorkspaceFilesCapabilityV1 {
-  const scope = { projectId: workspace.projectId, workspaceId: workspace.id, machineId };
-  const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
-  const defaultUploadFolder = options.defaultUploadFolder ?? "";
+export function createWorkspaceFiles(
+  api: WorkspaceFilesApi,
+  workspace: Pick<Workspace, "id" | "projectId">,
+  machineId: string,
+  optionsOrChanged?: CreateWorkspaceFilesOptions | (() => void),
+  legacyOptions: WorkspaceFilesOptions = {},
+): WorkspaceFilesCapabilityV1 {
+  const options: WorkspaceFilesOptions = typeof optionsOrChanged === "function" || optionsOrChanged === undefined ? legacyOptions : optionsOrChanged;
+  const onFilesChanged = typeof optionsOrChanged === "function" ? optionsOrChanged : undefined;
+  const projectId = workspace.projectId;
+  const workspaceId = workspace.id;
   const createDirectory = api.createWorkspaceDirectory?.bind(api);
   const moveDirectory = api.moveWorkspaceDirectory?.bind(api);
   const deleteDirectory = api.deleteWorkspaceDirectory?.bind(api);
-  const publishMutation = () => {
-    onFilesChanged?.();
-    options.onInvalidate?.(mutationInvalidation);
-  };
+  const previewUrl = options.workspaceFilePreviewUrl ?? defaultWorkspaceFilePreviewUrl;
+  const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
+  const publishMutation = () => { onFilesChanged?.(); options.onInvalidate?.(workspaceFilesMutationInvalidation); };
+
   return {
     capabilityVersion: 1,
-    defaultUploadFolder,
-    maxInlinePreviewBytes: MAX_INLINE_PREVIEW_BYTES,
+    defaultUploadFolder: options.defaultUploadFolder ?? "",
+    maxInlinePreviewBytes: options.maxInlinePreviewBytes ?? MAX_INLINE_PREVIEW_BYTES,
     ...(createDirectory === undefined ? {} : { createDirectory: async (path: string) => {
-      const result = await createDirectory(scope.projectId, scope.workspaceId, path, scope.machineId);
+      const result = await createDirectory(projectId, workspaceId, path, machineId);
       publishMutation();
       return result;
     } }),
     ...(moveDirectory === undefined ? {} : { moveDirectory: async (fromPath: string, toPath: string) => {
-      const result = await moveDirectory(scope.projectId, scope.workspaceId, fromPath, toPath, scope.machineId);
+      const result = await moveDirectory(projectId, workspaceId, fromPath, toPath, machineId);
       publishMutation();
       return result;
     } }),
     ...(deleteDirectory === undefined ? {} : { deleteDirectory: async (path: string) => {
-      const result = await deleteDirectory(scope.projectId, scope.workspaceId, path, scope.machineId);
+      const result = await deleteDirectory(projectId, workspaceId, path, machineId);
       publishMutation();
       return result;
     } }),
-    readFile: (path, requestOptions) => api.workspaceFile(scope.projectId, scope.workspaceId, path, scope.machineId, requestOptions),
-    listFiles: (path, requestOptions) => api.workspaceTree(scope.projectId, scope.workspaceId, path, scope.machineId, requestOptions),
-    previewUrl: (path, reference) => workspaceFilePreviewUrl(scope.projectId, scope.workspaceId, path, { machineId, ...referenceVersion(reference) }),
-    downloadUrl: (path, reference) => workspaceFilePreviewUrl(scope.projectId, scope.workspaceId, path, { machineId, download: true, ...referenceVersion(reference) }),
+    readFile: (path, requestOptions) => api.workspaceFile(projectId, workspaceId, path, machineId, requestOptions),
+    listFiles: (path, requestOptions) => api.workspaceTree(projectId, workspaceId, path, machineId, requestOptions),
+    writeFile: async (path, content, writeOptions) => {
+      const result = await api.writeWorkspaceFile(projectId, workspaceId, path, content, writeOptions, machineId);
+      publishMutation();
+      return result;
+    },
+    deleteFile: async (path) => {
+      const result = await api.deleteWorkspaceFile(projectId, workspaceId, path, machineId);
+      publishMutation();
+      return result;
+    },
+    moveFile: async (fromPath, toPath, moveOptions) => {
+      const result = await api.moveWorkspaceFile(projectId, workspaceId, fromPath, toPath, moveOptions, machineId);
+      publishMutation();
+      return result;
+    },
+    previewUrl: (path, referenceOptions) => previewUrl(projectId, workspaceId, path, {
+      machineId,
+      ...referenceVersion(referenceOptions),
+    }),
+    downloadUrl: (path, referenceOptions) => previewUrl(projectId, workspaceId, path, {
+      machineId,
+      download: true,
+      ...referenceVersion(referenceOptions),
+    }),
     uploadFile: (file, uploadOptions) => {
-      const path = workspaceUploadPath(uploadOptions?.destinationFolder ?? uploadOptions?.folder ?? defaultUploadFolder, file.name);
+      const path = workspaceUploadPath(uploadOptions?.destinationFolder ?? uploadOptions?.folder ?? options.defaultUploadFolder ?? "", file.name);
       const signal = uploadOptions?.signal;
       if (signal?.aborted === true) {
-        return { path, completed: Promise.reject(new DOMException("Upload aborted", "AbortError")), cancel: () => { /* No transport was started. */ } };
+        return { path, completed: Promise.reject(publicUploadError(new WorkspaceUploadCancelledError())), cancel: () => { /* No transport was started. */ } };
       }
-      const task = uploadFile(scope.projectId, scope.workspaceId, { path, file }, {
+      const task = uploadFile(projectId, workspaceId, { path, file }, {
         machineId,
         createDirs: uploadOptions?.createDirs ?? true,
         overwrite: uploadOptions?.overwrite ?? false,
@@ -82,29 +132,14 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
       });
       const cancel = () => { task.cancel(); };
       signal?.addEventListener("abort", cancel, { once: true });
-      const completed = task.promise.then((result) => {
-        publishMutation();
-        return result;
-      }, (error: unknown) => {
-        if (error instanceof WorkspaceUploadCancelledError) throw new DOMException(error.message, "AbortError");
-        throw error;
-      }).finally(() => { signal?.removeEventListener("abort", cancel); });
+      const completed = task.promise.then(
+        (result) => {
+          publishMutation();
+          return result;
+        },
+        (error: unknown) => { throw publicUploadError(error); },
+      ).finally(() => { signal?.removeEventListener("abort", cancel); });
       return { path, completed, cancel };
-    },
-    writeFile: async (path, content, options) => {
-      const result = await api.writeWorkspaceFile(scope.projectId, scope.workspaceId, path, content, options, scope.machineId);
-      publishMutation();
-      return result;
-    },
-    deleteFile: async (path) => {
-      const result = await api.deleteWorkspaceFile(scope.projectId, scope.workspaceId, path, scope.machineId);
-      publishMutation();
-      return result;
-    },
-    moveFile: async (fromPath, toPath, options) => {
-      const result = await api.moveWorkspaceFile(scope.projectId, scope.workspaceId, fromPath, toPath, options, scope.machineId);
-      publishMutation();
-      return result;
     },
   };
 }
@@ -112,4 +147,14 @@ export function createWorkspaceFiles(api: WorkspaceFilesApi, workspace: Pick<Wor
 function referenceVersion(reference: WorkspaceFileReferenceOptions | undefined): { modifiedAt?: string } {
   const version = reference?.version ?? reference?.modifiedAt;
   return version === undefined ? {} : { modifiedAt: version };
+}
+
+function publicUploadError(error: WorkspaceUploadCancelledError): Error;
+function publicUploadError(error: unknown): unknown;
+function publicUploadError(error: unknown): unknown {
+  if (!(error instanceof WorkspaceUploadCancelledError)) return error;
+  if (typeof DOMException !== "undefined") return new DOMException(error.message, "AbortError");
+  const abortError = new Error(error.message);
+  abortError.name = "AbortError";
+  return abortError;
 }

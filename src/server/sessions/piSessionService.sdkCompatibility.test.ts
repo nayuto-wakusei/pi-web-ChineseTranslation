@@ -111,6 +111,8 @@ describe("Pi SDK compatibility through the production session service", () => {
       agentDir, dataDir: join(root, "data"), archiveStore: emptyArchiveStore(), modelRuntime,
       sessionManager: createPiSessionManagerGateway({ agentDir, env: {}, sessionDirEnvKeys: [] }),
       projectPathForCwd: () => Promise.resolve(cwd),
+      subsessionsEnabled: true,
+      spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd }) },
       createAgentRuntime: async (createRuntime, options) => {
         if (!(options.sessionManager instanceof SessionManager)) throw new Error("Expected the real SDK session manager");
         runtime = await createAgentSessionRuntime((next) => createRuntime({ ...next, managementContext: context }), {
@@ -129,6 +131,20 @@ describe("Pi SDK compatibility through the production session service", () => {
       expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python"]));
       expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["bash"]));
       expect(runtime?.session.systemPrompt).not.toContain("Private global");
+      if (runtime === undefined) throw new Error("Expected the managed SDK runtime");
+      const list = vi.spyOn(service, "listSubsessions").mockResolvedValue([]);
+      const check = vi.spyOn(service, "checkSubsession").mockResolvedValue({ sessionId: "child", cwd, status: "idle", finalText: "done", messageCount: 1 });
+      const read = vi.spyOn(service, "readSubsession").mockResolvedValue({ sessionId: "child", cwd, status: "idle", entries: [], total: 0, matched: 0, start: 0, hasMore: false });
+      for (const name of ["list_subsessions", "check_subsession", "read_subsession"]) {
+        const tool = runtime.session.agent.state.tools.find((entry) => entry.name === name);
+        if (tool === undefined) throw new Error(`Expected managed tool ${name}`);
+        await tool.execute(`test-${name}`, { sessionId: "child" }, new AbortController().signal);
+      }
+      const parentId = runtime.session.sessionId;
+      const parentFile = runtime.session.sessionFile;
+      expect(list).toHaveBeenCalledWith(parentId, parentFile, context);
+      expect(check).toHaveBeenCalledWith(parentId, "child", parentFile, context);
+      expect(read).toHaveBeenCalledWith(parentId, "child", expect.any(Object), parentFile, context);
     } finally {
       await service.dispose();
       await rm(root, { recursive: true, force: true });

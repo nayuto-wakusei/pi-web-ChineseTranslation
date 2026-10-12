@@ -28,7 +28,7 @@ export interface ResolvedSessionModelOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-/** Resolve Pi's cwd-bound cycling scope without overriding explicit or restored session state. */
+/** Resolve pi's cwd-bound cycling scope without overriding explicit or restored session state. */
 export async function resolveSessionModelOptions(input: ResolveSessionModelOptionsInput): Promise<ResolvedSessionModelOptions> {
   const patterns = input.services.settingsManager.getEnabledModels();
   const resolved = patterns !== undefined && patterns.length > 0
@@ -75,11 +75,19 @@ export async function resolveSessionModelOptions(input: ResolveSessionModelOptio
   };
 }
 
+/** Canonical `provider/id` key pi's `enabledModels` entries and scope rows use. */
 export function modelScopeId(model: { provider: string; id: string }): string {
   return `${model.provider}/${model.id}`;
 }
 
-/** Resolve the effective enabled ids, preferring a live session scope over stored patterns. */
+/**
+ * The session's effective enabled-model ids, mirroring the precedence of pi's
+ * own models selector (`showModelsSelector`): the live cycling scope when the
+ * session has one, otherwise the configured `enabledModels` patterns resolved
+ * against the runtime catalog — with no-match patterns kept in the list so an
+ * edit cannot silently drop a pattern that currently matches nothing —
+ * otherwise `null`, pi's "everything enabled" state (no scope).
+ */
 export async function resolveEnabledModelIds(input: {
   settingsManager: Pick<SettingsManager, "getEnabledModels">;
   modelRuntime: ModelRuntime;
@@ -96,23 +104,44 @@ export async function resolveEnabledModelIds(input: {
   return ids;
 }
 
+/**
+ * Apply one checkbox-style membership change to the effective enabled ids.
+ * pi-web's picker sets membership explicitly per row, so unlike pi's
+ * keyboard-driven single-key toggle (which narrows "all" to just that row),
+ * enabling an already-enabled or disabling an already-disabled model is a
+ * no-op — signalled by returning `currentIds` unchanged (same reference).
+ */
 export function applyEnabledModelToggle(
   currentIds: readonly string[] | null,
   availableIds: readonly string[],
   targetId: string,
   enabled: boolean,
 ): readonly string[] | null {
-  if (currentIds === null) return enabled ? null : availableIds.filter((id) => id !== targetId);
+  if (currentIds === null) {
+    return enabled ? null : availableIds.filter((id) => id !== targetId);
+  }
   if (enabled) return currentIds.includes(targetId) ? currentIds : [...currentIds, targetId];
   return currentIds.includes(targetId) ? currentIds.filter((id) => id !== targetId) : currentIds;
 }
 
+/**
+ * pi's persist normalization (`onPersist`): "everything enabled" collapses to
+ * `undefined` (no scope). The comparison is exact — a list that covers the
+ * whole catalog but also carries stale patterns stays a list, so those
+ * patterns survive the edit.
+ */
 export function persistedEnabledModelPatterns(enabledIds: readonly string[] | null, availableIds: readonly string[]): string[] | undefined {
   if (enabledIds === null) return undefined;
   const allEnabled = enabledIds.length === availableIds.length && enabledIds.every((id) => availableIds.includes(id));
   return allEnabled ? undefined : [...enabledIds];
 }
 
+/**
+ * pi's live-scope decision (`updateSessionModels`): the ids the session should
+ * cycle through, or `null` to clear the scope back to "all available". A list
+ * with no currently available model — or one covering the whole catalog —
+ * clears the scope instead of pinning it.
+ */
 export function liveScopedModelIds(enabledIds: readonly string[] | null, availableIds: readonly string[]): readonly string[] | null {
   if (enabledIds === null) return null;
   const hasEnabledAvailableModel = enabledIds.some((id) => availableIds.includes(id));
@@ -120,7 +149,11 @@ export function liveScopedModelIds(enabledIds: readonly string[] | null, availab
   return hasEnabledAvailableModel && !allAvailableModelsEnabled ? enabledIds : null;
 }
 
-/** Resolve canonical ids into the SDK's live cycling scope. */
+/**
+ * Resolve the canonical enabled ids into the SDK's live cycling scope. A null
+ * result means every currently available model is pickable, so the SDK's
+ * empty scoped-model array is intentional rather than an empty selection.
+ */
 export function scopedModelsFromEnabledIds<TModel extends { provider: string; id: string }>(
   available: readonly TModel[],
   enabledIds: readonly string[] | null,
@@ -141,10 +174,16 @@ export function scopedModelsFromEnabledIds<TModel extends { provider: string; id
 export interface EnabledModelCatalogEntry<TModel> {
   model: TModel;
   enabled: boolean;
+  /** Position in `available`, retained even though the response is grouped enabled-first. */
   catalogIndex: number;
 }
 
-/** List enabled models first in their scope order, followed by the rest of the catalog. */
+/**
+ * The full catalog as the picker lists it in All models mode: enabled models
+ * first — the same set and order as the Enabled list — then the remaining
+ * models in catalog order (pi's `getSortedIds`). Enabled ids matching nothing
+ * currently available (stale patterns) produce no row.
+ */
 export function catalogWithEnabledFirst<TModel extends { provider: string; id: string }>(
   available: readonly TModel[],
   enabledIds: readonly string[] | null,

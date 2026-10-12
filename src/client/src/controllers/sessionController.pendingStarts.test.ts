@@ -1,9 +1,11 @@
+import { browserErrorScopeKey, visibleBrowserErrors, workspaceBrowserErrorScope } from "../browserErrors";
+import type { NavigationFreshness } from "./types";
 import { describe, expect, it } from "vitest";
 import { initialAppState } from "../appState";
 import { isCachedNewSessionInfo, loadCachedNewSessions } from "../cachedNewSessions";
-import { loadStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
+import { loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
-import type { SessionController } from "./sessionController";
+import { SessionController } from "./sessionController";
 import { createSessionControllerTestFixture, defaultApi, deferred, emptyPage, FakeSocket, MemoryStorage, oldSession, sessionKey, sessionLookupId, status, workspace, type AppState, type SessionInfo } from "./sessionController.testSupport";
 
 describe("SessionController pending starts", () => {
@@ -220,12 +222,16 @@ describe("SessionController pending starts", () => {
     const temporaryId = fixture.state.selectedSession?.id;
     if (temporaryId === undefined) throw new Error("Expected temporary session id");
     saveDraft(sessionKey(temporaryId), "draft text");
+    const attachment: PendingAttachment = { id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 };
+    saveStagedAttachments(sessionKey(temporaryId), [attachment]);
 
     startRequest.resolve(started);
     await start;
 
     expect(loadDraft(sessionKey(temporaryId))).toBe("");
     expect(loadDraft(sessionKey(started.id))).toBe("draft text");
+    expect(loadStagedAttachments(sessionKey(temporaryId))).toEqual([]);
+    expect(loadStagedAttachments(sessionKey(started.id))).toEqual([attachment]);
     expect(loadCachedNewSessions().map((session) => session.id)).toEqual([started.id]);
     expect(isCachedNewSessionInfo(fixture.state.sessions[0])).toBe(true);
   });
@@ -348,5 +354,320 @@ describe("SessionController pending starts", () => {
     expect(stoppedIds).toEqual([started.id]);
     expect(fixture.state.sessions).toEqual([]);
     expect(fixture.state.selectedSession).toBeUndefined();
+  });
+});
+
+
+describe("SessionController upstream navigation and runtime contracts", () => {
+  it("publishes the stable session id before replacing a pending rendered selection", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    let selectedAtNavigation: string | undefined;
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => startRequest.promise,
+        },
+        socket: new FakeSocket(),
+        navigateToSession: (session) => {
+          selectedAtNavigation = state.selectedSession?.id;
+          state = { ...state, selectedSession: session };
+          return Promise.resolve(true);
+        },
+      },
+    );
+
+    const start = controller.startSession({ updateUrl: false });
+    const temporaryId = state.selectedSession?.id;
+    expect(temporaryId).toMatch(/^creating:/);
+
+    startRequest.resolve(started);
+    await start;
+
+    expect(selectedAtNavigation).toBe(temporaryId);
+    expect(state.selectedSession?.id).toBe(started.id);
+  });
+
+  it("captures the published creation token for a replacing handoff", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    let publishedSessionId: string | undefined = oldSession.id;
+    let expectedSessionId: string | undefined;
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => { publishedSessionId = state.selectedSession?.id; },
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => startRequest.promise,
+        },
+        socket: new FakeSocket(),
+        captureNavigation: () => ({
+          machineId: "local",
+          workspaceId: workspace.id,
+          sessionId: publishedSessionId,
+        }),
+        navigateToSession: (session, options) => {
+          expectedSessionId = options?.expected?.sessionId;
+          expect(options?.replace).toBe(true);
+          expect(options?.creationHandoff).toBe(true);
+          state = { ...state, selectedSession: session };
+          return Promise.resolve(true);
+        },
+      },
+    );
+
+    const start = controller.startSession();
+    startRequest.resolve(started);
+    await start;
+
+    expect(expectedSessionId).toBe(publishedSessionId);
+    expect(expectedSessionId).toMatch(/^creating:/);
+    expect(state.selectedSession?.id).toBe(started.id);
+  });
+
+  it("reconciles a stable session after a view-only route change during startup", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    let route = {
+      machineId: "local",
+      projectId: workspace.projectId,
+      workspaceId: workspace.id,
+      sessionId: oldSession.id,
+      tool: "core:workspace.terminal",
+      view: "chat",
+    };
+    const expectedRoute = { ...route };
+    const navigation: NavigationFreshness = {
+      generation: 1,
+      scope: ["machine", "project", "workspace", "session"],
+      isCurrent: () => route.machineId === expectedRoute.machineId
+        && route.projectId === expectedRoute.projectId
+        && route.workspaceId === expectedRoute.workspaceId
+        && route.sessionId === expectedRoute.sessionId,
+    };
+    let expectedView: string | undefined;
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => startRequest.promise,
+          messages: () => Promise.resolve(emptyPage),
+          status: (session) => Promise.resolve(status(sessionLookupId(session))),
+        },
+        socket: new FakeSocket(),
+        captureNavigation: () => ({ ...route }),
+        beginNavigationOperation: () => navigation,
+        navigateToSession: (session, options) => {
+          expectedView = options?.expected?.view;
+          state = { ...state, selectedSession: session };
+          return Promise.resolve(true);
+        },
+      },
+    );
+
+    const start = controller.startSession({ updateUrl: false });
+    route = { ...route, view: "workspace" };
+    startRequest.resolve(started);
+    await start;
+
+    expect(expectedView).toBe("workspace");
+    expect(state.sessions.map((session) => session.id)).toEqual([started.id, oldSession.id]);
+    expect(state.selectedSession?.id).toBe(started.id);
+  });
+
+  it("does not strand a temporary selection when stable navigation is rejected", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => startRequest.promise,
+          messages: () => Promise.resolve(emptyPage),
+          status: (session) => Promise.resolve(status(sessionLookupId(session))),
+        },
+        socket: new FakeSocket(),
+        navigateToSession: () => Promise.resolve(false),
+      },
+    );
+
+    const start = controller.startSession({ updateUrl: false });
+    startRequest.resolve(started);
+    await start;
+
+    expect(state.sessions.map((session) => session.id)).toEqual([started.id]);
+    expect(state.selectedSession).toBeUndefined();
+    expect(state.activity).toBeUndefined();
+    expect(state.error).toBe("");
+    const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
+    expect(state.browserErrors[browserErrorScopeKey(scope)]?.message).toContain("导航已改变");
+  });
+
+  it("leaves a stale completed pending selection unselected without losing its queued send", async () => {
+    const started: SessionInfo = { ...oldSession, id: "started-session", path: "/tmp/started-session.jsonl" };
+    const startRequest = deferred<SessionInfo>();
+    const promptCalls: string[] = [];
+    const route: { sessionId?: string } = {};
+    const expectedRouteSessionId = route.sessionId;
+    const navigation: NavigationFreshness = {
+      generation: 1,
+      scope: ["machine", "project", "workspace", "session"],
+      isCurrent: () => route.sessionId === expectedRouteSessionId,
+    };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    let navigationCalls = 0;
+    const navigateToSession = (): Promise<boolean> => {
+      navigationCalls += 1;
+      return Promise.resolve(false);
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => startRequest.promise,
+          messages: () => Promise.resolve(emptyPage),
+          status: (session) => Promise.resolve(status(sessionLookupId(session))),
+          prompt: (_session, text) => { promptCalls.push(text); return Promise.resolve({ accepted: true }); },
+        },
+        socket: new FakeSocket(),
+        captureNavigation: () => ({ machineId: "local", projectId: workspace.projectId, workspaceId: workspace.id, sessionId: route.sessionId }),
+        beginNavigationOperation: () => navigation,
+        navigateToSession,
+      },
+    );
+
+    const start = controller.startSession({ updateUrl: false });
+    const temporaryId = state.selectedSession?.id;
+    if (temporaryId === undefined) throw new Error("Expected temporary session id");
+    await controller.send("recover after navigation");
+
+    route.sessionId = "newer-session";
+    startRequest.resolve(started);
+    await start;
+
+    expect(navigationCalls).toBe(0);
+    expect(state.sessions.map((session) => session.id)).toEqual([started.id]);
+    expect(state.selectedSession).toBeUndefined();
+    expect(state.activity).toBeUndefined();
+    expect(state.clientQueuedSessionMessages[started.id]).toBeUndefined();
+    expect(promptCalls).toEqual(["recover after navigation"]);
+    expect(state.clientQueuedSessionMessages[temporaryId]).toBeUndefined();
+  });
+
+  it("keeps overlapping pending completions in list order when the newer start resolves first", async () => {
+    const firstStarted: SessionInfo = { ...oldSession, id: "started-session-1", path: "/tmp/started-session-1.jsonl" };
+    const secondStarted: SessionInfo = { ...oldSession, id: "started-session-2", path: "/tmp/started-session-2.jsonl" };
+    const startRequests: ReturnType<typeof deferred<SessionInfo>>[] = [];
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    const navigation: NavigationFreshness = {
+      generation: 1,
+      scope: ["machine", "project", "workspace", "session"],
+      isCurrent: () => true,
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          startSession: () => {
+            const request = deferred<SessionInfo>();
+            startRequests.push(request);
+            return request.promise;
+          },
+          messages: () => Promise.resolve(emptyPage),
+          status: (session) => Promise.resolve(status(sessionLookupId(session))),
+        },
+        socket: new FakeSocket(),
+        beginNavigationOperation: () => navigation,
+        navigateToSession: (session) => {
+          state = { ...state, selectedSession: session };
+          return Promise.resolve(true);
+        },
+      },
+    );
+
+    const firstStart = controller.startSession();
+    const firstTemporaryId = state.selectedSession?.id;
+    const secondStart = controller.startSession();
+    const secondTemporaryId = state.selectedSession?.id;
+    if (firstTemporaryId === undefined || secondTemporaryId === undefined) throw new Error("Expected two pending sessions");
+
+    startRequests[1]?.resolve(secondStarted);
+    await secondStart;
+    startRequests[0]?.resolve(firstStarted);
+    await firstStart;
+
+    expect(state.sessions.map((session) => session.id)).toEqual([secondStarted.id, firstStarted.id]);
+    expect(state.selectedSession?.id).toBe(secondStarted.id);
+    expect(state.sessions.some((session) => session.id === firstTemporaryId || session.id === secondTemporaryId)).toBe(false);
+  });
+
+  it("retains a late pending-start failure under its originating workspace", async () => {
+    const otherWorkspace = { ...workspace, id: "workspace-2", projectId: "project-2", path: "/other-repo", label: "other-repo" };
+    const startRequest = deferred<SessionInfo>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      startSession: () => startRequest.promise,
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const start = controller.startSession();
+    const temporaryId = state.selectedSession?.id;
+    if (temporaryId === undefined) throw new Error("Expected a temporary session id");
+
+    // Workspace navigation resets the visible session list while the create is
+    // still pending. The rejection must remain attributable to workspace-1.
+    state = { ...state, selectedWorkspace: otherWorkspace, sessions: [], selectedSession: undefined };
+    startRequest.reject(new Error("late backend failure"));
+    await start;
+
+    const originScope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
+    expect(state.browserErrors[browserErrorScopeKey(originScope)]?.message).toBe("启动会话失败：late backend failure");
+    expect(visibleBrowserErrors(state.browserErrors, {
+      machineId: "local",
+      projectId: otherWorkspace.projectId,
+      workspaceId: otherWorkspace.id,
+    })).toEqual([]);
+    expect(visibleBrowserErrors(state.browserErrors, {
+      machineId: "local",
+      projectId: workspace.projectId,
+      workspaceId: workspace.id,
+    })).toEqual([{ scope: originScope, message: "启动会话失败：late backend failure" }]);
+    expect(state.sessions).toEqual([]);
+    expect(temporaryId).toMatch(/^creating:/);
   });
 });

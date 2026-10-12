@@ -1,4 +1,4 @@
-import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, query, state as litState } from "lit/decorators.js";
 import type { AuthDialogState } from "../appState";
 import type { AuthProviderOption, OAuthFlowState } from "../api";
@@ -32,8 +32,6 @@ export class AuthDialog extends LitElement {
   @query("modal-surface") private modalSurface?: ModalSurface;
   @litState() private selectedIndex = 0;
   @litState() private query = "";
-  private lastFocusedInputKey: string | undefined;
-  private lastStep: AuthDialogState["step"] | undefined;
 
   override render() {
     const state = this.state;
@@ -43,23 +41,39 @@ export class AuthDialog extends LitElement {
       <modal-surface .onClose=${() => { this.cancel(); }} .onBusyEscape=${state.step === "oauth" ? () => this.onOAuthCancel?.() : undefined} .busy=${busy} .initialFocus=${this.initialFocus(state)} .label=${this.dialogTitle(state)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.dialogTitle(state)}</strong>
-            <button title="关闭" @click=${() => { this.cancel(); }}>×</button>
+            <button aria-label="关闭" title="关闭" @click=${() => { this.cancel(); }}>×</button>
           </header>
           ${this.renderBody(state)}
       </modal-surface>
     `;
   }
 
-  protected override updated(): void {
-    const step = this.state?.step;
-    if (step !== this.lastStep) {
+  protected override willUpdate(changed: PropertyValues): void {
+    if (!changed.has("state")) return;
+    if (authDialogStateStep(changed.get("state")) !== this.state?.step) {
+      // Selection and search text are scoped to the visible option list:
+      // entering a step starts at its first option with an empty query.
       this.selectedIndex = 0;
       this.query = "";
+      return;
     }
-    this.lastStep = step;
     const options = this.state === undefined ? undefined : this.visibleOptions(this.state);
-    if (options !== undefined && this.selectedIndex >= options.length) this.selectedIndex = Math.max(0, options.length - 1);
-    this.focusInputIfNeeded();
+    if (options !== undefined) this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, options.length - 1));
+  }
+
+  protected override updated(changed: PropertyValues): void {
+    if (!changed.has("state")) return;
+    const previousStep = authDialogStateStep(changed.get("state"));
+    if (previousStep === undefined) return;
+    const currentStep = this.state?.step;
+    const stepChanged = previousStep !== currentStep;
+    const oauthInteractionChanged = previousStep === "oauth"
+      && currentStep === "oauth"
+      && oauthInteractionKey(changed.get("state")) !== oauthInteractionKey(this.state);
+    // Step changes and same-step OAuth interaction changes can replace the
+    // focused control. Reapply the surface's input-or-dialog focus contract so
+    // keyboard events never become stranded on the page.
+    if (stepChanged || oauthInteractionChanged) this.modalSurface?.focusDialog();
   }
 
   private dialogTitle(state: AuthDialogState): string {
@@ -150,7 +164,7 @@ export class AuthDialog extends LitElement {
   private filteredOptions(options: AuthDialogOption[]): AuthDialogOption[] {
     const query = this.query.trim().toLowerCase();
     if (query === "") return options;
-    return options.filter((option) => `${option.searchText} ${option.detail} ${option.key}`.toLowerCase().includes(query));
+    return options.filter((option) => `${option.searchText} ${option.detail}`.toLowerCase().includes(query));
   }
 
   private visibleOptions(state: AuthDialogState): AuthDialogOption[] {
@@ -200,17 +214,6 @@ export class AuthDialog extends LitElement {
     `;
   }
 
-  private focusInputIfNeeded(): void {
-    const key = focusKey(this.state);
-    if (key === undefined) {
-      this.lastFocusedInputKey = undefined;
-      return;
-    }
-    if (key === this.lastFocusedInputKey) return;
-    this.lastFocusedInputKey = key;
-    this.modalSurface?.focusDialog();
-  }
-
   private handleKeyDown(event: KeyboardEvent): void {
     const state = this.state;
     if (state === undefined || keyboardEventOriginatesFromNativeActivationControl(event)) return;
@@ -243,12 +246,12 @@ export class AuthDialog extends LitElement {
     else this.onCancel?.();
   }
 
-  private initialFocus(state: AuthDialogState): string {
+  private initialFocus(state: AuthDialogState): string | undefined {
     return state.step === "apiKey"
       || (state.step === "oauth" && state.flow.prompt !== undefined)
       || ((state.step === "providers" || state.step === "logout") && state.providers.length > 0)
       ? "input"
-      : "button";
+      : undefined;
   }
 
   static override styles = [commandPickerStyles, css`
@@ -297,11 +300,40 @@ function authTypeLabel(authType: "oauth" | "api_key"): string {
   return authType === "oauth" ? "订阅" : "API key";
 }
 
-function focusKey(state: AuthDialogState | undefined): string | undefined {
-  if ((state?.step === "providers" || state?.step === "logout") && state.providers.length > 0) return `provider-search:${state.step}`;
-  if (state?.step === "apiKey") return `api-key:${state.provider.authType}:${state.provider.id}`;
-  if (state?.step === "oauth" && state.flow.prompt !== undefined) return `oauth:${state.flow.flowId}:${state.flow.prompt.requestId}`;
-  return undefined;
+function oauthInteractionKey(value: unknown): string | undefined {
+  if (authDialogStateStep(value) !== "oauth" || typeof value !== "object" || value === null || !("flow" in value)) return undefined;
+  const flow = value.flow;
+  if (typeof flow !== "object" || flow === null) return undefined;
+  const flowId = "flowId" in flow && typeof flow.flowId === "string" ? flow.flowId : "";
+  const promptRequestId = "prompt" in flow ? oauthInteractionRequestId(flow.prompt) : undefined;
+  if (promptRequestId !== undefined) {
+    const responsePhase = "responding" in value && value.responding === true ? "responding" : "ready";
+    return `${flowId}:prompt:${promptRequestId}:${responsePhase}`;
+  }
+  const selectRequestId = "select" in flow ? oauthInteractionRequestId(flow.select) : undefined;
+  if (selectRequestId !== undefined) return `${flowId}:select:${selectRequestId}`;
+  const status = "status" in flow && typeof flow.status === "string" ? flow.status : "unknown";
+  return `${flowId}:waiting:${status}`;
+}
+
+function oauthInteractionRequestId(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("requestId" in value)) return undefined;
+  return typeof value.requestId === "string" ? value.requestId : undefined;
+}
+
+/** Step of a previous `state` value read from a PropertyValues map, without type assertions. */
+function authDialogStateStep(value: unknown): AuthDialogState["step"] | undefined {
+  if (typeof value !== "object" || value === null || !("step" in value)) return undefined;
+  switch (value.step) {
+    case "method":
+    case "providers":
+    case "apiKey":
+    case "oauth":
+    case "logout":
+      return value.step;
+    default:
+      return undefined;
+  }
 }
 
 function statusLabel(provider: AuthProviderOption): string {
@@ -322,4 +354,3 @@ function flowStatusLabel(status: string): string {
   if (status === "error") return "错误";
   return status;
 }
-

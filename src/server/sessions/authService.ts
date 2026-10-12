@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import type { AuthProvidersResponse, AuthType, OAuthFlowState } from "../../shared/apiTypes.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
@@ -32,6 +32,11 @@ interface AuthChangeContext {
 }
 
 const noopLogger: AuthServiceLogger = { error() { /* no-op */ } };
+const modelRuntimeAuthPaths = new WeakMap<object, string>();
+
+export function modelRuntimeAuthPath(runtime: object): string | undefined {
+  return modelRuntimeAuthPaths.get(runtime);
+}
 
 /**
  * Create the shared model runtime with runtime-owned network refreshes disabled.
@@ -48,6 +53,9 @@ export async function createLocalOnlyModelRuntime(
   if (typeof Reflect.get(runtime, "modelNetworkEnabled") !== "boolean"
     || !Reflect.set(runtime, "modelNetworkEnabled", false)) {
     throw new Error("Unsupported Pi ModelRuntime network-default contract");
+  }
+  if (options.credentials === undefined) {
+    modelRuntimeAuthPaths.set(runtime, options.authPath ?? join(getAgentDir(), "auth.json"));
   }
   return runtime;
 }

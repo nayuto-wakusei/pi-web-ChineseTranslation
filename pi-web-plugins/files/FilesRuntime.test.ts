@@ -185,6 +185,56 @@ describe("FilesRuntime tree and selection", () => {
     expect(scope.fileTree).toEqual([fileEntry("README.md")]);
   });
 
+  it("preserves a collapse while a refresh is awaiting expanded directory contents", async () => {
+    const trees = deferredTrees();
+    const context = createContext({ files: createFiles({ listFiles: trees.fn }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.snapshot(context);
+    scope.fileTree = [fileEntry("README.md")];
+    scope.expandedDirs = { src: [fileEntry("src/old.ts")] };
+    const refresh = runtime.refreshFiles(context);
+    trees.request(0).resolve(treeResponse("", [directoryEntry("src")]));
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(2); });
+    await runtime.expandDir(context, "src");
+    expect(trees.request(1).signal.aborted).toBe(true);
+    await refresh;
+    expect(scope.expandedDirs).toEqual({});
+    expect(scope.fileTree).toEqual([fileEntry("README.md")]);
+    expect(scope.error).toBeUndefined();
+  });
+
+  it("supersedes an older tree snapshot with the completed mutation refresh", async () => {
+    const trees = deferredTrees();
+    const writeFile = vi.fn<WorkspaceFilesCapabilityV1["writeFile"]>(() => Promise.resolve(writeResponse("new.txt", 0)));
+    const context = createContext({ files: createFiles({ listFiles: trees.fn, writeFile }) });
+    const runtime = new FilesRuntime();
+    const stale = runtime.refreshFiles(context);
+    const mutation = runtime.createFile(context, "new.txt");
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(2); });
+    expect(trees.request(0).signal.aborted).toBe(true);
+    trees.request(1).resolve(treeResponse("", [fileEntry("new.txt")]));
+    await Promise.all([stale, mutation]);
+    expect(runtime.snapshot(context).fileTree).toEqual([fileEntry("new.txt")]);
+    expect(runtime.snapshot(context).selectedFilePath).toBe("new.txt");
+    expect(runtime.snapshot(context).treeStale).toBe(false);
+  });
+
+  it("keeps late tree snapshots in their original machine scope", async () => {
+    const firstTrees = deferredTrees();
+    const secondTrees = deferredTrees();
+    const first = createContext({ files: createFiles({ listFiles: firstTrees.fn }) });
+    const second = createContext({ machineId: "remote-2", files: createFiles({ listFiles: secondTrees.fn }) });
+    const runtime = new FilesRuntime();
+    const oldRefresh = runtime.refreshFiles(first);
+    const currentRefresh = runtime.refreshFiles(second);
+    secondTrees.request(0).resolve(treeResponse("", [fileEntry("current.txt")]));
+    await currentRefresh;
+    firstTrees.request(0).resolve(treeResponse("", [fileEntry("old-scope.txt")]));
+    await oldRefresh;
+    expect(runtime.snapshot(second).fileTree).toEqual([fileEntry("current.txt")]);
+    expect(runtime.snapshot(first).fileTree).toEqual([fileEntry("old-scope.txt")]);
+  });
+
   it("rejects stale A to B to A responses and aborts obsolete reads", async () => {
     const reads = deferredReads();
     const setNavigation = vi.fn<WorkspacePanelNavigationV1["set"]>();
@@ -268,6 +318,45 @@ describe("FilesRuntime tree and selection", () => {
 });
 
 describe("FilesRuntime uploads", () => {
+  it.each([
+    ["machine", { machineId: "remote-2" }],
+    ["project", { projectId: "project-2" }],
+    ["workspace", { workspaceId: "workspace-2" }],
+  ] as const)("isolates equal upload batch ids across %s scopes, including cancellation", async (_scope, otherScope) => {
+    const firstUploads = controllableUploads({ rejectOnCancel: true });
+    const otherUploads = controllableUploads({ rejectOnCancel: true });
+    const first = createContext({ files: createFiles({ uploadFile: firstUploads.fn }) });
+    const other = createContext({ ...otherScope, files: createFiles({ uploadFile: otherUploads.fn }) });
+    const runtime = new FilesRuntime({ createUploadBatchId: () => "shared-batch" });
+    const firstRun = runtime.startWorkspaceUpload(first, [new File(["aa"], "first.txt")], { destinationFolder: "uploads", selectUploadedFile: false });
+    expect(firstRun?.batchId).toBe("shared-batch");
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]?.files[0]?.name).toBe("first.txt");
+    expect(runtime.snapshot(other).uploadBatches).toEqual({});
+    runtime.cancelWorkspaceUpload(other, "shared-batch");
+    expect(firstUploads.cancel(0)).not.toHaveBeenCalled();
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]?.status).toBe("uploading");
+
+    const otherRun = runtime.startWorkspaceUpload(other, [new File(["bbb"], "other.txt")], { destinationFolder: "uploads", selectUploadedFile: false });
+    expect(otherRun?.batchId).toBe("shared-batch");
+    firstUploads.progress(0, { loaded: 1, total: 2, percent: 0.5, lengthComputable: true });
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]).toMatchObject({ loaded: 1, total: 2, files: [{ name: "first.txt" }] });
+    expect(runtime.snapshot(other).uploadBatches["shared-batch"]).toMatchObject({ loaded: 0, total: 3, files: [{ name: "other.txt" }] });
+    runtime.cancelWorkspaceUpload(other, "shared-batch");
+    await otherRun?.done;
+    expect(otherUploads.cancel(0)).toHaveBeenCalledOnce();
+    expect(firstUploads.cancel(0)).not.toHaveBeenCalled();
+    expect(runtime.snapshot(other).uploadBatches["shared-batch"]?.status).toBe("cancelled");
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]?.status).toBe("uploading");
+
+    firstUploads.resolve(0, writeResponse("uploads/first.txt", 2));
+    await firstRun?.done;
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]?.status).toBe("completed");
+    expect(runtime.snapshot(other).uploadBatches["shared-batch"]?.status).toBe("cancelled");
+    runtime.clearWorkspaceUpload(other, "shared-batch");
+    expect(runtime.snapshot(other).uploadBatches).toEqual({});
+    expect(runtime.snapshot(first).uploadBatches["shared-batch"]?.status).toBe("completed");
+  });
+
   it("uploads sequentially with progress, safe defaults, refresh, and first-success selection", async () => {
     const uploads = controllableUploads();
     const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>(() => Promise.resolve(treeResponse("")));
@@ -413,6 +502,7 @@ describe("FilesRuntime uploads", () => {
 
 interface ContextOptions {
   machineId?: string;
+  projectId?: string;
   workspaceId?: string;
   files?: WorkspacePanelContext["files"];
   navigation?: WorkspacePanelNavigationV1 | null;
@@ -422,7 +512,7 @@ function createContext(options: ContextOptions = {}): WorkspacePanelContext {
   return {
     navigate: () => Promise.resolve(),
     machine: { id: options.machineId ?? "remote-1", name: "Remote", kind: "remote" },
-    workspace: { id: options.workspaceId ?? "workspace-1", projectId: "project-1", path: "/repo", label: "repo", isMain: true },
+    workspace: { id: options.workspaceId ?? "workspace-1", projectId: options.projectId ?? "project-1", path: "/repo", label: "repo", isMain: true },
     files: options.files ?? createFiles(),
     host: { requestRender: vi.fn() },
     prompt: { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) },

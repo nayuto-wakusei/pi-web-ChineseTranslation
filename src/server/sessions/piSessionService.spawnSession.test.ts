@@ -10,7 +10,7 @@ const TEST_MODEL_SPEC = "anthropic/claude-sonnet-4-5-20250929";
 describe("PiSessionService", () => {
   describe("spawnSession", () => {
     function spawnService(decision: SpawnTargetDecision) {
-      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", sessionManager: fakeSessionManager(decision.allowed ? decision.cwd : "/workspace") });
       const log: { details: Record<string, unknown>; message: string }[] = [];
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
@@ -36,7 +36,7 @@ describe("PiSessionService", () => {
     });
 
     it("uses the dispatching session's model as the spawned session's initial model", async () => {
-      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
       const model = testModel();
       let initialModel: PiAgentSession["model"];
       let delegationToolsEnabled: boolean | undefined;
@@ -63,7 +63,7 @@ describe("PiSessionService", () => {
     });
 
     it("passes the dispatching session's thinking level to the spawned session's runtime", async () => {
-      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
       let initialThinkingLevel: unknown;
       const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
         await Promise.resolve();
@@ -86,7 +86,7 @@ describe("PiSessionService", () => {
     });
 
     it("leaves the spawned session's thinking level to pi defaults when the dispatcher has none", async () => {
-      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });
+      const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
       let initialThinkingLevel: unknown = "unset";
       const createAgentRuntime: RuntimeCreator = async (_createRuntime, options) => {
         await Promise.resolve();
@@ -109,10 +109,10 @@ describe("PiSessionService", () => {
     });
 
     it("names the spawned session's model in the result", async () => {
-      const spawned = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", model: testModel() });
+      const spawned = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl", model: testModel(), sessionManager: fakeSessionManager("/workspace-feature") });
       const service = new PiSessionService(new CapturingSessionEventHub(), {
         agentDir: TEST_AGENT_DIR,
-        modelRuntime: testModelRuntime,
+      modelRuntime: testModelRuntime,
         createAgentRuntime: runtimeCreator(spawned.runtime),
         sessionManager: sessionGateway([]),
         spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
@@ -166,8 +166,8 @@ describe("PiSessionService", () => {
        * was started with.
        */
       function specService(spawnerPatch: Parameters<typeof fakeRuntime>[1] = {}) {
-        const spawner = fakeRuntime("spawner-1", { sessionFile: "/tmp/spawner-1.jsonl", ...spawnerPatch });
-        const spawned = fakeRuntime("spawned-2", { sessionFile: "/tmp/spawned-2.jsonl", model: testModel() });
+        const spawner = fakeRuntime("spawner-1", { sessionFile: "/tmp/spawner-1.jsonl", sessionManager: fakeSessionManager("/workspace"), ...spawnerPatch });
+        const spawned = fakeRuntime("spawned-2", { sessionFile: "/tmp/spawned-2.jsonl", model: testModel(), sessionManager: fakeSessionManager("/workspace-feature") });
         const initialModels: PiAgentSession["model"][] = [];
         const runtimes = [spawner.runtime, spawned.runtime];
         let index = 0;
@@ -251,11 +251,11 @@ describe("PiSessionService", () => {
         await service.dispose();
       });
 
-      it("does not look up the spawning session when no model spec is given", async () => {
-        const spawned = fakeRuntime("spawned-2", { sessionFile: "/tmp/spawned-2.jsonl", model: testModel() });
+      it("does not resolve the spawning session when no model spec is given", async () => {
+        const spawned = fakeRuntime("spawned-2", { sessionFile: "/tmp/spawned-2.jsonl", model: testModel(), sessionManager: fakeSessionManager("/workspace-feature") });
         const service = new PiSessionService(new CapturingSessionEventHub(), {
           agentDir: TEST_AGENT_DIR,
-          modelRuntime: testModelRuntime,
+      modelRuntime: testModelRuntime,
           createAgentRuntime: runtimeCreator(spawned.runtime),
           sessionManager: sessionGateway([]),
           spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },

@@ -20,7 +20,7 @@ describe("InMemoryMachineNavigationMemory", () => {
   it("remembers independent navigation snapshots per machine", () => {
     const memory = new InMemoryMachineNavigationMemory();
 
-    memory.remember({ machineId: "local", projectId: "local-project", surface: { selectedFilePath: "README.md" } });
+    memory.remember({ machineId: "local", projectId: "local-project", surface: { contributionQuery: { "core.workspace.files--file": "README.md" } } });
     memory.remember({ machineId: "remote", projectId: "remote-project", workspaceId: "remote-workspace", sessionId: "remote-session", surface: {} });
 
     expect(memory.latest("local")?.projectId).toBe("local-project");
@@ -35,11 +35,11 @@ describe("InMemoryMachineNavigationMemory", () => {
   it("returns cloned snapshots so callers cannot mutate memory", () => {
     const memory = new InMemoryMachineNavigationMemory();
 
-    memory.remember({ machineId: "local", surface: { selectedFilePath: "README.md" } });
+    memory.remember({ machineId: "local", surface: { contributionQuery: { "core.workspace.files--file": "README.md" } } });
     const snapshot = memory.latest("local");
-    if (snapshot !== undefined) snapshot.surface.selectedFilePath = "changed.ts";
+    if (snapshot?.surface.contributionQuery !== undefined) snapshot.surface.contributionQuery["core.workspace.files--file"] = "changed.ts";
 
-    expect(memory.latest("local")?.surface.selectedFilePath).toBe("README.md");
+    expect(memory.latest("local")?.surface.contributionQuery?.["core.workspace.files--file"]).toBe("README.md");
   });
 });
 
@@ -54,7 +54,7 @@ describe("SessionStorageMachineNavigationMemory", () => {
     const storage = memoryStorage();
     const memory = new SessionStorageMachineNavigationMemory(storage);
 
-    memory.remember({ machineId: "local", projectId: "local-project", surface: { selectedFilePath: "README.md" } });
+    memory.remember({ machineId: "local", projectId: "local-project", surface: { contributionQuery: { "core.workspace.files--file": "README.md" } } });
     memory.remember({ machineId: "remote", projectId: "remote-project", workspaceId: "remote-workspace", sessionId: "remote-session", surface: {} });
 
     const restored = new SessionStorageMachineNavigationMemory(storage);
@@ -76,8 +76,66 @@ describe("SessionStorageMachineNavigationMemory", () => {
     const memory = new SessionStorageMachineNavigationMemory(storage);
 
     expect(memory.latest("local")?.tool).toBeUndefined();
-    expect(memory.latest("local")?.surface.selectedFilePath).toBe("README.md");
+    expect(memory.latest("local")?.surface.contributionQuery).toEqual({ "core.workspace.files--file": "README.md" });
     expect(memory.latest("remote")).toBeUndefined();
+  });
+
+  it("migrates the v1 Files field without overriding an already captured canonical query", () => {
+    const storage = memoryStorage({
+      "pi-web:machine-navigation:v1": JSON.stringify({ version: 1, entries: [["local", {
+        machineId: "local",
+        surface: {
+          selectedFilePath: "legacy.ts",
+          selectedTerminalId: "terminal-1",
+          contributionQuery: {
+            "core.workspace.files--file": "canonical.ts",
+            "git.workspace.git--diff": ["a", "b"],
+            malformed: "ignored",
+          },
+        },
+      }]] }),
+    });
+
+    expect(new SessionStorageMachineNavigationMemory(storage).latest("local")?.surface.contributionQuery).toEqual({
+      "core.workspace.files--file": "canonical.ts",
+      "core.workspace.terminal--terminal": "terminal-1",
+      "git.workspace.git--diff": ["a", "b"],
+    });
+  });
+
+  it.each(["git:workspace.git", "retryable:workspace.panel", "settings", "", null, 42])("rejects unknown stored view %j without migrating it to a tool", (view) => {
+    const storage = memoryStorage({
+      "pi-web:machine-navigation:v1": JSON.stringify({ version: 1, entries: [["local", {
+        machineId: "local",
+        tool: "core:workspace.git",
+        view,
+        surface: {},
+      }]] }),
+    });
+
+    const snapshot = new SessionStorageMachineNavigationMemory(storage).latest("local");
+
+    expect(snapshot?.tool).toBe("core:workspace.git");
+    expect(snapshot?.view).toBeUndefined();
+    if (snapshot === undefined) throw new Error("Expected stored snapshot");
+    expect(routeFromMachineNavigationSnapshot(snapshot).view).toBeUndefined();
+  });
+
+  it.each(["files", "git", "terminal", "core:workspace.files", "core:workspace.git", "core:workspace.terminal"])("projects the recognized legacy view %s without rewriting storage", (view) => {
+    const raw = JSON.stringify({ version: 1, entries: [["remote", { machineId: "remote", view, surface: { selectedDiffPath: "legacy.ts", contributionQuery: { "core.workspace.git--diff": "current.ts" } } }]] });
+    const storage = memoryStorage({ "pi-web:machine-navigation:v1": raw });
+    const snapshot = new SessionStorageMachineNavigationMemory(storage).latest("remote");
+    expect(snapshot?.view).toBe("workspace");
+    expect(snapshot?.tool).toBe(view.includes(":") ? view : `core:workspace.${view}`);
+    expect(snapshot?.surface.contributionQuery?.["core.workspace.git--diff"]).toBe("current.ts");
+    expect(storage.getItem("pi-web:machine-navigation:v1")).toBe(raw);
+  });
+
+  it("retains the legacy Git diff selection when no canonical query overrides it", () => {
+    const raw = JSON.stringify({ version: 1, entries: [["local", { machineId: "local", surface: { selectedDiffPath: "old.ts" } }]] });
+    const storage = memoryStorage({ "pi-web:machine-navigation:v1": raw });
+    expect(new SessionStorageMachineNavigationMemory(storage).latest("local")?.surface.contributionQuery).toEqual({ "core.workspace.git--diff": "old.ts" });
+    expect(storage.getItem("pi-web:machine-navigation:v1")).toBe(raw);
   });
 });
 
@@ -90,40 +148,68 @@ describe("machineNavigationSnapshotFromState", () => {
       selectedWorkspace: workspace("workspace", "project"),
       selectedSession: session("session"),
       workspaceTool: "core:workspace.files",
-      mainView: "core:workspace.files",
-      selectedFilePath: "src/main.ts",
-      selectedDiffPath: "README.md",
-      selectedTerminalId: "terminal-1",
+      mainView: "workspace",
     };
 
-    expect(machineNavigationSnapshotFromState(state)).toEqual({
+    expect(machineNavigationSnapshotFromState(state, {
+      "core.workspace.files--file": "src/main.ts",
+      "core.workspace.terminal--terminal": "terminal-1",
+      "git.workspace.git--diff": ["README.md", "package.json"],
+    })).toEqual({
       machineId: "remote",
       projectId: "project",
       workspaceId: "workspace",
       sessionId: "session",
       tool: "core:workspace.files",
-      view: "core:workspace.files",
+      view: "workspace",
       surface: {
-        selectedFilePath: "src/main.ts",
-        selectedDiffPath: "README.md",
-        selectedTerminalId: "terminal-1",
+        contributionQuery: {
+          "core.workspace.files--file": "src/main.ts",
+          "core.workspace.terminal--terminal": "terminal-1",
+          "git.workspace.git--diff": ["README.md", "package.json"],
+        },
       },
     });
   });
 
+  it.each(["navigation", "chat", "workspace"] as const)("round-trips %s independently of tool and session selection", (mainView) => {
+    for (const workspaceTool of [undefined, "files:workspace.files"] as const) {
+      const state: AppState = {
+        ...initialAppState(),
+        selectedSession: session("session"),
+        workspaceTool,
+        mainView,
+      };
+      const snapshot = machineNavigationSnapshotFromState(state);
+      const storage = memoryStorage();
+      new SessionStorageMachineNavigationMemory(storage).remember(snapshot);
+      const restored = new SessionStorageMachineNavigationMemory(storage).latest("local");
+      expect(restored).toEqual(snapshot);
+      if (restored === undefined) throw new Error("Expected restored snapshot");
+      expect(routeFromMachineNavigationSnapshot(restored)).toMatchObject({
+        view: mainView,
+        tool: workspaceTool,
+        sessionId: "session",
+      });
+    }
+  });
+
   it("does not carry workspace surface without a selected workspace", () => {
+    const state: AppState = initialAppState();
+
+    expect(machineNavigationSnapshotFromState(state, { "core.workspace.files--file": "src/main.ts" }).surface).toEqual({});
+  });
+
+  it("publishes the explicit tokenized creation selection", () => {
+    const pending = Object.assign(session("creating:unique-token"), { clientPendingStart: true });
     const state: AppState = {
       ...initialAppState(),
-      selectedFilePath: "src/main.ts",
-      selectedDiffPath: "README.md",
-      selectedTerminalId: "terminal-1",
+      selectedWorkspace: workspace("workspace", "project"),
+      selectedSession: pending,
     };
 
-    expect(machineNavigationSnapshotFromState(state).surface).toEqual({
-      selectedFilePath: undefined,
-      selectedDiffPath: undefined,
-      selectedTerminalId: undefined,
-    });
+    const snapshot = machineNavigationSnapshotFromState(state);
+    expect(routeFromMachineNavigationSnapshot(snapshot).sessionId).toBe("creating:unique-token");
   });
 });
 
@@ -134,7 +220,7 @@ describe("routeFromMachineNavigationSnapshot", () => {
       projectId: "project",
       workspaceId: "workspace",
       sessionId: "session",
-      tool: "core:workspace.git",
+      tool: "git:workspace.git",
       view: "navigation",
       surface: {},
     })).toEqual({
@@ -142,8 +228,8 @@ describe("routeFromMachineNavigationSnapshot", () => {
       projectId: "project",
       workspaceId: "workspace",
       sessionId: "session",
-      tool: "core:workspace.git",
-      view: undefined,
+      tool: "git:workspace.git",
+      view: "navigation",
     });
   });
 
@@ -161,7 +247,7 @@ function project(id: string): Project {
 }
 
 function workspace(id: string, projectId: string): Workspace {
-  return { id, projectId, path: `/tmp/${projectId}/${id}`, label: id, isMain: true, isGitRepo: true, isGitWorktree: false };
+  return { id, projectId, path: `/tmp/${projectId}/${id}`, label: id, isMain: true, effectiveConfig: {} };
 }
 
 function session(id: string): SessionInfo {

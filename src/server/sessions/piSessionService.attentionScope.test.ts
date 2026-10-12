@@ -87,7 +87,7 @@ describe("session attention ownership", () => {
     for (const [index, runtime] of runtimes.entries()) {
       const scope = eventScopeFromManagementContext(contexts[index]);
       const message = contexts[index]?.user.id ?? "normal";
-      expect(hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.message === message).map(({ scope }) => scope)).toEqual([scope]);
+      expect(hub.sessionEvents.filter(({ event }) => event.type === "notifications.inbox" && event.delta.kind === "added" && event.delta.notification.message === message).map(({ scope }) => scope)).toEqual([scope]);
       complete(runtime);
       await service.unreadCatalog(contexts[index]);
     }

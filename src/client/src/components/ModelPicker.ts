@@ -197,6 +197,12 @@ export class ModelPicker extends LitElement {
     return html`${repeat(rows, modelCatalogEntryValue, (entry, index) => this.renderCatalogRow(entry, index))}`;
   }
 
+  private renderDefaultPin(value: string, label: string, enabled: boolean) {
+    return this.onSetDefault ? defaultPin(label, value === this.defaultValue,
+      !enabled || this.defaultsLoading || this.defaultPending || this.membershipChangePending,
+      () => { void this.setDefault(value); }) : nothing;
+  }
+
   private async setDefault(value: string): Promise<void> {
     if (this.onSetDefault === undefined || this.defaultsLoading || this.defaultPending || this.membershipChangePending) return;
     if (this.catalog.find((entry) => modelCatalogEntryValue(entry) === value)?.enabled === false) return;
@@ -222,6 +228,7 @@ export class ModelPicker extends LitElement {
         <button class="membership" ?disabled=${membershipDisabled} aria-label=${membershipLabel} aria-current=${value === this.selectedValue ? "true" : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.requestEnabledToggle(entry, event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined); }}>
           <span>${entry.id}${value === this.selectedValue ? " ✓ 当前" : ""}</span><small>${entry.provider}</small>
         </button>
+        ${this.renderDefaultPin(value, entry.name ?? entry.id, entry.enabled)}
       </div>
     `;
   }

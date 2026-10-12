@@ -4,7 +4,7 @@ import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor 
 
 const baseAgent: EffectivePiWebAgentConfig = {
   command: "acme-agent",
-  dir: "/opt/acme-agent/state",
+  dir: "/opt/pi/state",
   sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
 };
 
@@ -27,20 +27,18 @@ describe("active agent profile descriptor", () => {
   });
 
   it("takes an immutable snapshot for the session daemon profile epoch", () => {
-    const sessionDirEnvKeys = ["PI_WEB_AGENT_SESSION_DIR"];
-    const profile = createActiveAgentProfileDescriptor({ ...baseAgent, sessionDirEnvKeys });
-    sessionDirEnvKeys.push("LATE_MUTATION");
+    const profile = createActiveAgentProfileDescriptor(baseAgent);
 
     expect(Object.isFrozen(profile)).toBe(true);
     expect(Object.isFrozen(profile.sessionDirEnvKeys)).toBe(true);
-    expect(profile.sessionDirEnvKeys).toEqual(["PI_WEB_AGENT_SESSION_DIR"]);
-    expect(Reflect.set(profile, "command", "mutated-agent")).toBe(false);
-    expect(Reflect.set(profile.sessionDirEnvKeys, "0", "MUTATED_SESSION_DIR")).toBe(false);
+    expect(Reflect.set(profile, "dir", "/mutated/state")).toBe(false);
+    expect(profile.dir).toBe(baseAgent.dir);
   });
 
-  it("rejects profile fields outside the host and explicit environment policy", () => {
-    expect(() => createActiveAgentProfileDescriptor({ ...baseAgent, command: "./acme-agent" })).toThrow("must be valid for this host");
+  it("rejects a state directory that is not valid for this host", () => {
     expect(() => createActiveAgentProfileDescriptor({ ...baseAgent, dir: "relative/state" })).toThrow("must be valid for this host");
+    expect(() => createActiveAgentProfileDescriptor({ ...baseAgent, dir: "" })).toThrow("must be valid for this host");
+    expect(() => createActiveAgentProfileDescriptor({ ...baseAgent, command: "./acme-agent" })).toThrow("must be valid for this host");
     expect(() => createActiveAgentProfileDescriptor({ ...baseAgent, sessionDirEnvKeys: ["ARBITRARY_AGENT_SESSION_DIR"] })).toThrow("explicit PI WEB policy");
   });
 
@@ -51,16 +49,9 @@ describe("active agent profile descriptor", () => {
       auth: { apiKey: "also-secret" },
     };
 
-    const profile = createActiveAgentProfileDescriptor(input);
+    const profile = publicActiveAgentProfileDescriptor(createActiveAgentProfileDescriptor(input));
 
-    expect(profile).toEqual({
-      schemaVersion: 1,
-      revision: profile.revision,
-      command: baseAgent.command,
-      dir: baseAgent.dir,
-      sessionDirEnvKeys: baseAgent.sessionDirEnvKeys,
-    });
-    expect(profile.revision).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(profile).toEqual({ schemaVersion: 2, dir: baseAgent.dir });
     expect(JSON.stringify(profile)).not.toContain("secret");
   });
 });

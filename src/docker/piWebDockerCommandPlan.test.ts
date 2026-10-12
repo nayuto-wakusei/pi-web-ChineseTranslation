@@ -118,9 +118,9 @@ describe("pi-web-docker command planning", () => {
       kind: "composeSequence",
       usesGeneratedEnv: true,
       steps: [
-        { args: ["restart", "web"] },
-        { args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
-        { args: ["restart", "sessiond"] },
+        { kind: "compose", args: ["restart", "web"] },
+        { kind: "compose", args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
+        { kind: "compose", args: ["restart", "sessiond"] },
       ],
     });
     expect(devHostPlan(["--dev", "start"])).toEqual({ kind: "compose", args: ["up", "-d", "--build"], usesGeneratedEnv: true });
@@ -129,13 +129,28 @@ describe("pi-web-docker command planning", () => {
     expect(devHostPlan(["--dev", "shell"])).toEqual({ kind: "compose", args: ["exec", "web", "bash"], usesGeneratedEnv: true });
     expect(devHostPlan(["--dev", "cli", "config", "show"])).toEqual({ kind: "compose", args: ["exec", "web", "pi-web", "config", "show"], usesGeneratedEnv: true });
     expect(devHostPlan(["--dev", "update"])).toEqual({
+      kind: "updateSequence",
+      usesGeneratedEnv: true,
+      steps: [
+        { kind: "gitFastForward", onFailure: "warn" },
+        { kind: "compose", args: ["build", "--pull"] },
+        { kind: "compose", args: ["up", "-d", "--force-recreate", "--remove-orphans"] },
+      ],
+    });
+  });
+
+  it("waits for web readiness before restarting the development daemon", () => {
+    expect(devHostPlan(["--dev", "restart"])).toEqual({
       kind: "composeSequence",
       usesGeneratedEnv: true,
       steps: [
-        { args: ["build", "--pull"] },
-        { args: ["up", "-d", "--force-recreate", "--remove-orphans"] },
+        { kind: "compose", args: ["restart", "web"] },
+        { kind: "compose", args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
+        { kind: "compose", args: ["restart", "sessiond"] },
       ],
     });
+    expect(devHostPlan(["--dev", "restart-web"])).toEqual({ kind: "compose", args: ["restart", "web"], usesGeneratedEnv: true });
+    expect(devHostPlan(["--dev", "restart-sessiond"])).toEqual({ kind: "compose", args: ["restart", "sessiond"], usesGeneratedEnv: true });
   });
 
   it("keeps development root safety explicit in command planning", () => {

@@ -185,9 +185,13 @@ class PreferenceOverrideSettingsStorage {
       pickSettings(agentSettings, SESSION_PREFERENCE_KEYS),
       this.mode,
     );
-    const existingPreferences = readPreferenceOverrides(this.scopeDirectory, this.mode);
+    const existingPreferenceSettings = readPreferenceSettings(this.scopeDirectory);
+    const existingPreferences = pickScopedOverrides(existingPreferenceSettings, this.mode);
     if (!stableJsonEqual(existingPreferences, nextPreferences)) {
-      writeJsonFile(this.preferencesPath, nextPreferences);
+      writeJsonFile(this.preferencesPath, {
+        ...omitScopedKeys(existingPreferenceSettings, this.mode),
+        ...nextPreferences,
+      });
     }
 
     const nextSharedSettings = settingsVisibleToSession(omitScopedKeys(nextSettings, this.mode));
@@ -262,9 +266,14 @@ export function migrateLegacyPreferenceOverrides(scopeDirectory: string, mode: S
 function readPreferenceOverrides(scopeDirectory: string, mode: SessionSettingsMode): Record<string, unknown> {
   const preferencesPath = preferencesFilePath(scopeDirectory);
   if (existsSync(preferencesPath)) {
-    return readPreferenceOverridesFromPath(preferencesPath, mode);
+    return pickScopedOverrides(readPreferenceSettings(scopeDirectory), mode);
   }
   return migrateLegacyPreferenceOverrides(scopeDirectory, mode);
+}
+
+function readPreferenceSettings(scopeDirectory: string): Record<string, unknown> {
+  const raw = readTextFileIfExists(preferencesFilePath(scopeDirectory));
+  return raw === undefined ? {} : parseSettingsObject(raw);
 }
 
 function readPreferenceOverridesFromPath(preferencesPath: string, mode: SessionSettingsMode): Record<string, unknown> {

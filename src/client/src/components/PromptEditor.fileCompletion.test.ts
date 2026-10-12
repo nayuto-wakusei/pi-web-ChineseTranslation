@@ -15,6 +15,8 @@ it("debounces file queries and aborts them on trigger removal, workspace change 
   const files = vi.spyOn(api, "files").mockResolvedValue([]);
   const editor = new PromptEditor();
   editor.cwd = "/repo";
+  editor.projectId = "project-1";
+  editor.workspaceId = "workspace-1";
   editor.sessionId = "s1";
   document.body.append(editor);
   await editor.updateComplete;
@@ -31,7 +33,8 @@ it("debounces file queries and aborts them on trigger removal, workspace change 
   expect(files).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(files).toHaveBeenCalledTimes(1);
-  const firstSignal = files.mock.calls[0]?.[2]?.signal;
+  const firstOptions = files.mock.calls[0]?.[1];
+  const firstSignal = typeof firstOptions === "object" ? firstOptions.signal : undefined;
   type("plain text");
   expect(firstSignal?.aborted).toBe(true);
   type("@next");
@@ -41,7 +44,8 @@ it("debounces file queries and aborts them on trigger removal, workspace change 
   expect(files).toHaveBeenCalledTimes(1);
   type("@last");
   await vi.advanceTimersByTimeAsync(150);
-  const lastSignal = files.mock.calls[1]?.[2]?.signal;
+  const lastOptions = files.mock.calls[1]?.[1];
+  const lastSignal = typeof lastOptions === "object" ? lastOptions.signal : undefined;
   editor.remove();
   expect(lastSignal?.aborted).toBe(true);
 });

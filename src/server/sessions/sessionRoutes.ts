@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionModelScopeMode, type SessionTreeForkRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
 import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
@@ -210,20 +210,24 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: MessageQuery }>(`${prefix}/sessions/:sessionId/messages`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
       const page = { ...optionalField("before", optionalNumber(request.query.before)), ...optionalField("limit", optionalNumber(request.query.limit)) };
-      const messages = await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
+      const messages = await sessions.messages(ref, page, managementContextFromHeaders(request.headers));
       return projectBrowserMessageResponse(messages);
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/status`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
+      return await sessions.status(ref, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
@@ -238,26 +242,32 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/stream-snapshot`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return await sessions.streamSnapshot(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
+      return await sessions.streamSnapshot(ref, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/models`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
+      return { models: await sessions.availableModels(ref, managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/models/catalog`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return { models: await sessions.modelCatalog(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
+      return { models: await sessions.modelCatalog(ref, managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
@@ -329,10 +339,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/thinking-levels`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
+      return { levels: await sessions.availableThinkingLevels(ref, managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
@@ -357,10 +369,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/commands`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply);
+    if (ref === undefined) return reply;
     try {
-      return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
+      return await sessions.commands(ref, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(404).send({ error: errorMessage(error) });
     }
   });
 
@@ -638,6 +652,15 @@ function notificationRef(id: string, cwd: string): { id: string; cwd: string } {
     id: requireNonEmptyBoundedString(id, "sessionId", MAX_NOTIFICATION_SESSION_ID_LENGTH),
     cwd: normalizeRequestCwd(cwd),
   };
+}
+
+function sessionRefFromQueryOr400(id: string, query: SessionQuery, reply: FastifyReply): SessionLookup | undefined {
+  try {
+    return sessionLookupFromQuery(id, query);
+  } catch (error) {
+    reply.code(400).send({ error: errorMessage(error) });
+    return undefined;
+  }
 }
 
 function sessionLookupFromQuery(id: string, query: SessionQuery): SessionLookup {

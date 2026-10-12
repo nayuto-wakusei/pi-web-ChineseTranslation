@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,36 +11,40 @@ import { ProjectStore } from "./storage/projectStore.js";
 import type { MachineClient } from "./machines/machineClient.js";
 import { MachineService } from "./machines/machineService.js";
 import { MachineStore } from "./machines/machineStore.js";
-import { WorkspaceService } from "./workspaces/workspaceService.js";
+import type { WorkspaceCatalog } from "./workspaces/workspaceCatalog.js";
 import type { PiPackageService } from "./piPackageService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
-import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
-import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues, PiWebPluginInfo, PiWebPluginsResponse } from "../shared/apiTypes.js";
+import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues, PiWebPluginInfo, PiWebPluginsResponse, WorkspaceListing, WorkspaceProviderAuthorityResolution } from "../shared/apiTypes.js";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../shared/pluginRecoveryCommands.js";
 import type { SessionDaemonAgentProfileResult } from "../sessiond/sessionDaemonClient.js";
 import { registerProjectMutationRoutes } from "./sessiond/projectMutationRoutes.js";
 
 interface AppTestContext {
   readonly app: FastifyInstance;
+  readonly authCookie: string;
   readonly tempDir: string;
   readonly projectDir: string;
   remoteClient: MachineClient | undefined;
   readonly sessionDaemonRequests: CapturedSessionDaemonRequest[];
   readonly piPackageRequests: CapturedPiPackageRequest[];
+  readonly workspaceCatalog: AppTestWorkspaceCatalog;
   piWebConfig: PiWebConfigValues;
   agentProfileResult: SessionDaemonAgentProfileResult;
 }
 
 let app: FastifyInstance | undefined;
+let testAuthCookie = "";
 let tempDir: string | undefined;
 let projectDir: string | undefined;
 let remoteClient: MachineClient | undefined;
 let sessionDaemonRequests: CapturedSessionDaemonRequest[] = [];
 let piPackageRequests: CapturedPiPackageRequest[] = [];
+let workspaceCatalog: AppTestWorkspaceCatalog | undefined;
 let piWebConfig: PiWebConfigValues = {};
 let agentProfileResult: SessionDaemonAgentProfileResult = { status: "invalid", error: "App test harness was not initialized" };
 
 export const appTestContext: AppTestContext = {
+  get authCookie() { return testAuthCookie; },
   get app() {
     if (app === undefined) throw new Error("App test harness was not initialized");
     return app;
@@ -63,6 +68,10 @@ export const appTestContext: AppTestContext = {
   },
   get piPackageRequests() {
     return piPackageRequests;
+  },
+  get workspaceCatalog() {
+    if (workspaceCatalog === undefined) throw new Error("App test workspace catalog was not initialized");
+    return workspaceCatalog;
   },
   get piWebConfig() {
     return piWebConfig;
@@ -92,9 +101,10 @@ export function registerAppTestHooks(): void {
     agentProfileResult = { status: "available", profile: appTestAgentProfile(join(tempDir, "agent")) };
     const projects = new ProjectService(new ProjectStore(join(tempDir, "projects.json")));
     const sessionDaemon = fakeSessionDaemon(projects);
+    workspaceCatalog = new AppTestWorkspaceCatalog(projects);
     app = await buildApp({
       projects,
-      workspaces: new WorkspaceService(),
+      workspaceCatalog,
       machines: new MachineService(new MachineStore(join(tempDir, "machines.json")), {
         remoteClientFactory: () => {
           if (remoteClient === undefined) throw new Error("No remote machine client configured");
@@ -105,10 +115,10 @@ export function registerAppTestHooks(): void {
           packageName: "@chainingintention/pi-web-cn",
           generatedAt: "2026-05-25T00:00:00.000Z",
           components: {
-            web: { component: "web", label: "PI WEB", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
-            sessiond: { component: "sessiond", label: "PI WEB Session Daemon", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] },
+            web: { component: "web", label: "PI WEB", available: true, capabilities: [] },
+            sessiond: { component: "sessiond", label: "PI WEB Session Daemon", available: true, capabilities: [] },
           },
-          capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
+          capabilities: [],
         }),
       }),
       sessionDaemon,
@@ -117,14 +127,29 @@ export function registerAppTestHooks(): void {
       piPackages: fakePiPackageService(),
       piWebPlugins: {
         manifest: () => Promise.resolve({ lifecycleVersion: 2, terminalMode: "recovery-disabled", plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false }] }),
-        plugins: () => Promise.resolve(recoveryPluginsResponse([{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true }])),
+        plugins: () => Promise.resolve({
+          lifecycleVersion: 2,
+          plugins: [{ id: "fake", module: "/pi-web-plugins/fake/plugin.js?v=1", source: "test", scope: "local", machineSpecific: false, enabled: true, discovered: true, conflict: false }],
+          diagnostics: [],
+          serverRuntime: {
+            status: "available",
+            terminalMode: "recovery-disabled",
+            restartRequired: false,
+            recovery: {
+              showSafeStart: "pi-web plugins safe-start show",
+              bundledOnly: "pi-web plugins safe-start set bundled-only --restart",
+              noServerPlugins: "pi-web plugins safe-start set none --restart",
+              clearSafeStart: "pi-web plugins safe-start clear --restart",
+            },
+          },
+        }),
         readAsset: fakePiWebPluginAsset,
       },
       clientDist: false,
       logger: false,
     });
     app.addHook("onClose", () => sessionDaemon.close());
-    await installTestAuth(app);
+    testAuthCookie = await installTestAuth(app);
   });
 
   afterEach(async () => {
@@ -136,6 +161,7 @@ export function registerAppTestHooks(): void {
     remoteClient = undefined;
     sessionDaemonRequests = [];
     piPackageRequests = [];
+    workspaceCatalog = undefined;
     piWebConfig = {};
     agentProfileResult = { status: "invalid", error: "App test harness was not initialized" };
 
@@ -144,9 +170,14 @@ export function registerAppTestHooks(): void {
   });
 }
 
-export async function installTestAuth(target: FastifyInstance): Promise<void> {
+export async function installTestAuth(target: FastifyInstance): Promise<string> {
   const setupResponse = await target.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "test-password" } });
-  installDefaultAuthCookie(target, authCookie(setupResponse));
+  const response = setupResponse.statusCode === 409
+    ? await target.inject({ method: "POST", url: "/api/normal-auth/login", payload: { password: "test-password" } })
+    : setupResponse;
+  const cookie = authCookie(response);
+  installDefaultAuthCookie(target, cookie);
+  return cookie;
 }
 
 function authCookie(response: LightMyRequestResponse): string {
@@ -196,6 +227,85 @@ function fakePiWebPluginAsset(pluginId: string, assetPath: string): Promise<{ co
   return Promise.resolve(undefined);
 }
 
+export class AppTestWorkspaceCatalog implements WorkspaceCatalog {
+  private readonly overrides = new Map<string, readonly WorkspaceListing[]>();
+  private readonly resolutionOverrides = new Map<string, WorkspaceProviderAuthorityResolution>();
+  private failure: Error | undefined;
+
+  constructor(private readonly projects: ProjectService) {}
+
+  async resolveProject(projectId: string): Promise<WorkspaceProviderAuthorityResolution> {
+    if (this.failure !== undefined) throw this.failure;
+    const configuredResolution = this.resolutionOverrides.get(projectId);
+    if (configuredResolution !== undefined) return cloneWorkspaceResolution(configuredResolution);
+
+    const workspaces = await this.workspaceList(projectId);
+    const ownerPluginId = commonWorkspaceOwner(workspaces);
+    return {
+      status: ownerPluginId === undefined ? "folder" : "provider",
+      projectId,
+      ...(ownerPluginId === undefined ? {} : { ownerPluginId }),
+      workspaces,
+      diagnostics: [],
+    };
+  }
+
+  async list(projectId: string): Promise<WorkspaceListing[]> {
+    return [...(await this.resolveProject(projectId)).workspaces];
+  }
+
+  async resolve(projectId: string, workspaceId: string): Promise<WorkspaceListing> {
+    const workspace = (await this.list(projectId)).find((candidate) => candidate.id === workspaceId);
+    if (workspace === undefined) throw new Error("Workspace not found");
+    return workspace;
+  }
+
+  set(projectId: string, workspaces: readonly WorkspaceListing[]): void {
+    this.resolutionOverrides.delete(projectId);
+    this.overrides.set(projectId, workspaces.map((workspace) => ({ ...workspace })));
+  }
+
+  setResolution(resolution: WorkspaceProviderAuthorityResolution): void {
+    this.overrides.delete(resolution.projectId);
+    this.resolutionOverrides.set(resolution.projectId, cloneWorkspaceResolution(resolution));
+  }
+
+  fail(error: Error): void {
+    this.failure = error;
+  }
+
+  private async workspaceList(projectId: string): Promise<WorkspaceListing[]> {
+    const configured = this.overrides.get(projectId);
+    if (configured !== undefined) return configured.map((workspace) => ({ ...workspace }));
+    const project = await this.projects.requireProject(projectId);
+    return [{
+      id: createHash("sha1").update(`${project.id}:${project.path}`).digest("hex").slice(0, 12),
+      projectId: project.id,
+      path: project.path,
+      label: project.name,
+      isMain: true,
+    }];
+  }
+}
+
+function commonWorkspaceOwner(workspaces: readonly WorkspaceListing[]): string | undefined {
+  const owner = workspaces[0]?.provider?.pluginId;
+  return owner !== undefined && workspaces.every((workspace) => workspace.provider?.pluginId === owner)
+    ? owner
+    : undefined;
+}
+
+function cloneWorkspaceResolution(resolution: WorkspaceProviderAuthorityResolution): WorkspaceProviderAuthorityResolution {
+  return {
+    ...resolution,
+    workspaces: resolution.workspaces.map((workspace) => ({ ...workspace })),
+    diagnostics: resolution.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      ...(diagnostic.pluginIds === undefined ? {} : { pluginIds: [...diagnostic.pluginIds] }),
+    })),
+  };
+}
+
 export interface CapturedSessionDaemonRequest {
   method: string;
   path: string;
@@ -208,7 +318,7 @@ interface CapturedPiPackageRequest {
   scope?: "user" | "project";
 }
 
-function fakeConfigService() {
+export function fakeConfigService() {
   return {
     read: () => piWebConfigResponse(piWebConfig),
     write: (config: PiWebConfigValues) => {
@@ -220,11 +330,8 @@ function fakeConfigService() {
 
 function appTestAgentProfile(dir: string): ActiveAgentProfileDescriptor {
   return {
-    schemaVersion: 1,
-    revision: `sha256:${"a".repeat(64)}`,
-    command: "pi",
+    schemaVersion: 2,
     dir,
-    sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
   };
 }
 

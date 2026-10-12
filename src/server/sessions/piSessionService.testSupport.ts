@@ -3,7 +3,7 @@ import { InMemoryCredentialStore, type Credential, type CredentialStore } from "
 import type { GlobalSessionEvent, SessionNotificationSummaryEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import type { PiAgentSession, PiSessionManager, PiSessionModelRuntime, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
+import type { PiAgentSession, PiSessionListEntry, ResolvedSessionFile, PiSessionManager, PiSessionModelRuntime, PiSessionRuntime, PiSessionServiceDependencies } from "./piSessionService.js";
 
 export class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -73,6 +73,8 @@ export function fakeSessionManager(cwd = "/workspace", patch: Partial<PiSessionM
     getSessionFile: () => undefined,
     getBranch: () => [],
     getLeafId: () => "leaf-1",
+    branch: () => undefined,
+    resetLeaf: () => undefined,
     ...patch,
   };
 }
@@ -203,7 +205,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     isBashRunning: false,
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
-    settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined, getEnabledModels: () => undefined, setEnabledModels: () => undefined },
+    settingsManager: { getWarnings: () => ({}), setWarnings: () => undefined, getProjectSettings: () => ({}), getEnabledModels: () => undefined, setEnabledModels: () => undefined },
     modelRuntime,
     scopedModels: [],
     setScopedModels: (models) => { session.scopedModels = models; },
@@ -284,9 +286,30 @@ export function runtimeCreator(runtime: PiSessionRuntime): RuntimeCreator {
 
 export function sessionGateway(records: ReturnType<typeof sessionRecord>[]): SessionGateway {
   return {
-    create: () => fakeSessionManager(),
+    create: (cwd) => fakeSessionManager(cwd),
     list: () => Promise.resolve(records),
+    listAll: () => Promise.resolve(records),
+    invalidateSessionFile: () => undefined,
+    resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve(records)),
     open: () => fakeSessionManager(),
+  };
+}
+
+/**
+ * Build a gateway `resolveSessionFile` on top of a `list` implementation,
+ * mirroring the real resolver's precedence: an exact id wins over a prefix
+ * match wherever it appears. For test gateways whose `list` fake is the source
+ * of truth, this keeps id resolution consistent with what the fake lists
+ * without letting the fake disagree with the production ordering rule.
+ */
+export function resolveSessionFileFromList(
+  list: (cwd: string) => Promise<PiSessionListEntry[]>,
+): (cwd: string, sessionId: string) => Promise<ResolvedSessionFile | undefined> {
+  return async (cwd, sessionId) => {
+    const records = await list(cwd);
+    const match = records.find((record) => record.id === sessionId)
+      ?? records.find((record) => record.id.startsWith(sessionId));
+    return match === undefined ? undefined : { id: match.id, cwd: match.cwd, path: match.path };
   };
 }
 

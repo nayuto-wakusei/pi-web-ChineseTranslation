@@ -62,9 +62,17 @@ describe("createSubsessionToolDefinitions", () => {
     expect(firstText(result.content)).toContain("启动受跟踪子会话 child-1");
   });
 
+  it("spawn_subsession offers no way to target another workspace", () => {
+    const { spawn: spawnTool } = tools({});
+
+    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, model: {} } });
+    expect(spawnTool.parameters).not.toHaveProperty(["properties", "cwd"]);
+    expect(spawnTool.description).toContain("当前会话的工作目录");
+  });
+
   it("describes tracked child work whose result remains available to the parent", async () => {
     const { spawn: spawnTool } = tools({
-      spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" })),
+      spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a" })),
     });
 
     expect(spawnTool.description).toBe("在当前会话的工作目录启动受跟踪子会话，执行当前任务的一部分并立即返回。完成后可在这里读取其记录与结果。");
@@ -72,7 +80,7 @@ describe("createSubsessionToolDefinitions", () => {
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
-    expect(firstText(result.content)).toBe("已在 /repos/a-feature 启动受跟踪子会话 child-1。请继续其他工作，并在汇合点使用 yield_to_subsessions；不要轮询。");
+    expect(firstText(result.content)).toBe("已在 /repos/a 启动受跟踪子会话 child-1。请继续其他工作，并在汇合点使用 yield_to_subsessions；不要轮询。");
   });
 
   it("distinguishes status inspection from yielding in tool metadata", () => {
@@ -108,7 +116,6 @@ describe("createSubsessionToolDefinitions", () => {
       parentSessionId: "parent-1",
       parentSessionFile: undefined,
       prompt: "do it",
-      cwd: undefined,
     });
   });
 
@@ -123,7 +130,6 @@ describe("createSubsessionToolDefinitions", () => {
       parentSessionId: "parent-1",
       parentSessionFile: "/sessions/parent-1.jsonl",
       prompt: "do it",
-      cwd: undefined,
       model: dispatchModel,
       modelSpec: "openai/gpt-5",
     });
@@ -140,6 +146,7 @@ describe("createSubsessionToolDefinitions", () => {
         model: { description: expect.stringMatching(/provider\/model-id.*仅在明确要求.*#provider\/model-id.*省略时继承/s) },
       },
     });
+    expect(JSON.stringify(spawnTool.parameters)).not.toContain("anthropic/claude-sonnet-4-5");
   });
 
   it("list_subsessions reports the caller's subsessions and their status", async () => {

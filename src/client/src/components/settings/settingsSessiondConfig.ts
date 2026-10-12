@@ -20,14 +20,7 @@ export function agentProfileActivationState(
 ): AgentProfileActivationState {
   const desiredProfile = config?.effectiveConfig.agent;
   if (desiredProfile?.dir === undefined || activeProfile === undefined) return "unavailable";
-  if (activeProfile.schemaVersion === 2) return desiredProfile.dir === activeProfile.dir ? "active" : "restart-required";
-  if (desiredProfile.command === undefined) return "unavailable";
-  const desiredSessionDirEnvKeys = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"];
-  return desiredProfile.command === activeProfile.command
-    && desiredProfile.dir === activeProfile.dir
-    && sameStrings(activeProfile.sessionDirEnvKeys ?? [], desiredSessionDirEnvKeys)
-    ? "active"
-    : "restart-required";
+  return desiredProfile.dir === activeProfile.dir ? "active" : "restart-required";
 }
 
 export function agentDirFieldOverridden(envOverrides: PiWebConfigEnvOverrides | undefined, _draftCommand: string): boolean {
@@ -51,15 +44,10 @@ export function mergeSelectedMachineSessiondConfig(base: PiWebConfigResponse, se
   };
   if (selectedMachine.envOverrides.agentDirSource === undefined) delete envOverrides.agentDirSource;
   else envOverrides.agentDirSource = selectedMachine.envOverrides.agentDirSource;
-
   return {
     ...base,
     config: { ...base.config, ...selectedMachine.config },
     effectiveConfig: { ...base.effectiveConfig, ...selectedMachine.effectiveConfig },
     envOverrides,
   };
-}
-
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

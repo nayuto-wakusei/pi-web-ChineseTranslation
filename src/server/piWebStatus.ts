@@ -9,9 +9,9 @@ import { DefaultPackageManager, SettingsManager, VERSION as PI_CODING_AGENT_VERS
 import type { ActiveAgentProfileDescriptor, PiWebCapability, PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebVersionResponse } from "../shared/apiTypes.js";
 import { effectivePiWebCapabilities, WEB_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 import { piWebDockerCommand } from "../docker/piWebDockerCommandPlan.js";
-import { parsePiWebComponentStatus, parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
+import { parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
-import { isHostAbsoluteAgentDir, isPiCompanionCommand, isSafeAgentCommandForHost, PI_CODING_AGENT_DIR_ENV, loadPiWebConfig, type LoadedPiWebConfig } from "../config.js";
+import { effectiveAgentConfig, isHostAbsoluteAgentDir, isPiCompanionCommand, isSafeAgentCommandForHost, PI_CODING_AGENT_DIR_ENV, loadPiWebConfig, type LoadedPiWebConfig } from "../config.js";
 import { createPiWebReleaseLookupCache, type PiWebReleaseLookup } from "./piWebReleaseLookupCache.js";
 
 const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
@@ -326,14 +326,12 @@ async function getSessiondRuntimeComponent(daemon: PiWebStatusDaemon): Promise<P
   try {
     const upstream = await daemon.request("GET", "/runtime");
     if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
-      return await legacySessiondRuntimeComponent(daemon) ?? unavailableSessiondRuntime(`runtime check returned HTTP ${String(upstream.statusCode)}`);
+      return unavailableSessiondRuntime(`runtime check returned HTTP ${String(upstream.statusCode)}`);
     }
     const parsed: unknown = upstream.body === "" ? undefined : JSON.parse(upstream.body);
     const runtime = parsePiWebRuntimeComponent(parsed);
     if (runtime !== undefined) return runtime;
-    const legacyVersion = isRecord(parsed) ? parsePiWebComponentStatus(parsed["version"]) : undefined;
-    if (legacyVersion !== undefined) return runtimeComponentFromStatus(legacyVersion);
-    return await legacySessiondRuntimeComponent(daemon) ?? unavailableSessiondRuntime("runtime response did not include valid runtime information");
+    return unavailableSessiondRuntime("runtime response did not include valid runtime information");
   } catch (error) {
     return unavailableSessiondRuntime(error instanceof Error ? error.message : String(error));
   }
@@ -343,13 +341,11 @@ async function getSessiondComponentStatus(daemon: PiWebStatusDaemon, options: Pi
   try {
     const upstream = await daemon.request("GET", "/runtime");
     if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
-      return await legacySessiondComponentStatus(daemon) ?? unavailableSessiond(`runtime check returned HTTP ${String(upstream.statusCode)}`);
+      return unavailableSessiond(`runtime check returned HTTP ${String(upstream.statusCode)}`);
     }
     const parsed: unknown = upstream.body === "" ? undefined : JSON.parse(upstream.body);
-    const legacyVersion = isRecord(parsed) ? parsePiWebComponentStatus(parsed["version"]) : undefined;
-    if (legacyVersion !== undefined) return legacyVersion;
     const runtime = parsePiWebRuntimeComponent(parsed);
-    if (runtime?.available !== true) return await legacySessiondComponentStatus(daemon) ?? unavailableSessiond(runtime?.error ?? "runtime response did not include valid runtime information");
+    if (runtime?.available !== true) return unavailableSessiond(runtime?.error ?? "runtime response did not include valid runtime information");
     const status = await getPiWebComponentStatus("sessiond", options);
     const runtimeVersion = runtime.runtimeVersion ?? status.runtimeVersion;
     return {
@@ -362,34 +358,6 @@ async function getSessiondComponentStatus(daemon: PiWebStatusDaemon, options: Pi
   } catch (error) {
     return unavailableSessiond(error instanceof Error ? error.message : String(error));
   }
-}
-
-async function legacySessiondRuntimeComponent(daemon: PiWebStatusDaemon): Promise<PiWebRuntimeComponent | undefined> {
-  const status = await legacySessiondComponentStatus(daemon);
-  return status === undefined ? undefined : runtimeComponentFromStatus(status);
-}
-
-async function legacySessiondComponentStatus(daemon: PiWebStatusDaemon): Promise<PiWebComponentStatus | undefined> {
-  try {
-    const upstream = await daemon.request("GET", "/health");
-    if (upstream.statusCode < 200 || upstream.statusCode >= 300) return undefined;
-    const parsed: unknown = upstream.body === "" ? undefined : JSON.parse(upstream.body);
-    return isRecord(parsed) ? parsePiWebComponentStatus(parsed["version"]) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function runtimeComponentFromStatus(status: PiWebComponentStatus): PiWebRuntimeComponent {
-  return {
-    component: status.component,
-    label: status.label,
-    ...(status.runtimeVersion === undefined ? {} : { runtimeVersion: status.runtimeVersion }),
-    ...(status.piVersion === undefined ? {} : { piVersion: status.piVersion }),
-    available: status.available,
-    capabilities: [],
-    ...(status.error === undefined ? {} : { error: status.error }),
-  };
 }
 
 function unavailableSessiondRuntime(error: string): PiWebRuntimeComponent {
@@ -463,6 +431,7 @@ async function commandsFor(components: PiWebStatusResponse["components"], option
   const status = serviceCommands.status ?? cliCommands.status;
   const update = await updateCommandFor(installation, restart, {
     ...options,
+    ...(installation?.kind === "pi-package" ? { companionCommand: configuredCompanionCommand() } : {}),
     ...(serviceCommands.npmGlobalUpdate === undefined ? {} : { npmGlobalUpdateCommand: serviceCommands.npmGlobalUpdate }),
   });
 
@@ -503,14 +472,14 @@ function restartCommandFor(installation: PiWebInstallationInfo | undefined, serv
   return cliCommands.restart ?? serviceCommands.restart;
 }
 
-export async function updateCommandFor(installation: PiWebInstallationInfo | undefined, restartCommand: string | undefined, options: { activeAgentProfile: ActiveAgentProfileDescriptor | undefined; hasCommand: (command: string) => Promise<boolean>; npmGlobalUpdateCommand?: string }): Promise<string | undefined> {
+export async function updateCommandFor(installation: PiWebInstallationInfo | undefined, restartCommand: string | undefined, options: { activeAgentProfile: ActiveAgentProfileDescriptor | undefined; hasCommand: (command: string) => Promise<boolean>; npmGlobalUpdateCommand?: string; companionCommand?: string | null }): Promise<string | undefined> {
   if (restartCommand === undefined) return undefined;
   if (installation?.kind === "pi-package") {
     const profile = options.activeAgentProfile;
-    const command = profile?.command ?? "pi";
-    if (profile === undefined || !isSafeAgentCommandForHost(command) || !isHostAbsoluteAgentDir(profile.dir) || !isPiCompanionCommand(command)) return undefined;
+    const command = options.companionCommand === undefined ? "pi" : options.companionCommand;
+    if (profile === undefined || command === null || !isSafeAgentCommandForHost(command) || !isHostAbsoluteAgentDir(profile.dir) || !isPiCompanionCommand(command)) return undefined;
     if (!(await options.hasCommand(command))) return undefined;
-    return `${PI_CODING_AGENT_DIR_ENV}=${shellQuote(profile.dir)} ${shellQuote(command)} update ${shellQuote(installation.source ?? PI_WEB_NPM_SOURCE)} && ${restartCommand}`;
+    return `${PI_CODING_AGENT_DIR_ENV}=${shellQuote(profile.dir)} ${command === "pi" ? "pi" : shellQuote(command)} update ${shellQuote(installation.source ?? PI_WEB_NPM_SOURCE)} && ${restartCommand}`;
   }
   if (installation?.kind === "local" && installation.path !== undefined) {
     if (!(await hasCommand("npm")) || !(await isGitCheckoutWithUpstream(installation.path))) return undefined;
@@ -519,6 +488,15 @@ export async function updateCommandFor(installation: PiWebInstallationInfo | und
   if (installation?.kind !== "npm-global" || !(await options.hasCommand("npm"))) return undefined;
   if (options.npmGlobalUpdateCommand !== undefined) return options.npmGlobalUpdateCommand;
   return `npm install -g ${PI_WEB_PACKAGE_NAME} --allow-scripts=node-pty && ${restartCommand}`;
+}
+
+function configuredCompanionCommand(): string | null {
+  try {
+    return effectiveAgentConfig(process.env, loadPiWebConfig().config).command;
+  } catch {
+    // A malformed local configuration must not produce an update plan.
+    return null;
+  }
 }
 
 async function nativeServiceCommands(): Promise<NativeServiceCommands> {
@@ -626,10 +604,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "update-available",
       severity: "info",
-      title: "PI WEB update available",
+      title: "PI WEB 有可用更新",
       body: commands.update === undefined
-        ? `PI WEB ${release.latestVersion} is available${installedVersion === undefined ? "" : `; installed version is ${installedVersion}`}. Update PI WEB, then restart the services or processes for this installation.`
-        : `PI WEB ${release.latestVersion} is available${installedVersion === undefined ? "" : `; installed version is ${installedVersion}`}. Run the update command to update PI WEB and restart its services.`,
+        ? `PI WEB ${release.latestVersion} 已发布${installedVersion === undefined ? "" : `，当前已安装 ${installedVersion}`}。更新 PI WEB 后，请重启本次安装的服务或进程。`
+        : `PI WEB ${release.latestVersion} 已发布${installedVersion === undefined ? "" : `，当前已安装 ${installedVersion}`}。运行更新命令即可更新 PI WEB 并重启其服务。`,
       ...optionalMessageCommand(commands.update),
     });
   }
@@ -639,10 +617,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "web-stale",
       severity: "warning",
-      title: "Web/UI service restart needed",
+      title: "Web/UI 服务需要重启",
       body: command === undefined
-        ? `The Web/UI service is running ${formatVersion(components.web.runtimeVersion)}, but ${formatVersion(components.web.installedVersion)} is installed. Restart the Web/UI service or process to use the installed version.`
-        : `The Web/UI service is running ${formatVersion(components.web.runtimeVersion)}, but ${formatVersion(components.web.installedVersion)} is installed. Restart the service to use the installed version.`,
+        ? `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启 Web/UI 服务或进程即可使用已安装版本。`
+        : `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启服务即可使用已安装版本。`,
       ...optionalMessageCommand(command),
     });
   }
@@ -651,10 +629,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "sessiond-unavailable",
       severity: "warning",
-      title: "Session daemon version unavailable",
+      title: "无法获取会话守护进程版本",
       body: commands.status === undefined
-        ? `PI WEB could not check the session daemon version${components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}`}. Check the session daemon service or process that runs this installation.`
-        : `PI WEB could not check the session daemon version${components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}`}`,
+        ? `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}。`}请检查本次安装的会话守护进程服务或进程。`
+        : `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}`}`,
       ...optionalMessageCommand(commands.status),
     });
   } else if (components.sessiond.stale) {

@@ -16,7 +16,7 @@ export function publicPluginState(state: AppState): PluginRuntimeState {
       archived: session.archived === true,
       pending: "clientPendingStart" in session && session.clientPendingStart === true,
     } }),
-    workspaceTool: state.workspaceTool,
+    ...(state.workspaceTool === undefined ? {} : { workspaceTool: state.workspaceTool }),
     mainView: state.mainView === "navigation" || state.mainView === "chat" ? state.mainView : "workspace",
     ...(state.piWebStatus === undefined ? {} : { piWebStatus: state.piWebStatus }),
   };

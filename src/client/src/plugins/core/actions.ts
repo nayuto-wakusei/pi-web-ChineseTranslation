@@ -2,7 +2,7 @@ import { isSessionActive } from "../../../../shared/activity";
 import type { AppState } from "../../appState";
 import { selectedMachineId } from "../../controllers/types";
 import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceOptionsForRuntime } from "../../sessionPersistence";
-import { isWorkspaceDeletionPending } from "../../workspaceDeletion";
+import { canDeleteWorkspace, isWorkspaceDeletionPending } from "../../workspaceDeletion";
 import type { PluginAction } from "../types";
 
 export function createCoreActions(): PluginAction[] {
@@ -21,7 +21,6 @@ export function createCoreActions(): PluginAction[] {
       description: "将键盘焦点移动到消息编辑器",
       shortcut: "mod+g c",
       group: "通用",
-      enabled: (context) => context.state.selectedSession !== undefined,
       run: (context) => { context.focusPrompt(); },
     },
     {
@@ -104,49 +103,9 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => { context.focusPrompt(); },
     },
     {
-      id: "view.files",
-      title: "转到文件",
-      shortcut: "mod+2",
-      group: "导航",
-      enabled: hasWorkspace,
-      run: (context) => { context.selectMainView("core:workspace.files"); },
-    },
-    {
-      id: "view.git",
-      title: "转到 Git",
-      shortcut: "mod+3",
-      group: "导航",
-      enabled: hasGitWorkspace,
-      run: (context) => { context.selectMainView("core:workspace.git"); },
-    },
-    {
-      id: "workspace.refresh-files",
-      title: "刷新文件",
-      shortcut: "mod+shift+f",
-      group: "工作区",
-      enabled: hasWorkspace,
-      run: (context) => context.refreshFiles(),
-    },
-    {
-      id: "workspace.refresh-git",
-      title: "刷新 Git",
-      shortcut: "mod+shift+g",
-      group: "工作区",
-      enabled: hasGitWorkspace,
-      run: (context) => context.refreshGit(),
-    },
-    {
-      id: "workspace.refresh-current",
-      title: "刷新当前面板",
-      shortcut: "mod+shift+r",
-      group: "工作区",
-      enabled: hasWorkspace,
-      run: (context) => context.state.workspaceTool === "core:workspace.git" && context.state.selectedWorkspace?.isGitRepo === true ? context.refreshGit() : context.refreshFiles(),
-    },
-    {
       id: "workspace.delete",
       title: "删除工作区",
-      description: "移除所选 Git worktree",
+      description: "执行工作区提供者的移除操作",
       group: "工作区",
       enabled: hasDeletableWorkspace,
       run: (context) => context.deleteWorkspace(),
@@ -215,13 +174,9 @@ function hasWorkspace(context: { state: AppState }): boolean {
   return context.state.selectedWorkspace !== undefined;
 }
 
-function hasGitWorkspace(context: { state: AppState }): boolean {
-  return context.state.selectedWorkspace?.isGitRepo === true;
-}
-
 function hasDeletableWorkspace(context: { state: AppState }): boolean {
   const workspace = context.state.selectedWorkspace;
-  return workspace !== undefined && workspace.isGitWorktree && !workspace.isMain && !isWorkspaceDeletionPending(context.state, workspace);
+  return canDeleteWorkspace(workspace) && !isWorkspaceDeletionPending(context.state, workspace);
 }
 
 function hasSelectableSession(context: { state: AppState }): boolean {

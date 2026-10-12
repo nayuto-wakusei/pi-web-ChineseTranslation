@@ -93,7 +93,7 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   override render(): TemplateResult {
-    const groups = shortcutGroups(this.actions);
+    const groups = shortcutGroups([...composerShortcutActions(), ...this.actions]);
     const shortcutResolutions = this.shortcutResolutions();
     return html`
       <settings-panel-frame
@@ -210,8 +210,8 @@ export class SettingsShortcutsPanel extends LitElement {
           <div class="shortcut-actions">
             <button class="primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>保存</button>
             <button ?disabled=${this.loading || this.saving} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? "取消录制" : "录制"}</button>
-            <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action.id); }}>无</button>
-            <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action.id); }}>重置</button>
+            <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action); }}>无</button>
+            <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>重置</button>
           </div>
         </div>
       </article>
@@ -246,31 +246,31 @@ export class SettingsShortcutsPanel extends LitElement {
       this.localError = parsed.message;
       return;
     }
-    if (isComposerShortcut(action.id) && parsed.tokens.length > 1) {
+    if (isComposerShortcut(action.id) && parsed.tokens.length !== 1) {
       this.localError = "发送快捷键只能使用一个组合键，不能使用按键序列。";
       return;
     }
     this.localError = "";
-    await this.saveShortcutPreference(action.id, parsed.shortcut);
+    await this.saveShortcutPreference(action, parsed.shortcut);
   }
 
-  private async setShortcutNone(actionId: string): Promise<void> {
+  private async setShortcutNone(action: AppAction): Promise<void> {
     this.stopRecording();
     this.localError = "";
-    await this.saveShortcutPreference(actionId, null);
+    await this.saveShortcutPreference(action, null);
   }
 
-  private async resetShortcut(actionId: string): Promise<void> {
+  private async resetShortcut(action: AppAction): Promise<void> {
     this.stopRecording();
     this.localError = "";
-    await this.saveShortcutPreference(actionId, undefined);
+    await this.saveShortcutPreference(action, undefined);
   }
 
-  private async saveShortcutPreference(actionId: string, shortcut: string | null | undefined): Promise<void> {
+  private async saveShortcutPreference(action: AppAction, shortcut: string | null | undefined): Promise<void> {
     const config: PiWebConfigValues = { ...(this.configResponse?.config ?? {}) };
     const currentShortcuts = config.shortcuts ?? {};
-    const action = this.actions.find((candidate) => candidate.id === actionId);
-    const shortcuts = shortcut === undefined ? withoutShortcutPreferences(currentShortcuts, [actionId, ...action?.shortcutAliases ?? []]) : { ...currentShortcuts, [actionId]: shortcut };
+    const shortcuts = withoutShortcutPreferences(currentShortcuts, [action.id, ...action.shortcutAliases ?? []]);
+    if (shortcut !== undefined) shortcuts[action.id] = shortcut;
     if (Object.keys(shortcuts).length === 0) {
       delete config.shortcuts;
     } else {

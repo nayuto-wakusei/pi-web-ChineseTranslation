@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER } from "../api";
-import { clearStagedAttachments } from "../promptAttachmentStaging";
+import { clearStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
 import { attachmentFolderDeliveryLabel, PromptEditor } from "./PromptEditor";
 
 class MemoryStorage implements Storage {
@@ -20,9 +20,27 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.defineProperty(globalThis, "localStorage", { value: undefined, configurable: true });
+  // Staged attachments live in an in-memory module singleton rather than the
+  // swappable `localStorage` above, so each test's keys are cleared explicitly
+  // rather than reset by replacing a global.
   clearStagedAttachments("local:session-a");
   clearStagedAttachments("local:session-b");
 });
+
+// `willUpdate` is a protected lifecycle hook Lit invokes as part of its async
+// update cycle. Rather than pull in the full happy-dom harness just to drive
+// that cycle, these tests call it directly (as other suites in this repo call
+// protected/private methods through `Reflect`) with a synthetic `changed` map
+// shaped like the one Lit would have built for a session switch.
+function triggerSessionSwitch(editor: PromptEditor, previous: { machineId: string; sessionId: string }): void {
+  const method: unknown = Reflect.get(editor, "willUpdate");
+  if (typeof method !== "function") throw new Error("PromptEditor.willUpdate was unavailable");
+  // `willUpdate` only reads `has`/`get` for "sessionId"/"machineId" off the
+  // changed-properties map Lit would normally build, so a plain string-keyed
+  // Map reproduces its contract here without needing a Lit `PropertyValues`.
+  const changed = new Map([["sessionId", previous.sessionId], ["machineId", previous.machineId]]);
+  Reflect.apply(method, editor, [changed]);
+}
 
 describe("PromptEditor attachments folder label", () => {
   it("defaults the attachments folder to the built-in default", () => {
@@ -37,6 +55,9 @@ describe("PromptEditor attachments folder label", () => {
 });
 
 describe("PromptEditor folder delivery sends the displayed folder", () => {
+  // `send` is private; these tests drive it through Reflect the same way the
+  // session-switch suite above drives `willUpdate`, keeping the happy-dom
+  // harness out of a pure callback-wiring check.
   function invokeSend(editor: PromptEditor): void {
     const send: unknown = Reflect.get(editor, "send");
     if (typeof send !== "function") throw new Error("PromptEditor.send was unavailable");
@@ -48,13 +69,17 @@ describe("PromptEditor folder delivery sends the displayed folder", () => {
     editor.machineId = "local";
     editor.sessionId = "session-a";
     editor.attachmentsFolder = "project-attachments";
+    // A general file forces folder delivery (inline is image-only).
     Reflect.set(editor, "attachments", [{ id: "attachment-1", kind: "file" as const, name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
+    saveStagedAttachments("local:session-a", [{ id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
     Reflect.set(editor, "draft", "check this");
     const sent: unknown[][] = [];
     editor.onSend = (...args: unknown[]) => { sent.push(args); };
 
     invokeSend(editor);
 
+    // Label/save parity: the delivery label and the folder sent with the save
+    // request come from the same workspace-effective prop.
     expect(attachmentFolderDeliveryLabel(editor.attachmentsFolder)).toBe("保存到 project-attachments");
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual(["check this", undefined, [expect.objectContaining({ name: "notes.txt" })], "folder", "project-attachments"]);
@@ -75,5 +100,69 @@ describe("PromptEditor folder delivery sends the displayed folder", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.[3]).toBe("inline");
     expect(sent[0]?.[4]).toBeUndefined();
+  });
+});
+
+describe("PromptEditor pending attachments across session switches", () => {
+  it("does not carry pending attachments from one session into another", () => {
+    const editor = new PromptEditor();
+    editor.machineId = "local";
+    editor.sessionId = "session-a";
+    const attachment = { id: "attachment-1", kind: "file" as const, name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 };
+    Reflect.set(editor, "attachments", [attachment]);
+    saveStagedAttachments("local:session-a", [attachment]);
+
+    // Switch to a different session: the pending attachment must not follow.
+    editor.sessionId = "session-b";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-a" });
+
+    expect(Reflect.get(editor, "attachments")).toEqual([]);
+  });
+
+  it("restores a session's own pending attachments when switching back to it", () => {
+    const editor = new PromptEditor();
+    editor.machineId = "local";
+    editor.sessionId = "session-a";
+    const attachment = { id: "attachment-1", kind: "file" as const, name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 };
+    Reflect.set(editor, "attachments", [attachment]);
+    saveStagedAttachments("local:session-a", [attachment]);
+
+    editor.sessionId = "session-b";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-a" });
+    expect(Reflect.get(editor, "attachments")).toEqual([]);
+
+    editor.sessionId = "session-a";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-b" });
+
+    expect(Reflect.get(editor, "attachments")).toEqual([attachment]);
+  });
+
+  it("does not resurrect attachments once they were sent from a session", () => {
+    const editor = new PromptEditor();
+    editor.machineId = "local";
+    editor.sessionId = "session-a";
+    Reflect.set(editor, "attachments", [{ id: "attachment-1", kind: "file" as const, name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
+    saveStagedAttachments("local:session-a", [{ id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
+
+    // Leave session-a with the attachment pending, then come back to it.
+    editor.sessionId = "session-b";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-a" });
+    editor.sessionId = "session-a";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-b" });
+    expect(Reflect.get(editor, "attachments")).toEqual([{ id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 }]);
+
+    // Sending (resetComposer) consumes the attachment for session-a.
+    const resetComposer: unknown = Reflect.get(editor, "resetComposer");
+    if (typeof resetComposer !== "function") throw new Error("PromptEditor.resetComposer was unavailable");
+    Reflect.apply(resetComposer, editor, []);
+    expect(Reflect.get(editor, "attachments")).toEqual([]);
+
+    // Round-tripping through session-b and back must not resurrect it.
+    editor.sessionId = "session-b";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-a" });
+    editor.sessionId = "session-a";
+    triggerSessionSwitch(editor, { machineId: "local", sessionId: "session-b" });
+
+    expect(Reflect.get(editor, "attachments")).toEqual([]);
   });
 });

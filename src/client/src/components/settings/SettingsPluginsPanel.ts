@@ -139,14 +139,14 @@ export class SettingsPluginsPanel extends LitElement {
     const configured = this.configResponse?.config.plugins?.[plugin.id];
     const configuredState = plugin.required === true
       ? "必需插件 · 普通配置无法禁用"
-      : plugin.discovered !== true && configured === undefined
+      : !plugin.discovered && configured === undefined
         ? "期望包或配置不存在"
         : configured?.enabled === false ? "配置已禁用" : configured?.enabled === true ? "配置已启用" : "默认启用";
     return html`
       <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
           <strong>${plugin.id}</strong>
-          <small>${plugin.configOnly ? "仅有配置 · 未发现插件包" : `${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? " · 机器专属" : ""}${plugin.required === true ? " · 必需" : ""}${plugin.discovered === true ? "" : " · 仅活动快照"}`}</small>
+          <small>${plugin.configOnly ? "仅有配置 · 未发现插件包" : `${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? " · 机器专属" : ""}${plugin.required === true ? " · 必需" : ""}${plugin.discovered ? "" : " · 仅活动快照"}`}</small>
           <small>${configuredState}</small>
           ${this.renderPluginStatuses(plugin)}
           ${plugin.server?.message === undefined ? nothing : html`<small class="diagnostic">${plugin.server.message}</small>`}
@@ -166,7 +166,7 @@ export class SettingsPluginsPanel extends LitElement {
     return html`
       <div class="status-list" aria-label=${`${plugin.id} 插件状态`}>
         ${server === undefined ? html`<span class="status neutral">${plugin.configOnly ? "仅有配置" : "仅浏览器"}</span>` : html`<span class=${`status ${serverStateTone(server.state)}`}>${serverStateLabel(server.state)}</span>`}
-        ${plugin.conflict === true ? html`<span class="status error">冲突</span>` : nothing}
+        ${plugin.conflict ? html`<span class="status error">冲突</span>` : nothing}
         ${server?.staleRevision === true ? html`<span class="status warning">版本过期</span>` : nothing}
         ${server?.restartRequired === true ? html`<span class="status warning">需要重启</span>` : nothing}
         ${server?.health === undefined ? nothing : html`<span class=${`status ${healthTone(server.health.status)}`}>健康状态 ${healthLabel(server.health.status)}</span>`}
@@ -242,7 +242,7 @@ export function settingsPluginRows(
       ...plugin,
       enabled,
       configOnly: false,
-      editable: plugin.required !== true && (plugin.discovered === true || configured !== undefined),
+      editable: plugin.required !== true && (plugin.discovered || configured !== undefined),
     };
   });
   const knownIds = new Set(rows.map(({ id }) => id));

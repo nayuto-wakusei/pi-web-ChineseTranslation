@@ -7,7 +7,7 @@ import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } fr
 import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
-import { listStyles } from "./styles/listStyles";
+import { listStyles } from "./shared";
 
 @customElement("project-list")
 export class ProjectList extends LitElement implements KeyboardNavigableSection {

@@ -1,49 +1,41 @@
 # PI WEB
 
-This fork is a translation plan for PI WEB. Its goal is to translate the plugin's displayed content into Chinese while preserving the upstream functionality.
+PI WEB 的中文本地化分支，保留上游功能，并将核心界面与内置插件的显示内容本地化为中文。
 
-[![CI](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml)
+[![CI](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/%40chainingintention%2Fpi-web-cn)](https://www.npmjs.com/package/@chainingintention/pi-web-cn)
 [![Node.js](https://img.shields.io/node/v/%40chainingintention%2Fpi-web-cn)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**PI WEB is a web UI for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) that keeps agent sessions running in real workspaces on your machine or server.**
+**PI WEB 是 [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) 的 Web 界面，让代理会话持续运行在机器或服务器的真实工作区中。**
 
-The bundled runtime supports Pi `0.86.1` or `0.87.0`. The session daemon owns its `PI_WEB_DATA_DIR`; use a separate data directory and session endpoint for each concurrently running instance.
+内置运行时支持已测试的 Pi `0.86.1` 或 `0.87.0`。每个会话守护进程独占 `PI_WEB_DATA_DIR`，并发实例必须使用独立数据目录和 daemon endpoint。
 
-Run agents where your code, tools, credentials, and build caches live. Supervise them from any browser.
+让代理在代码、工具、凭据和构建缓存所在的机器工作，从任何浏览器监督。
 
-Website and docs: <https://pi-web.dev/>
+上游网站与文档：<https://pi-web.dev/>。本分支的包名、项目认证与管理隔离等差异以仓库中的[配置参考](docs/config.md)和[插件指南](docs/plugins.md)为准。
 
 ![PI WEB](docs/assets/pi-web-banner.png)
+![PI WEB 桌面截图](docs/assets/pi-web-desktop.png)
 
-![PI WEB desktop screenshot](docs/assets/pi-web-desktop.png)
+## 为什么使用 PI WEB？
 
-## Why PI WEB?
+持久的工作环境适合代理开发。PI WEB 可以：
 
-Agentic development works better when the work environment is persistent.
+- 浏览器断开后继续运行代理会话；
+- 在真实仓库与 Git 工作树中工作；
+- 并行监督多个会话；
+- 在电脑、手机和平板间切换；
+- 使用服务器、工作站或远端开发机运行代理；
+- 从一个界面管理项目、工作区、文件、终端、会话及远端机器。
 
-PI WEB lets you:
+浏览器负责监督，工作留在能够持续运行的机器。
 
-- keep Pi Coding Agent sessions alive after browser disconnects;
-- run agents inside real repositories and git worktrees;
-- supervise multiple sessions in parallel;
-- switch between laptop, phone, tablet, and desktop;
-- use a server, workstation, or remote dev box as your agent runtime;
-- manage projects, workspaces, files, terminals, sessions, and remote machines from one web UI.
+## 快速开始
 
-Your browser is the control surface. The work stays where it can keep running.
+需要 Node.js 22.19.0 或更新版本、npm、为当前用户配置的 Pi Coding Agent `0.86.1` 或 `0.87.0`，以及 Git 和项目所需开发工具。
 
-## Quick start
-
-Requirements:
-
-- Node.js 22.19.0 or newer
-- npm
-- Pi Coding Agent `0.86.1` or `0.87.0`, configured for your user
-- git and the development tools your agents need
-
-Install and start PI WEB as per-user services:
+安装并启动用户服务：
 
 ```bash
 npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty
@@ -51,15 +43,15 @@ pi-web install
 pi-web doctor
 ```
 
-On npm 12, the scoped flag lets `node-pty` prepare its required native module without enabling install scripts for other dependencies.
+npm 12 的限定开关只允许 node-pty 准备所需原生模块，不为其他依赖开启安装脚本。
 
-Then open:
+打开：
 
 ```text
 http://127.0.0.1:8504
 ```
 
-Useful commands:
+常用命令：
 
 ```bash
 pi-web status
@@ -70,91 +62,51 @@ pi-web version
 pi-web uninstall
 ```
 
-<!-- Keep README guidance concise. Put install variants, troubleshooting,
-configuration, and operational details in docs/, then link from here. -->
+安装变体、Pi 包安装、WSL/手动启动与远端访问见[安装指南](https://pi-web.dev/install)。
 
-For more install options, including one-line install, Pi package install, WSL/manual usage, and remote access, see the [installation guide](https://pi-web.dev/install).
-
-## Core model
-
-PI WEB organizes work like this:
+## 核心模型
 
 ```text
-Machine     a local or remote PI WEB runtime endpoint
-Project     a folder on that machine
-Workspace   a git worktree, or the project folder for non-git projects
-Session     a Pi Coding Agent chat running inside a workspace
+Machine     本地或远端 PI WEB 运行时
+Project     该机器上的项目目录
+Workspace   提供器拥有的工作目录；内置 Git 发现工作树，无提供器时使用项目目录
+Session     工作区中运行的 Pi Coding Agent 对话
 ```
 
-A typical flow:
+典型流程：添加项目 → 选择工作区 → 启动会话 → 让代理工作 → 稍后从任何浏览器返回。
 
-1. Add a project.
-2. Choose a workspace or git worktree.
-3. Start a session.
-4. Let the agent work.
-5. Come back later from any browser.
+## 远端优先
 
-## Remote-first development
+让代理运行在保持在线的服务器、桌面机、云主机、家用实验室或远端开发机，不依赖笔记本浏览器会话。远端连接使用私有网络、SSH 隧道、可信反向代理或 PI WEB 机器联邦。
 
-PI WEB is designed for remote AI-driven development.
+详见[远端优先开发](https://pi-web.dev/remote-first)。
 
-Instead of tying agent work to your laptop session, run PI WEB on a machine that stays available: a server, desktop, cloud VM, home lab machine, or remote dev box.
+## 机器与联邦
 
-Use a private network, SSH tunnel, trusted reverse proxy, or federated PI WEB machine setup when accessing it remotely.
+一个浏览器网关可代理可信远端机器的项目、工作区、文件、Git、会话、终端、活动、Pi 包与设置。设置页标明目标机器：包、插件、daemon 能力、文件访问和上传默认值针对所选机器；网关监听地址/端口/允许主机、机器注册/令牌和快捷键仍在网关。
 
-Read more: [Remote-first development](https://pi-web.dev/remote-first)
+详见[机器指南](https://pi-web.dev/machines)。
 
-## Machines and fleets
+## PI WEB 插件
 
-PI WEB can register other PI WEB runtimes as remote machines. One browser-facing PI WEB instance can proxy projects, files, git state, sessions, terminals, activity, Pi package management, and selected-machine settings from trusted remote machines.
+可信插件可提供面板、工具和工作区工作流，从 **设置 → PI WEB 插件** 管理所选机器的启用状态。Pi 包的安装与插件启用是独立操作。服务端插件变更需手动重启会话守护进程，再刷新浏览器；仅 Web 重启或 `/reload` 不会激活。
 
-When a remote machine is selected, Settings tabs label their target. Pi packages, PI WEB plugin enablement, session daemon toggles, external file access, and upload defaults target the selected machine. Gateway/server settings such as host, port, allowed hosts, registered machines/tokens, and keyboard shortcuts stay local to the gateway/browser.
+详见[插件指南](docs/plugins.md)。
 
-Read more: [Fleet and machines guide](https://pi-web.dev/machines)
+## 配置
 
-## PI WEB plugins
+机器配置在 `$PI_WEB_CONFIG` 或 `~/.config/pi-web/config.json`，项目配置在 `<project>/.pi-web/config.json`。包括网络、路径访问、上传/附件、插件、快捷键和会话工具。普通模型认证与默认值按项目托管，管理嵌入独立，详见[配置参考](docs/config.md)。
 
-PI WEB supports trusted plugins that can add actions, workspace panels, tools, and workspace metadata. Use **Settings → PI WEB plugins** to enable or disable them on the selected machine.
+## 开发
 
-Pi packages are a separate Pi package-manager concept. A Pi package may include a PI WEB plugin, but installing a package and enabling it are different operations. Server-backed changes require a manual session-daemon restart; see the plugin guide for lifecycle and recovery details.
-
-Read more: [PI WEB plugin guide and API](https://pi-web.dev/plugins)
-
-## Configuration
-
-Global config lives at:
-
-```text
-$PI_WEB_CONFIG
-~/.config/pi-web/config.json
-```
-
-Project-local PI WEB config lives at:
-
-```text
-<project>/.pi-web/config.json
-```
-
-Common configuration includes host/port, path access, uploads, PI WEB plugin enablement, shortcuts, and session daemon options. In Settings, machine-affecting config targets the selected machine; gateway host/port/allowed-hosts, remote machine registration, tokens, and keyboard shortcuts stay local.
-
-Read more: [Configuration reference](https://pi-web.dev/config)
-
-## Development
-
-Clone the repository and run:
+克隆仓库后：
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the Vite URL, usually:
-
-```text
-http://localhost:8505
-```
-
-For the split development setup:
+打开 Vite URL，通常为 `http://localhost:8505`。拆分开发启动使用三个独立终端，先启动 Web：
 
 ```bash
 npm run dev:web
@@ -162,30 +114,30 @@ npm run start:sessiond
 npm run dev:client
 ```
 
-Run these in separate terminals, starting Web first. The daemon waits for the Web-owned plugin build and does not autoreload. See [development service startup](https://pi-web.dev/install#manage-services) for build and restart ordering.
+daemon 等待 Web 拥有的插件构建就绪，不自动重载。构建/重启顺序见[服务启动说明](https://pi-web.dev/install#manage-services)。
 
-Validate changes with:
+验证改动：
 
 ```bash
 npm run verify
 ```
 
-## Security model
+交付构建与产物检查见[开发检查](docs/development-checks.md)。
 
-PI WEB assumes trusted users, trusted repositories, and trusted server paths.
+## 安全模型
 
-It is not a sandbox, permission system, or multi-tenant platform. Do not expose it directly to the public internet without a trusted network, firewall, VPN, SSH tunnel, or authenticated reverse proxy.
+普通模式假定用户、仓库与服务器路径可信，不是多租户平台或代理沙箱。不要在没有可信网络、防火墙、VPN、SSH 隧道或认证代理时直接暴露到公网。管理嵌入使用独立授权资源、受控工具、沙箱与审计，不与普通模式共享权限。
 
-## Documentation
+## 文档
 
-- [Website](https://pi-web.dev/)
-- [Install](https://pi-web.dev/install)
-- [Remote-first development](https://pi-web.dev/remote-first)
-- [Machines / fleet](https://pi-web.dev/machines)
-- [Configuration](https://pi-web.dev/config)
-- [Plugins](https://pi-web.dev/plugins)
-- [FAQ](https://pi-web.dev/faq)
+- [上游网站](https://pi-web.dev/)
+- [安装](https://pi-web.dev/install)
+- [远端优先](https://pi-web.dev/remote-first)
+- [机器](https://pi-web.dev/machines)
+- [配置](docs/config.md)
+- [插件](docs/plugins.md)
+- [常见问题](https://pi-web.dev/faq)
 
-## License
+## 许可
 
-MIT © 2026 Federico Jaramillo Martinez. See [LICENSE](LICENSE).
+MIT © 2026 Federico Jaramillo Martinez，见 [LICENSE](LICENSE)。

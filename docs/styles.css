@@ -1327,7 +1327,7 @@ html:has(.docs-toc-dialog[open]) {
   }
 
   .config-reference .table-scroll::before {
-    content: "Scroll table →";
+    content: "横向滚动表格 →";
     display: block;
     position: sticky;
     left: 0;

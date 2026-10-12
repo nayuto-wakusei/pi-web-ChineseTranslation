@@ -1,10 +1,11 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { dirname } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
-import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedRuntime } from "../managementEmbed";
+import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed";
 import { createNormalProjectCwdResolver } from "../workspaces/normalProjectCwdResolver";
 
 let app: FastifyInstance;
@@ -396,6 +397,55 @@ describe("machine-scoped session proxy routes", () => {
     }
   });
 
+  it.each(["/api", "/api/machines/local"].flatMap((prefix) => ["/sessions/session-1/events", "/sessions/events", "/events"].map((path) => `${prefix}${path}`)))("does not open a daemon socket after a browser disconnect during authentication: %s", async (path) => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const context: ManagementEmbedContext = { user: { id: "user", rootUserId: "owner", roles: [], permissions: [] }, projects: [{ id: "p1", name: "Project" }] };
+    let resolveAuthentication!: (context: ManagementEmbedContext) => void;
+    const authentication = new Promise<ManagementEmbedContext>((resolve) => { resolveAuthentication = resolve; });
+    const authenticate = vi.fn(() => authentication);
+    const runtime: ManagementEmbedRuntime = { enabled: true, projectRoot: "/managed", authenticate };
+    registerSessionProxyRoutes(app, daemon, "/api", runtime);
+    registerSessionProxyRoutes(app, daemon, "/api/machines/local", runtime);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}${path}?embed=management&token=entry`);
+    try {
+      await waitForOpen(socket);
+      await vi.waitFor(() => { expect(authenticate).toHaveBeenCalledOnce(); });
+      expect(daemon.websocketPaths).toEqual([]);
+      const closed = new Promise<void>((resolve) => { socket.once("close", () => { resolve(); }); });
+      socket.close();
+      await closed;
+      resolveAuthentication(context);
+      await setImmediate();
+      expect(daemon.websocketPaths).toEqual([]);
+    } finally {
+      resolveAuthentication(context);
+      socket.close();
+    }
+  });
+
+  it("consumes a late authentication failure after the browser socket has closed", async () => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    let rejectAuthentication!: (error: Error) => void;
+    const authentication = new Promise<ManagementEmbedContext>((_resolve, reject) => { rejectAuthentication = reject; });
+    const authenticate = vi.fn(() => authentication);
+    registerSessionProxyRoutes(app, daemon, "/api", { enabled: true, projectRoot: "/managed", authenticate });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(`${serverUrl(app)}/api/events?embed=management&token=entry`);
+    await waitForOpen(socket);
+    await vi.waitFor(() => { expect(authenticate).toHaveBeenCalledOnce(); });
+    const closed = new Promise<void>((resolve) => { socket.once("close", () => { resolve(); }); });
+    socket.close();
+    await closed;
+    rejectAuthentication(new Error("expired entry token"));
+    await setImmediate();
+    expect(daemon.websocketPaths).toEqual([]);
+  });
+
   it("forwards management context headers to session daemon websockets", async () => {
     const managementContext = {
       user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
@@ -507,6 +557,101 @@ describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (
     expect(closed.statusCode).toBe(403);
     expect(daemon.requests).toEqual([]);
   });
+});
+
+describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (prefix) => {
+  it("forwards add body and close path, preserving daemon responses", async () => {
+    const project = { id: "project-1", path: "/repo" };
+    daemon.respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(project) });
+    daemon.respondWith({ statusCode: 404, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: "Project not found" }) });
+    const input = { name: "Repo", path: "/repo", create: true };
+    const added = await app.inject({ method: "POST", url: `${prefix}/projects`, payload: input });
+    const closed = await app.inject({ method: "DELETE", url: `${prefix}/projects/project%201` });
+    expect(added.statusCode).toBe(200);
+    expect(added.json()).toEqual(project);
+    expect(closed.statusCode).toBe(404);
+    expect(closed.json()).toEqual({ error: "Project not found" });
+    expect(daemon.requests).toEqual([
+      { method: "POST", path: "/projects", body: input },
+      { method: "DELETE", path: "/projects/project%201", body: undefined },
+    ]);
+  });
+
+  it("does not claim project reads", async () => {
+    const response = await app.inject({ method: "GET", url: `${prefix}/projects` });
+    expect(response.statusCode).toBe(404);
+    expect(daemon.requests).toEqual([]);
+  });
+
+  it("reports daemon unavailability for mutations", async () => {
+    daemon.failWith(new Error("connection refused"));
+    const response = await app.inject({ method: "POST", url: `${prefix}/projects`, payload: { path: "/repo" } });
+    expect(response.statusCode).toBe(502);
+  });
+});
+
+describe("notice and notification forwarding contracts", () => {
+  it.each(["/api", "/api/machines/local"])("forwards the machine status snapshot request through %s", async (prefix) => {
+    const response = await app.inject({ method: "GET", url: `${prefix}/status` });
+
+    expect(response.statusCode).toBe(200);
+    expect(daemon.requests).toEqual([{ method: "GET", path: "/status", body: undefined }]);
+  });
+
+  it.each(["/api", "/api/machines/local"])("forwards unread snapshots and acknowledgement cutoffs unchanged through %s", async (prefix) => {
+    const body = { cwd: process.cwd(), catalogId: "catalog-test", throughCompletionOrder: 9 };
+    const catalog = await app.inject({ method: "GET", url: `${prefix}/sessions/unread` });
+    const acknowledge = await app.inject({
+      method: "POST",
+      url: `${prefix}/sessions/session-1/unread/acknowledge`,
+      payload: body,
+    });
+
+    expect([catalog.statusCode, acknowledge.statusCode]).toEqual([200, 200]);
+    expect(daemon.requests).toEqual([
+      { method: "GET", path: "/sessions/unread", body: undefined },
+      { method: "POST", path: "/sessions/session-1/unread/acknowledge", body },
+    ]);
+  });
+
+  it("forwards server notice snapshots and exact dismissal bodies unchanged", async () => {
+    const snapshot = await app.inject({ method: "GET", url: "/api/machines/local/notices" });
+    const dismiss = await app.inject({
+      method: "POST",
+      url: "/api/machines/local/notices/dismiss",
+      payload: { daemonInstanceId: "daemon-test", noticeId: "notice-1" },
+    });
+
+    expect([snapshot.statusCode, dismiss.statusCode]).toEqual([200, 200]);
+    expect(daemon.requests).toEqual([
+      { method: "GET", path: "/notices", body: undefined },
+      { method: "POST", path: "/notices/dismiss", body: { daemonInstanceId: "daemon-test", noticeId: "notice-1" } },
+    ]);
+  });
+
+  it("forwards notification snapshots and dismissal bodies unchanged", async () => {
+    const catalog = await app.inject({ method: "GET", url: "/api/machines/local/sessions/notifications" });
+    const inbox = await app.inject({ method: "GET", url: `/api/machines/local/sessions/session-1/notifications?cwd=${encodeURIComponent("/repo")}` });
+    const dismiss = await app.inject({
+      method: "POST",
+      url: "/api/machines/local/sessions/session-1/notifications/dismiss",
+      payload: { cwd: "/repo", daemonInstanceId: "daemon-test", notificationId: "notice-1" },
+    });
+    const dismissAll = await app.inject({
+      method: "POST",
+      url: "/api/machines/local/sessions/session-1/notifications/dismiss-all",
+      payload: { cwd: "/repo", daemonInstanceId: "daemon-test", throughOrder: 7, throughOverflowWatermark: 2 },
+    });
+
+    expect([catalog.statusCode, inbox.statusCode, dismiss.statusCode, dismissAll.statusCode]).toEqual([200, 200, 200, 200]);
+    expect(daemon.requests).toEqual([
+      { method: "GET", path: "/sessions/notifications", body: undefined },
+      { method: "GET", path: "/sessions/session-1/notifications?cwd=%2Frepo", body: undefined },
+      { method: "POST", path: "/sessions/session-1/notifications/dismiss", body: { cwd: "/repo", daemonInstanceId: "daemon-test", notificationId: "notice-1" } },
+      { method: "POST", path: "/sessions/session-1/notifications/dismiss-all", body: { cwd: "/repo", daemonInstanceId: "daemon-test", throughOrder: 7, throughOverflowWatermark: 2 } },
+    ]);
+  });
+
 });
 
 interface FakeSessionDaemonResponse {

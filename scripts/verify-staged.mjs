@@ -153,7 +153,6 @@ function isLintablePath(path) {
 
 function isRelatedSourcePath(path) {
   if (PUBLIC_DECLARATION_FILES.has(path)) return true;
-  if (path === "plugin-api.d.ts") return true;
   if (!/\.(?:[cm]?[jt]s|[jt]sx|json)$/u.test(path)) return false;
   return RELATED_SOURCE_DIRECTORIES.some((directory) => path.startsWith(directory));
 }

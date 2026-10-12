@@ -96,7 +96,7 @@ describe("workspace Markdown sanitizer", () => {
     expect(root.textContent).toContain("<img src=\"https://attacker.test/raw.png\" onerror=\"alert(1)\">");
     expect(root.textContent).toContain("<script>alert(\"raw\")</script>");
     expect(root.textContent).toContain("[x] completed without a form control");
-    expect(root.textContent).toContain("[Image omitted: tracking pixel]");
+    expect(root.textContent).toContain("[已省略图片：tracking pixel]");
     const link = linkWithText(root, "click");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");

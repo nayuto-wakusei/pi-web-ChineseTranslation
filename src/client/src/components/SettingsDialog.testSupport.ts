@@ -24,9 +24,9 @@ export const secondRemoteMachine: Machine = {
 };
 
 export const runtimeWithPackageManagement: MachineRuntime = {
-  machineId: "remote-a",
+  machineId: remoteMachine.id,
   ok: true,
-  checkedAt: "2026-07-01T00:00:00.000Z",
+  checkedAt: "now",
   capabilities: [PI_WEB_CAPABILITIES.piPackagesManage],
 };
 
@@ -82,6 +82,7 @@ export function pluginInfo(id: string, enabled: boolean): PiWebPluginInfo {
     machineSpecific: false,
     enabled,
     discovered: true,
+    conflict: false,
   };
 }
 

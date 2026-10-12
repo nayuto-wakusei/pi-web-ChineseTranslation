@@ -21,14 +21,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseSessionDefaults(value: unknown): SessionDefaults {
   if (!isRecord(value)) throw new Error("无效的会话默认值");
+  const record = value;
   const result: SessionDefaults = {};
   for (const key of ["defaultProvider", "defaultModel"] as const) {
-    const field = value[key];
+    const field = record[key];
     if (field === undefined) continue;
     if (typeof field !== "string") throw new Error(`无效的 ${key}`);
     result[key] = field;
   }
-  const level = value["defaultThinkingLevel"];
+  const level = record["defaultThinkingLevel"];
   if (level !== undefined) {
     if (typeof level !== "string" || !isKnownThinkingLevel(level)) throw new Error("无效的 defaultThinkingLevel");
     result.defaultThinkingLevel = level;

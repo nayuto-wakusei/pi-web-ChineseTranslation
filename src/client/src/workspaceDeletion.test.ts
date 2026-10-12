@@ -8,6 +8,7 @@ const workspace: Workspace = {
   path: "/repo/worktree",
   label: "worktree",
   isMain: false,
+  effectiveConfig: {},
   isGitRepo: true,
   isGitWorktree: true,
   removal: {
@@ -36,6 +37,7 @@ describe("workspace deletion state", () => {
   it("derives removal eligibility and confirmation from provider metadata", () => {
     expect(canDeleteWorkspace(workspace)).toBe(true);
     expect(workspaceRemovalConfirmation(workspace)).toBe("确认移除该工作区？");
+    expect(canDeleteWorkspace({ ...workspace, isGitRepo: false, isGitWorktree: false })).toBe(true);
     expect(canDeleteWorkspace({ ...workspace, isMain: true })).toBe(false);
     const withoutRemoval = { ...workspace };
     delete withoutRemoval.removal;

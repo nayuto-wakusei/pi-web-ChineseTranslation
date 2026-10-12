@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("SessionList bulk selection toolbar", () => {
-  it("offers Select visible with an empty selection and no Clear or Done buttons", async () => {
+  it("offers 选择可见 with an empty selection and no Clear or Done buttons", async () => {
     const list = await renderSessionList([session("a"), session("b"), session("c")]);
 
     currentSelectionToggle(list).click();
@@ -20,10 +20,10 @@ describe("SessionList bulk selection toolbar", () => {
     expect(toolbarButton(list, "清除所选")).toBeNull();
     expect(toolbarButton(list, "清除")).toBeNull();
     expect(toolbarButton(list, "完成")).toBeNull();
-    expect(selectionCount(list)?.textContent.trim()).toBe("已选 0");
+    expect(selectionCount(list)).toBeNull();
   });
 
-  it("selects every visible session via Select visible, then clears them via Clear selected", async () => {
+  it("selects every visible session via 选择可见, then clears them via 清除所选", async () => {
     const list = await renderSessionList([session("a"), session("b"), session("c")]);
     currentSelectionToggle(list).click();
     await list.updateComplete;
@@ -32,19 +32,36 @@ describe("SessionList bulk selection toolbar", () => {
     await list.updateComplete;
 
     expect(checkedBoxes(list)).toHaveLength(3);
-    expect(selectionCount(list)?.textContent.trim()).toBe("已选 3");
+    expect(toolbarButton(list, "清除所选（3）")).not.toBeNull();
+    expect(selectionCount(list)).toBeNull();
     expect(toolbarButton(list, "选择可见")).toBeNull();
 
-    toolbarButton(list, "清除所选")?.click();
+    toolbarButton(list, "清除所选（3）")?.click();
     await list.updateComplete;
 
     expect(checkedBoxes(list)).toHaveLength(0);
-    expect(selectionCount(list)?.textContent.trim()).toBe("已选 0");
+    expect(selectionCount(list)).toBeNull();
     // Clearing keeps selection mode open so the visible set can be re-selected.
     expect(toolbarButton(list, "选择可见")).not.toBeNull();
   });
 
-  it("clears a partial manual selection via Clear selected", async () => {
+  it("keeps a large selected count inside the clear action", async () => {
+    const list = await renderSessionList(Array.from({ length: 121 }, (_, index) => session(String(index))));
+    while (list.shadowRoot?.querySelector<HTMLButtonElement>("[data-load-scope='current']")) {
+      list.shadowRoot.querySelector<HTMLButtonElement>("[data-load-scope='current']")?.click();
+      await list.updateComplete;
+    }
+    currentSelectionToggle(list).click();
+    await list.updateComplete;
+
+    toolbarButton(list, "选择可见")?.click();
+    await list.updateComplete;
+
+    expect(toolbarButton(list, "清除所选（121）")).not.toBeNull();
+    expect(selectionCount(list)).toBeNull();
+  });
+
+  it("clears a partial manual selection via 清除所选", async () => {
     const list = await renderSessionList([session("a"), session("b"), session("c")]);
     currentSelectionToggle(list).click();
     await list.updateComplete;
@@ -52,10 +69,11 @@ describe("SessionList bulk selection toolbar", () => {
     checkboxes(list)[0]?.click();
     await list.updateComplete;
 
-    expect(selectionCount(list)?.textContent.trim()).toBe("已选 1");
+    expect(toolbarButton(list, "清除所选（1）")).not.toBeNull();
+    expect(selectionCount(list)).toBeNull();
     expect(toolbarButton(list, "选择可见")).toBeNull();
 
-    toolbarButton(list, "清除所选")?.click();
+    toolbarButton(list, "清除所选（1）")?.click();
     await list.updateComplete;
 
     expect(checkedBoxes(list)).toHaveLength(0);
@@ -90,9 +108,10 @@ describe("SessionList bulk selection toolbar", () => {
     toolbarButton(list, "选择可见")?.click();
     await list.updateComplete;
     expect(checkedBoxes(list)).toHaveLength(2);
-    expect(selectionCount(list)?.textContent.trim()).toBe("已选 2");
+    expect(toolbarButton(list, "清除所选（2）")).not.toBeNull();
+    expect(selectionCount(list)).toBeNull();
 
-    toolbarButton(list, "清除所选")?.click();
+    toolbarButton(list, "清除所选（2）")?.click();
     await list.updateComplete;
     expect(checkedBoxes(list)).toHaveLength(0);
     expect(toolbarButton(list, "选择可见")).not.toBeNull();
@@ -132,7 +151,7 @@ function toolbarButton(list: SessionList, text: string): HTMLButtonElement | nul
 }
 
 function selectionCount(list: SessionList): HTMLElement | null {
-  return list.shadowRoot?.querySelector<HTMLElement>(".bulk-row.selecting small") ?? null;
+  return list.shadowRoot?.querySelector<HTMLElement>(".bulk-row.selecting small:not(.capability-hint)") ?? null;
 }
 
 function checkboxes(list: SessionList): HTMLInputElement[] {

@@ -8,8 +8,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import { effectivePiWebConfig } from "../config.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
-import { WorkspaceService } from "./workspaces/workspaceService.js";
-import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions } from "./workspaces/workspaceCatalog.js";
+import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions, type WorkspaceListAdapter } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
 import { sendWorkspaceRequestError } from "./workspaces/workspaceRouteErrors.js";
 import { createNormalProjectCwdResolver } from "./workspaces/normalProjectCwdResolver.js";
@@ -22,13 +21,9 @@ import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type NormalProjectCwdResolver, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
-import { registerGitRoutes } from "./gitRoutes.js";
 import { registerProjectTrustRoutes } from "./projectTrustRoutes.js";
-import { GitStatusCache } from "./git/gitService.js";
-import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
+import { registerManagementTerminalProxyRoutes } from "./managementTerminalProxyRoutes.js";
 import { registerPluginBackendProxyRoutes } from "./plugins/pluginBackendProxyRoutes.js";
-import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackendChannelProxyRoutes.js";
-import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginManifestRuntimeError, PiWebPluginService } from "./piWebPluginService.js";
@@ -47,6 +42,8 @@ import {
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
+import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackendChannelProxyRoutes.js";
+import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
 import { NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth.js";
 import { requestLoggerOptions } from "./requestLogging.js";
@@ -59,13 +56,13 @@ import {
   projectsFromManagedEmbedContext,
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
-import type { Project, Workspace } from "./types.js";
+import type { Project, Workspace, WorkspaceEffectiveConfig } from "./types.js";
 import type { WorkspaceProviderResolution } from "../shared/apiTypes.js";
 import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
 export interface AppDependencies {
   projects?: ProjectService;
-  workspaces?: WorkspaceService;
+  workspaces?: WorkspaceListAdapter;
   workspaceCatalog?: WorkspaceCatalog;
   machines?: MachineService;
   sessionDaemon?: SessionProxyDaemon;
@@ -126,7 +123,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   });
 }
 
-async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, legacyWorkspaces?: WorkspaceService, options: WorkspaceCatalogRequestOptions = {}): Promise<Workspace[]> {
+async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, legacyWorkspaces?: WorkspaceListAdapter, options: WorkspaceCatalogRequestOptions = {}): Promise<Workspace[]> {
   const [workspaceList, effectiveConfig] = await Promise.all([
     legacyWorkspaces === undefined ? workspaces.list(project.id, options) : legacyWorkspaces.list(project),
     workspaceEffectiveConfig(project.path, config),
@@ -152,11 +149,11 @@ async function resolveWorkspacesWithEffectiveConfig(project: Project, workspaces
   };
 }
 
-function isLegacyWorkspaceService(workspaces: WorkspaceCatalogInput): workspaces is WorkspaceService {
+function isLegacyWorkspaceService(workspaces: WorkspaceCatalogInput): workspaces is WorkspaceListAdapter {
   return !("resolveProject" in workspaces);
 }
 
-async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<NonNullable<Workspace["effectiveConfig"]>> {
+async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<WorkspaceEffectiveConfig> {
   const globalConfig = config === undefined ? {} : (await config.read()).effectiveConfig;
   const [uploads, attachments] = await Promise.all([
     loadEffectiveProjectUploadsConfig(projectPath, globalConfig),
@@ -194,7 +191,10 @@ async function readEffectiveConfig(config: Pick<PiWebConfigService, "read">) {
   return (await config.read()).effectiveConfig;
 }
 
-async function desiredPluginAgentDir(profiles: ActiveAgentProfileProvider, config: Pick<PiWebConfigService, "read">): Promise<string> {
+async function desiredPluginAgentDir(
+  profiles: ActiveAgentProfileProvider,
+  config: Pick<PiWebConfigService, "read">,
+): Promise<string> {
   try {
     return (await requireActiveAgentProfile(profiles)).dir;
   } catch (error) {
@@ -221,11 +221,13 @@ async function withProfileDependency<T>(reply: FastifyReply, operation: () => Pr
     return await operation();
   } catch (error) {
     if (error instanceof ActiveAgentProfileAccessError) return reply.code(503).send({ error: error.message });
-    if (error instanceof PiWebPluginManifestRuntimeError) return reply.code(error.statusCode).send({
-      error: `Required Terminal plugin runtime is ${error.runtimeStatus}`,
-      code: `required-plugin-runtime-${error.runtimeStatus}`,
-      detail: error.message,
-    });
+    if (error instanceof PiWebPluginManifestRuntimeError) {
+      return reply.code(error.statusCode).send({
+        error: `Required Terminal plugin runtime is ${error.runtimeStatus}`,
+        code: `required-plugin-runtime-${error.runtimeStatus}`,
+        detail: error.message,
+      });
+    }
     throw error;
   }
 }
@@ -241,7 +243,6 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
 
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
-  const legacyWorkspaces = deps.workspaces ?? new WorkspaceService();
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
@@ -250,8 +251,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
   const workspaces: WorkspaceCatalog = deps.workspaceCatalog ?? (deps.workspaces === undefined
     ? new SessionDaemonWorkspaceCatalog(sessionDaemon, managementEmbed)
-    : asWorkspaceCatalog(projects, legacyWorkspaces));
-  const workspaceInput: WorkspaceCatalogInput = deps.workspaceCatalog ?? (deps.workspaces === undefined ? workspaces : legacyWorkspaces);
+    : asWorkspaceCatalog(projects, deps.workspaces));
+  const workspaceInput: WorkspaceCatalogInput = deps.workspaceCatalog ?? deps.workspaces ?? workspaces;
   const providerRuntime = workspaces.providerRuntime === undefined
     ? undefined
     : { providerRuntime: workspaces.providerRuntime.bind(workspaces) };
@@ -297,7 +298,11 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply)) return;
 
     return withProfileDependency(reply, async () => {
-      const asset = await piWebPlugins.readAsset(request.params.pluginId, request.params["*"], request.query.v);
+      const asset = await piWebPlugins.readAsset(
+        request.params.pluginId,
+        request.params["*"],
+        new URL(request.url, "http://pi-web.local").searchParams.get("v") ?? undefined,
+      );
       if (asset === undefined) return reply.code(404).send({ error: "Plugin asset not found" });
       return reply.type(asset.contentType).send(asset.content);
     });
@@ -310,6 +315,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     const activeAgentProfile = await agentProfileProvider.getActiveAgentProfile();
     return getPiWebVersionStatus(sessionDaemon, activeAgentProfile.status === "available" ? { activeAgentProfile: activeAgentProfile.profile } : {});
   });
+  // Web readiness must not wait for sessiond: dev Compose starts the daemon
+  // only after the web-owned initial build and API startup have completed.
   app.get("/api/pi-web/health", () => Promise.resolve({ ok: true }));
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
   app.get("/api/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
@@ -345,11 +352,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const fileSuggestions = new FileSuggestionCatalog();
   registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
   registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });
-  const gitStatuses = new GitStatusCache();
-  registerGitRoutes(app, projects, legacyWorkspaces, "/api", managementEmbed, gitStatuses);
-  registerGitRoutes(app, projects, legacyWorkspaces, "/api/machines/local", managementEmbed, gitStatuses);
-  registerTerminalProxyRoutes(app, projects, workspaceInput, sessionDaemon, "/api", managementEmbed);
-  registerTerminalProxyRoutes(app, projects, workspaceInput, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api", managementEmbed);
+  registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api/machines/local", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
 

@@ -54,6 +54,19 @@ describe("settings-general-panel copy", () => {
 });
 
 describe("settings-general-panel save payloads", () => {
+  it("keeps invalid attachment folders local and does not save selected-machine config", async () => {
+    const panel = new SettingsGeneralPanel();
+    const onSaveMachineConfig = vi.fn();
+    panel.onSaveMachineConfig = onSaveMachineConfig;
+    setPanelProperty(panel, "machineDraft", {
+      allowedPathsText: "",
+      uploadDefaultFolder: "",
+      attachmentDefaultFolder: "../attachments",
+    } satisfies MachineAccessConfigDraft);
+    await callPanelPromise(panel, "saveMachineAccessConfig", new Event("submit", { cancelable: true }));
+    expect(onSaveMachineConfig).not.toHaveBeenCalled();
+    expect(getPanelProperty(panel, "machineLocalError")).toBe("附件默认文件夹不能包含路径穿越。");
+  });
   it("saves gateway server fields through the gateway save callback only", async () => {
     const panel = new SettingsGeneralPanel();
     const onSave = vi.fn();

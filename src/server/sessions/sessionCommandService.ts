@@ -127,14 +127,15 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   /** Fork a tree entry into a new session file while preserving the original. */
   async forkEntry(sessionId: string, entryId: string, eventScope?: string, options?: ForkEntryOptions): Promise<ClientCommandResult> {
     const active = await this.getActive(sessionId, eventScope);
-    if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
+    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const relatedName = await this.nextRelatedSessionName(active, "fork");
     if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
     if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const result = await this.runSessionReplacement(active.runtime, async () => {
       const session = active.runtime.session;
       if (options !== undefined && session.sessionManager.getLeafId() !== options.expectedLeafId) {
-        throw new Error("The session changed since /tree was opened. Reopen /tree and try again.");
+        throw new Error("打开 /tree 后会话已发生变化。请重新打开 /tree 后重试。");
       }
       const forkResult = await active.runtime.fork(entryId, { position: this.forkPosition(session, entryId) });
       if (!forkResult.cancelled) this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
@@ -172,7 +173,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   }
 
   private async reload(session: TSession): Promise<ClientCommandResult> {
-    if (sessionHasActiveWork(session)) return { type: "unsupported", message: "会话活动期间无法重新加载，请先停止当前活动。" };
+    if (this.hasActiveWork(session)) return { type: "unsupported", message: "会话活动期间无法重新加载，请先停止当前活动。" };
     if (this.lifecycle.reloadSession === undefined) return { type: "unsupported", message: "当前会话运行时不支持 /reload。" };
 
     try {
@@ -185,7 +186,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   }
 
   private async clone(active: CommandActiveSession<TSession>, eventScope: string | undefined): Promise<ClientCommandResult> {
-    if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const initialLeafId = active.runtime.session.sessionManager.getLeafId();
     if (initialLeafId === null || initialLeafId === "") return { type: "unsupported", message: "无法克隆：没有当前会话条目" };
     const relatedName = await this.nextRelatedSessionName(active, "copy");
@@ -203,7 +204,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   }
 
   private fork(active: CommandActiveSession<TSession>, eventScope: string | undefined): ClientCommandResult {
-    if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const messages = active.runtime.session.getUserMessagesForForking();
     if (!messages.length) return { type: "unsupported", message: "没有可用于分叉的用户消息" };
     const requestId = crypto.randomUUID();
@@ -218,18 +219,18 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
 
   private tree(session: TSession): ClientCommandResult {
     if (this.hasActiveWork(session)) {
-      return { type: "unsupported", message: "Cannot open the session tree while the session is active. Stop current activity and try /tree again." };
+      return { type: "unsupported", message: "会话活动期间无法打开会话树。请先停止当前活动，再尝试 /tree。" };
     }
     if (this.lifecycle.getSessionTree === undefined) return treeUnavailableUnsupported();
 
     try {
       const tree = this.lifecycle.getSessionTree(session);
       if (tree === undefined) return treeUnavailableUnsupported();
-      if (tree.nodes.length === 0) return { type: "unsupported", message: "Cannot navigate an empty session tree." };
+      if (tree.nodes.length === 0) return { type: "unsupported", message: "无法导航空会话树。" };
       return { type: "tree", tree };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      return { type: "unsupported", message: `Unable to open the session tree: ${message}` };
+      return { type: "unsupported", message: `无法打开会话树： ${message}` };
     }
   }
 
@@ -358,11 +359,11 @@ function forkActiveUnsupported(command: "fork" | "clone"): ClientCommandResult {
 }
 
 function treeUnavailableUnsupported(): ClientCommandResult {
-  return { type: "unsupported", message: "Session tree navigation is not available with this Pi runtime." };
+  return { type: "unsupported", message: "当前 Pi 运行时不支持会话树导航。" };
 }
 
 function treeNavigationActiveUnsupported(): ClientCommandResult {
-  return { type: "unsupported", message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first." };
+  return { type: "unsupported", message: "会话树导航期间无法运行命令。请先停止或完成导航。" };
 }
 
 function promptDraft(text: string | undefined): Partial<Pick<Extract<ClientCommandResult, { type: "done" }>, "promptDraft">> {

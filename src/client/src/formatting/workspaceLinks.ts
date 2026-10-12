@@ -21,12 +21,14 @@ export interface WorkspaceFileOpenRequest extends MarkdownWorkspaceContext {
 export function workspaceMarkdownFilePath(href: string, context: MarkdownWorkspaceContext): string | undefined {
   const reference = href.trim();
   if (reference === "" || /^[#?]/.test(reference) || reference.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(reference)) return undefined;
+  // Markdown destinations are URL references. Decode the path once, after removing URL suffixes.
   let path: string;
   try {
     path = decodeURIComponent(reference.split(/[?#]/, 1)[0] ?? "");
   } catch {
     return undefined;
   }
+  // Reject URL paths containing control characters or platform-specific separators.
   // eslint-disable-next-line no-control-regex -- Explicitly reject control characters in file references.
   if (path === "" || /[\\\u0000-\u001f\u007f]/.test(path)) return undefined;
   if (path.startsWith("/")) {
@@ -35,6 +37,8 @@ export function workspaceMarkdownFilePath(href: string, context: MarkdownWorkspa
     path = path.slice(prefix.length);
     if (path === "") return undefined;
   }
+  // Match server file identity without collapsing traversal segments: the server
+  // must still reject any `..` and enforce filesystem/symlink containment.
   const normalized = path.split("/").filter((part) => part !== "" && part !== ".").join("/");
   return normalized === "" ? undefined : normalized;
 }

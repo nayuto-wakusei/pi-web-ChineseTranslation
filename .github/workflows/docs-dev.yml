@@ -1,0 +1,51 @@
+name: Build dev docs
+
+# This fork validates the dev docs without deploying to the upstream site.
+# docs/wrangler.dev.jsonc remains an upstream deployment example, not a local target.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "scripts/build-docs-dev.mjs"
+      - ".github/workflows/docs-dev.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Queue documentation checks instead of cancelling an in-flight build.
+  group: docs-dev
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and validate dev docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check docs source
+        run: npm exec -- vitest run --config vitest.config.ts scripts/docs-site.test.mjs
+
+      - name: Assemble dev docs
+        run: node scripts/build-docs-dev.mjs
+        env:
+          GIT_SHA: ${{ github.sha }}
+
+      - name: Check assembled docs
+        run: |
+          test -s docs/.deploy/dev/dev/index.html
+          test -s docs/.deploy/dev/_redirects

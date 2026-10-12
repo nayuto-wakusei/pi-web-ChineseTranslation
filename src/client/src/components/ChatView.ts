@@ -234,7 +234,9 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onMessageAction?: (entryId: string, action: "fork" | "back") => void | Promise<void>;
   @property({ type: Boolean }) messageActionsDisabled = false;
   @state() private messageActionPending = false;
-  @state() private messageActionError: { sessionId: string; entryId: string; message: string } | undefined;
+  @state() private messageActionError: { identity: string; entryId: string; message: string } | undefined;
+  private messageActionGeneration = 0;
+  private messageActionIdentity = "";
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
   @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
   @property({ attribute: false }) onDismissAllNotifications?: () => void;
@@ -318,6 +320,7 @@ export class ChatView extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.resetMessageAction();
     this.saveScrollPosition();
     this.scrollController.dispose();
     this.releaseImageZoomModal();
@@ -372,6 +375,11 @@ export class ChatView extends LitElement {
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
+    const identity = this.currentMessageActionIdentity();
+    if (identity !== this.messageActionIdentity) {
+      this.messageActionIdentity = identity;
+      this.resetMessageAction();
+    }
     if (changed.has("sessionId")) {
       this.savePreviousSessionScrollPosition(changed.get("sessionId"));
       this.prepareSessionUiState();
@@ -745,7 +753,7 @@ export class ChatView extends LitElement {
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
             <span class="queued-kind">${message.kind === "steer" ? "引导" : "后续"} ${String(index + 1)}</span>
-            <formatted-text .text=${message.text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${`${this.sessionId}:queued:${section.source}:${String(index)}`}></formatted-text>
+            <formatted-text .text=${message.text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${JSON.stringify([this.machineId, this.sessionId, "queue", section.source, index, message.kind])}></formatted-text>
           </div>
         `)}
       </aside>
@@ -953,16 +961,16 @@ export class ChatView extends LitElement {
     const copied = this.copiedMessageKey === key;
     return html`
       <div class="msg-actions" aria-label="消息操作">
+        ${historyEntryId === undefined ? null : html`
+          <button type="button" class="msg-action" title="从这条消息分叉" aria-label="分叉" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "fork", event); }}><span class="msg-fork-icon" aria-hidden="true">⑂</span></button>
+          <button type="button" class="msg-action" title="回退到这条消息" aria-label="回退" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "back", event); }}><svg aria-hidden="true" width="16" height="16" viewBox="-3 -3 30 30" fill="none" stroke="currentColor" stroke-width="0.85" stroke-linecap="round" stroke-linejoin="round"><path vector-effect="non-scaling-stroke" d="M4 5h11a6 6 0 0 1 0 12H4m5-5-5 5 5 5" /></svg></button>
+        `}
         ${copyable ? html`
           <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${chatMessageRoleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
             <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
           </button>
         ` : null}
-        ${historyEntryId === undefined ? null : html`
-          <button type="button" class="msg-action" title="从这条消息分叉" aria-label="分叉" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "fork", event); }}>分叉</button>
-          <button type="button" class="msg-action" title="回退到这条消息" aria-label="回退" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "back", event); }}>回退</button>
-        `}
-        ${this.messageActionError?.sessionId === this.sessionId && this.messageActionError.entryId === historyEntryId ? html`<span role="alert">${this.messageActionError.message}</span>` : null}
+        ${this.messageActionError?.identity === this.currentMessageActionIdentity() && this.messageActionError.entryId === historyEntryId ? html`<span role="alert">${this.messageActionError.message}</span>` : null}
       </div>
     `;
   }
@@ -980,16 +988,30 @@ export class ChatView extends LitElement {
       ? "从这条消息分叉出一个新会话？当前会话保持不变。"
       : "回退到这条消息？之后的对话会离开当前分支，未保存的输入不会保留。";
     if (!window.confirm(prompt)) return;
-    const sessionId = this.sessionId;
+    const identity = this.currentMessageActionIdentity();
+    const generation = ++this.messageActionGeneration;
     this.messageActionPending = true;
     this.messageActionError = undefined;
     try {
       await this.onMessageAction(entryId, action);
     } catch (error) {
-      if (this.sessionId === sessionId) this.messageActionError = { sessionId, entryId, message: error instanceof Error ? error.message : String(error) };
+      if (this.isConnected && generation === this.messageActionGeneration && identity === this.currentMessageActionIdentity()) {
+        this.messageActionError = { identity, entryId, message: error instanceof Error ? error.message : String(error) };
+      }
     } finally {
-      this.messageActionPending = false;
+      if (generation === this.messageActionGeneration) this.messageActionPending = false;
     }
+  }
+
+  private currentMessageActionIdentity(): string {
+    const workspace = this.workspaceContext;
+    return JSON.stringify([this.machineId, this.sessionId, workspace?.machineId, workspace?.projectId, workspace?.workspaceId, workspace?.root]);
+  }
+
+  private resetMessageAction(): void {
+    this.messageActionGeneration += 1;
+    this.messageActionPending = false;
+    this.messageActionError = undefined;
   }
 
   private onMetaKeydown(event: KeyboardEvent, key: string, expanded: boolean) {

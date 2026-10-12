@@ -11,16 +11,18 @@ export interface PromptArgumentHint {
 export const setPromptArgumentHint = StateEffect.define<PromptArgumentHint | null>();
 
 /**
- * Reminder of the arguments a picked slash command expects. It lasts until the
- * next edit or cursor move, so it cannot linger as stale advice.
+ * One-shot reminder of the arguments a picked slash command expects (e.g.
+ * `<PR-URL>`). The hint is deliberately ephemeral: it survives until the next
+ * edit or cursor move, whichever comes first, so it can never linger as stale
+ * advice once the user starts typing real arguments or navigates away.
  */
 export const promptArgumentHintState = StateField.define<PromptArgumentHint | null>({
   create: () => null,
-  update(value, transaction) {
-    for (const effect of transaction.effects) {
+  update(value, tr) {
+    for (const effect of tr.effects) {
       if (effect.is(setPromptArgumentHint)) return effect.value;
     }
-    if (transaction.docChanged || transaction.selection !== undefined) return null;
+    if (tr.docChanged || tr.selection !== undefined) return null;
     return value;
   },
 });
@@ -42,7 +44,7 @@ class ArgumentHintWidget extends WidgetType {
   }
 }
 
-/** Renders the current argument hint as dimmed ghost text. */
+/** Editor extension rendering the current argument hint as dimmed ghost text. */
 export const promptArgumentHintExtension: Extension = [
   promptArgumentHintState,
   EditorView.decorations.compute([promptArgumentHintState], (state) => {

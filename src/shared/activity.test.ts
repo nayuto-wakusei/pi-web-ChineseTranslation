@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isSessionActive, isWorkspaceActivityActive } from "./activity";
-import type { SessionActivity, SessionStatus, WorkspaceActivity } from "./apiTypes";
+import { isSessionActive } from "./activity";
+import type { SessionActivity, SessionStatus } from "./apiTypes";
 
 const idleStatus: SessionStatus = {
   sessionId: "s1",
@@ -41,12 +41,5 @@ describe("activity helpers", () => {
     expect(isSessionActive({ ...idleStatus, pendingMessageCount: 1 }, startup)).toBe(true);
     // An unmarked active activity is ordinary work and keeps counting.
     expect(isSessionActive(idleStatus, { sessionId: "s1", phase: "active", label: "running tool", at: "now" })).toBe(true);
-  });
-
-  it("detects workspace activity presence without exposing details", () => {
-    const idle: WorkspaceActivity = { cwd: "/repo", hasSessionActivity: false, hasTerminalActivity: false, updatedAt: "now" };
-    expect(isWorkspaceActivityActive(idle)).toBe(false);
-    expect(isWorkspaceActivityActive({ ...idle, hasSessionActivity: true })).toBe(true);
-    expect(isWorkspaceActivityActive({ ...idle, hasTerminalActivity: true })).toBe(true);
   });
 });

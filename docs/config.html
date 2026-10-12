@@ -1,1488 +1,781 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Configure PI WEB — config files, uploads, paths, and session tools</title>
-    <meta
-      name="description"
-      content="Configure PI WEB config files, external path access, manual upload defaults, session daemon tools, plugins, shortcuts, and runtime environment variables."
-    />
-    <link rel="canonical" href="https://pi-web.dev/config" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="PI WEB" />
-    <meta property="og:title" content="Configure PI WEB" />
-    <meta
-      property="og:description"
-      content="Reference for PI WEB config files, path access allowlists, manual upload defaults, session daemon options, plugins, shortcuts, and environment variables."
-    />
-    <meta property="og:url" content="https://pi-web.dev/config" />
-    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
-    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Configure PI WEB" />
-    <meta
-      name="twitter:description"
-      content="Reference for PI WEB config files, path access allowlists, manual upload defaults, session daemon options, plugins, shortcuts, and environment variables."
-    />
-    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<html lang="zh-CN"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PI WEB 配置：默认值、作用域与重启规则</title>
+    <meta name="description" content="Configure PI WEB config files, external path access, manual upload defaults, session daemon tools, plugins, shortcuts, and runtime environment variables.">
+    <link rel="canonical" href="https://pi-web.dev/config">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PI WEB">
+    <meta property="og:title" content="Configure PI WEB">
+    <meta property="og:description" content="Reference for PI WEB config files, path access allowlists, manual upload defaults, session daemon options, plugins, shortcuts, and environment variables.">
+    <meta property="og:url" content="https://pi-web.dev/config">
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png">
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Configure PI WEB">
+    <meta name="twitter:description" content="Reference for PI WEB config files, path access allowlists, manual upload defaults, session daemon options, plugins, shortcuts, and environment variables.">
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png">
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
     <script>
       (() => {
         const theme = window.localStorage.getItem("pi-web-theme");
         if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
-            <a href="remote-first">Remote-first</a>
-            <a href="machines">Fleet</a>
-            <a href="install">Install</a>
-            <a href="config" aria-current="page">Config</a>
-            <a href="plugins">Plugins</a>
-            <a href="faq">FAQ</a>
+            <a href="remote-first">远端优先</a>
+            <a href="machines">机器</a>
+            <a href="install">安装</a>
+            <a href="config" aria-current="page">配置</a>
+            <a href="plugins">插件</a>
+            <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation" aria-label="GitHub 上的 PI WEB">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.7 5.47 7.79.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.56-.01-.57.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
-                />
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.7 5.47 7.79.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.56-.01-.57.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"></path>
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
-              <span data-theme-icon aria-hidden="true">◐</span>
-              <span data-theme-label>Theme</span>
+            <button class="theme-toggle" type="button" data-theme-toggle="" aria-label="切换明暗主题">
+              <span data-theme-icon="" aria-hidden="true">◐</span>
+              <span data-theme-label="">主题</span>
             </button>
           </div>
         </div>
       </nav>
     </header>
 
-    <main>
-      <section class="page-hero">
-        <div class="container">
-          <p class="eyebrow"><span class="pulse"></span> Configuration reference</p>
-          <h1>Configure PI WEB where your agents work.</h1>
-          <p>
-            PI WEB configuration covers the machine-local and project-local settings you usually need: bind address,
-            trusted development-host settings, UI preferences, PI WEB plugin enablement, file-explorer path access,
-            manual upload defaults, upload limits, Pi-compatible agent profiles and companion CLIs, and session-daemon tools.
-          </p>
-        </div>
-      </section>
+<main class="config-reference">
+<section class="page-hero"><div class="container">
+<p class="eyebrow">配置 · 快速参考</p>
+<h1>配置 PI WEB</h1>
+<p>按作用分类列出设置。每行显示范围、默认值和生效条件。可用浏览器查找配置键或环境变量。</p>
+<p><a href="config.md">详细 Markdown 参考 →</a></p>
+</div></section>
+<div class="container reference-layout">
+<nav class="reference-nav" aria-label="配置章节">
+<strong>本页目录</strong>
+<a href="#files">配置文件</a>
+<a href="#ui-settings">界面与默认值</a>
+<a href="#file-settings">文件与上传</a>
+<a href="#session-tools">会话守护进程</a>
+<a href="#plugin-config">插件</a>
+<a href="#network">网络</a>
+<a href="#storage">存储</a>
+<a href="#providers">提供器与信任</a>
+<a href="#environment">环境覆盖</a>
+<a href="#worktree-pre-remove-hook">清理钩子</a>
+</nav>
+<div class="doc-content reference-content">
+<div class="reference-legend" id="keys"><p class="reference-scroll-hint">窄屏可横向滚动表格查看所有列。</p><p><strong>作用域：</strong> “机器”为联邦中所选机器；“网关”为服务当前浏览器的机器；“项目”为同一仓库的全部工作区。</p><p><strong>重启：</strong> “Sessiond”为会话守护进程。重启可能中断活跃会话，Web/API 重启或浏览器刷新不能代替。</p></div>
 
-      <section class="section compact">
-        <div class="container doc-layout">
-          <aside class="toc" aria-label="Config page contents">
-            <strong>On this page</strong>
-            <a href="#settings-reference">配置快速参考</a>
-            <a href="#files">Config files</a>
-            <a href="#deployment-paths">Deployment paths</a>
-            <a href="#precedence">Precedence and reloads</a>
-            <a href="#global-config">Global config</a>
-            <a href="#project-config">Project config</a>
-            <a href="#keys">Config matrix</a>
-            <a href="#path-access">External path access</a>
-            <a href="#manual-uploads">Manual uploads</a>
-            <a href="#prompt-attachments">Prompt attachments</a>
-            <a href="#agent-runtime">Agent profile and companion CLI</a>
-            <a href="#pi-extension-provider-baseline">Pi extension providers</a>
-            <a href="#catalog-refresh">Model catalog refresh</a>
-            <a href="#session-tools">Session tools</a>
-            <a href="#extension-dialogs">扩展对话框</a>
-            <a href="#prompt-completions">提示词补全</a>
-            <a href="#completion-tools">Completion tools</a>
-          </aside>
-
-          <div class="doc-content">
-            <section id="settings-reference">
-              <h2>配置快速参考</h2>
-              <p>以下表格列出设置的作用范围、默认值、用途及生效条件。Machine 指所选机器，Gateway 指浏览器连接的网关；重启 Sessiond 可能中断该机器上的活跃会话。</p>
-              <div class="table-scroll" role="region" aria-label="UI preferences" tabindex="0">
-<table class="reference-table settings-table">
-<caption>UI preferences</caption>
+<section id="files"><h2>配置文件与优先级</h2>
+<div class="table-scroll" role="region" aria-label="选择配置位置" tabindex="0">
+<table class="reference-table ">
+<caption>选择配置位置</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">位置</th>
+<th scope="col">用途</th>
+<th scope="col">路径 / 编辑方法</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>New-session model<br><code>defaultProvider / defaultModel</code></th>
-<td>当前模式与项目的偏好存储；该项目的所有工作区共享</td>
-<td>Pi startup selection</td>
-<td>Model used for new sessions. Set with the model selector’s default star.</td>
-<td>No restart; new sessions</td>
+<th scope="row">机器配置</th>
+<td>一台机器上的 PI WEB 设置。</td>
+<td><span id="global-config"></span>设置界面或 <code>~/.config/pi-web/config.json</code>。可用 <code>PI_WEB_CONFIG</code>覆盖，否则 <code>XDG_CONFIG_HOME</code> 改变配置根目录。</td>
 </tr>
 <tr>
-<th scope="row">New-session thinking<br><code>defaultThinkingLevel</code></th>
-<td>当前模式与项目的偏好存储；该项目的所有工作区共享</td>
-<td>Pi/model-dependent</td>
-<td>Thinking level for new sessions. Set with the thinking selector’s default star.</td>
-<td>No restart; new sessions</td>
+<th scope="row">项目配置</th>
+<td>共享文件访问和上传/附件目录。</td>
+<td><span id="project-config"></span><code>&lt;project&gt;/.pi-web/config.json</code>，可随仓库提交。</td>
 </tr>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>Keyboard bindings<br><code>shortcuts.&lt;actionId&gt;</code></th>
-<td>Gateway</td>
-<td>Built-in bindings</td>
-<td>Custom keys or sequences; <code>null</code> disables an action’s shortcut.</td>
-<td>Settings save / config refresh</td>
+<th scope="row">Pi 设置</th>
+<td>共享 agent 设置、Pi 包与默认会话存储；普通认证、模型与偏好另按项目管理。</td>
+<td><code>~/.pi/agent</code> 为默认目录，与 PI WEB 配置分离，参见 <a href="#agent-runtime">代理存储</a>。</td>
 </tr>
 <tr>
-<th scope="row">Desktop send key<br><code>shortcuts.composer.send.desktop</code></th>
-<td>Gateway</td>
+<th scope="row">托管状态</th>
+<td>PI WEB 注册表、归档及项目认证/偏好。</td>
+<td><code>~/.pi-web</code> 为默认值。 <strong>不是</strong> 用户可编辑配置 API，参见 <a href="#managed-data-directory">存储</a>。</td>
+</tr>
+</tbody></table></div>
+<p id="precedence"><strong>机器优先级：</strong> 内置默认值 → 全局配置 → 环境覆盖（最高）。</p>
+<div class="table-scroll" role="region" aria-label="项目行为" tabindex="0">
+<table class="reference-table ">
+<caption>项目行为</caption>
+<thead><tr>
+<th scope="col">键</th>
+<th scope="col">项目行为</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><code>uploads.defaultFolder</code></th>
+<td>覆盖机器默认值。</td>
+</tr>
+<tr>
+<th scope="row"><code>attachments.defaultFolder</code></th>
+<td>覆盖机器默认值。</td>
+</tr>
+<tr>
+<th scope="row"><code>pathAccess.allowedPaths</code></th>
+<td>添加到机器列表并去重。</td>
+</tr>
+<tr>
+<th scope="row"><code>version</code></th>
+<td>可选，存在时必须为 <code>1</code> 。</td>
+</tr>
+<tr>
+<th scope="row">其他核心键</th>
+<td>不支持项目配置；插件可有自己的文件，例如 <code>.pi-web/tasks.json</code>。</td>
+</tr>
+</tbody></table></div>
+<details class="config-details"><summary>最小项目配置示例</summary><p>合并到已有文件，保留其他设置。</p><div class="code-card"><div class="copy-row"><strong>.pi-web/config.json</strong><button class="copy-button" data-copy="#project-config-example">复制</button></div><pre id="project-config-example"><code>{
+  "version": 1,
+  "uploads": { "defaultFolder": "manual/uploads" },
+  "attachments": { "defaultFolder": "prompt-attachments" }
+}</code></pre></div></details>
+<details class="config-details" id="custom-config-path"><summary>自定义配置路径：服务命令与恢复</summary><p><code>start</code>, <code>restart</code>及 <code>doctor</code> 就绪检查默认使用安装服务保存的配置路径，除非调用者指定非空 <code>PI_WEB_CONFIG</code> 覆盖。 <code>doctor</code> 检查受管理安装，不代表所有自定义环境。</p>
+<div class="table-scroll" role="region" aria-label="自定义路径：情况与处理" tabindex="0">
+<table class="reference-table ">
+<caption>自定义路径：情况与处理</caption>
+<thead><tr>
+<th scope="col">情况</th>
+<th scope="col">行为 / 操作</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">使用安装路径</th>
+<td>执行 <code>pi-web start</code>, <code>pi-web restart</code>或 <code>pi-web doctor</code> 。</td>
+</tr>
+<tr>
+<th scope="row">单次命令覆盖</th>
+<td>调用时指定非空 <code>PI_WEB_CONFIG</code> ，不重写服务定义。</td>
+</tr>
+<tr>
+<th scope="row">更改服务配置路径</th>
+<td>执行 <code>pi-web install --config /path/to/config.json</code> ，重新生成 Web/API 与 daemon 服务。</td>
+</tr>
+<tr>
+<th scope="row">旧安装仅 Web 设置路径</th>
+<td>重跑同一安装命令，使两进程使用同一配置。</td>
+</tr>
+<tr>
+<th scope="row">systemd 无法验证已加载服务环境</th>
+<td>管理器状态过期、加载 fragment 不同或管理值无法验证时失败，不猜测。受管理 <code>Environment=</code> 值（当前 <code>PI_WEB_CONFIG</code>）须与安装定义一致；无关变量忽略，未改管理值的 drop-in 允许。</td>
+</tr>
+<tr>
+<th scope="row">systemd 使用 <code>EnvironmentFile=</code></th>
+<td>本地保留严格检查：文件内容不在 systemctl 的 <code>Environment</code> 属性内，无法验证文件覆盖时失败，不采用仅警告策略。</td>
+</tr>
+<tr>
+<th scope="row">launchd 使用旧路径或其他 plist 标签</th>
+<td><code>start</code> 和 <code>doctor</code> 失败； <code>restart</code> 重新加载已安装 plist，可修复过期状态。</td>
+</tr>
+</tbody></table></div>
+</details>
+</section>
+<section id="ui-settings"><h2>界面与新会话默认值</h2>
+<p>使用聊天选择器或 <strong>设置 → 键盘</strong>。项目偏好和网关快捷键属于不同存储。</p>
+<div class="table-scroll" role="region" aria-label="界面偏好" tabindex="0">
+<table class="reference-table settings-table">
+<caption>界面偏好</caption>
+<thead><tr>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><span id="startup-defaults" class="reference-anchor"></span>新会话模型<br><code>defaultProvider / defaultModel</code></th>
+<td>当前机器的模式 × 项目偏好；同项目工作区共享</td>
+<td>Pi 启动选择</td>
+<td>新会话模型；在模型选择器点击默认值星标。</td>
+<td>无需重启；新会话生效</td>
+</tr>
+<tr>
+<th scope="row">新会话思考等级<br><code>defaultThinkingLevel</code></th>
+<td>当前机器的模式 × 项目偏好；同项目工作区共享</td>
+<td>取决于 Pi/模型</td>
+<td>新会话思考等级；在选择器点击默认值星标。</td>
+<td>无需重启；新会话生效</td>
+</tr>
+<tr>
+<th scope="row"><span id="shortcut-config" class="reference-anchor"></span>快捷键<br><code>shortcuts.&lt;actionId&gt;</code></th>
+<td>网关</td>
+<td>内置绑定</td>
+<td>自定义单键或序列； <code>null</code> 禁用动作快捷键。</td>
+<td>保存设置 / 刷新配置</td>
+</tr>
+<tr>
+<th scope="row">桌面发送键<br><code>shortcuts.composer.send.desktop</code></th>
+<td>网关</td>
 <td><code>Enter</code></td>
-<td>One key combination for sending from the composer.</td>
-<td>Settings save / config refresh</td>
+<td>编辑器发送使用单个组合键。</td>
+<td>保存设置 / 刷新配置</td>
 </tr>
 <tr>
-<th scope="row">Touch / narrow-screen send key<br><code>shortcuts.composer.send.mobile</code></th>
-<td>Gateway</td>
+<th scope="row">触屏 / 窄屏发送键<br><code>shortcuts.composer.send.mobile</code></th>
+<td>网关</td>
 <td><code>Shift+Enter</code></td>
-<td>Send key with a coarse primary pointer or viewport ≤760px.</td>
-<td>Settings save / config refresh</td>
+<td>粗主指针或宽度 ≤760px 时的发送键。</td>
+<td>保存设置 / 刷新配置</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="File settings" tabindex="0">
-<table class="reference-table settings-table">
-<caption>File settings</caption>
+<details class="config-details"><summary>默认选择与快捷键规则</summary><ul><li>模型/思考星标只改变新会话默认值，不改变当前会话；恢复会话保留原选择。</li><li>项目 Pi 设置、显式启动选择和每模型思考值可覆盖默认值。默认模型未启用时使用首个启用模型。</li><li><code>mod</code> 表示 Ctrl/⌘。应用快捷键支持序列，编辑器发送只支持一个组合。</li><li>未分配的 Enter/Shift+Enter 插入换行；Enter 优先接受选中补全。 <code>null</code> 只禁用键盘发送，不禁用发送按钮。</li><li>配置发送绑定前保留浏览器旧 Enter 偏好，重置恢复该回退。</li></ul><p><a href="config.md#shortcut-config">完整快捷键匹配规则 →</a></p></details>
+<h3 id="prompt-completions">编辑器补全（不是配置键）</h3>
+<div class="table-scroll" role="region" aria-label="补全触发" tabindex="0">
+<table class="reference-table ">
+<caption>补全触发</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">在目标机器每个空闲会话执行</th>
+<th scope="col">结果</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>External path access<br><code>pathAccess.allowedPaths</code></th>
-<td>Machine + project</td>
+<th scope="row"><code>/</code> 在草稿开头</th>
+<td>会话命令。</td>
+</tr>
+<tr>
+<th scope="row"><code>@</code></th>
+<td>已跟踪文件路径。</td>
+</tr>
+<tr>
+<th scope="row"><code>@ </code> （at 后空格）或 <code>!@</code></th>
+<td>全部文件路径。</td>
+</tr>
+<tr>
+<th scope="row"><code>#</code></th>
+<td>模型引用，例如 <code>#provider/model-id</code>，指引代理使用模型，不改变当前模型。</td>
+</tr>
+</tbody></table></div>
+<p id="completion-tools"><strong>可选：</strong> 在服务器 PATH 安装 <code>fzf</code> ，改善文件补全排序；不安装也能补全。</p>
+</section>
+<section id="file-settings"><h2>文件与上传</h2>
+<p>机器默认值在 <strong>设置 → 通用</strong>中编辑，项目配置保存仓库专属目录和访问根。</p>
+<div class="table-scroll" role="region" aria-label="文件设置" tabindex="0">
+<table class="reference-table settings-table">
+<caption>文件设置</caption>
+<thead><tr>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><span id="path-access" class="reference-anchor"></span>外部路径访问<br><code>pathAccess.allowedPaths</code></th>
+<td>机器 + 项目</td>
 <td><code>[]</code></td>
-<td>External roots the file explorer and absolute @ completions can list/read.</td>
-<td>Next request; refresh open views</td>
+<td>文件面板及绝对 @ 补全可列出/读取的外部根。</td>
+<td>下次请求；已有视图可需刷新</td>
 </tr>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>Files panel uploads<br><code>uploads.defaultFolder</code></th>
-<td>Machine + project</td>
+<th scope="row"><span id="manual-uploads" class="reference-anchor"></span>文件面板上传<br><code>uploads.defaultFolder</code></th>
+<td>机器 + 项目</td>
 <td><code>.pi-web/uploads</code></td>
-<td>Default folder for Upload dialogs and Files-panel drops.</td>
-<td>New dialogs / batches after config refresh</td>
+<td>上传对话框与文件拖放的默认目录。</td>
+<td>配置刷新后的新对话框 / 批次</td>
 </tr>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>Saved prompt attachments<br><code>attachments.defaultFolder</code></th>
-<td>Machine + project</td>
+<th scope="row"><span id="prompt-attachments" class="reference-anchor"></span>已保存提示词附件<br><code>attachments.defaultFolder</code></th>
+<td>机器 + 项目</td>
 <td><code>.pi-web/attachments</code></td>
-<td>Folder used by the composer’s <strong>Save to …</strong> delivery option.</td>
-<td>New saves after config refresh</td>
+<td>编辑器 <strong>保存到…</strong> 投递方式使用的目录。</td>
+<td>配置刷新后的新保存</td>
 </tr>
 <tr>
-<th scope="row">Upload / body limit<br><code>maxUploadBytes</code></th>
-<td>Machine</td>
-<td><code>67108864</code> (64 MiB)</td>
-<td>Per-request size limit on the machine serving the upload.</td>
-<td>Web/API + sessiond restart</td>
+<th scope="row">上传 / 请求体限制<br><code>maxUploadBytes</code></th>
+<td>机器</td>
+<td><code>67108864</code> （64 MiB）</td>
+<td>提供上传服务机器的单次请求大小限制。</td>
+<td>Web/API 与 daemon 重启</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="Agent capabilities and dialogs" tabindex="0">
+<div class="callout warning"><strong>外部路径不是代理沙箱。</strong> 允许列表只限制浏览器/API 文件暴露，不限制普通代理或 OS 用户权限。</div>
+<details class="config-details"><summary>路径格式、覆盖与目录规则</summary><ul><li><strong>外部根：</strong> 现有目录的绝对路径或 <code>~</code>，例如 <code>/opt/reference</code>, <code>~/SDKs</code>，Windows 宿主也可用 Windows 绝对路径。不支持相对根，拒绝符号链接逃逸。</li><li><strong>上传/附件目录：</strong> 非空工作区相对目录。绝对路径与 <code>..</code> 逃逸拒绝；规范化重复分隔符与反斜线。</li><li><strong>上传：</strong> 创建父目录，默认保留已有文件；审核对话框可显式覆盖，直接拖放不覆盖。</li><li><strong>仅上传对话框：</strong> 清空目录可把该批次上传到工作区根。</li><li><strong>附件 API：</strong> 显式请求目录优先于配置默认值。</li></ul></details>
+</section>
+<section id="session-tools"><h2>会话守护进程</h2>
+<p>能力开关在 <strong>设置 → 会话守护进程</strong>中编辑，超时与环境事实通过机器配置。</p>
+<div class="table-scroll" role="region" aria-label="代理能力与对话框" tabindex="0">
 <table class="reference-table settings-table">
-<caption>Agent capabilities and dialogs</caption>
+<caption>代理能力与对话框</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row">Independent sessions<br><code>spawnSessions</code></th>
-<td>Machine</td>
+<th scope="row">独立会话<br><code>spawnSessions</code></th>
+<td>机器</td>
 <td><code>true</code></td>
-<td>Expose <code>spawn_session</code> so agents can start independent sessions.</td>
-<td>Sessiond restart</td>
+<td>提供 <code>spawn_session</code> ，允许代理发起独立会话。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
-<th scope="row">Tracked delegation<br><code>subsessions</code></th>
-<td>Machine</td>
+<th scope="row">跟踪子会话<br><code>subsessions</code></th>
+<td>机器</td>
 <td><code>true</code></td>
-<td>Expose tracked-child tools. Also requires <code>spawnSessions</code>.</td>
-<td>Sessiond restart</td>
+<td>提供跟踪子会话工具，同时需要 <code>spawnSessions</code>。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
-<th scope="row">Question forms<br><code>askUser</code></th>
-<td>Machine</td>
+<th scope="row">问题表单<br><code>askUser</code></th>
+<td>机器</td>
 <td><code>true</code></td>
-<td>Expose <code>ask_user</code> so agents can post browser forms.</td>
-<td>Sessiond restart</td>
+<td>提供 <code>ask_user</code> ，允许代理在浏览器提问。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>Extension dialog timeout<br><code>extensionDialogsTimeoutMs</code></th>
-<td>Machine</td>
-<td><code>300000</code> (5 min)</td>
-<td>Cancel unanswered extension dialogs after this interval; <code>0</code> waits forever.</td>
-<td>Sessiond restart</td>
+<th scope="row"><span id="extension-dialogs" class="reference-anchor"></span>扩展对话框超时<br><code>extensionDialogsTimeoutMs</code></th>
+<td>机器</td>
+<td><code>300000</code> （5 分钟）</td>
+<td>超时取消无人回答的扩展对话框； <code>0</code> 无限等待。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
-<th scope="row">Environment facts<br><code>environmentFacts</code></th>
-<td>Machine</td>
+<th scope="row">环境事实<br><code>environmentFacts</code></th>
+<td>机器</td>
 <td><code>true</code></td>
-<td>Include PI WEB nesting and deployment facts in session system prompts.</td>
-<td>Sessiond restart</td>
+<td>在会话系统提示词中加入 PI WEB 嵌套与部署事实。</td>
+<td>重启 daemon</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="Plugin configuration" tabindex="0">
+<details class="config-details"><summary>独立会话与跟踪子会话</summary><ul><li><strong>独立：</strong> 在同项目工作区发起工作，不向父会话回传输出。</li><li><strong>跟踪：</strong> 在父工作目录运行；完成唤醒父会话并提供输出，无需轮询。</li><li><strong>模型：</strong> 两工具都接受精确 <code>provider/model-id</code>，否则继承父模型；思考等级继承并限制到模型能力。</li></ul></details>
+<details class="config-details"><summary>问题表单与扩展对话框不同</summary><ul><li><strong>问题表单：</strong> 最多 20 问，每问最多 12 选项，有自定义文本且可跳过。普通消息取消开放表单，新表单替代旧表单。</li><li><strong>持久性：</strong> 所属 daemon 活跃时开放表单跨浏览器/Web 重启保留。</li><li><strong>扩展对话框：</strong> 始终支持，不取决于 <code>askUser</code>；扩展与 daemon 超时取较早期限。</li><li><strong>超时结果：</strong> <code>false</code> 用于确认； <code>undefined</code> 用于选择 / 文本输入。</li></ul></details>
+</section>
+<section id="plugin-config"><h2>插件与包</h2>
+<p>使用 <strong>设置 → PI WEB 插件</strong> 管理启用状态/设置，使用 <strong>设置 → Pi 包</strong> 管理安装，两者独立。</p>
+<div class="table-scroll" role="region" aria-label="插件配置" tabindex="0">
 <table class="reference-table settings-table">
-<caption>Plugin configuration</caption>
+<caption>插件配置</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row">Plugin enablement<br><code>plugins.&lt;id&gt;.enabled</code></th>
-<td>Machine</td>
-<td>Package default (usually on)</td>
-<td>Desired enablement for a discovered plugin. Required Terminal cannot be disabled normally.</td>
-<td>Browser-only: reload tab. Server-backed: sessiond restart + tab reload</td>
+<th scope="row">插件启用<br><code>plugins.&lt;id&gt;.enabled</code></th>
+<td>机器</td>
+<td>包默认值（通常启用）</td>
+<td>已发现插件的期望状态；普通启动不能禁用必需终端。</td>
+<td>纯浏览器：刷新；服务端：daemon 重启后刷新</td>
 </tr>
 <tr>
-<th scope="row">Plugin settings<br><code>plugins.&lt;id&gt;.settings</code></th>
-<td>Machine</td>
-<td><code>{}</code>; plugin-defined behavior</td>
-<td>JSON settings for the plugin.</td>
-<td>Browser-only: reload tab. Server-backed: sessiond restart + tab reload</td>
+<th scope="row">插件设置<br><code>plugins.&lt;id&gt;.settings</code></th>
+<td>机器</td>
+<td><code>{}</code>，行为由插件定义</td>
+<td>插件的 JSON 设置。</td>
+<td>纯浏览器：刷新；服务端：daemon 重启后刷新</td>
 </tr>
 <tr>
-<th scope="row">Plugin recovery mode<br><code>serverPlugins.safeStart</code></th>
-<td>Machine</td>
-<td>Unset (normal discovery)</td>
-<td>Offline recovery: skip external plugins, or skip all server plugins.</td>
-<td>Next sessiond start</td>
+<th scope="row">插件恢复模式<br><code>serverPlugins.safeStart</code></th>
+<td>机器</td>
+<td>未设置（普通发现）</td>
+<td>离线恢复：跳过外部或全部服务端插件。</td>
+<td>下次 daemon 启动</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="Web/API settings" tabindex="0">
-<table class="reference-table settings-table">
-<caption>Web/API settings</caption>
+<p><strong>保存不等于激活：</strong> 设置显示期望与实际状态；禁用后服务端可在重启前仍活跃。</p>
+<div class="table-scroll" role="region" aria-label="安装 / 更新 Pi 包之后" tabindex="0">
+<table class="reference-table ">
+<caption>安装 / 更新 Pi 包之后</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">包包含</th>
+<th scope="col">应用变更</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row">Bind address<br><code>host</code></th>
-<td>Gateway</td>
+<th scope="row">技能、模板、主题、普通扩展</th>
+<td>在目标机器每个空闲会话执行 <code>/reload</code> 。</td>
+</tr>
+<tr>
+<th scope="row">PI WEB 服务端插件（<code>serverModule</code>)</th>
+<td>手动重启 daemon，再刷新浏览器。</td>
+</tr>
+<tr>
+<th scope="row">注册/配置模型提供器的全局扩展</th>
+<td>手动重启 daemon。 <code>/reload</code> 不重建提供器注册。</td>
+</tr>
+</tbody></table></div>
+<details class="config-details"><summary>从服务端插件故障恢复</summary><p>在目标机器运行，离线编辑配置，不加载插件代码；自定义配置增加 <code>--config /path/to/config.json</code> 。</p>
+<div class="table-scroll" role="region" aria-label="离线插件恢复" tabindex="0">
+<table class="reference-table ">
+<caption>离线插件恢复</caption>
+<thead><tr>
+<th scope="col">命令</th>
+<th scope="col">效果</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><code>pi-web plugins disable &lt;plugin-id&gt; --restart</code></th>
+<td>持久禁用，拒绝必需终端。</td>
+</tr>
+<tr>
+<th scope="row"><code>pi-web plugins safe-start show</code></th>
+<td>检查安全启动状态。</td>
+</tr>
+<tr>
+<th scope="row"><code>pi-web plugins safe-start set bundled-only --restart</code></th>
+<td>跳过外部服务端包，保留内置插件。</td>
+</tr>
+<tr>
+<th scope="row"><code>pi-web plugins safe-start set none --restart</code></th>
+<td>跳过全部服务端插件（包括终端），保留诊断/设置。</td>
+</tr>
+<tr>
+<th scope="row"><code>pi-web plugins safe-start clear --restart</code></th>
+<td>恢复普通配置发现。</td>
+</tr>
+</tbody></table></div>
+<p><strong>重启注意：</strong> <code>--restart</code> 仅操作可识别的安全安装，可能中断会话。先保存配置，失败后遵循手动指引。</p><p>服务端插件是进程内可信代码，不具备崩溃隔离。 <a href="plugins">插件指南 →</a></p></details>
+<details class="config-details"><summary>联邦兼容与不可用插件界面</summary><ul><li>网关与目标一起升级，不支持混合版本。</li><li>重启更新的 Web/API 和目标 daemon，再刷新。</li><li>包/设置与实际服务端不匹配或服务端不健康/不兼容时，暂缓配套浏览器入口。</li></ul></details>
+</section>
+<section id="network"><h2>网络与部署</h2>
+<div class="table-scroll" role="region" aria-label="Web/API 设置" tabindex="0">
+<table class="reference-table settings-table">
+<caption>Web/API 设置</caption>
+<thead><tr>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">监听地址<br><code>host</code></th>
+<td>网关</td>
 <td><code>127.0.0.1</code></td>
-<td>Network interface used by the web/API server.</td>
-<td>Web/API restart</td>
+<td>Web/API 使用的网络接口。</td>
+<td>重启 Web/API</td>
 </tr>
 <tr>
-<th scope="row">Listening port<br><code>port</code></th>
-<td>Gateway</td>
+<th scope="row">监听端口<br><code>port</code></th>
+<td>网关</td>
 <td><code>8504</code></td>
-<td>Port used by the web/API server.</td>
-<td>Web/API restart</td>
+<td>Web/API 端口。</td>
+<td>重启 Web/API</td>
 </tr>
 <tr>
-<th scope="row">Development hosts<br><code>allowedHosts</code></th>
-<td>Gateway dev server</td>
-<td><code>[]</code> (Vite built-ins)</td>
-<td>Additional trusted hostnames accepted by the development UI server.</td>
-<td>Dev web/UI restart</td>
+<th scope="row">开发主机<br><code>allowedHosts</code></th>
+<td>网关开发服务</td>
+<td><code>[]</code> （Vite 内置值）</td>
+<td>开发 UI 额外信任的主机名。</td>
+<td>重启开发 Web/UI</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="Web/API ↔ session daemon connection" tabindex="0">
+<p id="deployment-paths"><strong>部署在 URL 前缀下？</strong> 无需配置键。代理必须重定向到尾斜线，并剥离前缀转发 HTTP/WebSocket。 <a href="install#reverse-proxy-prefix">反向代理示例 →</a></p>
+<h3>daemon 传输（仅环境）</h3>
+<div class="table-scroll" role="region" aria-label="Web/API 与 daemon 连接" tabindex="0">
 <table class="reference-table settings-table">
-<caption>Web/API ↔ session daemon connection</caption>
+<caption>Web/API 与 daemon 连接</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
 </tr></thead>
 <tbody>
 <tr>
 <th scope="row"><code>PI_WEB_SESSIOND_SOCKET</code></th>
-<td>Web/API + sessiond</td>
+<td>Web/API + daemon</td>
 <td><code>$PI_WEB_DATA_DIR/sessiond.sock</code></td>
-<td>Unix socket path; both processes must use the same endpoint.</td>
-<td>Web/API + sessiond restart</td>
+<td>Unix socket 路径，两进程必须使用同一 endpoint。</td>
+<td>Web/API 与 daemon 重启</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_WEB_SESSIOND_PORT</code></th>
-<td>Sessiond</td>
-<td>Unset (Unix socket)</td>
-<td>Listen over TCP instead of the Unix socket. Also set the web-to-daemon URL.</td>
-<td>Sessiond restart; update web/API connection</td>
+<td>daemon</td>
+<td>未设置（Unix socket）</td>
+<td>改为 TCP 监听，同时配置 Web 到 daemon URL。</td>
+<td>重启 daemon 并更新 Web 连接</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_WEB_SESSIOND_HOST</code></th>
-<td>Sessiond</td>
+<td>daemon</td>
 <td><code>127.0.0.1</code></td>
-<td>TCP listen address when TCP mode is enabled.</td>
-<td>Sessiond restart</td>
+<td>TCP 模式监听地址。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_WEB_SESSIOND_URL</code></th>
 <td>Web/API</td>
-<td>Unset (Unix socket)</td>
-<td>Daemon URL when using TCP.</td>
-<td>Web/API restart</td>
+<td>未设置（Unix socket）</td>
+<td>TCP 模式 daemon URL。</td>
+<td>重启 Web/API</td>
 </tr>
 </tbody></table></div>
-              <div class="table-scroll" role="region" aria-label="State and storage paths" tabindex="0">
+<p>仅 Docker 开发环境使用 <code>PI_WEB_DEV_SESSIOND_SOCKET</code>，默认 <code>/data/pi-web/sessiond-dev.sock</code>。生产 socket 和 systemd unit 不随此开发设置迁移。</p></section>
+<section id="storage"><h2>存储位置</h2>
+<p>这些是 <strong>环境变量</strong>，不是 JSON 配置键。改变路径不迁移已有数据。</p>
+<div class="table-scroll" role="region" aria-label="状态与存储路径" tabindex="0">
 <table class="reference-table settings-table">
-<caption>State and storage paths</caption>
+<caption>状态与存储路径</caption>
 <thead><tr>
-<th scope="col">Setting</th>
-<th scope="col">Applies to</th>
-<th scope="col">Default</th>
-<th scope="col">What it changes</th>
-<th scope="col">Apply / restart</th>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
 </tr></thead>
 <tbody>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>PI WEB state<br><code>PI_WEB_DATA_DIR</code></th>
-<td>PI WEB machine</td>
+<th scope="row"><span id="managed-data-directory" class="reference-anchor"></span>PI WEB 状态<br><code>PI_WEB_DATA_DIR</code></th>
+<td>PI WEB 机器</td>
 <td><code>~/.pi-web</code></td>
-<td>Registries, plugins, daemon socket, and session archives.</td>
-<td>Stop services before switching; then restart</td>
+<td>注册表、插件、daemon socket、归档及项目认证/偏好。</td>
+<td>切换前停止服务，再重启</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_WEB_PROJECTS_FILE</code></th>
-<td>Web/API + sessiond</td>
+<td>Web/API + daemon</td>
 <td><code>$PI_WEB_DATA_DIR/projects.json</code></td>
-<td>Override the projects registry file.</td>
-<td>Web/API + sessiond restart</td>
+<td>覆盖项目注册表文件。</td>
+<td>Web/API 与 daemon 重启</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_WEB_MACHINES_FILE</code></th>
 <td>Web/API</td>
 <td><code>$PI_WEB_DATA_DIR/machines.json</code></td>
-<td>Override the remote-machine registry file.</td>
-<td>Web/API restart</td>
+<td>覆盖远端机器注册表文件。</td>
+<td>重启 Web/API</td>
 </tr>
 <tr>
-<th scope="row"><span class="reference-anchor"></span>Pi agent state<br><code>PI_CODING_AGENT_DIR</code></th>
-<td>Sessiond</td>
+<th scope="row"><span id="agent-runtime" class="reference-anchor"></span>Pi agent 状态<br><code>PI_CODING_AGENT_DIR</code></th>
+<td>daemon</td>
 <td><code>~/.pi/agent</code></td>
-<td>共享 Pi 设置、包和默认会话存储；普通模式认证与模型使用 PI WEB 项目独立存储，管理嵌入使用独立管理存储</td>
-<td>Sessiond restart</td>
+<td>共享 agent 设置、Pi 包与默认会话目录；普通认证/模型按项目隔离。</td>
+<td>重启 daemon</td>
 </tr>
 <tr>
 <th scope="row"><code>PI_CODING_AGENT_SESSION_DIR</code></th>
-<td>Sessiond</td>
+<td>daemon</td>
 <td><code>&lt;agentDir&gt;/sessions/&lt;encoded-cwd&gt;</code></td>
-<td>Override active session storage separately from other Pi state.</td>
-<td>Sessiond restart</td>
+<td>独立覆盖活跃会话存储，不改变其他 Pi 状态。</td>
+<td>重启 daemon</td>
 </tr>
 </tbody></table></div>
-            </section>
-            <section id="files">
-              <h2>Config files</h2>
-              <p>PI WEB uses a global config file for machine-local settings and a project-local file for repository settings.</p>
-              <ul>
-                <li><strong>Global config:</strong> <code>$PI_WEB_CONFIG</code>, or <code>$XDG_CONFIG_HOME/pi-web/config.json</code>, or <code>~/.config/pi-web/config.json</code>.</li>
-                <li><strong>Project config:</strong> <code>&lt;project&gt;/.pi-web/config.json</code> for commit-able project settings.</li>
-              </ul>
-              <p>
-                Each PI WEB machine has its own config. When using Fleet/machine federation, Settings uses the selected
-                machine for config that affects work running there: the Pi-compatible agent profile and companion CLI,
-                session daemon tools, PI WEB plugin enablement, external path access, and upload defaults. Gateway/browser-only settings stay local to the gateway:
-                keyboard shortcuts, remote machine registry/tokens, and gateway host/port/allowed-hosts. Remote servers
-                that do not advertise selected-machine settings support report those settings as unavailable instead of
-                silently falling back to the gateway.
-              </p>
-              <p>
-                Pi package settings are separate from PI WEB config. They live in Pi's package-manager settings on the
-                target machine and are managed by Pi (<code>pi install</code>, <code>pi remove</code>, <code>pi update</code>) or
-                <strong>Settings → Pi packages</strong>. In a federated setup, <strong>Settings → Pi packages</strong>
-                targets the currently selected machine. The PI WEB <code>plugins</code> config key controls enablement and
-                settings for discovered browser, server, and dual-entry PI WEB plugins on that machine; it does not
-                install, remove, or update Pi packages.
-              </p>
-              <p>
-                If you installed services with a custom config path, rerun
-                <code>pi-web install --config /path/to/config.json</code> after changing that path or after upgrading from
-                a version that only applied the custom path to the web service. This regenerates service files so the
-                web/API and session daemon use the same <code>PI_WEB_CONFIG</code>.
-              </p>
-            </section>
-
-            <section id="deployment-paths">
-              <h2>Reverse-proxy deployment paths</h2>
-              <p>
-                The deployment path is not a PI WEB config-file key or environment setting. The published client is
-                portable: one build works at <code>/</code> and at canonical trailing-slash prefixes such as
-                <code>/ai/</code> or <code>/test/ai/</code>.
-              </p>
-              <p>
-                For a nested deployment, redirect the slashless prefix to the trailing-slash URL, strip the prefix
-                before forwarding to PI WEB, and proxy authenticated HTTP and WebSocket traffic through the same
-                location. Relative browser and PWA URLs then stay within that prefix. See the
-                <a href="install#reverse-proxy-prefix">reverse proxy deployment example</a> for complete Nginx
-                configuration.
-              </p>
-            </section>
-
-            <section id="precedence">
-              <h2>Precedence and reloads</h2>
-              <p>Machine-global runtime values are resolved in this order:</p>
-              <div class="code-card">
-                <pre><code>defaults → global config file → environment overrides</code></pre>
-              </div>
-              <p>
-                Supported project-local settings are then applied for that project's workspaces. For upload and
-                prompt-attachment defaults, <code>&lt;project&gt;/.pi-web/config.json</code> overrides the global value.
-              </p>
-              <p>
-                Environment overrides include <code>PI_WEB_HOST</code>, <code>PI_WEB_PORT</code> / <code>PORT</code>,
-                <code>PI_WEB_ALLOWED_HOSTS</code>, <code>PI_WEB_MAX_UPLOAD_BYTES</code>, <code>PI_WEB_AGENT_COMMAND</code>,
-                <code>PI_WEB_AGENT_DIR</code>, <code>PI_WEB_AGENT_SESSION_DIR</code>, <code>PI_CODING_AGENT_DIR</code> /
-                <code>PI_CODING_AGENT_SESSION_DIR</code>, <code>PI_WEB_ENVIRONMENT_FACTS</code>, <code>PI_WEB_SPAWN_SESSIONS</code>,
-                <code>PI_WEB_SUBSESSIONS</code>, and <code>PI_WEB_ASK_USER</code>.
-              </p>
-              <ul>
-                <li><code>host</code> / <code>port</code>: restart the gateway web/API service or process.</li>
-                <li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
-                <li><code>agent.command</code> / <code>agent.dir</code> / <code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code>: restart the session daemon on that machine.</li>
-                <li><code>workbenchIntegration</code>: restart both the web/API process and session daemon; both must use the same endpoints and limits.</li>
-                <li><code>managementEmbed.allowPrivileged</code>: restart both the web/API process and session daemon; signed tokens must also send <code>privileged.bash</code> / <code>privileged.network</code>.</li>
-                <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
-                <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
-                <li><code>attachments.defaultFolder</code>: applies to prompt attachments saved as workspace files after config/workspace refresh.</li>
-                <li><code>plugins</code>：浏览器入口变更后刷新页面；影响 <code>serverModule</code> 的启用状态、配置、包来源或版本变更需要先手动重启目标机器的会话守护进程，再刷新页面。</li>
-                <li>Pi 包安装、移除或更新后，在目标机器的空闲会话中执行 <code>/reload</code> 刷新普通 Pi 资源。浏览器入口需要单独刷新页面；涉及 <code>serverModule</code> 的插件需要手动重启 <code>pi-web-sessiond.service</code> 后再刷新。全局 Pi 扩展新增或移除提供器、修改连接设置也需要重启；仅刷新已知提供器模型列表不需要重启。详见 <a href="#pi-extension-provider-baseline">Pi extension provider baseline</a>。</li>
-                <li><code>shortcuts</code>: saved settings apply in the browser after config refresh/save.</li>
-              </ul>
-            </section>
-
-            <section id="global-config">
-              <h2>Global config example</h2>
-              <p>
-                <code>pi-web install</code> creates the initial file. You can also save PI WEB config settings from
-                <strong>Settings → General</strong>, <strong>Settings → PI WEB plugins</strong>,
-                <strong>Settings → Keyboard</strong>, and <strong>Settings → Session daemon</strong>. Machine-affecting
-                Settings fields target the selected machine; gateway host/port/allowed-hosts and keyboard shortcuts stay
-                local. Pi package operations live separately under <strong>Settings → Pi packages</strong>.
-              </p>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Example config.json</strong>
-                  <button class="copy-button" data-copy="#global-config-example">Copy</button>
-                </div>
-                <pre id="global-config-example"><code>{
-  "host": "127.0.0.1",
-  "port": 8504,
-  "pathAccess": {
-    "allowedPaths": ["~/SDKs", "/opt/reference"]
-  },
-  "uploads": {
-    "defaultFolder": ".pi-web/uploads"
-  },
-  "attachments": {
-    "defaultFolder": ".pi-web/attachments"
-  },
-  "maxUploadBytes": 67108864,
-  "agent": {
-    "command": "pi",
-    "dir": "~/agent-profiles/research"
-  },
-  "spawnSessions": true,
-  "subsessions": true,
-  "askUser": true,
-  "extensionDialogsTimeoutMs": 300000,
-  "workbenchIntegration": {
-    "baseUrl": "http://ai-platform-backend:8787",
-    "mcpUrl": "http://mcp:8000/mcp",
-    "requestTimeoutMs": 10000,
-    "capabilityTimeoutMs": 30000,
-    "skillBundleMaxBytes": 10485760,
-    "skillFileMaxBytes": 2097152,
-    "skillFileCountMax": 200
-  },
-  "auditLog": {
-    "normalMode": {
-      "enabled": true,
-      "retentionDays": 90,
-      "maxRows": 500000
-    },
-    "managementMode": {
-      "enabled": true,
-      "baseUrl": "https://elasticsearch.internal:9200",
-      "indexPrefix": "pi-web-management-audit",
-      "retentionDays": 365
-    }
-  },
-  "plugins": {
-    "workspace-tasks": { "enabled": true },
-    "updates": { "enabled": true },
-    "info": { "enabled": false }
-  },
-  "shortcuts": {
-    "core:view.chat": "mod+1",
-    "core:session.stop": null
-  }
-}</code></pre>
-              </div>
-            </section>
-
-            <section id="project-config">
-              <h2>Project-local config</h2>
-              <p>
-                Project-local config lives at <code>&lt;project&gt;/.pi-web/config.json</code>. Use it for settings that should
-                follow a repository.
-              </p>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>.pi-web/config.json</strong>
-                  <button class="copy-button" data-copy="#project-config-example">Copy</button>
-                </div>
-                <pre id="project-config-example"><code>{
-  "version": 1,
-  "pathAccess": {
-    "allowedPaths": ["~/SDKs", "/opt/reference"]
-  },
-  "uploads": {
-    "defaultFolder": "manual/uploads"
-  },
-  "attachments": {
-    "defaultFolder": "prompt-assets"
-  }
-}</code></pre>
-              </div>
-              <p>
-                Project-local <code>pathAccess.allowedPaths</code> entries are merged after the global list and deduplicated.
-                Paths must still be host-absolute or <code>~</code>-prefixed; relative roots are not supported.
-              </p>
-              <p>
-                Project-local <code>uploads.defaultFolder</code> overrides the global upload destination for workspaces in
-                that project. Current PI WEB servers include this workspace-effective value on local and federated
-                workspace responses; older remote servers may omit it and the browser falls back to the global/default
-                upload folder.
-              </p>
-              <p>
-                Project-local <code>attachments.defaultFolder</code> likewise overrides where the prompt editor saves
-                attachments when you choose folder delivery. The built-in default is <code>.pi-web/attachments</code>;
-                inline image delivery does not write a workspace file.
-              </p>
-              <p>
-                Plugins may own separate project files, such as <code>.pi-web/tasks.json</code> for the built-in Workspace
-                Tasks plugin.
-              </p>
-            </section>
-
-            <section id="keys">
-              <h2>Config matrix</h2>
-              <p>
-                Use this table as the quick reference for where a setting can live, which environment variable overrides
-                it, and whether project-local config overrides or merges with global config. Rows with JSON key
-                <code>—</code> are runtime-only environment variables, not config-file keys. <code>Global</code> means
-                machine-global. In Settings, selected-machine-safe global keys (<code>pathAccess</code>, <code>uploads</code>, <code>attachments</code>,
-                <code>maxUploadBytes</code>, <code>agent</code>, <code>spawnSessions</code>, <code>subsessions</code>, <code>askUser</code>, and <code>plugins</code>)
-                are edited for the selected machine; gateway host/port/allowed-hosts, keyboard shortcuts, and machine
-                registry/tokens stay local.
-              </p>
-              <div class="table-scroll" role="region" aria-label="PI WEB configuration matrix" tabindex="0">
-                <table class="config-matrix">
-                  <thead>
-                    <tr>
-                      <th scope="col">Config</th>
-                      <th scope="col">JSON key</th>
-                      <th scope="col">Env var</th>
-                      <th scope="col">Scope</th>
-                      <th scope="col">Project-local behavior</th>
-                      <th scope="col">Applies / restart</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-section"><th scope="rowgroup" colspan="6">Config-file keys</th></tr>
-                    <tr>
-                      <td>Web/API bind host</td>
-                      <td><code>host</code></td>
-                      <td><code>PI_WEB_HOST</code></td>
-                      <td>Global</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API</td>
-                    </tr>
-                    <tr>
-                      <td>Web/API port</td>
-                      <td><code>port</code></td>
-                      <td><code>PI_WEB_PORT</code>, <code>PORT</code></td>
-                      <td>Global</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API</td>
-                    </tr>
-                    <tr>
-                      <td>Dev-server allowed hosts</td>
-                      <td><code>allowedHosts</code></td>
-                      <td><code>PI_WEB_ALLOWED_HOSTS</code></td>
-                      <td>Global</td>
-                      <td>Not supported locally</td>
-                      <td>Restart dev web/UI</td>
-                    </tr>
-                    <tr>
-                      <td>External filesystem roots</td>
-                      <td><code>pathAccess.allowedPaths</code></td>
-                      <td>—</td>
-                      <td>Global + project</td>
-                      <td><strong>Merges:</strong> global roots first, then project roots; duplicates removed</td>
-                      <td>Next file request; refresh existing views if needed</td>
-                    </tr>
-                    <tr>
-                      <td>Manual file upload default folder</td>
-                      <td><code>uploads.defaultFolder</code></td>
-                      <td>—</td>
-                      <td>Global + project</td>
-                      <td><strong>Overrides:</strong> project value wins for workspaces in that project; otherwise global/default applies</td>
-                      <td>New Upload dialogs and direct drag/drop batches after config/workspace refresh</td>
-                    </tr>
-                    <tr>
-                      <td>Prompt attachment default folder</td>
-                      <td><code>attachments.defaultFolder</code></td>
-                      <td>—</td>
-                      <td>Global + project</td>
-                      <td><strong>Overrides:</strong> project value wins for workspaces in that project; otherwise global/default applies</td>
-                      <td>New folder-delivery prompts after config/workspace refresh</td>
-                    </tr>
-                    <tr>
-                      <td>Upload/body limit</td>
-                      <td><code>maxUploadBytes</code></td>
-                      <td><code>PI_WEB_MAX_UPLOAD_BYTES</code></td>
-                      <td>Global</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API and session daemon on that machine</td>
-                    </tr>
-                    <tr>
-                      <td>Companion CLI command</td>
-                      <td><code>agent.command</code></td>
-                      <td><code>PI_WEB_AGENT_COMMAND</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine; affects doctor/status/update checks</td>
-                    </tr>
-                    <tr>
-                      <td>Agent profile state directory</td>
-                      <td><code>agent.dir</code></td>
-                      <td><code>PI_WEB_AGENT_DIR</code> (<code>PI_CODING_AGENT_DIR</code> for Pi compatibility)</td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine; affects auth, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugins</td>
-                    </tr>
-                    <tr>
-                      <td>Agent can spawn sessions</td>
-                      <td><code>spawnSessions</code></td>
-                      <td><code>PI_WEB_SPAWN_SESSIONS</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine</td>
-                    </tr>
-                    <tr>
-                      <td>Tracked subsessions</td>
-                      <td><code>subsessions</code></td>
-                      <td><code>PI_WEB_SUBSESSIONS</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally; also requires <code>spawnSessions</code></td>
-                      <td>Restart session daemon on that machine</td>
-                    </tr>
-                    <tr>
-                      <td>Agent can post question forms</td>
-                      <td><code>askUser</code></td>
-                      <td><code>PI_WEB_ASK_USER</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine</td>
-                    </tr>
-                    <tr>
-                      <td>Ordinary-session environment facts</td>
-                      <td><code>environmentFacts</code></td>
-                      <td><code>PI_WEB_ENVIRONMENT_FACTS</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine; affects newly started sessions</td>
-                    </tr>
-                    <tr>
-                      <td>扩展对话框自动取消超时</td>
-                      <td><code>extensionDialogsTimeoutMs</code></td>
-                      <td>—</td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon on that machine</td>
-                    </tr>
-                    <tr>
-                      <td>Management-embed privileged tools</td>
-                      <td><code>managementEmbed.allowPrivileged</code></td>
-                      <td>—</td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API and session daemon; token must also send <code>privileged.bash</code> / <code>privileged.network</code></td>
-                    </tr>
-                    <tr>
-                      <td>Workbench/MCP integration</td>
-                      <td><code>workbenchIntegration.*</code></td>
-                      <td><code>PI_WEB_WORKBENCH_URL</code>, <code>PI_WEB_MCP_URL</code>, and timeout/Skill limit overrides</td>
-                      <td>Web/API + session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API and session daemon; both must match</td>
-                    </tr>
-                    <tr>
-                      <td>Ordinary tool audit</td>
-                      <td><code>auditLog.normalMode.*</code></td>
-                      <td>—</td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon</td>
-                    </tr>
-                    <tr>
-                      <td>Management tool audit</td>
-                      <td><code>auditLog.managementMode.*</code></td>
-                      <td><code>PI_WEB_AUDIT_ES_URL</code>, <code>PI_WEB_AUDIT_ES_API_KEY</code>, <code>PI_WEB_AUDIT_ES_USERNAME</code>, <code>PI_WEB_AUDIT_ES_PASSWORD</code></td>
-                      <td>Global/session daemon</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon</td>
-                    </tr>
-                    <tr>
-                      <td>PI WEB plugin enablement/settings</td>
-                      <td><code>plugins.&lt;id&gt;.enabled</code>, <code>plugins.&lt;id&gt;.settings</code></td>
-                      <td>—</td>
-                      <td>Global</td>
-                      <td>Not core local config; plugins may read their own project files</td>
-                      <td>Reload browser tab</td>
-                    </tr>
-                    <tr>
-                      <td>Keyboard shortcuts</td>
-                      <td><code>shortcuts.&lt;actionId&gt;</code></td>
-                      <td>—</td>
-                      <td>Global</td>
-                      <td>Not supported locally</td>
-                      <td>Applies after settings save/config refresh. <code>composer.send.desktop</code> and <code>composer.send.mobile</code> accept a single editor-only chord; until saved, the browser's Enter preference is preserved.</td>
-                    </tr>
-                    <tr>
-                      <td>Project config version</td>
-                      <td><code>version</code></td>
-                      <td>—</td>
-                      <td>Project</td>
-                      <td>Project-local only; must be <code>1</code> when present</td>
-                      <td>Next project-config read</td>
-                    </tr>
-                    <tr class="table-section"><th scope="rowgroup" colspan="6">Runtime-only environment variables</th></tr>
-                    <tr>
-                      <td>Global config file path</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_CONFIG</code> (<code>XDG_CONFIG_HOME</code> affects the default path)</td>
-                      <td>Process/env</td>
-                      <td>Selects the global config file; not a project config</td>
-                      <td>Restart services/processes after changing env</td>
-                    </tr>
-                    <tr>
-                      <td>Managed data directory</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_DATA_DIR</code></td>
-                      <td>Process/env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart services before changing; existing state stays in the previous data directory</td>
-                    </tr>
-                    <tr>
-                      <td>Session daemon socket</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_SESSIOND_SOCKET</code></td>
-                      <td>Web/API + session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart daemon and web/API; both must match</td>
-                    </tr>
-                    <tr>
-                      <td>Session daemon TCP port</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_SESSIOND_PORT</code></td>
-                      <td>Session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon; set <code>PI_WEB_SESSIOND_URL</code> for web/API too</td>
-                    </tr>
-                    <tr>
-                      <td>Session daemon TCP host</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_SESSIOND_HOST</code></td>
-                      <td>Session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon</td>
-                    </tr>
-                    <tr>
-                      <td>Web-to-daemon URL</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_SESSIOND_URL</code></td>
-                      <td>Web/API env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API</td>
-                    </tr>
-                    <tr>
-                      <td>Projects storage file</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_PROJECTS_FILE</code></td>
-                      <td>Web/API + session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart services; advanced state override</td>
-                    </tr>
-                    <tr>
-                      <td>Remote machines storage file</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_MACHINES_FILE</code></td>
-                      <td>Web/API env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API; advanced state override</td>
-                    </tr>
-                    <tr>
-                      <td>Agent profile session storage directory</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_AGENT_SESSION_DIR</code> (<code>PI_CODING_AGENT_SESSION_DIR</code> for Pi compatibility)</td>
-                      <td>Session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart session daemon; env-only session storage override</td>
-                    </tr>
-                    <tr>
-                      <td>Agent profile state directory</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_AGENT_DIR</code> (<code>PI_CODING_AGENT_DIR</code> for Pi compatibility)</td>
-                      <td>Web/API + session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart services</td>
-                    </tr>
-                    <tr>
-                      <td>Skip update checks</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_SKIP_VERSION_CHECK</code>, <code>PI_WEB_OFFLINE</code>, <code>PI_SKIP_VERSION_CHECK</code>, <code>PI_OFFLINE</code></td>
-                      <td>Web/API env</td>
-                      <td>Not supported locally</td>
-                      <td>Restart web/API after env changes</td>
-                    </tr>
-                    <tr>
-                      <td>Offline mode</td>
-                      <td>—</td>
-                      <td><code>PI_WEB_OFFLINE</code>, <code>PI_OFFLINE</code></td>
-                      <td>Web/API + session daemon env</td>
-                      <td>Not supported locally</td>
-                      <td>
-                        Restart session daemon and web/API after env changes; also disables the
-                        <a href="#catalog-refresh">background model catalog refresh</a>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section id="ordinary-tool-audit">
-              <h2>Ordinary-mode tool audit</h2>
-              <p>
-                PI WEB stores metadata-only ordinary-mode tool calls in
-                <code>$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite</code> while keeping the existing Pino/service logs.
-                Management-embed calls are not written to this database. Rows contain session, workspace, tool and call
-                identifiers, timestamps, duration, and status; arguments, results, prompts, model replies, and credentials
-                are excluded.
-              </p>
-              <p>
-                <code>auditLog.normalMode.enabled</code> defaults to <code>true</code>, <code>retentionDays</code> to
-                <code>90</code>, and <code>maxRows</code> to <code>500000</code>. Sessiond prunes at startup and every 24
-                hours. Audit persistence failures stay in the existing service log and do not stop tool execution.
-              </p>
-              <pre><code>pi-web audit list --since 24h
-pi-web audit list --status failed --since 7d
-pi-web audit stats --since 30d
-pi-web audit export --since 30d --format csv --output audit.csv
-pi-web audit prune --before 2026-05-01
-pi-web audit vacuum</code></pre>
-              <p>The database uses WAL mode. Changing audit configuration requires restarting sessiond.</p>
-            </section>
-
-            <section id="management-tool-audit">
-              <h2>Management-mode Elasticsearch audit</h2>
-              <p>
-                Management-embed audit records can be sent to Elasticsearch while Pino/service logging remains enabled.
-                Enable <code>auditLog.managementMode</code> and set <code>baseUrl</code>, or use
-                <code>PI_WEB_AUDIT_ES_URL</code>. Authentication comes only from the session daemon environment:
-                <code>PI_WEB_AUDIT_ES_API_KEY</code> takes precedence; basic authentication requires both
-                <code>PI_WEB_AUDIT_ES_USERNAME</code> and <code>PI_WEB_AUDIT_ES_PASSWORD</code>.
-              </p>
-              <p>
-                Records use Shanghai-calendar ISO-week indices such as <code>pi-web-management-audit-2026-w32</code>.
-                The default retention is 365 days. Sessiond installs the index template, uses the Bulk API, and runs
-                maintenance at startup and daily. The first successful maintenance in each Shanghai calendar month
-                deletes documents older than the retention cutoff.
-              </p>
-              <p>
-                Each document identifies the user, root user, actual authorized project, Pi session, workspace, tool, and
-                status. Workbench capability and Skill records add resource versions and trace metadata. Prompts,
-                arguments, results, model replies, tokens, cookies, API keys, and tickets are excluded. Elasticsearch
-                failures remain non-blocking and are reported through Pino; use Elasticsearch or Kibana permissions to
-                restrict access to these user-level records.
-              </p>
-            </section>
-
-            <section id="workbench-integration">
-              <h2>Workbench and MCP integration</h2>
-              <p>
-                <code>workbenchIntegration</code> enables the controlled management-embed adapter. Set
-                <code>baseUrl</code> to the server-reachable workbench backend origin and <code>mcpUrl</code> to the MCP
-                Streamable HTTP endpoint. Both values are required; <code>PI_WEB_WORKBENCH_URL</code> and
-                <code>PI_WEB_MCP_URL</code> override the JSON URLs.
-              </p>
-              <p>
-                These resource, tool, and Skill restrictions apply only to management-embed sessions. Normal-mode
-                sessions keep PI WEB's existing behavior.
-              </p>
-              <p>
-                The adapter keeps Agent Session tokens and short-lived capability, knowledge, and Skill credentials
-                server-side. It loads only the fixed authorized snapshot and exposes
-                <code>icnoc_search_capabilities</code>, <code>icnoc_call_capability</code>,
-                <code>workbench_search_knowledge</code>, <code>workbench_retrieve_knowledge</code>, and
-                <code>workbench_retrieve_bookstack</code> alongside the
-                managed file tools and sandboxed <code>python</code> tool. Knowledge retrieval goes through the
-                Workbench backend's one-time knowledge tokens; PI WEB does not require RAGFlow or BookStack service
-                connection settings or credentials, and tools do not accept tenant IDs or dataset IDs.
-                Public source links in retrieval results are not service connection settings.
-                When their global feature switches are enabled, management sessions also receive
-                <code>spawn_session</code>, the tracked-subsession tool set headed by <code>spawn_subsession</code>, and
-                <code>ask_user</code>; spawned sessions inherit the same management context.
-                Python runs without network access in an isolated Bubblewrap environment that binds only the managed
-                workspace; generic MCP, HTTP, web search, shell, and terminal tools remain denied.
-                A signed token may request <code>privileged.bash</code> and/or <code>privileged.network</code>; those
-                grants apply only when <code>managementEmbed.allowPrivileged</code> is true. Privileged bash is a
-                constrained sandbox tool: the current workspace is writable and other host paths are read-only. The
-                generic SDK shell stays denied. Privileged network enables
-                <code>http</code>, <code>webfetch</code>, and <code>websearch</code> plus sandbox network. Interactive
-                terminals and generic MCP stay denied.
-                Authorized Skill bundles are validated against their manifests before they enter the managed project.
-              </p>
-              <p>
-                <code>workbench_search_knowledge</code> discovers resource metadata with an optional
-                <code>provider</code> filter (<code>ragflow</code> or <code>bookstack</code>). RAGFlow content continues
-                to use <code>workbench_retrieve_knowledge</code>. BookStack content uses
-                <code>workbench_retrieve_bookstack</code> with <code>resource_name</code>, concise keywords in
-                <code>question</code>, optional <code>resource_version</code> (<code>live</code>), and
-                <code>top_k</code> (default 8, maximum 20). The Workbench backend reads current non-draft pages in an
-                individually authorized, published book through <code>POST /api/knowledge-access/bookstack/retrieval</code>.
-                This is read-only keyword search, not semantic retrieval. Results include plain text, page revision,
-                update time, source URL, and a <code>knowledge://</code> citation. <code>truncated</code> indicates
-                search or text limits: five batches of 100 candidates, 8,000 characters per page, and 40,000 overall.
-                Source links still require the reader's own browser access; no BookStack browser login is granted.
-              </p>
-              <p>
-                Deploy the Workbench backend supporting BookStack snapshots, knowledge tokens, and retrieval before
-                updating PI WEB. Keep BookStack credentials only in that backend; no extra PI WEB setting is needed.
-                Explicitly restart <code>pi-web-sessiond.service</code> after updating the tool runtime and keep the
-                web/API process on the same release. Restart both processes when shared integration settings change.
-              </p>
-              <p>
-                The session daemon emits metadata-only tool execution audit entries for normal and management sessions.
-                Logs include the mode, session, workspace, tool name, call id, and status, but never tool arguments or
-                results. Workbench capability calls additionally include their business and MCP trace identifiers.
-                Workbench knowledge retrieval events include the stable resource name, revision, run/trace identifiers,
-                and result count without the retrieval question, filters, returned chunks, or token.
-              </p>
-              <p>Configure the web/API and session daemon with the same endpoints and limits, then restart both services.</p>
-            </section>
-
-            <section id="path-access">
-              <h2>External path access</h2>
-              <p>
-                <code>pathAccess.allowedPaths</code> grants PI WEB's file explorer and absolute <code>@</code> path
-                completions access to specific filesystem roots outside the current workspace. By default,
-                workspace-relative file reads stay inside the workspace and absolute paths are denied.
-              </p>
-              <p>Accepted root forms:</p>
-              <ul>
-                <li>Unix absolute paths, for example <code>/opt/reference</code>.</li>
-                <li>Home-relative paths, for example <code>~/SDKs</code>.</li>
-                <li>Windows absolute paths on Windows hosts, for example <code>C:\Users\dev\SDKs</code>.</li>
-              </ul>
-              <p>
-                When an absolute request is served, PI WEB expands <code>~</code>, canonicalizes configured roots with
-                <code>realpath</code>, requires roots to be existing directories, and rejects symlink escapes outside the
-                allowed roots.
-              </p>
-              <p>
-                In <strong>Settings → General</strong>, external filesystem roots are saved on the selected machine.
-                Gateway host, port, and allowed-hosts fields stay on the gateway config.
-              </p>
-              <div class="callout warning">
-                This is not a sandbox for the underlying Pi Coding Agent or your OS user. It only controls PI WEB UI/API
-                file exposure outside a workspace. Add only roots you trust PI WEB to list and read through the browser UI.
-              </div>
-            </section>
-
-            <section id="manual-uploads">
-              <h2>Manual upload defaults</h2>
-              <p>
-                The Files panel can upload files by dropping them onto the panel or by using the toolbar
-                <strong>Upload</strong> button. <code>uploads.defaultFolder</code> sets the workspace-effective default
-                destination. The built-in default is <code>.pi-web/uploads</code>; a project-local value overrides the
-                global value for workspaces in that project.
-              </p>
-              <p>
-                The value must be a non-empty workspace-relative folder. PI WEB normalizes repeated separators and
-                backslashes to <code>/</code>, and rejects absolute paths or <code>..</code> traversal. In the upload
-                dialog only, clearing the destination field uploads that batch to the workspace root.
-              </p>
-              <p>
-                Manual uploads use the workspace file-write path: paths stay workspace-relative, parent folder creation is
-                enabled by default, and overwrite is disabled by default. Browser-owned XHR progress is shown per
-                batch/file, and conflicts or errors stay visible in the upload progress UI.
-              </p>
-              <p>
-                For machine federation, Settings saves the global upload default on the selected machine. Current remote
-                PI WEB servers also return workspace-effective upload defaults on workspace responses; older remote
-                servers may omit them and the browser falls back to the global/default upload folder.
-              </p>
-            </section>
-
-            <section id="prompt-attachments">
-              <h2>Prompt attachments</h2>
-              <p>
-                The prompt editor accepts files from its attachment button, paste, or drag/drop. Images can be sent inline
-                to a multimodal model; any attachment can instead be saved into the workspace and referenced from the
-                prompt. Folder delivery uses the workspace-effective <code>attachments.defaultFolder</code>, which defaults
-                to <code>.pi-web/attachments</code> and can be overridden globally or in
-                <code>&lt;project&gt;/.pi-web/config.json</code>.
-              </p>
-              <div class="code-card">
-                <pre><code>{
-  "attachments": {
-    "defaultFolder": "prompt-assets"
-  }
-}</code></pre>
-              </div>
-              <p>
-                The folder must be a non-empty workspace-relative path and follows the same normalization and traversal
-                protections as <code>uploads.defaultFolder</code>. Prompt attachments use the same
-                <code>maxUploadBytes</code> request-body limit.
-              </p>
-            </section>
-
-            <section id="agent-runtime">
-              <h2>Pi-compatible agent profile and companion CLI</h2>
-              <p>
-                PI WEB embeds the Pi <code>0.84.x</code> compatible runtime. The session daemon owns its resolved
-                <code>PI_WEB_DATA_DIR</code>; use a separate data directory and session endpoint for each concurrent instance.
-              </p>
-              <p>
-                <code>agent.command</code> selects the Pi-compatible companion CLI used by <code>pi-web doctor</code> and,
-                when it can be generated safely, package-managed update commands. It defaults to <code>pi</code>. This
-                setting does <strong>not</strong> replace the embedded runtime: every session continues to use PI WEB's
-                bundled Pi SDK.
-              </p>
-              <p>
-                <code>agent.dir</code> selects the Pi-compatible state profile used for auth providers, models, settings,
-                sessions, Pi packages, and Pi-package-backed PI WEB plugin discovery. It defaults to
-                <code>~/.pi/agent</code> only for a canonical Pi companion command. The directory must use the data layout
-                supported by the bundled Pi SDK; PI WEB does not load or convert incompatible fork formats, migrate
-                profile data, or repartition PI WEB-managed archives when the profile changes.
-              </p>
-              <div class="code-card">
-                <pre><code>{
-  "agent": {
-    "command": "pi-lab",
-    "dir": "/opt/pi-profiles/lab"
-  }
-}</code></pre>
-              </div>
-              <p>
-                An alternate command always requires an explicit state directory. The command must be a safe bare
-                executable name such as <code>pi-lab</code> or a host-absolute executable path such as
-                <code>/opt/pi/bin/pi</code>; relative paths, shell expressions, and launcher strings are rejected. The
-                state directory must be host-absolute or start with <code>~</code>. In a federated save, the gateway
-                transports Unix and Windows absolute paths without reinterpreting them, and the target machine validates
-                and returns the persisted profile.
-              </p>
-              <p>
-                Environment variables take precedence over the config file. State-directory precedence is
-                <code>PI_WEB_AGENT_DIR</code> &gt; <code>PI_CODING_AGENT_DIR</code> &gt; <code>agent.dir</code> &gt; the Pi default.
-                Session-directory precedence keeps <code>PI_WEB_AGENT_SESSION_DIR</code> first, followed by
-                <code>PI_CODING_AGENT_SESSION_DIR</code>. The resolved state directory is exported as
-                <code>PI_CODING_AGENT_DIR</code> to embedded Pi processes.
-              </p>
-              <p>
-                The runtime reports deprecated <code>PI_WEB_AGENT_COMMAND</code>, <code>PI_WEB_AGENT_DIR</code>,
-                <code>PI_WEB_AGENT_SESSION_DIR</code>, <code>agent.command</code>, and <code>agent.dir</code> inputs
-                by name only. Ordinary-mode UI shows a non-dismissable warning attributed to each reporting machine;
-                management embeds do not show these host diagnostics. Use <code>PI_CODING_AGENT_DIR</code> and
-                <code>PI_CODING_AGENT_SESSION_DIR</code> for directory overrides. This fork retains the companion-command
-                compatibility above; diagnostics do not rewrite configuration or remove user data. The web report
-                rechecks configuration at runtime checks, while the daemon report reflects its startup inputs and
-                clears after the daemon restarts with corrected configuration.
-              </p>
-              <p>
-                <code>environmentFacts</code> controls factual system-prompt sections appended only to ordinary
-                sessions. These describe PI WEB session nesting and, when the daemon runs in Docker, the observed
-                container filesystem, persistent mounts, host access, and development mount shape.
-                <code>PI_WEB_ENVIRONMENT_FACTS</code> takes precedence and accepts <code>0|1|true|false</code>; the
-                default is enabled. Set it to <code>false</code>, restart the session daemon, and start a new session to
-                disable all such sections. Existing sessions retain the prompt they started with. Management-embed
-                sessions do not receive these ordinary-session facts.
-              </p>
-              <p>
-                The session daemon resolves the persisted desired values plus its environment once at startup. That
-                secret-free active profile stays fixed for the daemon lifetime. <strong>Settings → Session daemon</strong>
-                saves command and directory together as desired configuration and shows whether the profile is active,
-                needs a restart, or cannot be compared. Until the daemon restarts, sessions, Pi package operations,
-                Pi-package-backed PI WEB plugin discovery, status/install detection, and update planning continue to use
-                the daemon-owned active profile; a web/API restart recovers that same active profile instead of applying
-                the newly saved values.
-              </p>
-              <div class="callout warning">
-                If the session daemon cannot report a valid active profile, profile-dependent Pi package and PI WEB plugin
-                operations report unavailable instead of falling back to independently resolved config. A package-managed
-                update command is shown only when PI WEB can preserve the active profile with a recognized, safe Pi
-                companion CLI; otherwise the command is omitted. Remote profile editing likewise requires advertised
-                support, and the gateway rejects a remote save if the target does not return the requested profile.
-                Restart the session daemon on the selected machine to establish the next active profile.
-              </div>
-            </section>
-
-            <section id="pi-extension-provider-baseline">
-              <h2>Pi extension provider baseline</h2>
-              <p>
-                This policy applies to <strong>Pi runtime extensions</strong>, not PI WEB browser plugins. Pi extensions
-                are runtime modules loaded by the session daemon and can call <code>pi.registerProvider(...)</code>;
-                PI WEB 插件通过浏览器入口扩展界面，通过服务端入口提供工作区和宿主能力，不使用模型提供器注册接口。
-              </p>
-              <p>
-                会话守护进程启动时，在项目资源加载前从当前 agent 配置目录初始化全局 Pi 扩展，并建立共享的扩展提供器注册基线。
-                同步及异步扩展工厂中的 <code>pi.registerProvider("id", config)</code> 与 <code>pi.registerProvider(provider)</code> 均参与该基线。
-                普通模式会话仍使用所属注册项目的独立模型注册表、认证和 <code>models.json</code>；同一项目的工作区共享项目存储，
-                不同项目不共享认证。管理嵌入使用独立的管理认证与模型存储。全局文件仅作为普通项目存储的首次初始化来源，之后不作为回退。
-              </p>
-              <p>
-                After startup capture, a provider's connection settings are fixed for the daemon lifetime. Later
-                attempts to add a provider, replace an existing provider's configuration, register a native provider, or
-                unregister a provider are no-ops, regardless of source or provider ID. This includes project extensions
-                attempting to add or replace a provider, lifecycle callbacks such as <code>session_start</code>, and
-                <code>/reload</code>. Non-provider Pi extension features continue to load and reload normally.
-              </p>
-
-              <h3>Model list refresh for a known provider</h3>
-              <p>
-                One narrow update is applied after startup: a provider captured in the baseline may refresh
-                <strong>its own model list</strong>. Extensions that fetch an updated catalog typically re-send their
-                complete provider configuration, so PI WEB compares the incoming registration against the recorded
-                baseline and applies it only when both hold:
-              </p>
-              <ul>
-                <li>the provider ID is already in the startup baseline, and</li>
-                <li>
-                  every field except the model list is unchanged — <code>name</code>, <code>baseUrl</code>,
-                  <code>apiKey</code>, <code>api</code>, <code>streamSimple</code>, <code>headers</code>,
-                  <code>authHeader</code>, <code>oauth</code>, and <code>refreshModels</code>.
-                </li>
-              </ul>
-              <p>
-                Anything else stays a no-op, including a provider that was not in the baseline and a known provider
-                whose credentials, base URL, or API surface differ from startup. Function-valued fields cannot be
-                compared by value, so a registration that supplies a new <code>streamSimple</code>,
-                <code>refreshModels</code>, or <code>oauth</code> implementation is treated as a change and ignored.
-              </p>
-              <p>
-                An applied refresh becomes the new comparison point, so a provider can refresh repeatedly. Re-sending an
-                unchanged model list is a replay rather than an update and is ignored. Refreshed models are visible to
-                sessions immediately; no restart and no network request is involved, because the extension has already
-                produced the catalog.
-              </p>
-              <p>
-                Model lists are shared daemon-wide state. If extensions in two workspaces register different model lists
-                for the same provider ID, the last registration wins. A model entry may also carry its own
-                <code>baseUrl</code> and <code>headers</code>, which take precedence over the provider-level values for
-                that model, so an accepted refresh can change where requests for those models are sent. Both are
-                accepted trade-offs: a catalog is treated as a property of the provider rather than of the project, and
-                Pi extensions are trusted daemon code.
-              </p>
-
-              <h3>Provider decisions in the daemon log</h3>
-              <p>
-                Ignored mutations are written to the session-daemon log once per operation and provider ID, so a
-                replaying extension cannot flood the log. Applied model list refreshes are logged every time, with the
-                resulting model count, because each one changes shared runtime state. Neither entry contains provider
-                configuration or credentials, and PI WEB does not show a session warning or notification.
-              </p>
-              <p>
-                This prevents accidental provider, configuration, or credential contamination between projects; it is
-                not a security boundary because Pi extensions remain trusted daemon code.
-              </p>
-              <p>
-                Configure providers before the daemon starts: use the active agent directory's
-                <code>models.json</code>, or install the Pi extension globally in that agent profile. Project Pi extensions
-                and project-level <code>models.json</code> files cannot add providers to PI WEB's shared baseline.
-              </p>
-              <div class="callout warning">
-                <strong>Restart required:</strong> after updating PI WEB—or after installing, removing, or updating a
-                global Pi extension that registers providers—manually restart <code>pi-web-sessiond.service</code>
-                (<code>systemctl --user restart pi-web-sessiond</code>). Restarting only the web/API service and running
-                <code>/reload</code> do not rebuild the baseline.
-              </div>
-            </section>
-
-            <section id="catalog-refresh">
-              <h2>Background model catalog refresh</h2>
-              <p>
-                各模型注册表保持普通项目及管理嵌入的独立身份；provider model catalogs are refreshed over the
-                network only on the session daemon's own background schedule. Requests never start a catalog fetch of
-                their own, so a slow or unreachable provider cannot stall opening the model selector, starting a session,
-                or the auth dialogs on its own account.
-              </p>
-              <p>
-                A refresh that is <em>already</em> in flight can still briefly delay starting or opening a session,
-                because the shared runtime is read while that refresh is running. PI WEB says so while you wait: the
-                session's activity line names the startup step it is on and adds
-                <code>provider model lists are refreshing</code> when a background refresh is running at the same time.
-                That note reports what is happening concurrently, not a proven cause.
-              </p>
-              <p>The session daemon runs the refresh:</p>
-              <ul>
-                <li>
-                  <strong>15 seconds after the daemon starts</strong>, then <strong>hourly</strong>. Pi treats stored
-                  catalogs as fresh for four hours, so most hourly ticks make no network request at all; the shorter tick
-                  only makes sure a due refresh is not delayed to the next tick.
-                </li>
-                <li>
-                  <strong>Immediately after a provider login or logout</strong>, bypassing that freshness window, because
-                  the cached catalog is known to be wrong.
-                </li>
-              </ul>
-              <p>
-                Each run is bounded: it is aborted after <strong>60 seconds</strong>, and a run that times out or cannot
-                reach a provider earns <strong>one retry after five minutes</strong>; a provider that answers with an
-                error status is retried on the next scheduled refresh instead. Failures never clear the stored catalogs
-                — the last successfully fetched models stay in use and the daemon log records what failed. A refresh in
-                flight is also aborted when the daemon shuts down.
-              </p>
-              <p>
-                Models fetched by a background refresh appear the next time a client asks for the model list, so a model
-                selector left open across a refresh may need to be reopened.
-              </p>
-              <p>
-                To turn the background refresh off entirely, set <code>PI_WEB_OFFLINE</code> or <code>PI_OFFLINE</code> in
-                the session daemon's environment and restart it. In offline mode PI WEB performs no provider catalog
-                network requests, including after logins, and sessions use the catalogs already stored in the agent
-                profile. The <code>PI_WEB_SKIP_VERSION_CHECK</code> and <code>PI_SKIP_VERSION_CHECK</code> keys do
-                <strong>not</strong> affect this refresh; they only suppress PI WEB release checks.
-              </p>
-            </section>
-
-            <section id="session-tools">
-              <h2>Session daemon tools</h2>
-              <h3><code>spawnSessions</code></h3>
-              <p>
-                Boolean. Controls whether agents receive the <code>spawn_session</code> tool. Defaults to
-                <code>true</code>. Set it to <code>false</code> if you do not want an agent to start independent PI WEB sessions.
-              </p>
-              <p>Environment override: <code>PI_WEB_SPAWN_SESSIONS=0|1|true|false</code>.</p>
-
-              <h3><code>subsessions</code></h3>
-              <p>
-                Boolean. Controls whether agents receive the tracked-subsession tools:
-                <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>,
-                <code>read_subsession</code>, and <code>yield_to_subsessions</code>. Defaults to <code>true</code> and also
-                requires <code>spawnSessions</code> to be enabled.
-              </p>
-              <p>
-                Tracked subsessions are join-oriented. Calling <code>spawn_subsession</code> returns immediately, so the
-                parent can continue independent work while the child runs. Work whose result the parent does not need to
-                join belongs in the fire-and-forget <code>spawn_session</code> tool instead.
-              </p>
-              <p>
-                A tracked subsession always runs in the spawning session's working directory, so it stays in that
-                workspace's session tree next to its parent. <code>spawn_subsession</code> takes no <code>cwd</code>. For
-                work in another workspace, use <code>spawn_session</code> to create an independent session there.
-              </p>
-              <p>
-                At a join point, after finishing its independent work, the parent calls
-                <code>yield_to_subsessions</code> alone as the final action in its tool batch. Pi ends a tool batch early
-                only when every result in that batch is terminating. If any tracked child is still working, the action
-                ends the current agent run so the parent becomes idle. If none are working, it does not end the run and
-                clearly reports that there is nothing to wait for.
-              </p>
-              <p>
-                A completion notice wakes an idle parent or queues behind in-flight work. Each notice lists any other
-                tracked children still working, so the parent can continue work or call
-                <code>yield_to_subsessions</code> again at the next join point. Further notices arrive automatically; do
-                not poll. The notice includes the child's final output when it fits. If that output is too long, PI WEB
-                omits it entirely instead of adding a truncated duplicate to the parent's context and directs the parent
-                to retrieve it with <code>check_subsession</code>.
-              </p>
-              <p>
-                <code>list_subsessions</code>, <code>check_subsession</code>, and <code>read_subsession</code> never yield
-                or change control flow. They are for deliberate inspection or recovery, not completion polling. While a
-                child works, agent-facing <code>check_subsession</code> and <code>read_subsession</code> withhold partial
-                output and direct the parent to continue independent work or yield at the join point. Output becomes
-                available when the child stops. Included output and transcripts follow a labeled marker and come last,
-                after PI WEB guidance.
-              </p>
-              <p>
-                <code>spawn_session</code> 和 <code>spawn_subsession</code> 都接受可选的 <code>model</code> 参数，
-                其值必须是精确的 <code>provider/model-id</code>，例如 <code>anthropic/claude-sonnet-4-5</code>。
-                设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。
-                用户可以在提示词中通过 <code>#provider/model-id</code> 引用指定模型（见<a href="#prompt-completions">提示词补全</a>），
-                代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
-              </p>
-              <p>
-                In <strong>Settings → Session daemon</strong>, these keys are saved on the selected machine. Restart the
-                session daemon on that machine after changing them.
-              </p>
-              <p>Environment override: <code>PI_WEB_SUBSESSIONS=0|1|true|false</code>.</p>
-
-              <h3><code>askUser</code> and <code>ask_user</code></h3>
-              <p>
-                <code>askUser</code> controls whether agents receive the core <code>ask_user</code> tool. It defaults to
-                <code>true</code>; set it to <code>false</code>, or set <code>PI_WEB_ASK_USER=false</code>, to remove the
-                tool. The environment override accepts <code>0|1|true|false</code> and takes precedence over the config file.
-              </p>
-              <p>
-                Use <strong>Settings → Session daemon → Allow agents to ask questions</strong> to change
-                <code>askUser</code> on the selected machine. An environment override makes the toggle read-only.
-              </p>
-              <p>
-                The tool accepts one set of 1–20 questions. Each question has a unique <code>id</code>, its
-                <code>question</code> text, optional supporting <code>detail</code>, up to 12 options with stable values and
-                user-facing labels, and an optional <code>multiple</code> flag. The browser always adds a
-                <strong>Custom</strong> free-text answer, including when the model supplies no options. No question is
-                required: the user may leave any of them unanswered.
-              </p>
-              <p>
-                Calling <code>ask_user</code> posts the whole set as one browser form and ends the current agent run
-                instead of waiting for the user. The open form is owned by the session daemon, so it survives a browser
-                disconnect, browser reload, or web/API restart while that daemon keeps running. When the user submits,
-                the answers arrive as a follow-up that wakes the session; each question is reported with its selected
-                option values or free text, or explicitly as unanswered.
-              </p>
-              <p>
-                PI WEB confirms a partial submission before sending it and names the unanswered questions. Only one ask
-                can be open per session: a later <code>ask_user</code> call supersedes the earlier one, reports that fact
-                and its unanswered questions to the model, and turns the earlier card into a read-only transcript record.
-                Submitted and cancelled asks likewise remain readable in the transcript.
-              </p>
-              <p>
-                Sending an ordinary chat message while a form is open voids the form: the card closes as cancelled and
-                the model is told its questions went unanswered as part of the turn the message itself starts.
-              </p>
-              <div class="callout warning">
-                <strong>Restart required:</strong> restart the session daemon after changing <code>askUser</code> or after
-                upgrading PI WEB to a version that introduces this tool. For the systemd user service, run
-                <code>systemctl --user restart pi-web-sessiond</code>。
-              </div>
-            </section>
-
-            <section id="project-trust">
-              <h2>项目信任</h2>
-              <p>普通模式遵循 Pi 的项目信任机制。包含需要信任的 <code>.pi</code> 资源的未信任项目不会加载项目设置、扩展、技能、提示词和包；没有此类资源的目录仍可正常启动会话。升级不会自动把已有项目设为可信或改写既有决定。</p>
-              <p>添加项目时可显式勾选“信任此项目”；未操作复选框不会写入新的决定。已注册工作区可在操作菜单中切换“已信任”。写入路径由服务器解析，远端决定保存在工作区所属机器上。</p>
-              <p>决定保存在当前 Pi agent 配置目录的 <code>trust.json</code>，与 Pi CLI 共用。Pi 全局 <code>settings.json</code> 的 <code>defaultProjectTrust</code> 默认为 <code>ask</code>；PI WEB 不弹出运行时信任对话框，因此无决定的 <code>ask</code> 和 <code>never</code> 都跳过需要信任的项目资源，<code>always</code> 允许加载。全局扩展的 <code>project_trust</code> 处理器仍按 Pi 的优先级参与决定并可保存决定。这不是 <code>.pi-web/config.json</code> 的键。</p>
-              <p>决定在下次创建或重新打开会话运行时时读取；菜单切换不会立即影响已运行会话，<code>/reload</code> 保留当前运行时的信任状态。项目级 provider 认证、模型及 <code>settings.preferences.json</code> 保持原有独立存储，不迁入共享 agent 配置。管理嵌入不访问普通模式信任接口，继续采用独立授权资源与沙箱。</p>
-            </section>
-
-            <section id="extension-dialogs">
-              <h2>扩展对话框</h2>
-              <p>
-                Pi 扩展可以通过 <code>ctx.ui.confirm()</code>、<code>ctx.ui.select()</code> 和
-                <code>ctx.ui.input()</code> 向用户提问，包括从 <code>session_start</code> 钩子以及运行中的
-                <code>tool_call</code> 钩子发起。PI WEB 会在会话记录中以内联方式显示这些对话框，并通过独立的
-                会话守护进程通道返回回答，不经过提示词队列，因此等待回答的 <code>tool_call</code> 钩子不会阻塞运行。
-                对话框支持始终启用，没有单独的启用开关。行为细节和扩展开发说明见
-                <a href="plugins#pi-extension-dialogs">PI WEB 中的 Pi 扩展对话框</a>。
-              </p>
-              <p>
-                <code>extensionDialogsTimeoutMs</code> 是无人处理对话框时的安全超时：会话守护进程等待回答的最长时间。
-                超时后将以对应类型的取消值结束对话框，确认框为 <code>false</code>，选择框和输入框为
-                <code>undefined</code>。默认值为 <code>300000</code>（5 分钟）；设为 <code>0</code> 时永久等待。
-                扩展自身设置的 <code>timeout</code> 仍然生效，最终期限取两者中较早的时间。
-              </p>
-              <div class="callout warning">
-                <strong>需要重启：</strong><code>extensionDialogsTimeoutMs</code> 直接在全局配置文件中编辑。
-                修改后需要重启会话守护进程；使用 systemd 用户服务时运行
-                <code>systemctl --user restart pi-web-sessiond</code>.
-              </div>
-            </section>
-
-            <section id="session-defaults">
-              <h2>新会话默认值</h2>
-              <p>模型和思考等级选择器中的星标仅影响之后创建的会话，不修改当前会话。默认值按机器上的项目和普通/管理模式分别保存；同一项目的工作区共享普通模式偏好，项目级覆盖仍按现有优先级生效。</p>
-              <p>偏好保存在项目作用域的 <code>settings.preferences.json</code>，不写共享 agent 的 <code>settings.json</code>，也不新增可提交的项目配置文件。普通模式与项目认证存储同目录；管理模式使用独立的 <code>management-embed/projects/&lt;hash&gt;/</code>，无法唯一归属项目时使用 <code>management-embed/orphan/&lt;cwdHash&gt;/</code>。</p>
-            </section>
-
-            <section id="prompt-completions">
-              <h2>提示词补全</h2>
-              <p>聊天输入框会在键入以下三个触发字符时打开补全菜单：</p>
-              <ul>
-                <li>在草稿开头键入 <code>/</code> 可补全会话命令。声明了参数的命令会在名称旁显示提示，选中后在光标处显示一次性灰色提示，下一次编辑或移动光标即消失。</li>
-                <li>
-                  <code>@</code> 用于补全文件路径：<code>@</code> 显示已跟踪文件，<code>@ </code>（先键入
-                  <code>@</code>，再键入空格）或 <code>!@</code> 显示所有文件。选中后会把 <code>@path</code>
-                  引用插入草稿；路径包含空格时会自动加引号。
-                </li>
-                <li>
-                  <code>#</code> 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。
-                  选中后会把 <code>#provider/model-id</code> 引用插入草稿，提示代理应使用该模型执行请求，
-                  例如作为 <code>spawn_session</code> 的 <code>model</code> 参数。
-                </li>
-              </ul>
-            </section>
-
-
-            <section id="completion-tools">
-              <h2>Optional completion tools</h2>
-              <p>
-                File and path <code>@</code> completions work without extra tools. If <code>fzf</code> is available on the
-                PI WEB server's <code>PATH</code>, PI WEB uses it to improve completion filtering and ranking; otherwise it
-                falls back to built-in ranking.
-              </p>
-              <div class="doc-actions">
-                <a class="button primary" href="install">Install guide</a>
-                <a class="button" href="config.md">Markdown reference</a>
-              </div>
-            </section>
-          </div>
-        </div>
-      </section>
-    </main>
+<details class="config-details"><summary>切换目录或运行第二实例</summary><ul><li><strong>迁移：</strong> 新数据目录没有原注册表或归档。复制前停服务；归档同时复制 <code>archived-sessions.json</code> 和 <code>archived-sessions/</code>。</li><li><strong>第二实例：</strong> 使用独立数据目录、daemon endpoint 和 Web 端口，一个目录仅由一个活跃 daemon 所有。</li><li><strong>agent 状态：</strong> 使用内置 SDK 数据布局，不转换 profile 或移动托管归档。</li><li><strong>有效路径：</strong> daemon 启动时固定 agent 目录，Web-only 重启不改变。</li></ul></details>
+<details class="config-details"><summary>代理进程继承环境</summary><ul><li>普通代理 shell、终端、子会话继承 daemon 环境及解析的 Pi 路径；模型凭据仍遵循项目 registry。</li><li><code>NODE_ENV</code> 和 <code>PORT</code> 从代理进程环境移除。</li><li><code>PI_WEB_SESSION=1</code> 标记嵌套进程，继承的 <code>PI_WEB_*</code> 仍指向活跃宿主实例。</li><li>不要从需要保留的活跃会话内重启宿主 daemon。</li></ul></details>
+<p>普通模式模型、认证及默认值按模式 × 项目托管，不写回全局 agent 设置；管理嵌入独立。详见 <a href="config.md#config-files">项目认证存储</a>、<a href="config.md#ordinary-mode-tool-audit">普通审计</a>、<a href="config.md#management-mode-elasticsearch-audit">管理审计</a>及 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p><p>本地保留旧 agent.command/agent.dir、PI_WEB_AGENT_COMMAND/PI_WEB_AGENT_DIR/PI_WEB_AGENT_SESSION_DIR 与 Windows companion 输入，公开 v2 profile 不扩展；废弃输入通过诊断提示，不自动重写配置。详见 <a href="config.md#agent-runtime">兼容输入</a>。</p></section>
+<section id="providers"><h2>提供器、目录与项目信任</h2>
+<div class="table-scroll" role="region" aria-label="提供器与信任配置" tabindex="0">
+<table class="reference-table ">
+<caption>提供器与信任配置</caption>
+<thead><tr>
+<th scope="col">变更</th>
+<th scope="col">位置 / 范围</th>
+<th scope="col">默认 / 行为</th>
+<th scope="col">生效 / 重启</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><span id="pi-extension-provider-baseline"></span>提供器定义 / 连接</th>
+<td>所属项目的托管 <code>models.json</code>、环境凭据或全局 Pi 扩展</td>
+<td>普通模式仅同项目 registry 共享，管理模式独立；项目扩展不能新增/替换/删除提供器。</td>
+<td>重启 daemon</td>
+</tr>
+<tr>
+<th scope="row">已知提供器模型列表</th>
+<td>可信 Pi 扩展</td>
+<td>仅列表变化可刷新；作用于精确 owning-project registry。</td>
+<td>接受后立即应用，无需重启</td>
+</tr>
+<tr>
+<th scope="row"><span id="catalog-refresh"></span>后台目录刷新</th>
+<td>daemon 自动调度</td>
+<td>启用；启动 15 秒后，之后每小时检查。</td>
+<td>自动；重开模型选择器查看</td>
+</tr>
+<tr>
+<th scope="row">离线模式<br><code>PI_WEB_OFFLINE / PI_OFFLINE</code></th>
+<td>Web/API 与 daemon 环境</td>
+<td>未设置（关闭），任意非空值禁止版本检查和目录网络刷新。</td>
+<td>Web/API 与 daemon 重启</td>
+</tr>
+<tr>
+<th scope="row">跳过版本检查<br><code>PI_WEB_SKIP_VERSION_CHECK / PI_SKIP_VERSION_CHECK</code></th>
+<td>Web/API 环境</td>
+<td>未设置（关闭），任意非空值只禁止版本检查， <strong>不禁止</strong> 目录刷新。</td>
+<td>重启 Web/API</td>
+</tr>
+<tr>
+<th scope="row"><span id="project-trust"></span>项目信任</th>
+<td>Pi 信任设置 / 工作区菜单</td>
+<td>项目代码以代理权限执行，没有浏览器运行时信任弹窗。</td>
+<td>每次会话启动评估</td>
+</tr>
+</tbody></table></div>
+<p><strong>离线 / 跳过标记：</strong> 清空或移除关闭，字符串 <code>false</code> 和 <code>0</code> 也会启用。</p>
+<details class="config-details"><summary>项目信任：加载哪些资源？</summary>
+<div class="table-scroll" role="region" aria-label="信任决定优先级" tabindex="0">
+<table class="reference-table ">
+<caption>信任决定优先级</caption>
+<thead><tr>
+<th scope="col">条件</th>
+<th scope="col">结果</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">无需要信任的资源</th>
+<td>正常加载。</td>
+</tr>
+<tr>
+<th scope="row">全局扩展通过 <code>project_trust</code></th>
+<td>使用该决定。</td>
+</tr>
+<tr>
+<th scope="row">已保存在 <code>trust.json</code></th>
+<td>使用保存决定，可由 Pi CLI 或工作区菜单设置。</td>
+</tr>
+<tr>
+<th scope="row">无决定； <code>defaultProjectTrust=always</code></th>
+<td>加载项目资源。</td>
+</tr>
+<tr>
+<th scope="row">无决定； <code>defaultProjectTrust=never</code> 或 <code>ask</code></th>
+<td>跳过项目资源，无浏览器运行时信任弹窗。</td>
+</tr>
+</tbody></table></div>
+</details>
+<details class="config-details"><summary>目录刷新时序与失败</summary><ul><li><strong>新鲜度：</strong> Pi 四小时内视为新鲜，多数每小时检查不联网。</li><li><strong>登录 / 注销：</strong> 立即刷新对应 registry，绕过新鲜窗口，离线除外。</li><li><strong>期限：</strong> 60 秒。超时或不可达五分钟后重试一次；HTTP 错误等待下次计划。</li><li><strong>失败：</strong> 保留最后成功目录并记录问题。</li><li><strong>刷新期间：</strong> 启动可短暂等待相应 runtime 状态，活动行报告并发刷新。</li></ul></details>
+<details class="config-details"><summary>提供器安全与日志</summary><ul><li>提供器注册/配置属于运行时基线， <code>/reload</code> 不能重建。</li><li>仅同项目 registry 列表更新共享，同项目两个工作区最后注册生效；不影响其他项目或管理模式。</li><li>模型条目可覆盖 URL/header，扩展为可信代码，不是安全边界。</li><li>daemon 日志记录提供器决定，不记录凭据/配置，不发浏览器通知。</li></ul></details>
+</section>
+<section id="environment"><h2>环境覆盖</h2>
+<p>范围和重启条件见上面的 JSON 设置；环境值优先于机器配置。</p>
+<div class="table-scroll" role="region" aria-label="JSON 键 → 环境覆盖" tabindex="0">
+<table class="reference-table ">
+<caption>JSON 键 → 环境覆盖</caption>
+<thead><tr>
+<th scope="col">JSON 键</th>
+<th scope="col">环境变量</th>
+<th scope="col">值</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row"><code>host</code></th>
+<td><code>PI_WEB_HOST</code></td>
+<td>监听地址</td>
+</tr>
+<tr>
+<th scope="row"><code>port</code></th>
+<td><code>PI_WEB_PORT</code>，其次 <code>PORT</code></td>
+<td>端口号</td>
+</tr>
+<tr>
+<th scope="row"><code>allowedHosts</code></th>
+<td><code>PI_WEB_ALLOWED_HOSTS</code></td>
+<td>逗号分隔主机或 <code>true</code></td>
+</tr>
+<tr>
+<th scope="row"><code>maxUploadBytes</code></th>
+<td><code>PI_WEB_MAX_UPLOAD_BYTES</code></td>
+<td>字节</td>
+</tr>
+<tr>
+<th scope="row"><code>spawnSessions</code></th>
+<td><code>PI_WEB_SPAWN_SESSIONS</code></td>
+<td><code>0 | 1 | true | false</code></td>
+</tr>
+<tr>
+<th scope="row"><code>subsessions</code></th>
+<td><code>PI_WEB_SUBSESSIONS</code></td>
+<td><code>0 | 1 | true | false</code></td>
+</tr>
+<tr>
+<th scope="row"><code>askUser</code></th>
+<td><code>PI_WEB_ASK_USER</code></td>
+<td><code>0 | 1 | true | false</code></td>
+</tr>
+<tr>
+<th scope="row"><code>environmentFacts</code></th>
+<td><code>PI_WEB_ENVIRONMENT_FACTS</code></td>
+<td><code>0 | 1 | true | false</code></td>
+</tr>
+</tbody></table></div>
+<p><strong>仅环境设置：</strong> 配置路径见 <a href="#files">配置文件</a>；daemon endpoint 见 <a href="#network">网络</a>；目录覆盖见 <a href="#storage">存储</a>；离线标记见 <a href="#providers">提供器</a>。</p>
+</section>
+<section id="worktree-pre-remove-hook"><h2>工作区清理钩子</h2>
+<p>可选可执行脚本位于 <code>.pi-web/hooks/worktree-pre-remove</code>，可在删除前停止容器或释放资源。</p>
+<div class="table-scroll" role="region" aria-label="钩子契约" tabindex="0">
+<table class="reference-table ">
+<caption>钩子契约</caption>
+<thead><tr>
+<th scope="col">项</th>
+<th scope="col">行为</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">位置</th>
+<td>相对删除命令执行的工作区，通常为项目主工作区。</td>
+</tr>
+<tr>
+<th scope="row">参数</th>
+<td>恰好一个绝对路径：被删除工作区。</td>
+</tr>
+<tr>
+<th scope="row">成功（<code>0</code>)</th>
+<td>继续删除。</td>
+</tr>
+<tr>
+<th scope="row">非零失败</th>
+<td>阻止删除，保留磁盘工作区。</td>
+</tr>
+<tr>
+<th scope="row">不存在 / 不可执行</th>
+<td>跳过钩子，正常删除。</td>
+</tr>
+<tr>
+<th scope="row">输出</th>
+<td>在工作区删除终端中显示。</td>
+</tr>
+</tbody></table></div>
+<p><a href="config.md#worktree-pre-remove-hook">脚本示例与执行细节 →</a></p>
+</section>
+<div class="doc-actions"><a class="button" href="config.md">详细 Markdown 参考</a></div></div></div></main>
 
     <footer class="site-footer">
       <div class="container footer-inner">
-        <span>PI WEB docs</span>
+        <span>PI WEB 文档</span>
         <div class="footer-links">
-          <a href="./">Home</a>
-          <a href="remote-first">Remote-first</a>
-          <a href="machines">Fleet</a>
-          <a href="install">Install</a>
-          <a href="config">Config</a>
-          <a href="plugins">Plugins</a>
-          <a href="faq">FAQ</a>
-          <a href="https://github.com/jmfederico/pi-web">GitHub</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/config" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/config">Dev</a>
+          <a href="./">首页</a>
+          <a href="remote-first">远端优先</a>
+          <a href="machines">机器</a>
+          <a href="install">安装</a>
+          <a href="config">配置</a>
+          <a href="plugins">插件</a>
+          <a href="faq">常见问题</a>
+          <a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation">GitHub</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/config" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/config">开发版</a>
           </span>
         </div>
       </div>
     </footer>
     <script src="site.js"></script>
-  </body>
-</html>
+
+</body></html>

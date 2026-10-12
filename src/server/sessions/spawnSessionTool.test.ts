@@ -23,6 +23,14 @@ describe("createSpawnSessionToolDefinition", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "已在 /repos/a-feature 启动独立会话 new-1。" });
   });
 
+  it("describes a fully independent session and restricts it to explicit requests", () => {
+    const tool = createSpawnSessionToolDefinition("/repos/a", { spawn: vi.fn() });
+
+    expect(tool.description).toContain("仅在用户或当前工作流明确要求");
+    expect(tool.promptSnippet).toContain("仅用于明确请求");
+    expect(tool.description).not.toMatch(/subsession|child|parent/i);
+  });
+
   it("forwards omitted cwd as undefined and omits a missing dispatching model and thinking level", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "new-2", cwd: "/repos/a" }));
     const tool = createSpawnSessionToolDefinition("/repos/a", { spawn });
@@ -61,6 +69,7 @@ describe("createSpawnSessionToolDefinition", () => {
         model: { description: expect.stringMatching(/provider\/model-id.*仅在明确要求.*#provider\/model-id.*省略时继承/s) },
       },
     });
+    expect(JSON.stringify(tool.parameters)).not.toContain("anthropic/claude-sonnet-4-5");
   });
 
   it("propagates the spawn callback error so the agent loop reports it", async () => {

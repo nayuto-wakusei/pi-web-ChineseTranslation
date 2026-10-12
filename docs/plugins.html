@@ -1,72 +1,56 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PI WEB plugins — extend the Pi web UI</title>
-    <meta
-      name="description"
-      content="Use built-in PI WEB plugins and develop trusted local UI plugins for the Pi Coding Agent web UI."
-    />
-    <link rel="canonical" href="https://pi-web.dev/plugins" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="PI WEB" />
-    <meta property="og:title" content="PI WEB plugins — extend the Pi web UI" />
-    <meta
-      property="og:description"
-      content="Customize PI WEB with trusted browser-side plugins for actions, workspace panels, labels, terminals, and files."
-    />
-    <meta property="og:url" content="https://pi-web.dev/plugins" />
-    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
-    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="PI WEB plugins — extend the Pi web UI" />
-    <meta
-      name="twitter:description"
-      content="Customize PI WEB with trusted browser-side plugins for actions, workspace panels, labels, terminals, and files."
-    />
-    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png" />
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<html lang="zh-CN"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PI WEB 插件与 Pi 包：工具、工作流与恢复</title>
+    <meta name="description" content="使用可信 PI WEB 插件和 Pi 包定制工作区面板、工具、文件预览及会话集成，了解安装、公开契约与离线恢复。">
+    <link rel="canonical" href="https://pi-web.dev/plugins">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PI WEB">
+    <meta property="og:title" content="PI WEB 插件与 Pi 包">
+    <meta property="og:description" content="使用可信 PI WEB 插件和 Pi 包定制工作区面板、工具、文件预览及会话集成，了解安装、公开契约与离线恢复。">
+    <meta property="og:url" content="https://pi-web.dev/plugins">
+    <meta property="og:image" content="https://pi-web.dev/assets/pi-web-banner.png">
+    <meta property="og:image:alt" content="PI WEB browser UI for persistent Pi Coding Agent sessions">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="PI WEB 插件与 Pi 包">
+    <meta name="twitter:description" content="使用可信 PI WEB 插件和 Pi 包定制工作区面板、工具、文件预览及会话集成，了解安装、公开契约与离线恢复。">
+    <meta name="twitter:image" content="https://pi-web.dev/assets/pi-web-banner.png">
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
     <script>
       (() => {
         const theme = window.localStorage.getItem("pi-web-theme");
         if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
-            <a href="remote-first">Remote-first</a>
-            <a href="machines">Fleet</a>
-            <a href="install">Install</a>
-            <a href="config">Config</a>
-            <a href="plugins" aria-current="page">Plugins</a>
-            <a href="faq">FAQ</a>
+            <a href="remote-first">远端优先</a>
+            <a href="machines">机器</a>
+            <a href="install">安装</a>
+            <a href="config">配置</a>
+            <a href="plugins" aria-current="page">插件</a>
+            <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation" aria-label="PI WEB GitHub 仓库">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.7 5.47 7.79.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.56-.01-.57.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
-                />
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.7 5.47 7.79.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.56-.01-.57.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"></path>
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
-              <span data-theme-icon aria-hidden="true">◐</span>
-              <span data-theme-label>Theme</span>
+            <button class="theme-toggle" type="button" data-theme-toggle="" aria-label="切换明暗主题">
+              <span data-theme-icon="" aria-hidden="true">◐</span>
+              <span data-theme-label="">主题</span>
             </button>
           </div>
         </div>
@@ -76,506 +60,318 @@
     <main>
       <section class="page-hero">
         <div class="container">
-          <p class="eyebrow"><span class="pulse"></span> Plugin development</p>
-          <h1>Customize PI WEB with UI plugins.</h1>
-          <p>
-            Plugins are trusted browser-side ES modules. They can add actions, workspace panels, and compact workspace
-            labels to the PI WEB UI.
-          </p>
+          <p class="eyebrow"><span class="pulse"></span> 插件与 Pi 包</p>
+          <h1>让 PI WEB 符合你的工作流。</h1>
+          <p>使用可信插件添加面板、工具和工作区工作流。安装现成的包，或请求代理开发，无需修改 PI WEB。</p>
         </div>
       </section>
-
       <section class="section compact">
         <div class="container doc-layout">
-          <aside class="toc" aria-label="Plugin page contents">
-            <strong>On this page</strong>
-            <a href="#extend">What can be extended</a>
-            <a href="#packages-vs-plugins">Pi packages, extensions, and plugins</a>
+          <aside class="toc" aria-label="插件页目录">
+            <strong>本页目录</strong>
+            <a href="#what-can-be-built">可实现的功能</a>
+            <a href="#pi-packages-extensions-and-plugins">Pi 包、扩展与插件</a>
+            <a href="#how-plugins-work">插件如何运行</a>
+            <a href="#install-and-manage">安装与管理</a>
+            <a href="#remote-machines">远端机器</a>
+            <a href="#included-tools-and-optional-packages">内置工具与可选包</a>
             <a href="#pi-extension-dialogs">Pi 扩展对话框</a>
-            <a href="#ask-ai">What to ask AI to build</a>
-            <a href="#example">Canonical example</a>
-            <a href="#built-in-plugins">Built-in plugins</a>
-            <a href="#manage-plugins">Manage PI WEB plugins</a>
-            <a href="#remote-machine-plugins">Remote machine plugins</a>
-            <a href="#production">Production usage</a>
-            <a href="#agent-docs">AI-friendly docs</a>
-            <a href="#develop">Develop and debug</a>
-            <a href="#trust">Trust model</a>
+            <a href="#agent-development">代理开发</a>
+            <a href="#trust-and-recovery">信任与恢复</a>
           </aside>
-
-          <div class="doc-content">
-            <section id="extend">
-              <h2>What can be extended</h2>
-              <p>Plugins can add small, focused UI extensions to PI WEB:</p>
-              <ul>
-                <li><strong>Action palette commands</strong> for custom workflows.</li>
-                <li><strong>Workspace tools and panels</strong> next to Files, Git, and Terminal.</li>
-                <li><strong>Workspace labels</strong> in the workspace list, header, and status bar.</li>
-                <li><strong>Static assets</strong> served from the plugin folder.</li>
-                <li><strong>Browser-side integrations</strong> using documented PI WEB plugin context helpers.</li>
-              </ul>
-              <p>
-                插件可声明浏览器入口、服务端入口或两者。服务端入口在会话守护进程中运行，可持久化插件数据、
-                提供工作区、使用宿主能力，并通过请求或流式通道与浏览器入口通信。使用公开上下文及能力接口，
-                不依赖私有源码路径。插件是可信代码，管理嵌入仍保留独立授权与资源边界。
-              </p>
-              <div class="callout">
-                The plugin API is intentionally limited and actively developed. Feedback is appreciated: if an extension
-                point is missing, unclear, or awkward, please
-                <a href="https://github.com/jmfederico/pi-web/issues">open a GitHub issue</a>.
-              </div>
-            </section>
-
-            <section id="packages-vs-plugins">
-              <h2>Pi packages, Pi extensions, and PI WEB plugins</h2>
-              <p>
-                <strong>Pi packages</strong> are distribution bundles managed by Pi (<code>pi install</code>,
-                <code>pi remove</code>, <code>pi update</code>). A Pi package can provide Pi extensions, skills, prompt
-                templates, themes, context/system prompt files, and/or PI WEB browser plugins. Many Pi packages do not
-                include a PI WEB plugin.
-              </p>
-              <p>
-                <strong>Pi extensions</strong> are runtime modules loaded by the session daemon. They can register Pi
-                tools, hooks, commands, and model providers. They are not PI WEB plugins.
-              </p>
-              <p>
-                <strong>PI WEB 插件</strong> 可从内置、本地、开发目录和已安装的 Pi 包中发现。浏览器入口扩展界面，
-                服务端入口在会话守护进程中运行；模型提供器仍由 Pi 扩展注册。启用或禁用插件与安装、移除或更新 Pi 包是不同操作。
-              </p>
-              <p>
-                Use <strong>Settings → Pi packages</strong> to view configured Pi packages or install/remove/update a
-                package. Enter only the package source, such as <code>npm:@scope/package</code>, a git/URL source, or a
-                local path. PI WEB uses Pi's default package location, equivalent to <code>pi install &lt;source&gt;</code>,
-                and does not ask for an install location.
-              </p>
-              <p>
-                When machine federation is enabled, <strong>Settings → Pi packages</strong> targets the currently selected
-                machine. The panel labels whether changes will run on the local/gateway machine or on a selected remote
-                PI WEB machine. If an older or unavailable remote PI WEB server does not expose package-management routes,
-                PI WEB reports the package management operation as unsupported or unavailable instead of silently falling
-                back to the gateway.
-              </p>
-              <p>
-                使用 <strong>设置 → PI WEB 插件</strong> 管理所选机器上已发现插件的启用状态和配置。
-                远端不支持该设置时会明确报错，不会回退到网关。浏览器入口变更需要刷新页面；影响服务端入口的
-                启用状态、配置、包来源或版本变更需要先手动重启目标机器的会话守护进程，再刷新页面。必需的 Terminal 插件不能禁用。
-              </p>
-              <p>
-                After installing, removing, or updating a Pi package, type <code>/reload</code> in each idle PI WEB
-                session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt
-                templates, themes, and context/system prompt files. Reload the browser page separately for newly
-                discovered or changed PI WEB browser plugins. 包含 <code>serverModule</code> 的插件还需要手动重启
-                <code>pi-web-sessiond.service</code>。A provider-registering Pi extension follows a separate
-                daemon-start policy; see
-                <a href="config#pi-extension-provider-baseline">Pi extension provider baseline</a>.
-              </p>
-            </section>
-
-            <section id="pi-extension-dialogs">
-              <h2>PI WEB 中的 Pi 扩展对话框</h2>
-              <p>
-                运行在 PI WEB 会话守护进程中的 Pi 扩展可以通过 <code>ctx.ui.confirm()</code>、
-                <code>ctx.ui.select()</code> 和 <code>ctx.ui.input()</code> 向用户提问。对于这三种方法，
-                <code>ctx.hasUI</code> 确实有效：调用后会在会话记录中以内联方式显示对话框卡片，包括会话仍在启动时
-                由 <code>session_start</code> 钩子发起的对话框以及运行中的 <code>tool_call</code> 钩子对话框，
-                并最终返回用户的实际回答。
-              </p>
-              <p>
-                回答通过独立的会话守护进程通道传递，不进入提示词队列，因此等待回答的 <code>tool_call</code> 钩子
-                不会阻塞运行。打开的对话框可在浏览器刷新后恢复，多个标签页中最先提交的回答生效。中止运行或替换运行时
-                会立即以对应类型的取消值结束未回答的对话框，确认框为 <code>false</code>，选择框和输入框为
-                <code>undefined</code>。扩展自身的 <code>timeout</code> 与守护进程的
-                <code>extensionDialogsTimeoutMs</code> 安全超时同时生效，最终期限取两者中较早的时间；后者默认 5 分钟，
-                设为 <code>0</code> 时永久等待。其他 <code>ExtensionUIContext</code> 能力（组件、状态、编辑器和
-                <code>custom</code>）仍为空实现，即使 <code>hasUI === true</code> 也不可用。
-              </p>
-              <p>
-                完整行为说明和扩展开发指南见 <a href="plugins.md">plugins.md</a>；超时配置见配置参考中的
-                <a href="config#extension-dialogs">扩展对话框</a>。
-              </p>
-            </section>
-
-            <section id="ask-ai">
-              <h2>What to ask AI to build</h2>
-              <p>
-                You do not need to hand-code plugins. Give an AI agent a clear goal, the workspace/project facts it
-                should use, and the PI WEB plugin rules.
-              </p>
-              <ul>
-                <li>Show a workspace badge from a repo file, environment file, branch name, container, or dev URL.</li>
-                <li>Add a workspace panel that summarizes project-specific health, commands, links, or runbooks.</li>
-                <li>Add action-palette commands for common project workflows or prompts.</li>
-                <li>Add links to local services, preview deployments, dashboards, CI, logs, or docs.</li>
-              </ul>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Prompt: create a plugin</strong>
-                  <button class="copy-button" data-copy="#plugin-create-prompt">Copy</button>
-                </div>
-                <pre id="plugin-create-prompt"><code>Build a PI WEB plugin for this project.
-Goal: &lt;describe the UI behavior&gt;.
-Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins
-Full API reference:
-https://pi-web.dev/plugins.md
-Create it as a local plugin under ~/.pi-web/plugins/&lt;plugin-id&gt;.
-Use the appropriate extension points from the docs.
-Validate by checking /pi-web-plugins/manifest.json and explain how to reload/debug it.
-Do not modify PI WEB itself.</code></pre>
-              </div>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Prompt: improve a plugin</strong>
-                  <button class="copy-button" data-copy="#plugin-improve-prompt">Copy</button>
-                </div>
-                <pre id="plugin-improve-prompt"><code>Improve the PI WEB plugin at &lt;path&gt;.
-Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins
-Full API reference:
-https://pi-web.dev/plugins.md
-Keep the plugin compatible with the documented v1 API.
-After editing, check the manifest endpoint and browser-console failure cases.</code></pre>
-              </div>
-            </section>
-
-            <section id="example">
-              <h2>Canonical example</h2>
-              <p>
-                PI WEB ships a real bundled <strong>Info</strong> plugin. It is intentionally small while still using all
-                core contribution types: one action, one workspace label, and one workspace panel.
-              </p>
-              <p>
-                Bundled PI WEB plugins are developed as TypeScript in the repository, while their package metadata
-                points at the built JavaScript ES modules that the browser loads. <code>npm run dev:web</code> watches and
-                rebuilds bundled plugin TS into <code>dist/pi-web-plugins/</code> during development, and <code>npm run build</code>
-                emits JS before release packaging.
-              </p>
-              <ul>
-                <li><code>pi-web-plugins/info/package.json</code> shows the required metadata shape.</li>
-                <li>浏览器入口必须显式声明 <code>browserRoot</code>，且 <code>module</code> 必须位于该包内目录中。只有声明目录中的浏览器产物可以公开读取；不要放入私密配置或服务端代码。</li>
-                <li>缺少 <code>browserRoot</code> 的旧浏览器清单会被跳过并报错，不自动改写插件或用户数据。服务端专用插件不得声明该字段。</li>
-                <li><code>core</code>、<code>themes</code>、<code>machine.*</code>、<code>pi-web</code>、<code>pi-web.*</code> 为保留命名空间；只有受信任的内置来源可使用 <code>pi-web</code> 命名空间。</li>
-                <li>可选 <code>defaultEnabled: false</code> 让插件默认不启用，显式 <code>enabled</code> 设置优先。内置 Terminal 不接受普通配置禁用。</li>
-                <li><code>pi-web-plugins/info/pi-web-plugin.ts</code> is the skeleton: metadata and contribution definitions.</li>
-                <li><code>pi-web-plugins/info/infoInternals.ts</code> holds the bundled panel and action implementation, which you can ignore or replace when copying the plugin.</li>
-                <li><code>dist/pi-web-plugins/info/pi-web-plugin.js</code> is the built browser module in a checkout.</li>
-              </ul>
-              <p>普通终端由内置 Terminal 插件独立提供浏览器面板、PTY 和 request/channel 通信。正常启动与仅内置插件启动都必须有来自内置来源、机器专属且包含浏览器和服务端入口的 Terminal；缺失、禁用、激活失败或健康检查失败会阻止启动，不回退到宿主终端。浏览器清单必须符合当前生命周期版本并明确提供 <code>terminalMode</code>，旧清单会报错。管理嵌入不能使用该普通终端，受控命令执行仍使用独立权限与沙箱。</p>
-              <p>更新后需同步重启 Web 和会话守护进程，再刷新浏览器。需要修复配置时，可显式运行 <code>pi-web plugins safe-start set none --restart</code> 进入不启用服务端插件的恢复模式；该模式不提供普通终端或工作区移除命令。修复后运行 <code>pi-web plugins safe-start clear --restart</code> 恢复正常模式。旧终端导航链接与机器范围内的选择偏好保留，不自动重写插件或用户数据。</p>
-              <p>
-                Read it on GitHub:
-                <a href="https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/info">pi-web-plugins/info</a>.
-                If you copy it, choose a new plugin id so it does not conflict with the bundled <code>info</code> plugin.
-                Its panel also doubles as an always-available PI WEB status view: it renders the host-provided
-                <code>context.state.piWebStatus</code> without issuing its own requests, and its action copies a
-                plain-text diagnostics summary suitable for bug reports.
-              </p>
-              <p>
-                The bundled <code>updates</code> plugin demonstrates dynamic <code>visible</code> and <code>badge</code>
-                callbacks for tabs that only appear when the host has status messages or needs extra install visibility.
-              </p>
-            </section>
-
-            <section id="built-in-plugins">
-              <h2>Built-in plugins</h2>
-              <p>
-                PI WEB ships core, discoverable plugins in the main <code>@chainingintention/pi-web-cn</code> npm package.
-                Updates and Workspace Tasks load directly from PI WEB. Relays ships as a real Pi package and is installed
-                automatically for the active agent profile, so it also requires no manual <code>pi install</code> step.
-              </p>
-              <p>
-                Built-in plugins can be managed from <strong>Settings → PI WEB plugins</strong> or with the top-level
-                <code>plugins</code> config key.
-              </p>
-
-              <h3>Updates</h3>
-              <p>
-                <strong>Updates</strong> adds a conditional <strong>Updates</strong> workspace tab with PI WEB update,
-                restart, and installed-service guidance, plus a <strong>Check for PI WEB Updates</strong> action. It is
-                built into PI WEB, enabled by default, and uses the selected machine's plugin copy when machine
-                federation is active.
-              </p>
-              <ul>
-                <li>Plugin id: <code>updates</code></li>
-                <li>Selected-machine status refreshes every 15 minutes while a browser tab is connected.</li>
-                <li>Automatic npm release lookups are cached for six hours; the action bypasses the caches and checks immediately.</li>
-              </ul>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Disable Updates</strong>
-                  <button class="copy-button" data-copy="#updates-disable">Copy</button>
-                </div>
-                <pre id="updates-disable"><code>{
-  "plugins": {
-    "updates": { "enabled": false }
-  }
-}</code></pre>
-              </div>
-
-              <h3>Workspace Tasks</h3>
-              <p>
-                <strong>Workspace Tasks</strong> adds a <strong>Tasks</strong> workspace tab for running configured shell
-                commands in dedicated PI WEB terminals. It is built into PI WEB and enabled by default.
-              </p>
-              <ul>
-                <li>Plugin id: <code>workspace-tasks</code></li>
-                <li>Config file: <code>.pi-web/tasks.json</code></li>
-              </ul>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Disable Workspace Tasks</strong>
-                  <button class="copy-button" data-copy="#workspace-tasks-disable">Copy</button>
-                </div>
-                <pre id="workspace-tasks-disable"><code>{
-  "plugins": {
-    "workspace-tasks": { "enabled": false }
-  }
-}</code></pre>
-              </div>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Example .pi-web/tasks.json</strong>
-                  <button class="copy-button" data-copy="#workspace-tasks-config">Copy</button>
-                </div>
-                <pre id="workspace-tasks-config"><code>{
+          <div class="doc-content"><p>使用工作区工具、快捷操作和集成定制 PI WEB。可以安装现成的包，也可以让代理为具体工作流创建插件，无需修改 PI WEB 本身。</p>
+<p>本指南说明可实现的功能和使用方式；实现时请查阅<a href="#agent-development">公开契约与示例</a>，不要把本页作为第二份 API 声明。</p>
+<p><a id="what-can-be-built"></a><span id="overview"></span><span id="possibilities"></span><span id="extend"></span></p>
+<h2>可实现的功能</h2>
+<div class="table-scroll" role="region" tabindex="0" aria-label="参考表"><table class="reference-table">
+<thead>
+<tr>
+<th scope="col">目标</th>
+<th scope="col">插件功能</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>展示项目健康状态、服务链接、环境信息</td>
+<td>工作区标签与面板</td>
+</tr>
+<tr>
+<td>添加仪表盘、文件查看器或项目工具</td>
+<td>工作区面板、文件帮助方法与浏览器 UI</td>
+</tr>
+<tr>
+<td>方便查找常用操作</td>
+<td>操作面板命令与快捷键</td>
+</tr>
+<tr>
+<td>运行构建、测试或开发服务器</td>
+<td>工作区终端命令</td>
+</tr>
+<tr>
+<td>定制外观</td>
+<td>主题及明暗主题组合</td>
+</tr>
+<tr>
+<td>在聊天和文件中预览图表、文本格式</td>
+<td>浏览器内容渲染器</td>
+</tr>
+<tr>
+<td>读取或修改工作区文件</td>
+<td>列出、读取、写入、移动、删除及上传文件</td>
+</tr>
+<tr>
+<td>显示后端实时结果</td>
+<td>浏览器入口与服务端入口之间的请求或流式通道</td>
+</tr>
+<tr>
+<td>保存插件自己的结果和偏好</td>
+<td>持久化服务端插件目录</td>
+</tr>
+<tr>
+<td>发起 Pi 对话或与 Pi 扩展协作</td>
+<td>宿主会话能力与会话内消息</td>
+</tr>
+<tr>
+<td>使用其他系统替代 Git 工作区发现</td>
+<td>工作区提供器</td>
+</tr>
+</tbody></table></div>
+<p>面板可支持直达链接和浏览器历史，并在文件变化或代理工作完成后刷新。文件和终端帮助方法始终针对面板所属机器与工作区，包括远端机器。</p>
+<p>例如，可以请求代理创建“运行项目检查并显示结果的面板”“链接工作区预览部署的徽标”或“启动审查会话并保存结论的工具”。</p>
+<p><a id="pi-packages-extensions-and-plugins"></a><span id="pi-packages"></span><span id="packages-vs-plugins"></span></p>
+<h2>Pi 包、扩展与插件</h2>
+<ul>
+<li><strong>Pi 包</strong>是可安装的分发包，可以包含扩展、技能、提示词模板、主题和 PI WEB 插件。</li>
+<li><strong>Pi 扩展</strong>定制代理的工具、命令、钩子、模型提供器及会话行为。</li>
+<li><strong>PI WEB 插件</strong>定制 Web 应用及工作区集成。</li>
+</ul>
+<p>一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。</p>
+<p>代理行为放在 Pi 扩展中，Web UI 放在 PI WEB 插件中。需要两者协作时一起发布，通过已托管会话的连接通信。</p>
+<p><a id="how-plugins-work"></a><span id="author-contract"></span></p>
+<h2>插件如何运行</h2>
+<p>包可以声明浏览器入口、服务端入口或双入口：</p>
+<ul>
+<li><strong>浏览器入口</strong>贡献操作、面板、标签、主题与内容渲染器，使用宿主帮助方法访问文件、终端及提示词编辑器。</li>
+<li><strong>服务端入口</strong>运行在会话守护进程中，可为浏览器入口服务、存储插件数据、使用宿主能力或提供工作区。</li>
+<li><strong>包内对等入口</strong>连接同一插件的浏览器与服务端。宿主解析机器和工作区；插件不必拥有该工作区才能为其服务。</li>
+<li><strong>能力</strong>声明所需的宿主或插件功能。启动前必须满足指定版本的依赖。</li>
+</ul>
+<p>在 <code>activate()</code> 中声明贡献，在 <code>start()</code> 中初始化依赖支持的工作，在 <code>dispose()</code> 中释放资源。长时间工作遵循 <code>lifetimeSignal</code>。简单浏览器插件仅需返回贡献。</p>
+<h3 id="opening-workspace-files-from-chat">从聊天打开工作区文件</h3>
+<p>聊天 Markdown 中的相对文件链接（包括 <code>./file</code>）和会话工作区内的绝对路径会在内置文件面板中打开。修饰键、新标签页点击或没有面板接受链接时仍使用下载 URL。文件访问仍经过服务端工作区包含检查。</p>
+<p>工作区面板通过同步 <code>fileOpenQuery(context, path)</code> 选择是否接受链接。上下文属于该贡献，路径是解码后的工作区相对路径；返回如 <code>{ file: path }</code> 的导航查询，或返回 <code>undefined</code> 拒绝。钩子不能产生副作用。宿主按面板 <code>order</code>、标题顺序打开当前机器上第一个可见、启用且接受链接的面板，通过普通导航设置命名空间查询。面板从 <code>context.navigation.query</code> 读取选择，不需要依赖文件插件。</p>
+<h3 id="panel-and-tab-navigation">面板与标签导航</h3>
+<p>URL 的 <code>view</code> 选择响应式面板：<code>navigation</code>、<code>chat</code> 或 <code>workspace</code>。独立的 <code>tool</code> 参数按贡献 ID 选择工作区标签。打开工具设置 <code>view=workspace</code> 和对应 <code>tool</code>；切换聊天保留工具选择。<code>view</code> 不接受贡献 ID。浏览器插件用 <code>selectMainView("workspace")</code> 显示工作区但不改变标签，或用 <code>selectWorkspaceTool(panelId)</code> 选择并显示工具。</p>
+<p>无效值留在 URL 中，不自动重定向。无效 <code>view</code> 显示警告，移动布局展示导航；双列布局保留导航，并展示有效请求工具，否则展示聊天；桌面保留常规列。有效工作区视图配无效工具时显示标签不可用，不选择其他标签，也不重复警告。省略参数使用默认值，不是错误。</p>
+<p>操作与工作区面板上下文提供完整目的地导航 <code>navigate(destination): Promise&lt;void&gt;</code>：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-1">复制</button></div><pre id="plugin-example-1"><code class="language-ts">await context.navigate({
+  machineId: context.machine.id,
+  projectId: context.workspace.projectId,
+  workspaceId: context.workspace.id,
+  sessionId: sourceSessionId,
+  view: "chat",
+});</code></pre></div>
+<p>所有字段都可省略：<code>machineId</code>、<code>projectId</code>、<code>workspaceId</code>、<code>sessionId</code>、<code>view</code> 及完整贡献 ID 的 <code>tool</code>。省略机器意味着调用时选中的机器。这不是路由补丁：省略字段使用宿主普通恢复默认值，不复制当前会话、工具或贡献查询；默认值可以恢复记忆中的会话。打开已知会话时提供项目和工作区作用域。宿主不会遍历查找 ID，也不会创建不存在的目的地。</p>
+<p>Promise 在恢复完成时结束，也可在被较新导航取代时正常结束。缺失或不可用的目的地使用普通宿主 UI，不再额外拒绝 Promise。参数类型错误或无效 <code>view</code> 会在改变 URL/UI 前以 <code>TypeError</code> 拒绝。Captain's Log 用此接口打开结果记录的源会话。</p>
+<h3 id="content-previews-in-chat-and-files">聊天与文件内容预览</h3>
+<p>浏览器插件可贡献 <code>contentRenderers</code>：<code>id</code>、Markdown 围栏标签 <code>languages</code>、不含点的 <code>fileExtensions</code>，以及同步返回 Lit 模板的 <code>render(input)</code>。选择器不区分大小写，语言或扩展名任一匹配即可。<code>renderMode?: 'manual' | 'automatic'</code> 默认 <code>manual</code>：先显示源码与“渲染”按钮，不调用渲染器。这是初始策略，不限制用户显式预览；无关正文更新不重启已激活预览。作者可选择 <code>automatic</code>，并负责高效激活与异步工作。</p>
+<p>同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，遵循有效机器的插件可用性及便携/机器专属优先级。多个匹配项提供选择器，同时仅挂载选中项。默认按来源插件 ID（不是远端运行时前缀）、局部贡献 ID 的大小写敏感、与区域设置无关的码元顺序排序。标签同时标明插件与贡献；没有插件排序字段或排序 UI。</p>
+<p>聊天按代码块在当前浏览器标签页记忆显式渲染器与“源码/预览”选择：从最后一次显式选择起 <strong>15 分钟</strong>，最多 <strong>128</strong> 个最近选择块。作用域包含机器、会话、消息/entry、part、块和精确源码。查看或重新挂载不延长期限；到期在再次访问时生效，不撤掉正在显示的预览。源码变化或选中渲染器不可用会失效该选择并恢复确定性默认策略。自动渲染不产生显式记忆；DOM 不缓存，重新挂载重新渲染。刷新或关闭标签页清除记忆。文件 Markdown 不使用聊天记忆。</p>
+<p>独立文件仅在没有浏览器本地“源码/预览”偏好时采用插件初始策略。已保存“预览”授权所有文件渲染，包括 Markdown 中的手动渲染器；已保存“源码”禁止预览。Markdown 预览内仍可逐块选择源码或渲染器，URL 模式优先。默认策略不会自动保存为用户选择，内置文件预览保留原默认行为。</p>
+<p>聊天图表块保留“源码”“预览”“复制源码”工具栏；独立文件在“下载”旁使用文件头部的“源码/预览”控件，遵循文件模式偏好。Markdown 文件图表保留逐块控件。未闭合围栏保持可复制源码；闭合围栏可在消息结束前预览。追加正文不重启未变的闭合块；失败回退源码；未知格式保持普通代码显示。</p>
+<p><code>input</code> 包含 <code>text</code>、中止 <code>signal</code>、<code>fail(error)</code>。同步渲染，组件自己管理异步工作，在断开连接或中止时清理，通过 <code>fail</code> 报告异步错误；过期错误被忽略。文本不可信：转义/净化输出，不执行源码，不放宽 Markdown 策略。宿主跳过截断输入及超过 <strong>100,000 UTF-16 码元</strong>的块，文件还保留内联字节大小限制。聊天与文件 Markdown 保留各自的净化器。</p>
+<p>文件等消费者在 <code>requires</code> 声明 <code>{ pluginId: "pi-web", id: "content-rendering", version: 1, parse }</code>，在 <code>start</code> 中解析。公开 <code>ContentRenderingCapability</code> 描述 <code>listRenderers(request)</code>、<code>renderText(request)</code> 和 <code>renderMarkdown({ machineId, text, truncated?, toSafeHtml, allowManualPreview? })</code>。<code>listRenderers</code> 返回排序后的 <code>{ id, label, renderMode }</code>，不调用渲染器。</p>
+<p>只有 <code>controls: "external"</code> 的 <code>renderText</code> 接受可选 <code>rendererId</code>，缺失或不可用时选择首个匹配项。内嵌控件拥有选择，忽略外部 ID。消费者自己提供选择器、模式切换与源码访问（如文件头部）时使用外部控件，否则使用内嵌控件。外部“源码”控件必须移除预览。</p>
+<p>消费者管理用户意图，可用 <code>allowManualPreview: true</code> 显式授权手动预览；Markdown 授权符合条件的围栏，但不覆盖逐块“源码”选择。省略或 <code>false</code> 保留渲染器默认策略及自动预览；聊天不传此覆盖。公开能力不存用户意图，聊天有界记忆是宿主私有策略。Markdown 请求不带文件路径或语言选择器，语言来自围栏。创建 <code>renderText</code> 模板不调用渲染器。每个 Markdown 图表独立选择；切换渲染器中止旧预览并清除错误。<code>renderMarkdown</code> 必须使用消费者可信净化器，不允许插入不可信 HTML。参见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-web-plugins/files/pi-web-plugin.ts">文件消费者</a>和 <a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/mermaid">Mermaid 贡献</a>。</p>
+<span id="host-capabilities"></span><h3 id="conversations-and-companion-extensions">会话与配套扩展</h3>
+<p>服务端插件可创建普通、可见的 Pi 会话，可带初始提示词，也可不带。配套 Pi 扩展可与后端交换消息，使用 Pi API 执行代理工作。</p>
+<p><strong>会话一旦发布就属于用户。</strong> 初始任务完成、浏览器关闭或发起插件销毁，都不会丢弃会话或停止用户后续工作；用户可以继续对话。</p>
+<p>消息连接只针对该机器已托管的会话，不自动打开已保存会话。发送成功不能证明配套扩展已安装或工作成功，集成必须自己报告进度与结果。连接不重放启动消息；关闭连接不停止代理。</p>
+<span id="plugin-data-directory"></span><h3 id="storage-and-background-work">存储与后台工作</h3>
+<p>服务端插件获得独立于安装代码的持久化 <code>dataDirectory</code>，同一机器上该插件的各项目共享该目录。插件自己负责格式、迁移与清理，宿主不提供另一套存储 API。</p>
+<p>请求和通道有界，可能失败、超时或断开。发送成功不保证送达，宿主不自动重试不确定工作。长任务应自行持久化状态，让 UI 重连时不重复启动任务。</p>
+<span id="provider-contract"></span><h3 id="workspace-providers">工作区提供器</h3>
+<p>提供器决定项目包含哪些工作区。主提供器可对它声明的项目替代内置 Git；Git 为后备，没有提供器认领时项目目录仍可作为工作区。</p>
+<p>声明冲突会明确报错；认领后失败不会静默把所有权交给另一提供器。提供器也可声明工作区删除能力，删除作为可见终端操作运行。</p>
+<p>工作区发现必须在宿主会话服务启动前就绪。包同时需要提供器和会话功能时，在同一个包中声明两个插件入口，无需拆分分发包。</p>
+<p><a id="install-and-manage"></a><span id="manage-plugins"></span></p>
+<h2>安装与管理</h2>
+<p>在 <strong>设置 → Pi 包</strong> 安装、更新、移除 npm、git/URL 或本地来源的包；在 <strong>设置 → PI WEB 插件</strong> 启用/禁用集成，查看是否激活、是否需要重启。</p>
+<div class="table-scroll" role="region" tabindex="0" aria-label="参考表"><table class="reference-table">
+<thead>
+<tr>
+<th scope="col">变更</th>
+<th scope="col">后续操作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>安装或编辑纯浏览器插件</td>
+<td>刷新浏览器</td>
+</tr>
+<tr>
+<td>安装、更新、配置、启用、禁用服务端插件</td>
+<td>重启目标机器会话守护进程，再刷新浏览器</td>
+</tr>
+<tr>
+<td>改变普通 Pi 扩展、技能或提示词</td>
+<td>在每个空闲会话执行 <code>/reload</code></td>
+</tr>
+<tr>
+<td>改变注册模型提供器的扩展</td>
+<td>遵循<a href="https://pi-web.dev/config#pi-extension-provider-baseline">提供器重启规则</a></td>
+</tr>
+</tbody></table></div>
+<p><strong>重启会话守护进程可能中断活跃会话和终端。</strong> 先检查活跃工作，从它托管的会话之外重启。原生 systemd 用户服务：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-2">复制</button></div><pre id="plugin-example-2"><code class="language-sh">systemctl --user restart pi-web-sessiond</code></pre></div>
+<p>浏览器刷新、Web/API 重启或 Pi <code>/reload</code> 不激活服务端插件变更。重启前“期望”与“实际”状态可能不同；浏览器入口与实际服务端不匹配时会暂缓提供，不运行不兼容代码。</p>
+<p>多数插件默认启用，包可以默认关闭，设置可以覆盖。插件配置保存在普通 <a href="https://pi-web.dev/config">PI WEB 配置</a>，不是安装文件里。</p>
+<span id="production"></span><h3 id="local-development">本地开发</h3>
+<p>代理可在任意目录开发包，再链接到本地插件目录：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-3">复制</button></div><pre id="plugin-example-3"><code class="language-sh">mkdir -p ~/.pi-web/plugins
+ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
+<p>设置 <code>PI_WEB_DATA_DIR</code> 时改用 <code>$PI_WEB_DATA_DIR/plugins</code>。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。</p>
+<p><a id="remote-machines"></a><span id="remote-machine-plugins"></span></p>
+<h2>远端机器</h2>
+<p>安装与设置针对设置中选中的机器。远端服务端代码运行在远端，浏览器界面经网关显示。文件、终端、对等帮助方法保留机器作用域。机器专属插件使用该机器自身安装；便携的纯浏览器插件可复用网关副本。主题属于整个应用，远端主题贡献忽略。</p>
+<p>此 API 迁移期间网关与目标一起升级，重启更新后的 Web/API 与相关会话守护进程，再刷新浏览器。混合版本会使远端插件（包括 Git）不可用，宿主不静默替换为网关后端。</p>
+<p><a id="included-tools-and-optional-packages"></a><span id="built-in-plugins"></span></p>
+<h2>内置工具与可选包</h2>
+<ul>
+<li><strong>终端</strong>提供终端和命令运行，是普通启动的必需插件，仅紧急安全启动可跳过。</li>
+<li><strong>文件</strong>提供文件浏览、预览、上传；禁用面板不移除其他插件的文件帮助方法。</li>
+<li><strong>Git</strong>发现工作区并显示状态/差异；禁用后保留项目目录工作区，除非其他提供器认领。</li>
+<li><strong>Mermaid</strong>默认手动模式，点击“渲染”预览 <code>mermaid</code> 围栏和 <code>.mmd</code>/<code>.mermaid</code> 文件。内置引擎在不透明来源、网络受阻的沙箱中本地运行，不发送源码给图表服务。交互链接和外部资源不可用。禁用后保持代码显示；纯浏览器插件只需刷新页面。</li>
+<li><strong>信息</strong>显示 PI WEB 状态与可复制诊断。</li>
+<li><strong>更新</strong>在需要时显示更新/重启建议，并提供手动检查。</li>
+<li><strong>工作区任务</strong>将项目命令显示为可运行操作。</li>
+</ul>
+<h3 id="workspace-tasks">工作区任务</h3>
+<p>在项目创建 <code>.pi-web/tasks.json</code>：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-4">复制</button></div><pre id="plugin-example-4"><code class="language-json">{
   "version": 1,
   "tasks": [
-    {
-      "id": "app.start",
-      "title": "Start app",
-      "group": "Development",
-      "description": "Start the local development server.",
-      "command": "npm run dev"
-    },
-    {
-      "id": "db.reset",
-      "title": "Reset DB",
-      "group": "Database",
-      "command": "go -C klingit-go run ./cli db reset",
-      "confirm": true
-    }
+    { "id": "app.start", "title": "启动应用", "command": "npm run dev" },
+    { "id": "db.reset", "title": "重置数据库", "command": "npm run db:reset", "confirm": true }
   ]
-}</code></pre>
-              </div>
-              <p>
-                Open a workspace, choose the <strong>Tasks</strong> tab, and click <strong>Run</strong> next to a task.
-                Commands run in the workspace root because PI WEB creates the terminal for that workspace.
-              </p>
-              <p>
-                Review task configs before running them, especially in shared projects. Workspace Tasks runs trusted
-                shell commands from your repositories.
-              </p>
-
-              <h3>Relays</h3>
-              <p>
-                <strong>Relays</strong> adds a read-only workspace tab for browsing relay documents under
-                <code>.pi-web/relays/&lt;name&gt;/</code>, plus an action that opens the same tab. It renders Markdown,
-                lists nested relay documents, and never creates, edits, or deletes relay files.
-              </p>
-              <ul>
-                <li>Plugin id: <code>relays</code></li>
-                <li>Pi package: <code>@jmfederico/pi-relay</code></li>
-                <li>The session daemon installs the shipped package for the active profile when it is absent and has not been removed intentionally.</li>
-                <li>Removing it through <strong>Settings → Pi packages</strong> prevents automatic reinstallation for that profile; the same panel can install it again.</li>
-              </ul>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Hide the Relays browser UI</strong>
-                  <button class="copy-button" data-copy="#relays-disable">Copy</button>
-                </div>
-                <pre id="relays-disable"><code>{
-  "plugins": {
-    "relays": { "enabled": false }
-  }
-}</code></pre>
-              </div>
-            </section>
-
-            <section id="manage-plugins">
-              <h2>Manage PI WEB plugins</h2>
-              <p>
-                Open <strong>Settings → PI WEB plugins</strong> to review discovered bundled, local, dev, and
-                Pi-package-supplied PI WEB plugins for the selected PI WEB machine. When the local machine is selected,
-                this is the gateway plugin list; when a remote machine is selected, the list comes from that remote PI WEB
-                server and includes
-                disabled discovered plugins it exposes. PI WEB can disable any discovered selected-machine plugin before
-                the browser imports it. Core app contributions such as the command palette, base workspace tools, and
-                themes are not managed through this plugin list.
-              </p>
-              <p>
-                This surface is only for PI WEB plugin enablement. To install, remove, or update Pi packages that may
-                provide PI WEB plugins or other Pi resources, use <strong>Settings → Pi packages</strong>. In a federated
-                setup, both the Pi packages panel and the PI WEB plugins panel target the selected machine; plugin enablement
-                still writes the PI WEB <code>plugins</code> config key rather than changing Pi package-manager settings.
-              </p>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Plugin config shape</strong>
-                  <button class="copy-button" data-copy="#plugin-config-shape">Copy</button>
-                </div>
-                <pre id="plugin-config-shape"><code>{
-  "plugins": {
-    "workspace-tasks": {
-      "enabled": true,
-      "settings": {}
-    },
-    "info": {
-      "enabled": false
-    }
-  }
-}</code></pre>
-              </div>
-              <p>
-                Plugins are enabled by default. Set <code>enabled</code> to <code>false</code> to remove a plugin from
-                <code>/pi-web-plugins/manifest.json</code> so it is not imported or activated on the next page load.
-                The optional <code>settings</code> object is reserved for plugin-specific settings.
-              </p>
-              <p>
-                After changing plugin enablement, reload the PI WEB browser tab. Already-loaded plugin JavaScript is not
-                unloaded from the current page.
-              </p>
-            </section>
-
-            <section id="remote-machine-plugins">
-              <h2>Remote machine plugins</h2>
-              <p>
-                With <a href="machines">machine federation</a>, PI WEB also loads discovered plugins from the selected
-                remote machine. Remote plugins are trusted browser-side code like local plugins, but their actions,
-                workspace panels, and workspace labels only appear while that machine is selected.
-              </p>
-              <ul>
-                <li>File and terminal helpers run against the selected remote machine.</li>
-                <li>Remote plugin code is loaded best-effort through the current gateway and cached for the page lifetime.</li>
-                <li>If the gateway and remote machine both have an enabled plugin with the same original id, <code>machineSpecific</code> metadata decides whether the gateway copy is reused or only the selected-machine copy can appear.</li>
-                <li>Remote theme contributions are ignored for now because themes are app-wide.</li>
-                <li>Mixed PI WEB versions across federated machines are best-effort and not guaranteed compatible.</li>
-              </ul>
-              <p>
-                Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable
-                one, select that machine and use <strong>Settings → PI WEB plugins</strong> when the remote server exposes
-                selected-machine settings, or open that machine directly/update its config file.
-              </p>
-              <p>
-                Plugin package metadata can set <code>machineSpecific: true</code>. Use it for plugins like Updates whose
-                UI should come from the selected PI WEB instance; on remote machines, the gateway copy is hidden unless
-                the remote machine exposes its own copy.
-              </p>
-              <p>
-                Current PI WEB manifests publish leading application-root module references. The browser keeps them
-                inside the current application base, so local and federated plugins follow root or nested reverse-proxy
-                deployments without a prefix-specific build while remaining compatible with existing gateways.
-                Federated gateways also accept manifest-relative references such as
-                <code>./&lt;plugin-id&gt;/plugin.js</code> and legacy plugin-root-relative references such as
-                <code>nested/plugin.js</code> from remote machines.
-              </p>
-              <p>
-                For portable plugin assets, prefer URLs relative to the plugin module, such as
-                <code>new URL("./asset.json", import.meta.url)</code>. If a remote plugin constructs absolute asset URLs,
-                it should use the <code>pluginId</code> from <code>activate()</code>; hard-coded
-                <code>/pi-web-plugins/&lt;original-id&gt;/...</code> URLs may point at the gateway instead of the remote machine.
-              </p>
-            </section>
-
-            <section id="production">
-              <h2>Production usage</h2>
-              <p>
-                Local plugins work with the production native-service install. Put each plugin under
-                <code>~/.pi-web/plugins/&lt;plugin-id&gt;/</code>, or symlink it there while developing. No PI WEB rebuild or
-                session-daemon restart is required.
-              </p>
-              <div class="callout warning">
-                If <code>PI_WEB_DATA_DIR</code> is set, use <code>$PI_WEB_DATA_DIR/plugins</code> instead of
-                <code>~/.pi-web/plugins</code>.
-              </div>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Install a local plugin folder</strong>
-                  <button class="copy-button" data-copy="#plugin-symlink">Copy</button>
-                </div>
-                <pre id="plugin-symlink"><code><span class="prompt">$</span> mkdir -p ~/.pi-web/plugins
-<span class="prompt">$</span> ln -s /path/to/plugin-folder ~/.pi-web/plugins/plugin-id</code></pre>
-              </div>
-            </section>
-
-            <section id="agent-docs">
-              <h2>AI-friendly docs</h2>
-              <p>
-                The full plugin reference is available as Markdown for AI agents to read, fetch, and follow:
-                <a href="plugins.md">plugins.md</a>.
-              </p>
-              <p>
-                面板公开接口支持宿主导航、贡献级 URL 查询状态及旧贡献 ID 别名。通过
-                <code>invalidationResources</code> 声明 <code>workspace.files</code> 后，可接收文件变更与代理活动结束的资源通知。
-                查询状态按机器隔离，失效的旧面板上下文不能覆盖当前导航；完整类型和兼容规则见上述参考文档。
-              </p>
-              <p>
-                外部插件只接收公开状态投影，选中会话包含 ID、工作区路径、可选名称、归档及待启动状态，
-                不包含内部转录路径、消息或会话列表。激活上下文的 <code>pluginId</code> 是源插件身份，
-                必需的 <code>runtimePluginId</code> 是带机器作用域的运行时注册身份；构造贡献限定 ID 时使用后者。
-              </p>
-              <p>
-                If you want to understand the API yourself, ask an agent to read that file and explain the relevant
-                public extension points for the plugin you want. Private PI WEB internals exist for the daring; treat
-                them as experimental surfaces that may graduate into stable helpers, change shape, or disappear.
-              </p>
-            </section>
-
-            <section id="develop">
-              <h2>Develop and debug</h2>
-              <ul>
-                <li>Keep the source folder outside <code>~/.pi-web/plugins</code> and symlink it in.</li>
-                <li>After edits, reload or hard-reload the browser tab.</li>
-                <li>Check discovery with the manifest endpoint.</li>
-                <li>Check the browser console if a plugin fails to import or activate.</li>
-              </ul>
-              <div class="code-card">
-                <div class="copy-row">
-                  <strong>Check discovered plugins</strong>
-                  <button class="copy-button" data-copy="#plugin-manifest">Copy</button>
-                </div>
-                <pre id="plugin-manifest"><code><span class="prompt">$</span> curl http://127.0.0.1:8504/pi-web-plugins/manifest.json</code></pre>
-              </div>
-              <p>
-                For all contribution types and package metadata, read the
-                <a href="plugins.md">Plugin API reference</a>.
-              </p>
-            </section>
-
-            <section id="trust">
-              <h2>Trust model</h2>
-              <p>
-                Plugins are not sandboxed. They run as JavaScript in the browser, can use browser APIs, call documented
-                PI WEB helpers, and render arbitrary UI. If a plugin reaches beyond those helpers into private PI WEB
-                internals, treat that dependency as experimental: it may become stable, change shape, or disappear.
-                Install only plugins you trust.
-              </p>
-              <p>
-                服务端插件入口在会话守护进程中运行，也属于可信代码。仅安装和启用可信来源；管理嵌入继续保留独立授权与资源边界。
-              </p>
-            </section>
-          </div>
+}</code></pre></div>
+<p>从“任务”标签运行工作区终端命令。任务可带 <code>description</code>；尤其共享仓库中，运行前检查命令。禁用插件只隐藏标签，不修改项目文件。</p>
+<h3 id="relays">中继</h3>
+<p>随包分发的 Relay 提供跨会话工作提示词和技能，并在只读“中继”标签展示 <code>.pi-web/relays/</code> 计划与进度，不从标签启动或编辑中继。</p>
+<p>普通模式在当前 agent 配置未安装时自动安装 Relay；从 <strong>设置 → Pi 包</strong> 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用中继插件只隐藏标签，不移除代理资源。管理嵌入的 <code>relay</code> 与 <code>relay-runner</code> 模板同步继续限定在授权工作区，不改变普通启动的技能文件。</p>
+<h3 id="try-captains-log">试用 Captain's Log</h3>
+<p>Captain's Log 是可选示例，将会话最近的助手回复改写为海盗风格简报，演示浏览器面板、后端和 Pi 配套扩展协作。</p>
+<ol>
+<li>在目标机器的 <strong>设置 → Pi 包 → 可用包</strong> 安装 <strong>船长日志</strong>。</li>
+<li>在 <strong>设置 → PI WEB 插件</strong> 启用它。</li>
+<li>安全时重启目标机器会话守护进程，再刷新浏览器。</li>
+<li>选择会话，打开“船长日志”，点击“让船长来讲述”。</li>
+</ol>
+<p>它随主包预构建发布，<strong>默认不安装、不启用</strong>，无需现场编译。读取源回复但不修改源会话，另建海盗会话；需要模型凭据，源文本会发给海盗会话的模型提供器，可能产生模型费用。已有结果会保存。守护进程重启后，可从“会话”打开已有海盗会话继续上下文。</p>
+<p>详见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-packages/captains-log/docs/usage.md">船长日志使用指南</a>。</p>
+<p><a id="pi-extension-dialogs"></a></p>
+<h2>Pi 扩展对话框</h2>
+<p>Pi 扩展可请求确认、选择或文本输入；问题以内联方式展示，包括会话启动和工具等待阶段。刷新后仍可回答，多标签页最先回答生效。</p>
+<p>有效期限取扩展超时和<a href="https://pi-web.dev/config#extension-dialogs">宿主超时</a>中较早者。中止工作或替换运行时关闭相关问题。已回答卡片属于浏览器本地状态，不保证刷新后保留。新会话尚在创建时刷新可临时丢失卡片，但守护进程中的问题仍有期限。</p>
+<p>仅支持这三种对话框，不支持自定义编辑器或组件等其他 Pi UI；不要因为 <code>hasUI</code> 为真就假定所有 UI 可用。</p>
+<p><a id="agent-development"></a><span id="develop"></span><span id="agent-docs"></span><span id="ask-ai"></span></p>
+<h2>代理开发</h2>
+<p>给代理具体目标、数据来源及允许的动作：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-5">复制</button></div><pre id="plugin-example-5"><code class="language-text">为此项目创建 PI WEB 插件。
+目标：&lt;描述工作流和预期界面&gt;。
+先读 https://pi-web.dev/plugins.md，再按当前安装的 PI WEB 版本
+查阅公开契约与示例。
+只使用受支持的插件 API，不修改 PI WEB，不调用私有路由。
+说明安装、权限或模型使用情况，以及刷新方式。
+验证行为，包括失败和清理。</code></pre></div>
+<span id="example"></span><h3 id="where-to-implement">实现入口</h3>
+<p>从符合目标的最小示例开始。以下源码链接跟随 <code>main</code>；对发布版开发时，<strong>使用对应标签或已安装的公开声明</strong>。</p>
+<div class="table-scroll" role="region" tabindex="0" aria-label="参考表"><table class="reference-table">
+<thead>
+<tr>
+<th scope="col">需求</th>
+<th scope="col">入口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>浏览器贡献与帮助方法</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/plugin-api.ts">plugin-api.ts</a>，公开为 <code>@chainingintention/pi-web-cn/plugin-api</code></td>
+</tr>
+<tr>
+<td>服务端生命周期、对等入口、提供器与宿主能力</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server-plugin-api.ts">server-plugin-api.ts</a>，公开为 <code>@chainingintention/pi-web-cn/server-plugin-api</code></td>
+</tr>
+<tr>
+<td>小型浏览器插件</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/info">信息</a></td>
+</tr>
+<tr>
+<td>独立浏览器/服务端包</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/workspace-provider-plugin">工作区提供器示例</a></td>
+</tr>
+<tr>
+<td>生产工作区提供器与配套 UI</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/git">Git</a></td>
+</tr>
+<tr>
+<td>已托管会话、实时更新与 Pi 配套扩展</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/captains-log">Captain's Log</a></td>
+</tr>
+<tr>
+<td>简单初始提示词工作流</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/session-bridge-plugin">工作区审查示例</a></td>
+</tr>
+<tr>
+<td>发现规则与诊断</td>
+<td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server/piWebPluginCatalog.ts">插件目录</a></td>
+</tr>
+</tbody></table></div>
+<p>当前浏览器契约是 <strong>API v4</strong>，服务端契约是 <strong>API v3</strong>。旧入口必须迁移，没有兼容 shim。公开源码契约和测试是签名、验证、限制与生命周期的依据。</p>
+<ul>
+<li>在 <code>package.json</code> 的 <code>piWeb.plugins</code> 声明入口，参考独立示例的打包方式；同一包可含多个入口。</li>
+<li>仅使用公开包入口，内部路由、服务及 <code>dist/**</code> 导入不是受支持 API。</li>
+<li><code>browserRoot</code> 尽量窄，里面所有内容都对浏览器公开。包含所需依赖与资产，秘密放在之外。安装插件包限制为 <strong>4,096</strong> 项、<strong>16 MiB</strong>，不计 <code>.git</code>/<code>node_modules</code>。</li>
+<li>机器/工作区操作使用宿主帮助方法，插件资产使用模块相对 URL，不硬编码应用路径。</li>
+<li>面板没有重新挂载时也可能重复渲染。自己管理异步状态，组件生命周期清理连接、计时器与监听器。</li>
+<li>工作区发现与会话支持功能分离，代理行为放在 Pi 配套扩展，而不是导入宿主内部模块。</li>
+</ul>
+<p><a id="trust-and-recovery"></a><span id="lifecycle-recovery"></span><span id="trust"></span></p>
+<h2>信任与恢复</h2>
+<p><strong>仅安装可信插件。</strong> 浏览器入口在页面内运行；服务端入口在守护进程内使用其文件系统、环境及进程权限，没有独立沙箱。阻塞或故障服务端代码可影响同一守护进程所有会话；超时只能帮助配合取消的工作，不能停止阻塞代码。管理嵌入继续保留独立认证、授权资源、能力与审计边界，不向插件放开普通模式能力。</p>
+<p>先在目标机器 <strong>设置 → PI WEB 插件</strong> 检查安装、启用、兼容和激活状态。浏览器失败看控制台，服务端失败在目标机器执行 <code>pi-web logs</code>。过期或需重启状态通常需要重启守护进程后刷新浏览器。</p>
+<p>UI 无法恢复时，在目标机器直接运行：</p>
+<div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-6">复制</button></div><pre id="plugin-example-6"><code class="language-sh">pi-web plugins disable &lt;plugin-id&gt; --restart
+pi-web plugins safe-start show
+pi-web plugins safe-start set bundled-only --restart
+pi-web plugins safe-start set none --restart
+pi-web plugins safe-start clear --restart</code></pre></div>
+<ul>
+<li><strong>disable</strong> 禁止指定可选插件在下次启动加载，拒绝禁用必需终端。</li>
+<li><strong>bundled-only</strong> 排除外部服务端插件，保留内置工具及必需终端。</li>
+<li><strong>none</strong> 不导入任何服务端插件；诊断和项目目录工作区仍可用，但终端与依赖终端的工作流不可用。</li>
+<li><strong>clear</strong> 修复或移除故障包后恢复普通启动。</li>
+</ul>
+<p>安全启动持久保留直到清除。<code>--restart</code> 仅在识别到安全的已安装服务操作时重启，否则给出手动指引；配置在尝试重启前持久保存。命令离线编辑配置，不导入插件代码。自定义配置加 <code>--config /path/to/config.json</code>。有效 JSON 中不支持的 <code>serverPlugins.safeStart</code> 形状/值按 <code>none</code> 失败关闭；通过 <code>show</code>、<code>set</code> 或 <code>clear</code> 修复。重启前检查活跃工作。</p>
+</div>
         </div>
       </section>
     </main>
-
     <footer class="site-footer">
       <div class="container footer-inner">
         <span>PI WEB plugin docs</span>
         <div class="footer-links">
-          <a href="./">Home</a>
-          <a href="remote-first">Remote-first</a>
-          <a href="machines">Fleet</a>
-          <a href="install">Install</a>
-          <a href="config">Config</a>
-          <a href="faq">FAQ</a>
-          <a href="https://github.com/jmfederico/pi-web">GitHub</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/plugins" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/plugins">Dev</a>
+          <a href="./">首页</a>
+          <a href="remote-first">远端优先</a>
+          <a href="machines">机器</a>
+          <a href="install">安装</a>
+          <a href="config">配置</a>
+          <a href="faq">常见问题</a>
+          <a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation">GitHub</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/plugins" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/plugins">开发版</a>
           </span>
         </div>
       </div>
     </footer>
     <script src="site.js"></script>
-  </body>
-</html>
+
+</body></html>

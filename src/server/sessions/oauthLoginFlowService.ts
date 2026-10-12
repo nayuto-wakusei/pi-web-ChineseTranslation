@@ -44,7 +44,8 @@ const noopLogger: OAuthLoginFlowLogger = { error() { /* no-op */ } };
 
 /**
  * AuthInteraction transport shared by OAuth and provider-driven API-key login.
- * The historical class and wire names remain for rolling browser/sessiond compatibility.
+ * The historical class and wire names predate the shared transport and remain
+ * unchanged.
  */
 export class OAuthLoginFlowService {
   private readonly flows = new Map<string, OAuthFlowRecord>();
@@ -160,14 +161,11 @@ export class OAuthLoginFlowService {
       case "auth_url":
         this.updateState(record, { ...record.state, auth: { url: event.url, ...(event.instructions === undefined ? {} : { instructions: event.instructions }) } });
         return;
-      // Keep the legacy auth URL/instructions while adding structured metadata
-      // that newer browsers can use during rolling sessiond upgrades.
       case "device_code":
         this.updateState(record, {
           ...record.state,
           auth: {
             url: event.verificationUri,
-            instructions: `Enter code: ${event.userCode}`,
             deviceCode: {
               userCode: event.userCode,
               ...(event.intervalSeconds === undefined ? {} : { intervalSeconds: event.intervalSeconds }),
@@ -221,7 +219,6 @@ export class OAuthLoginFlowService {
         prompt: {
           requestId,
           message: prompt.message,
-          kind: prompt.type === "manual_code" ? "manual" : "prompt",
           promptType: prompt.type,
           ...(prompt.type === "text" ? { allowEmpty: true } : {}),
           ...(prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder }),

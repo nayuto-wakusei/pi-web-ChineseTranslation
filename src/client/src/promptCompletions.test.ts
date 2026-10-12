@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionModel } from "../../shared/apiTypes";
 import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices, slashCommandSourceLabel } from "./promptCompletions";
-
 describe("slashCommandSourceLabel", () => {
   it("maps protocol sources to Chinese display labels", () => {
     expect(slashCommandSourceLabel("builtin")).toBe("内置");

@@ -148,7 +148,7 @@ export class WorkspaceFilesPanel extends LitElement {
             }}>${renderDeleteIcon()}</button>
             <button title="刷新" aria-label="刷新" @click=${() => { void runtime.refreshFiles(context); }}>${renderRefreshIcon()}</button>
           </div>
-          <input id="workspace-upload-input" class="visually-hidden" type="file" multiple @change=${this.handleFileInputChange} />
+          <input id="workspace-upload-input" class="visually-hidden" type="file" multiple hidden @change=${this.handleFileInputChange} />
         </section>
         ${scope.error === undefined ? null : html`<p class="files-error" role="alert">${scope.error}</p>`}
         ${this.renderUploadProgress(context, runtime, scope)}

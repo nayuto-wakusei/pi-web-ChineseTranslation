@@ -14,6 +14,9 @@ const apiPort = config.port ?? 8504;
 const docsRoot = resolve("docs");
 const docsPrefix = "/site";
 const clientPublicRoot = resolve("src/client/public");
+
+// The dev deployment gets the dev brand identity even when the UI is served
+// by the Vite dev server (production serving does the same swap in Fastify).
 const deploymentFlavor = createDeploymentFlavorResolver(() => detectPiWebInstallation());
 
 const contentTypes: Record<string, string> = {
@@ -116,29 +119,44 @@ async function serveDevDeploymentIdentity(request: IncomingMessage, response: Se
     return;
   }
 
-  try {
+  const serve = async (): Promise<{ contentType: string; body: string | undefined; filePath: string | undefined } | undefined> => {
     if (isManifest) {
       const manifest = await readFile(join(clientPublicRoot, DEPLOYMENT_MANIFEST_PATH.slice(1)), "utf8");
-      response.statusCode = 200;
-      response.setHeader("Content-Type", DEPLOYMENT_MANIFEST_CONTENT_TYPE);
-      response.setHeader("Cache-Control", "no-store");
-      response.end(deploymentManifestForFlavor(manifest, "dev"));
-      return;
+      return { contentType: DEPLOYMENT_MANIFEST_CONTENT_TYPE, body: deploymentManifestForFlavor(manifest, "dev"), filePath: undefined };
     }
     const asset = deploymentIdentityAssetForPath(pathname, "dev");
-    if (asset === undefined) {
+    if (asset === undefined) return undefined;
+    return { contentType: asset.contentType, body: undefined, filePath: join(clientPublicRoot, asset.fileName) };
+  };
+
+  let serving: Awaited<ReturnType<typeof serve>>;
+  try {
+    serving = await serve();
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") {
       next();
       return;
     }
-    response.statusCode = 200;
-    response.setHeader("Content-Type", asset.contentType);
-    response.setHeader("Cache-Control", "no-store");
-    createReadStream(join(clientPublicRoot, asset.fileName)).pipe(response);
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") next();
-    else next(error);
+    next(error);
+    return;
   }
+  if (serving === undefined) {
+    next();
+    return;
+  }
+  response.statusCode = 200;
+  response.setHeader("Content-Type", serving.contentType);
+  response.setHeader("Cache-Control", "no-store");
+  if (serving.body !== undefined) {
+    response.end(serving.body);
+    return;
+  }
+  if (serving.filePath === undefined) {
+    next();
+    return;
+  }
+  createReadStream(serving.filePath).pipe(response);
 }
 
 function devDeploymentIdentityPlugin(): Plugin {
@@ -161,8 +179,11 @@ function manualRefreshPlugin(): Plugin {
     apply: "serve",
     transform(code, id) {
       if (id.split("?")[0] !== clientEntry) return;
-      // Vite 8 still starts its client with hmr:false and ws:false. Keep its
-      // import helpers, but do not let its handshake block /api WebSockets.
+      // Vite 8 starts its client even with hmr:false and ws:false. An unanswered
+      // handshake blocks Chromium's subsequent /api WebSockets to the same host.
+      // Keep Vite's helpers (dynamic plugin imports need injectQuery), but never
+      // start its reload transport. Removing the HTML script alone is not enough.
+      // Fail loudly on a Vite upgrade rather than silently reintroducing the hang.
       if (code.split(connect).length !== 2) {
         throw new Error("Vite client startup changed; update PI WEB's manual-refresh transform");
       }
@@ -193,7 +214,9 @@ export default defineConfig({
     },
   },
   server: {
-    // A suspended PWA must not reload when the development socket reconnects.
+    // Manual UI refresh is intentional: Vite reloads after an established dev
+    // socket disconnects, including when iPadOS suspends a background PWA.
+    // Disable both the listener and client connection (manualRefreshPlugin).
     // The application's /api WebSocket proxy remains enabled.
     hmr: false,
     ws: false,

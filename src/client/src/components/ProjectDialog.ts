@@ -101,7 +101,7 @@ export class ProjectDialog extends LitElement {
       if (requestId === this.trustRequestId) this.trust = undefined;
       return;
     }
-    this.trust = { path: trimmed, decision: null, trusted: false, loading: true };
+    this.trust = { ...(this.trust ?? { path: trimmed, decision: null, trusted: false }), path: trimmed, loading: true };
     try {
       const result = await trustApi.projectTrust(trimmed, this.machineId);
       if (requestId !== this.trustRequestId || this.trustTouched) return;

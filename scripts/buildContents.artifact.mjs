@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -11,6 +13,27 @@ const publicApiDeclarationPaths = [
 ];
 
 describe("public API delivery artifacts", () => {
+  it("keeps test-support modules out of the emitted production graph", async () => {
+    const files = await readdir(join(repoRoot, "dist"), { recursive: true });
+    expect(files).toContain(join("server", "app.js"));
+    expect(files.filter((file) => file.includes(".testSupport."))).toEqual([]);
+  });
+
+  it("ships Relay skills without test-support artifacts in the actual npm tarball", async () => {
+    const npmExecPath = process.env["npm_execpath"];
+    if (!npmExecPath) throw new Error("Run artifact checks through npm to inspect the published package");
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      npmExecPath, "pack", "--dry-run", "--json", "--ignore-scripts",
+    ], { cwd: repoRoot, encoding: "utf8" });
+    const results = JSON.parse(stdout);
+    expect(results).toHaveLength(1);
+    const files = results[0].files.map((file) => file.path);
+    expect(files).toContain("dist/server/app.js");
+    expect(files).toContain("skills/relay/SKILL.md");
+    expect(files).toContain("skills/relay-runner/SKILL.md");
+    expect(files.filter((file) => file.includes(".testSupport."))).toEqual([]);
+  });
+
   it("keeps the browser API type-only and exports the supported server runtime contract", async () => {
     const metadata = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
     expect(metadata.exports).toEqual({

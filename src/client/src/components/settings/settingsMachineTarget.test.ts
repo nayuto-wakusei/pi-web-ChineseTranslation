@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Machine, MachineRuntime } from "../../api";
-import { agentProfileSettingsSupport, friendlySelectedMachineSettingsErrorMessage, isAgentProfileSettingsSupported, isSelectedMachineSettingsUnsupported, selectedMachineSettingsSupport, selectedMachineSettingsSupportKey, selectedMachineSettingsUnavailableMessage, settingsMachineTarget, settingsMachineTargetLabel } from "./settingsMachineTarget";
+import { agentProfileSettingsSupport, friendlySelectedMachineSettingsErrorMessage, isAgentProfileSettingsSupported, isSelectedMachineSettingsUnsupported, pluginLifecycleSupport, pluginLifecycleUnavailableMessage, selectedMachineSettingsSupport, selectedMachineSettingsSupportKey, selectedMachineSettingsUnavailableMessage, settingsMachineTarget, settingsMachineTargetLabel } from "./settingsMachineTarget";
+import { PI_WEB_CAPABILITIES } from "../../../../shared/capabilities";
 
 const remoteMachine: Machine = {
   id: "remote-a",
@@ -17,6 +18,7 @@ describe("selected-machine settings target helpers", () => {
     expect(pluginLifecycleSupport(settingsMachineTarget(undefined), undefined).state).toBe("supported");
     expect(pluginLifecycleSupport(target, undefined).state).toBe("unknown");
     expect(pluginLifecycleSupport(target, { ok: true, capabilities: [] }).state).toBe("unsupported");
+    expect(pluginLifecycleSupport(target, { ok: true, capabilities: [] })).toEqual({ state: "unsupported", message: pluginLifecycleUnavailableMessage(target) });
     expect(pluginLifecycleSupport(target, { ok: true, capabilities: [PI_WEB_CAPABILITIES.pluginLifecycle] }).state).toBe("supported");
   });
   it("uses the selected machine when present and falls back to the local gateway", () => {
@@ -74,5 +76,3 @@ describe("selected-machine settings target helpers", () => {
     expect(friendlySelectedMachineSettingsErrorMessage("Not Found", { id: "local", name: "local", kind: "local" })).toBe("Not Found");
   });
 });
-import { pluginLifecycleSupport } from "./settingsMachineTarget";
-import { PI_WEB_CAPABILITIES } from "../../../../shared/capabilities";

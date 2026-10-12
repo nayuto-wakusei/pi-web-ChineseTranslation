@@ -1,17 +1,8 @@
-import { css, LitElement, html } from "lit";
+import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { scrollWhenSelected } from "./scrollWhenSelected";
+import { autocompleteStyles } from "./shared";
 import type { CompletionItem } from "../promptCompletionTypes";
-
-const autocompleteStyles = css`
-  :host { display: block; }
-  .menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 10; max-height: 260px; overflow: auto; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); box-shadow: 0 10px 30px var(--pi-shadow); }
-  button { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 10px; width: 100%; border: 0; border-bottom: 1px solid var(--pi-border); border-radius: 0; background: transparent; color: var(--pi-text); padding: 8px 10px; text-align: left; cursor: pointer; }
-  button:last-child { border-bottom: 0; }
-  button.selected, button:hover { background: var(--pi-selection-bg); }
-  span { color: var(--pi-muted); font-size: 12px; }
-  small { grid-column: 1 / -1; color: var(--pi-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-`;
 
 @customElement("autocomplete-menu")
 export class AutocompleteMenu extends LitElement {
@@ -26,7 +17,7 @@ export class AutocompleteMenu extends LitElement {
         ${this.items.map((item, index) => html`
           <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, item)} @mousedown=${(event: MouseEvent) => { event.preventDefault(); this.onPick?.(item); }}>
             <span class="label"><strong>${item.insertText}</strong>${item.argumentHint === undefined || item.argumentHint === "" ? null : html` <span class="argument-hint">${item.argumentHint}</span>`}</span>
-            <span>${item.detail}</span>
+            <span class="detail">${item.detail}</span>
             ${item.description !== undefined && item.description !== "" ? html`<small>${item.description}</small>` : null}
           </button>
         `)}

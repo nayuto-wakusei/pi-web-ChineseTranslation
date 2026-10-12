@@ -1,5 +1,5 @@
 import { activityApi as defaultApi, type WorkspaceActivity, type WorkspaceActivityResponse } from "../api";
-import { isWorkspaceActivityActive } from "../../../shared/activity";
+import { isWorkspaceActivityActive } from "../workspaceActivity";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 

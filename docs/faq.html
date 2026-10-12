@@ -43,19 +43,19 @@
   </head>
   <body>
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
             <a href="remote-first">Remote-first</a>
-            <a href="machines">Fleet</a>
+            <a href="machines">机器</a>
             <a href="install">Install</a>
-            <a href="config">Config</a>
-            <a href="plugins">Plugins</a>
-            <a href="faq" aria-current="page">FAQ</a>
+            <a href="config">配置</a>
+            <a href="plugins">插件</a>
+            <a href="faq" aria-current="page">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="GitHub 上的 PI WEB">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path
                   fill="currentColor"
@@ -64,7 +64,7 @@
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗主题">
               <span data-theme-icon aria-hidden="true">◐</span>
               <span data-theme-label>Theme</span>
             </button>
@@ -87,7 +87,7 @@
 
       <section class="section compact">
         <div class="container doc-layout">
-          <aside class="toc" aria-label="FAQ contents">
+          <aside class="toc" aria-label="常见问题目录">
             <strong>Questions</strong>
             <a href="#is-this-linux-only">What platforms are supported?</a>
             <a href="#is-pi-web-a-web-ui">Is PI WEB a Pi web UI?</a>
@@ -99,10 +99,12 @@
             <a href="#cannot-open">I cannot open the web UI</a>
             <a href="#public-internet">Can I expose this publicly?</a>
             <a href="#remote-machines">How do remote machines work?</a>
+            <a href="#remote-subscription-login">远端订阅登录</a>
             <a href="#laptop-or-server">Laptop or server?</a>
             <a href="#plugins">Can I use local plugins?</a>
             <a href="#worktree-list-out-of-date">A worktree I created is missing</a>
             <a href="#sessions-stop">Sessions stop unexpectedly</a>
+            <a href="#model-response-terminated">模型响应 terminated</a>
             <a href="#logs">Where are logs?</a>
           </aside>
 
@@ -157,27 +159,10 @@
             </article>
 
             <article id="doctor-fails" class="faq-item">
-              <h2>What does <code>pi-web doctor</code> check?</h2>
-              <p>
-                It keeps two kinds of checks separate. General login-shell readiness covers Node 22.19.0 or newer, npm, Pi, and optional
-                ripgrep. Native-service diagnostics validate only the exact prerequisites of the selected service plan in
-                the real systemd user-manager or launchd <code>gui/&lt;uid&gt;</code> context. Development installs follow their
-                installed checkout plan; production checks are clearly labelled prospective when the installed executable
-                strategy cannot be reconstructed safely.
-              </p>
-              <p>
-                Missing plan requirements fail doctor and include login-file guidance. Manager, timeout, malformed-output,
-                and cleanup failures are reported as probe infrastructure problems rather than being mislabeled as PATH
-                drift. On unsupported/manual-only platforms, native-service drift checks are skipped. Doctor also checks
-                that the <code>node-pty</code> native module can load, prints installed and running PI WEB versions, and reports
-                systemd lingering when relevant.
-              </p>
-              <p>
-                On systemd, doctor compares the installed unit with the manager's effective environment. Package-owned
-                global drop-ins are accepted when they leave PI WEB's inspected environment unchanged. A drop-in still
-                fails the check when it changes an expected variable, adds an <code>EnvironmentFile</code>, points the
-                manager at a different fragment, or has not been loaded with <code>daemon-reload</code>.
-              </p>
+              <h2><code>pi-web doctor</code> 检查什么？</h2>
+              <p>检查登录 shell 能否找到 Node.js 22.19.0 或更新版本、npm、Pi 和可选的 ripgrep；同时在真实服务管理器环境中检查所选服务计划的工具。工具缺失时按登录文件指引修复。</p>
+              <p>检查终端原生 <code>node-pty</code>、已安装与运行版本，以及相关的 Linux lingering。仅手动平台跳过管理器检查；prospective 检查不是实际服务正常的证明。管理器、超时、格式或清理失败属于探测基础设施错误，不能直接归因于 PATH。</p>
+              <p>systemd 比较已安装 unit 与管理器的实际环境。未改变受管理值的 drop-in 允许；改变预期变量、添加 <code>EnvironmentFile</code>、加载其他 fragment 或尚未执行 <code>daemon-reload</code> 时仍失败。保留本地严格 EnvironmentFile 检查，不采用上游仅警告。</p>
             </article>
 
             <article id="nvm-fnm-asdf" class="faq-item">
@@ -260,20 +245,26 @@
             </article>
 
             <article id="remote-machines" class="faq-item">
-              <h2>How do I connect another PI WEB machine?</h2>
-              <p>
-                Install and run PI WEB on the target machine, make its PI WEB URL reachable from the gateway through a
-                trusted path, then open the gateway and choose <strong>Actions → Add Machine</strong>. The browser keeps
-                talking to the gateway while projects, sessions, files, and terminals run on the selected remote runtime.
-              </p>
+              <h2>远端机器如何工作？</h2>
+              <p>将可信 PI WEB 运行时注册到网关，浏览器仍连接当前 origin，由网关代理所选机器的请求。</p>
               <ul>
-                <li>Use NetBird, Tailscale, WireGuard, private LAN, SSH tunnel, or an authenticated reverse proxy.</li>
-                <li>Remote Pi auth, OAuth state, sessions, terminals, repositories, and plugins stay on the target machine.</li>
-                <li>API-key provider configuration and subscription (OAuth) login can both be proxied. When a remote flow asks for a redirect URL, paste the full browser URL back into the login dialog.</li>
-                <li>Remote plugins are trusted browser code and only appear while that machine is selected.</li>
-                <li>If the remote reports offline, check that the gateway server can reach the remote URL and try <strong>Actions → Refresh Selected Machine</strong>.</li>
+                <li>使用 NetBird、Tailscale、WireGuard、私有局域网、SSH 隧道或认证反向代理。</li>
+                <li>凭据、会话、终端、仓库和插件配置留在目标机器；普通模型认证按目标项目管理，管理模式独立。</li>
+                <li>API key 配置与订阅 OAuth 登录都可经网关完成。要求代码或重定向 URL 时粘贴完整浏览器 URL，因为回调属于目标机器。</li>
+                <li>插件跟随所选机器。浏览器或服务端插件都是可信代码，参见<a href="plugins#remote-machines">远端插件</a>。</li>
+                <li>离线时确认网关可访问远端 URL，再执行“操作 → 刷新所选机器”。</li>
               </ul>
-              <p><a href="machines">Read the fleet guide →</a></p>
+              <p><a href="machines">机器指南 →</a></p>
+            </article>
+
+            <article id="remote-subscription-login" class="faq-item">
+              <h2>远端订阅登录结束后页面打不开</h2>
+              <p>这是预期现象。提供器流程在目标机器运行，<code>http://localhost:&lt;port&gt;/…</code> 回调属于目标机器，不是浏览器设备。授权后复制地址栏完整 URL，在登录对话框要求粘贴时返回该 URL。</p>
+              <ul>
+                <li>提供器支持设备代码时优先选择，不需要粘贴回调 URL。</li>
+                <li>既不支持粘贴响应也无设备代码的流程必须在目标机器完成：取消，再从“操作 → 打开所选机器 PI WEB”登录。</li>
+              </ul>
+              <p><a href="machines#auth-credentials">凭据说明 →</a></p>
             </article>
 
             <article id="laptop-or-server" class="faq-item">
@@ -291,13 +282,9 @@
             </article>
 
             <article id="plugins" class="faq-item">
-              <h2>Can I use local plugins with production PI WEB?</h2>
-              <p>
-                Yes. Put trusted browser-side plugins in <code>~/.pi-web/plugins/&lt;plugin-id&gt;/</code>, or symlink a
-                development folder there. Reload the browser tab after edits. If <code>PI_WEB_DATA_DIR</code> is set, use
-                <code>$PI_WEB_DATA_DIR/plugins</code> instead.
-              </p>
-              <p><a href="plugins">Read the plugin guide →</a></p>
+              <h2>生产 PI WEB 可以使用本地插件吗？</h2>
+              <p>可以。将可信插件包放入 <code>~/.pi-web/plugins/&lt;plugin-id&gt;/</code>，或链接开发目录；设置 PI_WEB_DATA_DIR 时改用 <code>$PI_WEB_DATA_DIR/plugins</code>。纯浏览器修改刷新标签页；服务端修改需重启会话守护进程后刷新，可能中断活跃会话。</p>
+              <p>参见<a href="plugins#install-and-manage">安装与管理</a>；插件导致无法启动时使用<a href="plugins#trust-and-recovery">离线禁用与安全启动</a>。</p>
             </article>
 
             <article id="worktree-list-out-of-date" class="faq-item">
@@ -322,8 +309,8 @@
             <article id="sessions-stop" class="faq-item">
               <h2>Sessions stop unexpectedly</h2>
               <p>
-                Active agent runtimes are owned by the session daemon. Browser disconnects and web/API restarts should
-                not stop them. If they stop anyway, check whether the session daemon service restarted or crashed.
+                主机保持唤醒且会话守护进程活跃时，浏览器断开或 Web/API 重启不应停止会话。
+                工作停止时检查主机睡眠/重启，以及 daemon 重启或崩溃。
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -332,6 +319,34 @@
                 </div>
                 <pre id="session-logs"><code><span class="prompt">$</span> pi-web status
 <span class="prompt">$</span> pi-web logs</code></pre>
+              </div>
+            </article>
+
+            <article id="model-response-terminated" class="faq-item">
+              <h2>模型响应约五分钟后出现 terminated</h2>
+              <p>
+                约五分钟出现 <code>(SYSTEM) Model response failed: terminated</code>，表示模型流空闲超过 Pi 的 <code>httpIdleTimeoutMs</code>（默认五分钟）。
+                只在最后输出大块结果的慢后端（如本地 vLLM）可能超过此期限。
+              </p>
+              <p>
+                在有效 agent 目录的 <code>settings.json</code>（默认 <code>~/.pi/agent/settings.json</code>）增加或禁用期限，
+                合法值见 <a href="https://pi.dev/docs/latest/settings">Pi 设置参考</a>。daemon 只在启动时应用，之后需重启，可能中断活跃会话；先等重要工作结束。
+              </p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>~/.pi/agent/settings.json</strong>
+                  <button class="copy-button" data-copy="#http-idle-timeout-settings">复制</button>
+                </div>
+                <pre id="http-idle-timeout-settings"><code>{
+  "httpIdleTimeoutMs": 0
+}</code></pre>
+              </div>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>重启会话守护进程（Linux systemd）</strong>
+                  <button class="copy-button" data-copy="#http-idle-timeout-restart">复制</button>
+                </div>
+                <pre id="http-idle-timeout-restart"><code><span class="prompt">$</span> systemctl --user restart pi-web-sessiond</code></pre>
               </div>
             </article>
 
@@ -357,14 +372,14 @@
         <div class="footer-links">
           <a href="./">Home</a>
           <a href="remote-first">Remote-first</a>
-          <a href="machines">Fleet</a>
+          <a href="machines">机器</a>
           <a href="install">Install</a>
-          <a href="config">Config</a>
-          <a href="plugins">Plugins</a>
+          <a href="config">配置</a>
+          <a href="plugins">插件</a>
           <a href="https://github.com/jmfederico/pi-web/issues">Issues</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/faq" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/faq">Dev</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/faq" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/faq">开发版</a>
           </span>
         </div>
       </div>

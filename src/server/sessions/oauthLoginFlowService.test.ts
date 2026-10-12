@@ -29,7 +29,7 @@ describe("OAuthLoginFlowService", () => {
     const prompt = state.prompt;
     if (prompt === undefined) throw new Error("Expected prompt");
     expect(state).toMatchObject({ auth: { url: "https://example.test/auth", instructions: "Open it" }, progress: ["Waiting for code"] });
-    expect(prompt).toMatchObject({ message: "Paste code", placeholder: "code", kind: "prompt", promptType: "text", allowEmpty: true });
+    expect(prompt).toMatchObject({ message: "Paste code", placeholder: "code", promptType: "text", allowEmpty: true });
 
     const afterRespond = service.respond(state.flowId, prompt.requestId, "abc123");
     expect(afterRespond.prompt).toBeUndefined();
@@ -124,7 +124,7 @@ describe("OAuthLoginFlowService", () => {
 
     const prompt = state.prompt;
     if (prompt === undefined) throw new Error("Expected text prompt");
-    expect(prompt).toMatchObject({ kind: "prompt", promptType: "text", allowEmpty: true });
+    expect(prompt).toMatchObject({ promptType: "text", allowEmpty: true });
 
     service.respond(state.flowId, prompt.requestId, "");
     await flushAsyncLogin();
@@ -134,7 +134,7 @@ describe("OAuthLoginFlowService", () => {
     service.dispose();
   });
 
-  it("preserves secret prompt semantics behind the legacy prompt kind", () => {
+  it("preserves secret prompt semantics", () => {
     const service = new OAuthLoginFlowService();
     const state = service.start({
       providerId: "test-provider",
@@ -147,7 +147,6 @@ describe("OAuthLoginFlowService", () => {
     const prompt = state.prompt;
     if (prompt === undefined) throw new Error("Expected secret prompt");
     expect(prompt).toMatchObject({
-      kind: "prompt",
       promptType: "secret",
       message: "Enter secret",
       placeholder: "token",
@@ -201,10 +200,10 @@ describe("OAuthLoginFlowService", () => {
     expect(service.get(state.flowId)).toMatchObject({
       auth: {
         url: "https://example.test/device",
-        instructions: "Enter code: WXYZ-1234",
         deviceCode: { userCode: "WXYZ-1234", intervalSeconds: 5, expiresInSeconds: 900 },
       },
     });
+    expect(service.get(state.flowId).auth).not.toHaveProperty("instructions");
     service.dispose();
   });
 
@@ -275,7 +274,7 @@ describe("OAuthLoginFlowService", () => {
 
     const prompt = state.prompt;
     if (prompt === undefined) throw new Error("Expected manual prompt");
-    expect(prompt).toMatchObject({ kind: "manual", promptType: "manual_code", message: "Paste the callback URL or authorization code" });
+    expect(prompt).toMatchObject({ promptType: "manual_code", message: "Paste the callback URL or authorization code" });
 
     service.respond(state.flowId, prompt.requestId, "https://localhost/callback?code=abc");
     await flushAsyncLogin();
@@ -306,14 +305,14 @@ describe("OAuthLoginFlowService", () => {
       }),
     });
 
-    expect(state.prompt).toMatchObject({ kind: "manual" });
+    expect(state.prompt).toMatchObject({ promptType: "manual_code" });
     controller.abort();
     await expect(promptRejected.promise).resolves.toMatchObject({ message: "Prompt cancelled" });
     expect(removeAbortListener).toHaveBeenCalledWith("abort", expect.any(Function));
 
     const afterAbort = service.get(state.flowId);
     expect(afterAbort.status).toBe("running");
-    expect(afterAbort.prompt).toMatchObject({ kind: "prompt", message: "Waiting for callback" });
+    expect(afterAbort.prompt).toMatchObject({ promptType: "text", message: "Waiting for callback" });
     service.dispose();
   });
 

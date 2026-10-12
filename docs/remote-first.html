@@ -43,19 +43,19 @@
   </head>
   <body>
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
             <a href="remote-first" aria-current="page">Remote-first</a>
-            <a href="machines">Fleet</a>
+            <a href="machines">机器</a>
             <a href="install">Install</a>
-            <a href="config">Config</a>
-            <a href="plugins">Plugins</a>
-            <a href="faq">FAQ</a>
+            <a href="config">配置</a>
+            <a href="plugins">插件</a>
+            <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="GitHub 上的 PI WEB">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path
                   fill="currentColor"
@@ -64,7 +64,7 @@
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗主题">
               <span data-theme-icon aria-hidden="true">◐</span>
               <span data-theme-label>Theme</span>
             </button>
@@ -117,12 +117,10 @@
             <section id="persistence-first">
               <h2>Persistence should not be a workaround</h2>
               <p>
-                Terminals are ephemeral by default. You can patch around that with tmux, screen, background processes,
-                and remote shells, but persistence is still something you bolt on after the fact.
+                浏览器断开不应停止 agent。PI WEB 将会话运行时与浏览器、Web/API 服务分开，重新连接后可以继续查看运行中的任务。
               </p>
               <p>
-                PI WEB treats persistence as the foundation. Agent sessions live in a long-running runtime, workspaces
-                stay on the machine that runs the tools, and browser disconnects do not end the work.
+                请保持主机与会话 daemon 运行。关机或重启 daemon 会中断活跃任务；浏览器重连和 Web/API 重启不能避免这些中断。
               </p>
               <div class="callout manifesto-callout">
                 If AI is doing the work, the work should not be tied to your laptop.
@@ -157,10 +155,8 @@
             <section id="browser-control">
               <h2>The browser becomes your Pi web UI</h2>
               <p>
-                Your device should not have to be the editor, terminal, build server, and agent runtime. In PI WEB, the
-                browser is the cockpit: supervise sessions, redirect agents, inspect transcripts, and review progress
-                while the development environment stays remote and stable. Under the hood, PI WEB still coordinates the
-                running work like a browser-based control plane.
+                你的设备不必同时充当编辑器、终端、构建服务器和 agent 运行时。在 PI WEB 中，浏览器用于监督会话、调整 agent 方向、
+                查看记录与进度，而仓库、工具和凭据保留在远端机器。
               </p>
               <p>
                 Laptop, phone, tablet, desktop: they are just windows into the same running work. You remain in control,
@@ -187,11 +183,10 @@
                 SSH tunnel, VPN, private LAN, or an authenticated reverse proxy.
               </p>
               <div class="callout warning">
-                Use the laptop when you want convenience. Use a server or always-on workstation when you want agents to
-                keep working even when the laptop is gone.
+                不要将 PI WEB 直接暴露到公网；它可以按服务器用户的权限运行命令和访问文件。请使用可信私有连接或带认证的反向代理。
               </div>
               <div class="doc-actions">
-                <a class="button primary" href="install">Install PI WEB</a>
+                <a class="button primary" href="install#remote-access">配置远程访问</a>
                 <a class="button" href="faq#laptop-or-server">Laptop or server FAQ</a>
               </div>
             </section>
@@ -205,15 +200,15 @@
         <span>PI WEB · remote-first control for persistent AI agents.</span>
         <div class="footer-links">
           <a href="./">Home</a>
-          <a href="machines">Fleet</a>
+          <a href="machines">机器</a>
           <a href="install">Install</a>
-          <a href="config">Config</a>
-          <a href="plugins">Plugins</a>
-          <a href="faq">FAQ</a>
+          <a href="config">配置</a>
+          <a href="plugins">插件</a>
+          <a href="faq">常见问题</a>
           <a href="https://github.com/jmfederico/pi-web">GitHub</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/remote-first" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/remote-first">Dev</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/remote-first" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/remote-first">开发版</a>
           </span>
         </div>
       </div>

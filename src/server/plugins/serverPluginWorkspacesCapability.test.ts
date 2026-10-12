@@ -145,26 +145,44 @@ describe("server plugin workspaces capability", () => {
     expect(Object.isFrozen(instance)).toBe(true);
   });
 
-  it("rejects later calls when the plugin lifetime is revoked", async () => {
+  it("cancels in-flight resolution and rejects later calls when the plugin lifetime is revoked", async () => {
+    let hang = false;
+    let observedSignal: AbortSignal | undefined;
     const registry = workspaceRegistry([contribution("owner", provider({
       probe: () => Promise.resolve("claim"),
-      list: () => Promise.resolve([workspace("main", project.path, true)]),
+      list: (_project, signal) => {
+        if (!hang) return Promise.resolve([workspace("main", project.path, true)]);
+        observedSignal = signal;
+        return new Promise((_resolve, rejectPromise) => {
+          signal.addEventListener("abort", () => {
+            const reason: unknown = signal.reason;
+            rejectPromise(reason instanceof Error ? reason : new Error("Resolution aborted", { cause: reason }));
+          }, { once: true });
+        });
+      },
     }))]);
     const workspaceId = (await registry.resolve(project)).workspaces[0]?.id;
     if (workspaceId === undefined) throw new Error("Expected workspace id");
+    const projects = { requireProject: vi.fn(() => Promise.resolve(project)) };
     const lifetimeController = new AbortController();
-    const instance = createServerPluginWorkspacesCapabilityFactory({
-      projects: { requireProject: () => Promise.resolve(project) },
-      workspaces: registry,
-    }).create({
+    const instance = createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: registry }).create({
       pluginId: "cancelled-consumer",
       packageRoot: "/plugins/cancelled-consumer",
       lifetimeSignal: lifetimeController.signal,
     });
     const workspaces = PI_WEB_HOST_WORKSPACES_CAPABILITY.parse(instance.value);
+
+    hang = true;
+    const resolving = workspaces.resolve({ projectId: project.id, workspaceId });
+    await vi.waitFor(() => { expect(observedSignal).toBeInstanceOf(AbortSignal); });
+    const rejected = expect(resolving).rejects.toThrow("cancelled-consumer is no longer active");
     lifetimeController.abort(new DOMException("Plugin stopped", "AbortError"));
+    await rejected;
+
+    expect(observedSignal?.aborted).toBe(true);
     await expect(workspaces.resolve({ projectId: project.id, workspaceId }))
       .rejects.toThrow("cancelled-consumer is no longer active");
+    expect(projects.requireProject).toHaveBeenCalledOnce();
   });
 });
 

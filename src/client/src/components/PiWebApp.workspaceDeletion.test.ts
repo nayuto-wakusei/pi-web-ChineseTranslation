@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 const project: Project = { id: "project", name: "Project", path: "/project", createdAt: "2026-10-10" };
-const workspace: Workspace = { id: "workspace", projectId: project.id, path: "/project/worktree", label: "worktree", isMain: false, isGitRepo: true, isGitWorktree: true };
+const workspace: Workspace = { id: "workspace", projectId: project.id, path: "/project/worktree", label: "worktree", effectiveConfig: {}, isMain: false, isGitRepo: true, isGitWorktree: true };
 const appStates = new WeakMap<PiWebApp, AppState>();
 
 describe("PiWebApp workspace deletion polling ownership", () => {

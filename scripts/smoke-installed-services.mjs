@@ -100,8 +100,9 @@ async function smokeDaemonTerminal(packageRoot, root, webUrl, cookie) {
   const workspaceRoot = join(root, "terminal-workspace");
   await mkdir(workspaceRoot);
   const project = await json("api/machines/local/projects", { path: workspaceRoot, name: "Terminal package smoke" });
-  const workspaces = await json(`api/machines/local/projects/${encodeURIComponent(project.id)}/workspaces`);
-  const workspace = workspaces.find((entry) => entry.isMain);
+  const listing = await json(`api/machines/local/projects/${encodeURIComponent(project.id)}/workspaces`);
+  if (!Array.isArray(listing.workspaces)) throw new Error(`Installed workspace listing is invalid: ${JSON.stringify(listing)}`);
+  const workspace = listing.workspaces.find((entry) => entry.isMain);
   if (!workspace?.id) throw new Error("Installed Terminal workspace is missing");
   const base = `api/paired-plugin-backends/pi-web.terminal/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}`;
   const request = (operation, input) => json(`${base}/${operation}`, { revision: terminal.backendRevision, input });

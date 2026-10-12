@@ -36,13 +36,7 @@ describe("optional shipped Pi packages", () => {
     await writeFile(join(source, "package.json"), JSON.stringify({ name: packageId, pi: { extensions: [] } }));
     const dismiss = vi.fn(() => Promise.resolve());
     const service = new ActiveProfilePiPackageService(
-      { getActiveAgentProfile: () => Promise.resolve({ status: "available", profile: {
-        schemaVersion: 1,
-        revision: `sha256:${"a".repeat(64)}`,
-        command: "pi",
-        dir: agentDir,
-        sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
-      } }) },
+      { getActiveAgentProfile: () => Promise.resolve({ status: "available", profile: { schemaVersion: 2, dir: agentDir } }) },
       (dir) => createDefaultPiPackageService(cwd, dir),
       { dismiss },
       undefined,

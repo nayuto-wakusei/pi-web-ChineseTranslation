@@ -3,36 +3,32 @@ import {
   parseWorkspaceRemovalRequest,
   WORKSPACE_REMOVAL_REQUEST_BODY_MAX_BYTES,
 } from "../../shared/workspaceRemovalProtocol.js";
-import { workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
-import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
+import { SessionDaemonClient, type SessionDaemonRequestClient } from "../../sessiond/sessionDaemonClient.js";
 import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
 import { requestCancellation } from "../requestCancellation.js";
-import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ProjectService } from "../projects/projectService.js";
-import type { WorkspaceService } from "./workspaceService.js";
+import type { WorkspaceListAdapter as WorkspaceService } from "./workspaceCatalog.js";
 import { managementContextForRequest, managementHeaders, managementToolAllowed, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
 /** Browser-facing adapter; sessiond owns all workspace removal decisions and effects. */
-export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionProxyDaemon, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
-export function registerWorkspaceDeletionRoutes(app: FastifyInstance, daemon: SessionProxyDaemon, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
+export function registerWorkspaceDeletionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, daemon: SessionDaemonRequestClient, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
+export function registerWorkspaceDeletionRoutes(app: FastifyInstance, daemon: SessionDaemonRequestClient, prefix?: string, managementEmbed?: ManagementEmbedRuntime): void;
 export function registerWorkspaceDeletionRoutes(
   app: FastifyInstance,
-  daemon: SessionProxyDaemon | ProjectService = new SessionDaemonClient(),
+  daemon: SessionDaemonRequestClient | ProjectService = new SessionDaemonClient(),
   prefixOrWorkspaces: string | WorkspaceService = "/api",
-  managementEmbedOrDaemon?: ManagementEmbedRuntime | SessionProxyDaemon,
+  managementEmbedOrDaemon?: ManagementEmbedRuntime | SessionDaemonRequestClient,
   legacyPrefix = "/api",
   legacyManagementEmbed?: ManagementEmbedRuntime,
 ): void {
   const legacy = typeof prefixOrWorkspaces !== "string";
-  const sessionDaemon: SessionProxyDaemon = legacy
+  const sessionDaemon: SessionDaemonRequestClient = legacy
     ? (managementEmbedOrDaemon !== undefined && "request" in managementEmbedOrDaemon ? managementEmbedOrDaemon : new SessionDaemonClient())
     : ("request" in daemon ? daemon : new SessionDaemonClient());
   const prefix = legacy ? legacyPrefix : prefixOrWorkspaces;
   const managementEmbed = legacy ? legacyManagementEmbed : isSessionDaemon(managementEmbedOrDaemon) ? undefined : managementEmbedOrDaemon;
   if (legacy) {
     if (!isProjectService(daemon) || !isWorkspaceService(prefixOrWorkspaces)) throw new Error("Invalid legacy workspace deletion dependencies");
-    registerLegacyWorkspaceDeletionRoutes(app, daemon, prefixOrWorkspaces, sessionDaemon, prefix, managementEmbed);
-    return;
   }
   app.delete<{ Params: { projectId: string; workspaceId: string }; Body: unknown }>(
     `${prefix}/projects/:projectId/workspaces/:workspaceId`,
@@ -51,13 +47,11 @@ export function registerWorkspaceDeletionRoutes(
 
       const cancellation = requestCancellation(request, reply);
       try {
-        const upstream = await sessionDaemon.request(
-          "DELETE",
-          `/workspace-removals/projects/${encodeURIComponent(request.params.projectId)}/workspaces/${encodeURIComponent(request.params.workspaceId)}`,
-          body,
-          managementHeaders(managementContext, managementEmbed),
-          cancellation.signal,
-        );
+        const path = `/workspace-removals/projects/${encodeURIComponent(request.params.projectId)}/workspaces/${encodeURIComponent(request.params.workspaceId)}`;
+        const headers = managementHeaders(managementContext, managementEmbed);
+        const upstream = headers === undefined
+          ? await sessionDaemon.request("DELETE", path, body, { signal: cancellation.signal })
+          : await sessionDaemon.request("DELETE", path, body, headers, cancellation.signal);
         return await proxyJsonResponse(reply, upstream);
       } catch (error) {
         const failure = sessionDaemonProxyFailure(error);
@@ -91,70 +85,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isSessionDaemon(value: ManagementEmbedRuntime | SessionProxyDaemon | undefined): value is SessionProxyDaemon {
+function isSessionDaemon(value: ManagementEmbedRuntime | SessionDaemonRequestClient | undefined): value is SessionDaemonRequestClient {
   return value !== undefined && "request" in value;
 }
 
-function isProjectService(value: SessionProxyDaemon | ProjectService): value is ProjectService {
+function isProjectService(value: SessionDaemonRequestClient | ProjectService): value is ProjectService {
   return "requireProject" in value;
 }
 
 function isWorkspaceService(value: string | WorkspaceService): value is WorkspaceService {
   return typeof value !== "string" && "list" in value;
-}
-
-function registerLegacyWorkspaceDeletionRoutes(
-  app: FastifyInstance,
-  projects: ProjectService,
-  workspaces: WorkspaceService,
-  daemon: SessionProxyDaemon,
-  prefix: string,
-  managementEmbed: ManagementEmbedRuntime | undefined,
-): void {
-  app.delete<{ Params: { projectId: string; workspaceId: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId`, async (request, reply) => {
-    try {
-      const context = await managementContextForRequest(request, managementEmbed, reply);
-      if (context !== undefined && !managementToolAllowed(context, "terminal-command-runs")) {
-        return await reply.code(403).send({ error: "Terminal command runs are disabled in management embed mode" });
-      }
-      const project = context === undefined ? await projects.requireProject(request.params.projectId) : await projects.requireProject(request.params.projectId);
-      const listed = await workspaces.list(project);
-      const target = listed.find((workspace) => workspace.id === request.params.workspaceId);
-      if (target === undefined) throw new Error("Workspace not found");
-      if (!target.isGitWorktree || target.isMain) throw new Error("Only secondary Git worktrees can be deleted");
-      const commandWorkspace = listed.find((workspace) => workspace.isMain) ?? listed.find((workspace) => workspace.id !== target.id);
-      if (commandWorkspace === undefined) throw new Error("Project main workspace not found");
-      const closed = await daemon.request("DELETE", `/terminals?cwd=${encodeURIComponent(target.path)}`, undefined, managementHeaders(context, managementEmbed));
-      if (closed.statusCode < 200 || closed.statusCode >= 300) throw new Error(`Failed to close workspace terminals: ${responseError(closed.body, closed.statusCode)}`);
-      const started = await daemon.request("POST", "/terminal-command-runs", {
-        origin: "core",
-        projectId: project.id,
-        workspaceId: commandWorkspace.id,
-        cwd: commandWorkspace.path,
-        title: `Delete workspace: ${target.branch ?? target.label}`,
-        command: `git worktree remove ${shellQuote(target.path)}`,
-        metadata: workspaceDeletionMetadata(target),
-      }, managementHeaders(context, managementEmbed));
-      if (started.statusCode < 200 || started.statusCode >= 300) throw new Error(`Failed to start workspace deletion: ${responseError(started.body, started.statusCode)}`);
-      return await reply.code(started.statusCode).send(JSON.parse(started.body));
-    } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
-    }
-  });
-}
-
-function responseError(body: string, statusCode: number): string {
-  try {
-    const value: unknown = JSON.parse(body);
-    if (isRecord(value) && typeof value["error"] === "string") return value["error"];
-  } catch { /* fall through */ }
-  return `HTTP ${String(statusCode)}`;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

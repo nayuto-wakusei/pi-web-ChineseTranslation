@@ -175,6 +175,7 @@ describe("server plugin PI sessions capability", () => {
     expect(fixture.projects.requireProject).toHaveBeenCalledTimes(2);
     expect(fixture.workspaces.resolve).toHaveBeenCalledTimes(2);
     expect(fixture.workspaces.resolve.mock.calls.every(([selected]) => selected.id === project.id)).toBe(true);
+    expect(fixture.workspaces.resolve.mock.calls.every(([, signal]) => signal === fixture.lifetime.signal)).toBe(true);
     expect(fixture.sessions.startOneShotRun).toHaveBeenNthCalledWith(
       1,
       resolve("/repo/worktree"),

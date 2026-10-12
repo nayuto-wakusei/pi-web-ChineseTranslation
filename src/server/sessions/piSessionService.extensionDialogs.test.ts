@@ -621,7 +621,7 @@ describe("PiSessionService session_start dialog startup reachability", () => {
     const opening = service.messages(sessionRef(ACTIVE_SESSION_ID));
     await parkOnStartupDialog(store);
 
-    await service.stop(ACTIVE_SESSION_ID);
+    await service.stop(sessionRef(ACTIVE_SESSION_ID));
 
     expect(confirmAnswers).toEqual([false]);
     const closedEvents = dialogEvents(events).filter(({ event }) => event.type === "dialog.closed");

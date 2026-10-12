@@ -87,16 +87,24 @@ describe("readWorkspaceFile", () => {
     await writeFile(join(root, "diagram.SVG"), svg);
     await writeFile(join(root, "spec.PDF"), Buffer.from("%PDF-1.4\n"));
 
-    expect(await readWorkspaceFile(root, "diagram.SVG")).toMatchObject({ mediaType: "image", mimeType: "image/svg+xml", content: svg, binary: false });
-    expect(await readWorkspaceFile(root, "report.html")).toMatchObject({ mediaType: "html", mimeType: "text/html; charset=utf-8", content: html, binary: false });
-    expect(await readWorkspaceFile(root, "README.MD")).toMatchObject({ mediaType: "markdown", language: "markdown", content: markdown, binary: false });
-    expect(await readWorkspaceFile(root, "spec.PDF")).toMatchObject({ mediaType: "pdf", mimeType: "application/pdf", content: "", binary: true });
+    const htmlFile = await readWorkspaceFile(root, "report.html");
+    const markdownFile = await readWorkspaceFile(root, "README.MD");
+    const svgFile = await readWorkspaceFile(root, "diagram.SVG");
+    const pdfFile = await readWorkspaceFile(root, "spec.PDF");
+
+    expect(svgFile).toMatchObject({ mediaType: "image", mimeType: "image/svg+xml", content: svg, binary: false });
+    expect(htmlFile).toMatchObject({ mediaType: "html", mimeType: "text/html; charset=utf-8", content: html, binary: false });
+    expect(markdownFile).toMatchObject({ mediaType: "markdown", language: "markdown", content: markdown, binary: false });
+    expect(markdownFile.mimeType).toBeUndefined();
+    expect(pdfFile).toMatchObject({ mediaType: "pdf", mimeType: "application/pdf", content: "", binary: true });
   });
 
-  it("leaves unsupported binaries without a media type", async () => {
+  it("leaves unsupported binaries without a media type so they fall back to download", async () => {
     const root = await createTempWorkspace();
     await writeFile(join(root, "archive.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]));
+
     const file = await readWorkspaceFile(root, "archive.zip");
+
     expect(file.mediaType).toBeUndefined();
     expect(file).toMatchObject({ content: "", binary: true });
   });
@@ -111,4 +119,5 @@ describe("readWorkspaceFile", () => {
     expect(file.truncated).toBe(true);
     expect(file.binary).toBe(false);
   });
+
 });

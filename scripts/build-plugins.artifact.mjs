@@ -342,20 +342,10 @@ function isRecord(value) {
 }
 
 function moduleSpecifiers(source) {
-  const specifiers = [];
-  const file = ts.createSourceFile("artifact.js", source, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
-  const visit = (node) => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text);
-    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-      && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
-      specifiers.push(node.arguments[0].text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  return specifiers;
+  // Dependency scanning is the contract here, not a full AST for multi-MB bundles.
+  // Leave CommonJS/AMD detection off: bundled shims can contain require/define,
+  // whereas this check has always covered ESM imports and re-exports only.
+  return ts.preProcessFile(source, true, false).importedFiles.map((file) => file.fileName);
 }
 
 async function recursiveFiles(root, base = root) {

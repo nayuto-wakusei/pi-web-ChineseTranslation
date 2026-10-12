@@ -37,6 +37,7 @@ describe("session daemon project mutations", () => {
     [new Error("Project path must be a directory"), 400],
     [Object.assign(new Error("Missing path"), { code: "ENOENT" }), 400],
     [new Error("Workspace catalog could not be reconciled"), 500],
+    [new Error("Catalog reconciliation failed"), 500],
   ])("maps add failure %s to HTTP %s", async (error, statusCode) => {
     projects.add.mockRejectedValue(error);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { path: "/repo" } });
@@ -55,5 +56,12 @@ describe("session daemon project mutations", () => {
     const missing = await app.inject({ method: "DELETE", url: "/projects/missing" });
     expect(missing.statusCode).toBe(404);
     expect(missing.json()).toEqual({ error: "Project not found" });
+  });
+
+  it.each([["Project not found", 404], ["Catalog reconciliation failed", 500]])("maps close error %s to %s", async (message, status) => {
+    projects.close.mockRejectedValue(new Error(message));
+    const response = await app.inject({ method: "DELETE", url: "/projects/project-1" });
+    expect(response.statusCode).toBe(status);
+    expect(response.json()).toEqual({ error: message });
   });
 });

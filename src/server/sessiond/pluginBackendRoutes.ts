@@ -33,6 +33,10 @@ export interface PluginBackendRouteDependencies {
   onWorkspacesMutated?: (scope: SessionEventScope) => void;
 }
 
+export function registerPairedPluginBackendRoutes(app: FastifyInstance, dependencies: PluginBackendRouteDependencies): void {
+  registerPluginBackendRoutes(app, dependencies);
+}
+
 /** JSON-only sessiond boundary for a revision-paired plugin and current workspace. */
 export function registerPluginBackendRoutes(
   app: FastifyInstance,

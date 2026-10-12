@@ -43,19 +43,19 @@
   </head>
   <body>
     <header class="site-header">
-      <nav class="container nav" aria-label="Main navigation">
-        <a class="brand" href="./" aria-label="PI WEB home">PI WEB</a>
+      <nav class="container nav" aria-label="主导航">
+        <a class="brand" href="./" aria-label="PI WEB 首页">PI WEB</a>
         <div class="nav-links">
           <div class="nav-pages">
             <a href="remote-first">Remote-first</a>
-            <a href="machines">Fleet</a>
+            <a href="machines">机器</a>
             <a href="install" aria-current="page">Install</a>
-            <a href="config">Config</a>
-            <a href="plugins">Plugins</a>
-            <a href="faq">FAQ</a>
+            <a href="config">配置</a>
+            <a href="plugins">插件</a>
+            <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
-            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="PI WEB on GitHub">
+            <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="GitHub 上的 PI WEB">
               <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path
                   fill="currentColor"
@@ -64,7 +64,7 @@
               </svg>
               <span>GitHub</span>
             </a>
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark theme">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗主题">
               <span data-theme-icon aria-hidden="true">◐</span>
               <span data-theme-label>Theme</span>
             </button>
@@ -107,17 +107,14 @@
               <h2>Requirements</h2>
               <ul>
                 <li><strong>Node.js 22.19.0 or newer</strong> and npm.</li>
-                <li><strong>Pi Coding Agent <code>&gt;=0.82.1 &lt;0.83</code></strong> installed/configured so the <code>pi</code> command works for your user.</li>
+                <li><strong>Pi Coding Agent <code>0.86.1</code> 或 <code>0.87.0</code></strong> 已安装并配置，当前用户可以运行 <code>pi</code> 命令；本地分支仅声明这两个已验证版本。</li>
                 <li>A shell login environment that exposes Node, npm, Pi, git, and any tools your agents need.</li>
                 <li>For the automatic installer: a supported per-user service manager.</li>
               </ul>
               <div class="callout warning">
-                <strong>Important PATH detail:</strong>
-                PI WEB services run through a non-interactive login shell with <code>-lc</code>. Setup that only lives in
-                interactive shell files or prompt hooks may not be visible to the systemd or launchd manager. The installer
-                probes the safely verifiable requirements of the exact candidate plan in that manager context before changing
-                config or replacing services. Arbitrary configured command overrides are preserved but not executed by
-                preflight; run <code>pi-web doctor</code> later to repeat plan-specific diagnostics.
+                <strong>重要的 PATH 细节：</strong>
+                PI WEB 服务通过带 <code>-lc</code> 的非交互登录 shell 运行，仅在交互式配置或提示符钩子里设置的环境可能不可见。
+                安装程序先检查服务环境，再修改配置或替换服务。运行 <code>pi-web doctor</code> 检查缺少的工具；自定义命令覆盖仍需由你验证。
               </div>
             </section>
 
@@ -154,14 +151,14 @@
                   <strong>One-liner</strong>
                   <button class="copy-button" data-copy="#one-line-install">Copy</button>
                 </div>
-                <pre id="one-line-install"><code><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/jmfederico/pi-web/main/install.sh | sh</code></pre>
+                <pre id="one-line-install"><code><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/nayuto-wakusei/pi-web-ChineseTranslation/main/install.sh | sh</code></pre>
               </div>
             </section>
 
             <section id="pi-package">
               <h2>Install through Pi</h2>
               <p>PI WEB is also published as a Pi package. This exposes a <code>/pi-web</code> command inside Pi.</p>
-              <p>When installed this way, <code>/pi-web install</code> can use PI WEB's package-local service entrypoints, so <code>pi-web-server</code> and <code>pi-web-sessiond</code> do not need to be on your shell <code>PATH</code>.</p>
+              <p>无需另做全局 npm 安装；在 Pi 中使用 <code>/pi-web</code> 管理服务。</p>
               <div class="code-card">
                 <div class="copy-row">
                   <strong>Pi package path</strong>
@@ -204,6 +201,11 @@
               <p>
                 From a PI WEB checkout, <code>pi-web install --dev</code> installs the split development services on supported user-service platforms.
                 <code>pi-web uninstall</code> removes both production and development service files; no uninstall flags are needed.
+              </p>
+              <h3 id="development-restarts">开发环境重启</h3>
+              <p>
+                运行 <code>pi-web restart</code> 重启已安装的开发服务，命令会检查构建就绪并按正确顺序启动。
+                重启 daemon 会中断活跃会话，请先等待重要任务完成。
               </p>
             </section>
 
@@ -296,14 +298,11 @@ server {
                 <code>/pi-web-plugins/</code>.
               </p>
               <p>
-                Once the proxy follows this contract, relative client assets, images, PWA assets, API calls, local and
-                federated plugins, and WebSocket URLs stay inside the prefix. Installed PWA <code>start_url</code> and
-                scope stay inside it as well.
+                打开带结尾斜杠的地址，例如 <code>https://pi.example.com/ai/</code>；界面、插件与已安装的 PWA 都使用该前缀。
               </p>
               <p>
-                Source-checkout and Docker development deployments use a purple application icon and the installed PWA
-                name <code>PI WEB (dev)</code>. Package and runtime installs retain the standard PI WEB identity, making
-                development and stable instances distinguishable even when the browser URL bar is hidden.
+                源码检出与 Docker 开发实例使用紫色应用图标，安装后的 PWA 名为 <code>PI WEB (dev)</code>。
+                包安装与生产运行实例保留标准 PI WEB 标识，即使浏览器地址栏隐藏，也能区分开发与稳定实例。
               </p>
             </section>
 
@@ -342,19 +341,16 @@ server {
 <span class="prompt">$</span> pi-web install --dev</code></pre>
               </div>
               <p>
-                In a source checkout, the Web process owns plugin builds. For a split manual setup, start
-                <code>npm run dev:web</code> first, then run <code>npm run start:sessiond</code> and
-                <code>npm run dev:client</code> in separate terminals. The daemon waits up to two minutes for
-                <code>dist/.plugins-ready</code>; <code>npm run build:plugins</code> can also prepare this marker
-                when starting the daemon without a Web watcher. <code>start:sessiond</code> does not autoreload;
-                <code>dev:sessiond</code> explicitly opts into watching daemon source.
+                源码检出中，插件构建由 Web 进程负责。手动分进程启动时先运行 <code>npm run dev:web</code>，
+                再在各自终端运行 <code>npm run start:sessiond</code> 与 <code>npm run dev:client</code>。
+                daemon 最多等待两分钟，直到 <code>dist/.plugins-ready</code> 就绪；不运行 Web watcher 时也可用
+                <code>npm run build:plugins</code> 准备此标记。<code>start:sessiond</code> 不自动重载；
+                只有 <code>dev:sessiond</code> 显式启用 daemon 源码监听。
               </p>
               <p>
-                Managed development startup and service restarts wait for Web build and API readiness before
-                starting or restarting the daemon. A failed Web readiness check leaves the daemon untouched.
-                Restarting only the Web/UI service preserves active sessions; restarting the daemon interrupts them.
-                Existing development service files need to be regenerated to remove the old UI dependency on the daemon.
-                Updating service files and restarting the daemon should be scheduled when sessions can be interrupted.
+                受管开发启动与重启先等待 Web 构建及 API 就绪，再启动或重启 daemon；Web 就绪检查失败时不动 daemon。
+                仅重启 Web/UI 不会中断活跃会话，重启 daemon 会中断。旧开发服务文件需重新生成以移除 UI 对 daemon 的旧依赖；
+                更新服务文件与重启 daemon 应安排在允许中断会话的时候。
               </p>
             </section>
 
@@ -382,10 +378,10 @@ server {
 }</code></pre>
               </div>
               <p>
-                Use <strong>Settings → General</strong> for host, port, and external filesystem roots; <strong>Settings → Session daemon</strong>
-                for agent-spawn tools; <strong>Settings → Pi packages</strong> for Pi package install/remove/update;
-                <strong>Settings → PI WEB plugins</strong> for browser plugin enablement; and <strong>Settings → Keyboard</strong>
-                for shortcut overrides.
+                在<strong>设置 → 常规</strong>配置主机、端口和外部文件根；在<strong>设置 → 会话守护进程</strong>配置派生会话工具；
+                在<strong>设置 → Pi 包</strong>安装、删除或更新包；在<strong>设置 → PI WEB 插件</strong>启用或禁用插件；
+                在<strong>设置 → 键盘</strong>覆盖快捷键。仅浏览器插件变更需刷新标签页；带服务端的变更需重启 daemon，可能中断会话。
+                参见<a href="plugins#install-and-manage">插件安装与管理</a>及<a href="plugins#trust-and-recovery">插件恢复</a>。
               </p>
               <div class="callout">
                 Need the full schema, restart rules, project-local <code>.pi-web/config.json</code>, path access details, and
@@ -443,14 +439,14 @@ server {
         <div class="footer-links">
           <a href="./">Home</a>
           <a href="remote-first">Remote-first</a>
-          <a href="machines">Fleet</a>
-          <a href="config">Config</a>
-          <a href="plugins">Plugins</a>
-          <a href="faq">FAQ</a>
+          <a href="machines">机器</a>
+          <a href="config">配置</a>
+          <a href="plugins">插件</a>
+          <a href="faq">常见问题</a>
           <a href="https://github.com/jmfederico/pi-web">GitHub</a>
-          <span class="version-switcher" role="group" aria-label="Documentation version">
-            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/install" aria-current="true">Stable</a>
-            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/install">Dev</a>
+          <span class="version-switcher" role="group" aria-label="文档版本">
+            <a class="version-switcher-option" data-version-option="stable" href="https://pi-web.dev/install" aria-current="true">稳定版</a>
+            <a class="version-switcher-option" data-version-option="dev" href="https://pi-web.dev/dev/install">开发版</a>
           </span>
         </div>
       </div>

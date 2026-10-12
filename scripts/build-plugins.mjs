@@ -4,15 +4,28 @@ import { copyFile, mkdir, readdir, readFile, realpath, rm, stat, writeFile } fro
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { build as viteBuild } from "vite";
+
+const bundledPluginsSourceDir = resolve("pi-web-plugins");
+const bundledPluginsOutputDir = resolve("dist/pi-web-plugins");
+const filesPluginSourceDir = resolve(bundledPluginsSourceDir, "files");
+const filesPluginOutputDir = resolve(bundledPluginsOutputDir, "files");
+const terminalPluginSourceDir = resolve(bundledPluginsSourceDir, "terminal");
+const terminalPluginOutputDir = resolve(bundledPluginsOutputDir, "terminal");
+const mermaidPluginSourceDir = resolve(bundledPluginsSourceDir, "mermaid");
+const mermaidPluginOutputDir = resolve(bundledPluginsOutputDir, "mermaid");
 
 // Two independent source trees ship inside the npm package: bundled PI WEB
 // plugins (discovered by directory scan, see PiWebPluginCatalog) and Pi
 // packages that ship alongside them without being discovered that way (for
-// example a Pi package that is installed rather than scanned). Both are
-// built the same way, just into separate output directories, so neither one
-// becomes a discovery root for the other.
+// example a Pi package that is installed rather than scanned). They retain
+// separate output roots so neither becomes a discovery root for the other.
+// Files, Terminal, and Mermaid are exceptions to plain transpilation: each
+// browser entry is replaced below by a self-contained bundle. Terminal also
+// keeps a package-local transpiled server graph. Captain's Log likewise bundles
+// its browser entry after transpiling its standalone package graph.
 const buildTargets = [
-  { rootDir: resolve("pi-web-plugins"), outDir: resolve("dist/pi-web-plugins"), label: "plugin" },
+  { rootDir: bundledPluginsSourceDir, outDir: bundledPluginsOutputDir, label: "plugin" },
   { rootDir: resolve("pi-packages"), outDir: resolve("dist/pi-packages"), label: "package" },
 ];
 const watchMode = process.argv.includes("--watch");
@@ -27,30 +40,31 @@ if (isDirectExecution()) {
 }
 
 async function buildAll() {
-  // Cold-start readiness only; restart commands must order web before sessiond.
+  // Cold-start readiness only; the supported restart command orders web before sessiond.
   const readyPath = resolve("dist", ".plugins-ready");
   await rm(readyPath, { force: true });
   for (const target of buildTargets) {
     await rm(target.outDir, { recursive: true, force: true });
-    const filesSource = resolve(target.rootDir, "files");
-    const hasFiles = target.label === "plugin";
-    const excluded = hasFiles ? new Set([await realpath(filesSource)]) : new Set();
-    const mermaidSource = resolve(target.rootDir, "mermaid");
-    const hasMermaid = target.label === "plugin";
-    if (hasMermaid) excluded.add(await realpath(mermaidSource));
-    const terminalSource = resolve(target.rootDir, "terminal");
-    if (target.label === "plugin") excluded.add(await realpath(terminalSource));
+    const excludedDirectories = target.rootDir === bundledPluginsSourceDir
+      ? new Set([
+          await realpath(filesPluginSourceDir),
+          await realpath(terminalPluginSourceDir),
+          await realpath(mermaidPluginSourceDir),
+        ])
+      : new Set();
     const result = target.label === "package"
       ? await buildPiPackages(target.rootDir, target.outDir)
-      : await buildDirectory(target.rootDir, target.outDir, new Set(), excluded);
-    if (hasFiles) await buildFilesBrowserPackage(filesSource, resolve(target.outDir, "files"));
-    if (hasMermaid) await buildMermaidPackage(mermaidSource, resolve(target.outDir, "mermaid"));
-    if (target.label === "plugin") await buildTerminalPackage(terminalSource, resolve(target.outDir, "terminal"));
-    if (target.label === "package") {
+      : await buildDirectory(target.rootDir, target.outDir, new Set(), excludedDirectories);
+    if (target.rootDir === bundledPluginsSourceDir) {
+      await buildFilesBrowserPackage(filesPluginSourceDir, filesPluginOutputDir);
+      await buildTerminalPackage(terminalPluginSourceDir, terminalPluginOutputDir);
+      await buildMermaidPackage(mermaidPluginSourceDir, mermaidPluginOutputDir);
+    } else {
       await buildCaptainsLogBrowserPackage(resolve(target.rootDir, "captains-log"), resolve(target.outDir, "captains-log"));
     }
     const suffix = result.transpiled === 1 ? "file" : "files";
-    console.log(`[plugins] built ${String(result.transpiled)} TypeScript ${target.label} ${suffix} into ${relative(cwd, target.outDir)}`);
+    const bundleSuffix = target.rootDir === bundledPluginsSourceDir ? " and the Files/Terminal/Mermaid browser bundles" : "";
+    console.log(`[plugins] built ${String(result.transpiled)} TypeScript ${target.label} ${suffix}${bundleSuffix} into ${relative(cwd, target.outDir)}`);
   }
   await writeFile(readyPath, "ready\n");
   process.send?.({ type: "plugin-build-ready" });
@@ -60,7 +74,7 @@ export function filesBrowserBuildConfig(sourceDir, targetDir) {
   return complexBrowserBuildConfig(sourceDir, targetDir);
 }
 
-export async function buildCaptainsLogBrowserPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+export async function buildCaptainsLogBrowserPackage(sourceDir, targetDir, buildBrowser = viteBuild) {
   await buildBrowser({
     configFile: resolve(sourceDir, "vite.config.mjs"),
     logLevel: "silent",
@@ -99,14 +113,14 @@ export function complexBrowserBuildConfig(sourceDir, targetDir) {
   };
 }
 
-export async function buildFilesBrowserPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+export async function buildFilesBrowserPackage(sourceDir, targetDir, buildBrowser = viteBuild) {
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
   await copyFile(resolve(sourceDir, "package.json"), resolve(targetDir, "package.json"));
   await buildBrowser(filesBrowserBuildConfig(sourceDir, targetDir));
 }
 
-export async function buildTerminalPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+export async function buildTerminalPackage(sourceDir, targetDir, buildBrowser = viteBuild) {
   const serverSourceDir = await realpath(resolve(sourceDir, "server"));
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -115,12 +129,12 @@ export async function buildTerminalPackage(sourceDir, targetDir, buildBrowser = 
   await buildBrowser(complexBrowserBuildConfig(sourceDir, targetDir));
 }
 
-export async function buildMermaidPackage(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+export async function buildMermaidPackage(sourceDir, targetDir, buildBrowser = viteBuild) {
   await buildFilesBrowserPackage(sourceDir, targetDir, buildBrowser);
   await buildMermaidEngine(sourceDir, resolve(targetDir, "browser"), buildBrowser);
 }
 
-export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = async (options) => (await import("vite")).build(options)) {
+export async function buildMermaidEngine(sourceDir, targetDir, buildBrowser = viteBuild) {
   await buildBrowser({
     configFile: false,
     root: sourceDir,
@@ -194,7 +208,9 @@ export async function buildDirectory(sourceDir, targetDir, visited = new Set(), 
   // each directory to its realpath before descending catches that cycle
   // regardless of how many symlink hops produced it.
   const realSourceDir = await realpath(sourceDir).catch(() => undefined);
-  if (realSourceDir === undefined || visited.has(realSourceDir) || excludedDirectories.has(realSourceDir)) return { copied: 0, transpiled: 0 };
+  if (realSourceDir === undefined || visited.has(realSourceDir) || excludedDirectories.has(realSourceDir)) {
+    return { copied: 0, transpiled: 0 };
+  }
   visited.add(realSourceDir);
 
   const entries = await readDirectory(sourceDir);
@@ -221,6 +237,7 @@ export async function buildDirectory(sourceDir, targetDir, visited = new Set(), 
     }
 
     if (!entry.isFile() && linked?.isFile() !== true) continue;
+    // npm excludes .gitignore from tarballs; do not emit non-distributable build artifacts.
     if (entry.name === ".gitignore" || entry.name.endsWith(".d.ts") || isTestSource(entry.name)) continue;
 
     if (isPluginSource(entry.name)) {

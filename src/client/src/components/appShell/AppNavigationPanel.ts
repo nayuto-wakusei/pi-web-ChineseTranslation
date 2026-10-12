@@ -3,6 +3,7 @@ import { customElement, property, query } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import type { WorkspaceLabelItem } from "../../plugins/types";
+import { selectedMachineId } from "../../controllers/types";
 import type { NavigationSection } from "../../appShell/navigationState";
 import { NAVIGATION_SECTION_ORDER } from "../../appShell/navigationState";
 import { EMPTY_UNREAD_PRESENCE, type UnreadPresence } from "../../unreadPresence";
@@ -143,7 +144,7 @@ export class AppNavigationPanel extends LitElement {
 
   override render() {
     const showMachines = shouldShowMachinesSection(this.machines);
-    const showMachineSwitcher = showMachines || this.locationIndicator;
+    const showMachineSwitcher = !this.managementMode || showMachines || this.locationIndicator;
     const showHeaderActions = this.refreshControl !== undefined || this.onShowActions !== undefined;
     const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions;
     return html`
@@ -270,7 +271,7 @@ export class AppNavigationPanel extends LitElement {
   }
 
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
-    return this.machineStatusSnapshots[this.selectedMachine?.id ?? "local"];
+    return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
   }
 
   private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {

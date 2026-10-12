@@ -63,5 +63,6 @@ describe("Captain's Log Markdown", () => {
     const tasks = Array.from(view.querySelectorAll("input"));
     expect(tasks.map((task) => task.checked)).toEqual([true, false]);
     expect(tasks.every((task) => task.disabled)).toBe(true);
+    expect(tasks.map((task) => task.getAttribute("aria-label"))).toEqual(["任务完成状态", "任务完成状态"]);
   });
 });

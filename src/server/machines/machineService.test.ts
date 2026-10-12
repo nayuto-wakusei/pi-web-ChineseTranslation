@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiWebRuntimeResponse } from "../../shared/apiTypes.js";
-import { PI_WEB_CAPABILITIES } from "../../shared/capabilities.js";
 import type { MachineClient } from "./machineClient.js";
 import { MachineService } from "./machineService.js";
 import { MachineStore, machineStorePath } from "./machineStore.js";
@@ -198,19 +197,30 @@ describe("MachineService", () => {
     ]);
   });
 
-  it("unions and deduplicates component deprecated inputs for the owning remote machine", async () => {
+  it("unions and deduplicates component deprecated agent inputs per machine", async () => {
     const body = remoteRuntimeBody();
-    const common = { source: "config" as const, name: "agent.command" };
-    body.components.web.deprecatedAgentInputs = [common, { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" }];
-    body.components.sessiond.deprecatedAgentInputs = [common, { source: "environment", name: "PI_WEB_AGENT_SESSION_DIR", replacement: "PI_CODING_AGENT_SESSION_DIR" }];
-    const service = new MachineService(new MachineStore(storePath), {
-      remoteClientFactory: () => fakeRemoteClient({ requestJson: () => Promise.resolve({ statusCode: 200, headers: {}, body }) }),
-    });
-    const machine = await service.add({ name: "Remote", baseUrl: "https://remote.example.test" });
-    expect((await service.runtime(machine.id))?.deprecatedAgentInputs).toEqual([
-      common,
+    body.components.web.deprecatedAgentInputs = [
       { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
-      { source: "environment", name: "PI_WEB_AGENT_SESSION_DIR", replacement: "PI_CODING_AGENT_SESSION_DIR" },
+      { source: "config", name: "agent.dir", replacement: "PI_CODING_AGENT_DIR" },
+    ];
+    body.components.sessiond.deprecatedAgentInputs = [
+      // Both processes read the same config file: the duplicate collapses into one warning.
+      { source: "config", name: "agent.dir", replacement: "PI_CODING_AGENT_DIR" },
+      { source: "environment", name: "PI_WEB_AGENT_COMMAND" },
+    ];
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => Promise.resolve({ statusCode: 200, headers: {}, body }));
+    const remoteService = new MachineService(new MachineStore(storePath), {
+      remoteClientFactory: () => fakeRemoteClient({ requestJson }),
+      now: () => new Date("2026-05-25T00:00:00.000Z"),
+    });
+    const machine = await remoteService.add({ name: "Remote", baseUrl: "https://remote.example.test" });
+
+    const runtime = await remoteService.runtime(machine.id);
+
+    expect(runtime?.deprecatedAgentInputs).toEqual([
+      { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+      { source: "config", name: "agent.dir", replacement: "PI_CODING_AGENT_DIR" },
+      { source: "environment", name: "PI_WEB_AGENT_COMMAND" },
     ]);
   });
 
@@ -279,17 +289,17 @@ function remoteRuntimeBody(): PiWebRuntimeResponse {
         label: "Remote Web",
         runtimeVersion: "1.0.0",
         available: true,
-        capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage],
+        capabilities: [],
       },
       sessiond: {
         component: "sessiond",
         label: "Remote Session daemon",
         runtimeVersion: "1.0.0",
         available: true,
-        capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
+        capabilities: [],
       },
     },
-    capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived, PI_WEB_CAPABILITIES.piPackagesManage],
+    capabilities: [],
   };
 }
 

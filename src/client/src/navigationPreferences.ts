@@ -19,12 +19,12 @@ export function loadNavigationPreferences(storage: Pick<Storage, "getItem"> | un
     if (typeof value === "object" && value !== null) {
       const pins: unknown = "pinnedIds" in value ? value.pinnedIds : undefined;
       return {
-        pinnedIds: Array.isArray(pins) ? [...new Set(pins.filter((id): id is string => typeof id === "string" && id !== ""))] : [],
+        pinnedIds: Array.isArray(pins) ? [...new Set(pins.filter((id): id is string => typeof id === "string" && id.length > 0))] : [],
         mobileCollapsed: "mobileCollapsed" in value && value.mobileCollapsed === true,
       };
     }
   } catch {
-    // Navigation preferences are optional when storage is blocked or malformed.
+    // Layout preferences are optional when storage is blocked or malformed.
   }
   return { pinnedIds: [], mobileCollapsed: false };
 }
@@ -33,7 +33,7 @@ export function saveNavigationPreferences(preferences: NavigationPreferences, st
   try {
     storage?.setItem(storageKey, JSON.stringify(preferences));
   } catch {
-    // Ignore quota/privacy errors for optional browser preferences.
+    // Ignore quota/privacy errors for this optional browser layout preference.
   }
 }
 
@@ -77,7 +77,7 @@ export function selectedNavigationTab<T extends string>(
 }
 
 export function toggleNavigationPin(id: string, pinnedIds: readonly string[], availableIds: readonly string[]): string[] {
-  // Empty pins mean "all"; materialize that full set before changing one pin.
-  const current = pinnedIds.length === 0 ? [...availableIds] : [...pinnedIds];
-  return current.includes(id) ? current.filter((pin) => pin !== id) : [...current, id];
+  // Materialize the implicit "all" before unpinning. Never prune unavailable plugin IDs.
+  const explicitPins = pinnedIds.length === 0 ? availableIds : pinnedIds;
+  return explicitPins.includes(id) ? explicitPins.filter((pin) => pin !== id) : [...explicitPins, id];
 }

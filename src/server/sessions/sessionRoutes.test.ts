@@ -949,9 +949,10 @@ describe("session routes", () => {
     registerSessionRoutes(routeApp, routeService, eventHub);
 
     try {
-      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/warnings/dismiss", payload: {} });
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/warnings/dismiss", payload: { cwd: resolve("/repo") } });
 
       expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "dismissId field must be a string" });
       expect(routeService.dismissWarningCalls).toEqual([]);
     } finally {
       await routeService.dispose();
@@ -1127,6 +1128,15 @@ describe("session routes", () => {
 });
 
 class CapturingRouteSessionService implements SessionRouteService {
+  sessionDefaultsResponse: import("../../shared/apiTypes.js").SessionDefaults | undefined;
+  modelCatalogResponse: SessionModelCatalogEntry[] = [{ provider: "anthropic", id: "claude-opus", enabled: true }];
+  modelCatalogError: Error | undefined;
+  setModelEnabledResponse: SessionModelCatalogEntry[] | undefined;
+  setModelEnabledError: Error | undefined;
+  setModelScopeResponse: SessionModelCatalogEntry[] | undefined;
+  setModelScopeError: Error | undefined;
+  forkFromTreeError: Error | undefined;
+  forkFromTreeResponse: SessionTreeForkResult = { cancelled: true };
   readonly calls: unknown[] = [];
   readonly reloadCalls: SessionRouteLookup[] = [];
   readonly clearQueueCalls: SessionRouteLookup[] = [];
@@ -1138,7 +1148,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly dismissAllNotificationCalls: { ref: SessionRef; request: Omit<SessionNotificationDismissAllRequest, "cwd"> }[] = [];
   dismissWarningError: Error | undefined;
   unreadError: Error | undefined;
-  messagesResponse: unknown[] | MessagePage = [];
+  messagesResponse: MessagePage = { messages: [], start: 0, total: 0 };
   streamSnapshotResponse: SessionStreamSnapshot = { seq: 0, partial: null };
   readonly streamSnapshotCalls: SessionRouteLookup[] = [];
   readonly cleanupPreviewCalls: NormalizedSessionCleanupRequest[] = [];
@@ -1300,7 +1310,7 @@ class CapturingRouteSessionService implements SessionRouteService {
     });
   }
 
-  messages(): Promise<unknown[] | MessagePage> {
+  messages(): Promise<MessagePage> {
     return Promise.resolve(this.messagesResponse);
   }
 
@@ -1325,11 +1335,12 @@ class CapturingRouteSessionService implements SessionRouteService {
 
   getSessionDefaults(lookup: SessionRouteLookup, managementContext?: ManagementEmbedContext) {
     this.sessionDefaultCalls.push({ lookup, managementContext });
-    return Promise.resolve({ defaultProvider: "anthropic", defaultModel: "claude-opus", defaultThinkingLevel: "medium" as const });
+    return Promise.resolve(this.sessionDefaultsResponse ?? { defaultProvider: "anthropic", defaultModel: "claude-opus", defaultThinkingLevel: "medium" as const });
   }
 
   setSessionDefaults(lookup: SessionRouteLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext) {
     this.sessionDefaultCalls.push({ lookup, defaults, managementContext });
+    if (this.sessionDefaultsResponse !== undefined) return Promise.resolve(this.sessionDefaultsResponse);
     return Promise.resolve({
       ...(defaults.provider === undefined ? {} : { defaultProvider: defaults.provider, defaultModel: defaults.modelId }),
       ...(defaults.thinkingLevel === undefined ? {} : { defaultThinkingLevel: defaults.thinkingLevel }),
@@ -1339,15 +1350,18 @@ class CapturingRouteSessionService implements SessionRouteService {
   availableModels(): Promise<[]> { return Promise.resolve([]); }
   modelCatalog(lookup: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
     this.modelCatalogCalls.push({ lookup, managementContext });
-    return Promise.resolve([{ provider: "anthropic", id: "claude-opus", enabled: true }]);
+    if (this.modelCatalogError !== undefined) return Promise.reject(this.modelCatalogError);
+    return Promise.resolve(this.modelCatalogResponse);
   }
   setModelEnabled(lookup: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
     this.setModelEnabledCalls.push({ lookup, provider, modelId, enabled, managementContext });
-    return Promise.resolve([{ provider, id: modelId, enabled }]);
+    if (this.setModelEnabledError !== undefined) return Promise.reject(this.setModelEnabledError);
+    return Promise.resolve(this.setModelEnabledResponse ?? [{ provider, id: modelId, enabled }]);
   }
   setModelScope(lookup: SessionRouteLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogEntry[]> {
     this.setModelScopeCalls.push({ lookup, mode, managementContext });
-    return Promise.resolve([{ provider: "anthropic", id: "claude-opus", enabled: mode === "all" }]);
+    if (this.setModelScopeError !== undefined) return Promise.reject(this.setModelScopeError);
+    return Promise.resolve(this.setModelScopeResponse ?? [{ provider: "anthropic", id: "claude-opus", enabled: mode === "all" }]);
   }
   setModel(): never { throw unusedRouteMethod("setModel"); }
   cycleModel(): never { throw unusedRouteMethod("cycleModel"); }
@@ -1378,8 +1392,9 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve({ cancelled: false, editorText: "edit this" });
   }
   forkFromTree(lookup: SessionRouteLookup, request: SessionTreeForkRequest, managementContext?: ManagementEmbedContext): Promise<SessionTreeForkResult> {
+    if (this.forkFromTreeError !== undefined) return Promise.reject(this.forkFromTreeError);
     this.forkFromTreeCalls.push({ lookup, request, managementContext });
-    return Promise.resolve({ cancelled: true });
+    return Promise.resolve(this.forkFromTreeResponse);
   }
   abort(): never { throw unusedRouteMethod("abort"); }
   stop(): never { throw unusedRouteMethod("stop"); }
@@ -1409,6 +1424,9 @@ class RejectingSessionManager implements PiSessionManagerGateway {
     this.calls.listAll += 1;
     return Promise.resolve([]);
   }
+
+  resolveSessionFile() { return Promise.resolve(undefined); }
+  invalidateSessionFile() { /* no memo in this fake */ }
 
   open(): never {
     this.calls.open += 1;
@@ -1446,3 +1464,354 @@ function sessionIdFromLookup(lookup: SessionRouteLookup): string {
 function unusedRouteMethod(name: string): Error {
   return new Error(`Route test did not expect ${name} to be called`);
 }
+
+describe("session routes upstream strict contract", () => {
+  it("strictly parses cwd-scoped session tree fork requests", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.forkFromTreeResponse = { cancelled: false, session: { id: "session-1-fork", cwd: "/workspace", path: "/sessions/session-1-fork.jsonl", created: "2026-01-01T00:00:00.000Z", modified: "2026-01-01T00:01:00.000Z", messageCount: 3, firstMessage: "" }, promptDraft: "draft this" };
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/fork",
+        payload: { cwd: "/repo/./", entryId: "entry-2", expectedLeafId: "leaf-1" },
+      });
+      const nullLeaf = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/tree/fork",
+        payload: { cwd: "/repo", entryId: "entry-3", expectedLeafId: null },
+      });
+
+      expect([response.statusCode, nullLeaf.statusCode]).toEqual([200, 200]);
+      expect(response.json()).toEqual({
+        cancelled: false,
+        session: {
+          id: "session-1-fork",
+          cwd: "/workspace",
+          path: "/sessions/session-1-fork.jsonl",
+          created: "2026-01-01T00:00:00.000Z",
+          modified: "2026-01-01T00:01:00.000Z",
+          messageCount: 3,
+          firstMessage: "",
+        },
+        promptDraft: "draft this",
+      });
+      expect(routeService.forkFromTreeCalls).toEqual([
+        {
+          lookup: { id: "session-1", cwd: resolve("/repo") },
+          managementContext: undefined,
+          request: { entryId: "entry-2", expectedLeafId: "leaf-1" },
+        },
+        {
+          lookup: { id: "session-1", cwd: resolve("/repo") },
+          managementContext: undefined,
+          request: { entryId: "entry-3", expectedLeafId: null },
+        },
+      ]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed session tree fork requests before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const base = { cwd: "/repo", entryId: "entry-2", expectedLeafId: "leaf-1" };
+    const malformed: Record<string, unknown>[] = [
+      { cwd: "/repo", expectedLeafId: "leaf-1" },
+      { ...base, entryId: "   " },
+      { ...base, entryId: 42 },
+      { cwd: "/repo", entryId: "entry-2" },
+      { ...base, expectedLeafId: 1 },
+      { ...base, expectedLeafId: "" },
+    ];
+
+    try {
+      for (const payload of malformed) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/fork", payload });
+        expect(response.statusCode).toBe(400);
+      }
+      const missingBody = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/fork" });
+      expect(missingBody.statusCode).toBe(400);
+      expect(routeService.forkFromTreeCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps session tree fork service errors to status codes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const payload = { cwd: "/repo", entryId: "entry-2", expectedLeafId: "leaf-1" };
+
+    try {
+      routeService.forkFromTreeError = new Error("Session not found");
+      const missing = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/fork", payload });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({ error: "Session not found" });
+
+      routeService.forkFromTreeError = new Error("Stop current session activity before forking the session tree");
+      const active = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/fork", payload });
+      expect(active.statusCode).toBe(400);
+      expect(active.json()).toEqual({ error: "Stop current session activity before forking the session tree" });
+      expect(routeService.forkFromTreeCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects per-session routes that omit cwd without calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const statusResponse = await routeApp.inject({ method: "GET", url: "/sessions/session-1/status" });
+      const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { text: "hello" } });
+      const bulkResponse = await routeApp.inject({ method: "POST", url: "/sessions/bulk/archive", payload: { sessions: [{ id: "session-1" }] } });
+
+      expect(statusResponse.statusCode).toBe(400);
+      expect(statusResponse.json()).toEqual({ error: "cwd query parameter is required" });
+      expect(promptResponse.statusCode).toBe(400);
+      expect(promptResponse.json()).toEqual({ error: "cwd field is required" });
+      expect(bulkResponse.statusCode).toBe(400);
+      expect(bulkResponse.json()).toEqual({ error: "cwd field is required" });
+      expect(routeService.calls).toEqual([]);
+      expect(routeService.bulkArchiveCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("reads and pins global defaults with cwd context and rejects invalid selector payloads", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const service = new CapturingRouteSessionService();
+    service.sessionDefaultsResponse = { defaultThinkingLevel: "high" };
+    registerSessionRoutes(routeApp, service, new SessionEventHub());
+    const cwd = resolve("/repo");
+    const url = "/sessions/session-1/defaults";
+    try {
+      const read = await routeApp.inject({ method: "GET", url: `${url}?cwd=${encodeURIComponent(cwd)}` });
+      expect(read.statusCode).toBe(200);
+      expect(read.json()).toEqual({ defaultThinkingLevel: "high" });
+      for (const defaults of [{ provider: "anthropic", modelId: "opus" }, { thinkingLevel: "max" }]) {
+        const response = await routeApp.inject({ method: "POST", url, payload: { cwd, ...defaults } });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ defaultThinkingLevel: "high" });
+      }
+      expect(service.sessionDefaultCalls).toEqual([
+        { managementContext: undefined, lookup: { id: "session-1", cwd } },
+        { managementContext: undefined, lookup: { id: "session-1", cwd }, defaults: { provider: "anthropic", modelId: "opus" } },
+        { managementContext: undefined, lookup: { id: "session-1", cwd }, defaults: { thinkingLevel: "max" } },
+      ]);
+      for (const defaults of [{}, { provider: "anthropic" }, { modelId: "opus" }, { provider: " ", modelId: "opus" }, { thinkingLevel: "invalid" }, { thinkingLevel: null }, { thinkingLevel: "high", provider: "a", modelId: "b" }]) {
+        const response = await routeApp.inject({ method: "POST", url, payload: { cwd, ...defaults } });
+        expect(response.statusCode).toBe(400);
+      }
+      expect((await routeApp.inject({ method: "GET", url })).statusCode).toBe(400);
+      expect((await routeApp.inject({ method: "POST", url, payload: { thinkingLevel: "high" } })).statusCode).toBe(400);
+      expect(service.sessionDefaultCalls).toHaveLength(3);
+    } finally {
+      await service.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("serves the full model catalog with per-model enabled state, forwarding workspace context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.modelCatalogResponse = [
+      { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", contextWindow: 200_000, enabled: true },
+      { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false },
+    ];
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/models/catalog?cwd=${encodeURIComponent(requestCwd)}` });
+      const missing = await routeApp.inject({ method: "GET", url: "/sessions/session-1/models/catalog" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ models: routeService.modelCatalogResponse });
+      expect(routeService.modelCatalogCalls.map(({ lookup }) => lookup)).toEqual([{ id: "session-1", cwd: requestCwd }]);
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json()).toEqual({ error: "cwd query parameter is required" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps model catalog lookup failures to 404", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.modelCatalogError = new Error("Session not found");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/models/catalog?cwd=${encodeURIComponent(resolve("/repo"))}` });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("forwards per-model enable edits and returns the updated catalog", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.setModelEnabledResponse = [{ provider: "anthropic", id: "claude-opus-4-6", enabled: false }];
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd: requestCwd, provider: "anthropic", modelId: "claude-opus-4-6", enabled: false },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ models: routeService.setModelEnabledResponse });
+      expect(routeService.setModelEnabledCalls).toEqual([{ lookup: { id: "session-1", cwd: requestCwd }, provider: "anthropic", modelId: "claude-opus-4-6", enabled: false, managementContext: undefined }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("forwards atomic model-scope presets and returns the updated catalog", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.setModelScopeResponse = [{ provider: "anthropic", id: "claude-opus-4-6", enabled: true }];
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const response = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/scope",
+        payload: { cwd: requestCwd, mode: "current" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ models: routeService.setModelScopeResponse });
+      expect(routeService.setModelScopeCalls).toEqual([{ lookup: { id: "session-1", cwd: requestCwd }, mode: "current", managementContext: undefined }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed model-scope presets before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const missing = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd: requestCwd } });
+      const invalid = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd: requestCwd, mode: "none" } });
+
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json()).toEqual({ error: "mode 字段必须是 all 或 current" });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: "mode 字段必须是 all 或 current" });
+      expect(routeService.setModelScopeCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed enable edits before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const missingEnabled = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd: requestCwd, provider: "anthropic", modelId: "claude-opus-4-6" },
+      });
+      const nonBooleanEnabled = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd: requestCwd, provider: "anthropic", modelId: "claude-opus-4-6", enabled: "yes" },
+      });
+      const missingModelId = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/models/enabled",
+        payload: { cwd: requestCwd, provider: "anthropic", enabled: true },
+      });
+
+      expect(missingEnabled.statusCode).toBe(400);
+      expect(missingEnabled.json()).toEqual({ error: "enabled field must be a boolean" });
+      expect(nonBooleanEnabled.statusCode).toBe(400);
+      expect(nonBooleanEnabled.json()).toEqual({ error: "enabled field must be a boolean" });
+      expect(missingModelId.statusCode).toBe(400);
+      expect(missingModelId.json()).toEqual({ error: "modelId field must be a string" });
+      expect(routeService.setModelEnabledCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps a missing session on an enable edit to 404 and other failures to 400", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const payload = { cwd: resolve("/repo"), provider: "anthropic", modelId: "claude-opus-4-6", enabled: true };
+      routeService.setModelEnabledError = new Error("Session not found");
+      const missing = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/enabled", payload });
+      routeService.setModelEnabledError = new Error("Model not found: anthropic/nope");
+      const unknown = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/enabled", payload });
+
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({ error: "Session not found" });
+      expect(unknown.statusCode).toBe(400);
+      expect(unknown.json()).toEqual({ error: "Model not found: anthropic/nope" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+});

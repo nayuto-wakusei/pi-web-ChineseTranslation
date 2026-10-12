@@ -120,7 +120,7 @@ export class ModalSurface extends LitElement {
       return;
     }
     if (event.key !== "Escape") return;
-    // Escape can cancel an IME candidate without closing the containing dialog.
+    // Escape may cancel an IME candidate without dismissing its containing dialog.
     if (event.isComposing) {
       event.stopPropagation();
       return;

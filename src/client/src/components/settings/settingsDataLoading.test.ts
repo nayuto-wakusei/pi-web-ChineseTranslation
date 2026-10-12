@@ -22,6 +22,14 @@ const unsupportedPackageManagement: PiPackageManagementSupport = {
 };
 
 describe("settings data loading helpers", () => {
+  it("skips package listing only when runtime data confirms package management is unsupported", async () => {
+    const loadPackages = vi.fn(() => Promise.resolve(packagesResponse));
+    const blocked = await loadPiPackagesData(remoteTarget, loadPackages, unsupportedPackageManagement);
+    const unknown = await loadPiPackagesData(remoteTarget, loadPackages, { state: "unknown" });
+    expect(blocked).toEqual({ error: unsupportedPackageManagement.message, skipped: true });
+    expect(unknown).toEqual({ packagesResponse, error: "" });
+    expect(loadPackages).toHaveBeenCalledExactlyOnceWith("remote-a");
+  });
   it("loads gateway settings without depending on Pi package data", async () => {
     const result = await loadGatewaySettingsData({
       loadConfig: () => Promise.resolve(configResponse),
@@ -57,20 +65,5 @@ describe("settings data loading helpers", () => {
     expect(success).toEqual({ packagesResponse, error: "" });
     expect(failure.packagesResponse).toBeUndefined();
     expect(failure.error).toBe("从 Lab Mac（远程机器） 加载 Pi 包失败：无法连接 Lab Mac 进行 Pi 包管理。请检查机器连接后重试。");
-  });
-
-  it("skips package listing only when runtime data confirms package management is unsupported", async () => {
-    const requestedTargets: string[] = [];
-    const loadPackages = vi.fn((targetId: string) => {
-      requestedTargets.push(targetId);
-      return Promise.resolve(packagesResponse);
-    });
-
-    const blocked = await loadPiPackagesData(remoteTarget, loadPackages, unsupportedPackageManagement);
-    const unknown = await loadPiPackagesData(remoteTarget, loadPackages, { state: "unknown" });
-
-    expect(blocked).toEqual({ error: unsupportedPackageManagement.message, skipped: true });
-    expect(unknown).toEqual({ packagesResponse, error: "" });
-    expect(requestedTargets).toEqual(["remote-a"]);
   });
 });

@@ -48,7 +48,6 @@ interface GitWorkspaceUiState {
   error: string | undefined;
   expandedDirectories: Set<string>;
   statusRequest: Promise<void> | undefined;
-  statusRefreshPending: boolean;
   diffRequestSequence: number;
   viewStateCache: GitViewStateCache | undefined;
   visibleFileLimit: number;
@@ -159,7 +158,6 @@ class GitUiController {
     const state = this.stateFor(context);
     const background = !force;
     if (state.statusRequest !== undefined) {
-      state.statusRefreshPending ||= force;
       if (!background && !state.statusLoading) {
         state.statusLoading = true;
         this.requestRender(state);
@@ -183,7 +181,7 @@ class GitUiController {
         if (!state.retained) return;
         if (state.status?.hash !== status.hash) {
           state.status = status;
-          state.visibleFileLimit = Math.min(GIT_FILE_RENDER_BATCH, status.files.length);
+          state.visibleFileLimit = GIT_FILE_RENDER_BATCH;
           revealSelectedFile(state, this.view);
         }
         state.stale = false;
@@ -206,11 +204,6 @@ class GitUiController {
         state.statusLoading = false;
         if (wasLoading || previousStatus !== state.status || previousError !== state.error
           || previousStale !== state.stale || previousPath !== state.selectedDiffPath) this.requestRender(state);
-        if (state.statusRefreshPending && state.retained && this.connectedWorkspaceKey === workspaceContextKey(context)) {
-          state.statusRefreshPending = false;
-          return this.refresh(context);
-        }
-        return undefined;
       });
     state.statusRequest = request;
     return request;
@@ -298,7 +291,6 @@ class GitUiController {
       error: undefined,
       expandedDirectories: new Set(),
       statusRequest: undefined,
-      statusRefreshPending: false,
       diffRequestSequence: 0,
       viewStateCache: undefined,
       visibleFileLimit: GIT_FILE_RENDER_BATCH,
@@ -348,6 +340,7 @@ class GitUiController {
   private applyRouteSelection(state: GitWorkspaceUiState, path: string | undefined): void {
     if (state.selectedDiffPath === path) return;
     state.selectedDiffPath = path;
+    revealSelectedFile(state, this.view);
     state.selectedDiff = undefined;
     state.selectedStagedDiff = undefined;
     state.diffLoading = false;

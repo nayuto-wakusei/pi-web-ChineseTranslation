@@ -9,11 +9,13 @@ import {
   type AskUserQuestionOption,
 } from "../../shared/apiTypes.js";
 import { renderSupersededAskText, type PendingAskOpenResult } from "./pendingAskStore.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 /** One `ask_user` call: the questions to post, for the session that called the tool. */
 export interface AskUserInvocation {
   sessionId: string;
   questions: AskUserQuestion[];
+  managementContext?: ManagementEmbedContext;
 }
 
 export interface AskUserToolDeps {
@@ -76,9 +78,6 @@ function toQuestion(param: Static<typeof AskUserQuestionParams>): AskUserQuestio
     question: param.question,
     ...(detail === undefined ? {} : { detail }),
     options: (options ?? []).map(toOption),
-    // Keep the compatibility marker on the daemon wire even though the model no
-    // longer chooses whether a question accepts a custom answer.
-    allowOther: true,
     ...(multiple === undefined ? {} : { multiple }),
   };
 }

@@ -11,11 +11,11 @@ import { adaptPublicPlugin } from "./publicContext";
 export interface PluginManifestEntry {
   id: string;
   module: string;
-  source?: string;
-  scope?: string;
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  source?: string;
+  scope?: string;
   machineSpecific: boolean;
 }
 interface PluginManifest {
@@ -74,16 +74,6 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
   return { terminalMode: manifest.terminalMode, declarations, registrations, failures };
 }
 
-function registrationDeclaration(entry: PluginManifestEntry, machineId: string | undefined): PiWebPluginRegistrationDeclaration {
-  return Object.freeze({
-    id: machineId === undefined ? entry.id : machineScopedManifestPluginId(machineId, entry.id),
-    machineSpecific: entry.machineSpecific,
-    ...(entry.source === undefined ? {} : { manifestSource: entry.source }),
-    ...(entry.scope === undefined ? {} : { manifestScope: entry.scope }),
-    ...(machineId === undefined ? {} : { machineId, sourcePluginId: entry.id }),
-  });
-}
-
 export function resolvePluginModuleUrl(moduleReference: string, manifestUrl: string, appUrlContext?: AppUrlContext): string {
   if (!moduleReference.startsWith("/")) return new URL(moduleReference, manifestUrl).toString();
   return appUrlContext === undefined ? resolveAppUrl(moduleReference) : resolveAppUrl(moduleReference, appUrlContext);
@@ -120,8 +110,8 @@ function parseManifest(value: unknown): PluginManifest {
     if (!isRecord(entry) || typeof entry["id"] !== "string" || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
     const id = entry["id"];
     if (!isPiWebPluginId(id)) throw new Error(`Invalid plugin manifest id: ${id}`);
-    const source = typeof entry["source"] === "string" ? entry["source"] : undefined;
-    const scope = typeof entry["scope"] === "string" ? entry["scope"] : undefined;
+    const source = optionalString(entry["source"]);
+    const scope = optionalString(entry["scope"]);
     if (isReservedPiWebPluginId(id)
       && !(isPiWebBundledPluginId(id) && source === "bundled" && scope === "bundled")) {
       throw new Error(`Reserved plugin manifest id: ${id}`);
@@ -129,17 +119,15 @@ function parseManifest(value: unknown): PluginManifest {
     const backendRevision = parseBackendRevision(entry["backendRevision"]);
     const pairedRequestVersion = parsePairedCapabilityVersion(entry["pairedRequestVersion"]);
     const pairedChannelVersion = parsePairedCapabilityVersion(entry["pairedChannelVersion"]);
-    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) {
-      throw new Error("Invalid plugin manifest entry");
-    }
+    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) throw new Error("Invalid plugin manifest entry");
     return {
       id,
       module: entry["module"],
-      ...(source === undefined ? {} : { source }),
-      ...(scope === undefined ? {} : { scope }),
       ...(backendRevision === undefined ? {} : { backendRevision }),
       ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
       ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+      ...(source === undefined ? {} : { source }),
+      ...(scope === undefined ? {} : { scope }),
       machineSpecific: parseMachineSpecific(entry["machineSpecific"]),
     };
   });
@@ -160,6 +148,10 @@ function parseManifest(value: unknown): PluginManifest {
     throw new Error("Recovery-disabled plugin manifest must not publish Terminal");
   }
   return { terminalMode, plugins };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function parseTerminalMode(value: unknown): TerminalPluginMode {
@@ -199,13 +191,23 @@ function parseBackendRevision(value: unknown): string | undefined {
 function parsePairedCapabilityVersion(value: unknown): 1 | undefined {
   if (value === undefined) return undefined;
   if (value !== 1) throw new Error("Invalid plugin manifest entry");
-  return 1;
+  return value;
 }
 
 function parseMachineSpecific(value: unknown): boolean {
   if (value === undefined) return false;
   if (typeof value !== "boolean") throw new Error("Invalid plugin manifest entry");
   return value;
+}
+
+function registrationDeclaration(entry: PluginManifestEntry, machineId: string | undefined): PiWebPluginRegistrationDeclaration {
+  return Object.freeze({
+    id: machineId === undefined ? entry.id : machineScopedManifestPluginId(machineId, entry.id),
+    machineSpecific: entry.machineSpecific,
+    ...(entry.source === undefined ? {} : { manifestSource: entry.source }),
+    ...(entry.scope === undefined ? {} : { manifestScope: entry.scope }),
+    ...(machineId === undefined ? {} : { machineId, sourcePluginId: entry.id }),
+  });
 }
 
 function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin {

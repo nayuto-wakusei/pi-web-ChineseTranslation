@@ -59,42 +59,46 @@ export function createContentRenderingService(select: SelectRenderer): ChatConte
   ></pi-web-content-renderer>`;
 
   const renderMarkdown = (request: ContentMarkdownRenderRequest, identity?: string): TemplateResult => {
-    const template = document.createElement("template");
-    template.innerHTML = request.toSafeHtml(request.text);
-    const tokens: Tokens.Code[] = [];
-    void marked.walkTokens(marked.lexer(request.text, { gfm: true, breaks: true }), (token) => {
-      if (isCodeToken(token)) tokens.push(token);
-    });
-    const hosts = new Map<Node, TemplateResult>();
-    template.content.querySelectorAll("pre").forEach((pre, index) => {
-      const token = tokens[index];
-      const code = pre.querySelector("code");
-      if (token === undefined || code === null) return;
-      const text = token.text;
-      const selected = isClosedFence(token) ? selection({
-        machineId: request.machineId, text,
-        ...(token.lang === undefined ? {} : { language: token.lang }),
-        ...(request.truncated === undefined ? {} : { truncated: request.truncated }),
-      }) : [];
-      const intentKey = identity === undefined ? undefined : JSON.stringify([request.machineId, identity, index]);
-      if (intentKey !== undefined) renderIntentMemory.read(intentKey, text, selected.map(({ id }) => id));
-      if (selected.length > 0) hosts.set(pre, host(text, selected, false, undefined, request.allowManualPreview, intentKey));
-    });
+      const template = document.createElement("template");
+      template.innerHTML = request.toSafeHtml(request.text);
+      const tokens: Tokens.Code[] = [];
+      void marked.walkTokens(marked.lexer(request.text, { gfm: true, breaks: true }), (token) => {
+        if (isCodeToken(token)) tokens.push(token);
+      });
+      const hosts = new Map<Node, TemplateResult>();
+      template.content.querySelectorAll("pre").forEach((pre, index) => {
+        const token = tokens[index];
+        const code = pre.querySelector("code");
+        if (token === undefined || code === null) return;
+        const text = token.text;
+        const selected = isClosedFence(token) ? selection({
+          machineId: request.machineId, text,
+          ...(token.lang === undefined ? {} : { language: token.lang }),
+          ...(request.truncated === undefined ? {} : { truncated: request.truncated }),
+        }) : [];
+        const intentKey = identity === undefined ? undefined : JSON.stringify([request.machineId, identity, index]);
+        // Validate even when no host will mount (e.g. its plugin was disabled).
+        if (intentKey !== undefined) renderIntentMemory.read(intentKey, text, selected.map(({ id }) => id));
+        if (selected.length > 0) hosts.set(pre, host(text, selected, false, undefined, request.allowManualPreview, intentKey));
+      });
 
-    const renderNode = (node: Node): unknown => {
-      const replacement = hosts.get(node);
-      if (replacement !== undefined) return replacement;
-      if (!(node instanceof Element)) return node.textContent;
-      if (!node.querySelector("pre")) return unsafeHTML(node.outerHTML);
-      const tag = unsafeStatic(node.tagName.toLowerCase());
-      const attributes = [...node.attributes].map(({ name, value }) => [name, value] as const);
-      return staticHtml`<${tag} ${ref((element) => {
-        if (element === undefined) return;
-        for (const attribute of [...element.attributes]) element.removeAttribute(attribute.name);
-        for (const [name, value] of attributes) element.setAttribute(name, value);
-      })}>${[...node.childNodes].map(renderNode)}</${tag}>`;
-    };
-    return html`${[...template.content.childNodes].map(renderNode)}`;
+      // Only sanitized ancestor tags are rebuilt as Lit templates. Everything
+      // else stays under the caller's HTML policy. Stable positional child parts
+      // preserve completed fence hosts while later streaming prose changes.
+      const renderNode = (node: Node): unknown => {
+        const replacement = hosts.get(node);
+        if (replacement !== undefined) return replacement;
+        if (!(node instanceof Element)) return node.textContent;
+        if (!node.querySelector("pre")) return unsafeHTML(node.outerHTML);
+        const tag = unsafeStatic(node.tagName.toLowerCase());
+        const attributes = [...node.attributes].map(({ name, value }) => [name, value] as const);
+        return staticHtml`<${tag} ${ref((element) => {
+          if (element === undefined) return;
+          for (const attribute of [...element.attributes]) element.removeAttribute(attribute.name);
+          for (const [name, value] of attributes) element.setAttribute(name, value);
+        })}>${[...node.childNodes].map(renderNode)}</${tag}>`;
+      };
+      return html`${[...template.content.childNodes].map(renderNode)}`;
   };
   const capability: ContentRenderingCapability = Object.freeze({
     listRenderers(request: ContentRenderRequest) {

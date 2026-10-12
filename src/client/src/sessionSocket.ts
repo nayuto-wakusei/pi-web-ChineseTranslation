@@ -1,5 +1,5 @@
 import { realtimeEvents, sessionEvents } from "./api";
-import { parseRealtimeStreamEvent, parseSessionStreamEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent, parseTerminalInfo, parseWorkspaceActivity } from "./api/parsers";
+import { parseRealtimeStreamEvent, parseServerNoticeEvent, parseSessionStreamEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionUnreadEvent, parseTerminalInfo, parseWorkspaceActivity } from "./api/parsers";
 import type { RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 import type { SocketScope } from "./api/sockets";
 
@@ -157,13 +157,13 @@ export class RealtimeSocket {
 
 export function parseSessionSocketEvent(event: unknown): SessionUiEvent | undefined {
   const type = eventType(event);
-  if (type === "notifications.inbox") return safelyParseNotificationEvent(() => parseSessionNotificationInboxEvent(event));
-  // Ask frames drive an interactive form the user answers on the model's behalf,
-  // so they are validated rather than accepted on their type alone.
+  // Inbox, ask, and dialog frames have dedicated validators (they drive the
+  // notification inbox and the interactive cards answered on the model's or an
+  // extension's behalf). Every other accepted frame is session stream
+  // vocabulary, validated field by field.
+  if (type === "notifications.inbox") return safelyParseValidatedEvent(() => parseSessionNotificationInboxEvent(event));
   if (type === "ask.opened") return safelyParseValidatedEvent(() => parseSessionAskOpenedEvent(event));
   if (type === "ask.closed") return safelyParseValidatedEvent(() => parseSessionAskClosedEvent(event));
-  // Dialog frames drive an interactive card the user answers on the extension's
-  // behalf, so they are validated rather than accepted on their type alone.
   if (type === "dialog.opened") return safelyParseValidatedEvent(() => parseSessionDialogOpenedEvent(event));
   if (type === "dialog.closed") return safelyParseValidatedEvent(() => parseSessionDialogClosedEvent(event));
   const parsed = safelyParseValidatedEvent(() => parseSessionStreamEvent(event));
@@ -171,6 +171,7 @@ export function parseSessionSocketEvent(event: unknown): SessionUiEvent | undefi
 }
 
 export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent | undefined {
+  if (eventType(event) === "notices.updated") return safelyParseValidatedEvent(() => parseServerNoticeEvent(event));
   if (eventType(event) === "sessions.unread") return safelyParseValidatedEvent(() => parseSessionUnreadEvent(event));
   if (eventType(event) === "session.startup") return safelyParseValidatedEvent(() => parseSessionStartupProgressEvent(event));
   if (typeof event === "object" && event !== null) {
@@ -180,7 +181,7 @@ export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent |
       return terminal === undefined ? undefined : { type: eventType(event) === "terminal.created" ? "terminal.created" : "terminal.exited", terminal };
     }
     if (eventType(event) === "terminal.closed") {
-      if (!("terminalId" in event) || typeof event.terminalId !== "string" || !("cwd" in event) || typeof event.cwd !== "string") return undefined;
+      if (!("terminalId" in event) || typeof event.terminalId !== "string" || event.terminalId === "" || !("cwd" in event) || typeof event.cwd !== "string" || event.cwd === "") return undefined;
       return { type: "terminal.closed", terminalId: event.terminalId, cwd: event.cwd };
     }
     if (eventType(event) === "workspace.activity") {
@@ -195,10 +196,6 @@ export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent |
 function withTransportSeq(event: SessionUiEvent, raw: unknown): SessionUiEvent {
   if (typeof raw !== "object" || raw === null || !("seq" in raw)) return event;
   return typeof raw.seq === "number" ? { ...event, seq: raw.seq } : event;
-}
-
-function safelyParseNotificationEvent<T>(parse: () => T): T | undefined {
-  return safelyParseValidatedEvent(parse);
 }
 
 function safelyParseValidatedEvent<T>(parse: () => T): T | undefined {

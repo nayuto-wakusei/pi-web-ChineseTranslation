@@ -10,7 +10,7 @@ const workspace: Workspace = {
   projectId: "project-1",
   path: "/repo",
   label: "repo",
-  isMain: true,
+  effectiveConfig: {}, isMain: true,
   isGitRepo: true,
   isGitWorktree: false,
 };

@@ -1,10 +1,10 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
 import type { ChatLine } from "./components/shared";
+import type { MachineStatusSnapshot } from "../../shared/machineStatus";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
-import type { WorkspaceUploadBatchState } from "./workspaceUploadState";
-import type { MachineStatusSnapshot } from "../../shared/machineStatus";
 import type { BrowserErrorMap } from "./browserErrors";
+import type { MainView } from "./route";
 
 export interface AppState {
   machines: Machine[];
@@ -12,6 +12,7 @@ export interface AppState {
   isLoadingMachines: boolean;
   machineStatuses: Record<string, MachineHealth>;
   machineRuntimes: Record<string, MachineRuntime>;
+  /** Latest per-machine status tree published by each machine's daemon. */
   machineStatusSnapshots: Record<string, MachineStatusSnapshot>;
   projects: Project[];
   workspaces: Workspace[];
@@ -42,8 +43,7 @@ export interface AppState {
   activity: SessionActivity | undefined;
   /**
    * The selected session's open `ask_user` question set, derived from the
-   * daemon-owned {@link SessionStatus.pendingAsk} plus live ask events, and
-   * dropped when the machine reports no `sessions.askUser` support.
+   * daemon-owned {@link SessionStatus.pendingAsk} plus live ask events.
    */
   pendingAsk: PendingAskUser | undefined;
   /**
@@ -80,26 +80,12 @@ export interface AppState {
   actionPaletteOpen: boolean;
   projectDialogOpen: boolean;
   machineDialogOpen: boolean;
-  workspaceTool: QualifiedContributionId;
-  mainView: "navigation" | "chat" | QualifiedContributionId;
-  fileTree: FileTreeEntry[];
-  expandedDirs: Record<string, FileTreeEntry[]>;
-  selectedFilePath: string | undefined;
-  selectedFileContent: FileContentResponse | undefined;
-  selectedFileLoadError: string | undefined;
-  fileTreeStale: boolean;
-  /** Manual workspace file upload batches, keyed by client-owned batch id. */
-  workspaceUploadBatches: Record<string, WorkspaceUploadBatchState>;
-  gitStatus: GitStatusResponse | undefined;
-  selectedDiffPath: string | undefined;
-  selectedDiff: GitDiffResponse | undefined;
-  selectedStagedDiff: GitDiffResponse | undefined;
-  gitStale: boolean;
-  activeTerminalCount: number;
-  selectedTerminalId: string | undefined;
+  workspaceTool: QualifiedContributionId | undefined;
+  mainView: MainView;
   piWebStatus: PiWebStatusResponse | undefined;
   /** Browser-local failures retained by their machine/project/workspace/session owner. */
   browserErrors: BrowserErrorMap;
+  /** Legacy global browser error surface for unmigrated global operations. */
   error: string;
 }
 
@@ -148,18 +134,6 @@ export type WorkspaceScopedStateReset = Pick<AppState,
   | "startingSessionCount"
   | "selectedNotificationInbox"
   | "treeDialog"
-  | "fileTree"
-  | "expandedDirs"
-  | "selectedFilePath"
-  | "selectedFileContent"
-  | "selectedFileLoadError"
-  | "fileTreeStale"
-  | "gitStatus"
-  | "selectedDiffPath"
-  | "selectedDiff"
-  | "selectedStagedDiff"
-  | "gitStale"
-  | "selectedTerminalId"
   | "error"
 >;
 
@@ -176,18 +150,6 @@ export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
     startingSessionCount: 0,
     selectedNotificationInbox: undefined,
     treeDialog: undefined,
-    fileTree: [],
-    expandedDirs: {},
-    selectedFilePath: undefined,
-    selectedFileContent: undefined,
-    selectedFileLoadError: undefined,
-    fileTreeStale: false,
-    gitStatus: undefined,
-    selectedDiffPath: undefined,
-    selectedDiff: undefined,
-    selectedStagedDiff: undefined,
-    gitStale: false,
-    selectedTerminalId: undefined,
     error: "",
   };
 }
@@ -244,22 +206,8 @@ export function initialAppState(): AppState {
     actionPaletteOpen: false,
     projectDialogOpen: false,
     machineDialogOpen: false,
-    workspaceTool: "core:workspace.files",
+    workspaceTool: undefined,
     mainView: "chat",
-    fileTree: [],
-    expandedDirs: {},
-    selectedFilePath: undefined,
-    selectedFileContent: undefined,
-    selectedFileLoadError: undefined,
-    fileTreeStale: false,
-    workspaceUploadBatches: {},
-    gitStatus: undefined,
-    selectedDiffPath: undefined,
-    selectedDiff: undefined,
-    selectedStagedDiff: undefined,
-    gitStale: false,
-    activeTerminalCount: 0,
-    selectedTerminalId: undefined,
     piWebStatus: undefined,
     browserErrors: {},
     error: "",

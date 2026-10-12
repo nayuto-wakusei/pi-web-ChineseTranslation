@@ -21,7 +21,7 @@ export function pluginLifecycleSupport(target: SettingsMachineTarget, runtime: P
   if (target.kind === "local") return { state: "supported" };
   if (runtime?.ok !== true) return { state: "unknown" };
   if (supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.pluginLifecycle)) return { state: "supported" };
-  return { state: "unsupported", message: `${target.name} 不支持插件生命周期诊断。加载依赖服务端的插件前，请更新并重启该机器上的 PI WEB。` };
+  return { state: "unsupported", message: pluginLifecycleUnavailableMessage(target) };
 }
 
 export function settingsMachineTarget(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): SettingsMachineTarget {
@@ -64,6 +64,10 @@ export function isAgentProfileSettingsSupported(support: AgentProfileSettingsSup
 
 export function selectedMachineSettingsUnavailableMessage(target: SettingsMachineTarget): string {
   return `${target.name} 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。`;
+}
+
+export function pluginLifecycleUnavailableMessage(target: SettingsMachineTarget): string {
+  return `${target.name} 不支持插件生命周期诊断。加载依赖服务端的插件前，请更新并重启该机器上的 PI WEB。`;
 }
 
 export function friendlySelectedMachineSettingsErrorMessage(message: string, target: SettingsMachineTarget): string {

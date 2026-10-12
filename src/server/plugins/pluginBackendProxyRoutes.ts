@@ -17,6 +17,10 @@ interface PluginBackendProxyParams {
   operation: string;
 }
 
+export function registerPairedPluginBackendProxyRoutes(app: FastifyInstance, daemon: SessionDaemonRequestClient): void {
+  registerPluginBackendProxyRoutes(app, daemon);
+}
+
 /** Browser-facing local route; all owner resolution and execution stays in sessiond. */
 export function registerPluginBackendProxyRoutes(
   app: FastifyInstance,

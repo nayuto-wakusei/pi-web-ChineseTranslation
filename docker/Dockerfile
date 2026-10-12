@@ -45,8 +45,7 @@ RUN set -eux; \
 
 FROM base AS runtime
 
-ENV NODE_ENV=production \
-  NPM_CONFIG_UPDATE_NOTIFIER=false \
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
   HOME=/data/home \
   XDG_CONFIG_HOME=/data/config \
   PI_WEB_HOST=0.0.0.0 \

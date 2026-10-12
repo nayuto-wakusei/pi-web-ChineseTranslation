@@ -1,7 +1,7 @@
-import type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes.js";
+import type { GlobalSessionEvent, RealtimeEvent, SessionNotificationSummaryEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { projectBrowserSessionEvent } from "../browserMessageProjection.js";
 import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "./sessionEventScope.js";
-export { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "./sessionEventScope.js";
+export type { SessionEventScope } from "./sessionEventScope.js";
 
 export interface RealtimeSocket {
   readonly OPEN: number;
@@ -43,10 +43,7 @@ export class SessionEventHub {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     const joinFrame = this.globalJoinFrame?.(scope);
-    if (joinFrame !== undefined && socket.readyState === socket.OPEN) {
-      try { socket.send(JSON.stringify(joinFrame)); }
-      catch { sockets.delete(socket); socket.terminate(); }
-    }
+    if (joinFrame !== undefined) this.sendToSocket(sockets, socket, JSON.stringify(joinFrame));
   }
 
   setGlobalJoinFrame(frame: (scope: SessionEventScope) => RealtimeEvent): void {
@@ -58,20 +55,7 @@ export class SessionEventHub {
     const seq = (this.seqBySessionScope.get(key) ?? 0) + 1;
     this.seqBySessionScope.set(key, seq);
     const payload = JSON.stringify({ ...projectBrowserSessionEvent(event), seq });
-    for (const socket of this.socketsBySession.get(key) ?? []) {
-      if (socket.readyState !== socket.OPEN) continue;
-      if (socket.bufferedAmount !== undefined && socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
-        this.socketsBySession.get(key)?.delete(socket);
-        socket.terminate();
-        continue;
-      }
-      try {
-        socket.send(payload);
-      } catch {
-        this.socketsBySession.get(key)?.delete(socket);
-        socket.terminate();
-      }
-    }
+    this.sendToSockets(this.socketsBySession.get(key), payload);
   }
 
   currentSeq(sessionId: string, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): number {
@@ -84,21 +68,40 @@ export class SessionEventHub {
 
   publishRealtime(event: RealtimeEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
     const payload = JSON.stringify(event);
-    for (const socket of this.globalSocketsByScope.get(scope) ?? []) {
-      if (socket.readyState !== socket.OPEN) continue;
-      if (socket.bufferedAmount !== undefined && socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
-        this.globalSocketsByScope.get(scope)?.delete(socket);
-        socket.terminate();
-        continue;
-      }
-      try {
-        socket.send(payload);
-      } catch {
-        this.globalSocketsByScope.get(scope)?.delete(socket);
-        socket.terminate();
-      }
+    this.sendToSockets(this.globalSocketsByScope.get(scope), payload);
+  }
+
+  publishNotificationSummary(event: SessionNotificationSummaryEvent, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    this.sendToSockets(this.globalSocketsByScope.get(scope), JSON.stringify(event));
+  }
+
+  private sendToSockets(sockets: Set<RealtimeSocket> | undefined, payload: string): void {
+    if (sockets === undefined) return;
+    for (const socket of sockets) this.sendToSocket(sockets, socket, payload);
+  }
+
+  private sendToSocket(sockets: Set<RealtimeSocket>, socket: RealtimeSocket, payload: string): void {
+    if (socket.readyState !== socket.OPEN) return;
+    if (socket.bufferedAmount !== undefined && socket.bufferedAmount > REALTIME_SOCKET_HIGH_WATER_MARK) {
+      this.dropSocket(sockets, socket);
+      return;
+    }
+    try {
+      socket.send(payload);
+    } catch {
+      this.dropSocket(sockets, socket);
     }
   }
+
+  private dropSocket(sockets: Set<RealtimeSocket>, socket: RealtimeSocket): void {
+    sockets.delete(socket);
+    try {
+      socket.terminate();
+    } catch {
+      // Removal is authoritative; cleanup failure must not block healthy sockets.
+    }
+  }
+
 }
 
 function sessionScopeKey(sessionId: string, scope: SessionEventScope): string {

@@ -1,10 +1,12 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type AgentSessionRuntimeDiagnostic, type ResourceDiagnostic } from "@earendil-works/pi-coding-agent";
-import { anthropicSubscriptionWarning, collectRuntimeWarnings, dismissSessionWarning, type RuntimeWarningSources } from "./piSessionService.js";
-import { testModel } from "./piSessionService.testSupport.js";
+import { PiSessionService, anthropicSubscriptionWarning, collectRuntimeWarnings, dismissSessionWarning, type RuntimeWarningSources } from "./piSessionService.js";
+import { CapturingSessionEventHub, fakeRuntime, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testManagementContext, testModel } from "./piSessionService.testSupport.js";
+import { createLocalOnlyModelRuntime, modelRuntimeAuthPath } from "./authService.js";
+import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
 import type { PiAgentSession } from "./piSessionService.js";
 import type { SessionWarning } from "../../shared/apiTypes.js";
 
@@ -180,6 +182,47 @@ describe("anthropicSubscriptionWarning", () => {
       subscriptionSession({ provider: "anthropic" }),
       join(dir, "auth.json"),
     )).toBeUndefined();
+  });
+});
+
+describe("runtime-owned subscription warnings", () => {
+  it.each(["normal", "management"] as const)("reads the %s runtime auth source instead of ambient auth", async (mode) => {
+    const ambientPath = await anthropicAuthPath({ type: "oauth" });
+    const scopedPath = await anthropicAuthPath({ type: "api_key", key: "sk-ant-api-test" });
+    const modelRuntime = await createLocalOnlyModelRuntime({ authPath: scopedPath, modelsPath: null });
+    const fake = fakeRuntime("scoped-warning", { model: anthropicModel("anthropic"), modelRuntime });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: dirname(ambientPath),
+      modelRuntime,
+      normalModelRuntimeForCwd: () => Promise.resolve(modelRuntime),
+      managementModelRuntime: modelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("scoped-warning")]),
+      heartbeatIntervalMs: 60_000,
+    });
+    try {
+      const context = mode === "management" ? testManagementContext() : undefined;
+      expect(modelRuntimeAuthPath(modelRuntime)).toBe(scopedPath);
+      const initial = await service.status(sessionRef("scoped-warning"), context);
+      expect((initial.warnings ?? []).filter((warning) => warning.source === "anthropic")).toEqual([]);
+      await writeFile(ambientPath, JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-api-test" } }));
+      await writeFile(scopedPath, JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-oat-test" } }));
+      const updated = await service.status(sessionRef("scoped-warning"), context);
+      expect((updated.warnings ?? []).filter((warning) => warning.source === "anthropic")).toEqual([{
+        severity: "warning",
+        message: ANTHROPIC_SUBSCRIPTION_AUTH_WARNING,
+        source: "anthropic",
+        dismiss: { id: "anthropicExtraUsage" },
+      }]);
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("does not assign an ambient auth path to an injected credential store", async () => {
+    const { credentials } = await createTestModelRuntime();
+    const runtime = await createLocalOnlyModelRuntime({ credentials, modelsPath: null });
+    expect(modelRuntimeAuthPath(runtime)).toBeUndefined();
   });
 });
 

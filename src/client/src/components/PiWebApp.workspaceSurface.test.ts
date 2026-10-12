@@ -8,7 +8,7 @@ import { PiWebApp } from "./PiWebApp";
 import { AppNavigationPanel } from "./appShell/AppNavigationPanel";
 import { WorkspacePanel } from "./WorkspacePanel";
 
-const workspace: Workspace = { id: "w", projectId: "p", path: "/repo", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+const workspace: Workspace = { id: "w", projectId: "p", path: "/repo", label: "main", effectiveConfig: {}, isMain: true, isGitRepo: true, isGitWorktree: false };
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -41,7 +41,7 @@ it("keeps panel contexts and navigation callbacks stable across transcript delta
   expect(navigation.onSelectWorkspace).toBe(selectWorkspace);
 });
 
-it("refreshes contexts for config, selected-session, query and retained local file state changes", async () => {
+it("refreshes contexts for config, selected-session and query without coupling to retired core file state", async () => {
   const { app, container, panel, setState } = await harness();
   const update = async (patch: Partial<AppState>) => {
     const previous = panel.panelContext;
@@ -52,8 +52,11 @@ it("refreshes contexts for config, selected-session, query and retained local fi
   };
   await update({ selectedWorkspace: { ...workspace, label: "new branch" } });
   await update({ selectedSession: { id: "session", cwd: workspace.path, path: "/private/session", created: "now", modified: "now", messageCount: 0, firstMessage: "" } });
-  await update({ selectedFilePath: "file.txt" });
-  expect(panel.panelContext?.selectedFilePath).toBe("file.txt");
+  const beforeFileState = panel.panelContext;
+  expect(initialAppState()).not.toHaveProperty("selectedFilePath");
+  render(app.render(), container);
+  await panel.updateComplete;
+  expect(panel.panelContext).toBe(beforeFileState);
   const previous = panel.panelContext;
   window.history.replaceState({}, "", `${window.location.href}&example.panel--file=next.txt`);
   render(app.render(), container);
@@ -72,11 +75,11 @@ it("keeps management action controls hidden with stable callbacks", async () => 
 });
 
 async function harness(management = false) {
-  window.history.replaceState({}, "", `/?${management ? "embed=management&" : ""}project=p&workspace=w&tool=example%3Apanel&view=example%3Apanel`);
+  window.history.replaceState({}, "", `/?${management ? "embed=management&" : ""}project=p&workspace=w&tool=example%3Apanel&view=workspace`);
   const app = new PiWebApp();
   Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
   Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"]]));
-  let state: AppState = { ...initialAppState(), selectedProject: { id: "p", path: workspace.path, name: "Project", createdAt: "now" }, selectedWorkspace: workspace, workspaceTool: "example:panel", mainView: "example:panel" };
+  let state: AppState = { ...initialAppState(), selectedProject: { id: "p", path: workspace.path, name: "Project", createdAt: "now" }, selectedWorkspace: workspace, workspaceTool: "example:panel", mainView: "workspace" };
   const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; Reflect.set(app, "state", state); };
   setState({});
   const registry: unknown = Reflect.get(app, "plugins");

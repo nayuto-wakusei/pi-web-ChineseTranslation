@@ -1,207 +1,184 @@
-# PI WEB configuration reference
+# PI WEB 配置参考
 
-PI WEB configuration covers the machine-local and project-local settings you usually need: the web/API bind address, trusted development-host settings, UI preferences, plugin enablement, file-explorer path access, manual upload defaults, upload limits, Pi-compatible agent profiles and companion CLIs, and session-daemon tools.
+本页说明机器与项目配置、路径访问、上传和提示词附件、会话守护进程能力、插件期望状态与恢复、快捷键以及运行时环境。便于扫描的默认值、作用域和重启规则见[配置页面](https://pi-web.dev/config)。
 
-This file is the markdown reference for agents and package consumers. The website page is <https://pi-web.dev/config>.
+<a id="config-files"></a>
+## 配置文件
 
-## Config files
+- **机器配置**：`$PI_WEB_CONFIG`；未设置时使用 `$XDG_CONFIG_HOME/pi-web/config.json` 或 `~/.config/pi-web/config.json`。
+- **项目配置**：`<project>/.pi-web/config.json`，可提交到仓库。
+- **托管数据**：`$PI_WEB_DATA_DIR`（默认 `~/.pi-web`），不是用户可编辑配置 API。
 
-PI WEB uses two config files:
+联邦模式下，会影响工作执行的设置针对所选机器：路径访问、上传/附件默认目录、上传限制、会话工具、插件启用与配置。网关 host/port/allowed-hosts、快捷键、机器注册和令牌仍保存在网关。远端不支持某项功能时明确报错，不静默使用网关配置。
 
-- **Global PI WEB config:** `$PI_WEB_CONFIG`, or `$XDG_CONFIG_HOME/pi-web/config.json`, or `~/.config/pi-web/config.json`.
-- **Project-local PI WEB config:** `<project>/.pi-web/config.json` for commit-able project settings.
+Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 → Pi 包** 管理；PI WEB 的 `plugins` 只控制已发现的纯浏览器、纯服务端与双入口插件的期望状态，不安装、移除或更新包。
 
-Normal-mode provider credentials and custom models are stored separately for each registered project under the managed data directory (`$PI_WEB_DATA_DIR`, or `~/.pi-web`):
+普通模式模型凭据和自定义模型按注册项目存放在托管目录的 `auth.json`、`models.json`。同一项目所有工作区共享项目存储；首次使用从有效全局 Pi agent 文件复制一次，之后不回退或覆盖。认证、启动与列表请求必须解析到注册项目；运行中的会话保留创建时的项目 registry，即使项目之后关闭。管理嵌入使用独立的 `management-embed/auth.json` 与 `models.json`，不混用普通项目凭据。
 
-- Each project has its own managed `auth.json` and `models.json`.
-- All worktrees belonging to the same project share those two files.
-- On first use, PI WEB copies the existing global Pi files from the effective Pi agent directory (by default `~/.pi/agent/auth.json` and `~/.pi/agent/models.json`) into the project store. Later changes are independent; the global files are not a fallback.
-- Normal-mode auth requests and new session/list requests must resolve to a registered project. Existing active sessions keep the project registry they were opened with, even if the project is later closed. All management-embed sessions on one machine share the separate `$PI_WEB_DATA_DIR/management-embed/auth.json` and `$PI_WEB_DATA_DIR/management-embed/models.json` files.
+### 已安装服务的自定义配置路径
 
-Each PI WEB machine has its own config. When using Fleet/machine federation, Settings uses the selected machine for config that affects work running there: session daemon tools, PI WEB plugin enablement, external path access, and upload defaults. Gateway/browser-only settings stay local to the gateway: keyboard shortcuts, remote machine registry/tokens, and gateway host/port/allowed-hosts. Remote servers that do not advertise selected-machine settings support report those settings as unavailable instead of silently falling back to the gateway.
+`start`、`restart`、`doctor` 的就绪检查默认使用已安装服务保存的配置路径；命令的非空 `PI_WEB_CONFIG` 可覆盖。`doctor` 检查受管理安装，不代表所有自定义环境。
 
-Pi 包配置与 PI WEB 配置分开，由目标机器的 Pi 包管理器或 **设置 → Pi 包** 管理。联邦模式下操作针对所选机器。PI WEB 的 `plugins` 配置控制该机器上已发现的浏览器入口、服务端入口和双入口插件的启用状态及设置，不负责安装、移除或更新 Pi 包。
+| 情况 | 行为或处理 |
+| --- | --- |
+| 使用已安装路径 | 正常执行 `pi-web start`、`restart`、`doctor` |
+| 单次命令覆盖 | 设置非空 `PI_WEB_CONFIG`，不重写服务定义 |
+| 更改服务路径 | `pi-web install --config /path/to/config.json` 重新生成 Web/API 和 daemon 定义 |
+| 旧安装仅 Web 保存路径 | 重跑上述安装命令，对齐两个服务 |
+| systemd 无法验证实际环境 | 管理器状态过期、实际 fragment 不同或管理值不可验证时失败，不猜测；受管理 `Environment=`（当前 `PI_WEB_CONFIG`）必须与定义一致；无关变量忽略，未改管理值的 drop-in 允许 |
+| systemd 使用 `EnvironmentFile=` | 本地保留严格检查：无法验证文件内实际覆盖时失败，不采用上游仅警告的宽松策略 |
+| launchd 使用旧路径或其他 plist 标签 | `start`/`doctor` 失败；`restart` 重新加载已安装 plist，可修复过期状态 |
 
-If you installed services with a custom config path, rerun `pi-web install --config /path/to/config.json` after changing that path or after upgrading from a version that only applied the custom path to the web service. This regenerates service files so the web/API and session daemon use the same `PI_WEB_CONFIG`.
+<a id="startup-model-and-thinking-defaults"></a>
+## 新会话模型与思考默认值
 
-## Reverse-proxy deployment paths
+在模型或思考等级选择器中点击“新会话默认值”星标。实心星标表示已保存的默认值；点击选项本身只改变当前会话，星标不改变当前会话。
 
-The deployment path is not a PI WEB config-file key or environment setting. The published client is portable: one build works at `/` and at canonical trailing-slash prefixes such as `/ai/` or `/test/ai/`.
+`defaultProvider`、`defaultModel`、`defaultThinkingLevel` 按机器上 **模式 × 项目** 保存至托管 `settings.preferences.json`，不写回共享 agent `settings.json`。普通模式与项目认证同目录；管理模式使用 `management-embed/projects/<hash>/`，不能唯一归属项目时使用 `management-embed/orphan/<cwdHash>/`。普通模式的 `enabledModels` 也按项目保存，管理模式不展示。
 
-For a nested deployment, redirect the slashless prefix to the trailing-slash URL, strip the prefix before forwarding to PI WEB, and proxy authenticated HTTP and WebSocket traffic through the same location. Relative browser and PWA URLs then stay within that prefix. See the [reverse proxy installation guide](https://pi-web.dev/install#reverse-proxy-prefix) for a complete Nginx example.
+默认值无需重启，适用于新会话。项目 Pi 设置、显式启动选择及每模型思考设置仍有既定优先级。默认模型必须启用，否则选择首个启用模型。恢复会话保留原模型与思考等级。其他共享 agent 设置（包、扩展、代理等）继续读真实 agent 目录的 `settings.json`。
 
-## Precedence and reloads
+<a id="reverse-proxy-deployment-paths"></a>
+## 反向代理部署前缀
 
-Machine-global runtime values are resolved as:
+PI WEB 不需要专门的 URL 前缀配置。同一发布产物可用于 `/`、`/ai/`、`/test/ai/`。代理必须先把不带尾斜线的前缀重定向到带斜线地址，再剥离前缀转发同一认证范围的 HTTP 与 WebSocket。页面相对资源和 PWA 路径依赖这一契约，详见[反向代理安装指南](https://pi-web.dev/install#reverse-proxy-prefix)。
 
-```text
-defaults → global config file → environment overrides
-```
+<a id="precedence"></a>
+<a id="precedence-and-reloads"></a>
+## 优先级与生效条件
 
-Supported project-local settings are then applied for that project's workspaces. For upload and prompt-attachment defaults, `<project>/.pi-web/config.json` overrides the global value.
+机器运行配置顺序：内置默认值 → 全局配置 → 环境覆盖。支持的项目键之后应用，上传与附件目录以项目值覆盖，允许路径列表合并去重。
 
-Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR`, `PI_WEB_ENVIRONMENT_FACTS`, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
+环境覆盖包含 `PI_WEB_HOST`、`PI_WEB_PORT`/`PORT`、`PI_WEB_ALLOWED_HOSTS`、`PI_WEB_MAX_UPLOAD_BYTES`、`PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR`、`PI_WEB_SPAWN_SESSIONS`、`PI_WEB_SUBSESSIONS`、`PI_WEB_ASK_USER`、`PI_WEB_ENVIRONMENT_FACTS`。本地保留的旧 agent/companion 输入另见下文。
 
-Process restarts depend on the key:
+- host/port：重启 Web/API。
+- 上传大小：目标机器 Web/API 与 daemon 都重启。
+- 会话工具、扩展对话框超时、环境事实：重启 daemon。
+- 路径访问：下次请求生效；已有视图可需刷新。
+- 上传/附件目录：配置或工作区刷新后的新批次生效。
+- 纯浏览器插件：刷新浏览器。影响 `serverModule` 的启用、设置、包来源或版本：手动重启目标 daemon，再刷新。
+- `serverPlugins.safeStart`：下次 daemon 启动前、发现/导入插件前生效，通过恢复 CLI 管理。
+- Pi 普通资源变更：每个空闲会话执行 `/reload`。服务端插件或全局提供器定义/连接变更仍需手动重启 daemon；已知提供器仅模型列表刷新无需重启。
+- 快捷键：保存或配置刷新后生效。
+- `workbenchIntegration`、管理特权配置或跨进程审计配置：Web/API 与 daemon 保持一致并重启；签名授权仍必须显式允许对应权限。
 
-- `host` / `port`: restart the gateway web/API service or process.
-- `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
-- `agent.command` / `agent.dir` / `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs`: restart the session daemon on that machine.
-- `workbenchIntegration`: restart both the web/API process and session daemon; both processes must use the same endpoints and limits.
-- `managementEmbed.allowPrivileged`: restart both the web/API process and session daemon; signed tokens must also send `privileged.bash` / `privileged.network`.
-- `pathAccess`: applies on the next request; existing file views may need a browser refresh.
-- `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
-- `attachments.defaultFolder`: applies to prompt attachments saved as workspace files after config/workspace refresh.
-- `plugins`: 浏览器入口变更后刷新页面；影响 `serverModule` 的启用状态、配置、包来源或版本变更需要先手动重启目标机器的会话守护进程，再刷新页面。
-- Pi 包安装、移除或更新后，在目标机器的空闲会话中执行 `/reload` 刷新普通 Pi 资源。浏览器入口需要单独刷新页面；涉及 `serverModule` 的插件需要手动重启 `pi-web-sessiond.service` 后再刷新。全局 Pi 扩展新增或移除提供器、修改连接设置也需要重启；仅刷新已知提供器模型列表不需要重启。详见 [Pi extension provider baseline](#pi-extension-provider-baseline)。
-- `shortcuts`: saved settings apply in the browser after config refresh/save.
-
-## 项目信任
-
-普通模式遵循 Pi 的项目信任机制。项目包含需要信任的 `.pi` 资源时，未信任项目的设置、扩展、技能、提示词和包不会加载；没有此类资源的目录仍可正常启动会话。升级不会自动把已有项目设为可信，也不会改写已有信任决定。
-
-添加项目时可显式勾选“信任此项目”；未操作复选框不会写入新的决定。已注册工作区可在工作区操作菜单中切换“已信任”。信任写入由服务器解析的工作区路径，不接受任意路径写入；远端工作区的决定保存在该机器上。
-
-信任决定由当前 Pi agent 配置目录的 `trust.json` 管理，与 Pi CLI 共用。Pi 的全局 `settings.json` 中 `defaultProjectTrust` 默认为 `ask`；PI WEB 不弹出运行时信任对话框，因此尚无决定的 `ask` 与 `never` 都不加载需要信任的项目资源，`always` 则允许加载。全局扩展的 `project_trust` 处理器仍按 Pi 的优先级参与决定，并可显式保存决定。该设置属于 Pi，不是 `.pi-web/config.json` 的键。
-
-决定在下次创建或重新打开会话运行时时读取；已运行会话不会因菜单切换立即重新加载资源，`/reload` 保留该运行时已有的信任状态。普通模式的项目级 provider 认证、模型及 `settings.preferences.json` 仍保存在各自的 PI WEB 管理存储中，不迁入 `trust.json` 或共享 agent 配置。管理嵌入不读取或写入普通模式的信任接口，继续采用独立的授权资源与沙箱边界。
-
-## Global config example
+<a id="global-config-example"></a>
+## 全局配置示例
 
 ```json
 {
   "host": "127.0.0.1",
   "port": 8504,
-  "pathAccess": {
-    "allowedPaths": ["~/SDKs", "/opt/reference"]
-  },
-  "uploads": {
-    "defaultFolder": ".pi-web/uploads"
-  },
-  "attachments": {
-    "defaultFolder": ".pi-web/attachments"
-  },
+  "pathAccess": { "allowedPaths": ["~/SDKs", "/opt/reference"] },
+  "uploads": { "defaultFolder": ".pi-web/uploads" },
+  "attachments": { "defaultFolder": ".pi-web/attachments" },
   "maxUploadBytes": 67108864,
-  "agent": {
-    "command": "pi",
-    "dir": "~/agent-profiles/research"
-  },
   "spawnSessions": true,
   "subsessions": true,
   "askUser": true,
   "extensionDialogsTimeoutMs": 300000,
-  "workbenchIntegration": {
-    "baseUrl": "http://ai-platform-backend:8787",
-    "mcpUrl": "http://mcp:8000/mcp",
-    "requestTimeoutMs": 10000,
-    "capabilityTimeoutMs": 30000,
-    "skillBundleMaxBytes": 10485760,
-    "skillFileMaxBytes": 2097152,
-    "skillFileCountMax": 200
-  },
-  "auditLog": {
-    "normalMode": {
-      "enabled": true,
-      "retentionDays": 90,
-      "maxRows": 500000
-    },
-    "managementMode": {
-      "enabled": true,
-      "baseUrl": "https://elasticsearch.internal:9200",
-      "indexPrefix": "pi-web-management-audit",
-      "retentionDays": 365
-    }
-  },
-  "plugins": {
-    "workspace-tasks": { "enabled": true },
-    "updates": { "enabled": true },
-    "info": { "enabled": false }
-  },
-  "shortcuts": {
-    "core:view.chat": "mod+1",
-    "core:session.stop": null
-  }
+  "environmentFacts": true,
+  "plugins": { "workspace-tasks": { "enabled": true }, "updates": { "enabled": false } }
 }
 ```
 
-## Project-local config
+合并到已有文件，不覆盖无关设置或用户数据。
 
-Project-local config lives at `<project>/.pi-web/config.json`. Use it for settings that should follow a repository.
+<a id="project-local-config-example"></a>
+<a id="project-local-config"></a>
+## 项目配置示例
 
 ```json
 {
   "version": 1,
-  "pathAccess": {
-    "allowedPaths": ["~/SDKs", "/opt/reference"]
-  },
-  "uploads": {
-    "defaultFolder": "manual/uploads"
-  },
-  "attachments": {
-    "defaultFolder": "prompt-assets"
-  }
+  "pathAccess": { "allowedPaths": ["~/project-reference"] },
+  "uploads": { "defaultFolder": "manual/uploads" },
+  "attachments": { "defaultFolder": "prompt-attachments" }
 }
 ```
 
-Project-local `pathAccess.allowedPaths` entries are merged after the global list and deduplicated. Paths must still be host-absolute or `~`-prefixed; relative roots are not supported.
+路径根必须是宿主绝对路径或 `~` 前缀，不支持相对根。项目上传/附件目录通过工作区有效配置返回，联邦访问使用目标项目的值；不依赖旧远端可选字段回退。插件可拥有独立文件，如 `.pi-web/tasks.json`。
 
-Project-local `uploads.defaultFolder` overrides the global upload destination for workspaces in that project. Current PI WEB servers include this workspace-effective value on the existing workspace responses used locally and through machine federation. Older remote servers may omit the optional field; the browser falls back to the global/default upload folder.
+<a id="worktree-pre-remove-hook"></a>
+## 工作区删除前钩子
 
-Project-local `attachments.defaultFolder` likewise overrides where the prompt editor saves attachments when you choose folder delivery. The built-in default is `.pi-web/attachments`; inline image delivery does not write a workspace file.
+在删除命令运行的工作区提供可执行 `.pi-web/hooks/worktree-pre-remove`，可清理绑定工作区的开发容器或其他资源。通常从项目主工作区运行，钩子可随仓库提交。
 
-Plugins may own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+存在且可执行时，钩子与删除组成同一终端命令：
 
-## Configuration matrix
+```sh
+'<hook path>' '<workspace path>' && <workspace removal command>
+```
 
-Rows with JSON key `—` are runtime-only environment variables, not config-file keys. `Global` means machine-global. In Settings, selected-machine-safe global keys (`pathAccess`, `uploads`, `attachments`, `maxUploadBytes`, `agent`, `spawnSessions`, `subsessions`, `askUser`, and `plugins`) are edited for the selected machine; gateway host/port/allowed-hosts, keyboard shortcuts, and machine registry/tokens stay local.
+Git 删除命令为 `git worktree remove '<worktree path>'`。
 
-| Config | JSON key | Env var | Scope | Project-local behavior | Applies / restart |
-| --- | --- | --- | --- | --- | --- |
-| **Config-file keys** |  |  |  |  |  |
-| Web/API bind host | `host` | `PI_WEB_HOST` | Global | Not supported locally | Restart web/API |
-| Web/API port | `port` | `PI_WEB_PORT`, `PORT` | Global | Not supported locally | Restart web/API |
-| Dev-server allowed hosts | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | Global | Not supported locally | Restart dev web/UI |
-| External filesystem roots | `pathAccess.allowedPaths` | — | Global + project | **Merges**: global roots first, then project roots; duplicates removed | Next file request; refresh existing views if needed |
-| Manual file upload default folder | `uploads.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
-| Prompt attachment default folder | `attachments.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New folder-delivery prompts after config/workspace refresh |
-| Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
-| Companion CLI command | `agent.command` | `PI_WEB_AGENT_COMMAND` | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects doctor/status/update checks |
-| Agent profile state directory | `agent.dir` | `PI_WEB_AGENT_DIR` (`PI_CODING_AGENT_DIR` for Pi compatibility) | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects auth, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugins |
-| Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
-| Tracked subsessions | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
-| Agent can post question forms | `askUser` | `PI_WEB_ASK_USER` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
-| Ordinary-session environment facts | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects newly started sessions |
-| 扩展对话框自动取消超时 | `extensionDialogsTimeoutMs` | — | 全局/会话守护进程 | 不支持项目级配置 | 重启对应机器上的会话守护进程 |
-| Management-embed privileged tools | `managementEmbed.allowPrivileged` | — | Global/session daemon | Not supported locally | Restart web/API and session daemon; both must match. Token must also send `privileged.bash` / `privileged.network` |
-| Workbench/MCP integration | `workbenchIntegration.*` | `PI_WEB_WORKBENCH_URL`, `PI_WEB_MCP_URL`, `PI_WEB_WORKBENCH_TIMEOUT_MS`, `PI_WEB_MCP_TIMEOUT_MS`, `PI_WEB_SKILL_BUNDLE_MAX_BYTES`, `PI_WEB_SKILL_FILE_MAX_BYTES`, `PI_WEB_SKILL_FILE_COUNT_MAX` | Web/API + session daemon | Not supported locally | Restart web/API and session daemon; both must match |
-| Ordinary tool audit | `auditLog.normalMode.*` | — | Global/session daemon | Not supported locally | Restart session daemon |
-| Management tool audit | `auditLog.managementMode.*` | `PI_WEB_AUDIT_ES_URL`, `PI_WEB_AUDIT_ES_API_KEY`, `PI_WEB_AUDIT_ES_USERNAME`, `PI_WEB_AUDIT_ES_PASSWORD` | Global/session daemon | Not supported locally | Restart session daemon |
-| Plugin enablement/settings | `plugins.<id>.enabled`, `plugins.<id>.settings` | — | Global | Not core local config; plugins may read their own project files | Reload browser tab |
-| Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
-| Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
-| **Runtime-only environment variables** |  |  |  |  |  |
-| Global config file path | — | `PI_WEB_CONFIG` (`XDG_CONFIG_HOME` affects the default path) | Process/env | Selects the global config file; not a project config | Restart services/processes after changing env |
-| Managed data directory | — | `PI_WEB_DATA_DIR` | Process/env | Not supported locally | Restart web/API and session daemon |
-| Session daemon socket | — | `PI_WEB_SESSIOND_SOCKET` | Web/API + session daemon env | Not supported locally | Restart daemon and web/API; both must match |
-| Session daemon TCP port | — | `PI_WEB_SESSIOND_PORT` | Session daemon env | Not supported locally | Restart session daemon; set `PI_WEB_SESSIOND_URL` for web/API too |
-| Session daemon TCP host | — | `PI_WEB_SESSIOND_HOST` | Session daemon env | Not supported locally | Restart session daemon |
-| Web-to-daemon URL | — | `PI_WEB_SESSIOND_URL` | Web/API env | Not supported locally | Restart web/API |
-| Projects storage file | — | `PI_WEB_PROJECTS_FILE` | Web/API + session daemon env | Not supported locally | Restart services; advanced state override |
-| Remote machines storage file | — | `PI_WEB_MACHINES_FILE` | Web/API env | Not supported locally | Restart web/API; advanced state override |
-| Agent profile session storage directory | — | `PI_WEB_AGENT_SESSION_DIR` (`PI_CODING_AGENT_SESSION_DIR` for Pi compatibility) | Session daemon env | Not supported locally | Restart session daemon; env-only session storage override |
-| Agent profile state directory | — | `PI_WEB_AGENT_DIR` (`PI_CODING_AGENT_DIR` for Pi compatibility) | Web/API + session daemon env | Not supported locally | Restart services |
-| Skip update checks | — | `PI_WEB_SKIP_VERSION_CHECK`, `PI_WEB_OFFLINE`, `PI_SKIP_VERSION_CHECK`, `PI_OFFLINE` | Web/API env | Not supported locally | Restart web/API after env changes |
-| Offline mode | — | `PI_WEB_OFFLINE`, `PI_OFFLINE` | Web/API + session daemon env | Not supported locally | Restart session daemon and web/API after env changes; also disables the [background model catalog refresh](#background-model-catalog-refresh) |
+| 契约 | 行为 |
+| --- | --- |
+| 参数 | 恰好一个参数：被删除工作区的绝对路径 |
+| 工作目录 | 删除命令执行的工作区，不是被删除的工作区 |
+| 返回 0 | 继续删除 |
+| 非零退出 | `&&` 失败关闭，工作区保留在磁盘 |
+| 不存在或不可执行 | 当作无钩子，单独执行删除 |
+| 无法探测且不是普通缺失 | 在关闭工作区终端之前失败 |
+| 输出 | 与“删除工作区”终端命令一起展示 |
 
-## Key details
+```sh
+#!/bin/sh
+# .pi-web/hooks/worktree-pre-remove
+set -eu
+worktree_path="$1"
+# 停止绑定该工作区的开发容器，释放项目资源。
+# 非零退出会阻止删除。
+```
 
-### Ordinary-mode tool audit
+这是不限制工具的项目扩展点，不假定特定容器或资源管理系统。
 
-PI WEB stores metadata-only ordinary-mode tool calls in `$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite` while keeping the existing Pino/service logs. Management-embed calls are not written to this database. Each row contains the session and workspace, tool and call identifiers, start/end timestamps, duration, and `started`, `completed`, `failed`, or `interrupted` status. Arguments, results, prompts, model replies, and credentials are never stored.
+<a id="configuration-matrix"></a>
+## 配置矩阵
 
-`auditLog.normalMode.enabled` defaults to `true`. `retentionDays` defaults to `90`, and `maxRows` defaults to `500000`. The session daemon prunes at startup and every 24 hours. Database failures are reported through the existing logger and do not stop tool execution.
+“机器”为所选机器；“网关”为当前浏览器连接的机器。`—` 为无配置文件键的纯环境变量。
 
-Use the CLI to inspect and maintain the database:
+| 配置 | JSON 键 | 环境变量 | 作用域 | 项目行为 / 生效 |
+| --- | --- | --- | --- | --- |
+| 监听地址 | `host` | `PI_WEB_HOST` | 网关 | 无项目键；重启 Web/API |
+| 监听端口 | `port` | `PI_WEB_PORT`、`PORT` | 网关 | 无项目键；重启 Web/API |
+| 开发允许主机 | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | 网关开发服务 | 重启开发 Web/UI |
+| 外部路径根 | `pathAccess.allowedPaths` | — | 机器 + 项目 | 全局后加项目，去重；下次文件请求 |
+| 上传目录 | `uploads.defaultFolder` | — | 机器 + 项目 | 项目覆盖；新对话框/拖放批次 |
+| 附件目录 | `attachments.defaultFolder` | — | 机器 + 项目 | 项目覆盖；新附件保存 |
+| 请求大小 | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | 机器 | Web/API 与 daemon 重启 |
+| 独立会话 | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | daemon | 重启 daemon |
+| 跟踪子会话 | `subsessions` | `PI_WEB_SUBSESSIONS` | daemon | 也需要 `spawnSessions`；重启 |
+| 问题表单 | `askUser` | `PI_WEB_ASK_USER` | daemon | 重启 daemon |
+| 扩展对话框超时 | `extensionDialogsTimeoutMs` | — | daemon | 重启 daemon |
+| 环境事实 | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | daemon | 重启 daemon |
+| 插件期望状态 | `plugins.<id>.enabled/settings` | — | 机器 | 浏览器刷新；服务端重启后刷新 |
+| 插件恢复 | `serverPlugins.safeStart` | — | 机器离线恢复 | 下次 daemon 启动前应用 |
+| 快捷键 | `shortcuts.<actionId>` | — | 网关 | 保存/刷新配置 |
+| 项目版本 | `version` | — | 项目 | 存在时必须为 `1` |
+| 配置文件 | — | `PI_WEB_CONFIG`、`XDG_CONFIG_HOME` | 进程 | 改环境后重启；不是项目配置 |
+| 托管数据 | — | `PI_WEB_DATA_DIR` | Web/API + daemon | 两进程对齐重启；不自动迁移数据 |
+| daemon socket | — | `PI_WEB_SESSIOND_SOCKET` | Web/API + daemon | 两端一致并重启；默认 `$PI_WEB_DATA_DIR/sessiond.sock` |
+| daemon TCP 端口 | — | `PI_WEB_SESSIOND_PORT` | daemon | 重启并同步 Web 的 URL |
+| daemon TCP 主机 | — | `PI_WEB_SESSIOND_HOST` | daemon | 重启 daemon |
+| Web 到 daemon URL | — | `PI_WEB_SESSIOND_URL` | Web/API | 重启 Web/API |
+| 项目注册表 | — | `PI_WEB_PROJECTS_FILE` | Web/API + daemon | 高级状态覆盖；两进程重启 |
+| 远端注册表 | — | `PI_WEB_MACHINES_FILE` | Web/API | 高级状态覆盖；重启 Web |
+| Pi 状态目录 | — | `PI_CODING_AGENT_DIR` | daemon | 重启；包/插件/共享 agent 设置使用该目录 |
+| Pi 会话目录 | — | `PI_CODING_AGENT_SESSION_DIR` | daemon | 独立会话存储覆盖；重启 |
+| 跳过版本检查 | — | `PI_WEB_SKIP_VERSION_CHECK`、`PI_SKIP_VERSION_CHECK` | Web/API | 重启 Web；不禁止模型目录刷新 |
+| 离线 | — | `PI_WEB_OFFLINE`、`PI_OFFLINE` | Web/API + daemon | 两进程重启；也禁用模型目录网络刷新 |
+| Docker 开发 socket | — | `PI_WEB_DEV_SESSIOND_SOCKET` | Docker 开发环境 | 默认 `/data/pi-web/sessiond-dev.sock`；生成配置和健康检查使用此值，不改变生产 socket |
+
+<a id="key-details"></a>
+## 关键细节
+
+<a id="ordinary-mode-tool-audit"></a>
+### 普通模式工具审计
+
+保留 Pino/服务日志，同时将普通模式工具调用元数据存入 `$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite`；管理调用不进入该数据库。行包含会话、工作区、工具/call ID、起止时间、耗时及 `started`、`completed`、`failed`、`interrupted` 状态，不保存参数、结果、提示词、模型回复或凭据。
+
+`auditLog.normalMode.enabled` 默认 `true`，`retentionDays` 默认 `90`，`maxRows` 默认 `500000`。daemon 启动和每 24 小时清理；数据库错误记日志，不停止工具。WAL 允许 daemon 活跃时读取；优雅关闭和下次启动将未完成调用标记为 interrupted。改变配置重启 daemon。
 
 ```bash
 pi-web audit list --since 24h
@@ -212,268 +189,212 @@ pi-web audit prune --before 2026-05-01
 pi-web audit vacuum
 ```
 
-The database uses WAL mode so these read operations can run while sessiond is active. A graceful sessiond shutdown and the next startup mark unfinished calls as `interrupted`; changing audit configuration requires restarting sessiond.
+<a id="management-mode-elasticsearch-audit"></a>
+### 管理模式 Elasticsearch 审计
 
-### Management-mode Elasticsearch audit
+保留服务日志，可通过 `auditLog.managementMode.enabled: true` 与 `baseUrl`（或 `PI_WEB_AUDIT_ES_URL`）开启 Elasticsearch。认证只读 daemon 环境：`PI_WEB_AUDIT_ES_API_KEY` 优先，基本认证须同时有 `PI_WEB_AUDIT_ES_USERNAME`/`PI_WEB_AUDIT_ES_PASSWORD`；URL 禁止携带凭据。
 
-Management-embed audit records can be sent to Elasticsearch while the existing Pino/service logs remain enabled. Set `auditLog.managementMode.enabled` to `true` and provide `baseUrl`, or set `PI_WEB_AUDIT_ES_URL`. Authentication is read only from the session daemon environment: `PI_WEB_AUDIT_ES_API_KEY` takes precedence, while basic authentication requires both `PI_WEB_AUDIT_ES_USERNAME` and `PI_WEB_AUDIT_ES_PASSWORD`. Credentials must not be included in `baseUrl`.
+按上海日历 ISO 周写入如 `pi-web-management-audit-2026-w32` 的索引，`indexPrefix` 默认 `pi-web-management-audit`，`retentionDays` 默认 `365`。daemon 安装严格模板，经 Bulk API 批写，启动/每日维护；上海日历每月首次成功维护删除早于截止的 `@timestamp` 文档。
 
-Records are written to Shanghai-calendar ISO-week indices such as `pi-web-management-audit-2026-w32`. `indexPrefix` defaults to `pi-web-management-audit`; `retentionDays` defaults to `365`. Sessiond installs a strict index template, batches writes through the Elasticsearch Bulk API, and runs retention at startup and daily. The first successful maintenance in each Shanghai calendar month deletes documents whose `@timestamp` is older than the retention cutoff.
+记录 `user.id`、`user.root_user_id`、实际工作区所属授权项目、Pi 会话和适用的 Workbench Agent Session。工具、能力、知识检索、Skill 事件只存固定资源版本、授权修订、run/trace ID、状态、耗时、重试或结果数量等元数据，排除提示词、参数、结果、模型回复、检索问题/过滤器/内容、令牌、API key、cookie、票据。
 
-Each document identifies `user.id`, `user.root_user_id`, the authorized project owning the actual workspace, the Pi session, and, when applicable, the Workbench Agent Session. Tool calls include tool/call identifiers and status. Capability, knowledge retrieval, and Skill events add fixed resource versions, authorization revision, run/trace identifiers, status, duration, retry, or result-count metadata as applicable. Prompts, tool arguments, tool results, model replies, retrieval questions, access tokens, API keys, cookies, capability tickets, and knowledge tokens are excluded.
+ES 错误记日志，不停止管理会话。有界内存队列重试，并在优雅关闭刷写；崩溃可能丢失尚未送达记录。用 ES/Kibana 索引权限限制审计访问。共享跨进程配置保持 Web/API 与 daemon 一致。
 
-Elasticsearch failures are reported through Pino and do not stop management sessions. Failed batches remain in a bounded in-memory retry queue and are flushed during graceful sessiond shutdown; a process crash can lose records that have not yet reached Elasticsearch. Use Elasticsearch or Kibana index permissions to limit user-level audit access.
+<a id="workbench-and-mcp-integration"></a>
+### Workbench 与 MCP 集成
 
-### Workbench and MCP integration
+`workbenchIntegration` 是管理嵌入的受控适配器，不限制普通会话。`baseUrl` 为服务器可访问的 Workbench 后端 origin，`mcpUrl` 为 MCP Streamable HTTP endpoint，两者必需。环境覆盖：`PI_WEB_WORKBENCH_URL`、`PI_WEB_MCP_URL`、`PI_WEB_WORKBENCH_TIMEOUT_MS`、`PI_WEB_MCP_TIMEOUT_MS`、`PI_WEB_SKILL_BUNDLE_MAX_BYTES`、`PI_WEB_SKILL_FILE_MAX_BYTES`、`PI_WEB_SKILL_FILE_COUNT_MAX`。
 
-`workbenchIntegration` enables the controlled management-embed adapter for the network model workbench. These resource, tool, and Skill restrictions apply only to management-embed sessions; normal-mode sessions keep PI WEB's existing behavior. `baseUrl` is the server-reachable workbench backend origin, while `mcpUrl` is the MCP Streamable HTTP endpoint. Both are required; the environment variables override the corresponding JSON URLs.
+默认 request/capability 超时 10000/30000ms、Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
 
-The adapter exchanges the one-time management token for a private Agent Session, loads only the resulting fixed resource snapshot, and exposes `icnoc_search_capabilities`, `icnoc_call_capability`, `workbench_search_knowledge`, `workbench_retrieve_knowledge`, and `workbench_retrieve_bookstack` alongside the managed file tools and sandboxed `python` tool. Knowledge retrieval goes through the Workbench backend's short-lived one-time knowledge tokens; PI WEB does not require RAGFlow or BookStack service connection settings or credentials, and tools do not accept tenant IDs or dataset IDs. Public source links in retrieval results are not service connection settings. When their global feature switches are enabled, management sessions also receive `spawn_session`, the tracked-subsessions tool set headed by `spawn_subsession`, and `ask_user`; spawned sessions inherit the same management context. Python runs without network access in an isolated Bubblewrap environment that binds only the managed workspace. Generic MCP, HTTP, web search, shell, and terminal tools remain denied in management mode.
+受控工具为 `icnoc_search_capabilities`、`icnoc_call_capability`、`workbench_search_knowledge`、`workbench_retrieve_knowledge`、`workbench_retrieve_bookstack`、管理文件工具与 Bubblewrap 隔离的 `python`。知识访问经后端短期一次性 token，PI WEB 不配置 RAGFlow/BookStack 服务凭据，工具不接受 tenant/dataset ID。来源链接不是连接配置。全局开关允许时再提供 spawn/跟踪子会话/ask_user，子会话继承管理上下文及显式拒绝。
 
-A signed management token may include `privileged: { "bash": true, "network": true }`. Those grants are ignored unless the machine also sets `managementEmbed.allowPrivileged` to `true` (default `false`). When `privileged.bash` is granted, PI WEB registers a constrained Bubblewrap `bash` tool. The current workspace is writable; other host paths are visible read-only. The upstream SDK shell, PowerShell, and interactive terminals stay denied. When `privileged.network` is granted, the session may use `http`, `webfetch`, and `websearch`, and the managed Python, bash, and `terminal-command-runs` sandboxes omit `--unshare-net`. Generic MCP stays denied. Putting `bash` in `tools.allow` is not enough. Explicit `tools.deny` still wins. Spawned sessions inherit the same management context, including privileged grants. Changing `allowPrivileged` requires restarting the session daemon and keeping the web/API process on the same config.
+Python 默认无网络，只绑定管理工作区。通用 MCP、HTTP、Web 搜索、shell 和交互终端默认拒绝。签名 token 的 `privileged.bash`/`privileged.network` 仅在机器 `managementEmbed.allowPrivileged: true`（默认 false）时生效；仅 tools.allow 不足，tools.deny 始终优先。特权 bash 使用受限 Bubblewrap，普通宿主 shell/PowerShell/交互终端仍拒绝；宿主文件可见性必须遵循单独有效授权，不能将宿主访问当默认。网络授权可启用 http/webfetch/websearch，并移除管理 Python/bash/terminal-command-runs 的 `--unshare-net`；通用 MCP 仍拒绝。Web/API 与 daemon 的特权配置须一致。
 
-Skill bundles are downloaded only from the MCP origin, checked against the authorized fixed version and manifest, and stored under the managed project's `.pi/skills/` directory. Tokens and tickets remain server-side.
+Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。管理启动只在所属工作区同步 relay/relay-runner 模板，普通启动不覆盖项目技能。
 
-`workbench_search_knowledge` discovers authorized resource metadata, with an optional `provider` filter (`ragflow` or `bookstack`). RAGFlow content continues to use `workbench_retrieve_knowledge`. BookStack content uses `workbench_retrieve_bookstack` with `resource_name`, concise keywords in `question`, optional `resource_version` (`live`), and `top_k` (default 8, maximum 20). It reads current non-draft pages in an individually authorized, published book through `POST /api/knowledge-access/bookstack/retrieval` on the Workbench backend. It does not edit notes or provide semantic retrieval. Results include plain-text content, page revision, update time, source URL, and `knowledge://` citation; `truncated` means the search or text limits were reached, not that all matching content was returned. Limits are five search batches of 100 candidates, 8,000 characters per page, and 40,000 characters overall. BookStack source links still require the reader's own browser access; the tool does not grant a BookStack browser login.
+`workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 retrieve_knowledge，BookStack 用 retrieve_bookstack，参数 resource_name、简洁 question、可选 resource_version=live、top_k 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页，不编辑、不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 knowledge:// 引用；truncated 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 
-Deploy a Workbench backend supporting BookStack resource snapshots, knowledge-token issuance, and this retrieval endpoint before updating PI WEB. Keep BookStack service credentials only in the Workbench backend. No additional PI WEB BookStack setting is needed. Explicitly restart `pi-web-sessiond.service` after updating the tool runtime; keep the web/API process on the same release and restart both processes if shared integration settings change.
+先部署支持资源快照、knowledge token 和检索 endpoint 的 Workbench 后端，再更新 PI WEB；BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新重启 daemon；共享 endpoint/limit 改变重启两进程。签名 `projects[].agentsInstructions` 仅在项目 AGENTS.md 不存在时独占创建，已有内容不覆盖，无此字段仍兼容，普通项目不受影响。
 
-A signed management token may include an optional `projects[].agentsInstructions` string. When PI WEB materializes that managed project, it creates `<project>/AGENTS.md` exclusively from the trusted value only if the file does not already exist. Existing project instructions are never overwritten, tokens without the field remain compatible, and normal-mode projects are unaffected.
+<a id="managed-data-directory"></a>
+### 托管数据目录
 
-The session daemon emits metadata-only tool execution audit entries for both normal and management sessions. These entries include the mode, session, workspace, tool name, call id, and execution status; tool arguments and results are deliberately excluded. Workbench capability calls additionally emit their business and MCP trace identifiers. Workbench knowledge retrieval events emit the stable resource name, revision, run/trace identifiers, and result count without the retrieval question, filters, returned chunks, or token.
+默认 `~/.pi-web` 保存项目/机器注册表、本地插件、默认 daemon socket、归档及项目认证/偏好。新目录是独立实例，没有原注册表和归档，不自动迁移。需要迁移时先停服务，复制 `archived-sessions.json` 和 `archived-sessions/` 后再启动。
 
-Set the same effective config and environment on the web/API and session daemon services. Changing any integration endpoint or limit requires restarting both services.
+一个目录只能有一个活跃 daemon。第二实例需要独立数据目录、daemon endpoint 和 Web 端口。过期所有权通常自动恢复；启动仍拒绝时，必须先确认所报进程已退出，再按错误提示处理 `sessiond-owner.json`。不要删除活跃所有权文件。
 
-### Managed data directory
+该变量不改变 `PI_WEB_CONFIG` 或 Pi 自有会话存储。
 
-`PI_WEB_DATA_DIR` sets the root for PI WEB-managed runtime state and defaults to `~/.pi-web`. Unless a more specific path override is configured, PI WEB stores its project and machine registries, locally discovered plugins, default session-daemon socket, and session archives beneath this root.
+<a id="agent-process-environment"></a>
+### 代理进程环境
 
-Each data directory is independent: after pointing PI WEB at a new root, it starts there with empty registries and no session archives. To carry session archives over, stop PI WEB, then copy `archived-sessions.json` and the `archived-sessions/` directory from the old data directory into the new one before starting it again.
+普通代理 shell、终端和子会话继承 daemon 环境；移除 `NODE_ENV`、`PORT`，避免 daemon 生产设置影响开发命令。PATH、HOME、代理变量和 `PI_WEB_*` 保留。daemon 导出已解析的 `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`；运行时读取共享 agent 设置与会话路径，但模型认证仍遵循 owning-project registry，不能由子进程环境说明推断普通项目共享凭据。
 
-This setting does not change the PI WEB config file selected by `PI_WEB_CONFIG` or Pi-owned state such as the active session files selected by `PI_CODING_AGENT_SESSION_DIR`.
+会话启动的进程继承 `PI_WEB_SESSION=1`，表示处于现有 PI WEB 中。继承变量指向当前实例；误启动第二实例会因活跃数据目录所有权失败。刻意运行独立实例必须另设目录、endpoint 和端口。
 
-### External path access
+系统提示词默认包含嵌套及 Docker 布局事实，提醒不要从需要保留的会话内重启宿主 daemon，并在受支持的开发重启中先启动 Web/API。可用 `environmentFacts: false` 或 `PI_WEB_ENVIRONMENT_FACTS=false` 禁用。管理嵌入仍使用受控工具和既定 Bubblewrap/网络/宿主权限策略，不直接继承普通模式工具权限。
 
-`pathAccess.allowedPaths` grants PI WEB's file explorer and absolute `@` path completions access to specific filesystem roots outside the current workspace.
+<a id="external-path-access"></a>
+### 外部路径访问
 
-By default, workspace-relative file reads stay inside the workspace and absolute paths are denied. Add only roots you trust PI WEB to list and read through the browser UI.
+默认相对读取只在工作区内，绝对路径拒绝。`pathAccess.allowedPaths` 允许浏览器文件面板和绝对 `@` 补全列出/读取指定外部根。
 
-Accepted root forms:
+允许 Unix 绝对路径 `/opt/reference`、家目录相对 `~/SDKs`、Windows 宿主上的 `C:\Users\dev\SDKs`。展开 `~`，通过 `realpath` 规范化根，要求存在目录，拒绝符号链接逃逸。不支持相对根。设置保存在所选机器，网关网络设置仍在网关。
 
-- Unix absolute paths: `/opt/reference`
-- Home-relative paths: `~/SDKs`
-- Windows absolute paths on Windows hosts: `C:\Users\dev\SDKs`
+这不是普通 Pi 代理或 OS 用户的沙箱，只约束浏览器/API 外部文件暴露。
 
-When an absolute request is served, PI WEB expands `~`, canonicalizes the configured roots with `realpath`, requires roots to be existing directories, and rejects symlink escapes outside the allowed roots.
+<a id="manual-upload-defaults"></a>
+### 手动上传默认目录
 
-In **Settings → General**, external filesystem roots are saved on the selected machine. Gateway host, port, and allowed-hosts fields stay on the gateway config.
+文件面板支持多文件：直接拖放立即上传到工作区有效目录；“上传”按钮打开审核对话框，可修改目录和选项。默认 `.pi-web/uploads`，项目 `uploads.defaultFolder` 覆盖机器默认值。
 
-This is not a sandbox for the underlying Pi Coding Agent or your OS user. It only controls PI WEB UI/API file exposure outside a workspace.
+目录非空且必须相对工作区；重复分隔符和反斜线规范化为 `/`，绝对路径与 `..` 逃逸拒绝。仅审核对话框允许清空目录，把该批次上传到工作区根。默认创建父目录，不覆盖已有文件；审核可显式覆盖，直接拖放从不覆盖。进度展示完成、冲突和错误。联邦使用目标机器/项目目录，大小限制由服务上传的机器控制。
 
-### Manual upload defaults
+<a id="prompt-attachment-defaults"></a>
+<a id="prompt-attachments"></a>
+### 提示词附件默认目录
 
-The Files panel can upload one or more files in two ways:
+附件投递“保存到…”把文件写入工作区，并在提示词中引用路径，不以内联方式附加内容。默认 `.pi-web/attachments`，项目 `attachments.defaultFolder` 覆盖机器默认值；格式/逃逸规则与上传目录一致。显式附件 API 请求目录优先于配置。联邦设置保存在目标机器，编辑器使用有效项目目录。
 
-- Drop files onto the Files panel to upload immediately to the workspace-effective default folder.
-- Use the toolbar **Upload** button to open the review dialog, edit the destination, and opt into upload options.
+<a id="agent-state-directory"></a>
+<a id="agent-runtime"></a>
+<a id="pi-compatible-agent-profile-and-companion-cli"></a>
+### Pi 状态目录与本地兼容输入
 
-`uploads.defaultFolder` sets the workspace-effective default destination. The built-in default is `.pi-web/uploads`; a global config value applies to every project unless `<project>/.pi-web/config.json` sets a project-local override.
+会话使用内置 Pi SDK，doctor、状态和更新流程检查机器 PATH 上的 Pi companion CLI。标准 `PI_CODING_AGENT_DIR`（默认 `~/.pi/agent`）选择共享 agent 设置、包与默认会话路径；`PI_CODING_AGENT_SESSION_DIR` 可独立指定会话路径，标准契约仅环境变量，没有新配置文件键。
 
-```json
-{
-  "uploads": {
-    "defaultFolder": "manual/uploads"
-  }
-}
+```sh
+PI_CODING_AGENT_DIR=/opt/pi-profiles/lab
+PI_CODING_AGENT_SESSION_DIR=/opt/pi-profiles/lab-sessions
 ```
 
-The value must be a non-empty workspace-relative folder. PI WEB normalizes repeated separators and backslashes to `/`, and rejects absolute paths or `..` traversal. In the upload dialog only, clearing the destination field uploads that batch to the workspace root.
+目录必须符合内置 SDK 数据布局；不转换不兼容格式，不迁移 profile，也不移动 PI WEB 归档。
 
-Manual uploads use the workspace file-write path: paths stay workspace-relative, parent folder creation is enabled by default, and overwrite is disabled by default. Direct drag/drop always keeps `overwrite` off; the review dialog lets you explicitly enable overwrite when needed. Browser-owned XHR progress is shown per batch/file, conflicts and errors stay visible in the upload progress UI, and the final file-write response is the source of truth.
+daemon 启动时解析并固定目录，终端、bash、子会话使用相同值。运行期间改变环境不生效；包管理、插件发现、状态/安装识别和更新计划仍使用 daemon 的有效目录。Web 重启恢复同一有效目录，不独立解析新值。daemon 无法报告有效目录时，相关操作不可用，不自行回退。仅有效目录和可执行 companion CLI 都具备时提供包管理更新命令，并固定目录。
 
-For machine federation, Settings saves the global upload default on the selected machine. Current remote PI WEB servers also return `workspace.effectiveConfig.uploads.defaultFolder` on the existing workspace-list response. Older remote servers can omit that optional field without breaking clients; the Files panel falls back to the global/default upload folder.
+本地保留旧 `agent.command`/`agent.dir`、`PI_WEB_AGENT_COMMAND`/`PI_WEB_AGENT_DIR`/`PI_WEB_AGENT_SESSION_DIR` 和 Windows command/sessionDirEnvKeys 扩展，用于已有内部配置与 companion 行为；不扩展或拒绝上游两字段公开 v2 profile，不自动重写用户配置。弃用输入通过诊断提示，迁移请使用标准 Pi 环境变量；改变内部有效目录或命令仍需重启 daemon。
 
-The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX_UPLOAD_BYTES` on the machine serving the upload.
+<a id="pi-extension-provider-baseline"></a>
+### Pi 扩展提供器基线
 
-### Prompt attachments
+普通模式提供器归属于注册项目的 `ProjectAuthService` 模型 registry，而不是全机共享；同项目工作区共享，其他项目和管理模式隔离。基线由 Pi 内置提供器、环境凭据、该项目托管 `models.json` 及全局 Pi 扩展/包建立；首次项目文件复制规则见[配置文件](#config-files)。PI WEB 工作区插件是另一概念。
 
-The prompt editor accepts files from its attachment button, paste, or drag/drop. Images can be sent inline to a multimodal model; any attachment can instead be saved into the workspace and referenced from the prompt. Folder delivery uses the workspace-effective `attachments.defaultFolder`, which defaults to `.pi-web/attachments` and can be overridden globally or in `<project>/.pi-web/config.json`.
+连接设置在对应运行时基线建立后固定。项目扩展和 `/reload` 不能新增、替换或删除提供器；扩展其他功能正常加载与刷新。全局提供器定义、凭据/连接配置或实现变化需要手动重启 daemon，Web 重启和 `/reload` 不重建基线。
 
-```json
-{
-  "attachments": {
-    "defaultFolder": "prompt-assets"
-  }
-}
-```
+已知提供器仅模型列表变化、其他设置保持不变时可立即接受刷新，无需重启。更新按精确 registry 身份应用，只影响 owning project；同项目两个工作区注册不同列表时后注册者生效，不影响别的项目。模型条目可带 `baseUrl`/`headers`，覆盖该模型的提供器值；扩展仍是可信进程内代码，不是安全沙箱。
 
-The folder must be a non-empty workspace-relative path and follows the same normalization and traversal protections as `uploads.defaultFolder`. Prompt attachments use the same `maxUploadBytes` request-body limit.
+daemon 日志记录忽略的配置变更与模型列表应用，不输出提供器配置或凭据，不生成浏览器通知。管理 registry 独立；不能为对齐上游全局刷新而恢复跨项目共享。
 
-### Pi-compatible agent profile and companion CLI
+<a id="background-model-catalog-refresh"></a>
+<a id="catalog-refresh"></a>
+### 后台模型目录刷新
 
-PI WEB embeds Pi Coding Agent `0.84.x` or newer compatible runtime packages. The session daemon owns one resolved Pi state directory and refuses to start a second daemon against the same `PI_WEB_DATA_DIR`; use distinct data and endpoint variables for another instance.
+目录网络刷新由 daemon 后台调度，请求自身不发起目录抓取，慢提供器不单独阻塞模型选择、启动或认证对话框。已在途刷新可能短暂影响对应 runtime 状态读取；会话活动行说明启动步骤及并发目录刷新，这是并发提示，不断言因果。
 
-`agent.command` selects the Pi-compatible companion CLI used by `pi-web doctor` and, when it can be generated safely, package-managed update commands. It defaults to `pi`. This setting does **not** replace the embedded runtime: every session continues to use PI WEB's bundled Pi SDK.
+- daemon 启动 **15 秒**后首次运行，随后**每小时**检查。Pi 已保存目录四小时内视为新鲜，多数检查不联网。
+- 登录/注销后按精确项目 registry 立即刷新，绕过新鲜度；管理 registry 独立。
+- 每次最多 **60 秒**，超时/不可达五分钟后**只重试一次**；HTTP 错误留到下次计划。
+- 失败不清空目录，保留最后成功结果并记日志；daemon 关闭会中止在途刷新。
+- 下次请求模型列表才见新目录，已打开选择器可需重新打开。
+- 设置 daemon 环境 `PI_WEB_OFFLINE` 或 `PI_OFFLINE` 后重启，完全禁止目录联网，包括登录后刷新；读取对应存储已有目录。
+- `PI_WEB_SKIP_VERSION_CHECK`/`PI_SKIP_VERSION_CHECK` 只抑制版本检查，不禁止目录刷新。以上离线/跳过标记任意非空值（包括字符串 `0`、`false`）都启用，清空或移除才关闭。
 
-`agent.dir` selects the Pi-compatible state profile used for auth providers, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugin discovery. It defaults to `~/.pi/agent` only for a canonical Pi companion command. The directory must use the data layout supported by the bundled Pi SDK; PI WEB does not load or convert incompatible fork formats, migrate profile data, or repartition PI WEB-managed archives when the profile changes.
+<a id="project-trust-for-project-local-resources"></a>
+### 项目信任
 
-```json
-{
-  "agent": {
-    "command": "pi-lab",
-    "dir": "/opt/pi-profiles/lab"
-  }
-}
-```
+普通模式每次启动都先遵循 Pi 项目信任，再加载 `.pi/extensions/*`、`.pi/settings.json` 的包及其他项目资源，不能用配置关闭信任门槛。已有 `respectProjectTrust` 已移除，配置保存时移除该废弃键；读取不改写文件，也不会自动把已有项目设为可信。
 
-An alternate command always requires an explicit state directory. The command must be a safe bare executable name such as `pi-lab` or a host-absolute executable path such as `/opt/pi/bin/pi`; relative paths, shell expressions, and launcher strings are rejected. The state directory must be host-absolute or start with `~`. In a federated save, the gateway transports Unix and Windows absolute paths without reinterpreting them, and the target machine validates and returns the persisted profile.
+优先级与 Pi 无交互提示时一致：没有需要信任资源则正常加载；全局扩展 `project_trust` 决定优先，可请求 `remember` 写入 agent `trust.json`；否则已保存决定优先；最后 `defaultProjectTrust` 的 `always` 加载，`never`/`ask` 跳过（没有浏览器运行时信任弹窗）。
 
-Environment variables take precedence over the config file. For the state directory, precedence is `PI_WEB_AGENT_DIR` > `PI_CODING_AGENT_DIR` > `agent.dir` > the Pi default. For session storage, `PI_WEB_AGENT_SESSION_DIR` remains first for compatibility, followed by `PI_CODING_AGENT_SESSION_DIR`. The resolved directory is exported as `PI_CODING_AGENT_DIR` to embedded Pi processes.
+添加项目可显式勾选“信任此项目”，不操作不写决定；工作区菜单可切换“已信任”。服务器解析授权工作区路径，远端保存于远端。下次运行时创建/打开读决定，既有运行时不立即重新加载，`/reload` 保留运行时信任状态。项目 auth/model/preferences 存储不迁入 trust；管理嵌入不读取/写入普通信任 API，继续独立授权资源与沙箱。
 
-The runtime reports deprecated `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `agent.command`, and `agent.dir` inputs by name only. Ordinary-mode UI shows a non-dismissable warning attributed to each reporting machine; management embeds do not show these host diagnostics. Use `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` for directory overrides. This fork retains the companion-command compatibility above; diagnostics do not rewrite configuration or remove user data. The web report rechecks configuration at runtime checks, while the daemon report reflects its startup inputs and clears after the daemon restarts with corrected configuration.
+<a id="session-daemon-tools"></a>
+<a id="session-tools"></a>
+### 会话守护进程工具
 
-`environmentFacts` controls factual system-prompt sections appended only to ordinary sessions. These describe PI WEB session nesting and, when the daemon runs in Docker, the observed container filesystem, persistent mounts, host access, and development mount shape. `PI_WEB_ENVIRONMENT_FACTS` takes precedence and accepts `0|1|true|false`; the default is enabled. Set it to `false` to disable all such sections, restart the session daemon, and start a new session. Existing sessions retain the prompt they started with. Management-embed sessions do not receive these ordinary-session facts.
+`spawnSessions` 默认 `true`，提供 `spawn_session`，在同一项目其他工作区发起独立会话，发起后不向父会话回传结果。`subsessions` 默认 `true`，同时要求 `spawnSessions`，提供跟踪子会话工具。子会话始终使用父 cwd，`spawn_subsession` 没有 `cwd`；其他工作区使用独立 `spawn_session`。
 
-The session daemon resolves the persisted desired values plus its environment once at startup. That secret-free active profile stays fixed for the daemon lifetime. **Settings → Session daemon** saves command and directory together as desired configuration and shows whether the profile is active, needs a restart, or cannot be compared. Until the daemon restarts, sessions, Pi package operations, Pi-package-backed PI WEB plugin discovery, status/install detection, and update planning continue to use the daemon-owned active profile; a web/API restart recovers that same active profile instead of applying the newly saved values.
+跟踪子会话完成会自动通知/唤醒空闲父会话，无需轮询。父会话可继续独立工作，或在 join 点单独调用 `yield_to_subsessions` 作为批次最后动作：仍有工作则结束当前代理运行，没有工作则明确报告且不结束。`list_subsessions`、`check_subsession`、`read_subsession` 用于有意检查，不更改控制流；工作期间隐藏部分输出，完成后输出可用。过长完成结果不重复截断进上下文，指引使用 `check_subsession`。
 
-If the session daemon cannot report a valid active profile, profile-dependent Pi package and PI WEB plugin operations report unavailable instead of falling back to independently resolved config. A package-managed update command is shown only when PI WEB can preserve the active profile with a recognized, safe Pi companion CLI; otherwise the command is omitted. Remote profile editing likewise requires advertised support, and the gateway rejects a remote save if the target does not return the requested profile. Restart the session daemon on the selected machine to establish the next active profile.
+两种 spawn 都支持精确 `provider/model-id` 的 `model`；未知/错误格式拒绝。省略时继承父模型，思考级别也继承并限制到模型能力。`#provider/model-id` 引用表达用户模型选择，不自动改变当前会话。
 
-### Pi extension provider baseline
+`askUser` 默认 `true`，可在 **设置 → 会话守护进程** 切换。问题表单支持 1–20 问，每问最多 12 选项、可选多选、始终可自定义文本，可以不回答。普通消息取消开放表单，新表单替代旧表单；daemon 仍活跃时开放表单可跨浏览器/Web 重启保留。修改开关或升级工具实现需重启 daemon。管理生成子会话仍保留原管理上下文及显式工具拒绝。
 
-此策略适用于 **Pi 运行时扩展**。Pi 扩展由会话守护进程加载并可调用 `pi.registerProvider(...)`；PI WEB 插件则通过浏览器入口扩展界面、通过服务端入口提供工作区和宿主能力，不使用该模型提供器注册接口。
-
-会话守护进程启动时，在项目资源加载前从当前 agent 配置目录初始化全局 Pi 扩展，并建立共享的扩展提供器注册基线。同步及异步扩展工厂中的 `pi.registerProvider("id", config)` 与 `pi.registerProvider(provider)` 均参与该基线。普通模式会话仍使用所属注册项目的独立模型注册表、认证和 `models.json`；同一项目的工作区共享项目存储，不同项目不共享认证。管理嵌入使用独立的管理认证与模型存储。全局文件仅作为普通项目存储的首次初始化来源，之后不作为回退。
-
-After startup capture, a provider's connection settings are fixed for the daemon lifetime. Later attempts to add a provider, replace an existing provider's configuration, register a native provider, or unregister a provider are no-ops, regardless of source or provider ID. This includes project extensions attempting to add or replace a provider, lifecycle callbacks such as `session_start`, and `/reload`. Non-provider Pi extension features continue to load and reload normally.
-
-#### Model list refresh for a known provider
-
-One narrow update is applied after startup: a provider captured in the baseline may refresh **its own model list**. Extensions that fetch an updated catalog typically re-send their complete provider configuration, so PI WEB compares the incoming registration against the recorded baseline and applies it only when both hold:
-
-- the provider ID is already in the startup baseline, and
-- every field except the model list is unchanged — `name`, `baseUrl`, `apiKey`, `api`, `streamSimple`, `headers`, `authHeader`, `oauth`, and `refreshModels`.
-
-Anything else stays a no-op, including a provider that was not in the baseline and a known provider whose credentials, base URL, or API surface differ from startup. Function-valued fields cannot be compared by value, so a registration that supplies a new `streamSimple`, `refreshModels`, or `oauth` implementation is treated as a change and ignored.
-
-An applied refresh becomes the new comparison point, so a provider can refresh repeatedly. Re-sending an unchanged model list is a replay rather than an update and is ignored. Refreshed models are visible to sessions immediately; no restart and no network request is involved, because the extension has already produced the catalog.
-
-Model lists are shared daemon-wide state. If extensions in two workspaces register different model lists for the same provider ID, the last registration wins. A model entry may also carry its own `baseUrl` and `headers`, which take precedence over the provider-level values for that model, so an accepted refresh can change where requests for those models are sent. Both are accepted trade-offs: a catalog is treated as a property of the provider rather than of the project, and Pi extensions are trusted daemon code.
-
-#### Provider decisions in the daemon log
-
-Ignored mutations are written to the session-daemon log once per operation and provider ID, so a replaying extension cannot flood the log. Applied model list refreshes are logged every time, with the resulting model count, because each one changes shared runtime state. Neither entry contains provider configuration or credentials, and PI WEB does not show a session warning or notification.
-
-This prevents accidental provider, configuration, or credential contamination between projects; it is not a security boundary because Pi extensions remain trusted daemon code.
-
-Configure providers before the daemon starts: use the active agent directory's `models.json`, or install the Pi extension globally in that agent profile. Project Pi extensions and project-level `models.json` files cannot add providers to PI WEB's shared baseline. After updating PI WEB—or after installing, removing, or updating a global Pi extension that registers providers—manually restart `pi-web-sessiond.service` (`systemctl --user restart pi-web-sessiond`). Restarting only the web/API service and running `/reload` do not rebuild the baseline.
-
-### Background model catalog refresh
-
-各模型注册表的提供器模型目录仅在会话守护进程的后台计划中进行网络刷新。普通项目及管理嵌入保持各自的注册表身份；请求不会自行发起目录抓取，因此单个缓慢或不可达的提供器不会直接阻塞模型选择器、会话启动或认证对话框。
-
-A refresh that is *already* in flight can still briefly delay starting or opening a session, because the shared runtime is read while that refresh is running. PI WEB says so while you wait: the session's activity line names the startup step it is on and adds `provider model lists are refreshing` when a background refresh is running at the same time. That note reports what is happening concurrently, not a proven cause.
-
-The session daemon runs the refresh:
-
-- **15 seconds after the daemon starts**, then **hourly**. Pi treats stored catalogs as fresh for four hours, so most hourly ticks make no network request at all; the shorter tick only makes sure a due refresh is not delayed to the next tick.
-- **Immediately after a provider login or logout**, bypassing that freshness window, because the cached catalog is known to be wrong.
-
-Each run is bounded: it is aborted after **60 seconds**, and a run that times out or cannot reach a provider earns **one retry after five minutes**; a provider that answers with an error status is retried on the next scheduled refresh instead. Failures never clear the stored catalogs — the last successfully fetched models stay in use and the daemon log records what failed. A refresh in flight is also aborted when the daemon shuts down.
-
-Models fetched by a background refresh appear the next time a client asks for the model list, so a model selector left open across a refresh may need to be reopened.
-
-To turn the background refresh off entirely, set `PI_WEB_OFFLINE` or `PI_OFFLINE` in the session daemon's environment and restart it. In offline mode PI WEB performs no provider catalog network requests, including after logins, and sessions use the catalogs already stored in the agent profile. The `PI_WEB_SKIP_VERSION_CHECK` and `PI_SKIP_VERSION_CHECK` keys do **not** affect this refresh; they only suppress PI WEB release checks.
-
-### Session daemon tools
-
-`spawnSessions` controls whether agents receive the `spawn_session` tool. It defaults to `true`; set it to `false` if you do not want an agent to start independent PI WEB sessions.
-
-`subsessions` controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, and `yield_to_subsessions`. It defaults to `true` and also requires `spawnSessions` to be enabled.
-
-Tracked subsessions are join-oriented. Calling `spawn_subsession` returns immediately, so the parent can continue independent work while the child runs. Work whose result the parent does not need to join belongs in the fire-and-forget `spawn_session` tool instead.
-
-A tracked subsession always runs in the spawning session's working directory, so it stays in that workspace's session tree next to its parent. `spawn_subsession` takes no `cwd`. For work in another workspace, use `spawn_session` to create an independent session there.
-
-At a join point, after finishing its independent work, the parent calls `yield_to_subsessions` alone as the final action in its tool batch. Pi ends a tool batch early only when every result in that batch is terminating. If any tracked child is still working, the action ends the current agent run so the parent becomes idle. If none are working, it does not end the run and clearly reports that there is nothing to wait for.
-
-A completion notice wakes an idle parent or queues behind in-flight work. Each notice lists any other tracked children still working, so the parent can continue work or call `yield_to_subsessions` again at the next join point. Further notices arrive automatically; do not poll. The notice includes the child's final output when it fits. If that output is too long, PI WEB omits it entirely instead of adding a truncated duplicate to the parent's context and directs the parent to retrieve it with `check_subsession`.
-
-`list_subsessions`, `check_subsession`, and `read_subsession` never yield or change control flow. They are for deliberate inspection or recovery, not completion polling. While a child works, agent-facing `check_subsession` and `read_subsession` withhold partial output and direct the parent to continue independent work or yield at the join point. Output becomes available when the child stops. Included output and transcripts follow a labeled marker and come last, after PI WEB guidance.
-
-`spawn_session` 和 `spawn_subsession` 都接受可选的 `model` 参数，其值必须是精确的 `provider/model-id`，例如 `anthropic/claude-sonnet-4-5`。设置后，新会话会使用该模型，而不是继承发起会话的模型。匹配是严格的：未知值或格式错误的值会被拒绝并返回错误。用户可以在提示词中通过 `#provider/model-id` 引用指定模型（见[提示词补全](#prompt-completions)），代理会将该引用作为此参数传递。新会话还会继承发起会话当前的思考级别，并根据所选模型的能力自动限制该级别。
-
-In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
-
-#### `askUser` and `ask_user`
-
-`askUser` controls whether agents receive the core `ask_user` tool. It defaults to `true`; set it to `false`, or set `PI_WEB_ASK_USER=false`, to remove the tool. The environment override accepts `0|1|true|false` and takes precedence over the config file.
-
-Use **Settings → Session daemon → Allow agents to ask questions** to change `askUser` on the selected machine. An environment override makes the toggle read-only.
-
-The tool accepts one set of 1–20 questions. Each question has a unique `id`, its `question` text, optional supporting `detail`, up to 12 options with stable values and user-facing labels, and an optional `multiple` flag. The browser always adds a **Custom** free-text answer, including when the model supplies no options. No question is required: the user may leave any of them unanswered.
-
-Calling `ask_user` posts the whole set as one browser form and ends the current agent run instead of waiting for the user. The open form is owned by the session daemon, so it survives a browser disconnect, browser reload, or web/API restart while that daemon keeps running. When the user submits, the answers arrive as a follow-up that wakes the session; each question is reported with its selected option values or free text, or explicitly as unanswered.
-
-PI WEB confirms a partial submission before sending it and names the unanswered questions. Only one ask can be open per session: a later `ask_user` call supersedes the earlier one, reports that fact and its unanswered questions to the model, and turns the earlier card into a read-only transcript record. Submitted and cancelled asks likewise remain readable in the transcript.
-
-Sending an ordinary chat message while a form is open voids the form: the card closes as cancelled and the model is told its questions went unanswered as part of the turn the message itself starts.
-
-Restart the session daemon after changing `askUser` or after upgrading PI WEB to a version that introduces this tool. For the systemd user service, run `systemctl --user restart pi-web-sessiond`.
-
+<a id="extension-dialogs"></a>
 ### 扩展对话框
 
-Pi 扩展可以通过 `ctx.ui.confirm()`、`ctx.ui.select()` 和 `ctx.ui.input()` 向用户提问，包括从 `session_start` 钩子以及运行中的 `tool_call` 钩子发起。PI WEB 会在会话记录中以内联方式显示这些对话框，并通过独立的会话守护进程通道返回回答，不经过提示词队列，因此等待回答的 `tool_call` 钩子不会阻塞运行。对话框支持始终启用，没有单独的启用开关。行为细节和扩展开发说明见 [PI WEB 中的 Pi 扩展对话框](https://pi-web.dev/plugins#pi-extension-dialogs)。
+扩展 `ctx.ui.confirm()`/`select()`/`input()` 以内联卡片显示，包括会话启动和运行中工具钩子。支持始终启用，无单独开关；回答走 daemon 独立通道，不经过提示词队列。详见[插件说明](https://pi-web.dev/plugins#pi-extension-dialogs)。
 
-`extensionDialogsTimeoutMs` 是无人处理对话框时的安全超时：会话守护进程等待回答的最长时间，超时后将以对应类型的取消值结束对话框（确认框为 `false`，选择框和输入框为 `undefined`）。默认值为 `300000`（5 分钟）；设为 `0` 时永久等待。扩展自身设置的 `timeout` 仍然生效，最终期限取两者中较早的时间。
+`extensionDialogsTimeoutMs` 默认 `300000`（五分钟），`0` 无限等待，与扩展自己的 timeout 取较早期限。取消值为确认 `false`，选择/输入 `undefined`。全局配置编辑后重启 daemon。
 
-该配置项直接在全局配置文件中编辑。修改后需要重启会话守护进程；使用 systemd 用户服务时运行 `systemctl --user restart pi-web-sessiond`。
+<a id="pi-web-plugin-config-and-recovery"></a>
+<a id="plugin-config"></a>
+### 插件配置与恢复
 
-### Plugin config
-
-The `plugins` key is only for PI WEB browser plugin enablement/settings on the machine whose config you are editing. It does not install, remove, or update Pi packages; use **Settings → Pi packages** or Pi's package manager for package operations. In a federated setup, **Settings → PI WEB plugins** and **Settings → Pi packages** both target the currently selected machine, and each panel labels where changes will be saved or run.
-
-Plugins are enabled by default. Set `plugins.<id>.enabled` to `false` to remove a plugin from that machine's `/pi-web-plugins/manifest.json` before the browser imports it. Settings lists discovered plugins from the selected machine, including disabled entries exposed by that machine.
+`plugins` 控制纯浏览器、纯服务端与双入口的期望启用状态和 JSON 设置，不管理 Pi 包安装。默认启用，包可声明 `defaultEnabled: false`，Captain's Log 如此；显式配置覆盖包默认。必需 `pi-web.terminal` 普通启动不能禁用，设置中不可编辑。服务端设置启动时生效，诊断不暴露设置值。
 
 ```json
 {
   "plugins": {
-    "workspace-tasks": { "enabled": true, "settings": {} },
+    "git": { "enabled": true, "settings": {} },
+    "workspace-tasks": { "enabled": true },
     "updates": { "enabled": false }
   }
 }
 ```
 
-Reload the browser tab after changing plugin enablement. Already-loaded plugin JavaScript is not unloaded from the current page.
+保存或换包改变期望状态，不替换运行代码。禁用服务端插件及配套 UI 可在重启前仍运行；包/设置不匹配、健康或兼容异常时暂缓配套 UI。设置区分期望与实际状态，daemon 不可用时实际状态不可用。混合版本不支持，远端插件/Git 可不可用或 404；网关/目标一起升级，重启更新的 Web/API 与目标 daemon 后刷新。不能回退到网关。
 
-### 新会话默认值
+顺序：安装/更新目标包 → 保存期望配置 → 纯浏览器刷新；服务端则手动重启目标 daemon、等就绪、再刷新。重启可能中断活跃会话和所有权。仅浏览器刷新、Web/UI 自动重载、Web/API 重启、Pi `/reload` 都不激活服务端变化。
 
-模型和思考等级选择器中的星标仅影响之后创建的会话，不修改当前会话。默认值按机器上的项目和普通/管理模式分别保存；同一项目的工作区共享普通模式偏好，项目级覆盖仍按现有优先级生效。
+恢复 CLI 离线编辑全局配置，不连接 daemon、不发现/导入包、不带机器凭据；直接在目标机器运行，自定义配置加 `--config /path/to/config.json`：
 
-这些偏好属于 PI WEB 管理的数据，保存在项目作用域的 `settings.preferences.json`，不写入共享 agent 目录的 `settings.json`，也不新增可提交的项目配置文件。普通模式下与项目认证存储同目录；管理模式使用独立的 `management-embed/projects/<hash>/` 存储，无法唯一归属项目时使用 `management-embed/orphan/<cwdHash>/`。
+```bash
+pi-web plugins disable <plugin-id> --restart
+pi-web plugins safe-start show
+pi-web plugins safe-start set bundled-only --restart
+pi-web plugins safe-start set none --restart
+pi-web plugins safe-start clear --restart
+```
 
-### Shortcut config
+`disable` 保存 `enabled: false`，但拒绝必需终端。`bundled-only` 在发现/导入之前过滤外部插件，仍要求终端；`none` 跳过全部服务端插件，保留内核项目目录与诊断/设置，无终端工作流。`clear` 下次恢复普通发现。不支持的 safeStart 形状/值按 `none` 失败关闭，通过 show/set/clear 修复。
 
-Shortcut values are keyed by action id. Values are shortcut strings such as `mod+k` or `g p`; `null` disables that action's shortcut. Unmodified sequences can be saved, but they do not fire while typing in an editor. `composer.send.desktop` and `composer.send.mobile` are single chords used only inside the message editor. Until one is saved, the editor keeps the current browser's Enter preference.
+`--restart` 只执行识别的安全安装计划，否则打印手动指引。先持久化再重启，服务管理器失败后手动重启。一般失败尽可能隔离，但插件共享 daemon event loop，不是真正崩溃隔离；bundled-only 绕过外部失败，none 连内置失败也绕过，改变后仍需重启。
+
+<a id="keyboard-shortcuts"></a>
+<a id="shortcut-config"></a>
+### 快捷键
+
+`shortcuts.<actionId>` 值如 `mod+k`、`g p`、`shift+enter`，`null` 禁用该动作。
 
 ```json
 {
   "shortcuts": {
     "core:view.chat": "mod+1",
-    "core:session.stop": null
+    "core:session.stop": null,
+    "app.navigation.focus-projects": "g p",
+    "composer.send.desktop": "mod+enter",
+    "composer.send.mobile": "shift+enter"
   }
 }
 ```
 
-Prefer Settings → Keyboard for editing shortcuts interactively.
+从 **设置 → 键盘** 编辑、录制、禁用或重置。`mod` 为 Ctrl/⌘，浏览器/系统可占用组合。应用支持单键和序列；无修饰键及仅 Shift 的绑定不在 input/textarea/select/contenteditable 内开始。序列 1.2 秒到期，Escape/焦点变化取消；自定义优先，同优先级按 action ID；短绑定遮蔽同前缀长序列。
 
+编辑器发送绑定只接受一个组合。桌面默认 Enter；粗主指针（常见触屏）或 ≤760px 默认 Shift+Enter，键仍为 `composer.send.mobile`。未分配 Enter/Shift+Enter 插入换行；普通 Enter 优先接受选中补全。编辑器内发送绑定优先于应用快捷键，空草稿或不可发送时也如此。`null` 禁用键盘提交，不禁用按钮。
+
+对应绑定未配置前保留浏览器旧 Enter 偏好，重置回该回退；不把旧偏好自动复制到共享配置。触屏键盘自动首字母大写不视为 Shift。
+
+<a id="prompt-completions"></a>
 ## 提示词补全
 
-聊天输入框会在键入以下三个触发字符时打开补全菜单：
+- 草稿开头 `/` 补全会话命令。参数提示显示在名称旁，选择后一次性灰色提示在下次编辑/移动光标时消失。
+- `@` 补全已跟踪文件；`@ `（at 后空格）或 `!@` 补全全部文件。选择插入路径引用，含空格自动加引号。
+- `#` 补全当前会话可用模型，不区分大小写，最多 12 项。选择插入 `#provider/model-id`，指引代理使用模型，例如 spawn 的 model 参数。
 
-- 在草稿开头键入 `/` 可补全会话命令。声明了参数的命令会在名称旁显示提示，选中后在光标处显示一次性灰色提示，下一次编辑或移动光标即消失。
-- `@` 用于补全文件路径：`@` 显示已跟踪文件，`@ `（先键入 `@`，再键入空格）或 `!@` 显示所有文件。选中后会把 `@path` 引用插入草稿；路径包含空格时会自动加引号。
-- `#` 用于补全当前会话可用的模型；输入时不区分大小写地筛选，最多显示 12 项。选中后会把 `#provider/model-id` 引用插入草稿，提示代理应使用该模型执行请求，例如作为 `spawn_session` 的 `model` 参数。
+<a id="completion-tools"></a>
+<a id="optional-completion-tools"></a>
+## 补全工具
 
-## Optional completion tools
-
-File and path `@` completions work without extra tools. If `fzf` is available on the PI WEB server's `PATH`, PI WEB uses it to improve completion filtering/ranking; otherwise it falls back to built-in ranking.
+可在服务器 PATH 安装 `fzf` 改善文件补全排序；不安装也能补全，`rg` 用于文件发现。

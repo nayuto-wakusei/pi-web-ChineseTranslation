@@ -59,7 +59,7 @@ export interface SessionRouteService {
   listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse>;
   setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
   start(cwd: string, options?: { startupToken?: string; managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
-  messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage>;
+  messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<ClientMessagePage>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   streamSnapshot(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot>;
   notificationCatalog(context?: ManagementEmbedContext): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;

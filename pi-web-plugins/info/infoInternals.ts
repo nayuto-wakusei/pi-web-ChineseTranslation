@@ -85,9 +85,11 @@ export function piVersionDriftNote(web: PiWebComponentStatus, sessiond: PiWebCom
 
 export function workspaceFlags(workspace: Workspace): string[] {
   return [
-    workspace.provider === undefined ? undefined : `提供器 ${workspace.provider.pluginId}`,
+    workspace.provider === undefined
+      ? workspace.isGitRepo === undefined && workspace.isGitWorktree !== true ? "文件夹工作区" : undefined
+      : `提供器 ${workspace.provider.pluginId}`,
     workspace.branch === undefined || workspace.branch === "" ? undefined : `分支 ${workspace.branch}`,
-    workspace.isGitWorktree === true ? "Git 工作树" : workspace.isGitRepo === true ? "Git 仓库" : "非 Git 仓库",
+    workspace.isGitWorktree === true ? "Git 工作树" : workspace.isGitRepo === true ? "Git 仓库" : workspace.isGitRepo === false ? "非 Git 仓库" : undefined,
     workspace.isMain ? "主工作区" : undefined,
   ].filter((flag): flag is string => flag !== undefined);
 }

@@ -4,7 +4,7 @@ import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH, PLUGIN_BACKEND_CHANNEL_DATA_F
 import { markPluginBackendChannelUpgradeRequest } from "../webSocketBridge.js";
 import { managementContextForRequest, managementHeaders, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import {
-  type PluginBackendChannelProxyAdmissionPool,
+  PluginBackendChannelProxyAdmissionPool,
   pluginBackendChannelProxyAdmissionPool,
 } from "./pluginBackendChannelProxyAdmission.js";
 import {
@@ -20,7 +20,7 @@ interface PluginBackendChannelProxyParams {
 }
 
 export interface PluginBackendChannelProxyDaemon {
-  connectWebSocket(path: string, headers?: Record<string, string>, maxPayload?: number): WebSocket;
+  connectWebSocket(path: string, options?: { headers?: Record<string, string>; maxPayload?: number }): WebSocket;
 }
 
 /** Browser-facing local route; session ownership stays in sessiond while this hop bounds transport resources. */
@@ -28,9 +28,15 @@ export function registerPluginBackendChannelProxyRoutes(
   app: FastifyInstance,
   daemon: PluginBackendChannelProxyDaemon,
   prefix = "/api",
-  managementEmbed?: ManagementEmbedRuntime,
-  admissions: PluginBackendChannelProxyAdmissionPool = pluginBackendChannelProxyAdmissionPool(app),
+  managementEmbedOrAdmissions?: ManagementEmbedRuntime | PluginBackendChannelProxyAdmissionPool,
+  admissions?: PluginBackendChannelProxyAdmissionPool,
 ): void {
+  const managementEmbed = managementEmbedOrAdmissions instanceof PluginBackendChannelProxyAdmissionPool
+    ? undefined
+    : managementEmbedOrAdmissions;
+  const admissionPool = managementEmbedOrAdmissions instanceof PluginBackendChannelProxyAdmissionPool
+    ? managementEmbedOrAdmissions
+    : admissions ?? pluginBackendChannelProxyAdmissionPool(app);
   app.get<{ Params: PluginBackendChannelProxyParams }>(
     `${prefix}${PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH}`,
     {
@@ -44,21 +50,22 @@ export function registerPluginBackendChannelProxyRoutes(
       const upstreamPath = daemonPluginBackendChannelPath(request.params);
       void coordinatePluginBackendChannelProxy({
         downstream: socket,
-        admissions,
+        admissions: admissionPool,
         scope: {
           authorityId: "local",
           pluginId: request.params.pluginId,
           projectId: request.params.projectId,
           workspaceId: request.params.workspaceId,
         },
-        async connectUpstream() {
+        async connectUpstream(signal) {
           try {
             const managementContext = await managementContextForRequest(request, managementEmbed);
-            return daemon.connectWebSocket(
-              upstreamPath,
-              managementHeaders(managementContext, managementEmbed),
-              PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
-            );
+            signal.throwIfAborted();
+            const headers = managementHeaders(managementContext, managementEmbed);
+            return daemon.connectWebSocket(upstreamPath, {
+              ...(headers === undefined ? {} : { headers }),
+              maxPayload: PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
+            });
           } catch (error) {
             throw new PluginBackendChannelProxyConnectionError(
               1011,

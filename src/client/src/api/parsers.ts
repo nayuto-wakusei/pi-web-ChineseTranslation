@@ -1,8 +1,8 @@
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitDiffResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
+import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserCloseResponse, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type PendingAskUser, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceEffectiveConfig, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { GlobalSessionEvent, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, ServerNotice, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
 import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionPinResponse, SessionPinnedIdsResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
 import type { WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
-import type { JsonObject, JsonValue } from "../../../shared/apiTypes";
+import type { JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
@@ -52,7 +52,7 @@ export function arrayOf<T>(parse: (value: unknown) => T): (value: unknown) => T[
   };
 }
 
-function parseUnknownArray(value: unknown): unknown[] {
+function parseTranscriptMessages(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error("Expected array response");
   return value.map((message: unknown) => {
     if (typeof message === "object" && message !== null && "entryId" in message
@@ -69,9 +69,8 @@ function arrayOfString(value: unknown, key: string): string[] {
 }
 
 export function parseMessagePage(value: unknown): MessagePage {
-  if (Array.isArray(value)) return { messages: parseUnknownArray(value), start: 0, total: value.length };
   const record = requireRecord(value);
-  return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
+  return { messages: parseTranscriptMessages(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
 }
 
 export function parseMachinesResponse(value: unknown): Machine[] {
@@ -154,22 +153,19 @@ export function parseProject(value: unknown): Project {
 
 export function parseWorkspace(value: unknown): Workspace {
   const record = requireRecord(value);
-  const branch = optionalString(record, "branch");
-  const provider = optionalWorkspaceProvider(record["provider"]);
-  const removal = optionalWorkspaceRemoval(record["removal"]);
-  return {
+  return Object.freeze({
     id: requireString(record, "id"),
     projectId: requireString(record, "projectId"),
     path: requireString(record, "path"),
     label: requireString(record, "label"),
-    ...(branch === undefined ? {} : { branch }),
     isMain: requireBoolean(record, "isMain"),
-    isGitRepo: requireBoolean(record, "isGitRepo"),
-    isGitWorktree: requireBoolean(record, "isGitWorktree"),
-    ...(provider === undefined ? {} : { provider }),
-    ...(removal === undefined ? {} : { removal }),
-    ...optionalField("effectiveConfig", optionalWorkspaceEffectiveConfig(record["effectiveConfig"])),
-  };
+    ...optionalField("branch", optionalString(record, "branch")),
+    ...optionalField("isGitRepo", optionalBoolean(record, "isGitRepo")),
+    ...optionalField("isGitWorktree", optionalBoolean(record, "isGitWorktree")),
+    ...optionalField("provider", optionalWorkspaceProviderMetadata(record["provider"])),
+    ...optionalField("removal", optionalWorkspaceRemovalPresentation(record["removal"])),
+    effectiveConfig: requireWorkspaceEffectiveConfig(record["effectiveConfig"]),
+  });
 }
 
 export function parseWorkspaceProviderResolution(value: unknown): WorkspaceProviderResolution {
@@ -224,52 +220,55 @@ function parseWorkspaceProviderTier(value: unknown): WorkspaceProviderTier {
   throw new Error("Invalid workspace provider diagnostic tier");
 }
 
-function optionalWorkspaceProvider(value: unknown): Workspace["provider"] {
+function optionalWorkspaceProviderMetadata(value: unknown): Workspace["provider"] | undefined {
   if (value === undefined) return undefined;
-  const record = requireRecord(value);
-  const capabilities = requireRecord(record["capabilities"]);
-  const metadata = record["metadata"] === undefined ? undefined : parseJsonObject(record["metadata"], "workspace provider metadata");
-  return {
-    pluginId: requireString(record, "pluginId"),
-    capabilities: {
-      request: requireBoolean(capabilities, "request"),
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid workspace provider field");
+  const capabilities = value["capabilities"];
+  if (!isRecord(capabilities) || Array.isArray(capabilities)) throw new Error("Invalid workspace provider capabilities field");
+  const metadata = value["metadata"];
+  return Object.freeze({
+    pluginId: requireString(value, "pluginId"),
+    capabilities: Object.freeze({
       remove: requireBoolean(capabilities, "remove"),
-    },
-    ...(metadata === undefined ? {} : { metadata }),
-  };
+      ...optionalField("request", optionalBoolean(capabilities, "request")),
+    }),
+    ...optionalField("metadata", metadata === undefined ? undefined : parseJsonObject(metadata, "workspace provider metadata")),
+  });
 }
 
-function optionalWorkspaceRemoval(value: unknown): Workspace["removal"] {
+function optionalWorkspaceRemovalPresentation(value: unknown): Workspace["removal"] | undefined {
   if (value === undefined) return undefined;
-  const record = requireRecord(value);
-  return {
-    actionLabel: requireString(record, "actionLabel"),
-    confirmation: requireString(record, "confirmation"),
-    precondition: requireString(record, "precondition"),
-  };
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid workspace removal field");
+  return Object.freeze({
+    actionLabel: requireNonEmptyString(value, "actionLabel"),
+    confirmation: requireNonEmptyString(value, "confirmation"),
+    precondition: requireNonEmptyString(value, "precondition"),
+  });
 }
 
-function parseJsonObject(value: unknown, label: string): JsonObject {
-  const parsed = parseJsonValue(value, label);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`Expected JSON object: ${label}`);
-  return parsed;
+function parseJsonObject(value: unknown, field: string): NonNullable<NonNullable<Workspace["provider"]>["metadata"]> {
+  if (!isRecord(value) || Array.isArray(value)) throw new Error(`Invalid ${field} field`);
+  return Object.freeze(Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, parseJsonValue(item, field)]),
+  ));
 }
 
-function parseJsonValue(value: unknown, label: string): JsonValue {
+function parseJsonValue(value: unknown, field: string): JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map((item) => parseJsonValue(item, label));
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, parseJsonValue(item, label)]));
-  throw new Error(`Expected JSON value: ${label}`);
+  if (Array.isArray(value)) return Object.freeze(value.map((item) => parseJsonValue(item, field)));
+  if (isRecord(value)) return parseJsonObject(value, field);
+  throw new Error(`Invalid ${field} field`);
 }
 
-function optionalWorkspaceEffectiveConfig(value: unknown): Workspace["effectiveConfig"] | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid workspace effectiveConfig field");
-  return {
-    ...optionalField("uploads", optionalUploads(value["uploads"])),
-    ...optionalField("attachments", optionalAttachments(value["attachments"])),
-  };
+function requireWorkspaceEffectiveConfig(value: unknown): WorkspaceEffectiveConfig {
+  if (!isRecord(value) || Array.isArray(value)) throw new Error("Expected workspace effectiveConfig field");
+  const uploads = optionalUploads(value["uploads"]);
+  const attachments = optionalAttachments(value["attachments"]);
+  return Object.freeze({
+    ...optionalField("uploads", uploads === undefined ? undefined : Object.freeze({ ...uploads })),
+    ...optionalField("attachments", attachments === undefined ? undefined : Object.freeze({ ...attachments })),
+  });
 }
 
 export function parseSessionInfo(value: unknown): SessionInfo {
@@ -1256,13 +1255,13 @@ function optionalOAuthDeviceCode(value: unknown): NonNullable<OAuthFlowState["au
 function optionalOAuthPrompt(value: unknown): OAuthFlowState["prompt"] | undefined {
   if (value === undefined) return undefined;
   const record = requireRecord(value);
-  const kind = requireString(record, "kind");
-  if (kind !== "prompt" && kind !== "manual") throw new Error("Invalid OAuth prompt kind");
-  const promptType = record["promptType"] === undefined ? (kind === "manual" ? "manual_code" : "text") : parseOAuthPromptType(record["promptType"]);
+  const kind = optionalString(record, "kind");
+  if (kind !== undefined && kind !== "prompt" && kind !== "manual") throw new Error("Invalid OAuth prompt kind");
+  const promptType = record["promptType"] === undefined && kind !== undefined ? (kind === "manual" ? "manual_code" : "text") : parseOAuthPromptType(record["promptType"]);
   return {
     requestId: requireString(record, "requestId"),
     message: requireString(record, "message"),
-    kind,
+    ...optionalField("kind", kind),
     promptType,
     ...optionalField("placeholder", optionalString(record, "placeholder")),
     ...optionalField("allowEmpty", optionalBoolean(record, "allowEmpty")),
@@ -1414,11 +1413,6 @@ function parseGitFileState(value: unknown): GitFileState {
     default:
       throw new Error("Invalid git file state");
   }
-}
-
-export function parseGitDiffResponse(value: unknown): GitDiffResponse {
-  const record = requireRecord(value);
-  return { ...optionalField("path", optionalString(record, "path")), staged: requireBoolean(record, "staged"), hash: requireString(record, "hash"), diff: requireString(record, "diff"), truncated: requireBoolean(record, "truncated") };
 }
 
 export function parseTerminalInfo(value: unknown): TerminalInfo {
@@ -1595,7 +1589,7 @@ function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
     spawnSessions: requireBoolean(record, "spawnSessions"),
     subsessions: requireBoolean(record, "subsessions"),
     // Older servers predate the ask_user tool; a missing flag means "not overridden".
-    askUser: optionalBoolean(record, "askUser") ?? false,
+    askUser: requireBoolean(record, "askUser"),
     agentCommand: optionalBoolean(record, "agentCommand") ?? false,
     agentDir: optionalBoolean(record, "agentDir") ?? false,
     ...optionalAgentDirSource(record),
@@ -2309,6 +2303,7 @@ function parseCommandOutputEvent(record: Record<string, unknown>): Extract<Sessi
     type: "command.output",
     level,
     message: requireString(record, "message"),
+    ...optionalField("notificationId", optionalString(record, "notificationId")),
   };
 }
 function parseSessionNameEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "session.name" }> {

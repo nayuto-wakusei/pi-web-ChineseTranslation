@@ -51,7 +51,7 @@ describe("PiSessionService audit boundaries", () => {
     await service.dispose();
   });
 
-  it("writes management-mode tool arguments and results only to Elasticsearch audit", async () => {
+  it("audits management tool calls and messages without their arguments, results or content", async () => {
     let listener: ((event: unknown) => void) | undefined;
     const fake = fakeRuntime("managed-audit-session", {
       subscribe: (next) => {
@@ -91,7 +91,6 @@ describe("PiSessionService audit boundaries", () => {
       cwd: "/workspace",
       toolName: "read",
       toolCallId: "call-1",
-      content: { path: "/workspace/file.txt" },
     });
     expect(managementAudit.record).toHaveBeenNthCalledWith(2, {
       action: "tool_execution",
@@ -104,7 +103,6 @@ describe("PiSessionService audit boundaries", () => {
       cwd: "/workspace",
       toolName: "read",
       toolCallId: "call-1",
-      content: { content: [{ type: "text", text: "file body" }] },
     });
     await service.prompt(
       sessionRef("managed-audit-session"),
@@ -132,7 +130,6 @@ describe("PiSessionService audit boundaries", () => {
       projectId: "matched-project",
       sessionId: "managed-audit-session",
       cwd: "/workspace",
-      content: "用户的完整问题",
     });
     expect(managementAudit.record).toHaveBeenNthCalledWith(4, {
       action: "assistant_response",
@@ -143,12 +140,12 @@ describe("PiSessionService audit boundaries", () => {
       projectId: "matched-project",
       sessionId: "managed-audit-session",
       cwd: "/workspace",
-      content: {
-        role: "assistant",
-        content: [{ type: "text", text: "模型的完整回复" }],
-      },
     });
     expect(JSON.stringify(managementAudit.record.mock.calls)).not.toContain("private reasoning");
+    for (const sensitive of ["/workspace/file.txt", "file body", "用户的完整问题", "模型的完整回复"]) {
+      expect(JSON.stringify(managementAudit.record.mock.calls)).not.toContain(sensitive);
+      expect(JSON.stringify(logger.info.mock.calls)).not.toContain(sensitive);
+    }
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ mode: "management", userId: "account-1", userDisplayName: "测试用户", projectId: "matched-project" }), "Pi tool execution audit");
 
     await service.dispose();

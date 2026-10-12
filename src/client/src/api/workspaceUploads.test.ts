@@ -81,6 +81,16 @@ describe("workspace upload helpers", () => {
     expect(xhrs.only().url).toBe("https://pi.example.test/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=manual%2Fhello.txt&embed=management&token=launch-token");
   });
 
+  it("forwards createDirs through the host's single-file upload transport", async () => {
+    const xhrs = new FakeXhrQueue();
+    const file = new File(["hello"], "nested.txt", { type: "text/plain" });
+    const task = uploadWorkspaceFile("p1", "w1", { path: "uploads/nested.txt", file }, { createDirs: false, xhrFactory: xhrs.factory });
+    const xhr = xhrs.only();
+    expect(xhr.url).toBe("https://pi.example.test/api/machines/local/projects/p1/workspaces/w1/file?path=uploads%2Fnested.txt&createDirs=false");
+    xhr.respondJson(200, { path: "uploads/nested.txt", size: 5, modifiedAt: "2026-06-25T00:00:00.000Z", created: true });
+    await expect(task.promise).resolves.toEqual({ path: "uploads/nested.txt", size: 5, modifiedAt: "2026-06-25T00:00:00.000Z", created: true });
+  });
+
   it("cancels an in-flight workspace file upload", async () => {
     const xhrs = new FakeXhrQueue();
     const file = new File(["hello"], "hello.txt");

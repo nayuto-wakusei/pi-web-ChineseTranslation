@@ -417,11 +417,8 @@ function availableProfile(dir: string) {
   return {
     status: "available" as const,
     profile: {
-      schemaVersion: 1 as const,
-      revision: `sha256:${"a".repeat(64)}`,
-      command: "pi",
+      schemaVersion: 2 as const,
       dir,
-      sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
     },
   };
 }

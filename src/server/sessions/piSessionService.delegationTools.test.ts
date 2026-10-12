@@ -106,7 +106,6 @@ describe("delegation tool capability boundary", () => {
       parentSessionId: "parent-9",
       parentSessionFile: "/sessions/parent-9.jsonl",
       prompt: "go",
-      cwd: undefined,
       model: dispatchModel,
       modelSpec: "openai/gpt-5",
     });

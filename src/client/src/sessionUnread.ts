@@ -4,7 +4,6 @@ import { SESSION_UNREAD_LIMIT, type SessionRef, type SessionUnreadCatalogSnapsho
 const EMPTY_SESSION_IDS: ReadonlySet<string> = new Set();
 const MAX_BUFFERED_NETWORK_EVENTS = SESSION_UNREAD_LIMIT + 1;
 
-export type SessionUnreadCapabilityState = "unknown" | "supported" | "unsupported";
 export type SessionUnreadProjectionStatus = "loading" | "fresh" | "stale";
 
 export interface SessionUnreadApi {
@@ -38,7 +37,6 @@ interface NetworkObserver {
 
 interface MachineUnreadState {
   readonly machineId: string;
-  capability: SessionUnreadCapabilityState;
   status: SessionUnreadProjectionStatus;
   projection: ProjectionData | undefined;
   projectionVersion: number;
@@ -96,42 +94,6 @@ export class SessionUnreadController {
     }
   }
 
-  /** Returns true when capability discovery newly makes a snapshot eligible. */
-  setCapability(machineId: string, capability: SessionUnreadCapabilityState): boolean {
-    const state = this.machine(machineId);
-    const previous = state.capability;
-    if (previous === capability) return false;
-
-    state.capability = capability;
-    if (capability === "unsupported") {
-      const changed = state.projection !== undefined;
-      state.generation += 1;
-      state.projection = undefined;
-      if (changed) state.projectionVersion += 1;
-      state.status = "stale";
-      state.refreshPromise = undefined;
-      state.refreshQueued = false;
-      state.observers.clear();
-      state.acknowledgements.clear();
-      if (changed) this.onChange(machineId);
-      return false;
-    }
-
-    if (capability === "unknown") {
-      if (state.projection !== undefined && state.status !== "stale") {
-        state.status = "stale";
-        this.onChange(machineId);
-      }
-      return false;
-    }
-
-    return previous !== "supported";
-  }
-
-  capability(machineId: string): SessionUnreadCapabilityState {
-    return this.machines.get(machineId)?.capability ?? "unknown";
-  }
-
   projection(machineId: string): SessionUnreadProjectionView | undefined {
     const state = this.machines.get(machineId);
     const projection = state?.projection;
@@ -162,10 +124,6 @@ export class SessionUnreadController {
 
   applyEvent(machineId: string, event: SessionUnreadEvent): void {
     const state = this.machine(machineId);
-    // Events alone do not prove that the web/API hop exposes the matching HTTP
-    // routes (for example, a new sessiond behind an older federated web host).
-    // Only jointly negotiated support may activate this projection.
-    if (state.capability !== "supported") return;
     this.recordObservedEvent(state, event);
 
     const transition = applyUnreadEvent(state.projection, state.status, event);
@@ -179,7 +137,6 @@ export class SessionUnreadController {
 
   refresh(machineId: string): Promise<void> {
     const state = this.machine(machineId);
-    if (state.capability !== "supported") return Promise.resolve();
     if (state.refreshPromise !== undefined) {
       state.refreshQueued = true;
       return state.refreshPromise;
@@ -191,7 +148,7 @@ export class SessionUnreadController {
     void refreshPromise.finally(() => {
       if (!this.isCurrent(state, generation) || state.refreshPromise !== refreshPromise) return;
       state.refreshPromise = undefined;
-      const refreshAgain = state.refreshQueued && state.capability === "supported";
+      const refreshAgain = state.refreshQueued;
       state.refreshQueued = false;
       if (refreshAgain) void this.refresh(state.machineId);
     });
@@ -200,14 +157,13 @@ export class SessionUnreadController {
 
   async refreshAll(): Promise<void> {
     await Promise.all([...this.machines.values()]
-      .filter((state) => state.capability === "supported")
       .map(async (state) => { await this.refresh(state.machineId); }));
   }
 
   acknowledge(machineId: string, session: SessionRef): Promise<void> {
     const state = this.machines.get(machineId);
     const projection = state?.projection;
-    if (state?.capability !== "supported" || projection === undefined) return Promise.resolve();
+    if (state === undefined || projection === undefined) return Promise.resolve();
     const summary = projection.summariesByIdentity.get(sessionIdentityKey(session));
     if (summary === undefined) return Promise.resolve();
 
@@ -227,7 +183,7 @@ export class SessionUnreadController {
   private async runRefreshLoop(state: MachineUnreadState, generation: number): Promise<void> {
     do {
       state.refreshQueued = false;
-      if (!this.isCurrentSupported(state, generation)) return;
+      if (!this.isCurrent(state, generation)) return;
       const projectionStatus = state.status;
       const changed = this.markRefreshStarted(state);
       if (changed) this.onChange(state.machineId);
@@ -235,7 +191,7 @@ export class SessionUnreadController {
       const observer = this.beginNetworkObservation(state, generation, projectionStatus);
       try {
         const snapshot = await this.api.unreadCatalog(state.machineId);
-        if (!this.isCurrentSupported(state, generation)) return;
+        if (!this.isCurrent(state, generation)) return;
         const requiresRefresh = this.applyNetworkSnapshot(state, snapshot, observer);
         if (requiresRefresh) state.refreshQueued = true;
       } catch (error: unknown) {
@@ -248,7 +204,7 @@ export class SessionUnreadController {
       } finally {
         state.observers.delete(observer);
       }
-    } while (state.refreshQueued && this.isCurrentSupported(state, generation));
+    } while (state.refreshQueued && this.isCurrent(state, generation));
   }
 
   private async runAcknowledgement(
@@ -266,7 +222,7 @@ export class SessionUnreadController {
         throughCompletionOrder,
         state.machineId,
       );
-      if (!this.isCurrentSupported(state, generation)) return;
+      if (!this.isCurrent(state, generation)) return;
       if (this.applyNetworkSnapshot(state, snapshot, observer)) void this.refresh(state.machineId);
     } catch (error: unknown) {
       if (this.isCurrent(state, generation)) this.reportError("acknowledge", state.machineId, error);
@@ -373,7 +329,6 @@ export class SessionUnreadController {
     if (existing !== undefined) return existing;
     const state: MachineUnreadState = {
       machineId,
-      capability: "unknown",
       status: "stale",
       projection: undefined,
       projectionVersion: 0,
@@ -389,10 +344,6 @@ export class SessionUnreadController {
 
   private isCurrent(state: MachineUnreadState, generation: number): boolean {
     return this.machines.get(state.machineId) === state && state.generation === generation;
-  }
-
-  private isCurrentSupported(state: MachineUnreadState, generation: number): boolean {
-    return this.isCurrent(state, generation) && state.capability === "supported";
   }
 
   private reportError(operation: "snapshot" | "acknowledge", machineId: string, error: unknown): void {

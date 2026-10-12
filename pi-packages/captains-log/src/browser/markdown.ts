@@ -53,7 +53,7 @@ export function renderCaptainMarkdown(html: Html, markdown: string): unknown {
         ? html`<ol start=${token.start}>${renderTokens(token.items)}</ol>`
         : html`<ul>${renderTokens(token.items)}</ul>`;
       case "list_item": return html`<li>${renderTokens(token.tokens)}</li>`;
-      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label="Task completed">`;
+      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label="任务完成状态">`;
       case "link": {
         const href = safeLink(token.href);
         const label = renderTokens(token.tokens);

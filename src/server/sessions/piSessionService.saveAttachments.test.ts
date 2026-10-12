@@ -52,16 +52,21 @@ async function expectSavedPath(service: PiSessionService, folder: string | undef
   const saved = await service.saveAttachments(sessionRef("session-1", workspace), ATTACHMENTS, folder);
   expect(saved).toHaveLength(1);
   expect(saved[0]?.path).toMatch(new RegExp(`^${expectedFolder.replaceAll("/", "\\/")}\\/attachment-.+-shot\\.png$`));
+  // The returned path is real: the bytes landed where the response points.
   expect(await readFile(join(workspace, saved[0]?.path ?? ""))).toEqual(Buffer.from("QUJD", "base64"));
 }
 
 describe("PiSessionService saveAttachments", () => {
   it("saves to the built-in default folder when nothing is configured", async () => {
-    await expectSavedPath(createService(), undefined, ".pi-web/attachments");
+    const service = createService();
+
+    await expectSavedPath(service, undefined, ".pi-web/attachments");
   });
 
   it("uses the configured global default folder when the request has no explicit folder", async () => {
-    await expectSavedPath(createService(fakeConfigRead({ attachments: { defaultFolder: "global-attachments" } })), undefined, "global-attachments");
+    const service = createService(fakeConfigRead({ attachments: { defaultFolder: "global-attachments" } }));
+
+    await expectSavedPath(service, undefined, "global-attachments");
   });
 
   it("lets the project-local config override the global default folder", async () => {
@@ -73,14 +78,20 @@ describe("PiSessionService saveAttachments", () => {
   });
 
   it("lets an explicit request folder win over the configured default", async () => {
-    await expectSavedPath(createService(fakeConfigRead({ attachments: { defaultFolder: "global-attachments" } })), "explicit-attachments", "explicit-attachments");
+    const service = createService(fakeConfigRead({ attachments: { defaultFolder: "global-attachments" } }));
+
+    await expectSavedPath(service, "explicit-attachments", "explicit-attachments");
   });
 
-  it("lets an explicit request folder win over the session cwd's project-local config", async () => {
+  it("lets an explicit request folder win over the session cwd's own project-local config", async () => {
     const service = createService(fakeConfigRead({ attachments: { defaultFolder: "global-attachments" } }));
     await mkdir(join(workspace, ".pi-web"), { recursive: true });
     await writeFile(join(workspace, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, attachments: { defaultFolder: "cwd-local-attachments" } }, null, 2)}\n`);
 
+    // The composer resolves the effective folder from the owning project's
+    // config and sends it explicitly, so a secondary (worktree) workspace —
+    // whose cwd has no, or a different, project-local config — still saves to
+    // the folder the label advertised.
     await expectSavedPath(service, "project-attachments", "project-attachments");
   });
 

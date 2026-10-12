@@ -890,7 +890,6 @@ describe("defaultPluginRoots", () => {
     expect(roots).toContainEqual({ path: join(tempDir, "plugins"), source: "dev", scope: "local" });
     expect(roots.some((root) => root.path === join(tempDir, "pi-web-plugins"))).toBe(false);
   });
-
   it("never scans pi-packages/, so Pi packages shipped there are never bundled/local discovery roots", () => {
     const roots = defaultPluginRoots(tempDir);
 
@@ -944,7 +943,6 @@ describe("browser artifact capture", () => {
     expect([...updated.files.keys()]).toEqual([...artifact.files.keys()]);
   });
 });
-
 async function writePlugin(root: string, options: { packageJson: unknown; files: Record<string, string> }): Promise<void> {
   await mkdir(root, { recursive: true });
   await writeFile(join(root, "package.json"), `${JSON.stringify(options.packageJson, null, 2)}\n`);

@@ -20,9 +20,7 @@ export interface ServerNoticeDisplayContext {
   sessionId?: string;
 }
 
-/**
- * Keep the server snapshot complete and scope only its front-end presentation.
- */
+/** Keep the server snapshot complete and scope only its front-end presentation. */
 export function visibleServerNotices(notices: readonly ServerNotice[], context: ServerNoticeDisplayContext): ServerNotice[] {
   return notices.filter((notice) => serverNoticeIsVisible(notice, context));
 }

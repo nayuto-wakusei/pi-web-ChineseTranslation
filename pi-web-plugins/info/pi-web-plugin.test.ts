@@ -20,10 +20,12 @@ describe("Info plugin copy-diagnostics action", () => {
           projectId: "proj-1",
           path: "/srv/dev/pi-web",
           label: "pi-web",
-          branch: "main",
           isMain: true,
-          isGitRepo: true,
-          isGitWorktree: false,
+          provider: {
+            pluginId: "git",
+            capabilities: { remove: true },
+            metadata: { branch: "main" },
+          },
         },
       },
     });
@@ -32,10 +34,12 @@ describe("Info plugin copy-diagnostics action", () => {
 
     expect(writeText).toHaveBeenCalledOnce();
     const summary = writeText.mock.calls[0]?.[0];
-    expect(summary).toContain("PI WEB 诊断信息");
-    expect(summary).toContain("状态：不可用");
-    expect(summary).toContain("机器：devbox（本地机器）");
-    expect(summary).toContain("工作区：pi-web - /srv/dev/pi-web（分支 main、Git 仓库、主工作区）");
+    expect(summary).toBe([
+      "PI WEB 诊断信息",
+      "状态：不可用",
+      "机器：devbox（本地机器）",
+      "工作区：pi-web - /srv/dev/pi-web（提供器 git、主工作区）",
+    ].join("\n"));
   });
 });
 

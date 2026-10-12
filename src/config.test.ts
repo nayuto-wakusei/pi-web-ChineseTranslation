@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_ATTACHMENT_FOLDER, DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { AGENT_SESSION_DIR_ENV_KEYS, detectDeprecatedAgentInputs, environmentFactsEnabled, DEFAULT_ATTACHMENT_FOLDER, DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -235,6 +235,27 @@ describe("PI WEB config persistence", () => {
     expect(loadPiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(60_000);
   });
 
+  it.each([true, false])("drops a hand-edited respectProjectTrust=%s on save without changing unrelated keys", async (respectProjectTrust) => {
+    const existing = {
+      respectProjectTrust,
+      port: 8504,
+      normalAuth: { passwordHash: TEST_PASSWORD_HASH },
+      future: { enabled: true },
+    };
+    await writeFile(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("respectProjectTrust");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(existing);
+
+    savePiWebConfig({ port: 9000 }, testOptions());
+
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+      port: 9000,
+      normalAuth: { passwordHash: TEST_PASSWORD_HASH },
+      future: { enabled: true },
+    });
+  });
+
   it("rejects an invalid extensionDialogsTimeoutMs", async () => {
     for (const value of [-1, 1.5, "5000", null]) {
       await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: value }, null, 2)}\n`, "utf8");
@@ -285,7 +306,7 @@ describe("PI WEB config persistence", () => {
   });
 
   it("rejects home expansion that would create a workspace-relative agent directory", () => {
-    expect(() => effectiveAgentConfig({ HOME: "relative-home" })).toThrow("agent.dir must be a host-absolute path");
+    expect(() => effectiveAgentConfig({ HOME: "relative-home" })).toThrow("the agent directory default must be a host-absolute path");
   });
 
   it("resolves explicit alternate agent command and state directory settings", () => {
@@ -509,3 +530,86 @@ describe("offlineModeEnabled", () => {
 function testOptions(): { env: NodeJS.ProcessEnv } {
   return { env: { PI_WEB_CONFIG: configPath } };
 }
+
+describe("upstream configuration contracts with local extensions", () => {
+  it("attributes agent directory resolution failures to the input that supplied the directory", () => {
+    expect(() => effectiveAgentConfig({ PI_WEB_AGENT_DIR: "relative/web", PI_CODING_AGENT_DIR: "relative/pi" })).toThrow("PI_WEB_AGENT_DIR must be a host-absolute path");
+    expect(() => effectiveAgentConfig({ PI_CODING_AGENT_DIR: "relative/pi" })).toThrow("PI_CODING_AGENT_DIR must be a host-absolute path");
+    expect(() => effectiveAgentConfig({}, { agent: { dir: "relative/config" } })).toThrow("agent.dir must be a host-absolute path");
+  });
+
+  it("orders session directory env overrides with the deprecated alias first", () => {
+    expect(AGENT_SESSION_DIR_ENV_KEYS).toEqual(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
+    expect(agentSessionDirEnvOverride({ PI_WEB_AGENT_SESSION_DIR: join(tempDir, "web-sessions"), PI_CODING_AGENT_SESSION_DIR: join(tempDir, "pi-sessions") })).toBe(join(tempDir, "web-sessions"));
+    expect(agentSessionDirEnvOverride({ PI_CODING_AGENT_SESSION_DIR: join(tempDir, "pi-sessions") })).toBe(join(tempDir, "pi-sessions"));
+    expect(agentSessionDirEnvOverride({})).toBeUndefined();
+  });
+
+  it("detects deprecated agent inputs from the environment and config", () => {
+    expect(detectDeprecatedAgentInputs({})).toEqual([]);
+    expect(detectDeprecatedAgentInputs({ PI_WEB_AGENT_COMMAND: "", PI_WEB_AGENT_DIR: "" })).toEqual([]);
+    expect(detectDeprecatedAgentInputs({
+      PI_WEB_AGENT_COMMAND: "acme-agent",
+      PI_WEB_AGENT_DIR: "/state/acme",
+      PI_WEB_AGENT_SESSION_DIR: "/state/acme/sessions",
+    }, { agent: { command: "acme-agent", dir: "/state/acme" } })).toEqual([
+      { source: "environment", name: "PI_WEB_AGENT_COMMAND" },
+      { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+      { source: "environment", name: "PI_WEB_AGENT_SESSION_DIR", replacement: "PI_CODING_AGENT_SESSION_DIR" },
+      { source: "config", name: "agent.command" },
+      { source: "config", name: "agent.dir", replacement: "PI_CODING_AGENT_DIR" },
+    ]);
+  });
+
+  it("reports detected deprecated inputs on the loaded config", async () => {
+    expect(loadPiWebConfig(testOptions()).deprecatedAgentInputs).toEqual([]);
+    expect(loadPiWebConfig({ env: { ...testOptions().env, PI_WEB_AGENT_DIR: join(tempDir, "agent") } }).deprecatedAgentInputs).toEqual([
+      { source: "environment", name: "PI_WEB_AGENT_DIR", replacement: "PI_CODING_AGENT_DIR" },
+    ]);
+
+    await writeFile(configPath, `${JSON.stringify({ agent: { command: "acme-agent", dir: "/state/acme" } }, null, 2)}\n`, "utf8");
+
+    expect(loadPiWebConfig(testOptions()).deprecatedAgentInputs).toEqual([
+      { source: "config", name: "agent.command" },
+      { source: "config", name: "agent.dir", replacement: "PI_CODING_AGENT_DIR" },
+    ]);
+  });
+
+  it("exposes the effective attachments default folder, configured or built-in", async () => {
+    expect(effectivePiWebConfig(testOptions()).config.attachments).toEqual({ defaultFolder: DEFAULT_ATTACHMENT_FOLDER });
+
+    await writeFile(configPath, `${JSON.stringify({ attachments: { defaultFolder: "dropped" } }, null, 2)}\n`, "utf8");
+
+    expect(effectivePiWebConfig(testOptions()).config.attachments).toEqual({ defaultFolder: "dropped" });
+  });
+
+  it("round-trips and validates the environmentFacts key", async () => {
+    expect(savePiWebConfig({ environmentFacts: false }, testOptions()).config).toEqual({ environmentFacts: false });
+    expect(loadPiWebConfig(testOptions()).config).toEqual({ environmentFacts: false });
+    expect(effectivePiWebConfig(testOptions()).config.environmentFacts).toBe(false);
+    expect(effectivePiWebConfig({ ...testOptions(), env: { ...testOptions().env, PI_WEB_ENVIRONMENT_FACTS: "1" } }).config.environmentFacts).toBe(true);
+
+    await writeFile(configPath, `${JSON.stringify({ environmentFacts: "no" }, null, 2)}\n`, "utf8");
+
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config environmentFacts must be a boolean");
+  });
+});
+
+describe("environmentFactsEnabled", () => {
+  it("is on by default so a Docker deployment describes itself to agents", () => {
+    expect(environmentFactsEnabled({}, {})).toBe(true);
+  });
+
+  it("honors an explicit config opt-out", () => {
+    expect(environmentFactsEnabled({}, { environmentFacts: false })).toBe(false);
+  });
+
+  it("lets the env var override the config in both directions", () => {
+    expect(environmentFactsEnabled({ PI_WEB_ENVIRONMENT_FACTS: "0" }, { environmentFacts: true })).toBe(false);
+    expect(environmentFactsEnabled({ PI_WEB_ENVIRONMENT_FACTS: "true" }, { environmentFacts: false })).toBe(true);
+  });
+
+  it("treats an empty env value as unset", () => {
+    expect(environmentFactsEnabled({ PI_WEB_ENVIRONMENT_FACTS: "" }, { environmentFacts: false })).toBe(false);
+  });
+});

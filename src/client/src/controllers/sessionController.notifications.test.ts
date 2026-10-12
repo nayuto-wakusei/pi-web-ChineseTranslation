@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import type { SessionNotificationInboxEvent } from "../../../shared/apiTypes";
 import { SessionController, type SessionNotificationSessionBridge } from "./sessionController";
+import { SessionNotificationController } from "./sessionNotificationController";
 import { defaultApi, EmitSocket, emptyPage, oldSession, status, workspace, type AppState } from "./sessionController.testSupport";
 
 function inboxEvent(): SessionNotificationInboxEvent {
@@ -37,12 +38,13 @@ describe("SessionController notification event boundary", () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
     const refreshSelectedSession = vi.fn(() => Promise.resolve());
+    const notificationPolicy = new SessionNotificationController(() => state, (patch) => { state = { ...state, ...patch }; });
     const bridge: SessionNotificationSessionBridge = {
       prepareSelectedSession: vi.fn(),
       clearSelectedSession: vi.fn(),
       refreshSelectedSession,
       applyInboxEvent: vi.fn(),
-      shouldFilterLegacyNotification: vi.fn(() => true),
+      shouldFilterLegacyNotification: notificationPolicy.shouldFilterLegacyNotification.bind(notificationPolicy),
     };
     const controller = new SessionController(
       () => state,
@@ -73,12 +75,13 @@ describe("SessionController notification event boundary", () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
     const applyInboxEvent = vi.fn();
+    const notificationPolicy = new SessionNotificationController(() => state, (patch) => { state = { ...state, ...patch }; });
     const bridge: SessionNotificationSessionBridge = {
       prepareSelectedSession: vi.fn(),
       clearSelectedSession: vi.fn(),
       refreshSelectedSession: vi.fn(() => Promise.resolve()),
       applyInboxEvent,
-      shouldFilterLegacyNotification: vi.fn((_machineId, notificationId) => notificationId !== undefined),
+      shouldFilterLegacyNotification: notificationPolicy.shouldFilterLegacyNotification.bind(notificationPolicy),
     };
     const api: typeof defaultApi = {
       ...defaultApi,
@@ -94,6 +97,7 @@ describe("SessionController notification event boundary", () => {
       { api, socket, notifications: bridge },
     );
     await controller.selectSession(oldSession, { updateUrl: false });
+    state = { ...state, machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [] } } };
 
     socket.emit({ ...inboxEvent(), seq: 50 });
     socket.emit({ type: "command.output", level: "info", message: "legacy duplicate", notificationId: "daemon-a:1", seq: 101 });
@@ -106,15 +110,16 @@ describe("SessionController notification event boundary", () => {
     expect(state.messages[0]?.parts).toEqual([{ type: "text", text: "ordinary extension output" }]);
   });
 
-  it("preserves marked legacy notification output when capability support is absent", async () => {
+  it("preserves marked legacy notification output when runtime support is absent", async () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const notificationPolicy = new SessionNotificationController(() => state, (patch) => { state = { ...state, ...patch }; });
     const bridge: SessionNotificationSessionBridge = {
       prepareSelectedSession: vi.fn(),
       clearSelectedSession: vi.fn(),
       refreshSelectedSession: vi.fn(() => Promise.resolve()),
       applyInboxEvent: vi.fn(),
-      shouldFilterLegacyNotification: vi.fn(() => false),
+      shouldFilterLegacyNotification: notificationPolicy.shouldFilterLegacyNotification.bind(notificationPolicy),
     };
     const controller = new SessionController(
       () => state,

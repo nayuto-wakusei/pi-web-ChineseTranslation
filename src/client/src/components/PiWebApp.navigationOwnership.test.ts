@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
-import type { Project } from "../api";
-import { FileExplorerController } from "../controllers/fileExplorerController";
+import { workspacesApi, type Project } from "../api";
+import { html } from "lit";
+import { PluginRegistry } from "../plugins/registry";
+import type { WorkspacePanelContext } from "../plugins/types";
 import type { NavigationFreshness, NavigationScope, NavigationSelection } from "../controllers/types";
 import { readRoute, writeRoute, type ParsedAppRoute } from "../route";
 import { PiWebApp } from "./PiWebApp";
@@ -22,27 +24,40 @@ describe("PiWebApp navigation ownership", () => {
     expect(invoke(app, "navigationSelectionMatchesUrl", { ...capture(app), sessionId: "creating:abcdef" })).toBe(false);
   });
 
-  it("maps the public workspace view to the current panel instead of treating it as a panel ID", () => {
+  it("keeps the public workspace view independent from the selected panel", () => {
     const app = createApp();
     const open = vi.fn();
     Reflect.set(app, "openWorkspaceTool", open);
     invoke(app, "selectMainView", "workspace");
-    expect(open).toHaveBeenCalledExactlyOnceWith(initialAppState().workspaceTool);
+    expect(open).not.toHaveBeenCalled();
+    expect(readRoute().view).toBe("workspace");
+    expect(readRoute().tool).toBeUndefined();
   });
 
   it("does not restore an old file after its refresh loses route ownership", async () => {
     const app = createApp();
-    let finish: (() => void) | undefined;
-    const pending = new Promise<void>((resolve) => { finish = resolve; });
-    vi.spyOn(FileExplorerController.prototype, "refreshFiles").mockReturnValue(pending);
-    const restore = vi.spyOn(FileExplorerController.prototype, "restoreFile").mockResolvedValue(undefined);
-    Reflect.set(app, "isFilesPanel", () => true);
-    let current = true;
-    const refreshing = invoke(app, "refreshRestoredWorkspaceTool", "core:workspace.files", "old.txt", undefined, () => current);
-    current = false;
-    finish?.();
-    await refreshing;
-    expect(restore).not.toHaveBeenCalled();
+    const workspace = { id: "w", projectId: project.id, path: project.path, label: "main", isMain: true, effectiveConfig: {} };
+    Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"]]));
+    Reflect.set(app, "state", { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace, mainView: "workspace", workspaceTool: "files:panel" });
+    writeRoute({ ...readRoute(), projectId: project.id, workspaceId: workspace.id, tool: "files:panel", view: "workspace" });
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Missing plugin registry");
+    let context: WorkspacePanelContext | undefined;
+    await registry.register({ id: "files", plugin: { apiVersion: 4, name: "Files", activate: () => ({ contributions: { workspacePanels: [{ id: "panel", title: "Files", render: (value) => { context = value; return html``; } }] } }) } });
+    const hostContext = invoke(app, "createWorkspacePanelContext", workspace);
+    if (!isWorkspacePanelContext(hostContext)) throw new Error("Missing host context");
+    registry.getWorkspacePanels().find((panel) => panel.id === "files:panel")?.render(hostContext);
+    if (context === undefined) throw new Error("Missing scoped Files context");
+    const scoped = context;
+    let finish!: (file: Awaited<ReturnType<typeof workspacesApi.workspaceFile>>) => void;
+    vi.spyOn(workspacesApi, "workspaceFile").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const refreshing = scoped.files.readFile("old.txt").then(() => scoped.navigation?.set("file", "old.txt"));
+    writeRoute({ ...readRoute(), tool: "other:panel" });
+    begin(app, ["tool", "view"]);
+    finish({ path: "old.txt", content: "old", size: 3, encoding: "utf8", modifiedAt: "now", truncated: false, binary: false });
+    await expect(refreshing).resolves.toBe(false);
+    expect(new URL(window.location.href).searchParams.has("files.panel--file")).toBe(false);
+    expect(readRoute().tool).toBe("other:panel");
   });
 
   it("restores the current URL rather than an obsolete initial capture after machine loading", async () => {
@@ -174,6 +189,10 @@ function begin(app: PiWebApp, scope: readonly NavigationScope[]): NavigationFres
 function isNavigationFreshness(value: unknown): value is NavigationFreshness {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "isCurrent") === "function"
     && typeof Reflect.get(value, "generation") === "number" && Array.isArray(Reflect.get(value, "scope"));
+}
+
+function isWorkspacePanelContext(value: unknown): value is WorkspacePanelContext {
+  return typeof value === "object" && value !== null && "files" in value && "terminal" in value;
 }
 
 function capture(app: PiWebApp): NavigationSelection {

@@ -114,8 +114,7 @@ export class SettingsPackagesPanel extends LitElement {
 
   private renderPackageList(packages: PiPackageInfo[], target: PiPackageTargetContext): TemplateResult {
     const targetLabel = piPackageTargetLabel(target);
-    const packageManagementUnavailable = this.packageManagementUnavailable;
-    const updateAllReason = packageManagementUnavailable ? this.packageManagementUnavailableMessage(targetLabel) : updateAllPiPackagesDisabledReason(packages);
+    const updateAllReason = updateAllPiPackagesDisabledReason(packages);
     const showUpdateAllReason = updateAllReason !== undefined && packages.length > 0;
     const updateAllTitle = updateAllReason ?? "更新所有用户范围的 Pi 包";
     return html`

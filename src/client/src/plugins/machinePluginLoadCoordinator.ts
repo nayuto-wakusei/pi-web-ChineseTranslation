@@ -12,6 +12,7 @@ export class MachinePluginLoadCoordinator {
   constructor(
     private readonly registerPlugins: RegisterPlugins,
     private readonly shouldLoadRemotePlugin: (id: string, machineSpecific: boolean) => boolean,
+    private readonly shouldLoadGatewayPlugin: (id: string, machineSpecific: boolean) => boolean = () => true,
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
@@ -19,7 +20,7 @@ export class MachinePluginLoadCoordinator {
       const manifest = await managementPluginManifest();
       return loadExternalPlugins("pi-web-plugins/manifest.json", {
         ...(manifest === undefined ? {} : { manifest }),
-        shouldLoadPlugin: (entry) => !isManagementEmbedMode() || entry.id !== "pi-web.terminal",
+        shouldLoadPlugin: (entry) => (!isManagementEmbedMode() || entry.id !== "pi-web.terminal") && this.shouldLoadGatewayPlugin(entry.id, entry.machineSpecific),
       });
     }).then((loaded) => {
       if (!loaded) this.gatewayLoad = undefined;
@@ -57,7 +58,8 @@ async function managementPluginManifest(): Promise<{ lifecycleVersion: number; t
   if (!isManagementEmbedMode()) return undefined;
   const response = await pluginsApi.plugins();
   if (response.serverRuntime.status !== "available") throw new Error(response.serverRuntime.message ?? "PI WEB 插件运行时不可用");
-  const plugins = response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined ? [] : [{
+  const plugins = response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined
+    || (plugin.server !== undefined && (plugin.server.state !== "active" || plugin.server.staleRevision || plugin.server.health?.status === "unhealthy")) ? [] : [{
     id: plugin.id,
     module: plugin.module,
     source: plugin.source,

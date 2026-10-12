@@ -83,11 +83,17 @@ async function runNpm(npmCliPath, args, cwd) {
 }
 
 function packageTarballFilename(output) {
-  const parsed = JSON.parse(output);
-  if (!Array.isArray(parsed) || parsed.length !== 1 || typeof parsed[0]?.filename !== "string") {
-    throw new Error("npm pack returned an unexpected result");
+  for (let jsonStart = output.indexOf("["); jsonStart >= 0; jsonStart = output.indexOf("[", jsonStart + 1)) {
+    try {
+      const parsed = JSON.parse(output.slice(jsonStart));
+      if (Array.isArray(parsed) && parsed.length === 1 && typeof parsed[0]?.filename === "string") {
+        return parsed[0].filename;
+      }
+    } catch {
+      // Lifecycle output can precede npm's JSON payload; keep looking for the payload.
+    }
   }
-  return parsed[0].filename;
+  throw new Error("npm pack returned an unexpected result");
 }
 
 async function smokeInstalledTerminalService(packageRoot) {

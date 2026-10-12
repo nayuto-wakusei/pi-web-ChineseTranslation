@@ -114,7 +114,8 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "loadPluginsForTarget");
 
     expect(configSpy).toHaveBeenCalledWith(remoteMachine.id);
-    expect(pluginsSpy).toHaveBeenCalledWith(remoteMachine.id);
+    expect(pluginsSpy).not.toHaveBeenCalled();
+    expect(getDialogProperty(dialog, "pluginError")).toContain("不支持插件生命周期诊断");
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "accessConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeDefined();

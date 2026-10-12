@@ -253,8 +253,7 @@ function parsePiWebConfigEnvOverridesResponse(value: unknown, source: string): P
     allowedHosts: requireResponseBoolean(record, "allowedHosts", source),
     spawnSessions: requireResponseBoolean(record, "spawnSessions", source),
     subsessions: requireResponseBoolean(record, "subsessions", source),
-    // Older responses predate the ask_user tool; treat a missing flag as "not overridden".
-    askUser: optionalResponseBoolean(record, "askUser", source) ?? false,
+    askUser: requireResponseBoolean(record, "askUser", source),
     agentCommand: optionalResponseBoolean(record, "agentCommand", source) ?? false,
     agentDir: optionalResponseBoolean(record, "agentDir", source) ?? false,
     ...optionalAgentDirSource(record, source),

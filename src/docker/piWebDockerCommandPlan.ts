@@ -50,13 +50,15 @@ export type PiWebDockerRuntimeHostPlan =
   | { kind: "diagnostics" }
   | { kind: "usage" };
 
-export interface PiWebDockerComposeStep {
-  args: string[];
-}
+export type PiWebDockerDevUpdateStep =
+  // A failed or impossible fast-forward warns and still rebuilds the checkout in place.
+  | { kind: "gitFastForward"; onFailure: "warn" }
+  | { kind: "compose"; args: string[] };
 
 export type PiWebDockerDevHostPlan =
   | { kind: "compose"; args: string[]; usesGeneratedEnv: true }
-  | { kind: "composeSequence"; steps: PiWebDockerComposeStep[]; usesGeneratedEnv: true }
+  | { kind: "updateSequence"; steps: PiWebDockerDevUpdateStep[]; usesGeneratedEnv: true }
+  | { kind: "composeSequence"; steps: { kind: "compose"; args: string[] }[]; usesGeneratedEnv: true }
   | { kind: "diagnostics"; usesGeneratedEnv: true }
   | { kind: "usage" };
 
@@ -133,9 +135,9 @@ export function planPiWebDockerDevHostCommand(plan: PiWebDockerCommandPlan): PiW
         kind: "composeSequence",
         usesGeneratedEnv: true,
         steps: [
-          { args: ["restart", "web"] },
-          { args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
-          { args: ["restart", "sessiond"] },
+          { kind: "compose", args: ["restart", "web"] },
+          { kind: "compose", args: ["up", "-d", "--no-deps", "--no-recreate", "--wait", "--wait-timeout", "120", "web"] },
+          { kind: "compose", args: ["restart", "sessiond"] },
         ],
       };
     case "restart-web":
@@ -144,11 +146,12 @@ export function planPiWebDockerDevHostCommand(plan: PiWebDockerCommandPlan): PiW
       return devComposeHostPlan("restart", "sessiond");
     case "update":
       return {
-        kind: "composeSequence",
+        kind: "updateSequence",
         usesGeneratedEnv: true,
         steps: [
-          { args: ["build", "--pull"] },
-          { args: ["up", "-d", "--force-recreate", "--remove-orphans"] },
+          { kind: "gitFastForward", onFailure: "warn" },
+          { kind: "compose", args: ["build", "--pull"] },
+          { kind: "compose", args: ["up", "-d", "--force-recreate", "--remove-orphans"] },
         ],
       };
     case "status":

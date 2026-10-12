@@ -1,1092 +1,277 @@
-# PI WEB plugin API
+# 插件与 Pi 包
 
-PI WEB 插件是可信的应用扩展，可包含浏览器入口、运行在会话守护进程中的服务端入口，或同时包含两者。插件适用于个人、团队及项目级定制。
+使用工作区工具、快捷操作和集成定制 PI WEB。可以安装现成的包，也可以让代理为具体工作流创建插件，无需修改 PI WEB 本身。
 
-Plugins can currently:
+本指南说明可实现的功能和使用方式；实现时请查阅[公开契约与示例](#agent-development)，不要把本页作为第二份 API 声明。
 
-- add action-palette commands;
-- add workspace tools/panels next to Files, Git, and Terminal;
-- add compact workspace-label items in the workspace list, panel header, and status bar;
-- call browser APIs and documented PI WEB plugin context helpers;
-- read workspace files and start workspace terminal commands through documented helpers;
-- serve their own static assets from the plugin directory.
+<a id="what-can-be-built"></a>
+## 可实现的功能
 
-浏览器入口可声明操作、面板、标签、主题和内容渲染器。服务端入口可持久化插件数据、通过宿主能力启动会话、提供工作区，以及通过请求或流式通道与浏览器入口通信。插件是可信代码，不在独立沙箱中运行；管理嵌入仍保留独立的授权与资源边界。
+| 目标 | 插件功能 |
+| --- | --- |
+| 展示项目健康状态、服务链接、环境信息 | 工作区标签与面板 |
+| 添加仪表盘、文件查看器或项目工具 | 工作区面板、文件帮助方法与浏览器 UI |
+| 方便查找常用操作 | 操作面板命令与快捷键 |
+| 运行构建、测试或开发服务器 | 工作区终端命令 |
+| 定制外观 | 主题及明暗主题组合 |
+| 在聊天和文件中预览图表、文本格式 | 浏览器内容渲染器 |
+| 读取或修改工作区文件 | 列出、读取、写入、移动、删除及上传文件 |
+| 显示后端实时结果 | 浏览器入口与服务端入口之间的请求或流式通道 |
+| 保存插件自己的结果和偏好 | 持久化服务端插件目录 |
+| 发起 Pi 对话或与 Pi 扩展协作 | 宿主会话能力与会话内消息 |
+| 使用其他系统替代 Git 工作区发现 | 工作区提供器 |
 
-## Pi packages, Pi extensions, and PI WEB plugins
+面板可支持直达链接和浏览器历史，并在文件变化或代理工作完成后刷新。文件和终端帮助方法始终针对面板所属机器与工作区，包括远端机器。
 
-**Pi packages** are distribution bundles managed by Pi (`pi install`, `pi remove`, `pi update`). A Pi package can provide Pi extensions, skills, prompt templates, themes, context/system prompt files, and/or PI WEB browser plugins. Many Pi packages do not include a PI WEB plugin.
+例如，可以请求代理创建“运行项目检查并显示结果的面板”“链接工作区预览部署的徽标”或“启动审查会话并保存结论的工具”。
 
-**Pi extensions** are runtime modules loaded by the session daemon. They can register Pi tools, hooks, commands, and model providers. They are not PI WEB plugins.
+<a id="pi-packages-extensions-and-plugins"></a>
+## Pi 包、扩展与插件
 
-**PI WEB plugins** 可从内置、本地、开发目录和已安装的 Pi 包中发现。浏览器入口扩展界面，服务端入口在会话守护进程中运行；模型提供器仍由 Pi 扩展注册。启用或禁用 PI WEB 插件与安装、移除、更新 Pi 包是不同操作。
+- **Pi 包**是可安装的分发包，可以包含扩展、技能、提示词模板、主题和 PI WEB 插件。
+- **Pi 扩展**定制代理的工具、命令、钩子、模型提供器及会话行为。
+- **PI WEB 插件**定制 Web 应用及工作区集成。
 
-Use **Settings → Pi packages** to view configured Pi packages or install/remove/update a package. Enter only the package source, such as `npm:@scope/package`, a git/URL source, or a local path. PI WEB uses Pi's default package location, equivalent to `pi install <source>`, and does not ask for an install location.
+一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。
 
-When machine federation is enabled, **Settings → Pi packages** targets the currently selected machine. The panel labels whether changes will run on the local/gateway machine or on a selected remote PI WEB machine. If an older or unavailable remote PI WEB server does not expose package-management routes, PI WEB reports the package management operation as unsupported or unavailable instead of silently falling back to the gateway.
+代理行为放在 Pi 扩展中，Web UI 放在 PI WEB 插件中。需要两者协作时一起发布，通过已托管会话的连接通信。
 
-使用 **设置 → PI WEB 插件** 管理所选机器上已发现插件的启用状态和配置。远端不支持该设置时会明确报错，不会回退到网关。浏览器入口变更需要刷新页面；服务端入口的启用状态、配置、包来源或版本变更需要手动重启该机器的会话守护进程，再刷新对应界面。必需的 Terminal 插件不能禁用。
+<a id="how-plugins-work"></a>
+## 插件如何运行
 
-安装、移除或更新 Pi 包后，在目标机器的空闲会话中执行 `/reload` 刷新普通 Pi 资源。包含 `serverModule` 的 PI WEB 插件还需要手动重启 `pi-web-sessiond.service`，随后刷新浏览器。全局 Pi 扩展新增或移除提供器、修改其连接设置同样需要重启；仅刷新已知提供器模型列表不需要重启。详见 [Pi extension provider baseline](https://pi-web.dev/config#pi-extension-provider-baseline)。
+包可以声明浏览器入口、服务端入口或双入口：
 
-## PI WEB 中的 Pi 扩展对话框
+- **浏览器入口**贡献操作、面板、标签、主题与内容渲染器，使用宿主帮助方法访问文件、终端及提示词编辑器。
+- **服务端入口**运行在会话守护进程中，可为浏览器入口服务、存储插件数据、使用宿主能力或提供工作区。
+- **包内对等入口**连接同一插件的浏览器与服务端。宿主解析机器和工作区；插件不必拥有该工作区才能为其服务。
+- **能力**声明所需的宿主或插件功能。启动前必须满足指定版本的依赖。
 
-运行在 PI WEB 会话守护进程中的 Pi 扩展可以通过 `ctx.ui.confirm()`、`ctx.ui.select()` 和 `ctx.ui.input()` 向用户提问。PI WEB 会报告 `ctx.hasUI === true`，并且这三种对话框方法确实可用：调用后会在会话记录中以内联方式显示对话框卡片，返回的 Promise 将以用户的实际回答结束，确认框返回布尔值，选择框返回所选项，输入框返回输入文本。
+在 `activate()` 中声明贡献，在 `start()` 中初始化依赖支持的工作，在 `dispose()` 中释放资源。长时间工作遵循 `lifetimeSignal`。简单浏览器插件仅需返回贡献。
 
-- **可在钩子中使用，不经过提示词队列。** 回答通过独立的会话守护进程通道传递，因此运行中的 `tool_call` 钩子可以安全等待对话框；代理循环会等待钩子，并在收到回答后继续运行。支持在 `tool_call` 钩子中使用对话框进行工具授权确认。
-- **启动阶段的对话框可以回答。** 无论创建新会话还是打开已有会话，`session_start` 钩子发起的对话框都能在会话仍在启动时回答；对话框结束后启动流程继续。
-- **浏览器刷新后可恢复，最先提交的回答生效。** 浏览器刷新后会根据会话状态重新显示打开的对话框。同一会话打开多个标签页时，最先提交的回答会结束对话框，其他标签页随后显示结束状态。
-- **结束状态卡片会保留到用户关闭。** 已回答或已关闭的对话框会在会话记录中保留结果卡片。回答只会传给扩展，因此该卡片是这次交互唯一的可见记录。卡片属于浏览器本地状态：只有见过对话框打开的浏览器会显示它，切换会话或刷新页面后会清除。
-- **超时。** 扩展自身的 `timeout` 仍然生效，守护进程还提供 `extensionDialogsTimeoutMs` 安全超时（默认 5 分钟，设为 `0` 时永久等待；见[扩展对话框](https://pi-web.dev/config#extension-dialogs)）。最终期限取两者中较早的时间。没有回答就关闭的对话框会返回对应类型的取消值：确认框为 `false`，选择框和输入框为 `undefined`。
-- **中止和运行时替换。** 中止当前运行时，本轮运行中打开的对话框会立即以取消值结束。替换会话运行时（例如 `/reload` 或销毁会话）也会结束所有仍打开的对话框；新运行时的钩子可以重新打开对话框。扩展传入的 `AbortSignal` 同样有效，中止信号会关闭对话框并返回取消值。
-- **其他 UI 能力仍为空实现。** 除这三种对话框外，PI WEB 尚未实现 `ExtensionUIContext` 的其他方法（组件、状态、编辑器和 `custom`）。即使 `hasUI` 为 `true`，也不能仅凭它判断这些能力可用。
+### 从聊天打开工作区文件
 
-浏览器本地存在一个限制：新会话仍在创建时刷新页面，会丢失浏览器保存的待启动行，因此对话框卡片会消失。守护进程中的对话框仍会在期限到达时结束，会话创建完成后仍会出现在侧边栏中。
+聊天 Markdown 中的相对文件链接（包括 `./file`）和会话工作区内的绝对路径会在内置文件面板中打开。修饰键、新标签页点击或没有面板接受链接时仍使用下载 URL。文件访问仍经过服务端工作区包含检查。
 
-## Trust model
+工作区面板通过同步 `fileOpenQuery(context, path)` 选择是否接受链接。上下文属于该贡献，路径是解码后的工作区相对路径；返回如 `{ file: path }` 的导航查询，或返回 `undefined` 拒绝。钩子不能产生副作用。宿主按面板 `order`、标题顺序打开当前机器上第一个可见、启用且接受链接的面板，通过普通导航设置命名空间查询。面板从 `context.navigation.query` 读取选择，不需要依赖文件插件。
 
-Plugins run as JavaScript in the browser app. Treat them as trusted code:
+### 面板与标签导航
 
-- they can call browser APIs;
-- they can read workspace files and start terminal commands through documented plugin helpers;
-- they can render arbitrary Lit templates/custom elements in plugin contribution areas;
-- they should not be installed from untrusted sources.
+URL 的 `view` 选择响应式面板：`navigation`、`chat` 或 `workspace`。独立的 `tool` 参数按贡献 ID 选择工作区标签。打开工具设置 `view=workspace` 和对应 `tool`；切换聊天保留工具选择。`view` 不接受贡献 ID。浏览器插件用 `selectMainView("workspace")` 显示工作区但不改变标签，或用 `selectWorkspaceTool(panelId)` 选择并显示工具。
 
-PI WEB's `/api/...` HTTP and WebSocket endpoints are internal implementation details. Plugin code should use the documented context helpers instead. Daring plugins can still reach private routes or runtime objects because they run in the browser, but those private surfaces are experimental: they may graduate into stable helpers, change shape, or disappear.
+无效值留在 URL 中，不自动重定向。无效 `view` 显示警告，移动布局展示导航；双列布局保留导航，并展示有效请求工具，否则展示聊天；桌面保留常规列。有效工作区视图配无效工具时显示标签不可用，不选择其他标签，也不重复警告。省略参数使用默认值，不是错误。
 
-## What to ask AI to build
+操作与工作区面板上下文提供完整目的地导航 `navigate(destination): Promise<void>`：
 
-Humans should not need to hand-code plugins. Give an AI agent a concrete UI goal and ask it to create or modify a local plugin.
-
-Good plugin requests:
-
-- "Show a workspace badge with the dev server URL from `.env`."
-- "Add a workspace panel with links to logs, dashboards, and local services for this repo."
-- "Add an action-palette command that starts a standard code-review prompt."
-- "Show whether the current workspace is a git worktree, main checkout, staging env, or feature branch."
-- "Add a compact status badge based on a project health file or command output saved in the repo."
-
-Copy-paste prompt for creating a plugin:
-
-```text
-Build a PI WEB plugin for this project.
-Goal: <describe the UI behavior>.
-Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins
-Full API reference:
-https://pi-web.dev/plugins.md
-Create it as a local plugin under ~/.pi-web/plugins/<plugin-id>.
-Use the appropriate extension points from the docs.
-Validate by checking /pi-web-plugins/manifest.json and explain how to reload/debug it.
-Do not modify PI WEB itself.
+```ts
+await context.navigate({
+  machineId: context.machine.id,
+  projectId: context.workspace.projectId,
+  workspaceId: context.workspace.id,
+  sessionId: sourceSessionId,
+  view: "chat",
+});
 ```
 
-Copy-paste prompt for modifying a plugin:
+所有字段都可省略：`machineId`、`projectId`、`workspaceId`、`sessionId`、`view` 及完整贡献 ID 的 `tool`。省略机器意味着调用时选中的机器。这不是路由补丁：省略字段使用宿主普通恢复默认值，不复制当前会话、工具或贡献查询；默认值可以恢复记忆中的会话。打开已知会话时提供项目和工作区作用域。宿主不会遍历查找 ID，也不会创建不存在的目的地。
 
-```text
-Improve the PI WEB plugin at <path>.
-Before coding, read the PI WEB plugin docs:
-https://pi-web.dev/plugins
-Full API reference:
-https://pi-web.dev/plugins.md
-Keep the plugin compatible with the documented browser API v4 and server plugin API v3.
-After editing, check the manifest endpoint and browser-console failure cases.
+Promise 在恢复完成时结束，也可在被较新导航取代时正常结束。缺失或不可用的目的地使用普通宿主 UI，不再额外拒绝 Promise。参数类型错误或无效 `view` 会在改变 URL/UI 前以 `TypeError` 拒绝。Captain's Log 用此接口打开结果记录的源会话。
+
+### 聊天与文件内容预览
+
+浏览器插件可贡献 `contentRenderers`：`id`、Markdown 围栏标签 `languages`、不含点的 `fileExtensions`，以及同步返回 Lit 模板的 `render(input)`。选择器不区分大小写，语言或扩展名任一匹配即可。`renderMode?: 'manual' | 'automatic'` 默认 `manual`：先显示源码与“渲染”按钮，不调用渲染器。这是初始策略，不限制用户显式预览；无关正文更新不重启已激活预览。作者可选择 `automatic`，并负责高效激活与异步工作。
+
+同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，遵循有效机器的插件可用性及便携/机器专属优先级。多个匹配项提供选择器，同时仅挂载选中项。默认按来源插件 ID（不是远端运行时前缀）、局部贡献 ID 的大小写敏感、与区域设置无关的码元顺序排序。标签同时标明插件与贡献；没有插件排序字段或排序 UI。
+
+聊天按代码块在当前浏览器标签页记忆显式渲染器与“源码/预览”选择：从最后一次显式选择起 **15 分钟**，最多 **128** 个最近选择块。作用域包含机器、会话、消息/entry、part、块和精确源码。查看或重新挂载不延长期限；到期在再次访问时生效，不撤掉正在显示的预览。源码变化或选中渲染器不可用会失效该选择并恢复确定性默认策略。自动渲染不产生显式记忆；DOM 不缓存，重新挂载重新渲染。刷新或关闭标签页清除记忆。文件 Markdown 不使用聊天记忆。
+
+独立文件仅在没有浏览器本地“源码/预览”偏好时采用插件初始策略。已保存“预览”授权所有文件渲染，包括 Markdown 中的手动渲染器；已保存“源码”禁止预览。Markdown 预览内仍可逐块选择源码或渲染器，URL 模式优先。默认策略不会自动保存为用户选择，内置文件预览保留原默认行为。
+
+聊天图表块保留“源码”“预览”“复制源码”工具栏；独立文件在“下载”旁使用文件头部的“源码/预览”控件，遵循文件模式偏好。Markdown 文件图表保留逐块控件。未闭合围栏保持可复制源码；闭合围栏可在消息结束前预览。追加正文不重启未变的闭合块；失败回退源码；未知格式保持普通代码显示。
+
+`input` 包含 `text`、中止 `signal`、`fail(error)`。同步渲染，组件自己管理异步工作，在断开连接或中止时清理，通过 `fail` 报告异步错误；过期错误被忽略。文本不可信：转义/净化输出，不执行源码，不放宽 Markdown 策略。宿主跳过截断输入及超过 **100,000 UTF-16 码元**的块，文件还保留内联字节大小限制。聊天与文件 Markdown 保留各自的净化器。
+
+文件等消费者在 `requires` 声明 `{ pluginId: "pi-web", id: "content-rendering", version: 1, parse }`，在 `start` 中解析。公开 `ContentRenderingCapability` 描述 `listRenderers(request)`、`renderText(request)` 和 `renderMarkdown({ machineId, text, truncated?, toSafeHtml, allowManualPreview? })`。`listRenderers` 返回排序后的 `{ id, label, renderMode }`，不调用渲染器。
+
+只有 `controls: "external"` 的 `renderText` 接受可选 `rendererId`，缺失或不可用时选择首个匹配项。内嵌控件拥有选择，忽略外部 ID。消费者自己提供选择器、模式切换与源码访问（如文件头部）时使用外部控件，否则使用内嵌控件。外部“源码”控件必须移除预览。
+
+消费者管理用户意图，可用 `allowManualPreview: true` 显式授权手动预览；Markdown 授权符合条件的围栏，但不覆盖逐块“源码”选择。省略或 `false` 保留渲染器默认策略及自动预览；聊天不传此覆盖。公开能力不存用户意图，聊天有界记忆是宿主私有策略。Markdown 请求不带文件路径或语言选择器，语言来自围栏。创建 `renderText` 模板不调用渲染器。每个 Markdown 图表独立选择；切换渲染器中止旧预览并清除错误。`renderMarkdown` 必须使用消费者可信净化器，不允许插入不可信 HTML。参见[文件消费者](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-web-plugins/files/pi-web-plugin.ts)和 [Mermaid 贡献](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/mermaid)。
+
+### 会话与配套扩展
+
+服务端插件可创建普通、可见的 Pi 会话，可带初始提示词，也可不带。配套 Pi 扩展可与后端交换消息，使用 Pi API 执行代理工作。
+
+**会话一旦发布就属于用户。** 初始任务完成、浏览器关闭或发起插件销毁，都不会丢弃会话或停止用户后续工作；用户可以继续对话。
+
+消息连接只针对该机器已托管的会话，不自动打开已保存会话。发送成功不能证明配套扩展已安装或工作成功，集成必须自己报告进度与结果。连接不重放启动消息；关闭连接不停止代理。
+
+### 存储与后台工作
+
+服务端插件获得独立于安装代码的持久化 `dataDirectory`，同一机器上该插件的各项目共享该目录。插件自己负责格式、迁移与清理，宿主不提供另一套存储 API。
+
+请求和通道有界，可能失败、超时或断开。发送成功不保证送达，宿主不自动重试不确定工作。长任务应自行持久化状态，让 UI 重连时不重复启动任务。
+
+### 工作区提供器
+
+提供器决定项目包含哪些工作区。主提供器可对它声明的项目替代内置 Git；Git 为后备，没有提供器认领时项目目录仍可作为工作区。
+
+声明冲突会明确报错；认领后失败不会静默把所有权交给另一提供器。提供器也可声明工作区删除能力，删除作为可见终端操作运行。
+
+工作区发现必须在宿主会话服务启动前就绪。包同时需要提供器和会话功能时，在同一个包中声明两个插件入口，无需拆分分发包。
+
+<a id="install-and-manage"></a>
+## 安装与管理
+
+在 **设置 → Pi 包** 安装、更新、移除 npm、git/URL 或本地来源的包；在 **设置 → PI WEB 插件** 启用/禁用集成，查看是否激活、是否需要重启。
+
+| 变更 | 后续操作 |
+| --- | --- |
+| 安装或编辑纯浏览器插件 | 刷新浏览器 |
+| 安装、更新、配置、启用、禁用服务端插件 | 重启目标机器会话守护进程，再刷新浏览器 |
+| 改变普通 Pi 扩展、技能或提示词 | 在每个空闲会话执行 `/reload` |
+| 改变注册模型提供器的扩展 | 遵循[提供器重启规则](https://pi-web.dev/config#pi-extension-provider-baseline) |
+
+**重启会话守护进程可能中断活跃会话和终端。** 先检查活跃工作，从它托管的会话之外重启。原生 systemd 用户服务：
+
+```sh
+systemctl --user restart pi-web-sessiond
 ```
 
-## Canonical example: bundled Info plugin
+浏览器刷新、Web/API 重启或 Pi `/reload` 不激活服务端插件变更。重启前“期望”与“实际”状态可能不同；浏览器入口与实际服务端不匹配时会暂缓提供，不运行不兼容代码。
 
-PI WEB ships a real bundled `info` plugin. Use it as the reference example because it is intentionally small while still exercising all core contribution types: an action, a workspace label, and a workspace panel.
+多数插件默认启用，包可以默认关闭，设置可以覆盖。插件配置保存在普通 [PI WEB 配置](https://pi-web.dev/config)，不是安装文件里。
 
-Bundled PI WEB plugins are developed as TypeScript in the repository, but their `package.json` metadata still points at built JavaScript because plugins are loaded by the browser as JS ES modules. `npm run dev:web` watches and rebuilds bundled plugin TS into `dist/pi-web-plugins/` during development, and `npm run build` emits the JS before packaging a release.
+### 本地开发
 
-Source files:
+代理可在任意目录开发包，再链接到本地插件目录：
 
-```text
-pi-web-plugins/info/package.json
-pi-web-plugins/info/pi-web-plugin.ts
-pi-web-plugins/info/infoInternals.ts
-```
-
-`pi-web-plugin.ts` is the plugin skeleton: metadata plus contribution definitions. `infoInternals.ts` holds everything the bundled panel and action actually render, so you can ignore or replace it when copying the plugin.
-
-Built module:
-
-```text
-dist/pi-web-plugins/info/pi-web-plugin.js
-```
-
-Package metadata:
-
-```json
-{
-  "name": "@pi-web/info-plugin",
-  "private": true,
-  "piWeb": {
-    "plugins": [
-      { "id": "info", "browserRoot": ".", "module": "pi-web-plugin.js" }
-    ]
-  }
-}
-```
-
-Module shape excerpt:
-
-```js
-export default {
-  apiVersion: 4,
-  name: "Info Plugin",
-  activate: ({ html, svg }) => ({
-    contributions: {
-      actions: [/* action definitions */],
-      workspaceLabels: [/* compact label definitions */],
-      workspacePanels: [/* panel definitions using html, optional icons using svg */],
-    },
-  }),
-};
-```
-
-When copying the Info plugin, choose a new plugin id so it does not conflict with the bundled `info` plugin.
-
-The Info panel doubles as an always-available PI WEB status view: it renders the host-provided `context.state.piWebStatus` (PI WEB and Pi versions, installation, release state, machine, and workspace details) without issuing its own requests, and its action copies a plain-text diagnostics summary suitable for bug reports.
-
-PI WEB also ships an `updates` plugin that demonstrates dynamic `visible` and `badge` callbacks for tabs that only appear when the host has status messages or needs extra install visibility.
-
-## Local plugin usage
-
-This works with the production native-service install. PI WEB discovers plugins from `~/.pi-web/plugins/<plugin-package>/` on the web/API side; no PI WEB rebuild or session-daemon restart is required. If `PI_WEB_DATA_DIR` is set, use `$PI_WEB_DATA_DIR/plugins` instead.
-
-Symlink a plugin folder into PI WEB's local plugin directory:
-
-```bash
+```sh
 mkdir -p ~/.pi-web/plugins
-ln -s /path/to/plugin-folder ~/.pi-web/plugins/plugin-id
+ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin
 ```
 
-Reload the PI WEB browser tab. PI WEB serves plugin modules with an mtime-based `?v=` cache buster. After editing a plugin, hard reload the browser if you do not see changes.
+设置 `PI_WEB_DATA_DIR` 时改用 `$PI_WEB_DATA_DIR/plugins`。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。
 
-## Remote machine plugins
+<a id="remote-machines"></a>
+## 远端机器
 
-When [machine federation](https://pi-web.dev/machines) is enabled, PI WEB also loads discovered plugins from the selected remote machine. Remote plugins are trusted browser-side code like local plugins, but their contributions are machine-scoped:
+安装与设置针对设置中选中的机器。远端服务端代码运行在远端，浏览器界面经网关显示。文件、终端、对等帮助方法保留机器作用域。机器专属插件使用该机器自身安装；便携的纯浏览器插件可复用网关副本。主题属于整个应用，远端主题贡献忽略。
 
-- actions, workspace panels, and workspace labels only appear while that machine is selected;
-- plugin file and terminal helpers run against that machine;
-- plugin code is loaded best-effort through the current gateway and cached for the browser page lifetime;
-- if the gateway and remote machine both have an enabled plugin with the same original id, `machineSpecific` metadata decides whether the gateway copy is reused or only the selected machine's copy can appear;
-- remote theme contributions are ignored for now because themes are app-wide;
-- mixed PI WEB versions across federated machines are best-effort and not guaranteed compatible.
+此 API 迁移期间网关与目标一起升级，重启更新后的 Web/API 与相关会话守护进程，再刷新浏览器。混合版本会使远端插件（包括 Git）不可用，宿主不静默替换为网关后端。
 
-Remote plugin enablement is controlled by the remote machine's PI WEB plugin config. To edit or disable a remote machine plugin, select that machine and use **Settings → PI WEB plugins** when the remote server exposes selected-machine settings, or open that machine directly/update its config file.
+<a id="included-tools-and-optional-packages"></a>
+## 内置工具与可选包
 
-Plugin package metadata may set `machineSpecific: true` when the plugin's meaning is tied to the selected PI WEB machine:
+- **终端**提供终端和命令运行，是普通启动的必需插件，仅紧急安全启动可跳过。
+- **文件**提供文件浏览、预览、上传；禁用面板不移除其他插件的文件帮助方法。
+- **Git**发现工作区并显示状态/差异；禁用后保留项目目录工作区，除非其他提供器认领。
+- **Mermaid**默认手动模式，点击“渲染”预览 `mermaid` 围栏和 `.mmd`/`.mermaid` 文件。内置引擎在不透明来源、网络受阻的沙箱中本地运行，不发送源码给图表服务。交互链接和外部资源不可用。禁用后保持代码显示；纯浏览器插件只需刷新页面。
+- **信息**显示 PI WEB 状态与可复制诊断。
+- **更新**在需要时显示更新/重启建议，并提供手动检查。
+- **工作区任务**将项目命令显示为可运行操作。
 
-- Omitted or `false`: use the gateway copy when the same plugin id is also present on a remote machine. This is best for portable UI plugins whose helpers already route through the selected machine.
-- `true`: the gateway copy only appears for the local machine. When a remote machine is selected, only that remote machine's copy can appear; if the remote machine does not expose the plugin, the plugin is hidden. This is best for plugins that report machine-local PI WEB status or depend on machine-local plugin code.
+### 工作区任务
 
-For portable plugin assets, prefer URLs relative to the plugin module, for example:
-
-```js
-const url = new URL("./asset.json", import.meta.url);
-```
-
-If a remote plugin constructs absolute asset URLs, it should use the `pluginId` from `activate()` because PI WEB gives remote plugins a gateway-scoped runtime id. Hard-coded `/pi-web-plugins/<original-id>/...` URLs may point at the gateway instead of the remote machine.
-
-## Manage PI WEB plugins
-
-Open **Settings → PI WEB plugins** to review discovered bundled, local, dev, and Pi-package-supplied PI WEB plugins for the selected PI WEB machine. When the local machine is selected, this is the gateway plugin list; when a remote machine is selected, the list comes from that remote PI WEB server and includes disabled discovered plugins it exposes. PI WEB can disable any discovered selected-machine plugin before the browser imports it. Core app contributions such as the built-in command palette, base workspace tools, and themes are not managed through this plugin list.
-
-This surface is only for PI WEB plugin enablement. To install, remove, or update Pi packages that may provide PI WEB plugins or other Pi resources, use **Settings → Pi packages**. In a federated setup, both the Pi packages panel and the PI WEB plugins panel target the selected machine; plugin enablement still writes the PI WEB `plugins` config key rather than changing Pi package-manager settings.
-
-Plugin preferences are stored under the top-level `plugins` config key in the PI WEB config file:
-
-```json
-{
-  "plugins": {
-    "workspace-tasks": {
-      "enabled": true,
-      "settings": {}
-    },
-    "info": {
-      "enabled": false
-    }
-  }
-}
-```
-
-插件默认启用，除非包清单声明 `defaultEnabled: false`。显式 `enabled` 设置覆盖包默认值；设为 `false` 后，下一次加载不会导入或激活该插件。内置 Terminal 按上游规则不能通过普通 `enabled` 设置禁用。可选 `settings` 对象用于插件自身配置。
-
-普通终端由内置 Terminal 插件独立提供浏览器面板、PTY 和 request/channel 通信。正常启动与仅内置插件启动都必须有来自内置来源、机器专属且包含浏览器和服务端入口的 Terminal；缺失、禁用、激活失败或健康检查失败会阻止启动，不回退到宿主终端。浏览器清单必须符合当前生命周期版本并明确提供 `terminalMode`，旧清单会报错。管理嵌入不能使用该普通终端，受控命令执行仍使用独立权限与沙箱。
-
-更新后需同步重启 Web 和会话守护进程，再刷新浏览器。需要修复配置时，可显式运行 `pi-web plugins safe-start set none --restart` 进入不启用服务端插件的恢复模式；该模式不提供普通终端或工作区移除命令。修复后运行 `pi-web plugins safe-start clear --restart` 恢复正常模式。旧终端导航链接与机器范围内的选择偏好保留，不自动重写插件或用户数据。
-
-After changing plugin enablement, reload the PI WEB browser tab. Already-loaded plugin JavaScript is not unloaded from the current page.
-
-## Built-in plugins
-
-PI WEB ships core, discoverable plugins in the main `@chainingintention/pi-web-cn` npm package. Updates and Workspace Tasks are loaded directly from the PI WEB package. Relays is shipped as a real Pi package and installed automatically for the active agent profile, so it also requires no manual `pi install` step.
-
-Built-in plugins can be managed from **Settings → PI WEB plugins** or with the top-level `plugins` config key.
-
-### Updates
-
-**Plugin id:** `updates`
-**What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance, plus a **Check for PI WEB Updates** action for the selected machine.
-
-While a browser tab is connected, PI WEB refreshes the selected machine's status every 15 minutes. npm release lookups are cached on that machine for six hours, so the automatic refresh normally contacts npm at most once in that window. Run **Check for PI WEB Updates** from the action palette to bypass both caches and check immediately. Operator settings that skip remote version checks, such as `PI_WEB_OFFLINE`, are still respected.
-
-Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab and action only appear for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → PI WEB plugins** or set:
-
-```json
-{
-  "plugins": {
-    "updates": { "enabled": false }
-  }
-}
-```
-
-### Workspace Tasks
-
-**Plugin id:** `workspace-tasks`
-**Config file:** `.pi-web/tasks.json`
-**What it does:** adds a **Tasks** workspace tab for running configured shell commands in dedicated PI WEB terminals.
-
-Workspace Tasks is enabled by default. To hide it, disable `workspace-tasks` in **Settings → PI WEB plugins** or set:
-
-```json
-{
-  "plugins": {
-    "workspace-tasks": { "enabled": false }
-  }
-}
-```
-
-Configure workspace tasks in `.pi-web/tasks.json`:
+在项目创建 `.pi-web/tasks.json`：
 
 ```json
 {
   "version": 1,
   "tasks": [
-    {
-      "id": "app.start",
-      "title": "Start app",
-      "group": "Development",
-      "description": "Start the local development server.",
-      "command": "npm run dev"
-    },
-    {
-      "id": "db.reset",
-      "title": "Reset DB",
-      "group": "Database",
-      "command": "go -C klingit-go run ./cli db reset",
-      "confirm": true
-    }
+    { "id": "app.start", "title": "启动应用", "command": "npm run dev" },
+    { "id": "db.reset", "title": "重置数据库", "command": "npm run db:reset", "confirm": true }
   ]
 }
 ```
 
-Open a workspace, choose the **Tasks** tab, and click **Run** next to a task. Commands run in the workspace root because PI WEB creates the terminal for that workspace.
+从“任务”标签运行工作区终端命令。任务可带 `description`；尤其共享仓库中，运行前检查命令。禁用插件只隐藏标签，不修改项目文件。
 
-Task fields:
+### 中继
 
-- `version`: must be `1`.
-- `tasks`: array of task definitions.
-- `id`: stable task id, matching `^[a-z][a-z0-9.-]*$`.
-- `title`: button label.
-- `command`: literal shell command sent to the terminal.
-- `description`: optional explanatory text.
-- `group`: optional group heading.
-- `confirm`: optional boolean. When true, the browser asks before dispatching the command.
+随包分发的 Relay 提供跨会话工作提示词和技能，并在只读“中继”标签展示 `.pi-web/relays/` 计划与进度，不从标签启动或编辑中继。
 
-Review task configs before running them, especially in shared projects. Workspace Tasks runs trusted shell commands from your repositories.
+普通模式在当前 agent 配置未安装时自动安装 Relay；从 **设置 → Pi 包** 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用中继插件只隐藏标签，不移除代理资源。管理嵌入的 `relay` 与 `relay-runner` 模板同步继续限定在授权工作区，不改变普通启动的技能文件。
 
-### Relays
+### 试用 Captain's Log
 
-**Plugin id:** `relays`
-**What it does:** adds a read-only **Relays** workspace tab for browsing the workspace's relays, plus an **Open Workspace Relays** action for the selected workspace that opens the same tab.
+Captain's Log 是可选示例，将会话最近的助手回复改写为海盗风格简报，演示浏览器面板、后端和 Pi 配套扩展协作。
 
-A relay is a directory of markdown notes under `.pi-web/relays/<name>/` in the workspace root — the convention used by the Relay method for chaining agent sessions. The tab lists each relay's documents with `status.md`, `charter.md`, and `log.md` first (in that order), followed by any other files alphabetically, and opens `status.md` by default. Markdown documents render as sanitized HTML; other files render as preformatted text, and binary files have no preview. Truncated documents show a notice, and **Refresh** re-scans the workspace and reloads the open document.
+1. 在目标机器的 **设置 → Pi 包 → 可用包** 安装 **船长日志**。
+2. 在 **设置 → PI WEB 插件** 启用它。
+3. 安全时重启目标机器会话守护进程，再刷新浏览器。
+4. 选择会话，打开“船长日志”，点击“让船长来讲述”。
 
-Documents in subfolders are listed too. Folders appear as chips in the document strip, and expanding one inserts its files inline after it. Expanding a folder collapses its siblings at the same level, while collapsing the folder that contains the open document keeps the selection and highlights that folder. Relay trees deeper than five levels, larger than 200 documents, or containing more than 50 folders are listed partially with a notice.
+它随主包预构建发布，**默认不安装、不启用**，无需现场编译。读取源回复但不修改源会话，另建海盗会话；需要模型凭据，源文本会发给海盗会话的模型提供器，可能产生模型费用。已有结果会保存。守护进程重启后，可从“会话”打开已有海盗会话继续上下文。
 
-With several relays, a picker pre-selects the most recently modified one; a single relay opens directly. A workspace without `.pi-web/relays/` shows an empty state explaining the convention. The tab never creates, edits, or deletes relay files.
+详见[船长日志使用指南](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-packages/captains-log/docs/usage.md)。
 
-Relays is shipped as the `@jmfederico/pi-relay` Pi package. On session-daemon startup, PI WEB installs the shipped package for the active agent profile when it is not already configured. This best-effort install never blocks daemon startup. Removing the package through **Settings → Pi packages** records that choice for the profile, so later startups do not add it back; the same panel offers a one-click install suggestion when you want it again.
+<a id="pi-extension-dialogs"></a>
+## Pi 扩展对话框
 
-Once installed, the browser plugin is enabled by default. To hide its browser UI without removing the Pi package, disable `relays` in **Settings → PI WEB plugins** or set:
+Pi 扩展可请求确认、选择或文本输入；问题以内联方式展示，包括会话启动和工具等待阶段。刷新后仍可回答，多标签页最先回答生效。
 
-```json
-{
-  "plugins": {
-    "relays": { "enabled": false }
-  }
-}
-```
+有效期限取扩展超时和[宿主超时](https://pi-web.dev/config#extension-dialogs)中较早者。中止工作或替换运行时关闭相关问题。已回答卡片属于浏览器本地状态，不保证刷新后保留。新会话尚在创建时刷新可临时丢失卡片，但守护进程中的问题仍有期限。
 
-## Discovery and packaging
+仅支持这三种对话框，不支持自定义编辑器或组件等其他 Pi UI；不要因为 `hasUI` 为真就假定所有 UI 可用。
 
-PI WEB builds the gateway `/pi-web-plugins/manifest.json` from these sources:
+<a id="agent-development"></a>
+## 代理开发
 
-1. Bundled plugins in the PI WEB package:
-
-   ```text
-   pi-web-plugins/<plugin-package>/
-   ```
-
-2. User-local plugins:
-
-   ```text
-   ~/.pi-web/plugins/<plugin-package>/
-   ```
-
-   Entries may be real directories or symlinks. This is the recommended development workflow.
-
-3. Installed Pi packages that expose PI WEB plugin metadata. Pi packages may be user or project scoped. Installing/removing/updating Pi packages is done from **Settings → Pi packages** (or Pi's package manager), not from the PI WEB plugin enable/disable list.
-
-Remote machines expose their own manifests through the gateway at `/api/machines/<machine-id>/pi-web-plugins/manifest.json`. Those plugin modules are rewritten to gateway-scoped asset URLs and registered under machine-scoped runtime ids so duplicate plugin ids on different machines do not collide.
-
-Plugin package directory names and plugin ids must be valid identifiers:
+给代理具体目标、数据来源及允许的动作：
 
 ```text
-^[a-z][a-z0-9.-]*$
+为此项目创建 PI WEB 插件。
+目标：<描述工作流和预期界面>。
+先读 https://pi-web.dev/plugins.md，再按当前安装的 PI WEB 版本
+查阅公开契约与示例。
+只使用受支持的插件 API，不修改 PI WEB，不调用私有路由。
+说明安装、权限或模型使用情况，以及刷新方式。
+验证行为，包括失败和清理。
 ```
 
-A package can expose one or more PI WEB plugin modules. There is exactly one supported `package.json` metadata shape:
+### 实现入口
 
-```json
-{
-  "private": true,
-  "piWeb": {
-    "plugins": [
-      { "id": "review", "browserRoot": "dist", "module": "dist/review.js" },
-      { "id": "dashboard", "browserRoot": "dist", "module": "dist/dashboard.js", "machineSpecific": true }
-    ]
-  }
-}
-```
+从符合目标的最小示例开始。以下源码链接跟随 `main`；对发布版开发时，**使用对应标签或已安装的公开声明**。
 
-Rules:
-
-- `piWeb.plugins` must be an array of objects.
-- 每项必须显式声明 `id`，以及 `module` 或 `serverModule` 中至少一个；同时声明浏览器与服务端入口的插件必须为机器作用域。
-- `id` must match `^[a-z][a-z0-9.-]*$`.
-- `core`、`themes`、`machine.*`、`pi-web`、`pi-web.*` 是保留命名空间；只有受信任的内置插件来源可以使用 `pi-web` 命名空间，用户插件不能占用。
-- 声明浏览器 `module` 时必须显式声明 `browserRoot`，入口必须同时位于该目录的逻辑路径和规范路径内。`browserRoot` 可以是 `"."` 或包内的相对目录；服务端专用插件不得声明它。路径按实际大小写校验，禁止越界、排除目录别名和符号链接逃逸。
-- 仅 `browserRoot` 内的已捕获文件可通过浏览器资源路由读取；不要将服务端代码、私密配置或其他非浏览器资源放入该公开目录。资源快照按内容版本缓存，旧入口版本不匹配时返回未找到。
-- `defaultEnabled` 可选且必须为布尔值；显式配置优先于包默认值。
-- `machineSpecific` is optional and must be a boolean; omit it for the default portable gateway behavior.
-- Duplicate plugin ids are not auto-renamed; later duplicates are skipped.
-- Legacy shortcuts such as `piWeb.plugin`, string entries in `piWeb.plugins`, `piWeb.id` fallback ids, and no-`package.json` fallbacks are not supported.
-
-升级时不再兼容缺少 `browserRoot` 的旧浏览器清单：插件会被跳过并报告清单错误，不会自动改写插件文件或用户数据。插件作者应自行更新清单并将公开浏览器产物放在声明目录中。
-
-### Manifest and assets
-
-The manifest contains each discovered plugin module. Current PI WEB releases emit `module` as a leading application-root reference:
-
-```json
-{
-  "plugins": [
-    {
-      "id": "my-plugin",
-      "module": "/pi-web-plugins/my-plugin/pi-web-plugin.js?v=1234567890",
-      "source": "local",
-      "scope": "local",
-      "machineSpecific": false
-    }
-  ]
-}
-```
-
-The browser maps leading application-root references into the current application base, so the same manifest works at the origin root or under a reverse-proxy path prefix. Keeping this output format also lets gateways from existing PI WEB releases consume plugins from an upgraded remote machine. For compatibility, federated gateways additionally accept explicit manifest-relative references such as `./my-plugin/pi-web-plugin.js` and legacy plugin-root-relative references such as `nested/pi-web-plugin.js`; all accepted forms are rewritten to deployment-portable, gateway-relative references.
-
-`source` describes where the plugin came from (`bundled`, `local`, or the Pi package source). `scope` is `bundled`, `local`, `user`, or `project`. `machineSpecific` controls whether the gateway copy is valid for remote machines or only each selected machine's own copy can appear.
-
-At an origin-root deployment, a plugin's static assets are available under:
-
-```text
-/pi-web-plugins/<plugin-id>/<path-inside-plugin-root>
-```
-
-Prefer module-relative asset URLs so they also work for remote machine plugins. For example, a built plugin module can reference an SVG shipped beside it:
-
-```js
-const iconUrl = new URL("./assets/icon.svg", import.meta.url);
-```
-
-The final installed plugin package must contain `assets/icon.svg` at that path relative to the final built module. PI WEB serves files that already exist in the package; it does not copy a source `public/` directory or apply Vite-style public-directory semantics. Configure the plugin build and package contents to emit or copy the asset into its final module-relative location.
-
-PI WEB prevents asset path traversal outside the plugin root. JavaScript, JSON, CSS, HTML, and SVG files get appropriate content types; unknown file types are served as octet-stream.
-
-## Plugin module shape
-
-The entry module must default-export a plugin object:
-
-```ts
-interface PiWebPlugin {
-  apiVersion: 4;
-  name: string;
-  activate: (context: PluginActivationContext) => PluginActivationResult;
-}
-
-interface PluginActivationContext {
-  apiVersion: 4;
-  pluginId: string;
-  runtimePluginId: string;
-  html: typeof import("lit").html;
-  svg: typeof import("lit").svg;
-}
-
-interface PluginActivationResult {
-  contributions: PluginContributions;
-}
-```
-
-Example:
-
-```js
-export default {
-  apiVersion: 4,
-  name: "My Plugin",
-  activate: ({ pluginId, html }) => ({
-    contributions: {
-      actions: [],
-      workspacePanels: [],
-      workspaceLabels: [],
-    },
-  }),
-};
-```
-
-`activate()` is called once when the UI loads the plugin. Keep it cheap: define contributions there, but move expensive or async work into actions, custom elements, or explicit user interactions.
-
-Browser API v4 is a deliberate compatibility break. PI WEB rejects earlier browser API modules instead of silently adapting them. Migrate by setting `apiVersion: 4`, using `pluginId` for the stable package/provider identity, and using `runtimePluginId` when a host-qualified contribution id is required. Server plugin API v3 has the same break: activate a `peer` with `request` instead of the legacy workspace-provider `request` method. There is no compatibility shim. The former `@chainingintention/pi-web-cn/plugin-api/unstable` path is no longer exported; rely on the documented stable helpers instead.
-
-The plugin id comes from `package.json`, not from the JavaScript module. Contribution ids are local to the plugin and PI WEB qualifies them internally as:
-
-```text
-<plugin-id>:<local-contribution-id>
-```
-
-For example, plugin `info` with action `workspace.show-path` becomes `info:workspace.show-path`.
-
-## Contributions
-
-`activate()` returns a `contributions` object with any combination of these arrays:
-
-```ts
-interface PluginContributions {
-  actions?: PluginAction[];
-  workspacePanels?: WorkspacePanelContribution[];
-  workspaceLabels?: WorkspaceLabelContribution[];
-}
-```
-
-### Actions
-
-Actions appear in the action palette. They can inspect app state and call UI/runtime helpers.
-
-```js
-actions: [
-  {
-    id: "copy-diagnostics",
-    title: "Copy PI WEB Diagnostics",
-    description: "Copy version, installation, and status details for this machine",
-    group: "Info",
-    run: async (context) => {
-      const version = context.state.piWebStatus?.components.web.runtimeVersion ?? "unknown";
-      await navigator.clipboard.writeText(`PI WEB ${version}`);
-    },
-  },
-]
-```
-
-Action type:
-
-```ts
-interface PluginAction {
-  id: string;
-  title: string;
-  description?: string;
-  shortcut?: string;
-  group?: string;
-  enabled?: (context: PluginRuntimeContext) => boolean;
-  disabledReason?: (context: PluginRuntimeContext) => string | undefined;
-  run: (context: PluginRuntimeContext) => void | Promise<void>;
-}
-```
-
-If an action is disabled and returns `disabledReason`, PI WEB can keep it visible in the action palette with that explanation instead of hiding it.
-
-Stable runtime context fields:
-
-```ts
-interface PluginRuntimeContext {
-  state: {
-    selectedMachine?: PluginMachine;
-    selectedWorkspace?: Workspace;
-    selectedSession?: { id: string; cwd: string; name?: string; archived: boolean; pending: boolean };
-    workspaceTool?: string;
-    mainView?: "navigation" | "chat" | "workspace";
-    piWebStatus?: PiWebStatusResponse;
-  };
-  prompt: PluginPromptEditor;
-  openActionPalette: () => void;
-  focusPrompt: () => void;
-  addProject: () => void | Promise<void>;
-  configureAuth: () => void | Promise<void>;
-  logoutAuth: () => void | Promise<void>;
-  selectWorkspaceTool: (tool: QualifiedContributionId) => void;
-  openTerminal: (options?: { terminalId?: string }) => void;
-  refreshFiles: () => void | Promise<void>;
-  refreshGit: () => void | Promise<void>;
-  checkForPiWebUpdates?: () => void | Promise<void>;
-  startSession: () => void | Promise<void>;
-  archiveSession: () => void | Promise<void>;
-  stopActiveWork: () => void | Promise<void>;
-}
-```
-
-Notes:
-
-- `state` is a snapshot of current UI state when actions are built.
-- The stable state fields are `state.selectedMachine`, `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`. `state.selectedMachine` identifies the currently selected machine. `state.piWebStatus` describes the currently selected machine's PI WEB runtime, or the gateway/local runtime when the local machine is selected.
-- 外部插件只接收公开状态投影，不再接收内部会话对象。选中会话仅包含上面列出的字段，不包含转录路径、首条消息或整个会话列表；修改投影不会修改宿主的选中会话。工作区面板在公开状态中统一使用 `mainView: "workspace"`。
-- `pluginId` 是源插件身份；必需的 `runtimePluginId` 是当前宿主中的注册身份，在远端机器上可能包含机器作用域。构造贡献限定 ID 时使用后者，声明能力提供者时使用前者。
-- `enabled` is evaluated when the action palette asks for actions.
-- `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
-- `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.
-- Only fields documented here and declared in `plugin-api.d.ts` are stable public browser plugin API. Runtime-only fields and private HTTP routes are not compatibility surfaces.
-
-### Prompt editor API
-
-The `prompt` helper on `PluginRuntimeContext` and `WorkspacePanelContext` provides stable access to the chat prompt editor:
-
-| Method | Description |
+| 需求 | 入口 |
 | --- | --- |
-| `insertText(text)` | Insert text at cursor position. When text is selected, replaces the selection. Focuses the editor first if not focused. |
-| `getText()` | Returns the full prompt text. |
-| `getSelection()` | Returns `{ start, end, text }` if text is selected, or `null`. |
+| 浏览器贡献与帮助方法 | [plugin-api.ts](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/plugin-api.ts)，公开为 `@chainingintention/pi-web-cn/plugin-api` |
+| 服务端生命周期、对等入口、提供器与宿主能力 | [server-plugin-api.ts](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server-plugin-api.ts)，公开为 `@chainingintention/pi-web-cn/server-plugin-api` |
+| 小型浏览器插件 | [信息](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/info) |
+| 独立浏览器/服务端包 | [工作区提供器示例](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/workspace-provider-plugin) |
+| 生产工作区提供器与配套 UI | [Git](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/git) |
+| 已托管会话、实时更新与 Pi 配套扩展 | [Captain's Log](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/captains-log) |
+| 简单初始提示词工作流 | [工作区审查示例](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/session-bridge-plugin) |
+| 发现规则与诊断 | [插件目录](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server/piWebPluginCatalog.ts) |
 
-Usage:
+当前浏览器契约是 **API v4**，服务端契约是 **API v3**。旧入口必须迁移，没有兼容 shim。公开源码契约和测试是签名、验证、限制与生命周期的依据。
 
-```js
-// Insert text at the cursor (e.g. a file mention)
-context.prompt.insertText("@file.txt");
+- 在 `package.json` 的 `piWeb.plugins` 声明入口，参考独立示例的打包方式；同一包可含多个入口。
+- 仅使用公开包入口，内部路由、服务及 `dist/**` 导入不是受支持 API。
+- `browserRoot` 尽量窄，里面所有内容都对浏览器公开。包含所需依赖与资产，秘密放在之外。安装插件包限制为 **4,096** 项、**16 MiB**，不计 `.git`/`node_modules`。
+- 机器/工作区操作使用宿主帮助方法，插件资产使用模块相对 URL，不硬编码应用路径。
+- 面板没有重新挂载时也可能重复渲染。自己管理异步状态，组件生命周期清理连接、计时器与监听器。
+- 工作区发现与会话支持功能分离，代理行为放在 Pi 配套扩展，而不是导入宿主内部模块。
 
-// Read the current prompt and selection
-const text = context.prompt.getText();
-const selection = context.prompt.getSelection(); // { start, end, text } | null
+<a id="trust-and-recovery"></a>
+## 信任与恢复
+
+**仅安装可信插件。** 浏览器入口在页面内运行；服务端入口在守护进程内使用其文件系统、环境及进程权限，没有独立沙箱。阻塞或故障服务端代码可影响同一守护进程所有会话；超时只能帮助配合取消的工作，不能停止阻塞代码。管理嵌入继续保留独立认证、授权资源、能力与审计边界，不向插件放开普通模式能力。
+
+先在目标机器 **设置 → PI WEB 插件** 检查安装、启用、兼容和激活状态。浏览器失败看控制台，服务端失败在目标机器执行 `pi-web logs`。过期或需重启状态通常需要重启守护进程后刷新浏览器。
+
+UI 无法恢复时，在目标机器直接运行：
+
+```sh
+pi-web plugins disable <plugin-id> --restart
+pi-web plugins safe-start show
+pi-web plugins safe-start set bundled-only --restart
+pi-web plugins safe-start set none --restart
+pi-web plugins safe-start clear --restart
 ```
 
-Use `focusPrompt()` on `PluginRuntimeContext` to move focus to the prompt editor. Workspace panels can call `context.prompt.insertText()` from explicit user interactions such as button clicks; panel contexts target the currently selected session's mounted prompt editor.
-
-#### Keyboard shortcuts
-
-- App-level keyboard shortcuts must be attached to actions. PI WEB does not support standalone plugin keyboard commands; contribute an action first, then add a `shortcut` if it needs a keybinding.
-- `shortcut` is the action's default keybinding. It is displayed in the action palette and handled by the global shortcut dispatcher when the action is enabled.
-- Use modified shortcuts such as `mod+shift+p`; plain letter shortcuts are intentionally ignored so normal typing is never captured.
-- Future PI WEB versions may allow users to override or disable action shortcuts by action id, so plugins should treat `shortcut` as a default rather than a guaranteed final binding.
-- Choose shortcuts carefully to avoid conflicts. There is no user-facing shortcut override or conflict resolver yet.
-- Local text input, terminal input, list navigation, and dialog keys such as Enter, Escape, and arrow keys do not need to be plugin actions unless they are app-level commands.
-
-### Workspace panels
-
-Workspace panels add tools next to built-in workspace tools. They render inside the workspace side panel on desktop and as mobile tabs on smaller screens.
-
-```js
-workspacePanels: [
-  {
-    id: "workspace.info",
-    title: "Info",
-    icon: svg`
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="9"></circle>
-        <path d="M12 10v6"></path>
-        <path d="M12 7h.01"></path>
-      </svg>
-    `,
-    order: 100,
-    visible: ({ workspace }) => workspace.isGitRepo,
-    render: ({ workspace }) => html`
-      <section class="toolbar"><strong>Info</strong></section>
-      <section class="viewer">
-        <p class="muted">${workspace.label}</p>
-        <p class="muted">${workspace.path}</p>
-      </section>
-    `,
-  },
-]
-```
-
-Panel type:
-
-```ts
-interface WorkspacePanelContribution {
-  id: string;
-  title: string;
-  icon?: TemplateResult;
-  order?: number;
-  routeAliases?: string[];
-  navigationAliases?: QualifiedContributionId[];
-  invalidationResources?: readonly WorkspaceResource[];
-  onInvalidate?: (context: WorkspacePanelContext, invalidation?: WorkspaceInvalidation) => void | Promise<void>;
-  visible?: (context: WorkspacePanelContext) => boolean;
-  badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
-  render: (context: WorkspacePanelContext) => TemplateResult;
-}
-
-interface WorkspacePanelContext {
-  navigate(destination: PluginNavigationDestination): Promise<void>;
-  navigation?: WorkspacePanelNavigationV1;
-  machine: PluginMachine;
-  workspace: Workspace;
-  state?: PluginRuntimeState;
-  files: {
-    readFile(path: string): Promise<FileContentResponse>;
-    listFiles(path: string): Promise<FileTreeResponse>;
-    writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
-    deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
-    moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
-  };
-  prompt: PluginPromptEditor;
-  terminal: {
-    open(options?: { terminalId?: string }): void;
-    runCommand(input: {
-      title: string;
-      command: string;
-      metadata?: Record<string, string>;
-      open?: boolean;
-    }): Promise<TerminalCommandRunHandle>;
-  };
-  host: {
-    requestRender(): void;
-  };
-}
-```
-
-`icon` is optional and is used in the compact mobile tab bar. Prefer an SVG rendered with the `svg` helper from `PluginActivationContext`; use `currentColor` so PI WEB themes can style it. If `icon` is omitted, mobile tabs fall back to initials from the panel title, or to the full title when initials collide.
-
-面板可以通过 `context.navigate(destination)` 使用宿主路由恢复，通过 `context.navigation` 保存贡献级 URL 状态。`navigation.version` 为 `1`，`contributionId` 是运行时限定 ID；`query` 是冻结的字符串或字符串数组快照。使用 `navigation.set(key, value, { replace })` 写入字符串、数字、布尔值或其数组，使用 `null` 或 `undefined` 删除键。键须以小写字母开头，后续仅允许小写字母、数字、点或连字符。查询数据按上游规则限制大小与条目数量。
-
-`navigationAliases` 声明旧限定贡献 ID；规范 ID 的查询值优先，旧值按键回退，写入时仅保留该键的规范命名空间。路由参数、其他贡献查询和 URL hash 会保留。宿主按机器保存查询记忆，并继续读取旧文件、Git 和终端导航字段，不需要重写持久偏好。切换机器、工作区、面板或浏览器历史后，不应继续使用旧上下文写入导航；宿主会忽略失效上下文的查询修改和终端打开操作。
-
-需要自动刷新文件衍生数据的面板应声明 `invalidationResources: ["workspace.files"]`。`onInvalidate(context, invalidation)` 收到原因 `manual`、`mutation` 或 `agent-activity` 及资源列表；文件变更仅在成功后发布通知。没有声明资源的旧面板仍可接收显式面板刷新，此时第二个参数可省略。通知保持原工作区与机器身份，单个面板刷新失败不会阻断其他面板。
-
-`machine`, `workspace`, `files`, `prompt`, `terminal`, and `host` are documented as stable for panel callbacks. The `files` helper supports `readFile`, `listFiles`, `writeFile`, `deleteFile`, and `moveFile` — see [Reading workspace files](#reading-workspace-files), [Listing workspace files](#listing-workspace-files), and [Writing workspace files](#writing-workspace-files). The `prompt` helper supports panel interactions that insert workspace context into the current prompt — see [Prompt editor API](#prompt-editor-api). Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
-
-For compatibility, PI WEB still provides the old `context.openTerminal()` workspace-panel helper at runtime. It is deprecated, intentionally omitted from the public TypeScript declarations, and planned for removal in v2. Existing JavaScript plugins keep working, while typed plugins should migrate to `context.terminal.open()`.
-
-Useful workspace and machine shapes:
-
-```ts
-interface PluginMachine {
-  id: string;
-  name: string;
-  kind: "local" | "remote";
-}
-
-interface Workspace {
-  id: string;
-  projectId: string;
-  path: string;
-  label: string;
-  branch?: string;
-  isMain: boolean;
-  isGitRepo: boolean;
-  isGitWorktree: boolean;
-}
-```
-
-`machine.id` is included in panel contexts so plugins can keep caches machine-scoped. Do not infer the selected machine from global browser state.
-
-Use existing classes such as `toolbar`, `viewer`, `empty`, and `muted` for panel content when possible. Do not assume a panel owns the whole page; keep layout contained.
-
-### Workspace labels
-
-Workspace labels add compact inline metadata wherever PI WEB displays a workspace label: workspace list, workspace panel header, and status bar.
-
-Use them for short facts like project environment, local URL, branch status, container name, or health state.
-
-```js
-workspaceLabels: [
-  {
-    id: "dev-url",
-    order: 10,
-    visible: ({ workspace }) => workspace.path.includes("my-app"),
-    items: () => [{
-      type: "link",
-      text: "web:5173",
-      href: "http://localhost:5173",
-      title: "Open dev server",
-      target: "_blank",
-    }],
-  },
-]
-```
-
-Label contribution type:
-
-```ts
-interface WorkspaceLabelContribution {
-  id: string;
-  order?: number;
-  visible?: (context: WorkspaceLabelContext) => boolean;
-  items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
-}
-
-interface WorkspaceLabelContext {
-  machine: PluginMachine;
-  workspace: Workspace;
-  state?: PluginRuntimeState;
-  files: {
-    readFile(path: string): Promise<FileContentResponse>;
-    listFiles(path: string): Promise<FileTreeResponse>;
-    writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
-    deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
-    moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
-  };
-  host: {
-    requestRender(): void;
-  };
-}
-```
-
-`machine`, `workspace`, `files`, and `host` are documented as stable for label callbacks. The `files` helper supports `readFile`, `listFiles`, `writeFile`, `deleteFile`, and `moveFile` — see [Reading workspace files](#reading-workspace-files), [Listing workspace files](#listing-workspace-files), and [Writing workspace files](#writing-workspace-files). Include `machine.id` in any label caches that depend on workspace data. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate label `visible` or `items` callbacks.
-
-Items are sorted by `order` and then id. Return an empty array to render nothing. Keep callbacks synchronous and lightweight; start async work from the callback, return cached items, then call `host.requestRender()` when the cache changes.
-
-#### Text items
-
-```js
-{ type: "text", text: "staging", title: "Staging workspace" }
-```
-
-#### Link items
-
-```js
-{
-  type: "link",
-  text: "web:5173",
-  href: "http://localhost:5173",
-  title: "Open dev server",
-  target: "_blank"
-}
-```
-
-PI WEB renders the anchor and adds safe defaults such as `rel="noopener noreferrer"` for `_blank` links. `javascript:` and `data:` links are rendered as plain text instead of links.
-
-#### Render items
-
-Use render items when a label contribution needs custom UI, async data, or caching. Render items should stay compact and inline.
-
-```js
-class MyWorkspaceBadge extends HTMLElement {
-  set workspace(value) {
-    this._workspace = value;
-    this.textContent = value?.branch === "main" ? "main" : "branch";
-  }
-}
-
-if (!customElements.get("my-workspace-badge")) {
-  customElements.define("my-workspace-badge", MyWorkspaceBadge);
-}
-
-export default {
-  apiVersion: 4,
-  name: "My Plugin",
-  activate: ({ html }) => ({
-    contributions: {
-      workspaceLabels: [
-        {
-          id: "badge",
-          order: 10,
-          items: ({ workspace }) => [{
-            type: "render",
-            render: () => html`<my-workspace-badge .workspace=${workspace}></my-workspace-badge>`,
-          }],
-        },
-      ],
-    },
-  }),
-};
-```
-
-## Reading workspace files
-
-Workspace panels and workspace labels can read files through the documented `files` helper. PI WEB binds this helper to the callback's machine and workspace, so it works the same for local and federated machines.
-
-```js
-workspacePanels: [
-  {
-    id: "workspace.env",
-    title: "Env",
-    render: ({ files }) => html`
-      <my-env-viewer .files=${files}></my-env-viewer>
-    `,
-  },
-]
-
-class MyEnvViewer extends HTMLElement {
-  set files(value) {
-    this._files = value;
-    void this.load();
-  }
-
-  async load() {
-    try {
-      const file = await this._files.readFile(".env.example");
-      this.textContent = file.binary ? "Binary file" : file.content;
-    } catch (error) {
-      this.textContent = error instanceof Error ? error.message : String(error);
-    }
-  }
-}
-```
-
-Labels should use the same helper through a plugin-owned cache because `items()` itself must return synchronously:
-
-```js
-const envCache = new Map();
-
-function envKey(machine, workspace) {
-  return `${machine.id}:${workspace.id}:.env.local`;
-}
-
-function loadEnvLabel(context) {
-  const key = envKey(context.machine, context.workspace);
-  const cached = envCache.get(key);
-  if (cached !== undefined) return cached;
-
-  const pending = { status: "loading", label: undefined };
-  envCache.set(key, pending);
-  context.files.readFile(".env.local")
-    .then((file) => {
-      pending.status = "ready";
-      pending.label = file.content.match(/^DEV_URL=(.+)$/m)?.[1];
-      context.host.requestRender();
-    })
-    .catch(() => {
-      pending.status = "missing";
-      context.host.requestRender();
-    });
-  return pending;
-}
-
-workspaceLabels: [
-  {
-    id: "dev-url",
-    items: (context) => {
-      const cached = loadEnvLabel(context);
-      return cached.label === undefined ? [] : [{
-        type: "link",
-        text: cached.label,
-        href: cached.label,
-        target: "_blank",
-      }];
-    },
-  },
-]
-```
-
-The file response includes fields such as `path`, `content`, `truncated`, and `binary`. Be careful with sensitive files such as `.env`: plugins are trusted browser code, and file contents are exposed to the plugin.
-
-### 独立文件面板与目录操作
-
-内置 Files 插件拥有自己的面板、文件树、预览、上传状态和浏览器构建产物，不依赖宿主的私有文件面板回调。它保留新建文件、新建文件夹、移动或重命名、删除及下载；文件树分批显示，文件选择通过面板导航恢复。
-
-`WorkspaceFilesCapabilityV1` 在原有文件操作之外提供可选的 `createDirectory(path)`、`moveDirectory(fromPath, toPath)` 和 `deleteDirectory(path)`。插件应先检查方法是否存在，以兼容旧宿主。路径均相对于绑定的工作区；宿主负责机器和工作区作用域，并在操作成功后发送 `workspace.files` 资源失效通知。目录删除仅允许空目录，不提供递归删除；内置面板的新建和移动操作不会覆盖已有文件，删除须用户确认。
-
-## Listing workspace files
-
-`files.listFiles(path)` lists the entries of a workspace directory. Pass `""` for the workspace root. Like `readFile`, PI WEB binds the call to the callback's machine and workspace, so it works the same for local and federated machines.
-
-```js
-const listing = await context.files.listFiles("src");
-for (const entry of listing.entries) {
-  // entry: { name, path, type: "file" | "directory" | "symlink", size?, modifiedAt? }
-}
-```
-
-The listing response includes `path`, `entries`, `scannedAt`, and `truncated`. When `truncated` is true, the server cut the listing short, so treat the entries as partial.
-
-`listFiles` rejects when the directory does not exist or cannot be read, matching `readFile` error behavior. When a directory is optional, catch the error and treat it as an empty listing:
-
-```js
-async function listSubdirectoryNames(context, path) {
-  try {
-    const listing = await context.files.listFiles(path);
-    return listing.entries.filter((entry) => entry.type === "directory").map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}
-```
-
-## Writing, deleting, and moving workspace files
-
-Workspace panels and workspace labels can write, delete, and move files through the documented `files` helper. Like `readFile`, PI WEB binds these helpers to the callback's machine and workspace, so they work the same for local and federated machines.
-
-### Writing files
-
-```js
-workspacePanels: [
-  {
-    id: "workspace.generate",
-    title: "Generate",
-    render: ({ files }) => html`
-      <button @click=${async () => {
-        const result = await files.writeFile("output/result.txt", "Generated content\n");
-        console.log("Wrote", result.path, result.size, "bytes");
-      }}>Generate</button>
-    `,
-  },
-]
-```
-
-### Binary writes
-
-Pass a `Uint8Array` for binary content such as images:
-
-```js
-const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
-await files.writeFile("screenshots/thumb.png", png);
-```
-
-### Options
-
-`files.writeFile` accepts an optional third argument:
-
-- `createDirs` (default `true`): create intermediate directories, like `mkdir -p`.
-- `overwrite` (default `true`): overwrite existing files. Set to `false` to throw if the file already exists.
-
-```js
-// Create only — throw if the file already exists
-await files.writeFile("config/new-config.json", jsonContent, { overwrite: false });
-```
-
-### Deleting files
-
-`files.deleteFile` removes a workspace file. It is idempotent: deleting a file that does not exist returns `{ existed: false }` instead of throwing.
-
-```js
-const result = await files.deleteFile("temp/cache.json");
-console.log(result.existed ? "File deleted" : "File did not exist");
-```
-
-### Moving files
-
-`files.moveFile` renames or moves a file within the workspace, like `mv`. The default is safe: it will not overwrite an existing target file.
-
-```js
-// Rename a file
-await files.moveFile("old-name.txt", "new-name.txt");
-
-// Move into a subdirectory (creates intermediate dirs by default)
-await files.moveFile("file.txt", "archive/file.txt");
-
-// Overwrite an existing target
-await files.moveFile("incoming.txt", "current.txt", { overwrite: true });
-
-// Move without creating intermediate directories
-await files.moveFile("file.txt", "deep/nested/file.txt", { createDirs: false }); // throws if dirs don't exist
-```
-
-`files.moveFile` accepts an optional third argument:
-
-- `createDirs` (default `true`): create intermediate directories for the target path.
-- `overwrite` (default `false`): overwrite the target file if it exists. The default is safer than `writeFile` because moving is a more destructive operation.
-
-### Error handling
-
-All file mutations share the same safety layer:
-
-- `overwrite: false` on `writeFile` or existing target on `moveFile` (default) throws if the file already exists.
-- Path traversal (e.g., `../../etc/passwd`) is blocked by the workspace safety layer.
-- Writing to or moving to a path that is a directory returns an error.
-- Deleting a directory returns an error.
-- Intermediate directory creation with `createDirs: false` fails if the parent directory does not exist.
-
-After any mutation (`writeFile`, `deleteFile`, or `moveFile`), the File Explorer updates automatically. No explicit `refreshFiles()` call is needed from plugin code. For label and badge updates, call `context.host.requestRender()` if the UI should reflect the change.
-
-### Security
-
-Plugins are trusted browser code. File writes go through the same path safety validation as reads — paths are resolved and checked to stay inside the workspace root.
-
-## Running workspace terminal commands
-
-Workspace panels can start terminal commands through the documented `terminal` helper. Commands run in the current workspace on the panel's machine.
-
-```js
-render: ({ terminal }) => html`
-  <button @click=${() => terminal.runCommand({
-    title: "Build",
-    command: "npm run build",
-    open: true,
-    metadata: { "my-plugin.task": "build" },
-  })}>Build</button>
-`
-```
-
-Review command strings carefully. They are trusted shell commands executed in the workspace terminal.
-
-## Private and experimental PI WEB APIs
-
-PI WEB's `/api/...` HTTP and WebSocket routes and runtime-only fields are private implementation details. They exist because plugins are trusted browser code, and because some capabilities may be evaluated there before they are designed as stable helpers.
-
-The stable browser API is the documented helper surface and the type-only `@chainingintention/pi-web-cn/plugin-api` export. The stable server API is the separate type-only `@chainingintention/pi-web-cn/server-plugin-api` export. The former browser `plugin-api/unstable` entry is not part of API v4 and is no longer exported. Code that deliberately depends on another private runtime surface must keep that dependency local and expect to revisit it after PI WEB upgrades.
-
-## Async data and caching
-
-PI WEB does not provide a plugin cache/invalidation framework. Keep host callbacks cheap:
-
-- simple contributions should be synchronous and cheap;
-- expensive or async work should live inside the plugin;
-- custom elements in `type: "render"` label items or panels are a good place to own async loading;
-- dedupe async reads/commands and avoid unbounded polling;
-- clean up intervals/event listeners in custom elements' `disconnectedCallback()`.
-
-## Agent implementation checklist
-
-If you are an AI agent building or editing a PI WEB plugin, follow this checklist:
-
-1. Create or update a plugin folder with `package.json` and a JavaScript module such as `pi-web-plugin.js`.
-2. 使用唯一支持的清单格式：`piWeb.plugins` 对象数组。浏览器入口声明 `{ id, browserRoot, module, machineSpecific?, defaultEnabled? }`；服务端入口使用 `serverModule`，浏览器与服务端双入口必须声明 `machineSpecific: true`。
-3. Default-export `{ apiVersion: 4, name, activate }` from a browser module. Server modules use server-plugin API v3 and serve package-paired requests through `peer.request`, not the legacy workspace-provider `request` method.
-4. Return `{ contributions: { actions, workspacePanels, workspaceLabels } }` from `activate()`.
-5. Use ids matching `^[a-z][a-z0-9.-]*$`.
-6. Use the activation context's `html` function for Lit templates.
-7. Keep `activate()` synchronous and cheap; return contribution definitions only.
-8. Add actions for command-palette operations.
-9. Add workspace panels for larger workspace UI.
-10. Add workspace labels for compact inline metadata.
-11. Return arrays from workspace label `items()`; return an empty array to render nothing.
-12. Use documented context helpers first: `files`, `terminal`, `host.requestRender`, `workspace`, `machine`, `state.selectedWorkspace`, `state.selectedSession`, `state.piWebStatus`, and `prompt`.
-13. Do not fetch PI WEB `/api/...` endpoints directly unless you intentionally accept private API churn; prefer documented helpers such as `context.peer.request` for a package-paired server plugin.
-14. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
-15. After local edits, tell the user to hard reload the browser and check the console for plugin errors.
-
-## Troubleshooting
-
-Check discovery:
-
-```bash
-curl http://127.0.0.1:8504/pi-web-plugins/manifest.json
-```
-
-Check a plugin module:
-
-```bash
-curl http://127.0.0.1:8504/pi-web-plugins/my-plugin/pi-web-plugin.js
-```
-
-Common issues:
-
-- invalid plugin id or contribution id;
-- missing default export;
-- missing browser `apiVersion: 4`, `name`, or `activate` function;
-- missing `package.json` or incorrect `piWeb.plugins` metadata;
-- legacy shortcuts such as `piWeb.plugin`, string plugin entries, or no-`package.json` fallback;
-- duplicate plugin ids; later duplicates are skipped rather than renamed;
-- entry module path points outside the plugin root or file does not exist;
-- browser cache not refreshed after editing;
-- plugin directory is not under `~/.pi-web/plugins` or symlinked there;
-- plugin throws during module import, `activate()`, `visible()`, `enabled()`, `items()`, or `render()`; check the browser console.
+- **disable** 禁止指定可选插件在下次启动加载，拒绝禁用必需终端。
+- **bundled-only** 排除外部服务端插件，保留内置工具及必需终端。
+- **none** 不导入任何服务端插件；诊断和项目目录工作区仍可用，但终端与依赖终端的工作流不可用。
+- **clear** 修复或移除故障包后恢复普通启动。
+
+安全启动持久保留直到清除。`--restart` 仅在识别到安全的已安装服务操作时重启，否则给出手动指引；配置在尝试重启前持久保存。命令离线编辑配置，不导入插件代码。自定义配置加 `--config /path/to/config.json`。有效 JSON 中不支持的 `serverPlugins.safeStart` 形状/值按 `none` 失败关闭；通过 `show`、`set` 或 `clear` 修复。重启前检查活跃工作。

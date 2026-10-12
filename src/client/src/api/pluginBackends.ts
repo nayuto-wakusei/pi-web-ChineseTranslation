@@ -17,9 +17,9 @@ import {
   serializePluginBackendChannelOpenEnvelope,
   utf8ByteLength,
 } from "../../../shared/pluginBackendProtocol";
-import { resolveAppWebSocketUrl } from "../appUrl";
+import { resolveAppUrl, resolveAppWebSocketUrl, type AppUrlContext } from "../appUrl";
 import { scopedApiUrl } from "./http";
-import { currentApiScope, withManagementEmbedQuery } from "./managementEmbed";
+import { currentApiScope, withManagementEmbed, withManagementEmbedQuery } from "./managementEmbed";
 
 export interface PluginBackendRequestTarget {
   pluginId: string;
@@ -53,64 +53,47 @@ export interface PluginBackendChannel {
 
 export type PluginBackendWebSocketFactory = (url: string) => WebSocket;
 
-export function pluginBackendRequestPath(
-  target: Pick<PluginBackendRequestTarget, "pluginId" | "machineId" | "projectId" | "workspaceId">,
-  operation: string,
-): string {
-  if (!isPiWebPluginId(target.pluginId)) throw new Error(`Invalid PI WEB plugin id: ${target.pluginId}`);
-  if (target.machineId === "") throw new Error("Machine id is required");
-  if (target.projectId === "") throw new Error("Project id is required");
-  if (target.workspaceId === "") throw new Error("Workspace id is required");
-  const validatedOperation = requirePluginBackendOperation(operation);
-  const prefix = target.machineId === "local"
-    ? "api"
-    : `api/machines/${encodeURIComponent(target.machineId)}`;
-  return `${prefix}/paired-plugin-backends/${encodeURIComponent(target.pluginId)}/projects/${encodeURIComponent(target.projectId)}/workspaces/${encodeURIComponent(target.workspaceId)}/${encodeURIComponent(validatedOperation)}`;
+type PluginBackendPathTarget = Pick<PluginBackendRequestTarget, "pluginId" | "machineId" | "projectId" | "workspaceId">;
+type PluginBackendRequestUrlBuilder = (target: PluginBackendPathTarget, operation: string) => string;
+
+export function pairedPluginBackendRequestPath(target: PluginBackendPathTarget, operation: string): string {
+  return scopedPluginBackendRequestPath(target, operation);
 }
 
-export async function requestPluginBackend(
+export function pairedPluginBackendRequestUrl(
+  target: PluginBackendPathTarget,
+  operation: string,
+  context?: AppUrlContext,
+): string {
+  const path = pairedPluginBackendRequestPath(target, operation);
+  return context === undefined ? scopedApiUrl(path) : resolveAppUrl(withManagementEmbed(path), context);
+}
+
+export function pairedPluginBackendChannelPath(target: PluginBackendPathTarget, operation: string): string {
+  const requestPath = pairedPluginBackendRequestPath(target, operation);
+  const separator = requestPath.lastIndexOf("/");
+  return `${requestPath.slice(0, separator)}/channels${requestPath.slice(separator)}`;
+}
+
+export function pairedPluginBackendChannelUrl(
+  target: PluginBackendPathTarget,
+  operation: string,
+  context?: AppUrlContext,
+): string {
+  const path = withManagementEmbedQuery(pairedPluginBackendChannelPath(target, operation), undefined, currentApiScope());
+  return context === undefined ? resolveAppWebSocketUrl(path) : resolveAppWebSocketUrl(path, context);
+}
+
+export function requestPairedPluginBackend(
   target: PluginBackendRequestTarget,
   operation: string,
   input: JsonValue,
   options: PluginBackendRequestOptions = {},
 ): Promise<JsonValue> {
-  const revision = requirePluginBackendRevision(target.backendRevision);
-  const clonedInput = cloneBoundedPluginBackendJson(input, "Plugin backend request input");
-  const body = JSON.stringify({ revision, input: clonedInput });
-  if (utf8ByteLength(body) > PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES) {
-    throw new Error(`Plugin backend request exceeds the ${String(PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES)} byte wire limit`);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(scopedApiUrl(pluginBackendRequestPath(target, operation)), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    });
-  } catch (error) {
-    if (options.signal?.aborted === true) throw abortError(options.signal);
-    throw new Error(`Plugin backend request unavailable: ${errorMessage(error)}`, { cause: error });
-  }
-
-  const text = await readBoundedResponseText(response);
-  if (!response.ok) {
-    throw new Error(pluginBackendErrorMessage(text) ?? `Plugin backend request returned HTTP ${String(response.status)}`);
-  }
-  return parseBoundedPluginBackendJson(text, "Plugin backend response", PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES);
+  return requestPluginBackendAt(target, operation, input, options, pairedPluginBackendRequestUrl);
 }
 
-export function pluginBackendChannelPath(
-  target: Pick<PluginBackendRequestTarget, "pluginId" | "machineId" | "projectId" | "workspaceId">,
-  operation: string,
-): string {
-  const requestPath = pluginBackendRequestPath(target, operation);
-  const separator = requestPath.lastIndexOf("/");
-  return `${requestPath.slice(0, separator)}/channels${requestPath.slice(separator)}`;
-}
-
-export function openPluginBackendChannel(
+export function openPairedPluginBackendChannel(
   target: PluginBackendRequestTarget,
   operation: string,
   input: JsonValue,
@@ -118,12 +101,11 @@ export function openPluginBackendChannel(
   socketFactory: PluginBackendWebSocketFactory = (url) => new WebSocket(url),
 ): Promise<PluginBackendChannel> {
   if (options.signal?.aborted === true) return Promise.reject(abortError(options.signal));
-  const revision = requirePluginBackendRevision(target.backendRevision);
-  const openFrame = serializePluginBackendChannelOpenEnvelope(revision, input);
-  const path = withManagementEmbedQuery(pluginBackendChannelPath(target, operation), undefined, currentApiScope());
+  const openFrame = serializePluginBackendChannelOpenEnvelope(target.backendRevision, input);
+  const url = pairedPluginBackendChannelUrl(target, operation);
   let socket: WebSocket;
   try {
-    socket = socketFactory(resolveAppWebSocketUrl(path));
+    socket = socketFactory(url);
   } catch (error) {
     return Promise.reject(new Error(`Plugin backend channel unavailable: ${errorMessage(error)}`, { cause: error }));
   }
@@ -138,7 +120,7 @@ export function openPluginBackendChannel(
   const channel: PluginBackendChannel = Object.freeze({
     closed: closedPromise,
     send(data: JsonValue): void {
-      if (!ready || closed || socket.readyState !== WebSocket.OPEN) throw new Error("Plugin backend channel is not open");
+      if (!ready || closed || socket.readyState !== 1) throw new Error("Plugin backend channel is not open");
       const frame = serializePluginBackendChannelDataEnvelope(data);
       const bytes = utf8ByteLength(frame);
       if (socket.bufferedAmount === 0) bufferedFrames = 0;
@@ -238,6 +220,54 @@ export function openPluginBackendChannel(
   });
 }
 
+function scopedPluginBackendRequestPath(
+  target: PluginBackendPathTarget,
+  operation: string,
+): string {
+  if (!isPiWebPluginId(target.pluginId)) throw new Error(`Invalid PI WEB plugin id: ${target.pluginId}`);
+  if (target.machineId === "") throw new Error("Machine id is required");
+  if (target.projectId === "") throw new Error("Project id is required");
+  if (target.workspaceId === "") throw new Error("Workspace id is required");
+  const validatedOperation = requirePluginBackendOperation(operation);
+  const prefix = target.machineId === "local"
+    ? "api"
+    : `api/machines/${encodeURIComponent(target.machineId)}`;
+  return `${prefix}/paired-plugin-backends/${encodeURIComponent(target.pluginId)}/projects/${encodeURIComponent(target.projectId)}/workspaces/${encodeURIComponent(target.workspaceId)}/${encodeURIComponent(validatedOperation)}`;
+}
+
+async function requestPluginBackendAt(
+  target: PluginBackendRequestTarget,
+  operation: string,
+  input: JsonValue,
+  options: PluginBackendRequestOptions,
+  requestUrl: PluginBackendRequestUrlBuilder,
+): Promise<JsonValue> {
+  const revision = requirePluginBackendRevision(target.backendRevision);
+  const clonedInput = cloneBoundedPluginBackendJson(input, "Plugin backend request input");
+  const body = JSON.stringify({ revision, input: clonedInput });
+  if (utf8ByteLength(body) > PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES) {
+    throw new Error(`Plugin backend request exceeds the ${String(PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES)} byte wire limit`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(requestUrl(target, operation), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+  } catch (error) {
+    if (options.signal?.aborted === true) throw abortError(options.signal);
+    throw new Error(`Plugin backend request unavailable: ${errorMessage(error)}`, { cause: error });
+  }
+
+  const text = await readBoundedResponseText(response);
+  if (!response.ok) {
+    throw new Error(pluginBackendErrorMessage(text) ?? `Plugin backend request returned HTTP ${String(response.status)}`);
+  }
+  return parseBoundedPluginBackendJson(text, "Plugin backend response", PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES);
+}
 async function readBoundedResponseText(response: Response): Promise<string> {
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null && /^\d+$/u.test(contentLength) && Number(contentLength) > PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES) {
@@ -272,7 +302,7 @@ async function readBoundedResponseText(response: Response): Promise<string> {
 }
 
 function closeBrowserSocket(socket: WebSocket, reason: string): void {
-  if (socket.readyState !== WebSocket.CONNECTING && socket.readyState !== WebSocket.OPEN) return;
+  if (socket.readyState !== 0 && socket.readyState !== 1) return;
   try {
     socket.close(1000, requirePluginBackendChannelCloseReason(reason));
   } catch {

@@ -1,25 +1,33 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// Bundled PI WEB plugins live in pi-web-plugins/; Pi packages that ship
+// alongside them without being discovered by directory scan (see
+// PiWebPluginCatalog's discovery roots) live in pi-packages/. Both are still
+// loaded as PI WEB plugins once installed, so both stay on the public API.
 const pluginRoots = ["pi-web-plugins", "pi-packages"];
 const forbiddenPatterns = [
   { pattern: /\bfetch\s*\(/u, message: "direct browser fetch" },
-  { pattern: /["'`][^"'`]*\/api\//u, message: "direct PI WEB /api URL" },
+  { pattern: /["'`](?:api\/|[^"'`]*\/api\/)/u, message: "direct PI WEB API URL" },
+  { pattern: /["'`](?:pi-web-plugins\/|[^"'`]*\/pi-web-plugins\/)/u, message: "direct PI WEB plugin URL" },
   { pattern: /piWebInternal/u, message: "legacy internal plugin context" },
   { pattern: /(?:\.\.\/)+src\//u, message: "imports from PI WEB source internals" },
+  { pattern: /from\s+["']fastify["']/u, message: "imports Fastify instead of the server plugin API" },
+  { pattern: /from\s+["']node:child_process["']/u, message: "bypasses the bounded server command helper" },
+  { pattern: /(?:@jmfederico\/pi-web|@chainingintention\/pi-web-cn)\/(?:dist|src)\//u, message: "imports unpublished PI WEB internals" },
 ];
 
 describe("PI WEB plugin packages", () => {
-  it("use public plugin APIs instead of direct PI WEB internals", async () => {
+  it("uses public browser and server plugin APIs instead of direct PI WEB internals", async () => {
     const violations: string[] = [];
     for (const root of pluginRoots) {
       for (const file of await pluginSourceFiles(root)) {
         const content = await readFile(file, "utf8");
         for (const { pattern, message } of forbiddenPatterns) {
-          // This loader fetches its own bundled script, not a PI WEB API endpoint.
-          if (message === "direct browser fetch" && file === join("pi-web-plugins", "mermaid", "MermaidPreview.ts")) continue;
-          if (pattern.test(content)) violations.push(`${file}: ${message}`);
+          // A statically package-relative asset is not a PI WEB API call.
+          const checked = message === "direct browser fetch" ? content.replace(/\bfetch\(new URL\((?:\/\* @vite-ignore \*\/ )?"\.\/[a-zA-Z0-9._/-]+", import\.meta\.url\)/gu, "packageAsset(") : content;
+          if (pattern.test(checked)) violations.push(`${file}: ${message}`);
         }
         if (content.includes("piWebUnstable") && !content.includes("@chainingintention/pi-web-cn/plugin-api/unstable")) {
           violations.push(`${file}: piWebUnstable use without explicit unstable type import`);
@@ -29,7 +37,48 @@ describe("PI WEB plugin packages", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps the bundled Git browser graph on the public API and package-local modules", async () => {
+    const root = resolve("pi-web-plugins/git/browser");
+    const entry = resolve(root, "pi-web-plugin.ts");
+    const pending = [entry];
+    const visited = new Set<string>();
+    const violations: string[] = [];
+
+    while (pending.length > 0) {
+      const file = pending.pop();
+      if (file === undefined || visited.has(file)) continue;
+      visited.add(file);
+      const source = await readFile(file, "utf8");
+      for (const specifier of moduleSpecifiers(source)) {
+        if (specifier === "@chainingintention/pi-web-cn/plugin-api") continue;
+        if (!specifier.startsWith("./")) {
+          violations.push(`${relative(process.cwd(), file)}: browser import ${specifier}`);
+          continue;
+        }
+        const dependency = resolve(dirname(file), specifier.replace(/\.js$/u, ".ts"));
+        if (dependency !== root && !dependency.startsWith(`${root}${sep}`)) {
+          violations.push(`${relative(process.cwd(), file)}: browser import escapes the Git package (${specifier})`);
+          continue;
+        }
+        pending.push(dependency);
+      }
+    }
+
+    expect(violations).toEqual([]);
+    expect([...visited].map((file) => relative(root, file)).sort()).toContain("git-panel.ts");
+  });
 });
+
+function moduleSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  const pattern = /(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']/gu;
+  for (const match of source.matchAll(pattern)) {
+    const specifier = match[1];
+    if (specifier !== undefined) specifiers.push(specifier);
+  }
+  return specifiers;
+}
 
 async function pluginSourceFiles(root: string): Promise<string[]> {
   const files: string[] = [];

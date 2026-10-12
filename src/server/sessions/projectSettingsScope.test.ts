@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -273,6 +274,53 @@ describe("projectSettingsScope", () => {
       retry: { enabled: false },
     });
     expect(globalSettings).toHaveProperty("enabledModels", ["anthropic/*"]);
+  });
+
+  it.each(["normal", "management"] as const)("preserves external preference metadata without projecting it into shared settings in %s mode", async (mode) => {
+    const root = await tempRoot();
+    const globalAgentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    const scopeDirectory = projectSettingsScopeDirectory(join(root, "data"), cwd, mode);
+    await mkdir(globalAgentDir, { recursive: true });
+    await writeFile(join(globalAgentDir, "settings.json"), JSON.stringify({ packages: ["./shared-package"] }));
+    const settings = await createScopedSettingsManager({ cwd, scopeDirectory, globalAgentDir, mode });
+    settings.setDefaultThinkingLevel("high");
+    // The SDK's queued write reads the current file, not its creation snapshot.
+    writeFileSync(preferencesFilePath(scopeDirectory), JSON.stringify({ defaultModel: "external-model", customSetting: "external edit", enabledModels: ["private/model"] }));
+    await settings.flush();
+
+    expect(settings.drainErrors()).toEqual([]);
+    expect(JSON.parse(await readFile(preferencesFilePath(scopeDirectory), "utf8"))).toEqual({
+      defaultThinkingLevel: "high", defaultModel: "external-model", customSetting: "external edit", enabledModels: ["private/model"],
+    });
+    expect(JSON.parse(await readFile(join(globalAgentDir, "settings.json"), "utf8"))).toEqual({ packages: ["./shared-package"] });
+    await settings.reload();
+    expect(settings.getDefaultModel()).toBe("external-model");
+    expect(settings.getGlobalSettings()).not.toHaveProperty("customSetting");
+    expect(settings.getEnabledModels()).toEqual(mode === "normal" ? ["private/model"] : undefined);
+  });
+
+  it.each(["normal", "management"] as const)("reports malformed preference reads and refuses queued writes without overwriting in %s mode", async (mode) => {
+    const root = await tempRoot();
+    const globalAgentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    const scopeDirectory = projectSettingsScopeDirectory(join(root, "data"), cwd, mode);
+    const settings = await createScopedSettingsManager({ cwd, scopeDirectory, globalAgentDir, mode });
+    settings.setDefaultThinkingLevel("high");
+    writeFileSync(preferencesFilePath(scopeDirectory), "{malformed");
+    await settings.flush();
+
+    const writeErrors = settings.drainErrors();
+    expect(writeErrors.map(({ scope }) => scope)).toEqual(["global"]);
+    expect(writeErrors[0]?.error).toBeInstanceOf(SyntaxError);
+    expect(await readFile(preferencesFilePath(scopeDirectory), "utf8")).toBe("{malformed");
+    const fresh = await createScopedSettingsManager({ cwd, scopeDirectory, globalAgentDir, mode });
+    const readErrors = fresh.drainErrors();
+    expect(readErrors.map(({ scope }) => scope)).toEqual(["global"]);
+    expect(readErrors[0]?.error).toBeInstanceOf(SyntaxError);
+    fresh.setDefaultThinkingLevel("low");
+    await fresh.flush();
+    expect(await readFile(preferencesFilePath(scopeDirectory), "utf8")).toBe("{malformed");
   });
 
   it("migrates only preference keys from a legacy whole-file scoped settings snapshot", async () => {

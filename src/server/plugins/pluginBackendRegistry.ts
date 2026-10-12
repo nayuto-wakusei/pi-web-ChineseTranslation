@@ -52,7 +52,7 @@ const NORMAL_ONLY_HOST_CAPABILITY_KEYS = new Set([
   capabilityKey(REQUIRED_TERMINAL_SERVICE_CAPABILITY),
 ]);
 
-/** True when the plugin declared a host capability that exists only in normal mode. */
+/** Includes host capabilities reached through resolved plugin dependencies. */
 export function pluginRequiresNormalOnlyHostCapability(
   requires: readonly Pick<PluginCapability, "pluginId" | "id" | "version">[] | undefined,
 ): boolean {

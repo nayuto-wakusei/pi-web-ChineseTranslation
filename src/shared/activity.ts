@@ -1,4 +1,4 @@
-import type { SessionActivity, SessionStatus, WorkspaceActivity } from "./apiTypes.js";
+import type { SessionActivity, SessionStatus } from "./apiTypes.js";
 
 /**
  * Whether a session has work in progress a user could stop or must wait for.
@@ -14,8 +14,4 @@ export function isSessionActive(status?: SessionStatus, activity?: SessionActivi
     || status?.isBashRunning === true
     || status?.isCompacting === true
     || (status?.pendingMessageCount ?? 0) > 0;
-}
-
-export function isWorkspaceActivityActive(activity: WorkspaceActivity | undefined): boolean {
-  return activity !== undefined && (activity.hasSessionActivity || activity.hasTerminalActivity);
 }

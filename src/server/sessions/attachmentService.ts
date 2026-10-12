@@ -7,7 +7,6 @@ import { extensionForImageMimeType } from "../../shared/promptAttachments.js";
 import { DEFAULT_ATTACHMENT_FOLDER } from "../../config.js";
 import { ensureInside, isNodeErrorWithCode, resolveParentInsideWorkspace } from "../workspaces/pathSafety.js";
 
-export { DEFAULT_ATTACHMENT_FOLDER } from "../../config.js";
 
 export interface InlineImage {
   image: ImageContent;
@@ -39,7 +38,7 @@ export async function attachmentsToInlineImages(attachments: PromptImageAttachme
 }
 
 export interface SaveAttachmentsOptions {
-  /** Workspace-relative folder to write into. Defaults to `.pi-web/attachments`. */
+  /** Workspace-relative folder to write into. `.pi-web/attachments` only applies when omitted; production save paths pass the resolved effective folder. */
   folder?: string;
   /** Clock injection for deterministic tests. */
   now?: () => Date;

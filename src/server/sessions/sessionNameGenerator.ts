@@ -71,15 +71,15 @@ function relayHandoffSessionName(firstMessage: string): string | undefined {
   if (match === null) return undefined;
 
   const relayName = match[1]?.replace(/\s+/g, " ").trim();
-  const legNumber = match[2];
-  if (relayName === undefined || relayName === "" || legNumber === undefined) return undefined;
+  const legIdentifier = match[2];
+  if (relayName === undefined || relayName === "" || legIdentifier === undefined) return undefined;
 
-  return cleanSessionName(formatRelaySessionName(relayName, legNumber));
+  return cleanSessionName(formatRelaySessionName(relayName, legIdentifier));
 }
 
-function formatRelaySessionName(relayName: string, legNumber: string): string {
+function formatRelaySessionName(relayName: string, legIdentifier: string): string {
   const prefix = "Relay ";
-  const suffix = ` leg ${legNumber}`;
+  const suffix = ` leg ${legIdentifier}`;
   const maxRelayNameLength = Math.max(1, SESSION_NAME_MAX_LENGTH - prefix.length - suffix.length);
   const displayedRelayName = truncateRelayName(relayName, maxRelayNameLength);
   return `${prefix}${displayedRelayName}${suffix}`;

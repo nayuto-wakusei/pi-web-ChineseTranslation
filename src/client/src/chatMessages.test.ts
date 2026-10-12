@@ -112,7 +112,6 @@ describe("chat message normalization", () => {
       { role: "user", parts: [{ type: "text", text: "[image]" }] },
     ]);
   });
-
   it("shows assistant model errors as system chat messages", () => {
     expect(normalizeMessage({ role: "assistant", content: [], stopReason: "error", errorMessage: "429 rate limit", timestamp: "2026-05-09T12:00:00.000Z", provider: "openai", model: "gpt-4.1" })).toEqual([
       { role: "system", parts: [{ type: "text", text: "模型响应失败：429 rate limit" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" } } },

@@ -1,4 +1,4 @@
-import { isSessionActive, isWorkspaceActivityActive } from "../../shared/activity.js";
+import { isSessionActive } from "../../shared/activity.js";
 import type { RealtimeEvent, SessionActivity, SessionStatus, TerminalInfo, WorkspaceActivity, WorkspaceActivityResponse } from "../../shared/apiTypes.js";
 import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/sessionEventScope.js";
 
@@ -26,10 +26,13 @@ export class WorkspaceActivityService {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly terminals = new Map<string, TerminalRecord>();
 
-  constructor(
-    private readonly publisher?: WorkspaceActivityPublisher,
-    private readonly onChanged?: (scope: SessionEventScope) => void,
-  ) {}
+  private readonly publisher: WorkspaceActivityPublisher | undefined;
+  private readonly onChanged: ((scope: SessionEventScope) => void) | undefined;
+
+  constructor(publisherOrOnChanged?: WorkspaceActivityPublisher | ((scope: SessionEventScope) => void), onChanged?: (scope: SessionEventScope) => void) {
+    this.publisher = typeof publisherOrOnChanged === "function" ? undefined : publisherOrOnChanged;
+    this.onChanged = typeof publisherOrOnChanged === "function" ? publisherOrOnChanged : onChanged;
+  }
 
   /** Activity projection consumed by the daemon-owned machine status tree. */
   activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[] } {
@@ -97,7 +100,7 @@ export class WorkspaceActivityService {
 
   snapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): WorkspaceActivityResponse {
     return {
-      workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)).filter(isWorkspaceActivityActive),
+      workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)),
       generatedAt: new Date().toISOString(),
     };
   }

@@ -89,11 +89,15 @@ export class SettingsDialog extends LitElement {
     }
 
     if (!changed.has("machineRuntime")) return;
+    const lifecycleChanged = selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, changed.get("machineRuntime")))
+      !== selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, this.machineRuntime));
     if (this.selectedMachineSettingsSupportNeedsReload(changed.get("machineRuntime"), currentTarget)) {
       this.resetAccessStateForTargetChange();
       if (this.isConnected) void this.loadAccessConfigForTarget(currentTarget);
       this.resetSessiondStateForTargetChange();
       if (this.isConnected) void this.loadSessiondConfigForTarget(currentTarget);
+    }
+    if (lifecycleChanged) {
       this.resetPluginStateForTargetChange();
       if (this.isConnected) void this.loadPluginsForTarget(currentTarget);
     }
@@ -315,6 +319,20 @@ export class SettingsDialog extends LitElement {
     this.pluginLoading = true;
     this.pluginError = "";
     try {
+      const lifecycleSupport = pluginLifecycleSupport(target, this.machineRuntime);
+      if (isSelectedMachineSettingsUnsupported(lifecycleSupport)) {
+        try {
+          const config = await configApi.config(target.id);
+          if (!this.isCurrentPluginLoad(requestSeq, target)) return;
+          this.selectedPluginConfigResponse = config;
+          this.selectedPluginsResponse = undefined;
+          this.pluginError = lifecycleSupport.message ?? `${settingsMachineTargetLabel(target)} 不支持插件生命周期诊断。`;
+        } catch (error) {
+          if (!this.isCurrentPluginLoad(requestSeq, target)) return;
+          this.pluginError = `从 ${settingsMachineTargetLabel(target)} 加载 PI WEB 插件配置失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}；${lifecycleSupport.message ?? "不支持插件生命周期诊断"}`;
+        }
+        return;
+      }
       const [config, plugins] = await Promise.allSettled([configApi.config(target.id), pluginsApi.plugins(target.id)]);
       if (!this.isCurrentPluginLoad(requestSeq, target)) return;
 
@@ -372,7 +390,14 @@ export class SettingsDialog extends LitElement {
         this.configResponse = mergeSelectedMachinePluginConfig(this.configResponse, response);
         this.onConfigSaved?.(this.configResponse.effectiveConfig);
       }
-      const pluginRefreshError = await this.refreshPluginsForTarget(target);
+      const lifecycleSupport = pluginLifecycleSupport(target, this.machineRuntime);
+      let pluginRefreshError: string | undefined;
+      if (isSelectedMachineSettingsUnsupported(lifecycleSupport)) {
+        this.selectedPluginsResponse = undefined;
+        pluginRefreshError = lifecycleSupport.message ?? `${settingsMachineTargetLabel(target)} 不支持插件生命周期诊断。`;
+      } else {
+        pluginRefreshError = await this.refreshPluginsForTarget(target);
+      }
       if (!this.isCurrentSettingsTarget(target)) return;
       if (pluginRefreshError !== undefined) this.pluginError = pluginRefreshError;
       this.showSavedMessage();
@@ -527,6 +552,7 @@ export class SettingsDialog extends LitElement {
       if (this.isCurrentSettingsTarget(target)) this.selectedPluginsResponse = response;
       return undefined;
     } catch (error) {
+      if (this.isCurrentSettingsTarget(target)) this.selectedPluginsResponse = undefined;
       return `配置已保存，但从 ${settingsMachineTargetLabel(target)} 刷新 PI WEB 插件失败：${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
     }
   }

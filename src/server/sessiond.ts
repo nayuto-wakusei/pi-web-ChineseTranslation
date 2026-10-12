@@ -16,6 +16,9 @@ import { ServerNoticeService } from "./notices/serverNoticeService.js";
 import { registerServerNoticeRoutes } from "./notices/serverNoticeRoutes.js";
 import { AuthService } from "./sessions/authService.js";
 import { ProjectAuthService } from "./sessions/projectAuthService.js";
+import { ModelCatalogRefresher } from "./sessions/modelCatalogRefresher.js";
+import { SessionArchiveStore, defaultSessionArchiveFilePath } from "./sessions/sessionArchiveStore.js";
+import { SessionNotificationStore } from "./sessions/sessionNotificationStore.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
 import { createPiSessionManagerGateway } from "./sessions/piSessionManagerGateway.js";
@@ -23,11 +26,11 @@ import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
 import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
 import { ProjectService } from "./projects/projectService.js";
 import { ProjectLifecycleService } from "./projects/projectLifecycleService.js";
-import { ProjectStore } from "./storage/projectStore.js";
+import { ProjectStore, projectStorePath } from "./storage/projectStore.js";
 import { FileSessionUnreadPersistence, SessionUnreadStore, defaultSessionUnreadFilePath } from "./sessions/sessionUnreadStore.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
-import { TerminalService } from "./terminals/terminalService.js";
-import { registerManagementTerminalRoutes } from "./terminals/terminalRoutes.js";
+import { ManagementCommandRunService } from "./terminals/managementCommandRunService.js";
+import { registerManagementTerminalRoutes } from "./terminals/managementTerminalRoutes.js";
 import { REQUIRED_TERMINAL_SERVICE_CAPABILITY, unavailableRequiredTerminalService } from "./terminals/requiredTerminalService.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
@@ -98,6 +101,7 @@ const activeAgentProfile = createActiveAgentProfileDescriptor({
   dir: config.agent.dir,
   sessionDirEnvKeys: agentSessionDirEnvKeys(config.agent.command),
 });
+Object.freeze(daemonEnvironment);
 const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(daemonEnvironment, config) });
 if (deprecatedAgentInputs.length > 0) {
   app.log.warn({ deprecatedAgentInputs }, "deprecated agent configuration inputs detected; support will be removed in a future release");
@@ -158,7 +162,7 @@ await runSessionDaemonStartup({
     const eventHub = new SessionEventHub();
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
-    const projects = new ProjectService(new ProjectStore());
+    const projects = new ProjectService(new ProjectStore(projectStorePath(daemonEnvironment)));
     const unreadStore = new SessionUnreadStore({
       persistence: new FileSessionUnreadPersistence(defaultSessionUnreadFilePath(daemonEnvironment)),
       onPersistenceError(operation, error) {
@@ -182,7 +186,7 @@ await runSessionDaemonStartup({
     registerCleanup(() => constructed.sessions?.dispose());
     const serverPlugins = await createServerPluginRuntime({
       catalog: serverPluginCatalog,
-      dataDir: piWebDataDir(),
+      dataDir: piWebDataDir(daemonEnvironment),
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
       logger: app.log,
       execFile: createServerPluginExecFile({ env: daemonEnvironment }),
@@ -194,24 +198,28 @@ await runSessionDaemonStartup({
       ],
     });
     registerCleanup(() => serverPlugins.stop());
-    const providerHealth = await serverPlugins.inspectHealth();
+    const providerContributions = serverPlugins.providerContributions();
+    const providerPluginIds = providerContributions.map(({ pluginId }) => pluginId);
+    const providerHealth = await serverPlugins.inspectHealth(providerPluginIds);
     const workspaceProviders = new WorkspaceProviderRegistry({
-      contributions: eligibleWorkspaceProviderContributions(serverPlugins.providerContributions(), providerHealth),
+      contributions: eligibleWorkspaceProviderContributions(providerContributions, providerHealth),
       logger: app.log,
     });
-    const workspaceProviderRuntime = createWorkspaceProviderRuntimeSnapshot(
-      serverPlugins.healthRecords(),
-      providerHealth,
-      serverPlugins.safeStartLevel(),
-      serverPlugins.catalogDiagnostics(),
-    );
     registerCleanup(() => workspaceProviders.closeAll());
     const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders, globalAgentDir: activeAgentProfile.dir, logger: app.log, offline: offlineModeEnabled(daemonEnvironment) });
     constructed.projectAuth = projectAuth;
     const managementAuth = await AuthService.create({
-      agentDir: join(piWebDataDir(), "management-embed"),
+      agentDir: join(piWebDataDir(daemonEnvironment), "management-embed"),
     });
     constructed.managementAuth = managementAuth;
+    const managementCatalogRefresher = new ModelCatalogRefresher({
+      runtime: managementAuth.runtime,
+      logger: app.log,
+      offline: offlineModeEnabled(daemonEnvironment),
+    });
+    registerCleanup(() => { managementCatalogRefresher.dispose(); });
+    managementCatalogRefresher.start();
+    managementAuth.subscribe(() => { managementCatalogRefresher.requestRefresh(); });
     const accessStates = new WorkbenchAccessStateStore();
     const normalAuditConfig = config.auditLog?.normalMode;
     if (normalAuditConfig?.enabled !== false) {
@@ -293,10 +301,12 @@ await runSessionDaemonStartup({
           return undefined;
         }
       },
-      dataDir: piWebDataDir(),
+      dataDir: piWebDataDir(daemonEnvironment),
       agentDir: activeAgentProfile.dir,
       workspaceActivity,
       unreadStore,
+      archiveStore: new SessionArchiveStore(defaultSessionArchiveFilePath(daemonEnvironment)),
+      notificationStore: new SessionNotificationStore(),
       catalogRefreshStatus: projectAuth,
       onUnreadChanged: (scope, hasNewCompletion) => {
         machineStatus.notifyChanged(scope);
@@ -326,11 +336,6 @@ await runSessionDaemonStartup({
       }),
     });
     constructed.sessions = sessions;
-    await serverPlugins.resumeWithHostCapabilityFactories([
-      createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
-      createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
-      createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
-    ]);
     const statusAttribution = new CachedWorkspaceAttribution({
       projects: { list: projectsForScope },
       workspaces: { list: (project) => workspaceProviders.list(project) },
@@ -344,6 +349,11 @@ await runSessionDaemonStartup({
       logger: app.log,
     });
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
+    await serverPlugins.resumeWithHostCapabilityFactories([
+      createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
+      createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
+      createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
+    ]);
     const projectLifecycle = new ProjectLifecycleService({
       projects,
       workspaces: workspaceProviders,
@@ -360,7 +370,7 @@ await runSessionDaemonStartup({
     machineStatus.notifyChanged();
     projectAuth.subscribe((change) => { sessions.applyAuthChange(change); });
     managementAuth.subscribe((change) => { sessions.applyAuthChange(change); });
-    const managementTerminals = new TerminalService(eventHub, workspaceActivity, undefined, serverNotices, managementAllowPrivileged);
+    const managementTerminals = new ManagementCommandRunService(eventHub, workspaceActivity, undefined, managementAllowPrivileged);
     registerCleanup(() => { managementTerminals.dispose(); });
     const terminals = serverPlugins.safeStartLevel() === "none"
       ? unavailableRequiredTerminalService()
@@ -369,7 +379,19 @@ await runSessionDaemonStartup({
       updateTerminal: (terminal) => { workspaceActivity.updateTerminal(terminal); },
       removeTerminal: (terminalId, cwd) => { workspaceActivity.removeTerminal(terminalId, cwd); },
     });
-    const pluginHealth = await serverPlugins.inspectHealth();
+    const providerPluginIdSet = new Set(providerPluginIds);
+    const remainingActivePluginIds = serverPlugins.healthRecords()
+      .filter(({ pluginId, state }) => state === "active" && !providerPluginIdSet.has(pluginId))
+      .map(({ pluginId }) => pluginId);
+    const remainingHealth = await serverPlugins.inspectHealth(remainingActivePluginIds);
+    const pluginHealth = Object.freeze([...providerHealth, ...remainingHealth]
+      .sort((left, right) => left.pluginId.localeCompare(right.pluginId)));
+    const workspaceProviderRuntime = createWorkspaceProviderRuntimeSnapshot(
+      serverPlugins.healthRecords(),
+      pluginHealth,
+      serverPlugins.safeStartLevel(),
+      serverPlugins.catalogDiagnostics(),
+    );
     const pluginBackends = new PluginBackendRegistry({
       contributions: eligiblePluginBackendContributions(serverPlugins.pairedBackendContributions(), pluginHealth),
       workspaces: workspaceProviders,
@@ -402,7 +424,7 @@ await runSessionDaemonStartup({
             await projectLifecycle.closeAll();
           },
           serverPlugins,
-          catalogRefresher: { dispose: () => undefined },
+          catalogRefresher: managementCatalogRefresher,
           auth: managementAuth,
           projectAuth,
           sessions,

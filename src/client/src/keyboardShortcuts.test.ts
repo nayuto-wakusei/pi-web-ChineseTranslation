@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppAction } from "./actions";
 import { KeyboardShortcutDispatcher, parseShortcutInput, resolveShortcutBindings, shortcutTokenFromEvent, type ShortcutKeyEvent } from "./keyboardShortcuts";
 
+
+
+
+
 afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
+  vi.useRealTimers();
 });
 
 function keyEvent(key: string, modifiers: Partial<ShortcutKeyEvent> = {}): ShortcutKeyEvent {
@@ -211,5 +215,142 @@ describe("shortcut input parsing", () => {
   it("builds canonical tokens from recorded key events", () => {
     expect(shortcutTokenFromEvent(keyEvent("K", { metaKey: true, shiftKey: true }))).toBe("mod+shift+k");
     expect(shortcutTokenFromEvent(keyEvent("ArrowDown", { altKey: true }))).toBe("alt+arrowdown");
+  });
+});
+
+
+describe("upstream foundation contracts", () => {
+it("runs Gmail-style sequences and falls back to plain standalone shortcuts", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const sequence = action("g p");
+    const standalone = action("r");
+    const actions = [sequence.value, standalone.value];
+    expect(dispatcher.handle(keyEvent("g"), actions)).toBe(true);
+    expect(sequence.run).not.toHaveBeenCalled();
+    expect(dispatcher.handle(keyEvent("p"), actions)).toBe(true);
+    expect(sequence.run).toHaveBeenCalledOnce();
+    expect(dispatcher.handle(keyEvent("g"), actions)).toBe(true);
+    expect(dispatcher.handle(keyEvent("r"), actions)).toBe(true);
+    expect(standalone.run).toHaveBeenCalledOnce();
+  });
+
+it.each(["input", "textarea", "select", "contenteditable"])("protects typing in %s while preserving modified shortcuts", (kind) => {
+    const target = document.createElement(kind === "contenteditable" ? "div" : kind);
+    if (kind === "contenteditable") target.contentEditable = "true";
+    const child = kind === "contenteditable" ? target.appendChild(document.createElement("span")) : target;
+    const dispatcher = new KeyboardShortcutDispatcher();
+    for (const shortcut of ["r", "shift+r", "g p", "shift+g p"]) {
+      const { value, run } = action(shortcut);
+      expect(dispatcher.handle(keyEvent(shortcut.includes("g") ? "g" : "r", { target: child, shiftKey: shortcut.startsWith("shift") }), [value])).toBe(false);
+      expect(run).not.toHaveBeenCalled();
+    }
+    for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+      const { value, run } = action(modifiers.altKey === true ? "alt+k" : "mod+k");
+      expect(dispatcher.handle(keyEvent("k", { target: child, ...modifiers }), [value])).toBe(true);
+      expect(run).toHaveBeenCalledOnce();
+    }
+    const sequence = action("mod+g p");
+    expect(dispatcher.handle(keyEvent("g", { target: child, ctrlKey: true }), [sequence.value])).toBe(true);
+    expect(dispatcher.handle(keyEvent("p", { target: child }), [sequence.value])).toBe(true);
+    expect(sequence.run).toHaveBeenCalledOnce();
+  });
+
+it("detects editable fields through a shadow composed path", () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const input = host.attachShadow({ mode: "open" }).appendChild(document.createElement("input"));
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("r");
+    const listener = vi.fn((event: KeyboardEvent) => {
+      expect(dispatcher.handle(event, [value])).toBe(false);
+    });
+    host.addEventListener("keydown", listener);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true, composed: true }));
+    expect(listener).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+it.each([false, true])("resets pending sequences when the actual target changes (shadow: %s)", (shadow) => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const parent = shadow ? host.attachShadow({ mode: "open" }) : host;
+    const first = parent.appendChild(document.createElement("button"));
+    const second = parent.appendChild(document.createElement("button"));
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("g p");
+    const handled: boolean[] = [];
+    host.addEventListener("keydown", (event) => handled.push(dispatcher.handle(event, [value])));
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true, composed: true }));
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: "p", bubbles: true, composed: true }));
+    expect(handled).toEqual([true, false]);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+it("Escape cancels pending sequences instead of executing an Escape binding", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const sequence = action("g p");
+    const escape = action("escape");
+    const actions = [sequence.value, escape.value];
+    expect(dispatcher.handle(keyEvent("g"), actions)).toBe(true);
+    expect(dispatcher.handle(keyEvent("Escape"), actions)).toBe(true);
+    expect(dispatcher.handle(keyEvent("p"), actions)).toBe(false);
+    expect(sequence.run).not.toHaveBeenCalled();
+    expect(escape.run).not.toHaveBeenCalled();
+  });
+
+it("ignores composing events without advancing pending sequences", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("g p");
+    expect(dispatcher.handle(keyEvent("g", { isComposing: true }), [value])).toBe(false);
+    expect(dispatcher.handle(keyEvent("g"), [value])).toBe(true);
+    expect(dispatcher.handle(keyEvent("Escape", { isComposing: true }), [value])).toBe(false);
+    expect(dispatcher.handle(keyEvent("p", { isComposing: true }), [value])).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(dispatcher.handle(keyEvent("p"), [value])).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+it.each(["timeout", "reset"])("clears pending sequences on %s", (reason) => {
+    vi.useFakeTimers();
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("g p");
+    expect(dispatcher.handle(keyEvent("g"), [value])).toBe(true);
+    if (reason === "reset") dispatcher.reset();
+    else vi.advanceTimersByTime(1200);
+    expect(dispatcher.handle(keyEvent("p"), [value])).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+it("runs plain letters outside editable fields", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("r");
+
+    const handled = dispatcher.handle(keyEvent("r"), [value]);
+
+    expect(handled).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+it("runs shift-only shortcuts outside editable fields", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const { value, run } = action("shift+r");
+
+    const handled = dispatcher.handle(keyEvent("r", { shiftKey: true }), [value]);
+
+    expect(handled).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+it("dispatches a saved shortcut through a migrated action id", () => {
+    const dispatcher = new KeyboardShortcutDispatcher();
+    const migrated = actionWithId("git:view.git", "mod+3");
+    migrated.value.shortcutAliases = ["core:view.git"];
+
+    const handled = dispatcher.handle(keyEvent("8", { ctrlKey: true }), [migrated.value], { shortcuts: { "core:view.git": "mod+8" } });
+
+    expect(handled).toBe(true);
+    expect(migrated.run).toHaveBeenCalledOnce();
+  });
+
+it.each(["r", "shift+r", "g p"])("accepts %s", (shortcut) => {
+    expect(parseShortcutInput(shortcut)).toEqual({ ok: true, shortcut, tokens: shortcut.split(" ") });
   });
 });

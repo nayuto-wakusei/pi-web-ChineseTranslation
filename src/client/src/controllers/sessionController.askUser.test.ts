@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { initialAppState } from "../appState";
 import { loadAskDraft, saveAskDraft } from "../askDrafts";
-import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { AskUserCloseResponse, AskUserQuestion, PendingAskUser } from "../api";
 import { SessionController } from "./sessionController";
 import { defaultApi, EmitSocket, emptyPage, FakeSocket, MemoryStorage, oldSession, sessionKey, status, workspace, type AppState, type SessionStatus } from "./sessionController.testSupport";
 
 const databaseQuestion: AskUserQuestion = { id: "q1", question: "Which database?", options: [{ value: "pg", label: "Postgres" }] };
-const extrasQuestion: AskUserQuestion = { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], allowOther: true, multiple: true };
+const extrasQuestion: AskUserQuestion = { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], multiple: true };
 
 function ask(askId: string): PendingAskUser {
   return { askId, askedAt: "2026-07-20T00:00:00.000Z", questions: [databaseQuestion, extrasQuestion] };
@@ -37,13 +36,12 @@ function closeResponse(sessionStatus: SessionStatus, askId = "ask-1"): AskUserCl
   };
 }
 
-function capableState(patch: Partial<AppState> = {}): AppState {
+function selectedSessionState(patch: Partial<AppState> = {}): AppState {
   return {
     ...initialAppState(),
     selectedWorkspace: workspace,
     selectedSession: oldSession,
     sessions: [oldSession],
-    machineRuntimes: { local: { machineId: "local", ok: true, checkedAt: "now", capabilities: [PI_WEB_CAPABILITIES.sessionsAskUser] } },
     ...patch,
   };
 }
@@ -66,7 +64,7 @@ interface LiveHarness {
 
 async function liveSession(patch: Partial<AppState> = {}, sessionStatus = status(oldSession.id)): Promise<LiveHarness> {
   const socket = new EmitSocket();
-  let state = capableState({ selectedSession: undefined, ...patch });
+  let state = selectedSessionState({ selectedSession: undefined, ...patch });
   const controller = new SessionController(
     () => state,
     (statePatch) => { state = { ...state, ...statePatch }; },
@@ -128,7 +126,6 @@ describe("SessionController open ask state", () => {
 
     expect(harness.state().pendingAsk?.askId).toBe("ask-1");
   });
-
   it("applies a status that no longer carries an ask as the authoritative close", async () => {
     const harness = await liveSession({}, statusWithAsk(oldSession.id, ask("ask-1")));
     expect(harness.state().pendingAsk?.askId).toBe("ask-1");
@@ -160,7 +157,7 @@ describe("SessionController ask submission", () => {
   it("submits answers, clears the draft, and applies the returned status", async () => {
     const submitCalls: { askId: string; answers: unknown; machineId: string }[] = [];
     const closedStatus = status(oldSession.id);
-    let state = capableState({ status: statusWithAsk(oldSession.id, ask("ask-1")), pendingAsk: ask("ask-1") });
+    let state = selectedSessionState({ status: statusWithAsk(oldSession.id, ask("ask-1")), pendingAsk: ask("ask-1") });
     const api: typeof defaultApi = {
       ...defaultApi,
       submitAsk: (_session, askId, submission, machineId) => {
@@ -187,7 +184,7 @@ describe("SessionController ask submission", () => {
 
   it("cancels an ask through its own route and clears the draft", async () => {
     const cancelCalls: string[] = [];
-    let state = capableState({ pendingAsk: ask("ask-1") });
+    let state = selectedSessionState({ pendingAsk: ask("ask-1") });
     const api: typeof defaultApi = {
       ...defaultApi,
       cancelAsk: (_session, askId) => {
@@ -213,7 +210,7 @@ describe("SessionController ask submission", () => {
 
   it("trusts the status of a stale close and shows the superseding ask without an error", async () => {
     const supersedingAsk = ask("ask-2");
-    let state = capableState({ pendingAsk: ask("ask-1") });
+    let state = selectedSessionState({ pendingAsk: ask("ask-1") });
     const api: typeof defaultApi = {
       ...defaultApi,
       submitAsk: () => Promise.resolve({ result: "stale", sessionStatus: statusWithAsk(oldSession.id, supersedingAsk) }),
@@ -233,7 +230,7 @@ describe("SessionController ask submission", () => {
   });
 
   it("keeps the draft and reports the failure when the submit request fails", async () => {
-    let state = capableState({ pendingAsk: ask("ask-1") });
+    let state = selectedSessionState({ pendingAsk: ask("ask-1") });
     const api: typeof defaultApi = { ...defaultApi, submitAsk: () => Promise.reject(new Error("submit failed")) };
     const controller = new SessionController(
       () => state,
@@ -253,7 +250,7 @@ describe("SessionController ask submission", () => {
 
   it("does not submit for an archived session", async () => {
     const archived = { ...oldSession, archived: true as const };
-    let state = capableState({ selectedSession: archived, sessions: [archived] });
+    let state = selectedSessionState({ selectedSession: archived, sessions: [archived] });
     let submitted = false;
     const api: typeof defaultApi = {
       ...defaultApi,

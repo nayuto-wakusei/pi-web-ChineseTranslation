@@ -15,6 +15,7 @@ import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletio
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
 import { clearStagedAttachments, loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
 import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
+import type { ShortcutPreferenceConfig } from "../keyboardShortcuts";
 import { composerSendShortcut, matchesComposerSend } from "../composerShortcuts";
 import { createMobilePromptEnterMedia, shouldUsePromptEnterShiftShortcut } from "../promptEnterBehavior";
 import type { CompletionItem } from "../promptCompletionTypes";
@@ -40,6 +41,7 @@ export class PromptEditor extends LitElement {
   @property({ attribute: false }) status?: SessionStatus;
   @property({ type: Boolean }) sending = false;
   @property({ attribute: false }) shortcutConfig: Record<string, string | null> = {};
+  @property({ attribute: false }) shortcuts: ShortcutPreferenceConfig | undefined;
   @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery?: PromptAttachmentDelivery, folder?: string) => void | Promise<void>;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
@@ -386,9 +388,9 @@ export class PromptEditor extends LitElement {
           ...(command.description === undefined ? {} : { description: command.description }),
           ...(command.argumentHint === undefined ? {} : { argumentHint: command.argumentHint }),
         }));
-    } else if (trigger.kind === "file" && this.cwd !== undefined && this.cwd !== "") {
+    } else if (trigger.kind === "file" && this.projectId !== undefined && this.workspaceId !== undefined) {
       this.fileCompletionAbort = new AbortController();
-      const files = await api.files(this.cwd, trigger.query, { signal: this.fileCompletionAbort.signal, scope: trigger.fileScope, machineId: this.machineId, projectId: this.projectId, workspaceId: this.workspaceId, workspaceScoped: this.workspaceScopedFileSuggestions }).catch(emptyFileSuggestions);
+      const files = await api.files(trigger.query, { signal: this.fileCompletionAbort.signal, scope: trigger.fileScope, machineId: this.machineId, projectId: this.projectId, workspaceId: this.workspaceId }).catch(emptyFileSuggestions);
       if (version !== this.requestVersion) return;
       this.completions = files
         .slice(0, 12)
@@ -443,7 +445,7 @@ export class PromptEditor extends LitElement {
       ? shouldUsePromptEnterShiftShortcut(event.shiftKey, this.explicitShiftKeyActive, this.mobilePromptEnterMedia)
       : event.shiftKey;
     return matchesComposerSend({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey,
-      shiftKey, isComposing: event.isComposing, target: event.target }, composerSendShortcut(this.shortcutConfig, this.mobilePromptEnterMedia));
+      shiftKey, isComposing: event.isComposing, target: event.target }, composerSendShortcut(this.shortcuts ?? this.shortcutConfig, this.mobilePromptEnterMedia));
   }
 
   private handleEditorKeyDown(event: KeyboardEvent, view: EditorView): boolean {
@@ -504,7 +506,7 @@ export class PromptEditor extends LitElement {
     editor.dispatch({
       changes: { from: item.replaceFrom, to: replaceTo, insert: `${item.insertText}${suffix}` },
       selection: EditorSelection.cursor(cursor),
-      effects: item.argumentHint === undefined ? [] : setPromptArgumentHint.of({ pos: cursor, text: item.argumentHint }),
+      effects: item.argumentHint === undefined || item.argumentHint === "" ? [] : setPromptArgumentHint.of({ pos: cursor, text: item.argumentHint }),
       scrollIntoView: true,
     });
     this.completions = [];
@@ -639,4 +641,3 @@ function inputAssistanceContentAttributes(draftBeforeCursor: string): Record<str
   // CodeMirror is optimized for code and disables these by default, but the chat prompt is usually prose.
   return inputModeForDraft(draftBeforeCursor).kind === "normal" ? proseInputAssistanceAttributes : codeLikeInputAssistanceAttributes;
 }
-

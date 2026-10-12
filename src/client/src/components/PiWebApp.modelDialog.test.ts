@@ -20,6 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+
 describe("PiWebApp model dialog", () => {
   it("does not apply an older default read to a reopened dialog", async () => {
     const app = new PiWebApp();
@@ -194,10 +195,11 @@ describe("PiWebApp model dialog", () => {
       { provider: "openai", id: "gpt-4o", enabled: true },
       { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false },
     ];
-    vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue(freshCatalog);
+    const setModelEnabled = vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue(freshCatalog);
 
     await callToggleHandler(app, "openai", "gpt-4o", true);
 
+    expect(setModelEnabled).toHaveBeenCalledWith("openai", "gpt-4o", true);
     expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
     expect(appModelDialog(app)?.options).toEqual([
       { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
@@ -231,6 +233,9 @@ describe("PiWebApp model dialog", () => {
 
     expect(setModelScope).toHaveBeenCalledWith("current");
     expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
+    expect(appModelDialog(app)?.options).toEqual([
+      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+    ]);
   });
 });
 
@@ -239,6 +244,7 @@ async function callOpenModelDialog(app: PiWebApp): Promise<void> {
   if (typeof method !== "function") throw new Error("PiWebApp openModelDialog was unavailable");
   await Reflect.apply(method, app, []);
 }
+
 
 async function callPinSessionDefault(app: PiWebApp, kind: "model" | "thinking", value: string): Promise<void> {
   const method: unknown = Reflect.get(app, "pinSessionDefault");

@@ -37,16 +37,20 @@ describe("PiSessionService", () => {
       ];
       const { service } = messagesService(branch);
 
-      const messages = await service.messages(sessionRef("session-1"));
+      const page = await service.messages(sessionRef("session-1"));
 
-      expect(messages).toEqual([
+      expect(page).toEqual({
+        start: 0,
+        total: 6,
+        messages: [
         { role: "user", content: [{ type: "text", text: "hi" }] },
         { role: "assistant", provider: "openai", model: "gpt-4.1", content: [{ type: "text", text: "before any entry" }] },
         { role: "assistant", provider: "openai", model: "gpt-4.1", content: [{ type: "text", text: "first answer" }], thinkingLevel: "medium" },
         { role: "assistant", provider: "openai", model: "gpt-4.1", content: [{ type: "text", text: "second answer" }], thinkingLevel: "max" },
         { role: "assistant", provider: "openai", model: "gpt-4.1", content: [{ type: "text", text: "unthinking answer" }] },
         { role: "toolResult", toolName: "bash", content: [{ type: "text", text: "done" }] },
-      ]);
+        ],
+      });
       await service.dispose();
     });
 

@@ -1,3 +1,5 @@
+import type { NavigationFreshness } from "./types";
+import { emptyPage } from "./sessionController.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpRequestError } from "../api/http";
 import { initialAppState } from "../appState";
@@ -327,6 +329,7 @@ describe("SessionController unchanged selected-session refresh", () => {
     await harness.controller.refreshSelectedSession();
     expect(harness.appliedRefreshes()).toBe(1);
     const setStateCallsAfterFirst = harness.setStateCalls();
+    expect(setStateCallsAfterFirst).toBeGreaterThan(0);
     const messagesAfterFirst = harness.getState().messages;
 
     await harness.controller.refreshSelectedSession();
@@ -392,5 +395,160 @@ describe("SessionController unchanged selected-session refresh", () => {
 
     await harness.controller.refreshSelectedSession();
     expect(harness.appliedRefreshes()).toBe(2);
+  });
+});
+
+
+describe("SessionController upstream navigation and runtime contracts", () => {
+  it("does not apply a selected-session response after its route scope becomes stale", async () => {
+    const messages = deferred<MessagePage>();
+    const selectedStatus = deferred<SessionStatus>();
+    let navigationCurrent = true;
+    const navigation: NavigationFreshness = {
+      generation: 0,
+      scope: ["session"],
+      isCurrent: () => navigationCurrent,
+    };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => messages.promise,
+      status: () => selectedStatus.promise,
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const selecting = controller.selectSession(oldSession, { updateUrl: false, navigation });
+    await Promise.resolve();
+    navigationCurrent = false;
+    messages.resolve(emptyPage);
+    selectedStatus.resolve(status(oldSession.id));
+    await selecting;
+
+    expect(state.selectedSession?.id).toBe(oldSession.id);
+    expect(state.messages).toEqual([]);
+    expect(state.status).toBeUndefined();
+  });
+
+  it("retains a stale selection failure under its originating session scope", async () => {
+    const messages = deferred<MessagePage>();
+    const selectedStatus = deferred<SessionStatus>();
+    let navigationCurrent = true;
+    const navigation: NavigationFreshness = {
+      generation: 0,
+      scope: ["session"],
+      isCurrent: () => navigationCurrent,
+    };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession, replacementSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => messages.promise,
+      status: () => selectedStatus.promise,
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const selecting = controller.selectSession(oldSession, { updateUrl: false, navigation });
+    await Promise.resolve();
+    navigationCurrent = false;
+    state = { ...state, selectedSession: replacementSession };
+    selectedStatus.resolve(status(oldSession.id));
+    messages.reject(new Error("origin selection unavailable"));
+    await selecting;
+
+    const scope = sessionBrowserErrorScope("local", oldSession.id, {
+      cwd: oldSession.cwd,
+      projectId: workspace.projectId,
+      workspaceId: workspace.id,
+    });
+    expect(state.browserErrors[browserErrorScopeKey(scope)]?.message).toBe("origin selection unavailable");
+    expect(state.selectedSession).toBe(replacementSession);
+  });
+
+  it("captures session workspace ownership before a machine switch", async () => {
+    const machineA: NonNullable<AppState["selectedMachine"]> = {
+      id: "machine-a",
+      name: "Machine A",
+      kind: "remote",
+      createdAt: "now",
+      updatedAt: "now",
+    };
+    const machineB: NonNullable<AppState["selectedMachine"]> = {
+      ...machineA,
+      id: "machine-b",
+      name: "Machine B",
+    };
+    const workspaceA = { ...workspace, id: "workspace-a", projectId: "project-a" };
+    const workspaceB = { ...workspace, id: "workspace-b", projectId: "project-b" };
+    const projectA: NonNullable<AppState["selectedProject"]> = { id: workspaceA.projectId, name: "Project A", path: workspaceA.path, createdAt: "now" };
+    const projectB: NonNullable<AppState["selectedProject"]> = { id: workspaceB.projectId, name: "Project B", path: workspaceB.path, createdAt: "now" };
+    const messages = deferred<MessagePage>();
+    let state: AppState = {
+      ...initialAppState(),
+      selectedMachine: machineA,
+      selectedProject: projectA,
+      selectedWorkspace: workspaceA,
+      selectedSession: oldSession,
+      sessions: [oldSession],
+    };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => messages.promise,
+      status: () => Promise.resolve(status(oldSession.id)),
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const refresh = controller.refreshSelectedSession(oldSession.id);
+    await Promise.resolve();
+    state = {
+      ...state,
+      selectedMachine: machineB,
+      selectedProject: projectB,
+      selectedWorkspace: workspaceB,
+      selectedSession: undefined,
+      sessions: [],
+    };
+    messages.reject(new Error("machine A transcript unavailable"));
+    await refresh;
+
+    const originScope = sessionBrowserErrorScope(machineA.id, oldSession.id, {
+      cwd: oldSession.cwd,
+      projectId: workspaceA.projectId,
+      workspaceId: workspaceA.id,
+    });
+    expect(state.browserErrors[browserErrorScopeKey(originScope)]?.message).toBe("machine A transcript unavailable");
+    expect(visibleBrowserErrors(state.browserErrors, {
+      machineId: machineB.id,
+      projectId: workspaceB.projectId,
+      workspaceId: workspaceB.id,
+    })).toEqual([]);
+    expect(visibleBrowserErrors(state.browserErrors, {
+      machineId: machineA.id,
+      projectId: workspaceA.projectId,
+      workspaceId: workspaceA.id,
+      sessionId: oldSession.id,
+      cwd: oldSession.cwd,
+    })).toEqual([{ scope: originScope, message: "machine A transcript unavailable" }]);
   });
 });

@@ -2,6 +2,9 @@ import type { PiWebPlugin, WorkspacePanelContext } from "@chainingintention/pi-w
 import { isReview, type Review } from "./protocol.js";
 
 interface PanelState { reviews: Review[]; selected?: Review; busy: boolean; status: string }
+function reviewStatusLabel(status: Review["status"]): string {
+  return { running: "处理中", completed: "已完成", failed: "失败", interrupted: "已中断" }[status];
+}
 const plugin: PiWebPlugin = {
   apiVersion: 4,
   name: "工作区审查",
@@ -66,11 +69,11 @@ const plugin: PiWebPlugin = {
                   if (event.target instanceof HTMLSelectElement && event.target.value !== "") void perform(context, "read", event.target.value);
                 }}>
                 <option value="" ?selected=${!state.selected}>选择审查</option>
-                ${state.reviews.map((review) => html`<option value=${review.id} ?selected=${review.id === state.selected?.id}>${review.createdAt} — ${review.status}</option>`)}
+                ${state.reviews.map((review) => html`<option value=${review.id} ?selected=${review.id === state.selected?.id}>${review.createdAt} — ${reviewStatusLabel(review.status)}</option>`)}
               </select></label>
               <button ?disabled=${disabled || state.reviews.length < 2} @click=${() => { cycle(-1); }}>上一条审查</button>
               <button ?disabled=${disabled || state.reviews.length < 2} @click=${() => { cycle(1); }}>下一条审查</button>
-              ${state.selected ? html`<h3>${state.selected.status}</h3>
+              ${state.selected ? html`<h3>${reviewStatusLabel(state.selected.status)}</h3>
                 <p>会话：${state.selected.sessionId || "尚未创建，请稍后刷新"}</p>
                 <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">${state.selected.text}</pre>` : html`<p>未选择审查。</p>`}
             </section>`;

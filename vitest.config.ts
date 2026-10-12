@@ -5,6 +5,7 @@ const allTests = ["src/**/*.test.ts", "pi-web-plugins/**/*.test.ts", "pi-package
 const piSessionServiceTests = ["src/server/sessions/piSessionService*.test.ts"];
 
 export default defineConfig({
+  // Standalone examples consume the public entry, without requiring a prior build.
   resolve: {
     alias: { "@chainingintention/pi-web-cn/server-plugin-api": fileURLToPath(new URL("./src/server-plugin-api.ts", import.meta.url)) },
   },

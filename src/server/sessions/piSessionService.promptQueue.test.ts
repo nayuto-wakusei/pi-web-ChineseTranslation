@@ -81,7 +81,7 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    await expect(service.prompt("prompt-session", undefined)).rejects.toThrow("提示文本为必填项");
+    await expect(service.prompt(sessionRef("prompt-session"), undefined)).rejects.toThrow("提示文本为必填项");
 
     expect(createCalls).toBe(0);
     expect(fake.calls.prompt).toEqual([]);

@@ -127,4 +127,8 @@ describe("settings config drafts", () => {
       attachmentDefaultFolder: "",
     })).toThrow("允许的外部路径必须是绝对路径或以 ~ 开头");
   });
+
+  it("rejects absolute attachment folders before saving", () => {
+    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("附件默认文件夹必须是工作区相对路径。");
+  });
 });

@@ -133,6 +133,18 @@ class ListOnlySessionManager implements PiSessionManagerGateway {
     return Promise.resolve(this.entries.filter((entry) => entry.cwd === cwd));
   }
 
+  listAll(): Promise<PiSessionListEntry[]> {
+    return Promise.resolve([...this.entries]);
+  }
+
+  resolveSessionFile(cwd: string, sessionId: string) {
+    return Promise.resolve(this.entries.find((entry) => entry.cwd === cwd && entry.id === sessionId));
+  }
+
+  invalidateSessionFile(): void {
+    // This list-only fixture does not memoize file summaries.
+  }
+
   create(): PiSessionManager {
     throw new Error("not used");
   }
@@ -147,6 +159,8 @@ class ListOnlySessionManager implements PiSessionManagerGateway {
       getSessionFile: () => entry.path,
       getBranch: () => branch,
       getLeafId: () => null,
+      branch: () => { throw new Error("not used"); },
+      resetLeaf: () => { throw new Error("not used"); },
     };
   }
 }

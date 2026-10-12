@@ -37,17 +37,6 @@ describe("SettingsSessiondPanel Ask Questions setting", () => {
     expect(toggle.checked).toBe(true);
     expect(toggle.disabled).toBe(true);
   });
-
-  it("does not offer an unsupported setting from an older selected machine", async () => {
-    const panel = new SettingsSessiondPanel();
-    panel.configResponse = configResponse(undefined);
-    document.body.append(panel);
-    await panel.updateComplete;
-
-    const toggle = askUserToggle(panel);
-    expect(toggle.checked).toBe(false);
-    expect(toggle.disabled).toBe(true);
-  });
 });
 
 function askUserToggle(panel: SettingsSessiondPanel): HTMLInputElement {
@@ -56,23 +45,22 @@ function askUserToggle(panel: SettingsSessiondPanel): HTMLInputElement {
   return toggle;
 }
 
-function configResponse(askUser: boolean | undefined, askUserOverride = false): PiWebConfigResponse {
-  const askUserConfig = askUser === undefined ? {} : { askUser };
+function configResponse(askUser: boolean, askUserOverride = false): PiWebConfigResponse {
   return {
     path: "/tmp/pi-web/config.json",
     exists: true,
-    config: askUserConfig,
-    effectiveConfig: askUserConfig,
+    config: { askUser },
+    effectiveConfig: { askUser },
     envOverrides: {
+      agentCommand: false,
+      agentDir: false,
+      agentSessionDir: false,
       host: false,
       port: false,
       allowedHosts: false,
       spawnSessions: false,
       subsessions: false,
       askUser: askUserOverride,
-      agentCommand: false,
-      agentDir: false,
-      agentSessionDir: false,
     },
   };
 }

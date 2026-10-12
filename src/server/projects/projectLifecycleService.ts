@@ -37,6 +37,8 @@ export class ProjectLifecycleService {
 
   add(input: Parameters<ProjectService["add"]>[0]): Promise<Project> {
     return this.serialized(async () => {
+      // Admission is the one synchronous cleanup boundary: do not make an old
+      // orphan cwd valid again before its historical unread has been removed.
       this.clearCleanupTimer();
       try {
         await this.cleanupUnread();
@@ -67,9 +69,11 @@ export class ProjectLifecycleService {
   }
 
   private async cleanupUnread(): Promise<void> {
+    // A failed flush remains pending even if the in-memory catalog is empty.
     if (!this.cleanupPending && !this.dependencies.hasUnread()) return;
     const projects = await this.dependencies.projects.list();
     const resolutions = await Promise.all(projects.map((project) => this.dependencies.workspaces.resolve(project)));
+    // A failed lookup is not an authoritative empty workspace list.
     for (const resolution of resolutions) {
       if (resolution.status === "degraded" || resolution.diagnostics.length > 0) {
         throw new Error(`Cannot clean up unread state: workspace resolution incomplete for ${resolution.projectId}`);
@@ -89,6 +93,7 @@ export class ProjectLifecycleService {
   private serialized<T>(operation: () => Promise<T>): Promise<T> {
     if (this.stopping) return Promise.reject(new Error("Project lifecycle is shutting down"));
     const result = this.queue.then(operation);
+    // Errors reach their caller without poisoning later mutations or retries.
     this.queue = result.catch(() => undefined);
     return result;
   }

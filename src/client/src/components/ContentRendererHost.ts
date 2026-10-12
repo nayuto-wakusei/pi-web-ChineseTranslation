@@ -1,4 +1,4 @@
-import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
+import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ContentRendererContribution } from "../../../plugin-api";
 import type { ContentRendererChoice } from "../plugins/contentRenderers";
@@ -35,7 +35,7 @@ export class ContentRendererHost extends LitElement {
   @state() private failure: string | undefined;
   @state() private copyStatus = COPY_SOURCE;
   private controller: AbortController | undefined;
-  private preview: TemplateResult | Node | undefined;
+  private preview: TemplateResult | undefined;
 
   protected override willUpdate(changes: PropertyValues<this>): void {
     const identityChanged = this.restoreIntent || changes.has("intentKey") || changes.has("text");
@@ -101,7 +101,7 @@ export class ContentRendererHost extends LitElement {
     this.cancelPreview();
   }
 
-  private renderPreview(): TemplateResult | Node | undefined {
+  private renderPreview(): TemplateResult | undefined {
     if (this.preview !== undefined || this.renderer === undefined || this.failure !== undefined) return this.preview;
     const controller = new AbortController();
     this.controller = controller;
@@ -114,7 +114,7 @@ export class ContentRendererHost extends LitElement {
     try {
       const preview: unknown = this.renderer.render({ text: this.text, signal: controller.signal, fail });
       if (isPromiseLike(preview)) void Promise.resolve(preview).catch(fail);
-      if (!isTemplateResult(preview) && !(preview instanceof Node)) throw new Error("Content renderer must return a Lit template or DOM node synchronously");
+      if (!isTemplateResult(preview)) throw new Error("Content renderer must return a Lit template synchronously");
       if (!controller.signal.aborted) this.preview = preview;
     } catch (error) {
       fail(error);
@@ -126,11 +126,6 @@ export class ContentRendererHost extends LitElement {
     const text = this.text;
     const copied = await writeClipboardText(text);
     if (this.isConnected && text === this.text) this.copyStatus = copied ? COPIED_SOURCE : COPY_FAILED;
-  }
-
-  override updated(): void {
-    const preview = this.renderRoot.querySelector(".preview");
-    if (preview !== null && this.preview instanceof Node && !preview.contains(this.preview)) preview.replaceChildren(this.preview);
   }
 
   override render() {
@@ -156,12 +151,14 @@ export class ContentRendererHost extends LitElement {
       </div>`}
       <div id="content">
         ${diagnostic === undefined ? null : html`<p role="status">${diagnostic}</p>`}
-        ${showingRaw ? html`<pre tabindex="0" aria-label="原始源码"><code>${this.text}</code></pre>` : html`<div class="preview" tabindex="0" aria-label="图表预览">${preview instanceof Node ? nothing : preview}</div>`}
+        ${showingRaw ? html`<pre tabindex="0" aria-label="原始源码"><code>${this.text}</code></pre>` : html`<div class="preview" tabindex="0" aria-label="图表预览">${preview}</div>`}
       </div>
     `;
   }
 
   static override styles = css`
+    /* Keep natural height in flex viewers: shrinking this clipping boundary
+       hides content instead of giving the surrounding viewer a scroll range. */
     :host { display: block; flex-shrink: 0; margin: 0 0 10px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); overflow: hidden; color: var(--pi-text); }
     :host([external-controls]) { margin: 0; border: 0; border-radius: 0; }
     .controls { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-surface); }

@@ -16,6 +16,19 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("reveals a selected file beyond the current 200-row render budget", async () => {
+    const context = createContext({ files: createFiles({ listFiles: (path) => Promise.resolve(treeResponse(path,
+      Array.from({ length: 1000 }, (_, index) => ({ name: `file-${String(index)}.txt`, path: `file-${String(index)}.txt`, type: "file" })))) }) });
+    const panel = await mountPanel(context);
+    await vi.waitFor(() => { expect(panel.shadowRoot?.querySelectorAll(".row")).toHaveLength(200); });
+    buttonWithText(panel.shadowRoot, "显示更多").click();
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelectorAll(".row")).toHaveLength(400);
+    panel.context = { ...context, navigation: createNavigation({ file: "file-899.txt" }) };
+    await vi.waitFor(() => { expect(panel.shadowRoot?.querySelector(".row.selected")?.textContent).toContain("file-899.txt"); });
+    expect(panel.shadowRoot?.querySelectorAll(".row")).toHaveLength(1000);
+  });
+
   it("retains incremental tree rendering with an explicit load-more fallback", async () => {
     const context = createContext({ files: createFiles({ listFiles: (path) => Promise.resolve(treeResponse(path,
       Array.from({ length: 250 }, (_, index) => ({ name: `file-${String(index)}.txt`, path: `file-${String(index)}.txt`, type: "file" })))) }) });

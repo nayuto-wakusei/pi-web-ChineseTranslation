@@ -1,7 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { isRecord } from "./sessionFileFormat.js";
 
-/** Rewrite a header in place while preserving its byte length. */
+/**
+ * Mimics piSessionService's clearParentSession — rewrite the header in place
+ * (truncate + write keeps the inode) with the parent link removed — and pads
+ * the header back to its original byte length, so the rewrite is the one the
+ * summary memo's identity + size key cannot see at all.
+ */
 export async function rewriteHeaderWithoutParentSession(path: string): Promise<void> {
   const content = await readFile(path, "utf8");
   const newlineIndex = content.indexOf("\n");

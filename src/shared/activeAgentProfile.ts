@@ -13,50 +13,21 @@ export function usesPiCodingAgentStateCompatibility(command: string): boolean {
 
 const ACTIVE_AGENT_PROFILE_FIELDS = new Set([
   "schemaVersion",
-  "revision",
-  "command",
   "dir",
-  "sessionDirEnvKeys",
 ]);
-const SHA256_REVISION_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const SAFE_BARE_AGENT_COMMAND_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._+-]*$/u;
-const ACTIVE_SESSION_DIR_ENV_KEYS = new Set(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
 
 export function parseActiveAgentProfileDescriptor(value: unknown): ActiveAgentProfileDescriptor | undefined {
-  if (isRecord(value) && value["schemaVersion"] === ACTIVE_AGENT_PROFILE_SCHEMA_VERSION) {
-    if (Object.keys(value).some((key) => key !== "schemaVersion" && key !== "dir")) return undefined;
-    const dir = value["dir"];
-    if (typeof dir !== "string" || !isPortableAbsolutePath(dir)) return undefined;
-    return Object.freeze({ schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION, dir });
-  }
   if (!isRecord(value) || Object.keys(value).some((key) => !ACTIVE_AGENT_PROFILE_FIELDS.has(key))) return undefined;
 
   const schemaVersion = value["schemaVersion"];
-  const revision = value["revision"];
-  const command = value["command"];
   const dir = value["dir"];
-  const sessionDirEnvKeys = value["sessionDirEnvKeys"];
-  if (schemaVersion !== 1) return undefined;
-  if (typeof revision !== "string" || !SHA256_REVISION_PATTERN.test(revision)) return undefined;
-  if (typeof command !== "string" || !isPortableAgentCommand(command)) return undefined;
+  if (schemaVersion !== ACTIVE_AGENT_PROFILE_SCHEMA_VERSION) return undefined;
   if (typeof dir !== "string" || !isPortableAbsolutePath(dir)) return undefined;
-  if (!isNonEmptyStringArray(sessionDirEnvKeys)) return undefined;
-  if (new Set(sessionDirEnvKeys).size !== sessionDirEnvKeys.length) return undefined;
-  if (sessionDirEnvKeys[0] !== "PI_WEB_AGENT_SESSION_DIR" || sessionDirEnvKeys.some((key) => !ACTIVE_SESSION_DIR_ENV_KEYS.has(key))) return undefined;
 
   return Object.freeze({
-    schemaVersion,
-    revision,
-    command,
+    schemaVersion: ACTIVE_AGENT_PROFILE_SCHEMA_VERSION,
     dir,
-    sessionDirEnvKeys: Object.freeze([...sessionDirEnvKeys]),
   });
-}
-
-function isPortableAgentCommand(value: string): boolean {
-  if (value !== value.trim() || /[\s;&|`$<>]/u.test(value)) return false;
-  if (isPortableAbsolutePath(value)) return !value.endsWith("/") && !value.endsWith("\\");
-  return SAFE_BARE_AGENT_COMMAND_PATTERN.test(value);
 }
 
 function isPortableAbsolutePath(value: string): boolean {
@@ -71,10 +42,6 @@ function hasControlCharacter(value: string): boolean {
     if (code < 32 || code === 127) return true;
   }
   return false;
-}
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string" && entry !== "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,14 +1,19 @@
+import type { FileContentMediaType } from "./pluginApiTypes.js";
+
 export const MAX_INLINE_PREVIEW_BYTES = 10 * 1024 * 1024;
 export const MAX_INLINE_PREVIEW_LABEL = "10 MB";
 export const MAX_WORKSPACE_FILE_CONTENT_BYTES = 512 * 1024;
 
-export type WorkspaceFileClassification =
+type WorkspaceFileClassificationDetails =
   | { readonly mediaType: "image"; readonly source: "stream" | "text"; readonly previewMimeType: string }
   | { readonly mediaType: "html"; readonly source: "text"; readonly previewMimeType: "text/html; charset=utf-8" }
   | { readonly mediaType: "pdf"; readonly source: "stream"; readonly previewMimeType: "application/pdf" }
   | { readonly mediaType: "markdown"; readonly source: "text" };
 
-export type WorkspaceFileMediaType = WorkspaceFileClassification["mediaType"];
+/** Internal classification constrained to the public file-response media types. */
+export type WorkspaceFileClassification = WorkspaceFileClassificationDetails & {
+  readonly mediaType: FileContentMediaType;
+};
 
 // Extension classification is shared by JSON source reads, streamed previews,
 // and proxy response policy. Keep this an allowlist: only classifications with

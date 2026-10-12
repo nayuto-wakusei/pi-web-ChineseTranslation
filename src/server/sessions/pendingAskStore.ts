@@ -262,9 +262,6 @@ function validateQuestion(question: AskUserQuestion, id: string): AskUserQuestio
     question: requireText(question.question, `text of question ${id}`),
     ...(detail === undefined ? {} : { detail: requireText(detail, `detail of question ${id}`) }),
     options,
-    // Every question accepts a custom answer. Retain the marker so older web
-    // clients also expose the field when connected to this daemon.
-    allowOther: true,
     ...(question.multiple === true ? { multiple: true } : {}),
   };
 }

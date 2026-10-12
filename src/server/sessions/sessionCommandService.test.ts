@@ -183,20 +183,20 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot open the session tree while the session is active. Stop current activity and try /tree again.",
+      message: "会话活动期间无法打开会话树。请先停止当前活动，再尝试 /tree。",
     });
     expect(getSessionTree).not.toHaveBeenCalled();
 
     externallyActive = false;
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot navigate an empty session tree.",
+      message: "无法导航空会话树。",
     });
 
     const unavailable = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
     await expect(unavailable.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Session tree navigation is not available with this Pi runtime.",
+      message: "当前 Pi 运行时不支持会话树导航。",
     });
   });
 
@@ -212,11 +212,11 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/name changed")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
     });
     await expect(service.respond("s1", pendingFork.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
     });
     expect(active.runtime.session.setSessionName).not.toHaveBeenCalled();
     expect(active.runtime.fork).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe("SessionCommandService", () => {
 
     await expect(clone).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });
@@ -361,6 +361,79 @@ describe("SessionCommandService", () => {
       message: "会话活动期间无法分叉。请先停止当前活动。",
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
+  });
+
+  it("forkEntry forks before user entries and returns their text as a prompt draft", async () => {
+    const active = activeSession();
+    vi.mocked(active.runtime.fork).mockResolvedValueOnce({ cancelled: false, selectedText: "hello again" });
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+
+    await expect(service.forkEntry("s1", "m1")).resolves.toMatchObject({
+      type: "done",
+      message: "会话已分叉",
+      session: { id: "s1" },
+      promptDraft: "hello again",
+    });
+    expect(active.runtime.fork).toHaveBeenCalledWith("m1", { position: "before" });
+  });
+
+  it("forkEntry forks at non-user entries so the forked file includes them", async () => {
+    const active = activeSession();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+
+    await expect(service.forkEntry("s1", "entry-9")).resolves.toMatchObject({ type: "done", message: "会话已分叉" });
+    expect(active.runtime.fork).toHaveBeenCalledWith("entry-9", { position: "at" });
+  });
+
+  it("forkEntry reports cancellation without naming or returning session metadata", async () => {
+    const active = activeSession();
+    vi.mocked(active.runtime.fork).mockResolvedValueOnce({ cancelled: true });
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+
+    await expect(service.forkEntry("s1", "m1")).resolves.toEqual({ type: "done", message: "已取消分叉" });
+    expect(active.runtime.session.setSessionName).not.toHaveBeenCalled();
+  });
+
+  it("forkEntry rejects while the session has active work or tree navigation owns the gate", async () => {
+    const active = activeSession({ isStreaming: true });
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+
+    await expect(service.forkEntry("s1", "m1")).resolves.toEqual({
+      type: "unsupported",
+      message: "会话活动期间无法分叉。请先停止当前活动。",
+    });
+
+    const navigating = activeSession();
+    const navigatingService = new SessionCommandService(() => getActive(navigating), vi.fn(), eventPublisher(), {
+      isTreeNavigationActive: () => true,
+    });
+    await expect(navigatingService.forkEntry("s1", "m1")).resolves.toEqual({
+      type: "unsupported",
+      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+    });
+    expect(active.runtime.fork).not.toHaveBeenCalled();
+    expect(navigating.runtime.fork).not.toHaveBeenCalled();
+  });
+
+  it("forkEntry names the forked session on success", async () => {
+    const active = activeSession({ sessionName: "Build auth" });
+    const forked = activeSession({ sessionId: "forked", sessionName: undefined }).runtime.session;
+    vi.mocked(active.runtime.fork).mockImplementationOnce(() => {
+      active.runtime.session = forked;
+      return Promise.resolve({ cancelled: false, selectedText: "some text" });
+    });
+    const events = eventPublisher();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), events, {}, {
+      listSessionNames: () => Promise.resolve(["Build auth"]),
+    });
+
+    await expect(service.forkEntry("s1", "entry-9")).resolves.toMatchObject({
+      type: "done",
+      message: "会话已分叉",
+      session: { id: "forked", name: "Build auth — 分叉 1" },
+    });
+    expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — 分叉 1");
+    expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — 分叉 1" }, undefined);
   });
 });
 

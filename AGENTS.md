@@ -62,13 +62,17 @@ The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead
 - `src/client/src/components/PiWebApp.ts` is the client composition root, not the default home for new domain logic. Put state orchestration in controllers, responsive shell behavior in `appShell/`, transport in `api/`, and keep Lit components focused on rendering and event wiring.
 - Recurring asynchronous browser work must check connection lifetime before rescheduling. Clearing a timer on disconnect is insufficient once its callback is awaiting a request; an old connection's completion must not restart or replace the new connection's timer.
 - Browser PI WEB plugins are trusted code and are separate from Pi packages. Bundled plugins live under `pi-web-plugins/<id>/` and build into `dist/pi-web-plugins/`.
-- `src/plugin-api.ts` is the source of the stable public plugin API. `src/plugin-api/unstable.ts` is explicitly unstable. Do not hand-edit generated `plugin-api.d.ts`; run `npm run build:plugin-api`.
+- `src/plugin-api.ts` and `src/server-plugin-api.ts` are the sources of the public browser and server plugin APIs. Plugins use those supported package entrypoints, not private host modules. Do not hand-edit generated declarations; run `npm run build:plugin-api`.
 - Plugins should prefer documented context helpers over direct private `/api/...` calls. Keep activation cheap and declarative, and preserve machine scoping for remote plugin contributions and assets.
 - When changing Chinese UI copy, update the owning component/plugin and relevant copy assertions, including `src/client/src/coreUiChineseCopy.test.ts` where applicable.
 - `AuthController` snapshots the machine and, in normal mode, selected project into `AuthDialogTarget` when an auth flow starts. Keep that target through asynchronous OAuth polling and only refresh the session status while it remains selected; do not retarget an in-flight flow from mutable current UI state.
 - Session-list components render menu interaction only; route rename mutations through `SessionController` and the existing `/name` command path. Rename only persisted, unarchived sessions, trim/reject blank names, preserve the currently selected conversation when renaming another row, and keep list/selection metadata synchronized through `session.name` events.
 - Keep attachment staging synchronized on add, remove, and composer reset, not only on session switches. Temporary-to-persisted session ID migration must preserve unsent attachments without recreating the abandoned temporary key; test the controller migration before the editor's next update.
 - Preserve the chat scroll layout invariant: `.chat-wrap` owns the constrained flex area and `.chat` is the absolute `inset: 0` scrolling element. Do not replace it with `height: 100%`, or long transcripts can no longer reach their bottom.
+
+## Verification reporting
+
+Never report failed, incomplete, or skipped verification as passing. Identify any expected check that was not run and why, and do not mask a non-zero result. If a command intentionally probes a failure path or captures an exit for inspection, state that purpose and interpret the result.
 
 ## Client application URL convention
 

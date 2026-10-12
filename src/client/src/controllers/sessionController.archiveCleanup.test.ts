@@ -1,3 +1,5 @@
+import type { SessionInfo } from "../api";
+import { deferred } from "./sessionController.testSupport";
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { initialAppState } from "../appState";
@@ -355,5 +357,152 @@ describe("SessionController archive and cleanup", () => {
     expect(deletedIds).toEqual([archivedSession.id]);
     expect(state.sessions).toEqual([]);
     expect(state.error).toBe("");
+  });
+});
+
+
+describe("SessionController upstream navigation and runtime contracts", () => {
+  it("publishes an archive fallback before route reconciliation selects it", async () => {
+    const persistedSession = { ...oldSession, persisted: true };
+    const nextSession = { ...oldSession, id: "next-session", path: "/tmp/next-session.jsonl", persisted: true };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: persistedSession, sessions: [persistedSession, nextSession] };
+    let selectedAtNavigation: string | undefined;
+    let navigatedSession: string | undefined;
+    const navigateToSession = (session: SessionInfo | undefined): Promise<boolean> => {
+      selectedAtNavigation = state.selectedSession?.id;
+      navigatedSession = session?.id;
+      state = { ...state, selectedSession: session };
+      return Promise.resolve(true);
+    };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      archive: () => Promise.resolve({ archived: true }),
+      messages: () => Promise.resolve(emptyPage),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket(), navigateToSession },
+    );
+
+    await controller.archiveSession();
+
+    expect(selectedAtNavigation).toBe(persistedSession.id);
+    expect(navigatedSession).toBe(nextSession.id);
+    expect(state.selectedSession?.id).toBe(nextSession.id);
+  });
+
+  it("applies partial failures from bulk archive", async () => {
+    const persistedSession = { ...oldSession, persisted: true };
+    const failedSession = { ...oldSession, id: "failed-session", path: "/tmp/failed-session.jsonl", persisted: true };
+    const archiveCalls: { ids: string[]; machineId: string }[] = [];
+    let state: AppState = {
+      ...initialAppState(),
+      selectedWorkspace: workspace,
+      sessions: [persistedSession, failedSession],
+    };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      archiveMany: (sessions, machineId) => {
+        archiveCalls.push({ ids: sessions.map(sessionLookupId), machineId: machineId ?? "local" });
+        return Promise.resolve({ archived: true, archivedSessionIds: [persistedSession.id], failures: [{ sessionId: failedSession.id, error: "busy" }], generatedAt: "now" });
+      },
+      archive: () => { throw new Error("single archive should not be used"); },
+      messages: () => Promise.resolve(emptyPage),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.selectSession(persistedSession, { updateUrl: false });
+    await controller.archiveSessions([persistedSession, failedSession]);
+
+    expect(archiveCalls).toEqual([{ ids: [oldSession.id, failedSession.id], machineId: "local" }]);
+    expect(state.sessions.find((session) => session.id === oldSession.id)).toMatchObject({ archived: true });
+    expect(state.sessions.find((session) => session.id === failedSession.id)?.archived).toBeUndefined();
+    expect(state.selectedSession?.id).toBe(failedSession.id);
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("归档失败，1 个会话处理失败：failed-session: busy");
+  });
+
+  it("follows archived-session deletion when the user selects it before the request settles", async () => {
+    const deletedSession = { ...oldSession, id: "deleted-archived", path: "/tmp/deleted-archived.jsonl", archived: true, archivedAt: "later" };
+    const nextSession = { ...oldSession, id: "next-session", path: "/tmp/next-session.jsonl" };
+    const deleteRequest = deferred<{ deleted: true; deletedSessionIds: string[]; failures: []; generatedAt: string }>();
+    let state: AppState = {
+      ...initialAppState(),
+      selectedWorkspace: workspace,
+      selectedSession: oldSession,
+      sessions: [oldSession, deletedSession, nextSession],
+    };
+    const navigationExpected: string[] = [];
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      {
+        api: {
+          ...defaultApi,
+          deleteArchivedMany: () => deleteRequest.promise,
+        },
+        socket: new FakeSocket(),
+        navigateToSession: (session, options) => {
+          navigationExpected.push(`${state.selectedSession?.id ?? "none"}:${options?.expected?.sessionId ?? "none"}`);
+          state = { ...state, selectedSession: session };
+          return Promise.resolve(true);
+        },
+      },
+    );
+
+    const deletion = controller.deleteArchivedSessions([deletedSession]);
+    state = { ...state, selectedSession: deletedSession };
+    deleteRequest.resolve({ deleted: true, deletedSessionIds: [deletedSession.id], failures: [], generatedAt: "now" });
+    await deletion;
+
+    expect(navigationExpected).toEqual([`${deletedSession.id}:${deletedSession.id}`]);
+    expect(state.sessions.map((session) => session.id)).toEqual([oldSession.id, nextSession.id]);
+    expect(state.selectedSession?.id).toBe(oldSession.id);
+  });
+
+  it("keeps partial failures visible from bulk delete", async () => {
+    const deletedSession = { ...oldSession, archived: true, archivedAt: "later" };
+    const failedSession = { ...oldSession, id: "failed-archived", path: "/tmp/failed-archived.jsonl", archived: true, archivedAt: "later" };
+    const deleteCalls: { ids: string[]; machineId: string }[] = [];
+    let state: AppState = {
+      ...initialAppState(),
+      selectedWorkspace: workspace,
+      selectedSession: deletedSession,
+      sessions: [deletedSession, failedSession],
+    };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      deleteArchivedMany: (sessions, machineId) => {
+        deleteCalls.push({ ids: sessions.map(sessionLookupId), machineId: machineId ?? "local" });
+        return Promise.resolve({ deleted: true, deletedSessionIds: [deletedSession.id], failures: [{ sessionId: failedSession.id, error: "busy" }], generatedAt: "now" });
+      },
+      messages: () => Promise.resolve(emptyPage),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.deleteArchivedSessions([deletedSession, failedSession]);
+
+    expect(deleteCalls).toEqual([{ ids: [deletedSession.id, failedSession.id], machineId: "local" }]);
+    expect(state.sessions.map((session) => session.id)).toEqual([failedSession.id]);
+    expect(state.selectedSession?.id).toBe(failedSession.id);
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("删除失败，1 个会话处理失败：failed-archived: busy");
   });
 });

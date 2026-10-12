@@ -9,7 +9,7 @@ import { loadExternalPlugins } from "../plugins/external";
 import type { PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
 import { PiWebApp } from "./PiWebApp";
 
-const workspace: Workspace = { id: "w1", projectId: "p1", path: "/repo", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+const workspace: Workspace = { id: "w1", projectId: "p1", path: "/repo", label: "main", effectiveConfig: {}, isMain: true, isGitRepo: true, isGitWorktree: false };
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -20,10 +20,10 @@ afterEach(() => {
 });
 
 function createApp(): PiWebApp {
-  window.history.replaceState({}, "", "/?project=p1&workspace=w1&tool=example%3Apanel&view=example%3Apanel&legacy.panel--file=old");
+  window.history.replaceState({}, "", "/?project=p1&workspace=w1&tool=example%3Apanel&view=workspace&legacy.panel--file=old");
   const app = new PiWebApp();
   Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"]]));
-  Reflect.set(app, "state", { ...initialAppState(), selectedProject: { id: "p1", name: "Project", path: "/repo", createdAt: "now" }, selectedWorkspace: workspace, workspaceTool: "example:panel", mainView: "example:panel" });
+  Reflect.set(app, "state", { ...initialAppState(), selectedProject: { id: "p1", name: "Project", path: "/repo", createdAt: "now" }, selectedWorkspace: workspace, workspaceTool: "example:panel", mainView: "workspace" });
   return app;
 }
 
@@ -114,7 +114,7 @@ describe("PiWebApp plugin context ownership", () => {
     const app = createApp();
     const remember: unknown = Reflect.get(app, "rememberCurrentMachineNavigation");
     const update: unknown = Reflect.get(app, "updateUrl");
-    const restore: unknown = Reflect.get(app, "writeMachineNavigationSnapshotToUrl");
+    const restore: unknown = Reflect.get(app, "commitMachineNavigationSnapshot");
     const memory: unknown = Reflect.get(app, "machineNavigation");
     if (typeof remember !== "function" || typeof update !== "function" || typeof restore !== "function" || !(memory instanceof SessionStorageMachineNavigationMemory)) throw new Error("Missing navigation memory boundary");
     remember.call(app);
@@ -133,18 +133,14 @@ describe("PiWebApp plugin context ownership", () => {
     const app = createApp();
     const context = hostContext(app);
     const registry: unknown = Reflect.get(app, "plugins");
-    const files: unknown = Reflect.get(app, "files");
-    if (!(registry instanceof PluginRegistry) || typeof files !== "object" || files === null) throw new Error("Missing host collaborators");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Missing host collaborators");
     const invalidate = vi.spyOn(registry, "invalidateWorkspaceResources").mockResolvedValue(undefined);
-    const refresh = vi.fn();
-    Reflect.set(files, "refreshFiles", refresh);
     let complete!: (value: { path: string; size: number; modifiedAt: string; created: boolean }) => void;
     vi.spyOn(workspacesApi, "writeWorkspaceFile").mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
     const pending = context.files.writeFile("a.txt", "hi");
     Reflect.set(app, "state", { ...initialAppState(), selectedMachine: { id: "remote", name: "Remote", kind: "remote", createdAt: "now", updatedAt: "now" }, selectedWorkspace: workspace });
     complete({ path: "a.txt", size: 2, modifiedAt: "now", created: true });
     await pending;
-    expect(refresh).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledOnce();
     expect(invalidate.mock.calls[0]?.[0].machine.id).toBe("local");
     expect(invalidate.mock.calls[0]?.[1]).toEqual({ reason: "mutation", resources: ["workspace.files"] });
@@ -191,7 +187,7 @@ describe("PiWebApp plugin context ownership", () => {
     const setState: unknown = Reflect.get(app, "setState");
     if (typeof setState !== "function") throw new Error("Missing state coordinator");
     setState.call(app, { mainView: "chat" });
-    setState.call(app, { mainView: "example:panel" });
+    setState.call(app, { mainView: "workspace" });
     context.navigation?.set("file", "stale");
     expect(new URL(window.location.href).searchParams.get("legacy.panel--file")).toBe("old");
   });

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TERMINAL_BROWSER_FACADE_CAPABILITY, TerminalFacade } from "../../../../pi-web-plugins/terminal/TerminalFacade";
 import { initialAppState } from "../appState";
 import { terminalsApi, type Workspace } from "../api";
-import { requestPluginBackend } from "../api/pluginBackends";
+import { requestPairedPluginBackend } from "../api/pluginBackends";
 import { machineScopedBundledPluginId } from "../../../shared/machinePluginIds";
 import { queryNamespace } from "../namespacedQueryArgs";
 import type { ExternalPluginLoadResult } from "../plugins/external";
@@ -15,10 +15,10 @@ import { PiWebApp } from "./PiWebApp";
 
 vi.mock("../api/pluginBackends", async (importOriginal) => ({
   ...await importOriginal<typeof import("../api/pluginBackends")>(),
-  requestPluginBackend: vi.fn(),
+  requestPairedPluginBackend: vi.fn(),
 }));
 
-const workspace: Workspace = { id: "w", projectId: "p", path: "/repo", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+const workspace: Workspace = { id: "w", projectId: "p", path: "/repo", label: "main", effectiveConfig: {}, isMain: true, isGitRepo: true, isGitWorktree: false };
 const run = { id: "run", origin: "core", projectId: "p", workspaceId: "w", terminalId: "t", title: "Build", command: "true", status: "succeeded" as const, exitCode: 0, createdAt: "now", metadata: {} };
 
 afterEach(() => {
@@ -95,7 +95,7 @@ describe("required Terminal host cutover", () => {
     const app = createApp(machineId);
     const legacyRun = vi.spyOn(terminalsApi, "runTerminalCommand");
     const legacyList = vi.spyOn(terminalsApi, "listCommandRuns");
-    vi.mocked(requestPluginBackend).mockImplementation((_target, operation) => Promise.resolve(operation === "terminal.run" ? run : [run]));
+    vi.mocked(requestPairedPluginBackend).mockImplementation((_target, operation) => Promise.resolve(operation === "terminal.run" ? run : [run]));
     await call(app, "registerExternalPlugins", "test", () => Promise.resolve(loadResult([terminalRegistration(machineId)])), machineId);
     const context: unknown = call(app, "createWorkspacePanelContext", workspace);
     if (!isContext(context)) throw new Error("Missing panel context");
@@ -104,7 +104,7 @@ describe("required Terminal host cutover", () => {
     await expect(handle.completed).resolves.toEqual(run);
     await expect(call(app, "listTerminalCommandRuns", machineId)).resolves.toEqual([run]);
     const expectedSignal: unknown = expect.any(AbortSignal);
-    expect(requestPluginBackend).toHaveBeenCalledWith(expect.objectContaining({ pluginId: "pi-web.terminal", backendRevision: "revision-1", projectId: "p", workspaceId: "w", machineId }), "terminal.run", expect.objectContaining({ title: "Build", command: "true" }), expect.objectContaining({ signal: expectedSignal }));
+    expect(requestPairedPluginBackend).toHaveBeenCalledWith(expect.objectContaining({ pluginId: "pi-web.terminal", backendRevision: "revision-1", projectId: "p", workspaceId: "w", machineId }), "terminal.run", expect.objectContaining({ title: "Build", command: "true" }), expect.objectContaining({ signal: expectedSignal }));
     expect(legacyRun).not.toHaveBeenCalled();
     expect(legacyList).not.toHaveBeenCalled();
     await registry(app).dispose();
@@ -119,7 +119,7 @@ describe("required Terminal host cutover", () => {
     const query = new URL(window.location.href).searchParams;
     expect(query.get(`${queryNamespace(panelId)}--start`)).toBe("1");
     expect(query.get("tool")).toBe(panelId);
-    expect(requestPluginBackend).not.toHaveBeenCalled();
+    expect(requestPairedPluginBackend).not.toHaveBeenCalled();
     await registry(app).dispose();
   });
 
@@ -139,7 +139,7 @@ describe("required Terminal host cutover", () => {
   it.each(["navigation", "disconnect"])("keeps a retained command completion from moving an obsolete surface (%s)", async (obsolete) => {
     const app = createApp();
     let finish!: (value: typeof run) => void;
-    vi.mocked(requestPluginBackend).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    vi.mocked(requestPairedPluginBackend).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     await call(app, "registerExternalPlugins", "test", () => Promise.resolve(loadResult([terminalRegistration()])));
     const context: unknown = call(app, "createWorkspacePanelContext", workspace);
     if (!isContext(context)) throw new Error("Missing panel context");
@@ -164,7 +164,7 @@ describe("required Terminal host cutover", () => {
     await context.terminal.runCommand({ title: "Build", command: "true", open: true });
     context.terminal.open();
     expect(controlledRun).toHaveBeenCalledWith("core", { title: "Build", command: "true", open: true, workspace }, "local");
-    expect(requestPluginBackend).not.toHaveBeenCalled();
+    expect(requestPairedPluginBackend).not.toHaveBeenCalled();
     expect(activate).not.toHaveBeenCalled();
     expect(registry(app).hasPlugin("pi-web.terminal")).toBe(false);
     expect(new URL(window.location.href).searchParams.get("tool")).toBe("terminal");

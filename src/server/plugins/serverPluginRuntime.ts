@@ -87,7 +87,7 @@ export interface ServerPluginPairedBackendContribution {
   scope: PiWebPluginScope;
   moduleRevision: string;
   backend: ServerPluginPeer;
-  /** Exact declared capabilities for host-only management dispatch gates. */
+  /** Resolved dependency provenance for host-only management dispatch gates. */
   requires: readonly PluginCapability[];
 }
 
@@ -724,7 +724,7 @@ export class ServerPluginRuntime {
           scope: staged.entry.scope,
           moduleRevision: requireServerModule(staged.entry).revision,
           backend: staged.activation.peer,
-          requires: Object.freeze([...(staged.plugin.requires ?? [])]),
+          requires: this.resolvedCapabilityRequirements(staged),
         });
     const active = Object.freeze({
       ...staged,
@@ -741,6 +741,24 @@ export class ServerPluginRuntime {
       ...(pairedBackendContribution?.backend.openChannel === undefined ? {} : { pairedChannelVersion: 1 }),
     }));
     this.logger.info({ pluginId: staged.entry.id, pluginName: staged.plugin.name }, "server plugin activated");
+  }
+
+  private resolvedCapabilityRequirements(staged: StagedServerPlugin): readonly PluginCapability[] {
+    const requirements = new Map<string, PluginCapability>();
+    const visited = new Set<string>();
+    const visit = (plugin: StagedServerPlugin): void => {
+      if (visited.has(plugin.entry.id)) return;
+      visited.add(plugin.entry.id);
+      for (const requirement of plugin.plugin.requires ?? []) {
+        const key = capabilityKey(requirement);
+        requirements.set(key, requirement);
+        if (this.declaredCapabilitiesByKey.get(key)?.source !== "plugin") continue;
+        const provider = this.activePlugins.find(({ entry }) => entry.id === requirement.pluginId);
+        if (provider !== undefined) visit(provider);
+      }
+    };
+    visit(staged);
+    return Object.freeze([...requirements.values()]);
   }
 
   private async failBeforeStart(staged: StagedServerPlugin, error: unknown): Promise<string> {

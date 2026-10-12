@@ -5,7 +5,7 @@ const renderer = new marked.Renderer();
 // Workspace file bytes are untrusted. Raw HTML must remain visible as text,
 // never become nodes that the application can execute or load resources from.
 renderer.html = ({ text }) => escapeHtml(text);
-renderer.image = ({ text }) => escapeHtml(text === "" ? "[Image omitted]" : `[Image omitted: ${text}]`);
+renderer.image = ({ text }) => escapeHtml(text === "" ? "[已省略图片]" : `[已省略图片：${text}]`);
 renderer.checkbox = ({ checked }) => checked ? "[x] " : "[ ] ";
 
 const NO_ATTRIBUTES = new Set<string>();

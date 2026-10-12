@@ -3,6 +3,7 @@ export interface AppAction {
   title: string;
   description?: string;
   shortcut?: string;
+  /** Fallback ids for shortcut preferences migrated from an earlier action owner. */
   shortcutAliases?: string[];
   group?: string;
   enabled?: boolean;

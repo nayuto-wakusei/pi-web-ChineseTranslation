@@ -34,6 +34,7 @@ export interface InstalledNativeServiceDefinitionDependencies {
   readFile: (path: string) => Uint8Array;
   realpath: (path: string) => string;
   capture: (command: string, args: string[]) => InstalledNativeServiceDefinitionCommandResult;
+  warn: (message: string) => void;
 }
 
 const systemdInspectionProperties = [
@@ -190,7 +191,6 @@ function inspectEffectiveSystemdDefinition(
       message: `Systemd unit ${source.systemdName} uses EnvironmentFile inputs (${configuredEnvironmentFiles.join(", ")}); PI WEB cannot safely inspect their managed config values.`,
     };
   }
-
   let actualFragmentPath: string;
   let expectedFragmentPath: string;
   try {
@@ -407,13 +407,15 @@ function unrecognizedSystemdEnvironment(
   };
 }
 
-function managedEnvironmentValues(environment: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
-  const entries: [string, string][] = [];
+function managedEnvironmentValues(
+  environment: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const managed = new Map<string, string>();
   for (const key of managedSystemdEnvironmentKeys) {
     const value = ownEnvironmentValue(environment, key);
-    if (value !== undefined) entries.push([key, value]);
+    if (value !== undefined) managed.set(key, value);
   }
-  return Object.fromEntries(entries);
+  return Object.fromEntries(managed);
 }
 
 function environmentFromAssignments(assignments: readonly string[]): Readonly<Record<string, string>> | undefined {

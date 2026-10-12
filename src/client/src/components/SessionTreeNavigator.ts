@@ -445,7 +445,7 @@ export class SessionTreeNavigator extends LitElement {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       if (!result.cancelled) return;
-      this.statusMessage = "分叉已取消，原会话保持不变。";
+      this.statusMessage = "分叉已取消，未创建新会话；所选历史条目未更改。";
       this.pendingFocus = "operation";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;

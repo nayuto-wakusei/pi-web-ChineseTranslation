@@ -6,7 +6,12 @@ import type {
   ServerPluginRuntimeRecord,
 } from "../plugins/serverPluginRuntime.js";
 import type { PiWebPluginCatalogDiagnostic } from "../piWebPluginCatalog.js";
-import type { WorkspaceService } from "./workspaceService.js";
+import type { Project } from "../types.js";
+
+/** Structural compatibility port for existing project-scoped list adapters. */
+export interface WorkspaceListAdapter {
+  list(project: Project): Promise<WorkspaceListing[]>;
+}
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export interface WorkspaceCatalogProjectReader {
@@ -29,7 +34,7 @@ export interface WorkspaceCatalog {
   providerRuntime?(): Promise<WorkspaceProviderRuntimeSnapshot>;
 }
 
-export type WorkspaceCatalogInput = WorkspaceCatalog | WorkspaceService;
+export type WorkspaceCatalogInput = WorkspaceCatalog | WorkspaceListAdapter;
 
 export function asWorkspaceCatalog(projects: WorkspaceCatalogProjectReader, workspaces: WorkspaceCatalogInput): WorkspaceCatalog {
   if (isWorkspaceCatalog(workspaces)) return workspaces;
@@ -123,11 +128,11 @@ export function workspaceCatalogHttpStatus(error: unknown, fallbackStatus: numbe
  */
 export function withBrowserV1WorkspaceCompatibility(workspace: WorkspaceListing): WorkspaceListing {
   const metadata = workspace.provider?.metadata;
-  if (metadata === undefined) return workspace;
+  if (metadata === undefined) return Object.freeze(workspace);
 
   const branch = metadata["branch"];
-  return {
+  return Object.freeze({
     ...workspace,
     ...(typeof branch === "string" ? { branch } : {}),
-  };
+  });
 }

@@ -388,9 +388,9 @@ describe("PluginBackendRegistry", () => {
 
   it("cancels workspace authority resolution before a direct callback starts", async () => {
     const controller = new AbortController();
-    let probeSignal: AbortSignal | undefined;
     let resolveStarted: (() => void) | undefined;
     const started = new Promise<void>((resolvePromise) => { resolveStarted = resolvePromise; });
+    let probeSignal: AbortSignal | undefined;
     const workspaces = providerRegistry([providerContribution("git", {
       probe: (_project, signal) => new Promise((_resolve, rejectPromise) => {
         probeSignal = signal;

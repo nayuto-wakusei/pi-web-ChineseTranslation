@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore, type AuthPrompt, type Credential } from "@earendil-works/pi-ai";
+import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore, type AuthPrompt, type Credential, type OAuthAuth, type Provider } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OAuthFlowState } from "../../shared/apiTypes.js";
 import { AuthService, createLocalOnlyModelRuntime, createModelRuntimeForAgentDir, type AuthChange, type AuthServiceLogger } from "./authService.js";
@@ -17,6 +17,93 @@ afterEach(async () => {
 });
 
 describe("AuthService", { timeout: 15_000 }, () => {
+  it("logs out providers and emits the removed provider id after the runtime syncs", async () => {
+    const credential: Credential = {
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    };
+    const provider = fakeOAuthProvider("test-logout-sync", () => Promise.resolve(credential));
+    const { auth, runtime, credentials, changes } = await createAuthService({ [provider.id]: credential });
+    // registerNativeProvider kicks off a background refresh whose availability
+    // pass invalidates in-flight provider-scoped syncs (upstream's eventual
+    // consistency). Await its exact promise so the logout sync below is the
+    // only writer when it runs.
+    const refresh = vi.spyOn(runtime, "refresh");
+    runtime.registerNativeProvider(provider);
+    const registrationRefresh = refresh.mock.results.at(0);
+    if (registrationRefresh?.type !== "return") throw new Error("Expected the registration refresh");
+    await registrationRefresh.value;
+
+    await expect(auth.logoutProvider(provider.id)).resolves.toEqual({ accepted: true });
+
+    await expect(credentials.read(provider.id)).resolves.toBeUndefined();
+    // Pi 0.84 synchronizes provider state inside logout(); it resolving proves
+    // the sync finished, so auth-change listeners observe post-sync truth.
+    expect(runtime.getProviderAuthStatus(provider.id)).toEqual({ configured: false });
+    expect(changes).toEqual([{ removedProviderId: provider.id }]);
+    auth.dispose();
+  });
+
+  it("keeps the persisted credential when cancellation lands during the post-login sync", async () => {
+    const { auth, runtime, credentials, changes } = await createAuthService();
+    const credential: Credential = {
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    };
+    // Pi 0.84 makes login abortable end to end: the credential is persisted
+    // before the provider-scoped post-login sync, and cancelling the flow
+    // aborts that sync, rejecting login with CredentialSynchronizationError.
+    // The read gate holds the sync's availability pass open so cancel lands
+    // inside the window; arming it from the provider login mock guarantees
+    // every pre-login availability read of this provider already happened.
+    let gateArmed = false;
+    const syncStarted = deferred<undefined>();
+    const finishSync = deferred<undefined>();
+    const provider = fakeOAuthProvider("test-cancel-during-sync", () => {
+      gateArmed = true;
+      return Promise.resolve(credential);
+    });
+    // Await the registration refresh's exact promise so its credential reads
+    // cannot trip the gate below once it is armed.
+    const refresh = vi.spyOn(runtime, "refresh");
+    runtime.registerNativeProvider(provider);
+    const registrationRefresh = refresh.mock.results.at(0);
+    if (registrationRefresh?.type !== "return") throw new Error("Expected the registration refresh");
+    await registrationRefresh.value;
+    refresh.mockRestore();
+    vi.spyOn(credentials, "read").mockImplementation(async (providerId, options) => {
+      if (gateArmed && providerId === provider.id) {
+        gateArmed = false;
+        syncStarted.resolve(undefined);
+        await finishSync.promise;
+      }
+      return InMemoryCredentialStore.prototype.read.call(credentials, providerId, options);
+    });
+    const login = vi.spyOn(runtime, "login");
+
+    const state = await auth.startOAuthLogin(provider.id);
+    await syncStarted.promise;
+
+    await expect(credentials.read(provider.id)).resolves.toEqual(credential);
+    expect(auth.cancelOAuthFlow(state.flowId)).toMatchObject({ status: "cancelled", error: "Login cancelled" });
+
+    finishSync.resolve(undefined);
+    const loginCall = login.mock.results.at(0);
+    if (loginCall?.type !== "return") throw new Error("Expected the runtime login call");
+    await expect(loginCall.value).rejects.toBeInstanceOf(CredentialSynchronizationError);
+
+    // The aborted login supersedes nothing: the flow stays cancelled and the
+    // already-persisted credential remains the stored truth.
+    expect(auth.oauthFlow(state.flowId)).toMatchObject({ status: "cancelled", error: "Login cancelled" });
+    await expect(credentials.read(provider.id)).resolves.toEqual(credential);
+    expect(changes).toEqual([]);
+    auth.dispose();
+  });
+
   it("saves API keys and emits a global auth change after the runtime refreshes", async () => {
     const { auth, credentials, changes } = await createAuthService();
 
@@ -387,8 +474,11 @@ describe("AuthService", { timeout: 15_000 }, () => {
     });
     const authFlows = new CapturingOAuthLoginFlowService();
     const auth = await AuthService.create({ runtime, authFlows });
-    const changes: AuthChange[] = [];
-    auth.subscribe((change) => { changes.push(change); });
+    const changes: Omit<AuthChange, "modelRuntime">[] = [];
+    auth.subscribe(({ modelRuntime, ...change }) => {
+    expect(modelRuntime).toBe(runtime);
+    changes.push(change);
+  });
     const refresh = vi.spyOn(runtime, "refresh");
     const provider = runtime.getProviders().find((option) => option.id === "anthropic" && option.auth.oauth !== undefined);
     if (provider === undefined) throw new Error("Expected built-in OAuth provider");
@@ -451,6 +541,7 @@ describe("createModelRuntimeForAgentDir", () => {
     await auth.authProviders("logout");
     const flow = await auth.startApiKeyLogin("anthropic");
     auth.cancelOAuthFlow(flow.flowId);
+    await expect(auth.startOAuthLogin("unknown-provider")).rejects.toThrow("OAuth provider not found: unknown-provider");
 
     expect(refresh.mock.calls.length).toBeGreaterThan(0);
     for (const call of refresh.mock.calls) expect(call).toEqual([{ allowNetwork: false }]);
@@ -475,8 +566,11 @@ async function createAuthService(seed: Record<string, Credential> = {}, logger?:
   }
   const runtime = await createLocalOnlyModelRuntime({ credentials, modelsPath: null });
   const auth = await AuthService.create({ runtime, ...(logger === undefined ? {} : { logger }) });
-  const changes: AuthChange[] = [];
-  auth.subscribe((change) => { changes.push(change); });
+  const changes: Omit<AuthChange, "modelRuntime">[] = [];
+  auth.subscribe(({ modelRuntime, ...change }) => {
+    expect(modelRuntime).toBe(runtime);
+    changes.push(change);
+  });
   return { auth, runtime, credentials, changes };
 }
 
@@ -486,8 +580,11 @@ async function createFileBackedAuthService(seed: Record<string, Credential>) {
   await writeFile(authPath, JSON.stringify(seed, null, 2));
   const runtime = await createModelRuntimeForAgentDir(agentDir);
   const auth = await AuthService.create({ runtime });
-  const changes: AuthChange[] = [];
-  auth.subscribe((change) => { changes.push(change); });
+  const changes: Omit<AuthChange, "modelRuntime">[] = [];
+  auth.subscribe(({ modelRuntime, ...change }) => {
+    expect(modelRuntime).toBe(runtime);
+    changes.push(change);
+  });
   return { auth, runtime, authPath, changes };
 }
 
@@ -536,4 +633,32 @@ class CapturingOAuthLoginFlowService extends OAuthLoginFlowService {
   override dispose(): void {
     this.disposed = true;
   }
+}
+
+function deferred<T>() {
+  let resolveValue: (value: T) => void = () => undefined;
+  let rejectValue: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveValue = resolve;
+    rejectValue = reject;
+  });
+  return { promise, resolve: resolveValue, reject: rejectValue };
+}
+
+function fakeOAuthProvider(id: string, login: OAuthAuth["login"]): Provider {
+  return {
+    id,
+    name: `Test ${id}`,
+    auth: {
+      oauth: {
+        name: `Test ${id} OAuth`,
+        login,
+        refresh: (credential) => Promise.resolve(credential),
+        toAuth: (credential) => Promise.resolve({ apiKey: credential.access }),
+      },
+    },
+    getModels: () => [],
+    stream: () => { throw new Error("stream not implemented"); },
+    streamSimple: () => { throw new Error("streamSimple not implemented"); },
+  };
 }

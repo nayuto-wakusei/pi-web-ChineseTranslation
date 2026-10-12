@@ -36,6 +36,35 @@ const stageLabels: Readonly<Record<string, string>> = {
   "Backend recorded failure (not success)": "后端已记录失败，不是成功结果",
   "Backend saved completed roundtrip": "后端已保存完成结果",
 };
+const errorLabels: Readonly<Record<string, string>> = {
+  "Captain is already working.": "船长正在处理，请等待当前转述完成。",
+  "Select a source session other than the pirate conversation.": "请选择其他源会话，不能转述船长会话本身。",
+  "Selected session is not hosted in this workspace on this machine": "所选会话不在当前机器的这个工作区中运行。",
+  "Source session must be idle with no pending messages. Wait for it to finish, then translate again.": "源会话必须空闲且没有待处理消息。请等待它完成后再转述。",
+  "Source session has no completed assistant text reply on its active branch.": "源会话当前分支没有已完成的助手文本回复。",
+  "Source reply exceeds the translation limit (48000 characters).": "源回复超过转述长度上限（48000 个字符）。",
+  "Companion not ready or session busy; open Captain's Log in Sessions, wait for idle, then retry": "伴随扩展尚未就绪或会话忙碌；请在会话列表中打开船长会话，等待空闲后重试。",
+  "Captain request interrupted by session shutdown or reload": "会话关闭或重新加载中断了船长请求。",
+  "Another prompt interfered with this Captain request; translation was not saved": "其他提示干扰了本次船长请求，转述结果未保存。",
+  "Another user message interfered with this Captain request": "其他用户消息干扰了本次船长请求。",
+  "Captain request error": "船长请求出错。",
+  "Captain request aborted": "船长请求已中止。",
+  "Captain request failed": "船长请求失败。",
+  "Captain request ended without a successful final text response": "船长请求结束时没有成功的最终文本回复。",
+  "Captain reply exceeded the storage limit": "船长回复超过存储长度上限。",
+  "Invalid translation text": "转述文本无效。",
+  "Invalid companion reply": "伴随扩展回复无效。",
+  "Captain connection interrupted; agent work may continue in Sessions": "船长连接已中断，代理可能仍在会话中继续处理。",
+  "No companion receipt within 5 seconds. Check package enablement/trust; inspect Sessions before retrying.": "5 秒内未收到伴随扩展确认。请检查包是否已启用并获得信任，重试前先查看会话。",
+  "Captain request exceeded 10 minutes; agent work may continue in Sessions. No translation saved.": "船长请求已超过 10 分钟，代理可能仍在会话中继续处理；转述结果未保存。",
+  "Captain's Log stopped before recording completion. Inspect the previous session before retrying. Nothing was resent automatically.": "船长日志在记录完成结果前已停止。请先检查之前的会话再重试，没有自动重发任何请求。",
+};
+function displayCaptainError(text: string): string {
+  const prefix = "Captain could not finish this request. Inspect the session before retrying; nothing was resent automatically.\n";
+  if (text.startsWith(prefix)) return `船长未能完成本次请求。重试前请检查会话，没有自动重发任何请求。\n${displayCaptainError(text.slice(prefix.length))}`;
+  const message = text.startsWith("Error: ") ? text.slice(7) : text;
+  return errorLabels[message] ?? text;
+}
 function dateLabel(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -58,12 +87,12 @@ export function renderCaptainPanel(html: Html, view: CaptainPanelView) {
         ${!view.connected && !view.connecting ? html`<button @click=${view.onReconnect}>重新连接</button>` : null}
       </p>
       ${!view.connected && !view.connecting ? html`<p class="captain-notice">重新连接以查看结果。船长可能仍在处理，不会再次发送你的请求。</p>` : null}
-      ${view.notice !== undefined && view.notice !== "" ? html`<p class="captain-notice" role="alert">${view.notice}</p>` : null}
+      ${view.notice !== undefined && view.notice !== "" ? html`<p class="captain-notice" role="alert">${displayCaptainError(view.notice)}</p>` : null}
       ${selected ? html`<article class="captain-reply" aria-label="船长转述">
         <div class="captain-reply-heading"><strong>${selected.status === "running" ? "转述中…" : selected.id === view.entries[0]?.id ? "最近转述" : "历史转述"}</strong><time datetime=${selected.createdAt}>${dateLabel(selected.createdAt)}</time></div>
         ${selected.status === "completed" ? html`<div class="captain-answer">${selected.text ? renderCaptainMarkdown(html, selected.text) : "正在接收船长回复…"}</div>`
           : selected.status === "running" ? html`<p class="muted">正在读取源回复并改写为海盗风格，不向源会话发送消息。</p>`
-            : html`<div class="captain-notice" role="alert"><strong>${selected.status === "interrupted" ? "转述已中断" : "无法转述该回复"}</strong><p>${selected.text || "请查看诊断详情，待会话就绪后重试。"}</p></div>`}
+            : html`<div class="captain-notice" role="alert"><strong>${selected.status === "interrupted" ? "转述已中断" : "无法转述该回复"}</strong><p>${displayCaptainError(selected.text) || "请查看诊断详情，待会话就绪后重试。"}</p></div>`}
         ${sourceSessionId !== undefined && sourceSessionId !== "" ? html`<button @click=${() => { view.onOpenSource(sourceSessionId); }}>打开源会话</button>` : null}
       </article>` : html`<p class="captain-empty muted">选择会话后转述其最新已完成的助手回复，原会话保持不变。</p>`}
       <div class="captain-secondary">
@@ -73,7 +102,7 @@ export function renderCaptainPanel(html: Html, view: CaptainPanelView) {
           </button>`)}</div>
         </details>` : null}
         <details class="captain-diagnostics"><summary>诊断</summary>
-          <p>${view.status}</p>
+          <p>${displayCaptainError(view.status)}</p>
           ${selected ? html`<dl><dt>机器</dt><dd>${view.machineName}</dd><dt>源会话</dt><dd>${selected.sourceSessionId ?? "未知"}</dd><dt>船长会话</dt><dd>${selected.sessionId || "尚未创建"}</dd><dt>请求</dt><dd>${selected.id}</dd></dl>
             <p>${selected.question === "Translate last reply" ? "转述最后一条回复" : selected.question}</p><ol>${selected.stages.map((stage) => html`<li>${stageLabels[stage] ?? stage}</li>`)}</ol>` : null}
         </details>

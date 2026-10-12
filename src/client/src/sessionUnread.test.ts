@@ -6,7 +6,6 @@ describe("SessionUnreadController", () => {
   it("restores the durable server snapshot for a new browser controller", async () => {
     const api = fakeApi({ snapshots: [snapshot("catalog-a", 2, [summary("session-2", 2), summary("session-1", 1)])] });
     const controller = new SessionUnreadController({ api });
-    controller.setCapability("local", "supported");
 
     await controller.refresh("local");
 
@@ -16,7 +15,6 @@ describe("SessionUnreadController", () => {
     const restarted = new SessionUnreadController({
       api: fakeApi({ snapshots: [snapshot("catalog-a", 2, [summary("session-2", 2), summary("session-1", 1)])] }),
     });
-    restarted.setCapability("local", "supported");
     await restarted.refresh("local");
     expect(restarted.isUnread("local", ref("session-2"))).toBe(true);
   });
@@ -29,7 +27,6 @@ describe("SessionUnreadController", () => {
       ],
     });
     const controller = new SessionUnreadController({ api });
-    controller.setCapability("local", "supported");
 
     await controller.refresh("local");
     await controller.refresh("local");
@@ -42,7 +39,6 @@ describe("SessionUnreadController", () => {
     const response = deferred<SessionUnreadCatalogSnapshot>();
     const unreadCatalog = vi.fn(() => response.promise);
     const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog }) });
-    controller.setCapability("local", "supported");
 
     const refreshing = controller.refresh("local");
     controller.applyEvent("local", unreadEvent("catalog-a", 2, summary("session-2", 2)));
@@ -64,7 +60,6 @@ describe("SessionUnreadController", () => {
       .mockImplementationOnce(() => firstResponse.promise)
       .mockResolvedValueOnce(snapshot("catalog-a", 2, [summary("session-2", 2)]));
     const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog }) });
-    controller.setCapability("local", "supported");
 
     const firstRefresh = controller.refresh("local");
     const reconnectRefresh = controller.refresh("local");
@@ -88,7 +83,6 @@ describe("SessionUnreadController", () => {
       .mockResolvedValueOnce(snapshot("catalog-a", 3, [summary("session-3", 3), summary("session-1", 1)]));
     const onBackgroundError = vi.fn();
     const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog }), onBackgroundError });
-    controller.setCapability("local", "supported");
     controller.applyEvent("local", unreadEvent("catalog-a", 1, summary("session-1", 1)));
 
     const refreshing = controller.refresh("local");
@@ -107,7 +101,6 @@ describe("SessionUnreadController", () => {
       .mockResolvedValueOnce(snapshot("catalog-a", 3, [summary("session-3", 3), summary("session-1", 1)]))
       .mockResolvedValueOnce(snapshot("catalog-b", 1, [summary("new-epoch", 1)]));
     const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog }) });
-    controller.setCapability("local", "supported");
 
     controller.applyEvent("local", unreadEvent("catalog-a", 1, summary("session-1", 1)));
     controller.applyEvent("local", unreadEvent("catalog-a", 3, summary("session-3", 3)));
@@ -133,7 +126,6 @@ describe("SessionUnreadController", () => {
     const acknowledgeUnread = vi.fn(() => response.promise);
     const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
     const session = ref("session-1");
-    controller.setCapability("local", "supported");
     controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
 
     const acknowledging = controller.acknowledge("local", session);
@@ -158,7 +150,6 @@ describe("SessionUnreadController", () => {
     const acknowledgeUnread = vi.fn(() => acknowledgementResponse.promise);
     const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog, acknowledgeUnread }) });
     const session = ref("session-1");
-    controller.setCapability("local", "supported");
     controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
 
     const acknowledging = controller.acknowledge("local", session);
@@ -181,8 +172,6 @@ describe("SessionUnreadController", () => {
     const first = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
     const second = new SessionUnreadController({ api: fakeApi() });
     const session = ref("session-1");
-    first.setCapability("local", "supported");
-    second.setCapability("local", "supported");
     const completion = unreadEvent("catalog-a", 1, summary(session.id, 1));
     first.applyEvent("local", completion);
     second.applyEvent("local", completion);
@@ -203,8 +192,6 @@ describe("SessionUnreadController", () => {
 
   it("keeps canonical identities machine- and cwd-scoped and prunes removed machines", () => {
     const controller = new SessionUnreadController({ api: fakeApi() });
-    controller.setCapability("machine-a", "supported");
-    controller.setCapability("machine-b", "supported");
     controller.applyEvent("machine-a", unreadEvent("catalog-a", 1, summary("shared", 1, "/repo-a")));
     controller.applyEvent("machine-b", unreadEvent("catalog-b", 1, summary("shared", 1, "/repo-b")));
 
@@ -224,7 +211,6 @@ describe("SessionUnreadController", () => {
       api: fakeApi({ unreadCatalog: () => response.promise }),
       onChange,
     });
-    controller.setCapability("local", "supported");
 
     const refreshing = controller.refresh("local");
     onChange.mockClear();
@@ -236,36 +222,12 @@ describe("SessionUnreadController", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("ignores socket deltas and endpoints until joint support is known, then clears state on downgrade", async () => {
-    const unreadCatalog = vi.fn().mockResolvedValue(snapshot("catalog-a", 0, []));
-    const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog }) });
-    const completion = unreadEvent("catalog-a", 1, summary("session-1", 1));
-
-    controller.applyEvent("legacy", completion);
-    await controller.refresh("legacy");
-    controller.setCapability("legacy", "unsupported");
-    controller.applyEvent("legacy", completion);
-    await controller.refresh("legacy");
-    expect(unreadCatalog).not.toHaveBeenCalled();
-    expect(controller.projection("legacy")).toBeUndefined();
-
-    expect(controller.setCapability("legacy", "supported")).toBe(true);
-    await controller.refresh("legacy");
-    expect(unreadCatalog).toHaveBeenCalledOnce();
-
-    controller.applyEvent("legacy", completion);
-    controller.setCapability("legacy", "unsupported");
-    expect(controller.projection("legacy")).toBeUndefined();
-    expect(controller.unreadSessionIds("legacy", [ref("session-1")]).size).toBe(0);
-  });
-
   it("preserves unread state when acknowledgement fails so a later visible check can retry", async () => {
     const error = new Error("offline");
     const onBackgroundError = vi.fn();
     const acknowledgeUnread = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce(snapshot("catalog-a", 2, []));
     const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }), onBackgroundError });
     const session = ref("session-1");
-    controller.setCapability("local", "supported");
     controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
 
     await controller.acknowledge("local", session);

@@ -169,7 +169,6 @@ export class SettingsSessiondPanel extends LitElement {
             <dl>
               <div><dt>期望命令</dt><dd>${effectiveAgent?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
               <div><dt>期望状态目录</dt><dd>${effectiveAgent?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
-              <div><dt>当前命令</dt><dd>${this.activeAgentProfile?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
               <div><dt>当前状态目录</dt><dd>${this.activeAgentProfile?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
               <div><dt>配置档案状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
               <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
@@ -183,19 +182,13 @@ export class SettingsSessiondPanel extends LitElement {
   }
 
   private panelNotices(config: PiWebConfigResponse | undefined): readonly SettingsNotice[] {
-    const notices: SettingsNotice[] = [];
-    const error = this.agentLocalError || this.error;
-    if (error !== "") notices.push({ type: "error", content: error });
-    if (this.savedMessage !== "") notices.push({ type: "success", content: this.savedMessage });
-    const activation = agentProfileActivationState(config, this.activeAgentProfile);
-    if (activation === "restart-required") {
-      notices.push({
-        type: "warning",
-        title: `${this.targetLabel} 需要重启`,
-        content: html`更改这些设置后，请在该机器上运行 <code>pi-web restart</code>，或重启其会话守护进程服务。`,
-      });
-    }
-    return notices;
+    return sessiondPanelNotices(config, {
+      error: this.agentLocalError || this.error,
+      savedMessage: this.savedMessage,
+      activeProfile: this.activeAgentProfile,
+      targetLabel: this.targetLabel,
+      profileEditingSupported: this.agentProfileSupport.state === "supported",
+    });
   }
 
   private renderUnavailableConfigState(): TemplateResult {
@@ -268,6 +261,7 @@ export class SettingsSessiondPanel extends LitElement {
     .text-input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
     .text-input:disabled { opacity: .55; cursor: not-allowed; }
     .toggle input:disabled { cursor: not-allowed; }
+    .override-badge { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); background: var(--pi-warning-surface); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: none; }
     .effective-card { display: grid; gap: 10px; }
     .effective-card dl { display: grid; gap: 8px; margin: 0; }
     .effective-card dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }
@@ -324,7 +318,7 @@ export function sessiondPanelNotices(
     notices.push({
       type: "warning",
       title: `${context.targetLabel} 上的 Pi 兼容代理配置档案需要重启`,
-      content: html`期望配置档案与当前会话守护进程配置档案不同。请在该机器上运行 <code>pi-web restart</code>（或重启其会话守护进程服务），以同时应用命令和状态目录。`,
+      content: html`期望状态目录与当前会话守护进程的状态目录不同。请在该机器上运行 <code>pi-web restart</code>（或重启其会话守护进程服务），以应用状态目录。`,
     });
   } else if (config !== undefined && activation === "unavailable" && context.profileEditingSupported) {
     notices.push({

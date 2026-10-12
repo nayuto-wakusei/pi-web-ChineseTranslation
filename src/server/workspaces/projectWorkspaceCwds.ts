@@ -19,9 +19,9 @@ export interface ProjectWorkspaceCwdsDeps {
  * as a given working directory.
  *
  * Sessions spawned by an agent are constrained to workspaces of the spawning
- * session's own project, so this set bounds where related sessions of any cwd
- * can live. It is evaluated live so a worktree created with `git worktree add`
- * moments ago is included.
+ * session's own project, so this set bounds where a spawn may target. It is
+ * evaluated live so a worktree created with `git worktree add` moments ago is
+ * included.
  */
 export interface ProjectWorkspaceCwds {
   /**
@@ -43,10 +43,4 @@ export class RegisteredProjectWorkspaceCwds implements ProjectWorkspaceCwds {
     }
     return undefined;
   }
-}
-
-/** Workspace paths of `cwd`'s project other than `cwd` itself. */
-export async function siblingWorkspaceCwds(locator: ProjectWorkspaceCwds, cwd: string): Promise<string[]> {
-  const paths = await locator.forCwd(cwd);
-  return (paths ?? []).filter((path) => !cwdPathsEqual(path, cwd));
 }

@@ -131,7 +131,7 @@ export class WorkspaceRemovalService {
   }
 
   private async closeRemovalFlights(reason: string): Promise<void> {
-    this.shutdown.abort(new DOMException(reason, "AbortError"));
+    if (!this.shutdown.signal.aborted) this.shutdown.abort(new DOMException(reason, "AbortError"));
     const flights = [...this.flights.values()];
     for (const flight of flights) {
       if (!flight.controller.signal.aborted) flight.controller.abort(abortError(this.shutdown.signal));
@@ -215,7 +215,7 @@ export class WorkspaceRemovalService {
         message: `工作区移除失败：${errorMessage(failure)}`,
         source: workspaceDeleteOperation,
         scope: { projectId: project.id },
-        context: { projectId: project.id, workspaceId },
+        context: { targetWorkspaceId: workspaceId, projectId: project.id, workspaceId },
       });
       throw failure;
     }

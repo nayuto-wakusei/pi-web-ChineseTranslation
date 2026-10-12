@@ -17,15 +17,19 @@ const AGENT_DIR = "/tmp/pi-web-test-agent";
 function daemonCollaborators(patch: Partial<SessionServiceDependencyInput> = {}): SessionServiceDependencyInput {
   return {
     agentDir: AGENT_DIR,
+    archiveStore: emptyArchiveStore(),
     modelRuntime: testModelRuntime,
     sessionManager: sessionGateway([]),
     workspaceActivity: new WorkspaceActivityService(),
     logger: { info() { /* no-op */ } },
     notificationStore: new SessionNotificationStore(),
     unreadStore: new SessionUnreadStore(),
+    onUnreadChanged: () => { /* no-op */ },
     catalogRefreshStatus: { isRefreshInFlight: () => false },
+    config: { read: () => Promise.reject(new Error("config read not expected in this test")) },
     subsessionsEnabled: false,
     askUserEnabled: true,
+    appendSystemPromptSections: [],
     extensionDialogsTimeoutMs: 300_000,
     ...patch,
   };
@@ -42,7 +46,6 @@ async function startupDetails(deps: PiSessionServiceDependencies): Promise<strin
   const fake = fakeRuntime();
   const service = new PiSessionService(hub, {
     ...deps,
-    archiveStore: emptyArchiveStore(),
     createAgentRuntime: () => Promise.resolve(fake.runtime),
     heartbeatIntervalMs: 60_000,
   });
@@ -68,13 +71,14 @@ describe("sessiond session service dependency assembly", () => {
     const sessiondSource = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
 
     expect(sessiondSource).toMatch(
-      /AuthService\.create\(\{\s*agentDir:\s*join\(piWebDataDir\(\),\s*"management-embed"\)/u,
+      /AuthService\.create\(\{\s*agentDir:\s*join\(piWebDataDir\(daemonEnvironment\),\s*"management-embed"\)/u,
     );
   });
 
   it("passes the loaded normal unread store and owning catalog status to live sessions", async () => {
     const source = await readFile(new URL("../sessiond.ts", import.meta.url), "utf8");
-    expect(source).toMatch(/new PiSessionService\(eventHub,\s*\{[\s\S]*?workspaceActivity,\s*unreadStore,\s*catalogRefreshStatus:\s*projectAuth,/u);
+    expect(source).toMatch(/await unreadStore\.load\(\)/u);
+    expect(source).toMatch(/new PiSessionService\(eventHub,\s*\{[\s\S]*?workspaceActivity,\s*unreadStore,[\s\S]*?catalogRefreshStatus:\s*projectAuth,/u);
   });
 
   it("wires the effective ask-user preference into the live daemon assembly", async () => {
@@ -130,7 +134,19 @@ describe("sessiond session service dependency assembly", () => {
     expect(sessionServiceDependencies(daemonCollaborators({ askUserEnabled: false })).askUserEnabled).toBe(false);
   });
 
+  it("passes the live config reader through to the session service", () => {
+    const config = { read: () => Promise.reject(new Error("not used")) };
+
+    expect(sessionServiceDependencies(daemonCollaborators({ config })).config).toBe(config);
+  });
+
   it("passes the extension-dialog timeout through to the session service", () => {
     expect(sessionServiceDependencies(daemonCollaborators({ extensionDialogsTimeoutMs: 60_000 })).extensionDialogsTimeoutMs).toBe(60_000);
+  });
+
+  it("passes deployment system-prompt sections through to the session service", () => {
+    const sections = ["<pi_web_docker_environment>\n- fact\n</pi_web_docker_environment>"];
+
+    expect(sessionServiceDependencies(daemonCollaborators({ appendSystemPromptSections: sections })).appendSystemPromptSections).toEqual(sections);
   });
 });

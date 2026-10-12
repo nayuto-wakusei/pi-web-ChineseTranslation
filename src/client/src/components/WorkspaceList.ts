@@ -168,7 +168,6 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
         ${open ? html`
           <div class="action-menu-panel workspace-menu-panel" id=${menuId} style=${this.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
             ${this.renderWorkspaceActions(workspace)}
-            ${this.renderTrustToggle(workspace)}
             ${this.renderWorkspaceDetails(label, items, workspace)}
           </div>
         ` : null}
@@ -176,13 +175,13 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     `;
   }
 
-  private renderWorkspaceActions(workspace: Workspace): TemplateResult | undefined {
-    if (!canDeleteWorkspace(workspace)) return undefined;
+  private renderWorkspaceActions(workspace: Workspace): TemplateResult {
     const deleting = this.isDeleting(workspace);
     const actionLabel = workspace.removal?.actionLabel ?? "删除工作区";
     return html`
       <div class="workspace-menu-actions">
-        <button class="danger" title=${deleting ? "正在处理工作区" : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "正在处理…" : actionLabel}</button>
+        ${this.renderTrustToggle(workspace)}
+        ${canDeleteWorkspace(workspace) ? html`<button class="danger" title=${deleting ? "正在处理工作区" : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? "正在处理…" : actionLabel}</button>` : null}
       </div>
     `;
   }

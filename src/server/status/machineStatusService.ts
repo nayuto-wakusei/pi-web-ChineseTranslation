@@ -4,7 +4,9 @@ import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/
 import type { WorkspaceAttribution } from "./workspaceAttribution.js";
 
 export interface ActiveCwdActivity { cwd: string; hasSessionActivity: boolean; hasTerminalActivity: boolean; }
-interface ActivitySource { activeSnapshot(scope?: SessionEventScope): { workspaces: readonly ActiveCwdActivity[] }; }
+type ActivitySource =
+  | { snapshot(scope?: SessionEventScope): { workspaces: readonly ActiveCwdActivity[] } }
+  | { activeSnapshot(scope?: SessionEventScope): { workspaces: readonly ActiveCwdActivity[] } };
 interface UnreadSource { catalogSnapshot(scope?: SessionEventScope): { sessions: readonly { cwd: string }[] } | Promise<{ sessions: readonly { cwd: string }[] }>; }
 interface Publisher { publish(snapshot: MachineStatusSnapshot, scope: SessionEventScope): void; }
 interface Logger { warn(details: Record<string, unknown>, message: string): void; }
@@ -88,7 +90,9 @@ export class MachineStatusService {
   private async flagsByCwd(scope: SessionEventScope): Promise<Map<string, StatusFlags>> {
     const flagsByCwd = new Map<string, Record<string, boolean>>();
     const setFlag = (cwd: string, flagId: string): void => { if (cwd === "") return; const flags = flagsByCwd.get(cwd) ?? {}; flags[flagId] = true; flagsByCwd.set(cwd, flags); };
-    for (const activity of this.dependencies.activity.activeSnapshot(scope).workspaces) {
+    const activitySource = this.dependencies.activity;
+    const snapshot = "snapshot" in activitySource ? activitySource.snapshot(scope) : activitySource.activeSnapshot(scope);
+    for (const activity of snapshot.workspaces) {
       if (activity.hasSessionActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.working);
       if (activity.hasTerminalActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.terminal);
     }

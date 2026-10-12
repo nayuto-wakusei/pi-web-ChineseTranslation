@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
-import type { PiWebStatusResponse } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebStatusResponse, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
 import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
 import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
@@ -122,7 +122,7 @@ describe("updates plugin actions", () => {
   });
 });
 
-function activatePlugin() {
+function activatePlugin(): Promise<PluginActivationResult> {
   const signal = new AbortController().signal;
   return Promise.resolve(plugin.activate({ apiVersion: 4, pluginId: "updates", runtimePluginId: "updates", html, svg, signal, lifetimeSignal: signal }));
 }

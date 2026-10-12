@@ -64,8 +64,8 @@ describe("createAskUserToolDefinition", () => {
     expect(open).toHaveBeenCalledWith({
       sessionId: "session-1",
       questions: [
-        { id: "db", question: "Which database?", options: [{ value: "pg", label: "Postgres" }, { value: "sqlite", label: "SQLite" }], allowOther: true },
-        { id: "why", question: "Why?", options: [], allowOther: true },
+        { id: "db", question: "Which database?", options: [{ value: "pg", label: "Postgres" }, { value: "sqlite", label: "SQLite" }] },
+        { id: "why", question: "Why?", options: [] },
       ],
     });
     expect(result.terminate).toBe(true);
@@ -80,7 +80,7 @@ describe("createAskUserToolDefinition", () => {
 
     expect(open).toHaveBeenCalledWith({
       sessionId: "session-1",
-      questions: [{ id: "note", question: "Anything else?", options: [], allowOther: true }],
+      questions: [{ id: "note", question: "Anything else?", options: [] }],
     });
   });
 
@@ -104,7 +104,6 @@ describe("createAskUserToolDefinition", () => {
         question: "Which targets?",
         detail: "Pick every platform we should build for.",
         options: [{ value: "web", label: "Web", detail: "Chromium and Firefox" }, { value: "cli", label: "CLI" }],
-        allowOther: true,
         multiple: true,
       }],
     });

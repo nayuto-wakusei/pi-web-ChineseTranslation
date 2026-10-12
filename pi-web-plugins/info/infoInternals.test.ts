@@ -133,6 +133,17 @@ describe("small formatters", () => {
       branch: "main", isGitRepo: true, provider: { pluginId: "custom-workspaces", capabilities: { remove: true } },
     })).toEqual(["提供器 custom-workspaces", "分支 main", "Git 仓库", "主工作区"]);
   });
+
+  it("describes provider-owned workspaces without guessing absent legacy Git fields", () => {
+    expect(workspaceFlags({
+      id: "ws", projectId: "project", path: "/workspace", label: "main", isMain: true,
+      provider: { pluginId: "git", capabilities: { remove: true }, metadata: { branch: "main" } },
+    })).toEqual(["提供器 git", "主工作区"]);
+  });
+
+  it("describes folder-owned workspaces without requiring legacy Git flags", () => {
+    expect(workspaceFlags({ id: "ws", projectId: "project", path: "/workspace", label: "main", isMain: false })).toEqual(["文件夹工作区"]);
+  });
 });
 
 function componentStatus(patch: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {

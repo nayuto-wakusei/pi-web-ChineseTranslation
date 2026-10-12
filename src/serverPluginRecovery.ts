@@ -13,7 +13,10 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { piWebConfigPath } from "./config.js";
 import { isPiWebPluginId } from "./shared/pluginIds.js";
-import { REQUIRED_TERMINAL_PLUGIN_ID, REQUIRED_TERMINAL_RECOVERY_GUIDANCE } from "./shared/requiredTerminalPlugin.js";
+import {
+  REQUIRED_TERMINAL_PLUGIN_ID,
+  REQUIRED_TERMINAL_RECOVERY_GUIDANCE,
+} from "./shared/requiredTerminalPlugin.js";
 
 export type ServerPluginSafeStart = "bundled-only" | "none";
 
