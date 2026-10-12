@@ -14,7 +14,7 @@ describe("management permission system", () => {
       },
     });
 
-    expect(managementAgentToolNames(context)).toEqual(["read", "python"]);
+    expect(managementAgentToolNames(context)).toEqual(["read", "python", "bash"]);
 
     const policy = createManagementPermissionSystemPolicy(context);
     expect(policy.defaultPolicy).toEqual({
@@ -29,7 +29,7 @@ describe("management permission system", () => {
       read: "allow",
       python: "allow",
       write: "deny",
-      bash: "deny",
+      bash: "allow",
       mcp: "deny",
       "terminal-command-runs": "deny",
       webfetch: "deny",
@@ -58,7 +58,7 @@ describe("management permission system", () => {
         grep: "allow",
         find: "allow",
         python: "allow",
-        bash: "deny",
+        bash: "allow",
       },
     });
   });
@@ -93,11 +93,12 @@ describe("management permission system", () => {
       "grep",
       "find",
       "python",
+      "bash",
       ...extraTools,
     ]);
     expect(createManagementPermissionSystemPolicy(context, extraTools).tools).toMatchObject({
       python: "allow",
-      bash: "deny",
+      bash: "allow",
       shell: "deny",
       terminal: "deny",
     });
@@ -123,6 +124,7 @@ describe("management permission system", () => {
       "grep",
       "find",
       "python",
+      "bash",
       ...controlledTools,
     ]);
     expect(createManagementPermissionSystemPolicy(context, controlledTools).tools).toMatchObject({
@@ -133,7 +135,7 @@ describe("management permission system", () => {
       read_subsession: "allow",
       yield_to_subsessions: "allow",
       ask_user: "allow",
-      bash: "deny",
+      bash: "allow",
     });
 
     const deniedContext = managementContext({ tools: { deny: ["ask_user"] } });
@@ -188,15 +190,15 @@ describe("management permission system", () => {
     });
   });
 
-  it("lifts HTTP tools for a network grant without enabling bash", () => {
+  it("lifts HTTP tools for a network grant while keeping sandboxed bash available", () => {
     const context = managementContext({ privileged: { network: true } });
     const privileges = { bash: false, network: true };
     const extraTools = ["bash", "http", "webfetch", "websearch"];
 
     expect(managementAgentToolNames(context, extraTools, privileges)).toEqual(expect.arrayContaining(["http", "webfetch", "websearch"]));
-    expect(managementAgentToolNames(context, extraTools, privileges)).not.toContain("bash");
+    expect(managementAgentToolNames(context, extraTools, privileges)).toContain("bash");
     expect(createManagementPermissionSystemPolicy(context, extraTools, privileges).tools).toMatchObject({
-      bash: "deny",
+      bash: "allow",
       http: "allow",
       webfetch: "allow",
       websearch: "allow",
@@ -209,6 +211,17 @@ describe("management permission system", () => {
 
     expect(managementAgentToolNames(context, ["bash"], privileges)).not.toContain("bash");
     expect(createManagementPermissionSystemPolicy(context, ["bash"], privileges).tools["bash"]).toBe("deny");
+  });
+
+  it("keeps explicit bash denial and managed allowlist selection authoritative without privileges", () => {
+    const denied = managementContext({ tools: { deny: ["bash"] } });
+    expect(managementAgentToolNames(denied)).not.toContain("bash");
+    expect(createManagementPermissionSystemPolicy(denied).tools["bash"]).toBe("deny");
+
+    const selected = managementContext({ tools: { allow: ["read", "python"] } });
+    expect(managementAgentToolNames(selected)).toEqual(["read", "python"]);
+    expect(createManagementPermissionSystemPolicy(selected).tools["bash"]).toBeUndefined();
+    expect(createManagementPermissionSystemPolicy(selected).tools["*"]).toBe("deny");
   });
 });
 

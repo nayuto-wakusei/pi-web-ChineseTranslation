@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createManagedAgentToolOptions, createManagedBashToolDefinition } from "./managementAgentTools.js";
+import * as managementSandbox from "./managementSandbox.js";
 
 describe("managed agent tools", () => {
   it("allows file tools inside the managed workspace", async () => {
@@ -62,7 +63,7 @@ describe("managed agent tools", () => {
     const previous = process.env["PI_WEB_BWRAP_EXECUTABLE"];
     process.env["PI_WEB_BWRAP_EXECUTABLE"] = join(root, "missing-bwrap");
     try {
-      const tool = createManagedBashToolDefinition(root, managementContext(), { network: true });
+      const tool = createManagedBashToolDefinition(root, managementContext(), { network: true, hostFilesystem: true });
       expect(tool.name).toBe("bash");
       expect(tool.description).toContain("Network access is enabled");
       expect(tool.description).toContain("other host paths are read-only");
@@ -70,6 +71,26 @@ describe("managed agent tools", () => {
     } finally {
       if (previous === undefined) delete process.env["PI_WEB_BWRAP_EXECUTABLE"];
       else process.env["PI_WEB_BWRAP_EXECUTABLE"] = previous;
+    }
+  });
+
+  it("invokes default bash with workspace-only mounts and no network", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-bash-"));
+    const invocation = vi.spyOn(managementSandbox, "createBubblewrapShellInvocation");
+    vi.stubEnv("PI_WEB_BWRAP_EXECUTABLE", join(root, "missing-bwrap"));
+    try {
+      const tool = createManagedBashToolDefinition(root, managementContext());
+      expect(tool.description).toContain("Paths outside the project are blocked");
+      await expect(tool.execute("call-default", { command: "echo hi" }, undefined, undefined, unusedExtensionContext())).rejects.toThrow("Bash sandbox is unavailable");
+      expect(invocation).toHaveBeenCalledWith(expect.objectContaining({ hostFilesystem: false, network: false }));
+      const result = invocation.mock.results[0];
+      if (result?.type !== "return") throw new Error("Expected the real sandbox invocation");
+      expect(result.value.args).toEqual(expect.arrayContaining(["--unshare-net", "--bind", "/workspace"]));
+      expect(result.value.args).not.toEqual(expect.arrayContaining(["--ro-bind-try", "/", "/"]));
+    } finally {
+      invocation.mockRestore();
+      vi.unstubAllEnvs();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

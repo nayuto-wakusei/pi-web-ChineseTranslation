@@ -128,8 +128,8 @@ describe("Pi SDK compatibility through the production session service", () => {
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name).sort()).toEqual(["relay", "relay-runner"]);
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.filePath)).toEqual(expect.arrayContaining([projectSkill, projectRunner]));
       expect(runtime?.services.resourceLoader.getSkills().diagnostics).toEqual([]);
-      expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python"]));
-      expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["bash"]));
+      expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python", "bash"]));
+      expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["shell"]));
       expect(runtime?.session.systemPrompt).not.toContain("Private global");
       if (runtime === undefined) throw new Error("Expected the managed SDK runtime");
       const list = vi.spyOn(service, "listSubsessions").mockResolvedValue([]);

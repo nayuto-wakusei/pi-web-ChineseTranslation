@@ -69,7 +69,7 @@ import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
-import { managementPrivilegeRequested, managementPrivileges } from "../managementPrivileges.js";
+import { managementPrivilegeRequested, managementPrivileges, managementUsesNormalPermissions } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
 import { parseSessionDefaults, parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
@@ -862,6 +862,38 @@ export function piWebResourceLoaderOptions(
   return { appendSystemPromptOverride: (base) => [...base, ...appendSystemPromptSections] };
 }
 
+async function createNormalPermissionSessionServices(options: Required<Pick<CreateAgentSessionServicesOptions, "cwd" | "agentDir" | "modelRuntime" | "settingsManager">> & {
+  projectTrustRequiring: boolean;
+  appendSystemPromptSections: readonly string[];
+  eventBus: ReturnType<typeof createEventBus>;
+}) {
+  const { cwd, agentDir, settingsManager, projectTrustRequiring } = options;
+  const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
+  const services = await createAgentSessionServices({
+    cwd,
+    agentDir,
+    modelRuntime: options.modelRuntime,
+    settingsManager,
+    resourceLoaderOptions: {
+      ...piWebResourceLoaderOptions(options.appendSystemPromptSections),
+      eventBus: options.eventBus,
+      skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
+    },
+    ...(projectTrustRequiring ? {
+      resourceLoaderReloadOptions: {
+        resolveProjectTrust: async ({ extensionsResult }) => resolveWebProjectTrusted({
+          cwd,
+          trustStore: new ProjectTrustStore(agentDir),
+          settingsManager,
+          extensionsResult,
+          onExtensionError: (message) => projectTrustDiagnostics.push({ type: "warning", message }),
+        }),
+      },
+    } : {}),
+  });
+  return { services, projectTrustDiagnostics };
+}
+
 function createDefaultRuntimeFactory(
   sessionEvents: PiSessionEventConnections,
   normalModelRuntimeForCwd: (cwd: string) => Promise<ModelRuntime>,
@@ -881,7 +913,7 @@ function createDefaultRuntimeFactory(
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, sessionManagers, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, sessionManagers, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged, appendSystemPromptSections)({
         cwd,
         agentDir,
         sessionManager,
@@ -900,32 +932,17 @@ function createDefaultRuntimeFactory(
       mode: "normal",
       projectTrusted: !projectTrustRequiring,
     });
-    // Package event buses are normal-mode only. Management runtimes never
-    // register one, so connectSessionEvents cannot attach to them.
+    // Only normal runtimes register a host connection; privileged management
+    // packages keep their own event bus without exposing a normal-mode session.
     const eventBus = createEventBus();
-    const resourceLoaderOptions = {
-      ...piWebResourceLoaderOptions(appendSystemPromptSections),
-      eventBus,
-      skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
-    };
-    const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
-    const services = await createAgentSessionServices({
+    const { services, projectTrustDiagnostics } = await createNormalPermissionSessionServices({
       cwd,
       agentDir,
       modelRuntime: scopedModelRuntime,
       settingsManager,
-      resourceLoaderOptions,
-      ...(projectTrustRequiring ? {
-        resourceLoaderReloadOptions: {
-          resolveProjectTrust: async ({ extensionsResult }) => resolveWebProjectTrusted({
-            cwd,
-            trustStore: new ProjectTrustStore(agentDir),
-            settingsManager,
-            extensionsResult,
-            onExtensionError: (message) => projectTrustDiagnostics.push({ type: "warning", message }),
-          }),
-        },
-      } : {}),
+      projectTrustRequiring,
+      appendSystemPromptSections,
+      eventBus,
     });
     const modelOptions = await resolveSessionModelOptions({
       services,
@@ -964,14 +981,16 @@ function createManagementRuntimeFactory(
   managementAudit: ManagementAuditRecorder | undefined,
   managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined,
   managementAllowPrivileged = false,
+  appendSystemPromptSections: readonly string[] = [],
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled }) => {
+    const normalPermissions = managementUsesNormalPermissions(managementContext, { allowPrivileged: managementAllowPrivileged });
     const resolvedDelegationToolsEnabled = delegationToolsEnabled
       ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
-    await ensureManagedRelaySkills(cwd);
+    if (!normalPermissions) await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
-    const state = workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
+    const state = normalPermissions || workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
     const receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
       ...(managementAudit === undefined ? {} : { recorder: managementAudit }),
       ...auditIdentity,
@@ -1002,12 +1021,13 @@ function createManagementRuntimeFactory(
           check: (parentSessionId: string, sessionId: string, parentSessionFile?: string) => subsessions.check(parentSessionId, sessionId, parentSessionFile, managementContext),
           read: (parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string) => subsessions.read(parentSessionId, sessionId, query, parentSessionFile, managementContext),
         };
+    const scopedAskUser = askUser === undefined ? undefined : {
+      open: (input: Parameters<AskUserToolDeps["open"]>[0]) => askUser.open({ ...input, managementContext }),
+    };
     const controlledManagementTools = [
       ...(resolvedDelegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
       ...(resolvedDelegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
-      ...(askUser === undefined ? [] : [createAskUserToolDefinition({
-        open: (input) => askUser.open({ ...input, managementContext }),
-      })]),
+      ...(scopedAskUser === undefined ? [] : [createAskUserToolDefinition(scopedAskUser)]),
       ...workbenchTools,
     ];
     const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
@@ -1020,15 +1040,25 @@ function createManagementRuntimeFactory(
       }, "management privileged grant ignored because managementEmbed.allowPrivileged is disabled");
     }
     const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
-    const policyAgentDir = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
+    const policyAgentDir = normalPermissions ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
     return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+      const projectTrustRequiring = normalPermissions && hasTrustRequiringProjectResources(cwd);
       const settingsManager = await createScopedSettingsManager({
         cwd,
         scopeDirectory: await resolveSettingsScope(cwd, "management"),
         globalAgentDir: agentDir,
         mode: "management",
+        ...(normalPermissions ? { projectTrusted: !projectTrustRequiring } : {}),
       });
-      const services = await createAgentSessionServices({
+      const { services, projectTrustDiagnostics } = normalPermissions ? await createNormalPermissionSessionServices({
+        cwd,
+        agentDir,
+        modelRuntime,
+        settingsManager,
+        projectTrustRequiring,
+        appendSystemPromptSections,
+        eventBus: createEventBus(),
+      }) : { services: await createAgentSessionServices({
         cwd,
         agentDir,
         modelRuntime,
@@ -1037,7 +1067,7 @@ function createManagementRuntimeFactory(
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
           skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
         },
-      });
+      }), projectTrustDiagnostics: [] };
       const modelOptions = await resolveSessionModelOptions({
         services,
         hasExistingSession: sessionManager.buildSessionContext().messages.length > 0,
@@ -1045,11 +1075,12 @@ function createManagementRuntimeFactory(
         ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
       });
       services.diagnostics.push(...modelOptions.diagnostics);
-      const managedToolOptions = createManagedAgentToolOptions(cwd);
-      const customTools = [
-        ...managedAgentToolDefinitions(cwd, managedToolOptions),
+      const customTools = normalPermissions ? createPiWebCustomToolDefinitions(
+        cwd, resolvedDelegationToolsEnabled, scopedSpawn, scopedSubsessions, scopedAskUser,
+      ) : [
+        ...managedAgentToolDefinitions(cwd, createManagedAgentToolOptions(cwd)),
         createManagedPythonToolDefinition(cwd, managementContext, { network: privileges.network }),
-        ...(privileges.bash ? [createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network })] : []),
+        createManagedBashToolDefinition(cwd, managementContext, { network: privileges.network, hostFilesystem: privileges.bash }),
         ...controlledManagementTools,
       ];
       const options = {
@@ -1057,13 +1088,13 @@ function createManagementRuntimeFactory(
         sessionManager,
         ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
         customTools,
-        tools: managementAgentToolNames(managementContext, extraToolNames, privileges),
+        ...(normalPermissions ? {} : { tools: managementAgentToolNames(managementContext, extraToolNames, privileges) }),
         ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
         ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
       };
       const result = await createAgentSessionFromServices(options);
-      return { ...result, services, diagnostics: services.diagnostics };
+      return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
   };
 }

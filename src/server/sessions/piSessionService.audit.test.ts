@@ -51,7 +51,7 @@ describe("PiSessionService audit boundaries", () => {
     await service.dispose();
   });
 
-  it("audits management tool calls and messages without their arguments, results or content", async () => {
+  it.each([false, true])("audits management tool calls and messages without their arguments, results or content (privileged=%s)", async (privileged) => {
     let listener: ((event: unknown) => void) | undefined;
     const fake = fakeRuntime("managed-audit-session", {
       subscribe: (next) => {
@@ -70,10 +70,12 @@ describe("PiSessionService audit boundaries", () => {
       logger,
       normalToolAudit,
       managementAudit,
+      managementAllowPrivileged: true,
       managementProjectIdForCwd: vi.fn().mockResolvedValue("matched-project"),
     });
 
     const managementContext = testManagementContext();
+    if (privileged) managementContext.privileged = { bash: true, network: true };
     managementContext.user.displayName = "测试用户";
     await service.status(sessionRef("managed-audit-session"), managementContext);
     listener?.({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1", args: { path: "/workspace/file.txt" } });

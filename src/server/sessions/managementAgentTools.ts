@@ -42,6 +42,10 @@ interface ManagedSandboxToolOptions {
   network?: boolean;
 }
 
+interface ManagedBashToolOptions extends ManagedSandboxToolOptions {
+  hostFilesystem?: boolean;
+}
+
 export function createManagedPythonToolDefinition(cwd: string, context: ManagementEmbedContext, options: ManagedSandboxToolOptions = {}) {
   const network = options.network === true;
   return defineTool<typeof pythonSchema, undefined>({
@@ -72,16 +76,20 @@ export function createManagedPythonToolDefinition(cwd: string, context: Manageme
   });
 }
 
-export function createManagedBashToolDefinition(cwd: string, context: ManagementEmbedContext, options: ManagedSandboxToolOptions = {}) {
+export function createManagedBashToolDefinition(cwd: string, context: ManagementEmbedContext, options: ManagedBashToolOptions = {}) {
   const network = options.network === true;
+  const hostFilesystem = options.hostFilesystem === true;
+  const scopeDescription = hostFilesystem
+    ? "The current project is writable; other host paths are read-only."
+    : "The current project is writable. Paths outside the project are blocked.";
   return defineTool<typeof bashSchema, undefined>({
     name: "bash",
     label: "bash",
-    description: network
-      ? "Run a bash command in a sandbox. The current project is writable; other host paths are read-only. Network access is enabled for this privileged session."
-      : "Run a bash command in a sandbox. The current project is writable; other host paths are read-only. Network access is disabled.",
-    promptSnippet: "Run a bash command; the project is writable and other host paths are read-only",
-    promptGuidelines: ["The current project workspace is writable. Paths outside it are visible read-only."],
+    description: `Run a bash command in a sandbox. ${scopeDescription} ${network ? "Network access is enabled for this privileged session." : "Network access is disabled."}`,
+    promptSnippet: hostFilesystem
+      ? "Run a bash command; the project is writable and other host paths are read-only"
+      : "Run a bash command inside the current project workspace",
+    promptGuidelines: [scopeDescription],
     parameters: bashSchema,
     async execute(_toolCallId, params, signal) {
       const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000));
@@ -93,7 +101,7 @@ export function createManagedBashToolDefinition(cwd: string, context: Management
         timeoutMs,
         env,
         network,
-        hostFilesystem: true,
+        hostFilesystem,
         signal,
       });
     },

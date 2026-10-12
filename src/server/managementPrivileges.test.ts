@@ -17,9 +17,15 @@ describe("managementPrivileges", () => {
   });
 
   it("lets an explicit bash deny veto a privileged bash grant", () => {
-    const context = privilegedContext({ bash: true, network: true }, { deny: ["bash"] });
+    const context = privilegedContext({ bash: true }, { deny: ["bash"] });
 
-    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: false, network: true });
+    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: false, network: false });
+  });
+
+  it("ignores management tool restrictions only for both signed grants with machine opt-in", () => {
+    const context = privilegedContext({ bash: true, network: true }, { allow: ["python"], deny: ["bash", "read"] });
+    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: true, network: true });
+    expect(managementPrivileges(context, { allowPrivileged: false })).toEqual(DISABLED_MANAGEMENT_PRIVILEGES);
   });
 
   it("does not treat a tools allow list as a privileged grant", () => {

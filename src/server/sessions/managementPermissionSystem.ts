@@ -6,9 +6,8 @@ import { DISABLED_MANAGEMENT_PRIVILEGES, type ManagementPrivileges } from "../ma
 
 export const PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR = "PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR";
 
-const MANAGEMENT_AGENT_TOOL_NAMES = ["read", "write", "edit", "ls", "grep", "find", "python"] as const;
+const MANAGEMENT_AGENT_TOOL_NAMES = ["read", "write", "edit", "ls", "grep", "find", "python", "bash"] as const;
 const ALWAYS_DENIED_TOOL_NAMES = [
-  "bash",
   "shell",
   "terminal",
   "terminal-command-runs",

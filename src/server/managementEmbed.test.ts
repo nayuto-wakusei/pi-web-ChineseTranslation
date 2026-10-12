@@ -292,6 +292,16 @@ describe("management embed sandbox policy", () => {
 
     expect(managementToolAllowed(context, "terminal-command-runs")).toBe(false);
   });
+
+  it("allows sandboxed bash by default while honoring explicit tool selection and denial", () => {
+    const base = contextFor([{ id: "p1", name: "Project 1" }]);
+    expect(managementToolAllowed({ ...base, tools: {} }, "bash")).toBe(true);
+    expect(managementToolAllowed({ ...base, tools: { allow: ["bash"] } }, "bash")).toBe(true);
+    expect(managementToolAllowed({ ...base, tools: { allow: ["read"] } }, "bash")).toBe(false);
+    expect(managementToolAllowed({ ...base, tools: { allow: ["bash"], deny: ["bash"] } }, "bash")).toBe(false);
+    expect(managementToolAllowed({ ...base, tools: {} }, "shell")).toBe(false);
+    expect(managementToolAllowed({ ...base, tools: {} }, "terminal")).toBe(false);
+  });
 });
 
 describe("management embed privileged grants", () => {

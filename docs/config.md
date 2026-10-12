@@ -209,7 +209,13 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 受控工具为 `icnoc_search_capabilities`、`icnoc_call_capability`、`workbench_search_knowledge`、`workbench_retrieve_knowledge`、`workbench_retrieve_bookstack`、管理文件工具与 Bubblewrap 隔离的 `python`。知识访问经后端短期一次性 token，PI WEB 不配置 RAGFlow/BookStack 服务凭据，工具不接受 tenant/dataset ID。来源链接不是连接配置。全局开关允许时再提供 spawn/跟踪子会话/ask_user，子会话继承管理上下文及显式拒绝。
 
-Python 默认无网络，只绑定管理工作区。通用 MCP、HTTP、Web 搜索、shell 和交互终端默认拒绝。签名 token 的 `privileged.bash`/`privileged.network` 仅在机器 `managementEmbed.allowPrivileged: true`（默认 false）时生效；仅 tools.allow 不足，tools.deny 始终优先。特权 bash 使用受限 Bubblewrap，普通宿主 shell/PowerShell/交互终端仍拒绝；宿主文件可见性必须遵循单独有效授权，不能将宿主访问当默认。网络授权可启用 http/webfetch/websearch，并移除管理 Python/bash/terminal-command-runs 的 `--unshare-net`；通用 MCP 仍拒绝。Web/API 与 daemon 的特权配置须一致。
+Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只读运行库；bash 可在该工作区沙盒内执行命令，不默认暴露其他宿主目录。通用 MCP、HTTP、Web 搜索、宿主 shell 和交互终端默认拒绝。签名 token 的 `privileged.bash`/`privileged.network` 仅在机器 `managementEmbed.allowPrivileged: true`（默认 false）时生效；仅 tools.allow 不足以获得特权。单项授权仍采用受限模式，tools.allow/deny 继续有效：仅 bash 授权可提供工作区可写、其他宿主目录只读的沙盒；仅网络授权可启用 http/webfetch/websearch 并移除管理 Python/bash/terminal-command-runs 的 `--unshare-net`，但不增加宿主文件可见性。
+
+**完整特权管理会话**要求机器 `managementEmbed.allowPrivileged: true`，且签名 token 的 `privileged.bash` 与 `privileged.network` 都为 true。此时代理使用与普通模式相同的 SDK 工具及资源加载规则，忽略管理 token 的 tools.allow/deny，不再应用管理工具的工作区沙盒和资源过滤；仍按普通模式的项目信任规则加载项目扩展、Skills 等。其宿主文件读写、网络和已配置 MCP 等能力受运行 daemon 的系统账号和普通权限配置约束，不代表自动获取操作系统 root 权限。
+
+此模式不注册管理专属工作台工具及其“L0 只读能力”指令，不以工作台资源续期作为代理启动门槛，也不强制同步工作台 Skills 或覆盖项目 Relay 模板。工具定义和系统提示由普通会话相同的加载路径生成；已有项目文件不自动删除或改写，仍按普通模式加载。工作台外部服务自身的授权规则不会因此被改写。
+
+完整特权不改变管理身份、独立模型认证及偏好存储、审计或子会话管理上下文，也不允许普通会话连接读取管理会话。Web/API 与 daemon 的特权配置须一致。仅向受信任的签名入口发放双授权；旧管理 allow/deny 不能限制这种完整特权会话。
 
 Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。管理启动只在所属工作区同步 relay/relay-runner 模板，普通启动不覆盖项目技能。
 
