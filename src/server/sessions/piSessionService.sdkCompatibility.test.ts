@@ -89,7 +89,17 @@ describe("Pi SDK compatibility through the production session service", () => {
     }
   }, 20_000);
 
-  it("force-syncs both management Relay skills and keeps global skills and generic shell tools excluded", async () => {
+  it.each([
+    { name: "default isolation", allowPrivileged: false, bash: false, network: false, hostFilesystem: false },
+    { name: "ignored bash grant", allowPrivileged: false, bash: true, network: false, hostFilesystem: false },
+    { name: "machine switch without a grant", allowPrivileged: true, bash: false, network: false, hostFilesystem: false },
+    { name: "privileged bash", allowPrivileged: true, bash: true, network: false, hostFilesystem: true },
+    { name: "network grant without host access", allowPrivileged: true, bash: false, network: true, hostFilesystem: false },
+    { name: "full privileges", allowPrivileged: true, bash: true, network: true, hostFilesystem: true },
+    { name: "full grants without machine opt-in", allowPrivileged: false, bash: true, network: true, hostFilesystem: false },
+    { name: "full privileges with explicit denies", allowPrivileged: true, bash: true, network: true, hostFilesystem: true, deny: ["write", "bash", "extension_probe"] },
+    { name: "refused full privileges with explicit denies", allowPrivileged: false, bash: true, network: true, hostFilesystem: false, deny: ["write", "bash", "extension_probe"] },
+  ])("keeps managed skills and sandboxed bash scoped with $name", async ({ allowPrivileged, bash, network, hostFilesystem, deny }) => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-sdk-managed-"));
     const cwd = join(root, "project");
     const agentDir = join(root, "agent");
@@ -103,12 +113,28 @@ describe("Pi SDK compatibility through the production session service", () => {
     await writeFile(projectRunner, "old project runner");
     await writeFile(join(agentDir, "skills", "global-only", "SKILL.md"), '---\nname: global-only\ndescription: Global only\n---\nPrivate global instructions\n');
     await writeFile(join(agentDir, "skills", "relay", "SKILL.md"), '---\nname: relay\ndescription: Global relay\n---\nPrivate global relay instructions\n');
+    await writeFile(join(agentDir, "AGENTS.md"), "Private global context");
+    const platformInstructions = "# Workbench read-only capabilities\nOnly use controlled workbench tools. PLATFORM_RESTRICTION_SENTINEL";
+    await writeFile(join(cwd, "AGENTS.md"), platformInstructions);
+    await mkdir(join(agentDir, "extensions"));
+    await writeFile(join(agentDir, "extensions", "probe.ts"), `export default function (pi) {
+      pi.registerTool({ name: "extension_probe", label: "Probe", description: "Resource probe: " + (process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"] ?? "default"),
+        parameters: { type: "object", properties: {} },
+        async execute() { return { content: [{ type: "text", text: "probe" }] }; }
+      });
+    }`);
     await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [fileURLToPath(new URL("../../../pi-packages/relays", import.meta.url))] }));
     const modelRuntime = await createTestModelRuntime();
-    const context = testManagementContext();
+    const context = {
+      ...testManagementContext(),
+      projects: testManagementContext().projects.map((project) => ({ ...project, agentsInstructions: platformInstructions })),
+      privileged: { bash, network },
+      ...(deny === undefined ? {} : { tools: { allow: ["read"], deny } }),
+    };
     let runtime: AgentSessionRuntime | undefined;
     const service = new PiSessionService(new CapturingSessionEventHub(), {
       agentDir, dataDir: join(root, "data"), archiveStore: emptyArchiveStore(), modelRuntime,
+      managementAllowPrivileged: allowPrivileged,
       sessionManager: createPiSessionManagerGateway({ agentDir, env: {}, sessionDirEnvKeys: [] }),
       projectPathForCwd: () => Promise.resolve(cwd),
       subsessionsEnabled: true,
@@ -123,13 +149,46 @@ describe("Pi SDK compatibility through the production session service", () => {
     });
     try {
       await service.start(cwd, { managementContext: context });
+      const fullPrivileges = allowPrivileged && bash && network;
+      const outsidePath = join(root, "outside.txt");
+      if (deny !== undefined && !fullPrivileges) {
+        for (const tool of deny) expect(runtime?.session.getActiveToolNames()).not.toContain(tool);
+        expect(runtime?.session.getActiveToolNames()).toContain("read");
+        expect(runtime?.session.systemPrompt).not.toContain("Private global context");
+        expect(runtime?.session.systemPrompt).toContain("PLATFORM_RESTRICTION_SENTINEL");
+        return;
+      }
+      const writeTool = runtime?.session.agent.state.tools.find((tool) => tool.name === "write");
+      if (writeTool === undefined) throw new Error("Expected the real SDK write tool");
+      if (fullPrivileges) {
+        expect(runtime?.session.systemPrompt).not.toContain("PLATFORM_RESTRICTION_SENTINEL");
+        expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe(platformInstructions);
+        expect(runtime?.session.getActiveToolNames()).toContain("extension_probe");
+        expect(runtime?.session.getToolDefinition("extension_probe")?.description).toBe(`Resource probe: ${process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"] ?? "default"}`);
+        expect(await readFile(projectSkill, "utf8")).toBe("old project relay");
+        expect(await readFile(projectRunner, "utf8")).toBe("old project runner");
+        expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name)).toContain("global-only");
+        expect(runtime?.session.systemPrompt).toContain("Private global context");
+        expect(runtime?.session.getToolDefinition("bash")?.description).not.toContain("sandbox");
+        expect(runtime?.session.getToolDefinition("python")).toBeUndefined();
+        await writeTool.execute("write-outside", { path: outsidePath, content: "full privilege sentinel" });
+        expect(await readFile(outsidePath, "utf8")).toBe("full privilege sentinel");
+        return;
+      }
+      await expect(writeTool.execute("write-outside", { path: outsidePath, content: "blocked" })).rejects.toThrow("path outside the managed project sandbox");
+      expect(runtime?.session.getActiveToolNames()).not.toContain("extension_probe");
       expect(await readFile(projectSkill, "utf8")).toBe(await readFile(new URL("../../../skills/relay/SKILL.md", import.meta.url), "utf8"));
       expect(await readFile(projectRunner, "utf8")).toBe(await readFile(new URL("../../../skills/relay-runner/SKILL.md", import.meta.url), "utf8"));
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.name).sort()).toEqual(["relay", "relay-runner"]);
       expect(runtime?.services.resourceLoader.getSkills().skills.map((skill) => skill.filePath)).toEqual(expect.arrayContaining([projectSkill, projectRunner]));
       expect(runtime?.services.resourceLoader.getSkills().diagnostics).toEqual([]);
       expect(runtime?.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "python", "bash"]));
-      expect(runtime?.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(["shell"]));
+      const bashDefinition = runtime?.session.getToolDefinition("bash");
+      expect(bashDefinition?.description).toContain(hostFilesystem ? "other host paths are read-only" : "Paths outside the project are blocked");
+      expect(bashDefinition?.description).toContain(network && allowPrivileged ? "Network access is enabled" : "Network access is disabled");
+      for (const tool of ["shell", "powershell", "terminal"]) {
+        expect(runtime?.session.getActiveToolNames()).not.toContain(tool);
+      }
       expect(runtime?.session.systemPrompt).not.toContain("Private global");
       if (runtime === undefined) throw new Error("Expected the managed SDK runtime");
       const list = vi.spyOn(service, "listSubsessions").mockResolvedValue([]);

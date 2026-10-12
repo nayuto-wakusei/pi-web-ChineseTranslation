@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills } from "./piSessionService.js";
+import { filterManagedGlobalContextFiles, filterManagedProjectSkills, filterManagedWorkbenchSkills, filterPrivilegedManagementContextFiles } from "./piSessionService.js";
 import { ensureManagedRelaySkills } from "./relaySkill.js";
 
 describe("filterManagedGlobalContextFiles", () => {
@@ -34,6 +34,42 @@ describe("filterManagedGlobalContextFiles", () => {
       { path: nestedAgents, content: "nested agents" },
       { path: unrelatedAgentFile, content: "not context" },
     ]);
+  });
+});
+
+describe("filterPrivilegedManagementContextFiles", () => {
+  const context = {
+    user: { id: "user", rootUserId: "root", roles: [], permissions: [] },
+    projects: [{ id: "project", name: "Project", agentsInstructions: "platform read-only", agentsInstructionsReplaceIfMatches: ["legacy platform read-only"] }],
+  };
+
+  it.each([
+    "platform read-only",
+    "legacy platform read-only",
+    '<!-- pi-web-managed-agents:{"source":"management-embed","revision":"old"} -->\nold platform instruction',
+  ])("omits injected instructions from the privileged prompt: %s", (content) => {
+    const cwd = resolve("/home/user/project");
+    const injected = { path: join(cwd, "AGENTS.md"), content };
+    const global = { path: resolve("/home/user/.pi/agent/AGENTS.md"), content: "ordinary global instructions" };
+    const base = { agentsFiles: [global, injected] };
+    expect(filterPrivilegedManagementContextFiles(cwd, context, base).agentsFiles).toEqual([global]);
+    expect(base.agentsFiles).toEqual([global, injected]);
+  });
+
+  it("preserves real project instructions and global resources", () => {
+    const cwd = resolve("/home/user/project");
+    const base = { agentsFiles: [
+      { path: join(cwd, "AGENTS.md"), content: "user-authored project instructions" },
+      { path: resolve("/home/user/.pi/agent/AGENTS.md"), content: "platform read-only" },
+      { path: join(cwd, "subdir", "AGENTS.md"), content: "nested project instructions" },
+    ] };
+    expect(filterPrivilegedManagementContextFiles(cwd, context, base)).toEqual(base);
+  });
+
+  it("omits inherited legacy platform instructions for a nested workspace", () => {
+    const projectRoot = resolve("/home/user/project");
+    const base = { agentsFiles: [{ path: join(projectRoot, "AGENTS.md"), content: "legacy platform read-only" }] };
+    expect(filterPrivilegedManagementContextFiles(join(projectRoot, "worktree"), context, base).agentsFiles).toEqual([]);
   });
 });
 

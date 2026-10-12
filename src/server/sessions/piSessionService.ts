@@ -68,7 +68,7 @@ import { createLocalOnlyModelRuntime, modelRuntimeAuthPath, type AuthChange } fr
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import { workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
+import { isManagedAgentsFile, workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { managementPrivilegeRequested, managementPrivileges, managementUsesNormalPermissions } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
@@ -556,6 +556,17 @@ interface SkillCollectionResult {
 
 const GLOBAL_AGENT_CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
+export function filterPrivilegedManagementContextFiles(cwd: string, context: ManagementEmbedContext, base: AgentContextFilesResult): AgentContextFilesResult {
+  const injectedInstructions = context.projects.flatMap((project) => [
+    ...(project.agentsInstructions === undefined ? [] : [project.agentsInstructions]),
+    ...(project.agentsInstructionsReplaceIfMatches ?? []),
+  ]).map((content) => content.trim());
+  return {
+    agentsFiles: base.agentsFiles.filter((file) => !isManagedAgentsFile(file.content)
+      && !(basename(file.path) === "AGENTS.md" && pathInsideOrEqual(dirname(file.path), cwd) && injectedInstructions.includes(file.content.trim()))),
+  };
+}
+
 export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, base: AgentContextFilesResult): AgentContextFilesResult {
   return {
     agentsFiles: base.agentsFiles.filter((file) => {
@@ -866,6 +877,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
   projectTrustRequiring: boolean;
   appendSystemPromptSections: readonly string[];
   eventBus: ReturnType<typeof createEventBus>;
+  agentsFilesOverride?: (base: AgentContextFilesResult) => AgentContextFilesResult;
 }) {
   const { cwd, agentDir, settingsManager, projectTrustRequiring } = options;
   const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
@@ -877,6 +889,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
     resourceLoaderOptions: {
       ...piWebResourceLoaderOptions(options.appendSystemPromptSections),
       eventBus: options.eventBus,
+      ...(options.agentsFilesOverride === undefined ? {} : { agentsFilesOverride: options.agentsFilesOverride }),
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     },
     ...(projectTrustRequiring ? {
@@ -985,6 +998,7 @@ function createManagementRuntimeFactory(
 ): PiCreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, initialModel, initialThinkingLevel, delegationToolsEnabled }) => {
     const normalPermissions = managementUsesNormalPermissions(managementContext, { allowPrivileged: managementAllowPrivileged });
+    const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
     const resolvedDelegationToolsEnabled = delegationToolsEnabled
       ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
     if (!normalPermissions) await ensureManagedRelaySkills(cwd);
@@ -1031,7 +1045,6 @@ function createManagementRuntimeFactory(
       ...workbenchTools,
     ];
     const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
-    const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
     if (!managementAllowPrivileged && managementPrivilegeRequested(managementContext)) {
       logger.info({
         userId: managementContext.user.id,
@@ -1041,7 +1054,7 @@ function createManagementRuntimeFactory(
     }
     const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
     const policyAgentDir = normalPermissions ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
-    return withRuntimeCreationEnvironment({ [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+    return withRuntimeCreationEnvironment(normalPermissions ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
       const projectTrustRequiring = normalPermissions && hasTrustRequiringProjectResources(cwd);
       const settingsManager = await createScopedSettingsManager({
         cwd,
@@ -1058,6 +1071,7 @@ function createManagementRuntimeFactory(
         projectTrustRequiring,
         appendSystemPromptSections,
         eventBus: createEventBus(),
+        agentsFilesOverride: (base) => filterPrivilegedManagementContextFiles(cwd, managementContext, base),
       }) : { services: await createAgentSessionServices({
         cwd,
         agentDir,

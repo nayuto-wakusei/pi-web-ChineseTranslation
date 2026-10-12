@@ -13,7 +13,7 @@ describe("managementPrivileges", () => {
   it("enables only the grants present on the signed context", () => {
     expect(managementPrivileges(privilegedContext({ bash: true }), { allowPrivileged: true })).toEqual({ bash: true, network: false });
     expect(managementPrivileges(privilegedContext({ network: true }), { allowPrivileged: true })).toEqual({ bash: false, network: true });
-    expect(managementPrivileges(privilegedContext({ bash: true, network: true }), { allowPrivileged: true })).toEqual({ bash: true, network: true });
+    expect(managementPrivileges(privilegedContext({ bash: true, network: true }), { allowPrivileged: true })).toEqual({ bash: true, network: true, full: true });
   });
 
   it("lets an explicit bash deny veto a privileged bash grant", () => {
@@ -24,7 +24,7 @@ describe("managementPrivileges", () => {
 
   it("ignores management tool restrictions only for both signed grants with machine opt-in", () => {
     const context = privilegedContext({ bash: true, network: true }, { allow: ["python"], deny: ["bash", "read"] });
-    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: true, network: true });
+    expect(managementPrivileges(context, { allowPrivileged: true })).toEqual({ bash: true, network: true, full: true });
     expect(managementPrivileges(context, { allowPrivileged: false })).toEqual(DISABLED_MANAGEMENT_PRIVILEGES);
   });
 

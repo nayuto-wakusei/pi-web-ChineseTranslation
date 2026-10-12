@@ -123,6 +123,22 @@ describe("privileged management session permissions", () => {
     }
   });
 
+  it("preserves the operator's ordinary permission policy environment", async () => {
+    const h = await fixture(true, { bash: true, network: true });
+    vi.stubEnv("PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR", h.agentDir);
+    try {
+      await h.service.start(h.cwd);
+      const ordinaryDescription = h.runtime().session.getToolDefinition("mcp")?.description;
+      expect(ordinaryDescription).toContain(h.agentDir);
+      await h.start();
+      expect(h.runtime().session.getToolDefinition("mcp")?.description).toBe(ordinaryDescription);
+      expect(process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]).toBe(h.agentDir);
+    } finally {
+      vi.unstubAllEnvs();
+      await h.dispose();
+    }
+  });
+
   it("retains managed Workbench tools and synchronization without full permission grants", async () => {
     const h = await fixture(true, { bash: true }, "always", true);
     try {
@@ -152,7 +168,7 @@ async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedCont
   await writeFile(join(agentDir, "skills", "global-probe", "SKILL.md"), "---\nname: global-probe\ndescription: Test global skill\n---\nGlobal resource fixture\n");
   await writeFile(join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: trust }));
   await writeFile(join(cwd, ".pi", "extensions", "probe.js"), 'export default function(pi) { pi.registerCommand("project-probe", { description: "Test project command", async handler() {} }); }\n');
-  await writeFile(join(agentDir, "extensions", "mcp.js"), 'export default function(pi) { pi.registerTool({ name: "mcp", label: "mcp", description: "Test global MCP contribution", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "GLOBAL_MCP_FIXTURE" }] }; } }); }\n');
+  await writeFile(join(agentDir, "extensions", "mcp.js"), 'export default function(pi) { pi.registerTool({ name: "mcp", label: "mcp", description: "Test global MCP contribution: " + (process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"] ?? "default"), parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "GLOBAL_MCP_FIXTURE" }] }; } }); }\n');
   const managedModelRuntime = await createTestModelRuntime();
   const config = { baseUrl: "https://workbench.example", mcpUrl: "https://mcp.example" };
   const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("Unexpected Workbench network access"));

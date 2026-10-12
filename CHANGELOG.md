@@ -1,5 +1,23 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202610.1
+
+### Patch Changes
+
+- Remove remaining management tool deny lists and platform-injected read-only AGENTS instructions from fully privileged agent sessions so they follow normal-mode tool and local resource rules. Preserve sandbox restrictions for other management sessions and retain shared files and user-authored instructions.
+
+## 1.202610.0
+
+### Patch Changes
+
+- Let fully privileged management agent sessions use normal-mode tools and local resources when the machine opts in and the signed token grants both bash and network. Preserve explicit tool denies, management identity, separate credentials, and audit attribution; single grants remain sandboxed.
+
+## 1.202609.12
+
+### Patch Changes
+
+- Allow management-embed sessions to use workspace-isolated bash by default while preserving explicit tool restrictions and separate authorization for host visibility and network access.
+
 ## 1.202609.11
 
 ### Patch Changes

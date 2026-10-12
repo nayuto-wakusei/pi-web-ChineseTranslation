@@ -3,6 +3,7 @@ import type { ManagementEmbedContext } from "./managementEmbed.js";
 export interface ManagementPrivileges {
   bash: boolean;
   network: boolean;
+  full?: boolean;
 }
 
 export const DISABLED_MANAGEMENT_PRIVILEGES: ManagementPrivileges = { bash: false, network: false };
@@ -12,7 +13,7 @@ export function managementPrivileges(
   options: { allowPrivileged?: boolean } = {},
 ): ManagementPrivileges {
   if (options.allowPrivileged !== true) return { ...DISABLED_MANAGEMENT_PRIVILEGES };
-  if (managementUsesNormalPermissions(context, options)) return { bash: true, network: true };
+  if (managementUsesNormalPermissions(context, options)) return { bash: true, network: true, full: true };
   const deny = new Set(context.tools?.deny ?? []);
   return {
     bash: context.privileged?.bash === true && !deny.has("bash"),

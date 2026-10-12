@@ -581,6 +581,10 @@
 <details class="config-details"><summary>切换目录或运行第二实例</summary><ul><li><strong>迁移：</strong> 新数据目录没有原注册表或归档。复制前停服务；归档同时复制 <code>archived-sessions.json</code> 和 <code>archived-sessions/</code>。</li><li><strong>第二实例：</strong> 使用独立数据目录、daemon endpoint 和 Web 端口，一个目录仅由一个活跃 daemon 所有。</li><li><strong>agent 状态：</strong> 使用内置 SDK 数据布局，不转换 profile 或移动托管归档。</li><li><strong>有效路径：</strong> daemon 启动时固定 agent 目录，Web-only 重启不改变。</li></ul></details>
 <details class="config-details"><summary>代理进程继承环境</summary><ul><li>普通代理 shell、终端、子会话继承 daemon 环境及解析的 Pi 路径；模型凭据仍遵循项目 registry。</li><li><code>NODE_ENV</code> 和 <code>PORT</code> 从代理进程环境移除。</li><li><code>PI_WEB_SESSION=1</code> 标记嵌套进程，继承的 <code>PI_WEB_*</code> 仍指向活跃宿主实例。</li><li>不要从需要保留的活跃会话内重启宿主 daemon。</li></ul></details>
 <p>普通模式模型、认证及默认值按模式 × 项目托管，不写回全局 agent 设置；管理嵌入独立。详见 <a href="config.md#config-files">项目认证存储</a>、<a href="config.md#ordinary-mode-tool-audit">普通审计</a>、<a href="config.md#management-mode-elasticsearch-audit">管理审计</a>及 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p><p>本地保留旧 agent.command/agent.dir、PI_WEB_AGENT_COMMAND/PI_WEB_AGENT_DIR/PI_WEB_AGENT_SESSION_DIR 与 Windows companion 输入，公开 v2 profile 不扩展；废弃输入通过诊断提示，不自动重写配置。详见 <a href="config.md#agent-runtime">兼容输入</a>。</p></section>
+<section id="management-permissions"><h2>管理工具与特权</h2>
+<p>受限管理会话默认可使用工作区内的 Bubblewrap <code>bash</code>，仅挂载工作区及必要只读运行库，默认断网；沙盒不可用时拒绝执行。非空 <code>tools.allow</code> 须包含 bash，显式 <code>tools.deny</code> 仍有效。单项签名特权仅在 <code>managementEmbed.allowPrivileged</code> 为 true 时生效：bash 授权可增加宿主路径只读可见性；网络授权不扩大文件可见性。</p>
+<p>机器允许特权且签名同时授予 <code>privileged.bash</code> 与 <code>privileged.network</code> 时，代理按普通模式加载工具、资源与项目信任，不应用管理 allow/deny、沙箱或工作台只读能力指令，不强制同步管理 Skills。平台注入及与签名上下文明确匹配的旧 AGENTS 指令不加入系统提示，但不删除文件或用户自编指令；操作者的普通权限配置保留。这不授予操作系统管理员权限。</p>
+<p>管理身份、独立认证与偏好、审计和子会话管理上下文保留，浏览器交互终端仍有独立授权。修改机器特权开关需让 Web/API 与 daemon 使用同一配置并重启两者。详见 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p></section>
 <section id="providers"><h2>提供器、目录与项目信任</h2>
 <div class="table-scroll" role="region" aria-label="提供器与信任配置" tabindex="0">
 <table class="reference-table ">

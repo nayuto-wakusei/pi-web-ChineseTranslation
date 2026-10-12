@@ -81,7 +81,7 @@ describe("management permission system", () => {
     });
   });
 
-  it("keeps sandboxed Python available alongside controlled workbench tools", () => {
+  it("keeps sandboxed Python and bash available without privileged grants", () => {
     const context = managementContext();
     const extraTools = ["icnoc_search_capabilities", "icnoc_call_capability", "workbench_search_knowledge", "workbench_retrieve_knowledge", "workbench_retrieve_bookstack"];
 
@@ -214,6 +214,7 @@ describe("management permission system", () => {
   });
 
   it("keeps explicit bash denial and managed allowlist selection authoritative without privileges", () => {
+    expect(managementAgentToolNames(managementContext({ tools: { allow: ["python"] } }))).toEqual(["python"]);
     const denied = managementContext({ tools: { deny: ["bash"] } });
     expect(managementAgentToolNames(denied)).not.toContain("bash");
     expect(createManagementPermissionSystemPolicy(denied).tools["bash"]).toBe("deny");

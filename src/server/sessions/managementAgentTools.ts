@@ -81,7 +81,7 @@ export function createManagedBashToolDefinition(cwd: string, context: Management
   const hostFilesystem = options.hostFilesystem === true;
   const scopeDescription = hostFilesystem
     ? "The current project is writable; other host paths are read-only."
-    : "The current project is writable. Paths outside the project are blocked.";
+    : "The current project workspace is writable. Paths outside the project are blocked, apart from necessary read-only runtime paths.";
   return defineTool<typeof bashSchema, undefined>({
     name: "bash",
     label: "bash",
