@@ -1,4 +1,8 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
+import { SessionArchiveStore } from "./sessionArchiveStore.js";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
 import { SessionNotificationStore } from "./sessionNotificationStore.js";
@@ -7,6 +11,42 @@ import { CapturingSessionEventHub, fakeRuntime, fakeSessionManager, resolveSessi
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
 describe("PiSessionService archive and cleanup", () => {
+  it.each([
+    { source: "global", absolute: false }, { source: "project", absolute: false }, { source: "env", absolute: false },
+    { source: "global", absolute: true }, { source: "project", absolute: true }, { source: "env", absolute: true },
+  ])("cleans custom sessions ($source, absolute=$absolute)", async ({ source, absolute }) => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-cleanup-custom-"));
+    const cwd = join(root, "workspace");
+    const agentDir = join(root, "agent");
+    const sessionDir = join(cwd, "custom-sessions");
+    const configuredSessionDir = absolute ? sessionDir : "custom-sessions";
+    await mkdir(sessionDir, { recursive: true });
+    const settingsDir = source === "project" ? join(cwd, ".pi") : agentDir;
+    await mkdir(settingsDir, { recursive: true });
+    if (source !== "env") await writeFile(join(settingsDir, "settings.json"), JSON.stringify({ sessionDir: configuredSessionDir }));
+    await writeFile(join(sessionDir, "old.jsonl"), [
+      { type: "session", version: 3, id: "custom-old", cwd, timestamp: "2020-01-01T00:00:00.000Z" },
+      { type: "message", id: "m1", parentId: null, timestamp: "2020-01-01T00:00:00.000Z", message: { role: "user", content: "hello", timestamp: 1577836800000 } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir,
+      dataDir: join(root, "data"),
+      archiveStore: new SessionArchiveStore(join(root, "data", "archived-sessions.json")),
+      modelRuntime: testModelRuntime,
+      sessionManager: createPiSessionManagerGateway({ agentDir, env: source === "env" ? { PI_CODING_AGENT_SESSION_DIR: configuredSessionDir } : {} }),
+      now: () => new Date("2030-01-01T00:00:00.000Z"),
+    });
+    try {
+      const request = { thresholds: { archiveIdleDays: 1 }, projectCwds: [cwd, cwd] };
+      expect((await service.cleanupPreview({ ...request, projectCwds: [] })).totals.archiveCount).toBe(0);
+      expect((await service.cleanupPreview(request)).totals.archiveCount).toBe(1);
+      expect((await service.cleanup(request)).archivedSessionIds).toEqual(["custom-old"]);
+      expect((await service.cleanupPreview(request)).totals.archiveCount).toBe(0);
+    } finally {
+      await service.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("clears an active notification inbox when archiving", async () => {
     const store = new SessionNotificationStore({ daemonInstanceId: "daemon-archive-test" });
     const hub = new CapturingSessionEventHub();

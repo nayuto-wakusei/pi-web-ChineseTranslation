@@ -454,6 +454,7 @@ export interface PiAgentSession {
     drainErrors?(): { error: { message: string } }[];
     getEnabledModels(): string[] | undefined;
     getProjectSettings?(): object;
+    isProjectTrusted?(): boolean;
     setEnabledModels(patterns: string[] | undefined): void;
     readonly piWebScopeKey?: string;
     readonly piWebModelScopeEditable?: boolean;
@@ -937,47 +938,50 @@ function createDefaultRuntimeFactory(
       });
     }
 
-    const projectTrustRequiring = hasTrustRequiringProjectResources(cwd);
-    const settingsManager = await createScopedSettingsManager({
-      cwd,
-      scopeDirectory: await resolveSettingsScope(cwd, "normal"),
-      globalAgentDir: agentDir,
-      mode: "normal",
-      projectTrusted: !projectTrustRequiring,
+    // Resource loaders may read process.env; wait for managed overrides to be restored.
+    return withRuntimeCreationEnvironment({}, async () => {
+      const projectTrustRequiring = hasTrustRequiringProjectResources(cwd);
+      const settingsManager = await createScopedSettingsManager({
+        cwd,
+        scopeDirectory: await resolveSettingsScope(cwd, "normal"),
+        globalAgentDir: agentDir,
+        mode: "normal",
+        projectTrusted: !projectTrustRequiring,
+      });
+      // Only normal runtimes register a host connection; privileged management
+      // packages keep their own event bus without exposing a normal-mode session.
+      const eventBus = createEventBus();
+      const { services, projectTrustDiagnostics } = await createNormalPermissionSessionServices({
+        cwd,
+        agentDir,
+        modelRuntime: scopedModelRuntime,
+        settingsManager,
+        projectTrustRequiring,
+        appendSystemPromptSections,
+        eventBus,
+      });
+      const modelOptions = await resolveSessionModelOptions({
+        services,
+        hasExistingSession: sessionManager.buildSessionContext().messages.length > 0,
+        ...(initialModel === undefined ? {} : { initialModel }),
+        ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
+      });
+      services.diagnostics.push(...modelOptions.diagnostics);
+      const resolvedDelegationToolsEnabled = delegationToolsEnabled
+        ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
+      const customTools = createPiWebCustomToolDefinitions(cwd, resolvedDelegationToolsEnabled, spawn, subsessions, askUser);
+      const result = await createAgentSessionFromServices({
+        services,
+        sessionManager,
+        customTools,
+        ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+        ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
+        ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
+        ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
+      });
+      sessionEvents.register(result.session, eventBus);
+      return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
-    // Only normal runtimes register a host connection; privileged management
-    // packages keep their own event bus without exposing a normal-mode session.
-    const eventBus = createEventBus();
-    const { services, projectTrustDiagnostics } = await createNormalPermissionSessionServices({
-      cwd,
-      agentDir,
-      modelRuntime: scopedModelRuntime,
-      settingsManager,
-      projectTrustRequiring,
-      appendSystemPromptSections,
-      eventBus,
-    });
-    const modelOptions = await resolveSessionModelOptions({
-      services,
-      hasExistingSession: sessionManager.buildSessionContext().messages.length > 0,
-      ...(initialModel === undefined ? {} : { initialModel }),
-      ...(initialThinkingLevel === undefined ? {} : { initialThinkingLevel }),
-    });
-    services.diagnostics.push(...modelOptions.diagnostics);
-    const resolvedDelegationToolsEnabled = delegationToolsEnabled
-      ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
-    const customTools = createPiWebCustomToolDefinitions(cwd, resolvedDelegationToolsEnabled, spawn, subsessions, askUser);
-    const result = await createAgentSessionFromServices({
-      services,
-      sessionManager,
-      customTools,
-      ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
-      ...(modelOptions.model === undefined ? {} : { model: modelOptions.model }),
-      ...(modelOptions.thinkingLevel === undefined ? {} : { thinkingLevel: modelOptions.thinkingLevel }),
-      ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
-    });
-    sessionEvents.register(result.session, eventBus);
-    return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
   };
 }
 
@@ -1055,20 +1059,20 @@ function createManagementRuntimeFactory(
     const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
     const policyAgentDir = normalPermissions ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
     return withRuntimeCreationEnvironment(normalPermissions ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
-      const projectTrustRequiring = normalPermissions && hasTrustRequiringProjectResources(cwd);
       const settingsManager = await createScopedSettingsManager({
         cwd,
         scopeDirectory: await resolveSettingsScope(cwd, "management"),
         globalAgentDir: agentDir,
         mode: "management",
-        ...(normalPermissions ? { projectTrusted: !projectTrustRequiring } : {}),
+        // Signed management entry authorizes the project without changing ordinary trust decisions.
+        projectTrusted: true,
       });
       const { services, projectTrustDiagnostics } = normalPermissions ? await createNormalPermissionSessionServices({
         cwd,
         agentDir,
         modelRuntime,
         settingsManager,
-        projectTrustRequiring,
+        projectTrustRequiring: false,
         appendSystemPromptSections,
         eventBus: createEventBus(),
         agentsFilesOverride: (base) => filterPrivilegedManagementContextFiles(cwd, managementContext, base),
@@ -2584,6 +2588,7 @@ export class PiSessionService {
       scopeDirectory: await this.resolveSettingsScopeDirectory(cwd, mode),
       globalAgentDir: this.agentDir,
       mode,
+      projectTrusted: session.settingsManager.isProjectTrusted?.() ?? true,
     });
     await settings.reload();
     this.assertDefaultsSettingsHealthy(settings);
@@ -3379,9 +3384,15 @@ export class PiSessionService {
   }
 
   private async cleanupPlan(request: NormalizedSessionCleanupRequest) {
-    const [sessions, archivedRecords] = await Promise.all([this.sessionManager.listAll(), this.archiveStore.list()]);
+    const [sessions, archivedRecords, scopedSessions] = await Promise.all([
+      this.sessionManager.listAll(),
+      this.archiveStore.list(),
+      request.thresholds.archiveIdleDays === undefined
+        ? Promise.resolve(new Map<string, PiSessionListEntry[]>())
+        : this.listSessionsByCwd(request.projectCwds ?? []),
+    ]);
     return planSessionCleanup({
-      sessions,
+      sessions: [...sessions, ...[...scopedSessions.values()].flat()],
       archivedRecords,
       activeSessions: this.cleanupActiveSessionStatuses(),
       thresholds: request.thresholds,

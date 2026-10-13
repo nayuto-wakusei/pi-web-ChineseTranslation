@@ -126,10 +126,13 @@ export async function moveWorkspaceFile(rootPath: string, fromPath: string | und
   const createDirs = options.createDirs ?? true;
   const overwrite = options.overwrite ?? false;
 
-  // Source: must exist and be a file (uses realpath via resolveInsideWorkspace)
-  const { target: source, relativePath: fromRelative } = await resolveInsideWorkspace(rootPath, fromPath);
-  const sourceStat = await stat(source);
+  // Validate the referent, but rename the directory entry rather than following the final symlink.
+  const { target: referent, relativePath: fromRelative } = await resolveInsideWorkspace(rootPath, fromPath);
+  const sourceStat = await stat(referent);
   if (!sourceStat.isFile()) throw new Error("Source path is not a file");
+  const sourceEntry = await resolveParentInsideWorkspace(rootPath, fromPath);
+  const source = join(await realpath(dirname(sourceEntry.target)), basename(sourceEntry.target));
+  ensureInside(sourceEntry.root, source);
 
   // Target: uses resolveParentInsideWorkspace + realpath(dirname) pattern (same as writeFile)
   const { root, target: dest, relativePath: destRelative } = await resolveParentInsideWorkspace(rootPath, toPath);
@@ -143,8 +146,8 @@ export async function moveWorkspaceFile(rootPath: string, fromPath: string | und
 
   if (!overwrite) {
     try {
-      const destStat = await stat(realDest);
-      if (destStat.isFile()) throw new Error(`File already exists: ${destRelative}`);
+      await lstat(realDest);
+      throw new Error(`File already exists: ${destRelative}`);
     } catch (error: unknown) {
       if (isNodeErrorWithCode(error, "ENOENT")) { /* expected — target doesn't exist */ }
       else if (error instanceof Error && error.message.startsWith("File already exists")) throw error;
@@ -153,7 +156,7 @@ export async function moveWorkspaceFile(rootPath: string, fromPath: string | und
   }
 
   await rename(source, realDest);
-  const finalStat = await stat(realDest);
+  const finalStat = await lstat(realDest);
   return { fromPath: fromRelative, toPath: destRelative, size: finalStat.size, modifiedAt: finalStat.mtime.toISOString() };
 }
 

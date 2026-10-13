@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +57,38 @@ function collectingLogger(): { entries: { level: string; message: string }[]; in
 }
 
 describe("claimSessiondStateOwnership", () => {
+  it("fails closed instead of reclaiming an existing mutation lock", async () => {
+    const lockPath = `${markerPath}.lock`;
+    await mkdir(lockPath);
+    const owner = await writeMarker({ pid: DEAD_PID });
+    let time = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => { time += 6_000; return time; });
+    try {
+      await expect(claimSessiondStateOwnership({ env: env() })).rejects.toThrow("confirm no daemon is starting or stopping");
+      expect((await stat(lockPath)).isDirectory()).toBe(true);
+      expect(await readMarker()).toEqual(owner);
+    } finally { clock.mockRestore(); }
+  });
+  it.each(["stale", "invalid", "absent"])("allows exactly one concurrent claimant with a %s marker", async (initial) => {
+    if (initial === "stale") await writeMarker({ pid: DEAD_PID });
+    if (initial === "invalid") await writeFile(markerPath, "{");
+    const results = await Promise.allSettled(Array.from({ length: 12 }, (_, index) => claimSessiondStateOwnership({
+      env: env({ PI_WEB_SESSIOND_PORT: String(7900 + index) }),
+      ownPid: 10000 + index,
+      graceMs: 0,
+      isAlive: (record) => record.pid !== DEAD_PID,
+    })));
+    const winners = results.filter((result) => result.status === "fulfilled");
+    try {
+      expect(winners).toHaveLength(1);
+      for (const result of results) {
+        if (result.status === "rejected") expect(result.reason).toBeInstanceOf(SessiondStateOwnershipConflictError);
+      }
+      expect((await readMarker()).pid).toBe(winners[0]?.value.record.pid);
+    } finally {
+      await Promise.all(winners.map((winner) => winner.value.release()));
+    }
+  });
   it("warns once while waiting through repeated live-owner polls", async () => {
     const dir = dataDir;
     const first = await claimSessiondStateOwnership({ env: { PI_WEB_DATA_DIR: dir }, ownPid: 101, isAlive: () => false });

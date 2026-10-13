@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
-import { createManagedAgentToolOptions, createManagedBashToolDefinition } from "./managementAgentTools.js";
+import { createManagedAgentToolOptions, createManagedBashToolDefinition, managedHostPath } from "./managementAgentTools.js";
 import * as managementSandbox from "./managementSandbox.js";
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -14,6 +14,12 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 describe("managed agent tools", () => {
+  it("preserves real host paths inside a workspace nested below the sandbox alias", () => {
+    expect(managedHostPath("/workspace/project", "/workspace/project/file.txt")).toBe("/workspace/project/file.txt");
+    expect(managedHostPath("/workspace/project", "/workspace/project")).toBe("/workspace/project");
+    expect(managedHostPath("/workspace/project", "/workspace/file.txt")).toBe(resolve("/workspace/project", "file.txt"));
+    expect(managedHostPath("/workspace/project", "/workspace/project-other/file.txt")).toBe(resolve("/workspace/project", "project-other/file.txt"));
+  });
   it("allows file tools inside the managed workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
     await writeFile(join(root, "README.md"), "hello");

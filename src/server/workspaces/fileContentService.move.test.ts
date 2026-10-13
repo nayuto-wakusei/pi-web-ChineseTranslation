@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { moveWorkspaceFile, readWorkspaceFile } from "./fileContentService.js";
@@ -9,6 +9,27 @@ afterEach(async () => {
 });
 
 describe("moveWorkspaceFile", () => {
+  it("does not overwrite a dangling destination symlink by default", async () => {
+    const root = await createTempWorkspace();
+    await writeFile(join(root, "source.txt"), "content");
+    await symlink("missing.txt", join(root, "destination.txt"));
+    await expect(moveWorkspaceFile(root, "source.txt", "destination.txt")).rejects.toThrow("File already exists");
+    expect(await readlink(join(root, "destination.txt"))).toBe("missing.txt");
+    expect(await readFile(join(root, "source.txt"), "utf8")).toBe("content");
+  });
+  it("renames a symlink without moving its target", async () => {
+    const root = await createTempWorkspace();
+    await writeFile(join(root, "original.txt"), "content");
+    await symlink("original.txt", join(root, "link.txt"));
+
+    await moveWorkspaceFile(root, "link.txt", "renamed.txt");
+
+    expect((await lstat(join(root, "renamed.txt"))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(root, "renamed.txt"))).toBe("original.txt");
+    expect(await readFile(join(root, "original.txt"), "utf8")).toBe("content");
+    expect(await readFile(join(root, "renamed.txt"), "utf8")).toBe("content");
+    await expect(lstat(join(root, "link.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
   it("moves a file to a new path", async () => {
     const root = await createTempWorkspace();
     await writeFile(join(root, "original.txt"), "content");

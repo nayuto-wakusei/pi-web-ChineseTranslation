@@ -11,6 +11,23 @@ import { describe, expect, it, vi } from "vitest";
 import { FilesRuntime } from "./FilesRuntime";
 
 describe("FilesRuntime tree and selection", () => {
+  it("refreshes the root and healthy expansions when an expanded directory disappears", async () => {
+    const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>((path) => path === "deleted"
+      ? Promise.reject(new Error("Path does not exist"))
+      : Promise.resolve(treeResponse(path, path === "" ? [directoryEntry("kept"), fileEntry("new.txt")] : [fileEntry("kept/current.txt")])));
+    const context = createContext({ files: createFiles({ listFiles }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.snapshot(context);
+    scope.fileTree = [directoryEntry("deleted")];
+    scope.expandedDirs = { deleted: [], kept: [] };
+    await runtime.refreshFiles(context);
+    expect(scope.fileTree).toEqual([directoryEntry("kept"), fileEntry("new.txt")]);
+    expect(scope.expandedDirs).toEqual({ kept: [fileEntry("kept/current.txt")] });
+    expect(scope.error).toContain("deleted: Path does not exist");
+    await runtime.refreshFiles(context);
+    expect(scope.error).toBeUndefined();
+    expect(listFiles.mock.calls.filter(([path]) => path === "deleted")).toHaveLength(1);
+  });
   it("creates files without overwriting and selects the result", async () => {
     const writeFile = vi.fn<WorkspaceFilesCapabilityV1["writeFile"]>((path) => Promise.resolve(writeResponse(path, 0)));
     const context = createContext({ files: createFiles({ writeFile }) });

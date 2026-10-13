@@ -211,7 +211,7 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只读运行库；bash 可在该工作区沙盒内执行命令，不默认暴露其他宿主目录。通用 MCP、HTTP、Web 搜索、宿主 shell 和交互终端默认拒绝。签名 token 的 `privileged.bash`/`privileged.network` 仅在机器 `managementEmbed.allowPrivileged: true`（默认 false）时生效；仅 tools.allow 不足以获得特权。单项授权仍采用受限模式，tools.allow/deny 继续有效：仅 bash 授权可提供工作区可写、其他宿主目录只读的沙盒；仅网络授权可启用 http/webfetch/websearch 并移除管理 Python/bash/terminal-command-runs 的 `--unshare-net`，但不增加宿主文件可见性。
 
-**完整特权管理会话**要求机器 `managementEmbed.allowPrivileged: true`，且签名 token 的 `privileged.bash` 与 `privileged.network` 都为 true。此时代理使用与普通模式相同的 SDK 工具及资源加载规则，忽略管理 token 的 tools.allow/deny，不再应用管理工具的工作区沙盒和资源过滤；仍按普通模式的项目信任规则加载项目扩展、Skills 等。其宿主文件读写、网络和已配置 MCP 等能力受运行 daemon 的系统账号和普通权限配置约束，不代表自动获取操作系统 root 权限。
+**完整特权管理会话**要求机器 `managementEmbed.allowPrivileged: true`，且签名 token 的 `privileged.bash` 与 `privileged.network` 都为 true。此时代理使用与普通模式相同的 SDK 工具及资源加载机制，忽略管理 token 的 tools.allow/deny，不再应用管理工具的工作区沙盒和资源过滤。管理嵌入会话直接通过项目信任，无需普通页面预先批准，也不改写普通模式的信任决定。其宿主文件读写、网络和已配置 MCP 等能力受运行 daemon 的系统账号和普通权限配置约束，不代表自动获取操作系统 root 权限。
 
 此模式不注册管理专属工作台工具及其“L0 只读能力”指令，不以工作台资源续期作为代理启动门槛，也不强制同步工作台 Skills 或覆盖项目 Relay 模板。工具定义和系统提示由普通会话相同的加载路径生成；已有项目文件不自动删除或改写，仍按普通模式加载。工作台外部服务自身的授权规则不会因此被改写。
 
@@ -231,6 +231,8 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 默认 `~/.pi-web` 保存项目/机器注册表、本地插件、默认 daemon socket、归档及项目认证/偏好。新目录是独立实例，没有原注册表和归档，不自动迁移。需要迁移时先停服务，复制 `archived-sessions.json` 和 `archived-sessions/` 后再启动。
 
 一个目录只能有一个活跃 daemon。第二实例需要独立数据目录、daemon endpoint 和 Web 端口。过期所有权通常自动恢复；启动仍拒绝时，必须先确认所报进程已退出，再按错误提示处理 `sessiond-owner.json`。不要删除活跃所有权文件。
+
+所有权标记更新使用短时互斥目录 `sessiond-owner.json.lock`，不会按年龄自动抢占。若启动/停止进程在更新期间崩溃，后续操作会明确报锁冲突；必须确认没有 daemon 正在启动或停止，才可删除该残留空目录后重试。升级这一保护机制时，先完整停止旧 daemon，再启动新版本，避免旧版本绕过互斥保护。
 
 该变量不改变 `PI_WEB_CONFIG` 或 Pi 自有会话存储。
 

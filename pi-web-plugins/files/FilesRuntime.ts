@@ -169,15 +169,23 @@ export class FilesRuntime {
     this.notify(scope);
     try {
       const root = await files.listFiles("", { signal: abort.signal });
+      const expandedErrors: string[] = [];
       const expandedEntries = await Promise.all(Object.keys(scope.expandedDirs).map(async (path) => {
-        const response = await files.listFiles(path, { signal: abort.signal });
-        return [path, response.entries] as const;
+        try {
+          const response = await files.listFiles(path, { signal: abort.signal });
+          return [path, response.entries] as const;
+        } catch (error) {
+          if (isAbortError(error)) throw error;
+          expandedErrors.push(`${path}: ${errorMessage(error)}`);
+          return undefined;
+        }
       }));
       if (!this.isCurrentTreeRequest(scope, generation, abort)) return;
       scope.fileTree = root.entries;
-      scope.expandedDirs = Object.fromEntries(expandedEntries);
+      scope.expandedDirs = Object.fromEntries(expandedEntries.filter((entry) => entry !== undefined));
       scope.treeStale = false;
-      delete scope.error;
+      if (expandedErrors.length > 0) scope.error = expandedErrors.join("\n");
+      else delete scope.error;
     } catch (error) {
       if (!this.isCurrentTreeRequest(scope, generation, abort) || isAbortError(error)) return;
       abort.abort();

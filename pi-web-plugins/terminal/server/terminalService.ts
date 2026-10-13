@@ -76,6 +76,7 @@ export interface TerminalActivitySink {
 }
 
 interface TerminalRecord extends TerminalInfo, TerminalWorkspaceScope {
+  cancellationRequested?: boolean;
   pty: pty.IPty;
   buffer: string;
   events: EventEmitter;
@@ -329,7 +330,7 @@ export class TerminalService {
     record.pty.onExit(({ exitCode }) => {
       record.exited = true;
       record.exitCode = exitCode;
-      this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice);
+      this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice, record.cancellationRequested === true);
       record.events.emit("exit", exitCode);
       const info = toInfo(record);
       this.activitySink?.updateTerminal(info);
@@ -340,18 +341,19 @@ export class TerminalService {
     runId: string | undefined,
     exitCode: number | undefined,
     failureNotice: TerminalCommandFailureNotice | undefined,
+    cancelled: boolean,
   ): void {
     if (runId === undefined) return;
     const run = this.commandRuns.get(runId);
     if (run === undefined || isTerminalCommandRunFinal(run.status)) return;
     const completed: TerminalCommandRun = {
       ...run,
-      status: exitCode === 0 ? "succeeded" : "failed",
+      status: exitCode === 0 && !cancelled ? "succeeded" : "failed",
       ...(exitCode === undefined ? {} : { exitCode }),
       completedAt: new Date().toISOString(),
     };
     this.commandRuns.set(runId, completed);
-    if (!this.disposed && completed.status === "failed" && failureNotice !== undefined) {
+    if (!this.disposed && !cancelled && completed.status === "failed" && failureNotice !== undefined) {
       this.recordNotice?.({
         severity: "error",
         message: failureNotice.message,
@@ -380,7 +382,11 @@ export class TerminalService {
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
     if (terminal === undefined) throw new Error("未找到终端");
-    if (!terminal.exited) terminal.pty.write("\x03");
+    if (!terminal.exited && terminal.cancellationRequested !== true) {
+      terminal.cancellationRequested = true;
+      try { terminal.pty.write("\x03"); }
+      catch (error) { terminal.cancellationRequested = false; throw error; }
+    }
     return copyCommandRun(run);
   }
 

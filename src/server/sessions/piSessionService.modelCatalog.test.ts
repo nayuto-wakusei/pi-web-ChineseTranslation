@@ -25,13 +25,18 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-async function startSessionWithSettings(settings?: Record<string, unknown>) {
+async function startSessionWithSettings(settings?: Record<string, unknown>, projectTrusted?: boolean) {
   const root = await mkdtemp(join(tmpdir(), "pi-web-model-catalog-"));
   tempDirs.push(root);
   const agentDir = join(root, "agent");
   const dataDir = join(root, "data");
   const workspace = join(root, "workspace");
   await Promise.all([mkdir(agentDir, { recursive: true }), mkdir(dataDir, { recursive: true }), mkdir(workspace, { recursive: true })]);
+  if (projectTrusted !== undefined) {
+    await mkdir(join(workspace, ".pi"));
+    await writeFile(join(workspace, ".pi", "settings.json"), JSON.stringify({ enabledModels: [`${PROVIDER}/${DEFAULT_MODEL}`] }));
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: projectTrusted ? "always" : "never" }));
+  }
   const settingsScope = resolveSettingsScopeDirectory({ dataDir, cwd: workspace, mode: "normal" });
   const settingsPath = preferencesFilePath(settingsScope);
   const credentials = new InMemoryCredentialStore();
@@ -91,6 +96,16 @@ function managementContext(): ManagementEmbedContext {
 }
 
 describe("PiSessionService session default pins", () => {
+  it.each([false, true])("uses the session's project trust when saving a default model (trusted=%s)", async (trusted) => {
+    const { service, ref } = await startSessionWithSettings(undefined, trusted);
+    try {
+      const catalog = await service.modelCatalog(ref);
+      expect(catalog.find((model) => model.id === FIRST_MODEL)?.enabled).toBe(!trusted);
+      const save = service.setSessionDefaults(ref, { provider: PROVIDER, modelId: FIRST_MODEL });
+      if (trusted) await expect(save).rejects.toThrow("模型未启用");
+      else await expect(save).resolves.toMatchObject({ defaultModel: FIRST_MODEL });
+    } finally { await service.dispose(); }
+  });
   it("pins a future-session model and thinking level into the project preference file", async () => {
     const { service, ref, settingsPath } = await startSessionWithSettings();
     const agentSettings = join(settingsPath, "..", "..", "..", "..", "agent", "settings.json");

@@ -10,10 +10,45 @@ import { WorkbenchMcpClient } from "../workbench/mcpClient.js";
 import { WorkbenchSkillSynchronizer } from "../workbench/skillSync.js";
 import { WorkbenchClient } from "../workbench/workbenchClient.js";
 import { PiSessionService } from "./piSessionService.js";
+import * as runtimeEnvironment from "./managementPermissionSystem.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext } from "./piSessionService.testSupport.js";
 
 describe("privileged management session permissions", () => {
+  it("queues ordinary startup behind managed environment overrides", async () => {
+    const creation = vi.spyOn(runtimeEnvironment, "withRuntimeCreationEnvironment");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const enteredGate = new Promise<void>((resolve) => { entered = resolve; });
+    let blocked = false;
+    const h = await fixture(false, {}, "always", false, async (cwd) => {
+      if (!blocked && process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]?.includes("management-embed") === true) {
+        blocked = true;
+        entered();
+        await gate;
+      }
+      return cwd;
+    });
+    vi.stubEnv("PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR", h.agentDir);
+    const managed = h.start();
+    let ordinary: ReturnType<typeof h.service.start> | undefined;
+    try {
+      await enteredGate;
+      ordinary = h.service.start(h.cwd);
+      await vi.waitFor(() => { expect(creation.mock.calls.some(([env]) => Object.keys(env).length === 0)).toBe(true); });
+      release();
+      await Promise.all([managed, ordinary]);
+      expect(h.runtime().session.getToolDefinition("mcp")?.description).toBe(`Test global MCP contribution: ${h.agentDir}`);
+      expect(process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]).toBe(h.agentDir);
+    } finally {
+      release();
+      await Promise.allSettled([managed, ...(ordinary === undefined ? [] : [ordinary])]);
+      creation.mockRestore();
+      vi.unstubAllEnvs();
+      await h.dispose();
+    }
+  });
   it.each([
     { name: "no grants", enabled: true, grants: {}, ordinary: false },
     { name: "bash only", enabled: true, grants: { bash: true }, ordinary: false },
@@ -70,12 +105,15 @@ describe("privileged management session permissions", () => {
     }
   });
 
-  it("keeps ordinary project trust rules for a fully privileged management session", async () => {
-    const h = await fixture(true, { bash: true, network: true }, "never");
+  it.each(["ask", "never"] as const)("trusts fully privileged management projects without approval when normal trust is %s", async (trust) => {
+    const h = await fixture(true, { bash: true, network: true }, trust);
     try {
+      const decisions = JSON.stringify({ [h.cwd]: false });
+      await writeFile(join(h.agentDir, "trust.json"), decisions);
       const session = await h.start();
       const names = (await h.service.commands({ id: session.id, cwd: h.cwd }, h.context)).map((command) => command.name);
-      expect(names).not.toContain("project-probe");
+      expect(names).toContain("project-probe");
+      expect(await readFile(join(h.agentDir, "trust.json"), "utf8")).toBe(decisions);
       expect(h.runtime().services.resourceLoader.getSkills().skills.map((skill) => skill.name)).toContain("global-probe");
       expect(h.runtime().session.getActiveToolNames()).toContain("bash");
     } finally {
@@ -155,7 +193,7 @@ describe("privileged management session permissions", () => {
   });
 });
 
-async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedContext["privileged"]>, trust: "always" | "never" = "always", withWorkbench = false) {
+async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedContext["privileged"]>, trust: "always" | "never" | "ask" = "always", withWorkbench = false, projectPathForCwd?: (cwd: string) => Promise<string>) {
   const root = await mkdtemp(join(tmpdir(), "pi-web-privileged-managed-"));
   const cwd = join(root, "project");
   const agentDir = join(root, "agent");
@@ -199,7 +237,7 @@ async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedCont
     subsessionsEnabled: true,
     spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd }) },
     archiveStore: emptyArchiveStore(),
-    projectPathForCwd: () => Promise.resolve(cwd),
+    projectPathForCwd: projectPathForCwd ?? (() => Promise.resolve(cwd)),
     sessionManager: createPiSessionManagerGateway({ agentDir, env: {}, sessionDirEnvKeys: [] }),
     createAgentRuntime: async (createRuntime, options) => {
       if (!(options.sessionManager instanceof SessionManager)) throw new Error("Expected the real SDK session manager");

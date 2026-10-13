@@ -210,7 +210,9 @@ function createWorkspacePathGuard(cwd: string): WorkspacePathGuard {
   };
 }
 
-function managedHostPath(workspaceRoot: string, candidate: string): string {
+export function managedHostPath(workspaceRoot: string, candidate: string): string {
+  const relative = path.relative(workspaceRoot, candidate);
+  if (path.isAbsolute(candidate) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) return candidate;
   if (candidate === MANAGED_SANDBOX_WORKSPACE) return workspaceRoot;
   const prefix = `${MANAGED_SANDBOX_WORKSPACE}/`;
   if (!candidate.startsWith(prefix)) return candidate;

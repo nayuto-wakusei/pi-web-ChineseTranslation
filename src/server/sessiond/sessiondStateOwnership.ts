@@ -30,7 +30,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { piWebDataDir } from "../../config.js";
 import { sessiondEndpointDescription } from "../../sessiond/config.js";
@@ -142,52 +142,82 @@ export async function claimSessiondStateOwnership(options: ClaimSessiondStateOwn
   let waitedForOwner = false;
 
   for (;;) {
-    const existing = await readOwnershipRecord(markerPath);
-    if (existing !== undefined && existing !== "invalid") {
-      if (existing.pid !== ownPid && isAlive(existing)) {
-        // A live different owner: wait out the grace window for an orderly
-        // restart to release, then fail loudly.
-        if (Date.now() >= deadline) {
-          throw new SessiondStateOwnershipConflictError({ dataDir, markerPath, owner: existing });
-        }
-        if (!waitedForOwner) {
-          logger?.warn(
-            { markerPath, owner: existing },
-            "another live session daemon owns this state; waiting briefly for it to release ownership",
-          );
-          waitedForOwner = true;
-        }
-        await sleep(pollIntervalMs);
-        continue;
-      }
-      if (existing.pid !== ownPid) {
-        logger?.info(
-          { markerPath, previousOwner: existing },
-          "taking over session daemon state ownership from a stale marker",
-        );
-      }
-      await rm(markerPath, { force: true });
-    } else if (existing === "invalid") {
-      // Possibly a torn write by a claimant mid-create; give it the grace
-      // window to finish before discarding the marker.
-      if (Date.now() < deadline) {
-        await sleep(pollIntervalMs);
-        continue;
-      }
-      logger?.warn({ markerPath }, "discarding an unreadable session daemon ownership marker");
-      await rm(markerPath, { force: true });
-    }
-    // No live owner holds the marker: claim it exclusively. The loser of a
-    // create race re-reads and re-evaluates the winner's marker above.
+    const unlock = await lockOwnershipMutation(markerPath);
     try {
-      await writeFile(markerPath, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
-      return {
-        markerPath,
-        record,
-        release: () => releaseOwnershipMarker(markerPath, record, logger),
+      const existing = await readOwnershipRecord(markerPath);
+      if (existing !== undefined && existing !== "invalid") {
+        if (existing.pid !== ownPid && isAlive(existing)) {
+          // A live different owner: wait out the grace window for an orderly
+          // restart to release, then fail loudly.
+          if (Date.now() >= deadline) {
+            throw new SessiondStateOwnershipConflictError({ dataDir, markerPath, owner: existing });
+          }
+          if (!waitedForOwner) {
+            logger?.warn(
+              { markerPath, owner: existing },
+              "another live session daemon owns this state; waiting briefly for it to release ownership",
+            );
+            waitedForOwner = true;
+          }
+          await unlock();
+          await sleep(pollIntervalMs);
+          continue;
+        }
+        if (existing.pid !== ownPid) {
+          logger?.info(
+            { markerPath, previousOwner: existing },
+            "taking over session daemon state ownership from a stale marker",
+          );
+        }
+        await rm(markerPath, { force: true });
+      } else if (existing === "invalid") {
+        // Possibly a torn write by a claimant mid-create; give it the grace
+        // window to finish before discarding the marker.
+        if (Date.now() < deadline) {
+          await unlock();
+          await sleep(pollIntervalMs);
+          continue;
+        }
+        logger?.warn({ markerPath }, "discarding an unreadable session daemon ownership marker");
+        await rm(markerPath, { force: true });
+      }
+      // No live owner holds the marker: claim it exclusively. The loser of a
+      // create race re-reads and re-evaluates the winner's marker above.
+      try {
+        await writeFile(markerPath, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+        return {
+          markerPath,
+          record,
+          release: () => releaseOwnershipMarker(markerPath, record, logger),
+        };
+      } catch (error) {
+        if (!isErrorCode(error, "EEXIST")) throw error;
+      }
+    } finally {
+      await unlock();
+    }
+  }
+}
+
+/** Never reclaim this short-lived mutex by age: that could delete a paused claimant's lock. */
+async function lockOwnershipMutation(markerPath: string): Promise<() => Promise<void>> {
+  const lockPath = `${markerPath}.lock`;
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      let released = false;
+      return async () => {
+        if (released) return;
+        await rmdir(lockPath);
+        released = true;
       };
     } catch (error) {
       if (!isErrorCode(error, "EEXIST")) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`Session daemon ownership update is locked: ${lockPath}. If a startup crashed, confirm no daemon is starting or stopping before removing this lock directory.`, { cause: error });
+      }
+      await defaultSleep(25);
     }
   }
 }
@@ -261,15 +291,20 @@ async function releaseOwnershipMarker(
   logger: SessiondStateOwnershipLogger | undefined,
 ): Promise<void> {
   try {
-    const current = await readOwnershipRecord(markerPath);
-    if (current === undefined || current === "invalid") return;
-    // Remove only our own marker: pid plus the wall-clock start makes a newer
-    // owner that reused the pid after a takeover race safe from deletion.
-    if (current.pid === record.pid && current.startedAt === record.startedAt) {
-      await rm(markerPath, { force: true });
+    const unlock = await lockOwnershipMutation(markerPath);
+    try {
+      const current = await readOwnershipRecord(markerPath);
+      if (current === undefined || current === "invalid") return;
+      // Remove only our own marker: pid plus the wall-clock start makes a newer
+      // owner that reused the pid after a takeover race safe from deletion.
+      if (current.pid === record.pid && current.startedAt === record.startedAt) {
+        await rm(markerPath, { force: true });
+      }
+    } finally {
+      await unlock();
     }
   } catch (error) {
-    logger?.warn({ err: error, markerPath }, "could not release the session daemon ownership marker; the next start discards it as stale");
+    logger?.warn({ err: error, markerPath }, "could not release the session daemon ownership marker; inspect any ownership update lock before restarting");
   }
 }
 

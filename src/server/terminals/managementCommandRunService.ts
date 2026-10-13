@@ -39,6 +39,7 @@ export interface RunTerminalCommandOptions {
 }
 
 interface TerminalRecord extends TerminalInfo {
+  cancellationRequested?: boolean;
   process: ChildProcess;
   buffer: string;
   events: EventEmitter;
@@ -142,7 +143,11 @@ export class ManagementCommandRunService {
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
     if (terminal === undefined) throw new Error("Terminal not found");
-    if (!terminal.exited) this.stopProcess(terminal, "SIGINT");
+    if (!terminal.exited && terminal.cancellationRequested !== true) {
+      terminal.cancellationRequested = true;
+      try { this.stopProcess(terminal, "SIGINT"); }
+      catch (error) { terminal.cancellationRequested = false; throw error; }
+    }
     return copyCommandRun(run);
   }
 
@@ -226,7 +231,7 @@ export class ManagementCommandRunService {
       if (record.exited) return;
       record.exited = true;
       if (exitCode !== undefined) record.exitCode = exitCode;
-      this.completeCommandRun(record.commandRunId, exitCode);
+      this.completeCommandRun(record.commandRunId, exitCode, record.cancellationRequested === true);
       record.events.emit("exit", exitCode);
       if (!this.terminals.has(record.id)) return;
       const info = toInfo(record);
@@ -249,13 +254,13 @@ export class ManagementCommandRunService {
     } else record.process.kill(signal);
   }
 
-  private completeCommandRun(runId: string | undefined, exitCode: number | undefined): void {
+  private completeCommandRun(runId: string | undefined, exitCode: number | undefined, cancelled: boolean): void {
     if (runId === undefined) return;
     const run = this.commandRuns.get(runId);
     if (run === undefined || isTerminalCommandRunFinal(run.status)) return;
     const completed: TerminalCommandRun = {
       ...run,
-      status: exitCode === 0 ? "succeeded" : "failed",
+      status: exitCode === 0 && !cancelled ? "succeeded" : "failed",
       ...(exitCode === undefined ? {} : { exitCode }),
       completedAt: new Date().toISOString(),
     };

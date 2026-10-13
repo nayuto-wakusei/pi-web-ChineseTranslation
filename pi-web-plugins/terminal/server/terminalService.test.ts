@@ -37,6 +37,31 @@ describe("independent Terminal PTY lifecycle", () => {
     return { service, spawn: spawnPty, terminal, exit: (code: number) => { onExit({ exitCode: code }); } };
   }
 
+  it("does not report a cancelled command as successful after a zero exit", () => {
+    const { service, terminal, exit } = fixture();
+    try {
+      const run = service.runCommand({ ...scope(), origin: "core", title: "Command", command: "true" });
+      service.cancelCommandRun(run.id);
+      expect(terminal.write).toHaveBeenCalledWith("\x03");
+      service.cancelCommandRun(run.id);
+      expect(service.getCommandRun(run.id)?.status).toBe("running");
+      exit(0);
+      expect(service.getCommandRun(run.id)).toMatchObject({ status: "failed", exitCode: 0 });
+      service.cancelCommandRun(run.id);
+      expect(terminal.write).toHaveBeenCalledOnce();
+    } finally { service.dispose(); }
+  });
+
+  it("leaves successful completed commands unchanged when cancellation arrives late", () => {
+    const { service, terminal, exit } = fixture();
+    try {
+      const run = service.runCommand({ ...scope(), origin: "core", title: "Command", command: "true" });
+      exit(0);
+      expect(service.cancelCommandRun(run.id).status).toBe("succeeded");
+      expect(terminal.write).not.toHaveBeenCalled();
+    } finally { service.dispose(); }
+  });
+
   it("retains Windows PowerShell interactive and independently configured Bash command invocations", () => {
     vi.stubEnv("SHELL", "powershell.exe");
     vi.stubEnv("PI_WEB_COMMAND_SHELL", String.raw`D:\Program Files\Git\bin\bash.exe`);

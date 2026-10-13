@@ -153,6 +153,7 @@ describe("management command runs", () => {
     children[0]?.emit("close", 0);
     service.cancelCommandRun(run.id, context());
     expect(kills[0]).toHaveBeenCalledOnce();
+    expect(service.getCommandRun(run.id, context())).toMatchObject({ status: "failed", exitCode: 0 });
   });
   it("disposes all processes without late activity resurrection", () => {
     const { service, children, activity } = fixture();
