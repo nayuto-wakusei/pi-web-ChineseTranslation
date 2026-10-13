@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,70 @@ import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext } from "./piSessionService.testSupport.js";
 
 describe("privileged management session permissions", () => {
-  it("queues ordinary startup behind managed environment overrides", async () => {
+  it.each([false, true])("preserves the policy environment when reloading resources with full permissions=%s", async (full) => {
+    const h = await fixture(full, full ? { bash: true, network: true } : {});
+    vi.stubEnv("PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR", h.agentDir);
+    try {
+      await writeFile(join(h.cwd, ".pi", "extensions", "probe.js"), 'export default function(pi) { pi.registerCommand("project-probe", { description: process.env.PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, async handler() {} }); }\n');
+      const session = await h.start();
+      const ref = { id: session.id, cwd: h.cwd };
+      const initial = (await h.service.commands(ref, h.context)).find((command) => command.name === "project-probe")?.description;
+      if (full) expect(initial).toBe(h.agentDir);
+      else expect(initial).toContain("management-embed");
+      expect(await h.service.runCommand(ref, "/reload", h.context)).toMatchObject({ type: "done" });
+      expect((await h.service.commands(ref, h.context)).find((command) => command.name === "project-probe")?.description).toBe(initial);
+      expect(process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]).toBe(h.agentDir);
+    } finally {
+      vi.unstubAllEnvs();
+      await h.dispose();
+    }
+  });
+
+  it("keeps concurrent managed startup policies isolated for the same user and workspace", async () => {
+    const creation = vi.spyOn(runtimeEnvironment, "withRuntimeCreationEnvironment");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const enteredGate = new Promise<void>((resolve) => { entered = resolve; });
+    let blocked = false;
+    const h = await fixture(false, {}, "always", false, async (cwd) => {
+      if (!blocked && process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]?.includes("management-embed") === true) {
+        blocked = true;
+        entered();
+        await gate;
+      }
+      return cwd;
+    });
+    await writeFile(join(h.cwd, ".pi", "extensions", "probe.js"), `
+      import { readFileSync } from "node:fs";
+      import { join } from "node:path";
+      export default function(pi) {
+        const policy = JSON.parse(readFileSync(join(process.env.PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, "pi-permissions.jsonc"), "utf8"));
+        pi.registerCommand("policy-probe", { description: policy.tools.read, async handler() {} });
+      }
+    `);
+    const first = h.start();
+    let second: ReturnType<typeof h.service.start> | undefined;
+    try {
+      await enteredGate;
+      const secondContext = { ...h.context, tools: { allow: ["write"], deny: ["read"] } };
+      second = h.service.start(h.cwd, { managementContext: secondContext });
+      await vi.waitFor(() => { expect(creation.mock.calls).toHaveLength(2); });
+      release();
+      const [a, b] = await Promise.all([first, second]);
+      const firstCommands = await h.service.commands({ id: a.id, cwd: h.cwd }, h.context);
+      const secondCommands = await h.service.commands({ id: b.id, cwd: h.cwd }, secondContext);
+      expect(firstCommands.find((command) => command.name === "policy-probe")?.description).toBe("allow");
+      expect(secondCommands.find((command) => command.name === "policy-probe")?.description).toBe("deny");
+    } finally {
+      release();
+      await Promise.allSettled([first, ...(second === undefined ? [] : [second])]);
+      creation.mockRestore();
+      await h.dispose();
+    }
+  });
+
+  it.each(["startup", "reload"] as const)("queues ordinary %s behind managed environment overrides", async (operation) => {
     const creation = vi.spyOn(runtimeEnvironment, "withRuntimeCreationEnvironment");
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -31,15 +94,18 @@ describe("privileged management session permissions", () => {
       return cwd;
     });
     vi.stubEnv("PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR", h.agentDir);
+    const ordinarySession = operation === "reload" ? await h.service.start(h.cwd) : undefined;
+    const ordinaryRuntime = ordinarySession === undefined ? undefined : h.runtime();
+    creation.mockClear();
     const managed = h.start();
-    let ordinary: ReturnType<typeof h.service.start> | undefined;
+    let ordinary: Promise<unknown> | undefined;
     try {
       await enteredGate;
-      ordinary = h.service.start(h.cwd);
+      ordinary = ordinarySession === undefined ? h.service.start(h.cwd) : h.service.runCommand({ id: ordinarySession.id, cwd: h.cwd }, "/reload");
       await vi.waitFor(() => { expect(creation.mock.calls.some(([env]) => Object.keys(env).length === 0)).toBe(true); });
       release();
       await Promise.all([managed, ordinary]);
-      expect(h.runtime().session.getToolDefinition("mcp")?.description).toBe(`Test global MCP contribution: ${h.agentDir}`);
+      expect((ordinaryRuntime ?? h.runtime()).session.getToolDefinition("mcp")?.description).toBe(`Test global MCP contribution: ${h.agentDir}`);
       expect(process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"]).toBe(h.agentDir);
     } finally {
       release();
@@ -74,9 +140,15 @@ describe("privileged management session permissions", () => {
       if (ordinary) expect(JSON.stringify(await result)).toContain("OUTSIDE_WORKSPACE_SENTINEL");
       else await expect(result).rejects.toThrow("path outside the managed project sandbox");
       expect(() => h.service.connectSessionEvents({ id: runtime.session.sessionId, cwd: h.cwd }, new AbortController().signal)).toThrow("not hosted");
-      const policyPath = join(h.agentDir, "management-embed", "permission-system", "root-user", h.cwdHash, "pi-permissions.jsonc");
-      if (ordinary) await expect(readFile(policyPath)).rejects.toMatchObject({ code: "ENOENT" });
-      else expect(JSON.parse(await readFile(policyPath, "utf8"))).toMatchObject({ tools: { bash: "deny", read: "allow" } });
+      const policyRoot = join(h.agentDir, "management-embed", "permission-system", "root-user", h.cwdHash);
+      if (ordinary) await expect(readdir(policyRoot)).rejects.toMatchObject({ code: "ENOENT" });
+      else {
+        const policies = await readdir(policyRoot);
+        expect(policies).toHaveLength(1);
+        for (const policy of policies) {
+          expect(JSON.parse(await readFile(join(policyRoot, policy, "pi-permissions.jsonc"), "utf8"))).toMatchObject({ tools: { bash: "deny", read: "allow" } });
+        }
+      }
     } finally {
       await h.dispose();
     }

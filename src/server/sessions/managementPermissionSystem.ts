@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { DISABLED_MANAGEMENT_PRIVILEGES, type ManagementPrivileges } from "../managementPrivileges.js";
@@ -94,15 +94,26 @@ export async function writeManagementPermissionSystemPolicy(
   extraToolNames: readonly string[] = [],
   privileges: ManagementPrivileges = DISABLED_MANAGEMENT_PRIVILEGES,
 ): Promise<string> {
+  const policy = `${JSON.stringify(createManagementPermissionSystemPolicy(context, extraToolNames, privileges), null, 2)}\n`;
   const policyAgentDir = join(
     agentDir,
     "management-embed",
     "permission-system",
     safePathSegment(context.user.rootUserId),
     createHash("sha256").update(cwd).digest("hex").slice(0, 16),
+    createHash("sha256").update(policy).digest("hex").slice(0, 16),
   );
   await mkdir(policyAgentDir, { recursive: true });
-  await writeFile(join(policyAgentDir, "pi-permissions.jsonc"), `${JSON.stringify(createManagementPermissionSystemPolicy(context, extraToolNames, privileges), null, 2)}\n`, "utf8");
+  // Different effective policies never share a file; identical concurrent writes publish atomically.
+  const temporaryPath = join(policyAgentDir, `${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporaryPath, policy, "utf8");
+    await link(temporaryPath, join(policyAgentDir, "pi-permissions.jsonc")).catch((error: unknown) => {
+      if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EEXIST") throw error;
+    });
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
   return policyAgentDir;
 }
 

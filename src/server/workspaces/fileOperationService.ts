@@ -1,7 +1,7 @@
 import { lstat, mkdir, rename, rmdir } from "node:fs/promises";
 import type { PiWebPathAccessConfig } from "../../shared/apiTypes.js";
 import { readWorkspaceFilePreview, type WorkspaceFilePreview } from "./filePreviewService.js";
-import { resolveInsideWorkspace, resolveParentInsideWorkspace } from "./pathSafety.js";
+import { resolveParentInsideWorkspace } from "./pathSafety.js";
 
 export interface WorkspacePathInput {
   path: string;
@@ -39,7 +39,8 @@ export async function moveWorkspaceDirectory(rootPath: string, input: WorkspaceM
 
 export async function deleteWorkspaceDirectory(rootPath: string, path: string | undefined): Promise<WorkspaceDeleteResponse> {
   if (path === undefined || path === "") throw new Error("path query parameter is required");
-  const { target, relativePath } = await resolveInsideWorkspace(rootPath, path);
+  // Validate parents without dereferencing the entry that will be removed.
+  const { target, relativePath } = await resolveParentInsideWorkspace(rootPath, path);
   const s = await lstat(target);
   if (!s.isDirectory()) throw new Error("Path is not a directory");
   await rmdir(target).catch((error: unknown) => {
@@ -55,7 +56,7 @@ export function readWorkspaceFileDownload(rootPath: string, path: string | undef
 
 async function resolveMove(rootPath: string, input: WorkspaceMoveInput) {
   if (!isMoveInput(input)) throw new Error("Move body must include fromPath and toPath");
-  const source = await resolveInsideWorkspace(rootPath, input.fromPath);
+  const source = await resolveParentInsideWorkspace(rootPath, input.fromPath);
   const destination = await resolveParentInsideWorkspace(rootPath, input.toPath);
   if (source.relativePath === destination.relativePath) throw new Error("Destination path must be different");
   return {

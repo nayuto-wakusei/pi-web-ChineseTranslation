@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,30 @@ import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createManagementPermissionSystemPolicy, managementAgentToolNames, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 
 describe("management permission system", () => {
+  it("isolates effective policies and safely reuses identical policies", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-web-policy-isolation-"));
+    const cwd = join(agentDir, "workspace");
+    const context = managementContext();
+    try {
+      const base = await writeManagementPermissionSystemPolicy(agentDir, cwd, context);
+      const denied = await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext({ tools: { deny: ["read"] } }));
+      const delegated = await writeManagementPermissionSystemPolicy(agentDir, cwd, context, ["spawn_session"]);
+      const network = await writeManagementPermissionSystemPolicy(agentDir, cwd, context, ["http"], { bash: false, network: true });
+      expect(new Set([base, denied, delegated, network]).size).toBe(4);
+      expect(JSON.parse(await readFile(join(base, "pi-permissions.jsonc"), "utf8"))).toMatchObject({ tools: { read: "allow", http: "deny" } });
+      expect(JSON.parse(await readFile(join(denied, "pi-permissions.jsonc"), "utf8"))).toMatchObject({ tools: { read: "deny" } });
+      expect(JSON.parse(await readFile(join(delegated, "pi-permissions.jsonc"), "utf8"))).toMatchObject({ tools: { spawn_session: "allow" } });
+      expect(JSON.parse(await readFile(join(network, "pi-permissions.jsonc"), "utf8"))).toMatchObject({ tools: { http: "allow" } });
+      await Promise.all(Array.from({ length: 8 }, async () => {
+        expect(await writeManagementPermissionSystemPolicy(agentDir, cwd, context)).toBe(base);
+        expect(JSON.parse(await readFile(join(base, "pi-permissions.jsonc"), "utf8"))).toEqual(createManagementPermissionSystemPolicy(context));
+      }));
+      expect(await readdir(base)).toEqual(["pi-permissions.jsonc"]);
+    } finally {
+      await rm(agentDir, { recursive: true, force: true });
+    }
+  });
+
   it("allows only the managed tool set and denies shell, mcp, http, and terminal tools", () => {
     const context = managementContext({
       tools: {

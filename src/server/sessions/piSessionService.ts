@@ -980,6 +980,8 @@ function createDefaultRuntimeFactory(
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
       });
       sessionEvents.register(result.session, eventBus);
+      const reload = result.session.reload.bind(result.session);
+      result.session.reload = (options) => withRuntimeCreationEnvironment({}, () => reload(options));
       return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
   };
@@ -1058,7 +1060,8 @@ function createManagementRuntimeFactory(
     }
     const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
     const policyAgentDir = normalPermissions ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
-    return withRuntimeCreationEnvironment(normalPermissions ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir }, async () => {
+    const resourceEnvironment = normalPermissions ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir };
+    return withRuntimeCreationEnvironment(resourceEnvironment, async () => {
       const settingsManager = await createScopedSettingsManager({
         cwd,
         scopeDirectory: await resolveSettingsScope(cwd, "management"),
@@ -1112,6 +1115,9 @@ function createManagementRuntimeFactory(
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
       };
       const result = await createAgentSessionFromServices(options);
+      // SDK reload re-executes extensions, so it needs the same scoped environment as startup.
+      const reload = result.session.reload.bind(result.session);
+      result.session.reload = (options) => withRuntimeCreationEnvironment(resourceEnvironment, () => reload(options));
       return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
   };
