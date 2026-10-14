@@ -1,8 +1,8 @@
 import { SessionController } from "./sessionController";
 import { FakeSocket } from "./sessionController.testSupport";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
-import { createSessionControllerTestFixture, defaultApi, oldSession, sessionLookupId, workspace, type AppState } from "./sessionController.testSupport";
+import { createSessionControllerTestFixture, defaultApi, deferred, oldSession, sessionLookupId, status, workspace, type AppState, type SessionStatus } from "./sessionController.testSupport";
 
 const catalogModels = [
   { provider: "openai", id: "gpt-5", enabled: true },
@@ -15,6 +15,51 @@ function machine(id: string): NonNullable<AppState["selectedMachine"]> {
 }
 
 describe("SessionController model catalog", () => {
+  it.each(["setModel", "cycleModel", "setThinkingLevel", "cycleThinkingLevel"] as const)("does not apply a delayed %s response to another machine", async (operation) => {
+    const response = deferred<SessionStatus>();
+    const thinkingLevels = vi.fn(() => Promise.resolve({ levels: ["high"] }));
+    const fixture = createSessionControllerTestFixture({
+      initialState: { ...initialAppState(), selectedMachine: machine("remote-a"), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] },
+      api: {
+        [operation]: () => response.promise,
+        thinkingLevels,
+      },
+    });
+    try {
+      const pending = operation === "setModel" ? fixture.controller.setModel("openai", "gpt-5")
+        : operation === "cycleModel" ? fixture.controller.cycleModel("forward")
+          : operation === "setThinkingLevel" ? fixture.controller.setThinkingLevel("high")
+            : fixture.controller.cycleThinkingLevel();
+      fixture.replaceState({ ...fixture.state, selectedMachine: machine("remote-b"), status: status(oldSession.id) });
+      const selectedState = fixture.state;
+      response.resolve({ ...status(oldSession.id), thinkingLevel: "high" });
+      await pending;
+
+      expect(fixture.state).toBe(selectedState);
+      expect(thinkingLevels).not.toHaveBeenCalled();
+    } finally {
+      fixture.controller.dispose();
+    }
+  });
+
+  it("does not replace thinking levels after switching to a machine with the same session id", async () => {
+    const response = deferred<{ levels: string[] }>();
+    const fixture = createSessionControllerTestFixture({
+      initialState: { ...initialAppState(), selectedMachine: machine("remote-a"), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] },
+      api: { thinkingLevels: () => response.promise },
+    });
+    try {
+      const pending = fixture.controller.refreshAvailableThinkingLevels();
+      fixture.replaceState({ ...fixture.state, selectedMachine: machine("remote-b"), availableThinkingLevels: ["off"] });
+      response.resolve({ levels: ["high"] });
+      await pending;
+
+      expect(fixture.state.availableThinkingLevels).toEqual(["off"]);
+    } finally {
+      fixture.controller.dispose();
+    }
+  });
+
   it("targets the selected machine when listing the catalog", async () => {
     const calls: { sessionId: string; machineId: string }[] = [];
     const state: AppState = { ...initialAppState(), selectedMachine: machine("remote-a"), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };

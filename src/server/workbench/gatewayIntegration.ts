@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { PiWebWorkbenchIntegrationConfig } from "../../shared/apiTypes.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ManagementEmbedContext, ManagementEmbedRuntime } from "../managementEmbed.js";
+import { managementUsesNormalPermissions } from "../managementPrivileges.js";
 import type { WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient } from "./workbenchClient.js";
 import { WORKBENCH_ACCESS_STATE_ROUTE } from "./accessStateRoutes.js";
@@ -21,6 +22,7 @@ export function createWorkbenchManagementRuntime(
   base: ManagementEmbedRuntime | undefined,
   config: PiWebWorkbenchIntegrationConfig | undefined,
   daemon: SessionProxyDaemon,
+  options: { allowPrivileged?: boolean } = {},
 ): ManagementEmbedRuntime | undefined {
   if (base === undefined || config === undefined) return base;
   const contextBindings = new WeakMap<ManagementEmbedContext, WorkbenchBinding>();
@@ -52,6 +54,7 @@ export function createWorkbenchManagementRuntime(
       return context;
     },
     async prepareContext(context) {
+      if (managementUsesNormalPermissions(context, options)) return;
       const binding = contextBindings.get(context);
       if (binding !== undefined) await refreshWorkbenchBindingOnce(client, daemon, binding);
     },

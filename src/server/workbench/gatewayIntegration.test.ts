@@ -10,6 +10,41 @@ afterEach(() => {
 });
 
 describe("workbench management runtime", () => {
+  it.each([
+    { allowPrivileged: true, privileged: { bash: true, network: true }, refresh: false },
+    { allowPrivileged: false, privileged: { bash: true, network: true }, refresh: true },
+    { allowPrivileged: true, privileged: { bash: true }, refresh: true },
+  ])("only skips resource renewal for effective full privileges: %j", async ({ allowPrivileged, privileged, refresh }) => {
+    const context: ManagementEmbedContext = {
+      user: { id: "user-1", rootUserId: "user-1", roles: [], permissions: [] },
+      projects: [{ id: "personal-project", name: "Personal" }],
+      privileged,
+    };
+    const base: ManagementEmbedRuntime = {
+      enabled: true, projectRoot: "/managed", authenticate: () => Promise.resolve(context),
+    };
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(201, { sessionId: "session-1", token: "private-token", expiresAt: "2099-01-01T00:00:00Z", authorizationRevision: 1 }))
+      .mockResolvedValueOnce(jsonResponse(200, { sessionId: "session-1", authorizationRevision: 1, resources: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = vi.fn<SessionProxyDaemon["request"]>(() => Promise.resolve({ statusCode: 204, headers: {}, body: "" }));
+    const runtime = createWorkbenchManagementRuntime(base, { baseUrl: "http://backend", mcpUrl: "http://mcp" }, {
+      request, connectWebSocket: () => { throw new Error("not used"); },
+    }, { allowPrivileged });
+    if (runtime === undefined) throw new Error("Expected a management runtime");
+    const authenticated = await runtime.authenticate("entry-token");
+    const handle = runtime.resourceHandle?.(authenticated);
+    expect(handle).toBeDefined();
+    fetchMock.mockClear().mockRejectedValue(new Error("resource service unavailable"));
+
+    const prepared = managementContextForRequest({ headers: {}, query: { embed: "management", token: "entry-token" } }, runtime);
+    if (refresh) await expect(prepared).rejects.toThrow("resource service unavailable");
+    else await expect(prepared).resolves.toBe(authenticated);
+    expect(fetchMock).toHaveBeenCalledTimes(refresh ? 1 : 0);
+    expect(runtime.resourceHandle?.(authenticated)).toBe(handle);
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it("restores an expired-entry iframe request through its existing management cookie, but rejects replay without it", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-09-08T00:00:00Z");

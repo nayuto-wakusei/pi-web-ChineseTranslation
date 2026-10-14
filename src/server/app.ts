@@ -248,7 +248,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const runtimeConfig = effectivePiWebConfig().config;
   const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
-  const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
+  const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon, {
+    allowPrivileged: runtimeConfig.managementEmbed?.allowPrivileged === true,
+  });
   const workspaces: WorkspaceCatalog = deps.workspaceCatalog ?? (deps.workspaces === undefined
     ? new SessionDaemonWorkspaceCatalog(sessionDaemon, managementEmbed)
     : asWorkspaceCatalog(projects, deps.workspaces));

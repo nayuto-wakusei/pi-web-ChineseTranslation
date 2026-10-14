@@ -1058,8 +1058,8 @@ export class SessionController {
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
       await this.api.reloadSession(session, machineId);
-      this.transcripts.discard(this.sessionCacheKey(session.id));
-      if (this.getState().selectedSession?.id === session.id) {
+      this.transcripts.discard(machineSessionKey(machineId, session.id));
+      if (this.isSelectedSessionIdentity(session.id, machineId)) {
         await this.selectSession(session, { updateUrl: false });
       }
     } catch (error) {
@@ -1166,8 +1166,10 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      this.applyStatus(await this.api.setModel(session, provider, modelId, machineId));
-      await this.refreshAvailableThinkingLevels();
+      const status = await this.api.setModel(session, provider, modelId, machineId);
+      if (selectedMachineId(this.getState()) !== machineId) return;
+      this.applyStatus(status);
+      if (this.isSelectedSessionIdentity(session.id, machineId)) await this.refreshAvailableThinkingLevels();
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }
@@ -1179,8 +1181,10 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      this.applyStatus(await this.api.cycleModel(session, direction, machineId));
-      await this.refreshAvailableThinkingLevels();
+      const status = await this.api.cycleModel(session, direction, machineId);
+      if (selectedMachineId(this.getState()) !== machineId) return;
+      this.applyStatus(status);
+      if (this.isSelectedSessionIdentity(session.id, machineId)) await this.refreshAvailableThinkingLevels();
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }
@@ -1202,12 +1206,13 @@ export class SessionController {
   /** Refresh the available thinking levels for the selected session's model. */
   async refreshAvailableThinkingLevels() {
     const session = this.getState().selectedSession;
+    const machineId = selectedMachineId(this.getState());
     if (!session || session.archived === true) {
       if (this.getState().availableThinkingLevels.length > 0) this.setState({ availableThinkingLevels: [] });
       return;
     }
     const levels = await this.listThinkingLevels();
-    if (this.getState().selectedSession?.id !== session.id) return;
+    if (!this.isSelectedSessionIdentity(session.id, machineId)) return;
     this.setState({ availableThinkingLevels: levels });
   }
 
@@ -1217,7 +1222,9 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      this.applyStatus(await this.api.setThinkingLevel(session, level, machineId));
+      const status = await this.api.setThinkingLevel(session, level, machineId);
+      if (selectedMachineId(this.getState()) !== machineId) return;
+      this.applyStatus(status);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }
@@ -1229,7 +1236,9 @@ export class SessionController {
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      this.applyStatus(await this.api.cycleThinkingLevel(session, machineId));
+      const status = await this.api.cycleThinkingLevel(session, machineId);
+      if (selectedMachineId(this.getState()) !== machineId) return;
+      this.applyStatus(status);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }

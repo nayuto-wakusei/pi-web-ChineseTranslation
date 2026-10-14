@@ -1,15 +1,46 @@
 import { browserErrorScopeKey, sessionBrowserErrorScope } from "../browserErrors";
 import type { NavigationFreshness } from "./types";
 import { deferred } from "./sessionController.testSupport";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { initialAppState } from "../appState";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { SessionController } from "./sessionController";
 import { InMemorySessionSelectionMemory } from "./sessionSelection";
-import { defaultApi, emptyPage, FakeSocket, oldSession, sessionKey, sessionLookupId, status, workspace, type AppState, type MessagePage } from "./sessionController.testSupport";
+import { createSessionControllerTestFixture, defaultApi, emptyPage, FakeSocket, oldSession, sessionKey, sessionLookupId, status, workspace, type AppState, type MessagePage } from "./sessionController.testSupport";
 
 describe("SessionController reload and selection", () => {
+  it("keeps a delayed reload completion on its originating machine", async () => {
+    const persistedSession = { ...oldSession, persisted: true };
+    const reload = deferred<{ reloaded: true }>();
+    const cachedPages = new Map<string, MessagePage>([
+      [sessionKey(oldSession.id), emptyPage],
+      [`remote:${oldSession.id}`, emptyPage],
+    ]);
+    const messages = vi.fn(() => Promise.resolve(emptyPage));
+    const fixture = createSessionControllerTestFixture({
+      initialState: { ...initialAppState(), selectedWorkspace: workspace, selectedSession: persistedSession, sessions: [persistedSession] },
+      api: { reloadSession: () => reload.promise, messages, status: () => Promise.resolve(status(oldSession.id)), streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }) },
+      dependencies: { transcripts: new ChatTranscriptStore({
+        read: (key) => cachedPages.get(key),
+        write: (key, page) => { cachedPages.set(key, page); },
+        remove: (key) => { cachedPages.delete(key); },
+      }) },
+    });
+    try {
+      const reloading = fixture.controller.reloadSession();
+      fixture.replaceState({ ...fixture.state, selectedMachine: { id: "remote", name: "Remote", kind: "remote", createdAt: "now", updatedAt: "now" } });
+      reload.resolve({ reloaded: true });
+      await reloading;
+
+      expect(messages).not.toHaveBeenCalled();
+      expect(cachedPages.has(sessionKey(oldSession.id))).toBe(false);
+      expect(cachedPages.get(`remote:${oldSession.id}`)).toEqual(emptyPage);
+    } finally {
+      fixture.controller.dispose();
+    }
+  });
+
   it("reloads the selected session from disk, discards the cached transcript, and re-fetches history", async () => {
     const persistedSession = { ...oldSession, persisted: true };
     const cacheKey = sessionKey(oldSession.id);

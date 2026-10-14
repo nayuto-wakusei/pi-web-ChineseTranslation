@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-async function startSessionWithSettings(settings?: Record<string, unknown>, projectTrusted?: boolean) {
+async function startSessionWithSettings(settings?: Record<string, unknown>, projectTrusted?: boolean, persist = false) {
   const root = await mkdtemp(join(tmpdir(), "pi-web-model-catalog-"));
   tempDirs.push(root);
   const agentDir = join(root, "agent");
@@ -47,7 +47,18 @@ async function startSessionWithSettings(settings?: Record<string, unknown>, proj
     await writeFile(settingsPath, JSON.stringify(settings));
   }
   const gateway = sessionGateway([]);
-  gateway.create = (cwd) => SessionManager.inMemory(cwd);
+  gateway.create = (cwd) => {
+    if (!persist) return SessionManager.inMemory(cwd);
+    const manager = SessionManager.create(cwd, join(root, "sessions"));
+    manager.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Saved conversation" }],
+      api: "anthropic-messages", provider: PROVIDER, model: FIRST_MODEL,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop", timestamp: 1,
+    });
+    return manager;
+  };
+  gateway.open = (path) => SessionManager.open(path);
   const events = new CapturingSessionEventHub();
   const service = new PiSessionService(events, {
     agentDir,
@@ -143,6 +154,35 @@ describe("PiSessionService session default pins", () => {
 });
 
 describe("PiSessionService model catalog", () => {
+  it.each(["command", "reopen"])("reloads externally edited model scope via %s and synchronizes existing sessions", async (mode) => {
+    const { service, ref, settingsPath, workspace } = await startSessionWithSettings({
+      enabledModels: [`${PROVIDER}/${FIRST_MODEL}`],
+    }, undefined, mode === "reopen");
+    const reload = async () => {
+      if (mode === "reopen") await service.reload(ref);
+      else await expect(service.runCommand(ref, "/reload")).resolves.toMatchObject({ type: "done" });
+    };
+    try {
+      const second = await service.start(workspace);
+      const secondRef = { id: second.id, cwd: workspace };
+      expect(catalogIds((await service.modelCatalog(ref)).filter((model) => model.enabled))).toEqual([`${PROVIDER}/${FIRST_MODEL}`]);
+      await service.modelCatalog(secondRef);
+      await writeFile(settingsPath, JSON.stringify({ enabledModels: [`${PROVIDER}/${DEFAULT_MODEL}`] }));
+
+      await reload();
+
+      for (const target of [ref, secondRef]) {
+        expect(catalogIds((await service.modelCatalog(target)).filter((model) => model.enabled))).toEqual([`${PROVIDER}/${DEFAULT_MODEL}`]);
+        expect((await service.availableModels(target)).map((model) => model.id)).toEqual([DEFAULT_MODEL]);
+      }
+      await writeFile(settingsPath, JSON.stringify({}));
+      await reload();
+      expect((await service.modelCatalog(ref)).every((model) => model.enabled)).toBe(true);
+    } finally {
+      await service.dispose();
+    }
+  });
+
   it("marks every available model enabled in catalog order when no scope is configured", async () => {
     const { service, ref, modelRuntime } = await startSessionWithSettings();
     try {

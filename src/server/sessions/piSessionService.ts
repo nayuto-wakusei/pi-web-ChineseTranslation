@@ -1895,6 +1895,24 @@ export class PiSessionService {
     return queued;
   }
 
+  private reloadModelScope(session: PiAgentSession): Promise<void> {
+    return this.runModelScopeMutation(async () => {
+      const context = this.modelScopeContext(session);
+      await this.modelScopeInitializations.get(context.key);
+      const enabledIds = await resolveEnabledModelIds({
+        settingsManager: session.settingsManager,
+        // Runtime-backed sessions hold the SDK ModelRuntime behind the narrow test seam.
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+        modelRuntime: session.modelRuntime as ModelRuntime,
+        scopedModels: [],
+      });
+      const revision = ++this.modelScopeRevision;
+      this.modelScopeStates.set(context.key, { enabledIds, revision });
+      await this.synchronizeSessionModelScope(session, session.modelRuntime.getAvailableSnapshot());
+      this.events.publishGlobal({ type: "models.changed", revision }, this.eventScopeForSession(session));
+    });
+  }
+
   private applyEnabledModelScope(
     session: PiAgentSession,
     available: readonly AgentModel[],
@@ -3298,6 +3316,7 @@ export class PiSessionService {
               ...(candidateGeneration === undefined ? {} : { notificationGeneration: candidateGeneration }),
             },
           );
+          await this.reloadModelScope(reopened.runtime.session);
           if (candidateGeneration !== undefined) {
             this.publishNotificationMutations(this.notificationsForSession(session).commitReplacement(candidateGeneration));
           }
@@ -4548,6 +4567,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
               this.replaceSessionNotificationContext(session, candidateGeneration);
             },
           });
+          await this.reloadModelScope(session);
           if (candidateGeneration !== undefined) {
             this.publishNotificationMutations(this.notificationsForSession(session).commitReplacement(candidateGeneration));
           }

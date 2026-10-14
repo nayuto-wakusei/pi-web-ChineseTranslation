@@ -667,8 +667,12 @@ export class PiWebApp extends LitElement {
       || previous.workspaceTool !== this.state.workspaceTool || previous.mainView !== this.state.mainView) {
       this.workspaceNavigationGeneration += 1;
     }
-    if (modelValueFromStatus(previous.status) !== modelValueFromStatus(this.state.status) && this.state.modelDialog !== undefined) {
+    const modelChanged = modelValueFromStatus(previous.status) !== modelValueFromStatus(this.state.status);
+    if (this.state.modelDialog !== undefined && (modelChanged || !this.modelDialogOriginIsCurrent(this.state.modelDialog.origin))) {
       this.state = { ...this.state, modelDialog: undefined };
+    }
+    if (this.state.thinkingDialog !== undefined && (modelChanged || !this.modelDialogOriginIsCurrent(this.state.thinkingDialog.origin))) {
+      this.state = { ...this.state, thinkingDialog: undefined };
     }
     if (selectedChatIdentity(previous) !== selectedChatIdentity(this.state)) {
       this.committedChatIdentity = undefined;
@@ -2545,6 +2549,8 @@ export class PiWebApp extends LitElement {
         const allowed = (entry: { id: string; sourcePluginId?: string }) => (entry.sourcePluginId ?? entry.id) !== REQUIRED_TERMINAL_PLUGIN_ID;
         const declarations = result.declarations.filter(allowed);
         const batch = await this.plugins.registerBatch(result.registrations.filter(allowed), { declarations, failures: externalRegistryFailures(result, declarations) });
+        this.pluginLoadErrors.delete(machineId);
+        if (batch.failures.length > 0) this.pluginLoadErrors.set(machineId, batch.failures.map((failure) => errorMessage(failure.error)).join("\n"));
         for (const failure of batch.failures) console.warn(`Failed to register PI WEB plugin ${failure.declaration.id} (${failure.phase})`, failure.error);
         this.applyPreferredTheme(false);
         this.invalidateWorkspaceSurface();

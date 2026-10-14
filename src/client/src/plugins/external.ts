@@ -3,7 +3,7 @@ import { machineScopedManifestPluginId } from "../../../shared/machinePluginIds"
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../../../shared/pluginIds";
 import { REQUIRED_TERMINAL_PLUGIN_ID, type TerminalPluginMode } from "../../../shared/requiredTerminalPlugin";
-import { withManagementEmbed } from "../api/managementEmbed";
+import { isManagementEmbedMode, withManagementEmbed } from "../api/managementEmbed";
 import { resolveAppUrl, type AppUrlContext } from "../appUrl";
 import type { PiWebPlugin, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration } from "./types";
 import { adaptPublicPlugin } from "./publicContext";
@@ -137,14 +137,15 @@ function parseManifest(value: unknown): PluginManifest {
     ids.add(plugin.id);
   }
   const terminal = plugins.find(({ id }) => id === REQUIRED_TERMINAL_PLUGIN_ID);
-  if (terminalMode === "required") {
+  // Management embed excludes Terminal; its backend must not gate unrelated plugins.
+  if (terminalMode === "required" && !isManagementEmbedMode()) {
     if (terminal === undefined || plugins[0] !== terminal || !terminal.machineSpecific) {
       throw new Error("Required Terminal plugin manifest entry is unavailable or out of order");
     }
     if (terminal.backendRevision === undefined || terminal.pairedRequestVersion !== 1 || terminal.pairedChannelVersion !== 1) {
       throw new Error("Required Terminal plugin manifest entry is incompatible");
     }
-  } else if (terminal !== undefined) {
+  } else if (terminalMode === "recovery-disabled" && terminal !== undefined) {
     throw new Error("Recovery-disabled plugin manifest must not publish Terminal");
   }
   return { terminalMode, plugins };

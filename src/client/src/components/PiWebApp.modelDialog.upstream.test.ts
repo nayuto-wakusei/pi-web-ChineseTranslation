@@ -20,6 +20,26 @@ afterEach(() => {
 const modelDialogOrigin = { machineId: "local", sessionId: "session-1", cwd: "/repo" } as const;
 
 describe("PiWebApp model dialog", () => {
+  it.each(["session", "model"] as const)("closes model and thinking dialogs when the %s changes", (change) => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    const dialog = { instanceId: 1, origin: modelDialogOrigin, title: "Picker", options: [] };
+    setAppState(app, {
+      selectedSession, sessions: [selectedSession],
+      status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
+      modelDialog: dialog, thinkingDialog: dialog,
+    });
+
+    applyAppStatePatch(app, change === "session"
+      ? { selectedSession: session("session-2") }
+      : { status: sessionStatus(selectedSession.id, { provider: "anthropic", id: "claude-sonnet-4-5" }) });
+
+    const state: unknown = Reflect.get(app, "state");
+    if (!isAppState(state)) throw new Error("Missing app state");
+    expect(state.modelDialog).toBeUndefined();
+    expect(state.thinkingDialog).toBeUndefined();
+  });
+
   it("opens with the enabled options, the full catalog, and the current selection", async () => {
     const app = new PiWebApp();
     const selectedSession = session("session-1");

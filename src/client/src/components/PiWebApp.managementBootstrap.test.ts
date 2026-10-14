@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { configApi, setApiScope } from "../api";
 import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
+import type { ExternalPluginLoadResult } from "../plugins/external";
 import { PiWebApp } from "./PiWebApp";
 
 afterEach(() => {
@@ -17,6 +18,24 @@ afterEach(() => {
 });
 
 describe("management app bootstrap boundaries", () => {
+  it("exposes management plugin import errors and clears them after a successful retry", async () => {
+    history.replaceState({}, "", "/?embed=management");
+    const app = new PiWebApp();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failed: ExternalPluginLoadResult = {
+      terminalMode: "required",
+      declarations: [{ id: "example", machineSpecific: false }],
+      registrations: [],
+      failures: [{ entry: { id: "example", module: "./example.js", machineSpecific: false }, error: new Error("plugin import failed") }],
+    };
+    await invoke(app, "registerExternalPlugins", "plugins", () => Promise.resolve(failed));
+    const errors: unknown = Reflect.get(app, "pluginLoadErrors");
+    expect(errors).toEqual(new Map([["local", "plugin import failed"]]));
+
+    await invoke(app, "registerExternalPlugins", "plugins", () => Promise.resolve({ ...failed, declarations: [], failures: [] }));
+    expect(errors).toEqual(new Map());
+  });
+
   it("loads browser plugins without loading normal-mode configuration or runtime status", async () => {
     vi.useFakeTimers();
     history.replaceState({}, "", "/?embed=management");
