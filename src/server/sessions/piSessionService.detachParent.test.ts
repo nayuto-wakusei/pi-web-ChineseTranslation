@@ -2,13 +2,40 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, runtimeCreator, sessionGateway, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
 
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+it("rejects detaching an archived session without modifying its file or opening a runtime", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-web-detach-archived-"));
+  roots.push(cwd);
+  const sessionFile = join(cwd, "archived-child.jsonl");
+  const content = `${JSON.stringify({ type: "session", version: 3, id: "child", timestamp: "2026-01-01T00:00:00.000Z", cwd, parentSession: join(cwd, "parent.jsonl") })}\n`;
+  await writeFile(sessionFile, content);
+  const manager = SessionManager.open(sessionFile);
+  const runtime = fakeRuntime("child", { sessionFile, sessionManager: manager });
+  const createAgentRuntime = vi.fn(runtimeCreator(runtime.runtime));
+  const service = new PiSessionService(new CapturingSessionEventHub(), {
+    agentDir: join(cwd, "agent"), modelRuntime: testModelRuntime,
+    createAgentRuntime, sessionManager: { ...sessionGateway([]), open: () => manager },
+    archiveStore: {
+      ...emptyArchiveStore(),
+      get: () => Promise.resolve({ sessionId: "child", cwd, archivePath: sessionFile, archivedAt: "2026-01-02T00:00:00.000Z" }),
+    },
+    heartbeatIntervalMs: 60_000,
+  });
+  try {
+    await expect(service.detachParent(sessionRef("child", cwd))).rejects.toThrow("已归档会话为只读");
+    expect(await readFile(sessionFile, "utf8")).toBe(content);
+    expect(createAgentRuntime).not.toHaveBeenCalled();
+  } finally {
+    await service.dispose();
+  }
 });
 
 it("detaches an active session without losing SDK appends or retaining its in-memory parent", async () => {

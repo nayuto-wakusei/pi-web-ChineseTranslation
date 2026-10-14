@@ -3333,6 +3333,7 @@ export class PiSessionService {
   }
 
   async detachParent(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
+    await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");

@@ -1073,9 +1073,18 @@ export class SessionController {
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
       await this.api.detachParent(session, machineId);
-      const detached = { ...session };
-      delete detached.parentSessionPath;
-      this.replaceSession(detached);
+      const state = this.getState();
+      if (this.disposed || selectedMachineId(state) !== machineId) return;
+      const detach = (candidate: SessionInfo) => {
+        if (candidate.id !== session.id || candidate.cwd !== session.cwd) return candidate;
+        const detached = { ...candidate };
+        delete detached.parentSessionPath;
+        return detached;
+      };
+      this.setState({
+        sessions: state.sessions.map(detach),
+        selectedSession: state.selectedSession === undefined ? undefined : detach(state.selectedSession),
+      });
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }
