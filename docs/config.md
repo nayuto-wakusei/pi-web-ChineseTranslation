@@ -196,9 +196,9 @@ pi-web audit vacuum
 
 按上海日历 ISO 周写入如 `pi-web-management-audit-2026-w32` 的索引，`indexPrefix` 默认 `pi-web-management-audit`，`retentionDays` 默认 `365`。daemon 安装严格模板，经 Bulk API 批写，启动/每日维护；上海日历每月首次成功维护删除早于截止的 `@timestamp` 文档。
 
-记录 `user.id`、`user.root_user_id`、实际工作区所属授权项目、Pi 会话和适用的 Workbench Agent Session。工具、能力、知识检索、Skill 事件只存固定资源版本、授权修订、run/trace ID、状态、耗时、重试或结果数量等元数据，排除提示词、参数、结果、模型回复、检索问题/过滤器/内容、令牌、API key、cookie、票据。
+记录 `user.id`、`user.root_user_id`、实际工作区所属授权项目、Pi 会话和适用的 Workbench Agent Session。受限和完整特权管理会话均在 `content` 中保留用户问题文本、模型可见回复（排除 `thinking` 块）、工具参数和结果；该字段只存储、不建立索引。服务日志仍仅记录元数据，管理调用不进入普通模式 SQLite。Workbench 专项能力、知识检索、Skill 事件仍只存固定资源版本、授权修订、run/trace ID、状态、耗时、重试或结果数量等元数据；同一调用作为工具执行时，其参数与结果按工具审计保存。不额外记录认证状态中的令牌、API key、cookie 或票据。
 
-ES 错误记日志，不停止管理会话。有界内存队列重试，并在优雅关闭刷写；崩溃可能丢失尚未送达记录。用 ES/Kibana 索引权限限制审计访问。共享跨进程配置保持 Web/API 与 daemon 一致。
+ES 错误记日志，不停止管理会话。有界内存队列重试，并在优雅关闭刷写；崩溃可能丢失尚未送达记录。正文及工具内容可能含敏感数据，须用 ES/Kibana 索引权限限制审计访问。共享跨进程配置保持 Web/API 与 daemon 一致；升级审计实现后需手动重启 `pi-web-sessiond.service`。
 
 <a id="workbench-and-mcp-integration"></a>
 ### Workbench 与 MCP 集成

@@ -12,7 +12,12 @@ describe("ManagementAuditStore", () => {
     expect(managementAuditIndexName("pi-web-management-audit", new Date("2021-01-03T16:00:00.000Z"))).toBe("pi-web-management-audit-2021-w01");
   });
 
-  it("writes only management metadata through the bulk API, ignoring extra sensitive fields", async () => {
+  it.each([
+    { action: "tool_execution" as const, content: { path: "/workspace", includeHidden: true } },
+    { action: "tool_execution" as const, content: { content: [{ type: "text", text: "file body" }] } },
+    { action: "user_prompt" as const, content: "用户的完整问题" },
+    { action: "assistant_response" as const, content: { role: "assistant", content: [{ type: "text", text: "模型的完整回复" }] } },
+  ])("writes management $action content through the bulk API, ignoring unrelated sensitive fields", async ({ action, content }) => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ acknowledged: true }))
       .mockResolvedValueOnce(jsonResponse({ deleted: 0 }))
@@ -31,7 +36,8 @@ describe("ManagementAuditStore", () => {
     await store.initialize();
     const untypedEvent = {
       ...toolEvent(),
-      content: "private content",
+      action,
+      content,
       arguments: { token: "private token" },
       result: "private result",
       prompt: "private prompt",
@@ -49,17 +55,21 @@ describe("ManagementAuditStore", () => {
     expect(lines[0]).toMatchObject({ index: { _index: "pi-web-management-audit-2026-w32" } });
     expect(lines[1]).toMatchObject({
       "@timestamp": "2026-08-06T01:02:03.000Z",
-      event: { action: "tool_execution", status: "completed" },
+      event: { action, status: "completed" },
       user: { id: "user-1", root_user_id: "root-1", name: "测试用户" },
       project: { id: "project-1" },
       session: { id: "session-1" },
       tool: { name: "read", call_id: "call-1" },
+      content,
     });
     expect(body).not.toContain("private-api-key");
-    for (const secret of ["private content", "private token", "private result", "private prompt", "private reply", "private credential"]) {
+    for (const secret of ["private token", "private result", "private prompt", "private reply", "private credential"]) {
       expect(body).not.toContain(secret);
     }
-    expect(lines[1]).not.toHaveProperty("content");
+    expect(JSON.parse(requestBody(fetchImpl.mock.calls[0]?.[1]?.body))).toMatchObject({
+      version: 5,
+      template: { mappings: { properties: { content: { enabled: false } } } },
+    });
 
     await store.close();
   });

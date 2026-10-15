@@ -139,6 +139,16 @@ const MAX_UNREAD_PUBLICATION_RETRY_MS = 30_000;
 const MAX_PENDING_UNREAD_MUTATIONS = SESSION_UNREAD_LIMIT + 1;
 const IDLE_SESSION_FILE_RESOLUTION_THROTTLE_MS = 30_000;
 
+function auditVisibleAssistantMessage(message: unknown): unknown {
+  if (!isRecord(message) || Array.isArray(message)) return message;
+  const content = message["content"];
+  if (!Array.isArray(content)) return message;
+  return {
+    ...message,
+    content: content.filter(part => !isRecord(part) || Array.isArray(part) || part["type"] !== "thinking"),
+  };
+}
+
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
 }
@@ -2803,7 +2813,7 @@ export class PiSessionService {
   }
 
   private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
-    this.auditUserPrompt(session);
+    this.auditUserPrompt(session, text);
     this.publishActivity(session, behavior === "steer" ? "插队消息已排队" : behavior === "followUp" ? "消息已排队" : "消息已接收", "active");
     const eventScope = this.eventScopeForSession(session);
     if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
@@ -4188,6 +4198,7 @@ export class PiSessionService {
           action: "tool_execution",
           ...managementIdentity,
           ...auditEvent,
+          content: isEnd ? getProperty(event, "result") : getProperty(event, "args"),
         });
       } catch (error) {
         this.logger.info({ sessionId: auditEvent.sessionId, toolCallId: auditEvent.toolCallId, error: error instanceof Error ? error.message : String(error) }, "failed to enqueue management-mode tool audit");
@@ -4210,19 +4221,20 @@ export class PiSessionService {
     if (getString(event, "type") !== "message_end") return;
     const message = getProperty(event, "message");
     if (getString(message, "role") !== "assistant") return;
-    this.recordManagementMessageAudit(active, "assistant_response");
+    this.recordManagementMessageAudit(active, "assistant_response", auditVisibleAssistantMessage(message));
   }
 
-  private auditUserPrompt(session: PiAgentSession): void {
+  private auditUserPrompt(session: PiAgentSession, text: string): void {
     const active = [...new Set(this.active.values())]
       .find(candidate => candidate.runtime.session === session);
     if (active === undefined) return;
-    this.recordManagementMessageAudit(active, "user_prompt");
+    this.recordManagementMessageAudit(active, "user_prompt", text);
   }
 
   private recordManagementMessageAudit(
     active: ManagedActiveSession,
     action: "user_prompt" | "assistant_response",
+    content: unknown,
   ): void {
     const identity = active.managementAuditIdentity;
     if (identity === undefined || this.managementAudit === undefined) return;
@@ -4233,6 +4245,7 @@ export class PiSessionService {
         ...identity,
         sessionId: active.runtime.session.sessionId,
         cwd: active.runtime.cwd,
+        content,
       });
     } catch (error) {
       this.logger.info({
