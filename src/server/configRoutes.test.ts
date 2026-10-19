@@ -252,7 +252,8 @@ describe("config routes", () => {
     expect(parsePiWebConfigResponseBody(response).config.agent).toEqual(agent);
     expect(parseSelectedMachineConfigRequest({ agent }, "portable").agent).toEqual(agent);
     if (process.platform !== "win32") {
-      expect(() => parseSelectedMachineConfigRequest({ agent })).toThrow("agent.dir must be a host-absolute path");
+      expect(() => parseSelectedMachineConfigRequest({ agent: { command: agent.command } })).toThrow("agent.command must be a safe bare executable name or host-absolute executable path");
+      expect(() => parseSelectedMachineConfigRequest({ agent: { dir: agent.dir } })).toThrow("agent.dir must be a host-absolute path");
     }
   });
 
