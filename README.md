@@ -130,6 +130,7 @@ npm run verify
 
 ## 文档
 
+- [代码库维护文档：架构、模块契约、改动地图与验证](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/maintenance.md)
 - [上游网站](https://pi-web.dev/)
 - [安装](https://pi-web.dev/install)
 - [远端优先](https://pi-web.dev/remote-first)
