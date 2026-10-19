@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
+  decodeManagementContext,
+  MANAGEMENT_EMBED_CONTEXT_HEADER,
   managementContextForRequest,
+  managementHeaders,
   managementProjectIdForCwd,
   managedProjectPath,
   managementToolAllowed,
@@ -17,6 +20,7 @@ import {
   type ManagementEmbedReplyTarget,
   type ManagementEmbedRequestSource,
 } from "./managementEmbed.js";
+import { managementPrivileges } from "./managementPrivileges.js";
 
 let root: string;
 let nowMs: number;
@@ -305,6 +309,41 @@ describe("management embed sandbox policy", () => {
 });
 
 describe("management embed privileged grants", () => {
+  it("replaces a same-user restricted cookie with fresh launch grants and forwards them to the daemon", async () => {
+    let sessionNumber = 0;
+    const runtime = runtimeFor("secret-1", () => `session-${String(++sessionNumber)}`);
+    const base = contextFor([{ id: "p1", name: "Project 1" }]);
+    const restricted = { ...base, tools: { deny: ["bash", "shell", "terminal", "terminal-command-runs"] } };
+    const firstReply = replyFor();
+    await managementContextForRequest(requestFor({}, {
+      embed: "management", token: signToken(tokenPayload(restricted), "secret-1"),
+    }), runtime, firstReply);
+    const oldCookie = cookiePair(firstReply);
+    const cached = await managementContextForRequest(requestFor({ cookie: oldCookie }, { embed: "management" }), runtime);
+    expect(cached?.privileged).toBeUndefined();
+    expect(cached?.tools).toEqual(restricted.tools);
+
+    const granted = { ...base, tools: { deny: ["shell", "terminal"] }, privileged: { bash: true, network: true } };
+    const nextReply = replyFor();
+    const refreshed = await managementContextForRequest(requestFor({ cookie: oldCookie }, {
+      embed: "management", token: signToken(tokenPayload(granted), "secret-1"),
+    }), runtime, nextReply);
+    expect(refreshed).toMatchObject({ user: base.user, tools: granted.tools, privileged: granted.privileged });
+    expect(cookiePair(nextReply)).not.toBe(oldCookie);
+    const nextContext = await managementContextForRequest(requestFor({ cookie: cookiePair(nextReply) }, { embed: "management" }), runtime);
+    expect(nextContext).toEqual(refreshed);
+
+    const headers = managementHeaders(nextContext, runtime);
+    const forwarded = decodeManagementContext(headers?.[MANAGEMENT_EMBED_CONTEXT_HEADER]);
+    expect(forwarded).toEqual(refreshed);
+    if (forwarded === undefined) throw new Error("Expected forwarded management context");
+    expect(managementToolAllowed(forwarded, "bash")).toBe(true);
+    expect(managementToolAllowed(forwarded, "shell")).toBe(false);
+    expect(managementToolAllowed(forwarded, "terminal")).toBe(false);
+    expect(managementPrivileges(forwarded, { allowPrivileged: true })).toEqual({ bash: true, network: true, full: true });
+    expect(managementPrivileges(forwarded, { allowPrivileged: false })).toEqual({ bash: false, network: false });
+  });
+
   it("preserves privileged grants from a signed entry token", async () => {
     const runtime = runtimeFor("secret-1");
     const token = signToken(tokenPayload({
@@ -532,7 +571,7 @@ function contextFor(projects: ManagementEmbedContext["projects"]): ManagementEmb
   };
 }
 
-function runtimeFor(secret: string) {
+function runtimeFor(secret: string, randomSessionId = () => "session-1") {
   const runtime = createManagementEmbedRuntime({
     enabled: true,
     auth: {
@@ -542,7 +581,7 @@ function runtimeFor(secret: string) {
     },
   }, { PI_WEB_MANAGEMENT_EMBED_SERVICE_TOKEN: secret }, "/home/alice", {
     now: () => new Date(nowMs),
-    randomSessionId: () => "session-1",
+    randomSessionId,
   });
   if (runtime === undefined) throw new Error("Expected runtime");
   return runtime;
