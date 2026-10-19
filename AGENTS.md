@@ -110,6 +110,10 @@ For project-auth changes, cover first-use bootstrap/isolation, client target pro
 
 POSIX shell assets executed by Docker must retain LF line endings, including the shebang. Check bytes as well as shell syntax with the declared interpreter: Bash scripts must use `bash -n`, not a host's potentially Dash-backed `sh`. Windows checkout must honor the installer's `.gitattributes` rule.
 
+## Documentation maintenance
+
+编写或修改代码时，如果功能行为发生变化，必须在同一次改动中同步更新 `docs/` 下对应的模块文档或权威参考，并删除或替换已失效的旧表述，不能只追加新说明而保留相互矛盾的内容。从 `docs/maintenance.md` 定位对应文档；同一内容存在 Markdown 和 HTML 版本时，同步更新受影响的表述。
+
 ## Changes and releases
 
 Use `.agents/skills/changeset-changelog/SKILL.md` for user-visible features, fixes, configuration/install changes, or documentation shipped in the npm package. Add a `.changeset/*.md` fragment when required; do not edit `CHANGELOG.md` manually during normal development.
