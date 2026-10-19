@@ -1,5 +1,110 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 1.202610.2
+
+### Patch Changes
+
+- a8598f7: Order archived sessions by their latest activity instead of archive time.
+- a8598f7: Show all matching slash commands and skills in the composer instead of the first twelve.
+- a8598f7: Load the web app manifest through authenticating reverse proxies.
+- a8598f7: Let agents follow explicit user authorization for a session daemon restart while warning that it interrupts active sessions.
+- d0d3d7b: 随包提供中文化的可选船长日志示例及独立浏览器产物，默认不安装、不启用。补齐服务端插件 API 的运行时导出及 peer 通道关闭错误类型，供公开接口消费者使用。
+
+  将 Mermaid 渲染入口与隔离图表引擎构建到同一独立浏览器目录，避免发布未经打包的浏览器源码依赖图。
+
+- d7fcb23: Constrain images rendered inside chat markdown to the width of their message so large screenshots no longer overflow the conversation.
+- 91cfd35: 开发 Docker 实例使用独立的会话守护进程 socket，避免与生产实例冲突；保留插件操作旧标识下保存的快捷键设置。会话列表缓存树结构并按会话身份保留行元素，同时保留固定和增量加载行为。
+- a8598f7: Dismiss pending questions when a queued user message reaches the model.
+- 9fc4790: Move the Files and Terminal workspace panels into bundled plugins while keeping existing file operations and Chinese UI. Interactive terminals stay unavailable in management embed, as before. Management embed command runs stay sandboxed in the core terminal service.
+- 2091088: 修复聊天消息分组时丢失历史节点身份，恢复消息旁的分叉与回退操作。修复窄屏刷新聊天链接后错误打开会话列表的问题。
+- 2091088: 修复自定义发送组合键被全局快捷键抢占的问题，支持编辑器按配置发送并保留命令补全、换行及输入法行为。
+- 91f72bd: 修复分离父会话时延迟响应覆盖其他机器会话或最新会话信息的问题，并禁止通过分离接口修改只读归档会话。
+- 2091088: 修复 Git 面板首次加载状态时清除直达差异文件选择的问题，保留刷新和重新连接后的差异 URL。
+- 0dd7e2a: 修复完整特权管理会话仍被网关的工作台资源续期阻断的问题，保留初始 Agent Session 绑定和受限模式的资源校验。
+
+  管理嵌入页面显示插件加载失败的具体原因，并在重试成功后清除错误。
+
+- 0dd7e2a: 修复切换机器后旧模型或思考级别请求覆盖当前会话状态的问题。切换会话或模型时关闭已失效的模型、思考级别选择弹窗，避免旧选项作用于新会话。
+- fa56a98: 项目或工作区移除、会话完成后，在后台清理失去归属的未读完成状态，避免指示器一直亮起。清理以一分钟延迟合并执行，跳过空目录，普通读取不触发工作区扫描；重新添加项目前先清除旧的孤立未读状态。保留会话和项目文件，项目增删操作需要会话守护进程。
+- 2091088: 修复非法插件清单的诊断导致插件服务端状态被误判为不兼容、Git 面板无法加载的问题。继续严格拒绝不合规插件，不影响其他合法插件运行。
+- 0dd7e2a: 修复会话重新加载后仍沿用旧模型范围的问题，并同步同项目的模型选择器。重载期间切换机器不再误清除新机器的同名会话缓存或触发错误的历史请求。修复工作台管理嵌入被未使用的终端插件故障阻止加载其他插件的问题，保留普通模式的终端必需校验。
+- bf22f02: 修复符号链接重命名误移动目标文件、会话清理遗漏项目自定义 sessionDir、管理文件工具误解析 /workspace 下真实绝对路径，以及取消终端命令后仍显示成功的问题。
+
+  修复 daemon 所有权并发抢占、展开目录失效阻断文件面板刷新、默认模型保存与会话信任状态不一致，以及普通/管理会话并发启动时的权限环境污染。管理嵌入会话直接通过项目信任，不改变普通模式的信任决定。
+
+  升级所有权保护时需先停止旧 daemon，再启动新版本。所有权更新中途崩溃可能留下 sessiond-owner.json.lock 空目录；确认没有 daemon 正在启动或停止后才能清理并重试。
+
+- 5cd88b5: 应用回到前台或重新连接时刷新工作区会话列表，无需刷新页面即可看到断连期间创建的会话。
+- a8e1b10: 修复同一用户、同一工作区的受限管理会话互相覆盖权限策略的问题。按生效策略隔离存储并原子写入，避免并发启动时加载其他会话的工具限制。
+
+  修复 `/reload` 丢失管理权限环境的问题，并隔离普通会话重载与管理会话启动，避免扩展重新加载时读取其他模式的权限策略。
+
+- c9d6119: 修复 systemd 审计和管理嵌入 drop-in 导致的服务环境误报，并让启动、重启与 doctor 的 Web 就绪检查读取已安装服务的配置。保留显式配置覆盖、数据目录和守护进程传输一致性检查，以及 EnvironmentFile 的严格拒绝策略。
+- b7e4b67: 允许管理嵌入会话默认使用工作区内的受限 bash 工具，保持默认断网、不暴露其他宿主目录，并继续遵循明确的工具允许与拒绝规则。沙盒不可用时拒绝执行，不回退到宿主 shell。
+
+  机器明确允许特权，且签名令牌同时授予 bash 与网络权限时，管理代理改用普通模式的工具及资源加载规则，忽略管理令牌的工具允许与拒绝列表；保留项目信任、管理身份、独立认证与偏好、审计和子会话管理上下文。单项授权不会开启完整权限。
+
+  完整特权模式不再注入管理专属工作台工具与只读能力指令，不要求工作台资源续期，也不强制同步管理 Skills 或覆盖项目 Relay 模板。
+
+  整合已发布的管理权限修复：平台注入的只读 AGENTS 指令不进入完整特权提示，原文件和用户指令保留；普通权限策略环境与项目信任继续生效。
+
+- c9d6119: 补齐命令补全来源的中文标签，以及新会话默认值、发送键和参数提示文档。图表预览改用与上游一致的完整 Mermaid 引擎，在无网络的沙箱中渲染并清理 SVG；保留加载失败时回退源码的行为。
+- a8598f7: Keep dialog actions within the available viewport on mobile devices.
+- d7fcb23: Keep the chat composer reachable on mobile when the on-screen keyboard opens by letting the viewport resize with the keyboard.
+- 7a02e56: Show only navigation destinations available in the current layout and preserve navigation preferences across viewport changes.
+- 9d198d3: Clear ordinary-mode unread indicators when their owning projects or workspaces are removed, while preserving management-mode isolation.
+- eac1450: Support Pi 0.87 alongside the tested Pi 0.86.1 runtime and display visible boundary-draft transcript entries without applying context edits to chat history.
+- 1e8f5c8: 为浏览器插件动作和工作区面板增加 `context.navigate(destination)`，使用宿主导航及目的地不可用提示。Captain's Log 翻译条目增加打开来源会话的操作。
+- d45c7f9: Upgrade bundled plugins to browser plugin API v4 and server plugin API v3 with no compatibility shim. Package-paired server requests now go through `peer.request` instead of the legacy workspace-provider `request` method. This note records a breaking plugin API change; it is not a major release.
+- 8fcb725: 对齐浏览器插件的公开选中会话状态与必需的运行时身份，避免向外部插件传递内部会话字段。独立 Pi 包按各自的 src/dist 布局重新构建，排除陈旧产物、测试文件和非发布元数据，同时保留插件构建就绪门槛与符号链接防护。
+- a8e1b10: 修复目录移动和删除接口误操作符号链接目标的问题：目录接口拒绝末级符号链接，保留链接及其真实目标，同时继续支持工作区内的链接父目录。
+- a923302: 队列中的聊天消息送达会话时，关闭尚未回答的问题，包括消息入队后才出现的问题。
+- 0e4d29c: 项目和机器对话框适应手机短屏的遮罩可用空间，并允许项目内容滚动，确保操作按钮可达。模型、认证和命令选择器同样适应可用遮罩高度。
+- a8598f7: Refresh workspace sessions after browser resume and realtime reconnect so sessions created during a connection gap appear in the list.
+- c9d6119: 修复内置 Relay Pi 包的浏览器插件清单，避免中继面板因不受支持的元数据被插件目录拒绝。
+- 076f4b3: 恢复管理模式 Elasticsearch 审计的内容记录：受限和完整特权会话均保留用户问题、模型可见回复（不含思考内容）、工具参数和结果。服务日志及普通模式 SQLite 仍只保存元数据；审计正文可能含敏感数据，请限制 Elasticsearch 访问，升级后手动重启会话守护进程。
+- c9d6119: 为新会话记住模型和思考等级默认值，并在聊天里提供已保存消息的分叉和回退。斜杠命令补全会显示参数提示；发送键可按桌面和手机分别设置，未保存前仍沿用当前浏览器的 Enter 偏好。这些编辑器功能在普通模式和管理嵌入中都可用，交互终端仍仅限普通模式。
+- 81e937d: Add shared chat content renderers, chart preview, and workspace file links in both ordinary mode and management embed. Interactive terminals stay unavailable in management embed. File management stays in the existing Chinese files panel.
+- d7fcb23: Disable Vite's development reload connection while preserving its dynamic-import helpers, so reconnecting a suspended PWA does not reload the UI or stall PI WEB realtime sockets.
+- 995902d: 将文件面板迁移为独立浏览器插件，保留新建文件和文件夹、移动或重命名、删除及下载，并提供独立预览、上传进度与取消。目录操作通过可选公开能力接入，保持旧宿主兼容及机器、工作区隔离。
+- 723c279: Add searchable, pinnable navigation tabs and keep unavailable URL destinations visible as errors.
+- d0d3d7b: 按照上游严格校验浏览器插件清单：必须显式声明 browserRoot，用户插件不得占用保留命名空间。不符合要求的旧插件会跳过并报告错误，不自动改写插件或数据。内置清单已同步适配；浏览器资源仅从声明目录的内容版本快照提供，支持默认不启用的可选插件。
+- 84cf28d: 对齐上游会话守护进程的 HTTP 空闲超时设置、工作区插件取消与退出清理；启动失败时回收已创建的资源，退出时继续清理失败的组件，并在关闭服务后释放状态所有权。
+- 9874a04: 补齐远端文件操作的超时、响应大小和断连取消边界，并按上游限制会话列表首条消息预览长度；完整会话与归档内容保持不变。
+- d530ab1: 补齐上游工作区稳定渲染、跨实例会话活动提示和弃用配置诊断，限制插件通知保留数量，并随包提供中文工作区插件示例和安装后的公开 API 消费者验证；保留项目认证、管理隔离及现有导航兼容。
+- 05e91ad: 将普通终端切换为内置 Terminal 插件独立拥有的浏览器、PTY 和通信运行时，保留中文界面、旧导航链接、机器隔离与 Windows shell 支持。管理嵌入仍使用独立受控命令执行与沙箱，不能调用普通终端插件。
+
+  按上游严格检查插件生命周期和必需 Terminal 契约；缺失、禁用或失败时不再退回宿主终端。更新时需同步重启 Web 与会话守护进程并刷新浏览器；显式无服务端插件恢复模式可用于修复配置。插件运行失败通知保留项目、工作区范围。
+
+- d530ab1: 增加按机器归属的弃用代理配置诊断与中文提示，保留现有配置兼容且不自动迁移用户配置。限制插件通知的按来源和全局保留数量，避免插件通知淹没核心通知；管理嵌入继续隔离普通模式通知。
+- 84cf28d: 对齐上游浏览器插件的依赖排序、机器作用域、生命周期超时与失败回滚，并补齐公开插件运行时契约。项目资源按 Pi 的项目信任设置加载，可在添加项目或工作区菜单中显式调整信任，不自动批准已有项目。
+
+  保存全局配置时移除已废弃的 `respectProjectTrust` 字段，保留其他配置和现有信任决定；旧字段不会绕过项目信任检查。
+
+  防止过期认证请求恢复已关闭的对话，默认模型和思考星标保存期间阻止重复提交，并保留输入法 Escape、原生插件弹窗及非编辑区快捷键序列的交互边界。
+
+  对齐插件宿主导航、旧链接和快捷键操作别名，按所选机器的生命周期能力显示插件诊断与离线恢复；保留浏览器 Enter 偏好，并支持独立配置桌面与触屏发送键。船长日志作为可选包显示，未经用户安装不自动启用。
+
+  保留独立 Files/Git 插件中的分批列表与选中项可见性，修复目录行挤掉普通文件、后台刷新重复请求和历史导航隐藏选中项的问题，继续使用中文安全预览提示。
+
+  管理嵌入仅加载可用且版本有效的服务端配对插件；普通终端由独立插件拥有，管理命令仍使用独立沙箱与权限检查。服务启动和诊断按已安装配置选择就绪探测目标，保留显式配置覆盖与审计命令。
+
+  Anthropic 订阅认证提示使用会话所属认证源，不读取其他项目或模式的凭据；浏览器在认证期间断开时不遗留后台会话连接。
+
+  保持更新、Web/UI 重启和守护进程版本异常提示为中文，不改变版本、命令或底层诊断内容。
+
+  会话重命名完成后仅更新原机器、项目工作区和会话文件仍匹配的列表；切换目标或关闭页面时，迟到结果不会修改同名 ID 的其他会话，重命名其他列表项仍保持当前对话不变。
+
+  聊天消息分叉与回退的等待状态和错误提示按机器、会话和工作区隔离，切换目标或断开页面后，旧请求不会覆盖新目标的提示或清除新请求的等待状态。
+
+  恢复浏览器唤醒时对独立工作区面板的资源刷新，并避免键盘设置重复列出桌面和移动发送快捷键。
+
+- c9d6119: 协调开发环境的插件构建与服务启动：Web 完成首次构建后才启动 API，daemon 等待插件就绪；开发服务启动和服务重启先验证 Web，再处理 daemon。Web 构建或就绪检查失败时不重启 daemon，保留其手动重启和活动会话所有权。
+- 91cfd35: 补齐插件文件能力的上传路径、进度、取消与版本引用接口，保留旧参数兼容，并将读取取消信号传递至工作区请求。
+- 2feb6f3: 修复工作区删除轮询的取消、失败重试和切换作用域清理，并防止旧的异步导航覆盖新选择；保留管理模式隔离、旧链接和会话创建交接。
+- 3db310c: 补齐插件面板导航、贡献级 URL 查询状态和资源失效通知，兼容旧贡献链接并隔离不同机器的导航记忆。切换工作区、面板或历史记录后，旧上下文不能覆盖当前导航。
+- d530ab1: 减少聊天流式更新对工作区面板和导航列表的重复渲染，保持插件显式刷新与路由变化及时生效，并合并短时间内重复的工作区拓扑刷新。
+
 ## 1.202610.1
 
 ### Patch Changes
