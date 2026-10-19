@@ -63,13 +63,18 @@
 
 仅受支持路由列入联邦白名单；并非任意 `/api/...` 都能透传。消息、终端和插件 channel 使用不同 WebSocket 路由，必须同时保持机器和认证作用域。字段及响应以 [apiTypes.ts](../../src/shared/apiTypes.ts) 和具体路由为准，本页不是无版本约束的 REST API 承诺。
 
-浏览器开发应复用 `src/client/src/api/`：
+本机能力同时保留传统 `/api/...` 与 `/api/machines/local/...` 别名；远端走 `/api/machines/:machineId/...` 代理。新增机器 HTTP/WS 端点必须同步 `src/shared/federatedRoutes.ts`、本机路由注册、客户端和联邦路由契约测试。
 
-- 使用无前导 `/` 的应用相对引用，例如 `api/machines/...`。
-- 动态路径段逐段 `encodeURIComponent`，查询值用 `URLSearchParams`。
-- JSON 请求交给 `request()`；直接 DOM/浏览器 API 使用 `resolveAppUrl()` 体系，WebSocket 使用 `resolveAppWebSocketUrl()`。
-- 插件模块使用 `resolvePluginModuleUrl()`，不要自己拼部署前缀。
-- 网络响应经过解析器校验，不能直接强制断言为内部对象。
+浏览器传输统一在 `src/client/src/api/`：`clients.ts` 管理端点族，`urls.ts` 构造地址，`http.ts` 管理 HTTP/认证作用域，`sockets.ts` 管理 socket。共享请求/响应类型放在 `src/shared/apiTypes.ts`；响应视为不可信输入，在 `parsers.ts` 或其子模块校验，不能在组件或 controller 中强制类型转换。浏览器 URL 约束：
+
+- PI WEB 自有路径使用无前导 `/` 的应用相对引用，例如 `api/...`、`pi-web-plugins/...`。
+- 动态路径段逐段 `encodeURIComponent`；查询值也要编码，多字段查询用 `URLSearchParams`。
+- 每个引用只在浏览器边界解析一次：普通 JSON 请求交给 `request()`；直接 DOM/浏览器 API 接收基于 `resolveAppUrl()` 的 helper 生成的 URL；WebSocket 使用 `resolveAppWebSocketUrl()`。
+- 返回未解析引用的 helper 用 `Path` 后缀，返回浏览器可用绝对地址的 helper 用 `Url` 后缀。
+- 插件模块必须使用 `resolvePluginModuleUrl()`；它对前导 `/` 的兼容是滚动升级专用例外，不能推广到其他应用路径。
+- JavaScript 加载前的 HTML 资产使用 Vite `%BASE_URL%`，PWA manifest 引用保持 `./` 相对路径。外链、data URL、模块相对插件资产不属于应用路径。
+
+审查生产客户端时，用 rg 查找原始 `fetch`、`WebSocket`、`XMLHttpRequest`、携带 URL 的 DOM 属性，以及前导 `/api`、`/pi-web-plugins` 字面量；每个应用自有结果必须符合上述边界，不能仅修被报告的一条地址。
 
 新增机器能力时，应同时核对联邦路由、本机注册、客户端调用与路由契约测试，否则本机成功可能掩盖远端缺失。
 

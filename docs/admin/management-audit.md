@@ -28,6 +28,8 @@
 
 Workbench 适配器在服务端保存访问状态及票据，以不透明 handle 联系 daemon；相同 entry token 的并发 bootstrap 复用同一 Agent Session。平台入口过期或资源授权失效时，应按提示回工作台重新进入，而不是复制旧票据到普通页面。
 
+entry token 交换为私有 Agent Session 后，access/capability tickets 必须留在服务端，只加载已授权的固定资源与 Skill 版本，并仅暴露受控能力工具。Workbench 集成与管理审计构造跨越网关和 daemon，两端使用相同有效 endpoint 与限额；这些配置或转发协议变化时重启两端。
+
 模型认证和默认偏好独立于普通模式。即使完整特权开启，管理会话也仍是管理身份，不能由普通会话或普通宿主插件连接读取。
 
 ## 三种权限状态
@@ -38,11 +40,19 @@ Workbench 适配器在服务端保存访问状态及票据，以不透明 handle
 | 单项特权的受限模式 | `allowPrivileged` 开启，签名只授予 bash 或 network | 在受限框架内扩展对应能力，显式工具 allow/deny 继续生效 |
 | 完整特权管理 | `allowPrivileged` 开启，签名 bash 与 network 都为 true | 普通 SDK 工具与资源加载；忽略管理 token 的 tools.allow/deny |
 
-默认受限模式并非完全没有 bash：它可在 Bubblewrap 隔离的工作区中执行，工作区可写、必要运行库只读，默认无网络。单项 bash 特权可扩大宿主只读可见性；单项 network 特权不自动扩大宿主目录可见性。
+普通模式保持既有、不受管理机制限制的工具和资源行为；Workbench 资源、能力控制、Skill 同步、沙箱及外部托管权限仅用于受限管理会话，不能成为普通或完整特权的默认值。
 
-完整特权是高风险信任选择，不是“多开两个工具”的普通授权：它不再使用管理工作区沙箱/资源过滤，不注入受控 Workbench 工具，不以资源续期阻止代理启动，也不强制同步管理 Skill。其权限受 daemon 系统账号及普通策略约束，不等于 root。只给可信入口签发双特权。
+受限模式使用 managed file tools 和自定义 `python`，Python 经 Bubblewrap 保持 workspace-only 隔离，默认无网络。默认受限 bash 也在 Bubblewrap 中执行：除必要只读运行路径外，仅当前工作区可见且可写，默认无网络。通用 SDK shell、PowerShell、terminal、MCP、HTTP、web-fetch、web-search 默认拒绝。
 
-完整特权仍保留管理身份、专属模型认证/偏好、内容审计及子会话上下文。平台标记的管理 AGENTS 指令不会进入其提示词，但不删除文件或用户自写指令。浏览器交互终端仍有独立授权，不能由上述表格直接推导可用性。
+单项签名 `privileged.bash`/`privileged.network` 仅在 `managementEmbed.allowPrivileged` 为 true 时生效。bash-only 可扩大宿主只读可见性；network-only 启用 `http`/`webfetch`/`websearch` 并移除沙箱网络隔离，但不扩大宿主目录可见性。受限模式的显式工具选择与 deny 仍是最终约束。
+
+完整特权必须同时满足机器 `managementEmbed.allowPrivileged` 与两个有效签名特权，忽略管理 token 的 `tools.allow`/`tools.deny`。必须复用普通 SDK 工具和资源加载机制，不能用扩大只读沙箱或手写“allow all”策略代替。管理项目自动受信任，无需审批，也不能改变普通项目的 trust 决策。
+
+完整特权是高风险信任选择，不是“多开两个工具”的普通授权：它不再使用管理工作区沙箱/资源过滤，不注入受控 Workbench 工具或只读 capability 指令，不要求 Workbench 资源续期，也不创建/覆盖管理 Skill。其权限受 daemon 系统账号及普通策略约束，不等于 root。只给可信入口签发双特权。
+
+完整特权仍保留管理身份、专属 auth/model/偏好 store、内容审计及委派上下文。其提示词排除已知平台托管 AGENTS 指令，包括匹配签名 context 的旧版指令；不能删除共享文件或真正用户编写的指令，保留操作者普通 permission-policy 环境。浏览器交互终端仍有独立授权，不能由上述表格直接推导可用性。宿主插件的会话连接仍限 normal scope，特权不会把管理会话变成普通会话或向普通调用者开放。
+
+全局功能开关启用时，管理会话可获得 `spawn_session`、以 `spawn_subsession` 为首的完整 tracked-subsession 工具集及 `ask_user`。所有独立会话和子会话继承发起者管理 context。受限模式在 Pi permission policy 和 runtime `tools` 中注册完全相同的受控工具名称集合，并遵守显式管理 deny；完整特权在普通 SDK 工具之外保留这些有作用域的工具。
 
 ## 能力、知识与 Skill
 
@@ -57,7 +67,9 @@ Workbench 适配器在服务端保存访问状态及票据，以不透明 handle
 
 PI WEB 不配置这些知识服务的后台账号，不接受任意 tenant/dataset ID 越过授权；短期知识票据由后端处理。知识来源 URL 是引用，不是连接配置。
 
-Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动同时同步 `relay` 和 `relay-runner`，可能覆盖所属工作区的同名模板，因此不要把同名路径作为自定义内容的唯一副本。普通与完整特权启动不执行这种强制覆盖。
+Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动强制同步 `relay` 和 `relay-runner` 模板到 `.pi/skills/<name>/SKILL.md`，只替换所属工作区内的同名内容；因此不要把它们作为自定义内容的唯一副本。两个模板都必须纳入 npm 包和 Workbench Skill allowlist。普通与完整特权启动既不创建也不覆盖这些项目 Skill。
+
+仅当项目副本与已知 bundled 副本内容完全相同时，才能抑制对应 Relay Skill 的 collision；此规则分别适用于两个 Skill，不能压制其他诊断或削弱管理资源隔离。
 
 ## 审计分流
 
@@ -69,6 +81,10 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 | 服务日志 | 运维元数据与错误 | 不应额外输出认证令牌或正文副本 |
 
 普通 SQLite 默认开启，管理 Elasticsearch 需要配置开启。管理调用不混入普通 SQLite。审计中的会话正文可能天然包含用户粘贴的敏感数据，“不添加认证状态中的 token 字段”不等于正文已经自动脱敏，应限制 ES/Kibana 的访问权限。
+
+普通工具审计保留现有结构化服务日志，并写入 `$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite` 的纯元数据记录；普通存储和服务日志都不得持久化 prompts、arguments、results、model replies、tokens、credentials、cookies 或 tickets。
+
+受限和完整特权管理会话都保留 user、root-user、project、session、Workbench Agent Session 身份，以及 `content` 中的用户文本、排除 `thinking` 的可见 assistant 消息和工具参数/结果。管理服务日志保持 metadata-only；专门的 Workbench capability、knowledge、Skill 审计事件也只记元数据。不得把认证状态中的 tokens、credentials、cookies、tickets 额外加入审计字段。
 
 审计失败记录错误但不停止工具/会话，因此“任务成功”不证明审计已送达；ES 有界队列、重试和优雅关闭刷写也不构成无丢失保证。存储位置、保留期、索引规则与 CLI 示例分别见[普通审计](../config.md#ordinary-mode-tool-audit)和[管理审计](../config.md#management-mode-elasticsearch-audit)。
 

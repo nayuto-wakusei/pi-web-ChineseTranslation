@@ -21,6 +21,10 @@
 
 本仓库的拆分开发服务使用 `pi-web-sessiond.service` 与 `pi-web-ui-dev.service`，daemon 使用 `npm run start:sessiond`，不自动重载/重启。已安装正式服务及 Docker 可能采用不同 Web 单元名和管理方式，先用 `pi-web status` 或检查部署定义，不要盲用开发服务名。
 
+`pi-web-ui-dev.service` 运行 `npm run dev:web` 和 `npm run dev:client`，承担 Web/API、内置插件 watcher 与 Vite UI。`src/server/index.ts`/`app.ts` 组装浏览器 Fastify 网关，经 `src/sessiond/sessionDaemonClient.ts` 和代理路由访问 daemon；`src/server/sessiond.ts` 持有长期 Pi 会话、普通项目认证、终端、活动与实时事件。
+
+默认 daemon transport 是 `$PI_WEB_DATA_DIR/sessiond.sock`，也支持配置的 sessiond HTTP transport。协议、socket/数据目录或 transport 环境变化时，两服务必须对齐并重启。修改 `sessiond.ts`、daemon 协议/传输，或 `src/server/sessions/`、`terminals/`、`activity/`、`realtime/` 中传递依赖的 daemon 代码，也必须明确告知需要手动重启 daemon。纯浏览器插件走 UI/Web 重载；服务端插件不能归入此例外。
+
 ## 日常诊断
 
 以下为已安装 CLI 的读取型入口；`doctor` 针对受管理安装，不证明所有手工部署都正确：

@@ -4,6 +4,8 @@
 
 ## 三个组合根
 
+核心层级是 `Machine -> Project -> Workspace -> Session`：Machine 是本地或联邦 PI WEB runtime；Project 是该机器上的目录；Workspace 是 Git worktree，非 Git 项目则使用项目目录；Session 是在该工作区运行的 Pi Coding Agent 对话。
+
 | 组合根 | 负责组装 | 不应承担 |
 | --- | --- | --- |
 | [PiWebApp.ts](../../src/client/src/components/PiWebApp.ts) | Lit 页面、controller、插件上下文和应用壳 | 新领域逻辑、直接网络传输 |
@@ -60,7 +62,7 @@ Lit 组件事件
 
 ### 生命周期与异步工作
 
-浏览器 disconnect 后，旧请求完成不能重启轮询；只清 timer 不够。daemon 监听器、刷新器、插件 channel、删除任务与审计必须在 shutdown 清理。新增服务参考依赖注入和 registerCleanup，不靠 import 副作用启动后台工作。
+浏览器 disconnect 后，旧请求完成不能重启轮询，也不能替换新连接的 timer；只清 timer 不够。周期异步工作每次重新调度前都要核对连接生命周期，尤其是 await 返回之后。daemon 监听器、刷新器、插件 channel、删除任务与审计必须在 shutdown 清理。新增服务参考依赖注入和 registerCleanup，不靠 import 副作用启动后台工作。
 
 ## 源码目录导航
 

@@ -37,6 +37,8 @@
 
 ## 测试层选择
 
+项目认证至少覆盖 first-use bootstrap/隔离、客户端目标传播及联邦路由契约；不能只运行 auth service 测试。重命名至少覆盖菜单资格/输入处理及非当前行的 controller 行为。附件迁移须在编辑器下一次更新前断言 controller 状态。中文文案变更同步 owning component/plugin 和相关文案断言，适用时包括 `src/client/src/coreUiChineseCopy.test.ts`。
+
 - 数据/参数：纯函数或 service。
 - 异步归属：controller，以可控制 Promise 模拟切换前后。
 - 鉴权/路由/代理：route 和联邦契约。
@@ -47,7 +49,9 @@ Windows shell、符号链接、native PTY 限制要先排查环境；不为变�
 
 ## 发布与文档同步
 
-公开声明从 src/plugin-api.ts、src/server-plugin-api.ts 构建，不手改生成文件。artifact 检查消费 dist，必须先构建。Docker POSIX shell 检查 LF 与正确解释器，Bash 用 bash -n，不能用 Dash 代替。
+公开声明从 src/plugin-api.ts、src/server-plugin-api.ts 构建，不手改生成文件。artifact 检查消费 dist，必须先构建。Docker 执行的 POSIX shell 资产（包括 shebang）保持 LF，同时检查实际字节和声明解释器的语法。Bash 使用 `bash -n`，不能用可能指向 Dash 的宿主 `sh` 代替；Windows checkout 必须遵守安装脚本的 `.gitattributes` 规则。
+
+Pi SDK peer range 保持在已测试的 minor 系列。干净安装包的验证必须实际启动 Web gateway 和 session daemon，不能只运行 CLI version 或 terminal 模块；上游 SDK 入口可能导入其发布 manifest 未声明的运行时依赖。
 
 发布给用户的功能/配置/安装/使用文档按 Changesets 添加片段；纯仓库内部材料不自动要求片段。读取 package.json 的真实包名和 files 白名单，不照抄历史示例。不要手改 CHANGELOG；发版走 GitHub Release Actions，普通提交推送不包含 npm 发布。
 

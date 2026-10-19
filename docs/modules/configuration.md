@@ -17,6 +17,10 @@ UI 保存的是受支持配置，不应该把密码 hash、服务端秘密或不
 
 ## 状态与合并规则
 
+全局用户/机器配置位于 `$PI_WEB_CONFIG` 或默认 `~/.config/pi-web/config.json`，Web 与 daemon 必须使用同一有效配置。项目核心配置只使用一个可提交文件 `<project>/.pi-web/config.json`，新功能添加键而非创建独立核心配置文件；插件可拥有 `.pi-web/tasks.json` 等文件。
+
+`$PI_WEB_DATA_DIR` 默认 `~/.pi-web`，保存 `projects.json`、`machines.json`、插件发现状态、daemon IPC/认证及普通项目 credential/model store，是托管状态而非用户配置 API。认证与模式 × 项目偏好的精确路径和首次初始化规则见[认证与模型](auth-models.md)。联邦设置以所选机器为目标，但 gateway bind/allowed-host、机器注册/token 和浏览器快捷键仍属于网关/浏览器。
+
 | 层 | 所有者 | 修改约束 |
 | --- | --- | --- |
 | 全局配置路径/环境 | config.ts 与启动环境 | Web/daemon 对齐，路径切换不自动迁移数据 |

@@ -42,7 +42,7 @@
 4. OAuth 需要外部授权或交互输入时，按对话框提示完成；取消则终止该授权流程。
 5. 回到同一项目查看模型列表，使用测试会话发起短请求确认可用。仅保存 key 不保证配额、网络和模型权限正确。
 
-授权开始时会固定机器和普通项目。途中切换项目不会把已发起的 OAuth 改写到新项目；应返回原目标查看结果，而不是重复提交。认证 API 在普通模式必须提供 `projectId`，不能只用任意 cwd 或浏览器当前选中值猜测项目。
+`AuthController` 在流程开始时将机器和普通模式的项目快照为 `AuthDialogTarget`；异步 OAuth 轮询始终保留原目标，仅当该目标仍被选中才刷新会话状态，不能从可变 UI 选择重新定向流程。认证 API 在普通模式必须提供并验证已注册的 `projectId`；提供器查询、API key 保存/注销及全部 OAuth 生命周期请求均传递类型化 `AuthRequestTarget`。管理请求由转发 context 选择独立 store，不能猜测浏览器当前项目。
 
 注销移除对应认证，不删除聊天记录。环境凭据或可信扩展也可能参与提供器基线，因此“删除存储中的 key”不应被视为撤销所有外部服务授权。
 
@@ -61,9 +61,11 @@ $PI_WEB_DATA_DIR/projects/<sha256(normalized-absolute-project-path)>/
 
 第一次初始化逐文件复制有效全局 Pi agent 的 `auth.json`/`models.json`，源文件不存在才创建空默认值。之后不因全局文件变化而覆盖或回退；已有项目文件是持久状态，不是缓存。因而“全局 Pi 能调用，PI WEB 项目不能调用”时，应检查项目认证，而不是反复修改全局文件。
 
-会话 cwd 必须唯一匹配已注册项目的工作区。已创建运行时保留创建时 registry；关闭项目不能使它切换到另一个项目认证。目录和文件权限按私有存储创建，但备份、系统账号和磁盘访问仍由运维保护。
+普通会话在列出、启动或打开 runtime 前，cwd 必须唯一匹配已注册项目的工作区，以此选择模型 registry，不能回退环境中的全局 Pi 凭据。已创建运行时保留创建时 registry；关闭项目不能使它切换到另一个项目认证。auth change 按精确 registry 身份处理，不能刷新或警告其他项目的会话。目录和文件权限按私有存储创建；文件不写入 checkout 或可提交的项目配置，备份、系统账号和磁盘访问仍由运维保护。
 
 ## 模型选择与默认偏好
+
+`defaultThinkingLevel`、`defaultProvider`、`defaultModel` 按模式 × 项目保存：普通模式的 `settings.preferences.json` 与项目 auth store 同目录；管理模式使用 `$PI_WEB_DATA_DIR/management-embed/projects/<hash>/settings.preferences.json`，cwd 无法唯一归属注册项目时使用 `management-embed/orphan/<cwdHash>/settings.preferences.json`。普通 `enabledModels` 也按项目存储，因为各项目拥有独立 registry；管理模式隐藏此设置。packages、extensions、proxy 等其他共享设置仍从真实 agentDir 的 `settings.json` 读取，runtime 不得把项目偏好回写到共享全局 agent 目录。
 
 当前会话模型、可用模型目录、启用模型集合、新会话默认值是四个不同概念：
 

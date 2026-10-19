@@ -1,123 +1,54 @@
 # Agent Notes
 
-This repository is the Chinese-localized fork of PI WEB. Preserve upstream functionality while keeping user-visible core and bundled-plugin copy in Chinese. Do not translate protocol identifiers, API fields, commands, paths, or runtime payloads unless they are explicitly mapped for display.
+This is the Chinese-localized PI WEB fork. Preserve upstream functionality and Chinese core/bundled-plugin UI copy; do not translate protocol identifiers, API fields, commands, paths, or runtime payloads unless explicitly mapped for display. Use the GitHub username as commit author, with no email address.
 
-When committing, use the GitHub username as the author name and do not provide an email address.
+## Read before changing code
 
-## System model
+Start at [maintenance docs](docs/maintenance.md). The relevant documents below are mandatory implementation constraints, not optional background. Read the matching module and its linked contracts before editing; read all affected modules for cross-cutting work.
 
-PI WEB's core hierarchy is `Machine -> Project -> Workspace -> Session`:
+| Work area | Required reading |
+| --- | --- |
+| Architecture, state ownership, browser lifecycle | [Architecture](docs/development/architecture.md) |
+| Projects, workspaces, trust, Git removal | [Projects/workspaces](docs/modules/projects-workspaces.md) |
+| Sessions, history, naming, queues, delegation, chat layout | [Sessions](docs/modules/sessions.md) |
+| Provider auth, OAuth, model registries, preferences | [Auth/models](docs/modules/auth-models.md) |
+| Files, previews, attachments, terminals, tasks | [Files/terminals](docs/modules/files-terminals.md) |
+| HTTP/WS, federation, browser URLs, remote plugins | [Machines/API](docs/modules/machines-api.md) |
+| Plugin lifecycle, public APIs, package resources | [Plugins](docs/modules/plugins.md) |
+| Config, environment, settings scope | [Configuration](docs/modules/configuration.md) and [reference](docs/config.md) |
+| Management permissions, Workbench, Skills, audit | [Management/audit](docs/admin/management-audit.md) |
+| Services, notices, restarts, diagnostics | [Operations](docs/admin/operations.md) |
+| Tests, delivery, release compatibility | [Change guide](docs/development/change-guide.md) |
 
-- a machine is a local or federated PI WEB runtime;
-- a project is a directory on that machine;
-- a workspace is a git worktree, or the project directory for a non-git project;
-- a session is a Pi Coding Agent conversation running in a workspace.
+## Non-negotiable boundaries
 
-Keep machine identity in state, URLs, caches, sockets, and plugin registrations. A resource id from a remote machine is not globally unique by itself.
+- Preserve `Machine -> Project -> Workspace -> Session`. Resource IDs are not globally unique: carry machine identity through state, URLs, caches, sockets, plugin registrations, and asynchronous updates.
+- The Web/API gateway and session daemon are separate. Browser disconnects and Web/UI restarts must not stop daemon-owned Pi sessions or terminals. Keep long-lived state and effects out of the autoreloading Web process.
+- Normal provider auth belongs to exactly one registered project; never fall back to ambient global Pi credentials. Keep management auth/models/preferences separate and browser access passwords distinct from provider credentials.
+- Ordinary, restricted management, and fully privileged management are different permission modes. Never apply managed restrictions to ordinary sessions or drop management identity, context, separate credential/preference stores, or audit when granting full privileges. Enforce context at both gateway and daemon, including HTTP, WebSocket, and delegated sessions.
+- Normal tool audit and service logs are metadata-only. Management audit retains user/visible assistant/tool content, excluding thinking; do not add authentication secrets as audit fields or expose management sessions to normal callers.
+- Keep domain orchestration in controllers/services, not `PiWebApp.ts` or Lit rendering. Use shared API types, validate network responses, and centralize browser transport in `src/client/src/api/`.
+- Add machine-capable HTTP/WS routes with local aliases, federation contracts, and clients together. App-owned browser URLs must be application-relative and resolved once through existing helpers.
+- Config and managed state are different: core configuration belongs in global/project config files, not new per-feature files or direct edits to managed stores. Web and daemon must use matching effective cross-process configuration.
 
-## Runtime ownership
+## Runtime and restart reporting
 
-This project is expected to run locally using split systemd user services:
+Local split services are `pi-web-sessiond.service` (`npm run start:sessiond`, no autoreload/auto-restart) and `pi-web-ui-dev.service` (`npm run dev:web` plus `npm run dev:client`). Read the operations restart matrix before changing lifecycle code.
 
-- `pi-web-sessiond.service` runs `npm run start:sessiond` in non-autoreload, non-auto-restart mode.
-- `pi-web-ui-dev.service` runs the web/API, bundled-plugin watcher, and Vite UI with `npm run dev:web` and `npm run dev:client`.
+Daemon-loaded code, runtime/tools/audit, or server-plugin changes require a manual daemon restart; tell the user. Web/API/UI and purely browser-plugin changes normally use the UI/Web reload path. Protocol, transport, data-dir, or shared cross-process configuration changes require both processes aligned and restarted. Do not equate a commit/push with deployment.
 
-`src/server/index.ts` and `src/server/app.ts` own the browser-facing Fastify gateway. `src/server/sessiond.ts` owns long-lived Pi sessions, normal-mode project-scoped provider auth, terminals, activity, and realtime session events. The gateway reaches the daemon through `src/sessiond/sessionDaemonClient.ts` and proxy routes.
+## Engineering and verification
 
-Normal-mode session runtimes resolve their credential and model registry from the owning registered project through `ProjectAuthService`; management-embed mode uses its separate managed `AuthService` and storage. Do not collapse those two auth ownership boundaries.
+Use [.agents/skills/code-quality-architecture/SKILL.md](.agents/skills/code-quality-architecture/SKILL.md) for production-code implementation, review, or planning. Use [.agents/skills/testing-guide/SKILL.md](.agents/skills/testing-guide/SKILL.md) for all test work, coverage, and failure triage.
 
-Browser disconnects and UI/API restarts must not stop active Pi sessions. Keep daemon-owned state and side effects out of the autoreloading web process.
+Run the narrowest meaningful test first; source/exported-type changes also require `npm run typecheck`. Run `npm run verify` for cross-cutting work and before final merge review. This fork's pre-commit runs `npm run verify:staged`; do not replace that policy with upstream's whitespace-only hook while editing guidance.
 
-Idle transcript refresh must preserve the SDK's selected leaf: unsummarized tree navigation and reset-to-root can change only in-memory state. Do not replace that branch with the disk tail, including when navigation finishes during an asynchronous read; retain external-append refresh when the runtime is at its latest entry.
+Never report failed, incomplete, or skipped verification as passing. State unrun checks and reasons, preserve non-zero results, and explain intentional failure probes. See the change guide for module-specific regression and package-install requirements.
 
-Changes affecting `src/server/sessiond.ts`, the daemon protocol/transport, or transitive daemon-only code under `src/server/sessions/`, `src/server/terminals/`, `src/server/activity/`, or `src/server/realtime/` require a manual `pi-web-sessiond.service` restart. Tell the user when this is required. Web/API/client/plugin-only changes normally need only the `pi-web-ui-dev.service` autoreload path.
+## Documentation and releases
 
-The default daemon transport is `$PI_WEB_DATA_DIR/sessiond.sock`; it can instead use the configured sessiond HTTP transport. If the protocol, socket/data-dir, or transport environment changes, keep both services aligned and restart both.
+编写或修改代码时，如果功能行为发生变化，必须在同一次改动中同步更新对应模块文档或权威参考，并删除或替换已失效的旧表述，不保留矛盾说明；Markdown/HTML 双版本同步更新受影响内容。
 
-## Server and API boundaries
+Keep README concise and details in their canonical `docs/` page; use [.agents/skills/documentation-guide/SKILL.md](.agents/skills/documentation-guide/SKILL.md) for documentation work. Keep this file as global constraints and required-reading navigation, not a growing list of module details.
 
-- Local machine capabilities are intentionally available under both legacy `/api/...` routes and `/api/machines/local/...` routes. Remote-machine variants are proxied under `/api/machines/:machineId/...`.
-- When adding a machine-capable HTTP or WebSocket endpoint, update `src/shared/federatedRoutes.ts`, the local route registration, the client API, and the federated route contract tests together.
-- Keep shared request/response types in `src/shared/apiTypes.ts`. Treat network responses as untrusted: validate them in `src/client/src/api/parsers.ts` or its parser modules instead of casting in components or controllers.
-- Centralize browser transport in `src/client/src/api/`: endpoint families in `clients.ts`, URL construction in `urls.ts`, HTTP/auth scoping in `http.ts`, and sockets in `sockets.ts`.
-- Management embed is a cross-process security boundary. The web gateway authenticates and constrains the request; the daemon consumes the forwarded management context and uses the separate management provider-auth store. Preserve that context on every applicable HTTP mutation and WebSocket route.
-- Current server notices belong to normal-mode daemon state. Reject management-context reads and dismissals in the daemon, and do not request those notices from management-embed clients; browser-only errors remain available there.
-- Normal-mode browser access auth and Pi model-provider auth are unrelated. Do not conflate `normalAuth.passwordHash` with provider API keys or auth files.
-- Normal-mode provider-auth endpoints require a `projectId` and must resolve it to a registered project. Carry the typed `AuthRequestTarget` through provider lookup, API-key save/logout, and every OAuth lifecycle request; management-embed requests instead derive their store from the forwarded management context.
-- Normal-mode session operations must resolve their `cwd` to exactly one registered project's workspace before listing, starting, or opening a runtime. That resolution selects the model registry; never fall back to ambient global Pi credentials. Process auth changes by exact model-registry identity so credentials changed for one project cannot refresh or warn sessions belonging to another.
-
-## Management embed and Workbench
-
-- Ordinary mode keeps PI WEB's existing unrestricted tool and resource behavior. Workbench resources, capability controls, Skill synchronization, sandbox restrictions, and externally managed permissions apply only to restricted management-embed sessions; never reuse those restrictions as normal-mode or fully privileged defaults.
-- Restricted management-embed sessions use managed file tools and the custom `python` tool. Their Python stays workspace-only and isolated through Bubblewrap, network-disabled unless an effective signed `privileged.network` grant is present. Only the fully privileged mode defined below switches to normal SDK tools and resource permissions.
-- Restricted management startup force-syncs both bundled `relay` and `relay-runner` templates to `.pi/skills/<name>/SKILL.md`, replacing existing content only within the owning workspace. Ship both templates in the npm package and retain both in the Workbench skill allowlist. Normal and fully privileged startup must neither create nor overwrite project skills. Suppress a collision for either Relay skill only when the project copy and a known bundled copy have identical content; retain unrelated diagnostics and management resource isolation.
-- Management agents may use a constrained Bubblewrap `bash` tool by default: only the current workspace is writable and visible, apart from the required read-only runtime paths; networking is disabled. Generic SDK shell, PowerShell, terminal, MCP, HTTP, web-fetch, and web-search remain denied by default. Individual signed `privileged.bash`/`privileged.network` grants take effect only when `managementEmbed.allowPrivileged` is true. A bash-only grant may expose other host paths read-only; a network-only grant enables `http`/`webfetch`/`websearch` and removes sandbox network isolation without implying host visibility. Explicit management tool selection and denial remain authoritative for these restricted sessions.
-- When both signed `privileged.bash` and `privileged.network` are true and the machine enables `managementEmbed.allowPrivileged`, the management agent uses normal-mode tools and resource-loading permissions, ignoring the management token's `tools.allow`/`tools.deny`. Reuse normal SDK tools and resource-loading mechanisms; management-embed projects are trusted automatically without approval or changes to normal-mode trust decisions. Do not substitute a broader read-only sandbox or a hand-written "allow all" policy. Do not inject managed Workbench tools or their read-only capability instructions, require Workbench resource renewal, or synchronize managed Skills in this mode. Retain management identity, auth/model and preference stores, management content auditing, and management context on delegated sessions. Host plugin session connections remain normal-scope-only; privilege does not turn the management session into a normal session or expose it to normal callers.
-- Fully privileged prompts omit known platform-managed AGENTS instructions, including legacy instructions matching the signed context, without deleting shared files or genuine user-authored instructions. Preserve the operator's ordinary permission-policy environment. Browser interactive-terminal authorization remains separate from agent tool permissions.
-- When enabled by their global feature switches, management sessions may receive `spawn_session`, the complete tracked-subsession tool set headed by `spawn_subsession`, and `ask_user`. Keep the originating management context on every spawned session and subsession. Restricted sessions register the same controlled tool-name set in both the Pi permission policy and runtime `tools` list and honor explicit management denies; fully privileged sessions retain these scoped tools alongside the normal SDK tool set.
-- The Workbench adapter exchanges the entry token for a private Agent Session, keeps access and capability tickets server-side, loads only the authorized fixed resource and Skill versions, and exposes only the controlled capability tools. Concurrent bootstrap requests carrying the same entry token must reuse one Agent Session; do not amplify one embedded page load into multiple upstream sessions.
-- Normal-mode tool audits retain the existing structured service log and additionally store metadata-only records in `$PI_WEB_DATA_DIR/audit/normal-tool-calls.sqlite`. Do not persist prompts, arguments, results, model replies, tokens, credentials, cookies, or tickets in the normal-mode audit store or service logs.
-- Management-mode audits use weekly Elasticsearch indices with user, root-user, project, session, and Workbench Agent Session identity. Preserve user prompt text, visible assistant messages excluding `thinking` blocks, and tool arguments/results in `content` for both restricted and fully privileged management sessions; keep service logs metadata-only and management calls out of normal-mode SQLite. Dedicated Workbench capability, knowledge, and Skill audit events remain metadata-only. Do not add tokens, credentials, cookies, or tickets from authentication state as audit fields; captured session content can itself contain sensitive data and requires restricted Elasticsearch access.
-- Workbench integration and management audit construction span the web gateway and session daemon. Keep both processes on the same effective endpoints and limits, and restart both when those settings or their forwarded protocol change. Session runtime, permission, tool, or audit changes under `src/server/sessions/` still require an explicit `pi-web-sessiond.service` restart.
-
-## Client and plugins
-
-- `src/client/src/components/PiWebApp.ts` is the client composition root, not the default home for new domain logic. Put state orchestration in controllers, responsive shell behavior in `appShell/`, transport in `api/`, and keep Lit components focused on rendering and event wiring.
-- Recurring asynchronous browser work must check connection lifetime before rescheduling. Clearing a timer on disconnect is insufficient once its callback is awaiting a request; an old connection's completion must not restart or replace the new connection's timer.
-- Browser PI WEB plugins are trusted code and are separate from Pi packages. Bundled plugins live under `pi-web-plugins/<id>/` and build into `dist/pi-web-plugins/`.
-- `src/plugin-api.ts` and `src/server-plugin-api.ts` are the sources of the public browser and server plugin APIs. Plugins use those supported package entrypoints, not private host modules. Do not hand-edit generated declarations; run `npm run build:plugin-api`.
-- Plugins should prefer documented context helpers over direct private `/api/...` calls. Keep activation cheap and declarative, and preserve machine scoping for remote plugin contributions and assets.
-- When changing Chinese UI copy, update the owning component/plugin and relevant copy assertions, including `src/client/src/coreUiChineseCopy.test.ts` where applicable.
-- `AuthController` snapshots the machine and, in normal mode, selected project into `AuthDialogTarget` when an auth flow starts. Keep that target through asynchronous OAuth polling and only refresh the session status while it remains selected; do not retarget an in-flight flow from mutable current UI state.
-- Session-list components render menu interaction only; route rename mutations through `SessionController` and the existing `/name` command path. Rename only persisted, unarchived sessions, trim/reject blank names, preserve the currently selected conversation when renaming another row, and keep list/selection metadata synchronized through `session.name` events.
-- Keep attachment staging synchronized on add, remove, and composer reset, not only on session switches. Temporary-to-persisted session ID migration must preserve unsent attachments without recreating the abandoned temporary key; test the controller migration before the editor's next update.
-- Preserve the chat scroll layout invariant: `.chat-wrap` owns the constrained flex area and `.chat` is the absolute `inset: 0` scrolling element. Do not replace it with `height: 100%`, or long transcripts can no longer reach their bottom.
-
-## Verification reporting
-
-Never report failed, incomplete, or skipped verification as passing. Identify any expected check that was not run and why, and do not mask a non-zero result. If a command intentionally probes a failure path or captures an exit for inspection, state that purpose and interpret the result.
-
-## Client application URL convention
-
-- Build PI WEB-owned browser paths as application-relative references without a leading slash, for example `api/...` and `pi-web-plugins/...`.
-- Encode every dynamic path segment with `encodeURIComponent`; encode query values, using `URLSearchParams` for multi-field queries.
-- Resolve each reference exactly once at the browser boundary: ordinary JSON HTTP paths go to `request()`, direct browser APIs receive URLs from helpers backed by `resolveAppUrl()`, and WebSockets use `resolveAppWebSocketUrl()`.
-- Name helpers returning unresolved application references with a `Path` suffix and helpers returning browser-ready absolute values with a `Url` suffix.
-- Plugin module references must go through `resolvePluginModuleUrl()`. Its leading-slash handling is the documented rolling-compatibility exception; do not introduce other leading-root app references.
-- Pre-JavaScript HTML assets use Vite `%BASE_URL%`; PWA manifest references stay `./`-relative. External links, data URLs, and module-relative plugin assets are not application paths.
-- To assess deviations, search production client code for raw `fetch`, `WebSocket`, `XMLHttpRequest`, URL-bearing DOM attributes, and leading `/api` or `/pi-web-plugins` literals. Every app-owned result must follow one of the boundaries above.
-- Published nested deployments require a canonical trailing slash; the reverse proxy must redirect a slashless prefix before serving the app.
-
-## Configuration conventions
-
-- `$PI_WEB_DATA_DIR` (`~/.pi-web` by default) contains PI WEB-managed state such as `projects.json`, `machines.json`, plugin discovery state, daemon IPC/auth data, and normal-mode per-project provider credential/model stores. Do not treat it as the user-editable config API.
-- Global user/machine config lives at `$PI_WEB_CONFIG` or `~/.config/pi-web/config.json`. The web process and daemon must use the same effective global config.
-- Normal-mode `auth.json` and `models.json` live under the managed data directory in a stable store keyed by the normalized absolute project path, not in the checkout or the commit-able project config. All worktrees of one project share that store. On first use, copy the effective global Pi agent files once (or create empty defaults if absent); later global-file changes are not a fallback and must not overwrite an existing project store. Keep the files private and preserve the separate management-embed credential store.
-- Session preference defaults (`defaultThinkingLevel`, `defaultProvider`, `defaultModel`) are stored as mode×project overrides under `$PI_WEB_DATA_DIR`: normal mode co-locates `settings.preferences.json` with the project auth store; management embed uses `management-embed/projects/<hash>/settings.preferences.json` (or `management-embed/orphan/<cwdHash>/` when cwd is not a unique registered project). Normal mode stores `enabledModels` in the same project scope because every project owns a separate model registry; management mode hides it. Sessions keep reading other shared agent settings (packages, extensions, proxy, etc.) from the real agentDir `settings.json`. Do not write project-scoped settings back into the shared global agent dir from PI WEB session runtimes.
-- Project-local PI WEB core config uses one commit-able file: `<project>/.pi-web/config.json`.
-- Core features add keys to these config files rather than creating one project file per feature. Plugins may own separate project files such as `.pi-web/tasks.json`.
-- In federated UI flows, machine-affecting settings target the selected machine. Gateway bind/allowed-host settings, machine registration/tokens, and browser shortcut preferences remain local to the gateway/browser.
-
-## Code quality and testing
-
-Use `.agents/skills/code-quality-architecture/SKILL.md` whenever writing, modifying, reviewing, or planning production code or architecture. Keep changes proportionate, dependencies explicit, side effects contained, and framework-facing code thin.
-
-Use `.agents/skills/testing-guide/SKILL.md` whenever writing, modifying, reviewing, or planning tests, closing coverage gaps, triaging failures, or creating test helpers/harnesses.
-
-Run the narrowest meaningful test first. Also run `npm run typecheck` for source or exported-type changes. Use `npm run verify` (`typecheck`, `lint`, `knip`, and Vitest) for cross-cutting work and before final merge review.
-
-For project-auth changes, cover first-use bootstrap/isolation, client target propagation, and the federated route contract. For session rename changes, cover menu eligibility/input and controller behavior when the renamed row is not the active conversation. Keep the chat layout assertion in `src/client/src/components/shared.test.ts` when changing transcript scrolling styles.
-
-POSIX shell assets executed by Docker must retain LF line endings, including the shebang. Check bytes as well as shell syntax with the declared interpreter: Bash scripts must use `bash -n`, not a host's potentially Dash-backed `sh`. Windows checkout must honor the installer's `.gitattributes` rule.
-
-## Documentation maintenance
-
-编写或修改代码时，如果功能行为发生变化，必须在同一次改动中同步更新 `docs/` 下对应的模块文档或权威参考，并删除或替换已失效的旧表述，不能只追加新说明而保留相互矛盾的内容。从 `docs/maintenance.md` 定位对应文档；同一内容存在 Markdown 和 HTML 版本时，同步更新受影响的表述。
-
-## Changes and releases
-
-Use `.agents/skills/changeset-changelog/SKILL.md` for user-visible features, fixes, configuration/install changes, or documentation shipped in the npm package. Add a `.changeset/*.md` fragment when required; do not edit `CHANGELOG.md` manually during normal development.
-
-Use `.agents/skills/npm-release-via-github-actions/SKILL.md` for versioning or release work. Publishing happens through GitHub Release-triggered Actions, not by publishing from the local machine. Run `npm run pack:dry` when package contents are part of the change.
-
-Keep Pi SDK peer ranges within the tested minor series. Validate a clean installed package by starting both the web gateway and session daemon, not only the CLI version or terminal module; upstream SDK entrypoint imports may require runtime dependencies absent from its published manifest.
+Use [.agents/skills/changeset-changelog/SKILL.md](.agents/skills/changeset-changelog/SKILL.md) for user-visible changes and shipped docs; add required Changesets, never hand-edit CHANGELOG. For versioning/publishing, use [.agents/skills/npm-release-via-github-actions/SKILL.md](.agents/skills/npm-release-via-github-actions/SKILL.md): publish through GitHub Release Actions, not locally. Run `npm run pack:dry` when package contents change.
