@@ -11,6 +11,7 @@ export interface ChatTranscriptView {
   // entries into one displayed chat message, especially tool calls/results.
   messagePageEnd: number;
   messagePageTotal: number;
+  messagePageLeafId?: string | null | undefined;
 }
 
 export interface ChatHistoryCacheAdapter {
@@ -77,5 +78,6 @@ export function transcriptViewFromHistory(history: RawMessagePage | undefined, i
     messagePageStart: start,
     messagePageEnd: start + (history?.messages.length ?? 0),
     messagePageTotal: history?.total ?? 0,
+    messagePageLeafId: history?.leafId,
   };
 }

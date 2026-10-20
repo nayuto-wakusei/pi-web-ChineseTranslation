@@ -58,7 +58,9 @@ function arrayOfString(value: unknown, key: string): string[] {
 export function parseMessagePage(value: unknown): MessagePage {
   if (Array.isArray(value)) return { messages: value, start: 0, total: value.length };
   const record = requireRecord(value);
-  return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total") };
+  const leafId = record["leafId"];
+  if (leafId !== undefined && leafId !== null && typeof leafId !== "string") throw new Error("Invalid message page leafId");
+  return { messages: parseUnknownArray(record["messages"]), start: requireNumber(record, "start"), total: requireNumber(record, "total"), ...(leafId === undefined ? {} : { leafId }) };
 }
 
 export function parseMachinesResponse(value: unknown): Machine[] {
@@ -652,11 +654,21 @@ function parseSessionUnreadSummary(value: unknown): SessionUnreadSummary {
   if (!Number.isFinite(completedDate.getTime()) || completedDate.toISOString() !== completedAt) {
     throw new Error("Invalid canonical session unread completion time");
   }
+  const range = record["messageRange"] === undefined ? undefined : requireRecord(record["messageRange"]);
+  let messageRange: SessionUnreadSummary["messageRange"];
+  if (range !== undefined) {
+    const start = requireNonNegativeSafeInteger(range, "start");
+    const end = requireNonNegativeSafeInteger(range, "end");
+    const leafId = range["leafId"];
+    if (end < start || (leafId !== null && typeof leafId !== "string")) throw new Error("Invalid unread message range");
+    messageRange = { start, end, leafId };
+  }
   return {
     sessionId: requireBoundedNonEmptyString(record, "sessionId", SESSION_UNREAD_SESSION_ID_MAX_LENGTH),
     cwd: requireBoundedNonEmptyString(record, "cwd", SESSION_UNREAD_CWD_MAX_LENGTH),
     completionOrder: requirePositiveSafeInteger(record, "completionOrder"),
     completedAt,
+    ...(messageRange === undefined ? {} : { messageRange }),
   };
 }
 

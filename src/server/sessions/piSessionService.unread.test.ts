@@ -32,6 +32,36 @@ afterEach(async () => {
 });
 
 describe("PiSessionService daemon-owned unread state", () => {
+  it("captures unread offsets from browser history and returns the matching branch with paged messages", async () => {
+    const branch: unknown[] = [
+      { type: "message", message: { role: "user", content: "old question" } },
+      { type: "compaction", summary: "old context" },
+    ];
+    let leafId = "before";
+    const fake = fakeRuntime("session-1", {
+      sessionManager: fakeSessionManager("/workspace", { getBranch: () => branch, getLeafId: () => leafId }),
+    });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime, createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("session-1")]), archiveStore: emptyArchiveStore(), heartbeatIntervalMs: 60_000,
+    });
+    try {
+      await service.status(sessionRef("session-1"));
+      fake.session.isStreaming = true;
+      fake.emit({ type: "agent_start" });
+      branch.push({ type: "message", message: { role: "user", content: "new question" } },
+        { type: "custom_message", display: true, content: "new notice" },
+        { type: "message", message: { role: "assistant", content: "new answer" } });
+      leafId = "completed";
+      fake.session.isStreaming = false;
+      fake.emit({ type: "turn_end" });
+      expect((await service.unreadCatalog()).sessions[0]?.messageRange).toEqual({ start: 2, end: 5, leafId: "completed" });
+      expect(await service.messages(sessionRef("session-1"), { limit: 1 })).toMatchObject({ start: 2, total: 5, leafId: "completed" });
+    } finally {
+      await service.dispose();
+    }
+  });
+
   it("records one durable completion and keeps stale acknowledgements from clearing newer work", async () => {
     const unreadStore = new SessionUnreadStore({ createCatalogId: () => "catalog-test" });
     const hub = new CapturingSessionEventHub();

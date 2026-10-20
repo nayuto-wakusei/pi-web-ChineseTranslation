@@ -278,6 +278,50 @@ describe("SessionUnreadController", () => {
   });
 });
 
+describe("unread history coverage", () => {
+  it("requires the entire unread range on the completed branch, not all older history", async () => {
+    const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 2, []));
+    const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
+    controller.setCapability("local", "supported");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, {
+      ...summary("session-1", 1), messageRange: { start: 200, end: 450, leafId: "completed" },
+    }));
+    const page = { start: 350, end: 450, total: 450, leafId: "completed" };
+    await controller.acknowledgeLoaded("local", ref("session-1"), page);
+    await controller.acknowledgeLoaded("local", ref("session-1"), { ...page, start: 200, end: 449 });
+    await controller.acknowledgeLoaded("local", ref("session-1"), { ...page, start: 200, leafId: "other-branch" });
+    await controller.acknowledgeLoaded("local", ref("session-1"), { ...page, start: 200, leafId: undefined });
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    expect(controller.needsHistoryRefresh("local", ref("session-1"), 450, "completed")).toBe(false);
+    expect(controller.needsHistoryRefresh("local", ref("session-1"), 449, "completed")).toBe(true);
+    await controller.acknowledgeLoaded("local", ref("session-1"), { ...page, start: 200 });
+    expect(acknowledgeUnread).toHaveBeenCalledWith(ref("session-1"), "catalog-a", 1, "local");
+  });
+
+  it("does not auto-clear legacy unknown boundaries from a partial page but permits manual acknowledgement", async () => {
+    const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 2, []));
+    const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
+    controller.setCapability("local", "supported");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, summary("session-1", 1)));
+    await controller.acknowledgeLoaded("local", ref("session-1"), { start: 50, end: 150, total: 150 });
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    await controller.acknowledge("local", ref("session-1"));
+    expect(acknowledgeUnread).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a newer completion unread when only the earlier completion has loaded", async () => {
+    const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 3, []));
+    const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
+    controller.setCapability("local", "supported");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, { ...summary("session-1", 1), messageRange: { start: 200, end: 250, leafId: "first" } }));
+    controller.applyEvent("local", unreadEvent("catalog-a", 2, { ...summary("session-1", 2), messageRange: { start: 200, end: 400, leafId: "second" } }));
+    await controller.acknowledgeLoaded("local", ref("session-1"), { start: 200, end: 250, total: 250, leafId: "first" });
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    await controller.acknowledgeLoaded("local", ref("session-1"), { start: 200, end: 400, total: 400, leafId: "second" });
+    expect(acknowledgeUnread).toHaveBeenCalledWith(ref("session-1"), "catalog-a", 2, "local");
+  });
+});
+
 interface FakeApiOptions {
   snapshots?: SessionUnreadCatalogSnapshot[] | undefined;
   unreadCatalog?: SessionUnreadApi["unreadCatalog"] | undefined;

@@ -198,6 +198,13 @@ function chatMessageModelLabel(message: ChatLine): string | undefined {
   return model.provider !== undefined && model.provider !== "" ? `${model.provider}/${id}` : id;
 }
 
+export interface RenderedChatTranscript {
+  sessionId: string;
+  messages: ChatLine[];
+  start: number;
+  end: number;
+}
+
 @customElement("chat-view")
 export class ChatView extends LitElement {
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -230,6 +237,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) warningsVisible = true;
   @property({ attribute: false }) onToggleWarnings?: () => void;
   @property({ attribute: false }) onLoadMore?: () => void;
+  @property({ attribute: false }) onTranscriptRendered?: (transcript: RenderedChatTranscript) => void;
   @query(".chat") private chat?: HTMLDivElement;
   @query("dialog.image-zoom") private imageZoomDialog?: HTMLDialogElement;
   @state() private pinnedToBottom = true;
@@ -392,6 +400,16 @@ export class ChatView extends LitElement {
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
     if (changed.has("notificationInbox") && this.pendingNotificationFocus !== undefined) this.focusPendingNotificationTarget();
     if (changed.has("zoomedImage")) this.syncImageZoomDialog();
+    if (this.onTranscriptRendered !== undefined) void this.reportRenderedTranscript();
+  }
+
+  private async reportRenderedTranscript(): Promise<void> {
+    const transcript = { sessionId: this.sessionId, messages: this.messages, start: this.messageStart, end: this.messageEnd };
+    // Let Lit commit child message renderers before reporting the displayed range.
+    await this.updateComplete;
+    if (!this.isConnected || transcript.sessionId !== this.sessionId || transcript.messages !== this.messages
+      || transcript.start !== this.messageStart || transcript.end !== this.messageEnd) return;
+    this.onTranscriptRendered?.(transcript);
   }
 
   private liveTailContentChanged(changed: Map<string, unknown>): boolean {

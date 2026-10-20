@@ -56,7 +56,7 @@ import { unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionSearchDialog";
 import "./ChatView";
-import type { ChatView } from "./ChatView";
+import type { ChatView, RenderedChatTranscript } from "./ChatView";
 import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
@@ -219,6 +219,7 @@ export class PiWebApp extends LitElement {
       if (selectedMachineId(this.state) !== machineId) return;
       this.syncUnreadSessionIds();
       this.syncSelectedSessionReadState();
+      this.refreshSelectedUnreadHistory();
     },
     onBackgroundError: (operation, machineId, error) => {
       console.warn(`Failed to ${operation} session unread state for ${machineId}`, error);
@@ -227,6 +228,11 @@ export class PiWebApp extends LitElement {
   @state() private unreadSessionIds: ReadonlySet<string> = this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions);
   @state() private unreadPresence: UnreadPresence = EMPTY_UNREAD_PRESENCE;
   private unreadConnected = false;
+  private renderedTranscript: RenderedChatTranscript | undefined;
+  private readonly handleTranscriptRendered = (transcript: RenderedChatTranscript): void => {
+    this.renderedTranscript = transcript;
+    this.syncSelectedSessionReadState();
+  };
   private committedChatIdentity: string | undefined;
   private readyChatIdentity: string | undefined;
   private readonly notifications = new SessionNotificationController(
@@ -414,7 +420,15 @@ export class PiWebApp extends LitElement {
     if (session === undefined) return;
     const machineId = selectedMachineId(this.state);
     if (!this.isSessionSeen(machineId, session)) return;
-    void this.sessionUnread.acknowledge(machineId, session);
+    const rendered = this.renderedTranscript;
+    if (rendered?.sessionId !== session.id || rendered.messages !== this.state.messages
+      || rendered.start !== this.state.messagePageStart || rendered.end !== this.state.messagePageEnd) return;
+    void this.sessionUnread.acknowledgeLoaded(machineId, session, {
+      start: rendered.start,
+      end: rendered.end,
+      total: this.state.messagePageTotal,
+      leafId: this.state.messagePageLeafId,
+    });
   }
 
   private markSessionsRead(sessions: readonly SessionInfo[]): void {
@@ -422,11 +436,21 @@ export class PiWebApp extends LitElement {
     for (const session of sessions) void this.sessionUnread.acknowledge(machineId, session);
   }
 
+  private refreshSelectedUnreadHistory(): void {
+    const session = this.state.selectedSession;
+    const machineId = selectedMachineId(this.state);
+    if (session !== undefined && this.readyChatIdentity === unreadChatIdentity(machineId, session)
+      && this.sessionUnread.needsHistoryRefresh(machineId, session, this.state.messagePageEnd, this.state.messagePageLeafId)) {
+      void this.sessions.refreshSelectedSession(session.id);
+    }
+  }
+
   private async commitReadyChatAfterRender(machineId: string, session: SessionInfo): Promise<void> {
     const identity = unreadChatIdentity(machineId, session);
     await this.updateComplete;
     if (!this.unreadConnected || selectedChatIdentity(this.state) !== identity) return;
     this.readyChatIdentity = identity;
+    this.refreshSelectedUnreadHistory();
     this.syncSelectedSessionReadState();
   }
 
@@ -2413,7 +2437,7 @@ export class PiWebApp extends LitElement {
 
   private renderChatView(state: AppState, session: SessionInfo) {
     return html`
-      <chat-view .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
+      <chat-view .onTranscriptRendered=${this.handleTranscriptRendered} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? []} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${selectedNotificationView(state.selectedNotificationInbox)} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
     `;
   }
 

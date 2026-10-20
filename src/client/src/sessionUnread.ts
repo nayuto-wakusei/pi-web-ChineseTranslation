@@ -224,6 +224,24 @@ export class SessionUnreadController {
     return acknowledgement;
   }
 
+  acknowledgeLoaded(machineId: string, session: SessionRef, page: { start: number; end: number; total: number; leafId?: string | null | undefined }): Promise<void> {
+    const state = this.machines.get(machineId);
+    const summary = state?.projection?.summariesByIdentity.get(sessionIdentityKey(session));
+    if (state?.status !== "fresh" || summary === undefined) return Promise.resolve();
+    const range = summary.messageRange;
+    if (range === undefined) {
+      if (page.start !== 0 || page.end < page.total) return Promise.resolve();
+    } else if (page.leafId !== range.leafId || page.start > range.start || page.end < range.end) {
+      return Promise.resolve();
+    }
+    return this.acknowledge(machineId, session);
+  }
+
+  needsHistoryRefresh(machineId: string, session: SessionRef, end: number, leafId: string | null | undefined): boolean {
+    const range = this.machines.get(machineId)?.projection?.summariesByIdentity.get(sessionIdentityKey(session))?.messageRange;
+    return range !== undefined && (range.leafId !== leafId || range.end > end);
+  }
+
   private async runRefreshLoop(state: MachineUnreadState, generation: number): Promise<void> {
     do {
       state.refreshQueued = false;

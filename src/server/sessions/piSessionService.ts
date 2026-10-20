@@ -2243,7 +2243,8 @@ export class PiSessionService {
 
   async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<unknown[] | ClientMessagePage> {
     const session = await this.getOrOpen(ref, managementContext);
-    return pageMessagesAtSafeBoundary(historyMessages(session), page);
+    const result = pageMessagesAtSafeBoundary(historyMessages(session), page);
+    return Array.isArray(result) ? result : { ...result, leafId: session.sessionManager.getLeafId() };
   }
 
   async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
@@ -4202,6 +4203,7 @@ private observeUnreadActivityState(session: PiAgentSession): void {
       session.sessionId,
       canonicalizeStoredCwd(session.sessionManager.getCwd()),
       this.hasActiveWork(session),
+      () => ({ messageCount: historyMessages(session).length, leafId: session.sessionManager.getLeafId() }),
     );
     if (mutations.length === 0) return;
     void this.publishUnreadMutations(mutations).catch(() => undefined);

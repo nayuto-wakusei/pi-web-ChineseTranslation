@@ -22,6 +22,7 @@ export interface AppState {
   messages: ChatLine[];
   messagePageStart: number;
   messagePageEnd: number;
+  messagePageLeafId?: string | null | undefined;
   messagePageTotal: number;
   isLoadingEarlierMessages: boolean;
   /** Sessions with a prompt upload in flight, keyed by sessionId (client-owned). */

@@ -4,6 +4,17 @@ import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOT
 import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it("validates unread message ranges and preserves message page branch identities", () => {
+    const summary = { sessionId: "s1", cwd: "/repo", completionOrder: 1, completedAt: "2026-10-20T00:00:00.000Z", messageRange: { start: 200, end: 450, leafId: "completed" } };
+    const catalog = { catalogId: "catalog", catalogRevision: 1, sessions: [summary] };
+    expect(parseSessionUnreadCatalogSnapshot(catalog).sessions[0]).toEqual(summary);
+    for (const messageRange of [{ start: -1, end: 450, leafId: "completed" }, { start: 200, end: 199, leafId: null }, { start: 200, end: 450, leafId: 12 }]) {
+      expect(() => parseSessionUnreadCatalogSnapshot({ ...catalog, sessions: [{ ...summary, messageRange }] })).toThrow();
+    }
+    expect(parseMessagePage({ messages: [], start: 0, total: 0, leafId: null })).toEqual({ messages: [], start: 0, total: 0, leafId: null });
+    expect(() => parseMessagePage({ messages: [], start: 0, total: 0, leafId: 1 })).toThrow();
+  });
+
   it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
     const base = { id: "openai", name: "OpenAI", authType: "api_key", status: { configured: false } };
 

@@ -19,6 +19,40 @@ afterEach(async () => {
 });
 
 describe("SessionUnreadStore", () => {
+  it("retains the earliest unread message boundary across completions and persistence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-unread-range-"));
+    roots.push(root);
+    const persistence = new FileSessionUnreadPersistence(join(root, "unread.json"));
+    const store = new SessionUnreadStore({ persistence });
+    await store.load();
+    const position = { messageCount: 200, leafId: "before" };
+    const history = vi.fn(() => ({ ...position }));
+    store.observeActivityState("session-1", "/repo", true, history);
+    position.messageCount = 230;
+    store.observeActivityState("session-1", "/repo", true, history);
+    expect(history).toHaveBeenCalledOnce();
+    position.messageCount = 350;
+    position.leafId = "first-completion";
+    store.observeActivityState("session-1", "/repo", false, history);
+    await store.flush();
+
+    const restored = new SessionUnreadStore({ persistence });
+    await restored.load();
+    expect(restored.catalogSnapshot().sessions[0]?.messageRange).toEqual({ start: 200, end: 350, leafId: "first-completion" });
+    restored.observeActivityState("session-1", "/repo", true, history);
+    position.messageCount = 480;
+    position.leafId = "second-completion";
+    restored.observeActivityState("session-1", "/repo", false, history);
+    expect(restored.catalogSnapshot().sessions[0]?.messageRange).toEqual({ start: 200, end: 480, leafId: "second-completion" });
+    const catalog = restored.catalogSnapshot();
+    restored.acknowledge("session-1", { cwd: "/repo", catalogId: catalog.catalogId, throughCompletionOrder: catalog.sessions[0]?.completionOrder ?? 0 });
+    restored.observeActivityState("session-1", "/repo", true, history);
+    position.messageCount = 490;
+    restored.observeActivityState("session-1", "/repo", false, history);
+    expect(restored.catalogSnapshot().sessions[0]?.messageRange).toMatchObject({ start: 480, end: 490 });
+    await restored.flush();
+  });
+
   it("marks only known active-to-idle transitions unread", () => {
     const store = storeAt("2026-07-20T00:00:00.000Z", "catalog-a");
 
