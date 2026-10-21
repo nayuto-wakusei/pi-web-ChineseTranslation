@@ -1,6 +1,6 @@
-import type { Translator } from "./shared/i18n.js";
+import type { TranslationParameters, Translator } from "./shared/pluginApiTypes.js";
 import type { JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation } from "./shared/pluginApiTypes.js";
-export type { JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, };
+export type { TranslationParameters, Translator, JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, };
 type MaybePromise<T> = T | Promise<T>;
 /** Public server entry exported by a package's `serverModule`. */
 export interface PiWebServerPlugin {

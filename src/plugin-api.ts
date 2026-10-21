@@ -1,8 +1,12 @@
 import type { TemplateResult } from "lit";
-import type { LocalizationContribution, Translator } from "./shared/i18n.js";
+import type { LocalizationContribution, Translator } from "./shared/pluginApiTypes.js";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 
 export type {
+  LocalizationContribution,
+  TranslationMessages,
+  TranslationParameters,
+  Translator,
   FileContentMediaType,
   FileContentResponse,
   FileTreeEntry,

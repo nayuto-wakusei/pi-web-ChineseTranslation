@@ -1,4 +1,4 @@
-import type { Translator } from "./shared/i18n.js";
+import type { TranslationParameters, Translator } from "./shared/pluginApiTypes.js";
 import type {
   JsonObject,
   JsonPrimitive,
@@ -10,6 +10,8 @@ import type {
 } from "./shared/pluginApiTypes.js";
 
 export type {
+  TranslationParameters,
+  Translator,
   JsonObject,
   JsonPrimitive,
   JsonValue,

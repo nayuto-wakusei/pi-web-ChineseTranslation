@@ -1,5 +1,14 @@
 // Dependency-free DTOs shared by PI WEB's public plugin entrypoints and host protocols.
 
+export type TranslationParameters = Readonly<Record<string, string | number>>;
+export type TranslationMessages = Readonly<Record<string, string>>;
+export type Translator = (key: string, fallback: string, parameters?: TranslationParameters) => string;
+
+export interface LocalizationContribution {
+  locale: string;
+  messages: TranslationMessages;
+}
+
 export type MachineKind = "local" | "remote";
 
 export type JsonPrimitive = string | number | boolean | null;

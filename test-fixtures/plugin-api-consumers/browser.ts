@@ -2,6 +2,9 @@ import type {
   ContentRenderingCapability,
   ContentRendererInput,
   JsonValue,
+  LocalizationContribution,
+  TranslationParameters,
+  Translator,
   PluginCapability,
   PluginPeer,
   PiWebPlugin,
@@ -12,6 +15,11 @@ import type {
   WorkspacePanelContext,
   WorkspacePanelFiles,
 } from "@chainingintention/pi-web-cn/plugin-api";
+
+export function checkLocalization(translate?: Translator): LocalizationContribution {
+  const parameters: TranslationParameters = { name: "fixture", count: 1 };
+  return { locale: "en", messages: { greeting: translate?.("fixture.greeting", "Hello {name}: {count}", parameters) ?? "Hello fixture: 1" } };
+}
 
 export function checkContentRendering(capability: ContentRenderingCapability, input: ContentRendererInput): void {
   const request = { machineId: "local", text: input.text };

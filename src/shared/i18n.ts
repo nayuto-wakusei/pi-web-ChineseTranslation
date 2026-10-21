@@ -1,11 +1,5 @@
-export type TranslationParameters = Readonly<Record<string, string | number>>;
-export type TranslationMessages = Readonly<Record<string, string>>;
-export type Translator = (key: string, fallback: string, parameters?: TranslationParameters) => string;
-
-export interface LocalizationContribution {
-  locale: string;
-  messages: TranslationMessages;
-}
+import type { TranslationMessages, TranslationParameters, Translator } from "./pluginApiTypes.js";
+export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator } from "./pluginApiTypes.js";
 
 /** Preserve internal error text for status handling; localize only at the UI boundary. */
 export class UserFacingError extends Error {
