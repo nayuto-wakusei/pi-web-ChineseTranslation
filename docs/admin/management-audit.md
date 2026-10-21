@@ -69,6 +69,8 @@ PI WEB 不配置这些知识服务的后台账号，不接受任意 tenant/datas
 
 Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动强制同步 `relay` 和 `relay-runner` 模板到 `.pi/skills/<name>/SKILL.md`，只替换所属工作区内的同名内容；因此不要把它们作为自定义内容的唯一副本。两个模板都必须纳入 npm 包和 Workbench Skill allowlist。普通与完整特权启动既不创建也不覆盖这些项目 Skill。
 
+完整特权启动及 `/reload` 清理确认原样下发的项目 Relay 副本，由已启用的内置包提供技能。仅匹配当前模板或已知历史模板，目录必须只有普通文件 `SKILL.md`；修改过的副本、额外文件、符号链接和其他自定义 Skill 均保留，真实冲突照常报告。同步与清理共用稳定的 `.pi/skills` 目录队列，清理不得递归删除。普通模式不清理；取消特权并通过新的授权入口进入受限会话后，恢复受限模式的模板同步。权限与沙箱规则不因清理改变，完整生效条件见[配置参考](../config.md#workbench-and-mcp-integration)。
+
 仅当项目副本与已知 bundled 副本内容完全相同时，才能抑制对应 Relay Skill 的 collision；此规则分别适用于两个 Skill，不能压制其他诊断或削弱管理资源隔离。
 
 ## 审计分流

@@ -230,6 +230,8 @@ Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只�
 
 Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。受限管理会话只加载所属项目允许范围内的 Skills；SDK 按名称去重时，被全局同名技能遮蔽的授权项目副本仍会恢复加载。启动及 `/reload` 时同步所属工作区的 `relay`、`relay-runner`，使用当前安装包随 SDK 适配的模板。项目 `.pi/skills/relay/` 与 `.pi/skills/relay-runner/` 是平台保留目录，其中旧模板会更新；其他自定义 Skill 不覆盖。普通模式及完整特权管理模式保留普通 SDK 资源加载行为，不执行这项模板同步。
 
+完整特权管理会话在启动和 `/reload` 时仅清理确认是平台原样下发的项目 Relay 副本，改由已启用的内置 Relay 包提供技能。清理只匹配当前模板或已知历史模板，且目录中必须仅有普通文件 `SKILL.md`；用户改过的内容、额外文件、符号链接及其他自定义 Skill 均保留，真实同名冲突仍会提示。取消特权后，下次创建或重载受限管理会话会按上述受限模式规则重新下发当前模板；旧特权会话不会运行中自动降权，应停止使用并通过新的授权入口进入。普通模式不执行此清理。升级此行为需重启 `pi-web-sessiond.service`，不改变现有特权授权与沙箱规则。
+
 `workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 retrieve_knowledge，BookStack 用 retrieve_bookstack，参数 resource_name、简洁 question、可选 resource_version=live、top_k 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页，不编辑、不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 knowledge:// 引用；truncated 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 
 先部署支持资源快照、knowledge token 和检索 endpoint 的 Workbench 后端，再更新 PI WEB；BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新重启 daemon；共享 endpoint/limit 改变重启两进程。签名 `projects[].agentsInstructions` 仅在项目 AGENTS.md 不存在时独占创建，已有内容不覆盖，无此字段仍兼容，普通项目不受影响。

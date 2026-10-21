@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { withFileMutationQueue, type ResourceDiagnostic, type Skill } from "@earendil-works/pi-coding-agent";
@@ -8,6 +8,8 @@ import { withFileMutationQueue, type ResourceDiagnostic, type Skill } from "@ear
 export const MANAGED_RELAY_SKILL_NAMES = ["relay", "relay-runner"] as const;
 const BUNDLED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../skills/", import.meta.url));
 const PACKAGED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../dist/pi-packages/relays/skills/", import.meta.url));
+// Original relay-runner template shipped before d530ab1a; never match by name alone.
+const LEGACY_RUNNER_SHA256 = "27e453f521a63997fd391881b46be568d78e75e163a8e2a2e9f25ec9609b2237";
 
 function normalizedSkill(content: string): string {
   return content.replace(/\r\n/g, "\n");
@@ -21,12 +23,49 @@ export async function ensureManagedRelaySkills(cwd: string, bundledSkillsDirecto
   return paths;
 }
 
+/** Full privileges use the package skills, but user-modified copies stay authoritative. */
+export async function removeUnmodifiedManagedRelaySkills(cwd: string): Promise<void> {
+  const projectRoot = realpathSync(cwd);
+  const skillsDirectory = join(projectRoot, ".pi", "skills");
+  for (const directory of [join(projectRoot, ".pi"), skillsDirectory]) {
+    if (!await isPlainManagedPath(directory, "directory")) return;
+  }
+  // Keep the queue key alive when removing a child skill directory.
+  await withFileMutationQueue(skillsDirectory, async () => {
+    for (const name of MANAGED_RELAY_SKILL_NAMES) {
+      const directory = join(skillsDirectory, name);
+      const skillPath = join(directory, "SKILL.md");
+      if (!await isPlainManagedPath(directory, "directory") || !await isPlainManagedPath(skillPath, "file")) continue;
+      const files = await readdir(directory);
+      if (files.length !== 1 || files[0] !== "SKILL.md") continue;
+      const content = normalizedSkill(await readFile(skillPath, "utf8"));
+      const current = normalizedSkill(await readFile(join(BUNDLED_SKILLS_DIRECTORY, name, "SKILL.md"), "utf8"));
+      const isLegacyRunner = name === "relay-runner" && createHash("sha256").update(content).digest("hex") === LEGACY_RUNNER_SHA256;
+      if (content !== current && !isLegacyRunner) continue;
+      assertManagedSkillPath(projectRoot, skillPath, "file");
+      // No recursive removal: unexpected additions must not be deleted.
+      await unlink(skillPath);
+      await rmdir(directory);
+    }
+  });
+}
+
+async function isPlainManagedPath(path: string, expectedType: "directory" | "file"): Promise<boolean> {
+  try {
+    const stats = await lstat(path);
+    return !stats.isSymbolicLink() && (expectedType === "directory" ? stats.isDirectory() : stats.isFile());
+  } catch (error) {
+    if (isNodeError(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
 async function synchronizeManagedSkill(cwd: string, name: string, bundledSkillPath: string): Promise<string> {
   const projectRoot = realpathSync(cwd);
   const piDirectory = join(projectRoot, ".pi");
   const skillsDirectory = join(piDirectory, "skills");
   const skillDirectory = join(skillsDirectory, name);
-  for (const directory of [piDirectory, skillsDirectory, skillDirectory]) {
+  for (const directory of [piDirectory, skillsDirectory]) {
     try {
       await mkdir(directory);
     } catch (error) {
@@ -35,9 +74,10 @@ async function synchronizeManagedSkill(cwd: string, name: string, bundledSkillPa
     assertManagedSkillPath(projectRoot, directory, "directory");
   }
   const skillPath = join(skillDirectory, "SKILL.md");
-  // Queue registration realpaths its key; use the stable directory so Windows
-  // does not open the destination file while another start is replacing it.
-  return withFileMutationQueue(skillDirectory, async () => {
+  // Synchronization and cleanup share a stable parent-directory queue key.
+  return withFileMutationQueue(skillsDirectory, async () => {
+    await mkdir(skillDirectory, { recursive: true });
+    assertManagedSkillPath(projectRoot, skillDirectory, "directory");
     try {
       assertManagedSkillPath(projectRoot, skillPath, "file");
     } catch (error) {

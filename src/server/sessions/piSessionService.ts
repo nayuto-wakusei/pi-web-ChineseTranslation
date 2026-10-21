@@ -90,7 +90,7 @@ import { createManagedAgentToolOptions, createManagedBashToolDefinition, createM
 import { PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR, managementAgentToolNames, privilegedManagementToolNames, withRuntimeCreationEnvironment, writeManagementPermissionSystemPolicy } from "./managementPermissionSystem.js";
 import { SessionNotificationStore, type SessionNotificationGeneration, type SessionNotificationMutation } from "./sessionNotificationStore.js";
 import { plainTextTheme } from "./plainTextTheme.js";
-import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, MANAGED_RELAY_SKILL_NAMES } from "./relaySkill.js";
+import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, MANAGED_RELAY_SKILL_NAMES, removeUnmodifiedManagedRelaySkills } from "./relaySkill.js";
 import { SessionUnreadStore, type SessionUnreadMutation } from "./sessionUnreadStore.js";
 import {
   archiveCandidateFromActiveSession,
@@ -1035,7 +1035,8 @@ function createManagementRuntimeFactory(
     const privileges = managementPrivileges(managementContext, { allowPrivileged: managementAllowPrivileged });
     const resolvedDelegationToolsEnabled = delegationToolsEnabled
       ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
-    if (!normalPermissions) await ensureManagedRelaySkills(cwd);
+    if (normalPermissions) await removeUnmodifiedManagedRelaySkills(cwd);
+    else await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
     const accessHandle = workbenchAccessHandle(managementContext);
     const state = normalPermissions || workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
@@ -1146,7 +1147,8 @@ function createManagementRuntimeFactory(
       // SDK reload re-executes extensions, so it needs the same scoped environment as startup.
       const reload = result.session.reload.bind(result.session);
       result.session.reload = (options) => withRuntimeCreationEnvironment(resourceEnvironment, async () => {
-        if (!normalPermissions) await ensureManagedRelaySkills(cwd);
+        if (normalPermissions) await removeUnmodifiedManagedRelaySkills(cwd);
+        else await ensureManagedRelaySkills(cwd);
         return reload(options);
       });
       return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };

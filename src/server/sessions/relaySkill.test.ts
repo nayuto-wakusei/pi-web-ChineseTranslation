@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DefaultResourceLoader, SettingsManager, withFileMutationQueue, type ResourceDiagnostic } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deduplicateBundledRelaySkills, ensureManagedRelaySkills } from "./relaySkill.js";
+import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, removeUnmodifiedManagedRelaySkills } from "./relaySkill.js";
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   const original = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function fixture(name: string) {
-  const root = await mkdtemp(join(tmpdir(), "pi-web-relay-sync-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-relay-sync-")));
   roots.push(root);
   const cwd = join(root, "project");
   const agentDir = join(root, "agent");
@@ -81,9 +81,8 @@ describe.each(skillNames)("%s skill synchronization", (name) => {
       await ensureManagedRelaySkills(cwd);
       expect(await readFile(projectSkill, "utf8")).toBe(current);
     }));
-    // SDK queue registration resolves the key before waiting; resolving the
-    // replaced file itself can hold a Windows handle during another rename.
-    expect(withFileMutationQueue).toHaveBeenCalledWith(dirname(projectSkill), expect.any(Function));
+    // Cleanup can remove a child directory; both operations queue on its stable parent.
+    expect(withFileMutationQueue).toHaveBeenCalledWith(dirname(dirname(projectSkill)), expect.any(Function));
     expect(withFileMutationQueue).not.toHaveBeenCalledWith(projectSkill, expect.any(Function));
     expect(await readdir(dirname(projectSkill))).toEqual(["SKILL.md"]);
   });
@@ -144,5 +143,68 @@ describe.each(skillNames)("bundled %s duplicate diagnostics", (name) => {
     const { cwd, projectSkill, bundledSkill } = await fixture(name);
     const diagnostic = collision(name, projectSkill, bundledSkill);
     expect(deduplicateBundledRelaySkills(cwd, { skills: [], diagnostics: [diagnostic] }).diagnostics).toEqual([diagnostic]);
+  });
+});
+
+describe("full-privilege Relay cleanup", () => {
+  it("does not create missing project directories", async () => {
+    const { cwd } = await fixture("relay-runner");
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    await expect(readdir(join(cwd, ".pi"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(["current", "legacy"] as const)("removes only an original %s runner, including CRLF copies", async (version) => {
+    const { cwd, projectSkill, bundledSkill } = await fixture("relay-runner");
+    const content = await readFile(version === "current" ? bundledSkill : new URL("./fixtures/relay-runner-legacy.md", import.meta.url), "utf8");
+    await mkdir(dirname(projectSkill), { recursive: true });
+    await writeFile(projectSkill, content.replace(/\r?\n/g, "\r\n"));
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    await expect(readdir(dirname(projectSkill))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(skillNames.flatMap((name) => ["edited template", "additional file"].map((change) => ({ name, change }))))("preserves $name with $change", async ({ name, change }) => {
+    const { cwd, projectSkill, bundledSkill } = await fixture(name);
+    const content = await readFile(bundledSkill, "utf8") + (change === "edited template" ? "\nCustom instructions\n" : "");
+    await mkdir(dirname(projectSkill), { recursive: true });
+    await writeFile(projectSkill, content);
+    if (change === "additional file") await writeFile(join(dirname(projectSkill), "custom.txt"), "User file");
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    expect(await readFile(projectSkill, "utf8")).toBe(content);
+    if (change === "additional file") expect(await readFile(join(dirname(projectSkill), "custom.txt"), "utf8")).toBe("User file");
+  });
+
+  it("preserves user edits to a historical template instead of treating its name as ownership", async () => {
+    const { cwd, projectSkill } = await fixture("relay-runner");
+    const content = await readFile(new URL("./fixtures/relay-runner-legacy.md", import.meta.url), "utf8") + "\nUser changes\n";
+    await mkdir(dirname(projectSkill), { recursive: true });
+    await writeFile(projectSkill, content);
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    expect(await readFile(projectSkill, "utf8")).toBe(content);
+  });
+
+  it.each([".pi", "skills", "relay-runner"])("does not remove a copy through a %s junction", async (part) => {
+    const { root, cwd, bundledSkill } = await fixture("relay-runner");
+    const outside = join(root, "outside");
+    const link = part === ".pi" ? join(cwd, ".pi") : part === "skills" ? join(cwd, ".pi", "skills") : join(cwd, ".pi", "skills", "relay-runner");
+    const relativeFile = part === ".pi" ? join("skills", "relay-runner", "SKILL.md") : part === "skills" ? join("relay-runner", "SKILL.md") : "SKILL.md";
+    const outsideSkill = join(outside, relativeFile);
+    await mkdir(dirname(outsideSkill), { recursive: true });
+    const content = await readFile(bundledSkill, "utf8");
+    await writeFile(outsideSkill, content);
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(outside, link, "junction");
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    expect(await readFile(outsideSkill, "utf8")).toBe(content);
+  });
+
+  it("serializes cleanup with concurrent restricted synchronization", async () => {
+    const { cwd, projectSkill, bundledSkill } = await fixture("relay-runner");
+    await ensureManagedRelaySkills(cwd);
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      await removeUnmodifiedManagedRelaySkills(cwd);
+      await ensureManagedRelaySkills(cwd);
+    }));
+    expect(await readFile(projectSkill, "utf8")).toBe(await readFile(bundledSkill, "utf8"));
+    expect(await readdir(dirname(projectSkill))).toEqual(["SKILL.md"]);
   });
 });

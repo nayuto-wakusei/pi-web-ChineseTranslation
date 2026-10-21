@@ -774,6 +774,8 @@
           <h2>受限管理 Skill 同步</h2>
           <p>受限管理会话只加载所属项目允许范围内的 Skills；SDK 同名去重时恢复被全局副本遮蔽的授权项目版本。启动和 <code>/reload</code> 同步随当前 SDK 适配的 <code>relay</code>、<code>relay-runner</code> 模板。</p>
           <p><code>.pi/skills/relay/</code> 与 <code>.pi/skills/relay-runner/</code> 为平台保留目录，旧内容会更新，其他自定义 Skill 不覆盖。普通模式及完整特权管理模式不执行此同步，保持现有资源加载行为。</p>
+          <p>完整特权管理会话在启动和 <code>/reload</code> 时，仅清理匹配当前模板或已知历史模板的原样项目 Relay 副本，改由已启用的内置包提供技能。目录必须仅有普通文件 <code>SKILL.md</code>；修改过的内容、额外文件、符号链接及其他自定义 Skill 保留，真实同名冲突仍会提示。普通模式不执行此清理。</p>
+          <p>取消特权后，下次创建或重载受限管理会话会重新下发当前模板；旧特权会话不会自动降权，应停止使用并通过新的授权入口进入。升级需重启 <code>pi-web-sessiond.service</code>，现有授权与沙箱规则不变。</p>
         </div>
       </section>
 </main>

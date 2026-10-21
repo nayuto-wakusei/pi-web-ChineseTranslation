@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createAgentSessionRuntime, SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
@@ -15,6 +16,57 @@ import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext } from "./piSessionService.testSupport.js";
 
 describe("privileged management session permissions", () => {
+  it("removes only original managed Relay copies for full privileges and restores them after privileges are removed", async () => {
+    const h = await fixture(true, { bash: true, network: true });
+    const skillRoot = join(h.cwd, ".pi", "skills");
+    const relayPath = join(skillRoot, "relay", "SKILL.md");
+    const runnerPath = join(skillRoot, "relay-runner", "SKILL.md");
+    const legacy = await readFile(new URL("./fixtures/relay-runner-legacy.md", import.meta.url), "utf8");
+    const relay = await readFile(new URL("../../../skills/relay/SKILL.md", import.meta.url), "utf8");
+    const custom = "---\nname: custom\ndescription: Custom skill\n---\nUser content\n";
+    try {
+      for (const name of ["relay", "relay-runner", "custom"]) await mkdir(join(skillRoot, name), { recursive: true });
+      await writeFile(relayPath, relay);
+      await writeFile(runnerPath, legacy);
+      await writeFile(join(skillRoot, "custom", "SKILL.md"), custom);
+      await writeFile(join(h.agentDir, "settings.json"), JSON.stringify({
+        defaultProjectTrust: "always",
+        packages: [fileURLToPath(new URL("../../../pi-packages/relays", import.meta.url))],
+      }));
+
+      await h.service.start(h.cwd);
+      expect(await readFile(relayPath, "utf8")).toBe(relay);
+      expect(await readFile(runnerPath, "utf8")).toBe(legacy);
+      expect(h.runtime().services.resourceLoader.getSkills().diagnostics).toContainEqual(expect.objectContaining({ type: "collision" }));
+
+      const session = await h.start();
+      const ref = { id: session.id, cwd: h.cwd };
+      for (const path of [relayPath, runnerPath]) await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
+      const skills = h.runtime().services.resourceLoader.getSkills();
+      expect(skills.skills.filter((skill) => skill.name === "relay-runner").map((skill) => skill.filePath)).toEqual([
+        fileURLToPath(new URL("../../../pi-packages/relays/skills/relay-runner/SKILL.md", import.meta.url)),
+      ]);
+      expect(skills.diagnostics).toEqual([]);
+      expect(await readFile(join(skillRoot, "custom", "SKILL.md"), "utf8")).toBe(custom);
+      expect(h.runtime().session.getActiveToolNames()).toContain("mcp");
+
+      await mkdir(join(skillRoot, "relay-runner"), { recursive: true });
+      await writeFile(runnerPath, legacy);
+      await h.service.runCommand(ref, "/reload", h.context);
+      await expect(readFile(runnerPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await h.service.status(ref, h.context)).warnings?.filter((warning) => warning.source === "skill") ?? []).toEqual([]);
+
+      await h.service.start(h.cwd, { managementContext: { ...h.context, privileged: {} } });
+      expect(await readFile(relayPath, "utf8")).toBe(relay);
+      expect(await readFile(runnerPath, "utf8")).toBe(await readFile(new URL("../../../skills/relay-runner/SKILL.md", import.meta.url), "utf8"));
+      expect(h.runtime().services.resourceLoader.getSkills().skills.filter((skill) => skill.name === "relay-runner").map((skill) => skill.filePath)).toEqual([runnerPath]);
+      expect(h.runtime().session.getActiveToolNames()).not.toContain("mcp");
+      expect(await readFile(join(skillRoot, "custom", "SKILL.md"), "utf8")).toBe(custom);
+    } finally {
+      await h.dispose();
+    }
+  });
+
   it.each([false, true])("preserves the policy environment when reloading resources with full permissions=%s", async (full) => {
     const h = await fixture(full, full ? { bash: true, network: true } : {});
     vi.stubEnv("PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR", h.agentDir);
@@ -216,6 +268,31 @@ describe("privileged management session permissions", () => {
       expect(h.synchronize).not.toHaveBeenCalled();
       expect(await readFile(relayPath, "utf8")).toBe(relay);
       await expect(readFile(join(h.cwd, ".pi", "skills", "relay-runner", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await h.dispose();
+    }
+  });
+
+  it("keeps a modified Relay runner and its real collision warning under full privileges", async () => {
+    const h = await fixture(true, { bash: true, network: true });
+    const runnerPath = join(h.cwd, ".pi", "skills", "relay-runner", "SKILL.md");
+    const content = "---\nname: relay-runner\ndescription: Custom runner\n---\nOPERATOR_RUNNER_SENTINEL\n";
+    try {
+      await mkdir(join(h.cwd, ".pi", "skills", "relay-runner"), { recursive: true });
+      await writeFile(runnerPath, content);
+      await writeFile(join(h.agentDir, "settings.json"), JSON.stringify({
+        defaultProjectTrust: "always",
+        packages: [fileURLToPath(new URL("../../../pi-packages/relays", import.meta.url))],
+      }));
+      const session = await h.start();
+      const ref = { id: session.id, cwd: h.cwd };
+      for (const phase of ["start", "reload"]) {
+        if (phase === "reload") await h.service.runCommand(ref, "/reload", h.context);
+        expect(await readFile(runnerPath, "utf8")).toBe(content);
+        expect(h.runtime().services.resourceLoader.getSkills().skills.find((skill) => skill.name === "relay-runner")?.filePath).toBe(runnerPath);
+        expect((await h.service.status(ref, h.context)).warnings).toContainEqual(expect.objectContaining({ source: "skill", message: 'name "relay-runner" collision' }));
+        expect(h.runtime().session.getActiveToolNames()).toContain("mcp");
+      }
     } finally {
       await h.dispose();
     }
