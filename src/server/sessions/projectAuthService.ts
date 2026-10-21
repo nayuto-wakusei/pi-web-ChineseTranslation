@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { chmod, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
-import { getAgentDir, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ModelRuntime } from "../../piSdk.js";
 import { piWebDataDir } from "../../config.js";
 import { loadNodeTranslator } from "../../localization.js";
 import type { Translator } from "../../shared/i18n.js";

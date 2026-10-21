@@ -3,7 +3,7 @@ import type { Translator } from "../../shared/i18n.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue } from "../../piSdk.js";
 import * as yauzl from "yauzl";
 import type { PiWebWorkbenchIntegrationConfig } from "../../shared/apiTypes.js";
 import type { AuthorizedResource, WorkbenchAgentAccessState, WorkbenchSkillManifest, WorkbenchSkillManifestFile, WorkbenchSkillReceipt, WorkbenchSkillReceiptFile } from "./types.js";

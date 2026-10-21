@@ -111,6 +111,7 @@
                 <li>A shell login environment that exposes Node, npm, Pi, git, and any tools your agents need.</li>
                 <li>For the automatic installer: a supported per-user service manager.</li>
               </ul>
+              <p>PI WEB reuses an installed Pi npm SDK rather than installing a private runtime. If Pi is not installed, run <code>npm install -g @earendil-works/pi-coding-agent@1.3.0</code> first. SDK selection prefers <code>PI_WEB_PI_PACKAGE_DIR</code>, then ordinary npm resolution, then the first <code>pi</code> executable on PATH. The override is an SDK package root, not an executable or agent-data directory; standalone binaries without an SDK package are unsupported. Installing through <code>/pi-web</code> preserves the hosting Pi installation in native services.</p>
               <div class="callout warning">
                 <strong>重要的 PATH 细节：</strong>
                 PI WEB 服务通过带 <code>-lc</code> 的非交互登录 shell 运行，仅在交互式配置或提示符钩子里设置的环境可能不可见。

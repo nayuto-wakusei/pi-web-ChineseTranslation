@@ -6,7 +6,7 @@ import {
   createAgentSessionServices,
   ModelRuntime,
   SessionManager,
-} from "@earendil-works/pi-coding-agent";
+} from "../../piSdk.js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createScopedSettingsManager,

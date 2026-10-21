@@ -1,9 +1,9 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAssistantMessageEventStream, InMemoryCredentialStore, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, InMemoryCredentialStore, type AssistantMessage } from "../../piAi.js";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "../../piSdk.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
 import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, fakeRuntime, runtimeCreator, seedCredential, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";

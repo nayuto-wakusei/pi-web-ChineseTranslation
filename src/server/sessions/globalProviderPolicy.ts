@@ -7,7 +7,7 @@ import {
   type AgentSessionRuntimeDiagnostic,
   type AgentSessionServices,
   type ModelRuntime,
-} from "@earendil-works/pi-coding-agent";
+} from "../../piSdk.js";
 
 /** Structured logging boundary supplied by the session daemon. */
 export interface GlobalProviderBootstrapLogger {
@@ -87,6 +87,21 @@ function logBootstrapDiagnostic(
   } else {
     logger.info(details, "global extension provider bootstrap diagnostic");
   }
+}
+
+function rejectVirtualModelMutations(runtime: ModelRuntime): void {
+  const reject = (operation: "registerVirtualModel" | "unregisterVirtualModel"): never => {
+    throw new Error(
+      `PI WEB does not support ${operation}(): virtual-model routers capture session-bound context, `
+      + "but the model runtime is shared across sessions. Disable this extension's virtual-model feature "
+      + "and select a physical model instead.",
+    );
+  };
+  const rejectedMethods: Pick<ModelRuntime, "registerVirtualModel" | "unregisterVirtualModel"> = {
+    registerVirtualModel: () => reject("registerVirtualModel"),
+    unregisterVirtualModel: () => reject("unregisterVirtualModel"),
+  };
+  Object.assign(runtime, rejectedMethods);
 }
 
 function freezeProviderMutations(
@@ -183,6 +198,7 @@ export async function bootstrapAndFreezeGlobalExtensionProviders(
   agentDir: string,
   logger: GlobalProviderBootstrapLogger,
 ): Promise<void> {
+  rejectVirtualModelMutations(runtime);
   const services = await loadGlobalExtensionServices(runtime, agentDir);
   const providerIds = Object.freeze([...runtime.getRegisteredProviderIds()].sort());
 

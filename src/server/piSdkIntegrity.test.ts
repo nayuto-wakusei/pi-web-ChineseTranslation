@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolvePiRuntimeImport } from "../piRuntime.js";
 
 // Guards against upstream Pi SDK packaging regressions such as
 // @earendil-works/pi-coding-agent@0.85.0, whose barrel statically imported the
@@ -13,7 +14,7 @@ const BROKEN_PI_CODING_AGENT_VERSIONS = new Set(["0.85.0"]);
 
 describe("Pi SDK package integrity", () => {
   it("loads the pi-coding-agent barrel with the runtime surface PI WEB uses", async () => {
-    const sdk = await importSdk("@earendil-works/pi-coding-agent");
+    const sdk = await importSdk("../piSdk.js");
 
     const version = sdk["VERSION"];
     if (typeof version !== "string") {
@@ -23,6 +24,7 @@ describe("Pi SDK package integrity", () => {
     for (const name of [
       "AgentSession",
       "createAgentSession",
+      "createAgentSessionRuntime",
       "CredentialSynchronizationError",
       "DefaultPackageManager",
       "DefaultResourceLoader",
@@ -37,10 +39,15 @@ describe("Pi SDK package integrity", () => {
     ]) {
       expect(typeof sdk[name], name).toBe("function");
     }
+    if (version !== "0.86.1" && version !== "0.87.0") {
+      for (const name of ["createMcpExtension", "createCodemodeExtension", "createToolSearchExtension"]) {
+        expect(typeof sdk[name], name).toBe("function");
+      }
+    }
   });
 
   it("loads the pi-ai barrel with the runtime surface PI WEB uses", async () => {
-    const sdk = await importSdk("@earendil-works/pi-ai");
+    const sdk = await importSdk("../piAi.js");
 
     for (const name of ["createAssistantMessageEventStream", "InMemoryCredentialStore", "modelsAreEqual"]) {
       expect(typeof sdk[name], name).toBe("function");
@@ -57,7 +64,7 @@ describe("Pi SDK package integrity", () => {
 async function importSdk(specifier: string): Promise<Record<string, unknown>> {
   let loaded: unknown;
   try {
-    loaded = await import(specifier);
+    loaded = await import(specifier.startsWith("@earendil-works/") ? await resolvePiRuntimeImport(specifier) : specifier);
   } catch (error) {
     throw new Error(
       `The ${specifier} package could not be loaded. This usually means the installed Pi SDK release has a packaging defect; check the resolved version against the supported range in package.json.`,

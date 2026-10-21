@@ -77,10 +77,11 @@ describe("Docker command assets", () => {
     expect(dockerfile).toContain("COPY pi-web-docker /usr/local/bin/pi-web-docker");
     expect(dockerfile).toContain("COPY internal/bin/hostexec /usr/local/bin/hostexec");
     expect(dockerfile).toContain("COPY internal/image/install-opensuse-base /usr/local/sbin/install-pi-web-opensuse-base");
-    expect(dockerfile).toContain("--include=peer");
+    expect(dockerfile).not.toContain("--include=peer");
     expect(dockerfile).toContain('"@chainingintention/pi-web-cn@${PI_WEB_VERSION}" --allow-scripts=node-pty');
-    expect(dockerfile).toContain('peer_pi_bin="${global_root}/@chainingintention/pi-web-cn/node_modules/.bin/pi"');
-    expect(dockerfile).not.toContain("@earendil-works/pi-coding-agent@");
+    expect(dockerfile).toContain('"@earendil-works/pi-coding-agent@1.3.0"');
+    expect(dockerfile).toContain("command -v pi");
+    expect(dockerfile).not.toContain("peer_pi_bin=");
     expect(devDockerfile).toContain("COPY docker/pi-web-docker /usr/local/bin/pi-web-docker");
     expect(devDockerfile).toContain("COPY docker/internal/bin/hostexec /usr/local/bin/hostexec");
     expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");

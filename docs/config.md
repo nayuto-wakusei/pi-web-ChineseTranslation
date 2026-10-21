@@ -283,14 +283,16 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 <a id="pi-compatible-agent-profile-and-companion-cli"></a>
 ### Pi 状态目录与本地兼容输入
 
-会话使用内置 Pi SDK，doctor、状态和更新流程检查机器 PATH 上的 Pi companion CLI。标准 `PI_CODING_AGENT_DIR`（默认 `~/.pi/agent`）选择共享 agent 设置、包与默认会话路径；`PI_CODING_AGENT_SESSION_DIR` 可独立指定会话路径，标准契约仅环境变量，没有新配置文件键。
+会话复用已安装的 Pi npm SDK。`PI_WEB_PI_PACKAGE_DIR` 显式选择 SDK 包根目录，优先于普通 npm 解析与 PATH 中第一个 `pi`；无 SDK 包的独立二进制不受支持。显式路径无效时直接失败，不回退另一份 Pi。`/pi-web` 将宿主安装传给 CLI，新安装的原生服务保留这个选择；更改后须重装服务定义并重启 Web 与 daemon。doctor 和状态仍分别核对有效安装与 companion CLI，不能把 PATH 上可执行命令当作 SDK 已对齐的证据。
+
+标准 `PI_CODING_AGENT_DIR`（默认 `~/.pi/agent`）选择共享 agent 设置、包与默认会话路径；`PI_CODING_AGENT_SESSION_DIR` 可独立指定会话路径。这些变量与 SDK 安装目录不同，不新增配置文件键。
 
 ```sh
 PI_CODING_AGENT_DIR=/opt/pi-profiles/lab
 PI_CODING_AGENT_SESSION_DIR=/opt/pi-profiles/lab-sessions
 ```
 
-目录必须符合内置 SDK 数据布局；不转换不兼容格式，不迁移 profile，也不移动 PI WEB 归档。
+目录必须符合所选 SDK 数据布局；不转换不兼容格式，不迁移 profile，也不移动 PI WEB 归档。
 
 daemon 启动时解析并固定目录，终端、bash、子会话使用相同值。运行期间改变环境不生效；包管理、插件发现、状态/安装识别和更新计划仍使用 daemon 的有效目录。Web 重启恢复同一有效目录，不独立解析新值。daemon 无法报告有效目录时，相关操作不可用，不自行回退。仅有效目录和可执行 companion CLI 都具备时提供包管理更新命令，并固定目录。
 
@@ -302,6 +304,8 @@ daemon 启动时解析并固定目录，终端、bash、子会话使用相同值
 普通模式提供器归属于注册项目的 `ProjectAuthService` 模型 registry，而不是全机共享；同项目工作区共享，其他项目和管理模式隔离。基线由 Pi 内置提供器、环境凭据、该项目托管 `models.json` 及全局 Pi 扩展/包建立；首次项目文件复制规则见[配置文件](#config-files)。PI WEB 工作区插件是另一概念。
 
 连接设置在对应运行时基线建立后固定。项目扩展和 `/reload` 不能新增、替换或删除提供器；扩展其他功能正常加载与刷新。全局提供器定义、凭据/连接配置或实现变化需要手动重启 daemon，Web 重启和 `/reload` 不重建基线。
+
+虚拟模型的 router 捕获会话上下文，不能存入同项目工作区共享的 registry。PI WEB 在全局扩展 bootstrap 前即拒绝 `registerVirtualModel`/`unregisterVirtualModel`，后续会话中也不能重新注册；使用物理模型。诊断不包含模型定义或 ID。
 
 已知提供器仅模型列表变化、其他设置保持不变时可立即接受刷新，无需重启。更新按精确 registry 身份应用，只影响 owning project；同项目两个工作区注册不同列表时后注册者生效，不影响别的项目。模型条目可带 `baseUrl`/`headers`，覆盖该模型的提供器值；扩展仍是可信进程内代码，不是安全沙箱。
 

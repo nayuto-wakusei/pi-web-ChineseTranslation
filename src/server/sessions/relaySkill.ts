@@ -3,7 +3,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { withFileMutationQueue, type ResourceDiagnostic, type Skill } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue, type ResourceDiagnostic, type Skill } from "../../piSdk.js";
 
 export const MANAGED_RELAY_SKILL_NAMES = ["relay", "relay-runner"] as const;
 const BUNDLED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../skills/", import.meta.url));

@@ -1,5 +1,5 @@
-import { ModelRuntime, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore, type Credential, type CredentialStore } from "@earendil-works/pi-ai";
+import { ModelRuntime, type ExtensionUIContext } from "../../piSdk.js";
+import { InMemoryCredentialStore, type Credential, type CredentialStore } from "../../piAi.js";
 import type { GlobalSessionEvent, SessionNotificationSummaryEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";

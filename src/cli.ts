@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { defaultPiWebConfigPath, defaultPiWebDataDir, examplePiWebConfig } from "./config.js";
 import { piWebDockerCommand, type PiWebDockerMode } from "./docker/piWebDockerCommandPlan.js";
 import { ownEnvironmentValue } from "./environment.js";
+import { PI_WEB_PI_PACKAGE_DIR_ENV } from "./piRuntime.js";
 import { runPluginRecoveryCli, type SessionDaemonRestartPlan } from "./pluginRecoveryCli.js";
 import {
   packageVersion,
@@ -303,8 +304,11 @@ function describeServiceShell(): string {
   return shell.detectedExecutable === null ? shell.name : `${shell.name} (${shell.detectedExecutable})`;
 }
 
-function configEnvironment(options: InstallOptions, configPath: string): Record<string, string> {
-  return options.config === undefined ? {} : { PI_WEB_CONFIG: configPath };
+export function nativeServiceEnvironment(configPath: string | undefined, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const environment: Record<string, string> = configPath === undefined ? {} : { PI_WEB_CONFIG: configPath };
+  const piPackageDir = ownEnvironmentValue(env, PI_WEB_PI_PACKAGE_DIR_ENV);
+  if (piPackageDir !== undefined && piPackageDir !== "") environment[PI_WEB_PI_PACKAGE_DIR_ENV] = piPackageDir;
+  return environment;
 }
 
 function serviceRefList(ids: ServiceId[]): ServiceRef[] {
@@ -646,7 +650,7 @@ function nativeServiceInstallCandidate(
   devRoot: string | undefined,
 ): NativeServiceInstallCandidate {
   const shell = detectServiceShell();
-  const environment = configEnvironment(options, configPath);
+  const environment = nativeServiceEnvironment(options.config === undefined ? undefined : configPath);
   if (options.mode === "production") {
     return {
       mode: "production",

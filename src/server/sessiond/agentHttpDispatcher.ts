@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { SettingsManager } from "../../piSdk.js";
 import { Client, EnvHttpProxyAgent, Pool, setGlobalDispatcher, type Dispatcher } from "undici";
 
 /**

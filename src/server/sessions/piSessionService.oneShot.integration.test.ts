@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, type AssistantMessage } from "../../piAi.js";
+import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService, type PiSessionRuntime } from "./piSessionService.js";
 import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, runtimeCreator, sessionGateway, testModel } from "./piSessionService.testSupport.js";

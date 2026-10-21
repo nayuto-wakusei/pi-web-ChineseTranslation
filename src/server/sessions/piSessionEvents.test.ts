@@ -1,4 +1,4 @@
-import { createEventBus } from "@earendil-works/pi-coding-agent";
+import { createEventBus } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";

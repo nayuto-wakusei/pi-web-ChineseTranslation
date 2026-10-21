@@ -103,9 +103,10 @@
     "diff": "^9.0.0",
     "fastify": "^5.12.7",
     "lit": "^3.3.3",
+    "import-meta-resolve": "^4.2.0",
     "marked": "^18.1.1",
     "node-pty": "^1.1.0",
-    "typebox": "1.3.37",
+    "pi-web-typebox": "npm:typebox@1.3.37",
     "undici": "^8.11.2",
     "ws": "^8.22.0",
     "yauzl": "^3.4.0"
@@ -152,6 +153,11 @@
     "@earendil-works/pi-agent-core": "0.86.1 || 0.87.0 || 1.3.0",
     "@earendil-works/pi-ai": "0.86.1 || 0.87.0 || 1.3.0",
     "@earendil-works/pi-coding-agent": "0.86.1 || 0.87.0 || 1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": { "optional": true },
+    "@earendil-works/pi-ai": { "optional": true },
+    "@earendil-works/pi-coding-agent": { "optional": true }
   },
   "keywords": [
     "pi-package",

@@ -29,6 +29,8 @@ Pi 包/本地插件目录
 
 Pi SDK 开发基线为 `1.3.0`，安装兼容范围以根 `package.json` 的 peer 声明为准。伴随扩展处理 `before_agent_start` 时须先判断事件是否包含 `prompt`；自定义消息触发的启动不能冒充当前请求的用户提示。
 
+SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；独立 MCP 设置与认证界面不属于此运行时接线。
+
 | 所有者 | 不变量 |
 | --- | --- |
 | 机器配置 | enabled/settings 是期望状态，不等于激活完成 |

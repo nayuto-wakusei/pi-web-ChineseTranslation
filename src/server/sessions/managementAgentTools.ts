@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { defineTool, type EditOperations, type FindOperations, type GrepOperations, type LsOperations, type ReadOperations, type WriteOperations } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { defineTool, type EditOperations, type FindOperations, type GrepOperations, type LsOperations, type ReadOperations, type WriteOperations } from "../../piSdk.js";
+import { Type } from "pi-web-typebox";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createBubblewrapPythonInvocation, createBubblewrapShellInvocation, createManagedSandboxEnvironment, DEFAULT_BUBBLEWRAP_PATHS, MANAGED_SANDBOX_WORKSPACE } from "./managementSandbox.js";
 

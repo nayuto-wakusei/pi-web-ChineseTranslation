@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, readStoredCredential } from "../../piSdk.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Project } from "../types.js";
 import { ProjectAuthService, projectAuthStoragePaths } from "./projectAuthService.js";

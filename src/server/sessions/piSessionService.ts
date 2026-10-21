@@ -36,10 +36,11 @@ import {
   type Skill,
   type ToolDefinition,
   type ToolsOptions,
-} from "@earendil-works/pi-coding-agent";
+} from "../../piSdk.js";
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionModelCatalogEntry, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
+import { getBuiltinExtensionFactories } from "./builtinExtensionFactories.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
 import { builtinCommands } from "./builtinCommands.js";
@@ -918,6 +919,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
     resourceLoaderOptions: {
       ...piWebResourceLoaderOptions(options.appendSystemPromptSections),
       eventBus: options.eventBus,
+      extensionFactories: await getBuiltinExtensionFactories(),
       ...(options.agentsFilesOverride === undefined ? {} : { agentsFilesOverride: options.agentsFilesOverride }),
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     },

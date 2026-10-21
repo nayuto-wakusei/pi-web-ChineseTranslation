@@ -137,6 +137,46 @@ function registerProjectConfigProvider(runtime: Awaited<ReturnType<typeof create
 type ProviderConfigInput = NonNullable<ReturnType<ModelRuntime["getRegisteredProviderConfig"]>>;
 
 describe("bootstrapAndFreezeGlobalExtensionProviders", () => {
+  it("rejects virtual models at real global bootstrap and every later runtime mutation without exposing definitions", async () => {
+    const agentDir = await agentDirWithExtension(`
+      export default function (pi) {
+        pi.registerVirtualModel({
+          provider: "router-secret-provider",
+          id: "secret-id",
+          name: "secret-name",
+          route() { throw new Error("secret-router-must-not-run"); }
+        });
+      }
+    `);
+    const runtime = await createTestModelRuntime();
+    const providersBefore = runtime.getProviders().map((provider) => provider.id);
+    const { entries, logger } = capturingLogger();
+
+    await bootstrapAndFreezeGlobalExtensionProviders(runtime, agentDir, logger);
+
+    const diagnostic = entries.find((entry) => entry.details["diagnosticType"] === "error");
+    expect(diagnostic?.level).toBe("error");
+    expect(diagnostic?.details["diagnostic"]).toEqual(expect.stringContaining("PI WEB does not support registerVirtualModel()"));
+    expect(diagnostic?.details["diagnostic"]).toEqual(expect.stringContaining("shared across sessions"));
+    expect(diagnostic?.details["diagnostic"]).toEqual(expect.stringContaining("select a physical model instead"));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect(() => {
+        runtime.registerVirtualModel({
+          provider: "router-secret-provider",
+          id: "secret-id",
+          name: "secret-name",
+          route() { throw new Error("secret-router-must-not-run"); },
+        });
+      }).toThrow("PI WEB does not support registerVirtualModel()");
+      expect(() => { runtime.unregisterVirtualModel("router-secret-provider", "secret-id"); })
+        .toThrow("PI WEB does not support unregisterVirtualModel()");
+    }
+    await runtime.refresh({ allowNetwork: false });
+    expect(runtime.getModel("router-secret-provider", "secret-id")).toBeUndefined();
+    expect(runtime.getProviders().map((provider) => provider.id)).toEqual(providersBefore);
+    expect(JSON.stringify(entries)).not.toContain("secret");
+  });
+
   it("captures the global baseline before making every later provider mutation a no-op", async () => {
     const agentDir = await agentDirWithExtension(`
       export default function (pi) {

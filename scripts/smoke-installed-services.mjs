@@ -26,6 +26,7 @@ export async function smokeInstalledServices(packageRoot) {
       USERPROFILE: home,
       XDG_CONFIG_HOME: join(home, ".config"),
       PI_WEB_CONFIG: configPath,
+      PI_WEB_PI_PACKAGE_DIR: process.env["PI_WEB_PI_PACKAGE_DIR"],
       PI_WEB_DATA_DIR: join(root, "data"),
       PI_WEB_AGENT_DIR: join(root, "agent"),
       PI_WEB_SESSIOND_PORT: String(daemonPort),

@@ -1,5 +1,5 @@
-import { Type } from "typebox";
-import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "pi-web-typebox";
+import { defineTool, type ExtensionContext } from "../../piSdk.js";
 
 export interface SpawnSessionResult {
   sessionId: string;

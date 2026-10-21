@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { toClientEvent } from "./sessionUiEvents.js";
 
 describe("toClientEvent", () => {
+  it.each(["tool_execution_start", "tool_execution_update", "tool_execution_end"])("keeps nested %s events inside the parent tool result", (type) => {
+    expect(toClientEvent({ type, parentToolCallId: "codemode-parent", toolName: "read", toolCallId: "nested" }))
+      .toEqual({ type: "pi.event", eventType: type });
+  });
+
   it.each([
     [{ type: "message", message: { role: "user", content: "queued prompt" } }, { role: "user", content: "queued prompt" }],
     [{ type: "custom_message", display: true, content: "draft", customType: "notice" }, { role: "custom", content: "draft", customType: "notice" }],

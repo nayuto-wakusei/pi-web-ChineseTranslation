@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAgentSessionRuntime, SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionRuntime, SessionManager, type AgentSessionRuntime } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { WorkbenchAccessStateStore } from "../workbench/accessStateStore.js";

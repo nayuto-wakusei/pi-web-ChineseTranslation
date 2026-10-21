@@ -51,6 +51,7 @@ const systemdUnitObjectPathPrefix = "/org/freedesktop/systemd1/unit/";
 const legacySystemdUnprintableValue = "[unprintable]";
 const managedSystemdEnvironmentKeys = [
   "PI_WEB_CONFIG",
+  "PI_WEB_PI_PACKAGE_DIR",
   "PI_WEB_DATA_DIR",
   "PI_WEB_SESSIOND_SOCKET",
   "PI_WEB_SESSIOND_URL",
@@ -276,13 +277,15 @@ function inspectLoadedLaunchdDefinition(
     };
   }
 
-  const expectedConfigPath = ownEnvironmentValue(expectedEnvironment, "PI_WEB_CONFIG");
-  const loadedConfigPath = ownEnvironmentValue(loaded.environment, "PI_WEB_CONFIG");
-  if (loadedConfigPath !== expectedConfigPath) {
-    return {
-      ok: false,
-      message: `Loaded LaunchAgent ${source.launchdTarget} has PI_WEB_CONFIG ${JSON.stringify(loadedConfigPath)} instead of installed value ${JSON.stringify(expectedConfigPath)}; run \`pi-web restart\` to reload the managed LaunchAgents.`,
-    };
+  for (const key of ["PI_WEB_CONFIG", "PI_WEB_PI_PACKAGE_DIR"] as const) {
+    const expectedValue = ownEnvironmentValue(expectedEnvironment, key);
+    const loadedValue = ownEnvironmentValue(loaded.environment, key);
+    if (loadedValue !== expectedValue) {
+      return {
+        ok: false,
+        message: `Loaded LaunchAgent ${source.launchdTarget} has ${key} ${JSON.stringify(loadedValue)} instead of installed value ${JSON.stringify(expectedValue)}; run \`pi-web restart\` to reload the managed LaunchAgents.`,
+      };
+    }
   }
   return { ok: true, value: null };
 }

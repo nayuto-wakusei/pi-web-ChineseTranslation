@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DefaultResourceLoader, SettingsManager, withFileMutationQueue, type ResourceDiagnostic } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, SettingsManager, withFileMutationQueue, type ResourceDiagnostic } from "../../piSdk.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deduplicateBundledRelaySkills, ensureManagedRelaySkills, removeUnmodifiedManagedRelaySkills } from "./relaySkill.js";
 
-vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+vi.mock("../../piSdk.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
   return { ...original, withFileMutationQueue: vi.fn(original.withFileMutationQueue) };
 });

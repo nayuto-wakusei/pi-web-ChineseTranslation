@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { loadNodeTranslator } from "../../localization.js";
 import type { Translator } from "../../shared/i18n.js";
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { defineTool } from "../../piSdk.js";
+import { Type } from "pi-web-typebox";
 import { requireAuthorizedL0Capability, searchAuthorizedCapabilities } from "./capabilitySearch.js";
 import { requireAuthorizedBookstackKnowledge, requireAuthorizedRagflowKnowledge, searchAuthorizedKnowledge } from "./knowledgeSearch.js";
 import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";

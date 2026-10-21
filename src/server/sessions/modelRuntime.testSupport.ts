@@ -1,5 +1,5 @@
-import { InMemoryCredentialStore, type Credential } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore, type Credential } from "../../piAi.js";
+import { ModelRuntime } from "../../piSdk.js";
 
 export async function createTestModelRuntime(initialCredentials: Record<string, Credential> = {}): Promise<{
   modelRuntime: ModelRuntime;

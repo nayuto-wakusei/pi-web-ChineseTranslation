@@ -8,7 +8,7 @@ import {
   SettingsManager,
   type ProjectTrustContext,
   type ProjectTrustHandler,
-} from "@earendil-works/pi-coding-agent";
+} from "../../piSdk.js";
 import { emitWebProjectTrustEvent, resolveWebProjectTrusted, type WebProjectTrustExtensionSet } from "./projectTrust.js";
 import { createScopedSettingsManager } from "./projectSettingsScope.js";
 

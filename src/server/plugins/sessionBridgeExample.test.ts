@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createEventBus } from "@earendil-works/pi-coding-agent";
+import { createEventBus } from "../../piSdk.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "../../../examples/session-bridge-plugin/src/server.js";
 import { collectReview } from "../../../examples/session-bridge-plugin/src/reviewRun.js";

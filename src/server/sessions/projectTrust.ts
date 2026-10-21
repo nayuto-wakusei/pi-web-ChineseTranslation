@@ -1,4 +1,4 @@
-import { ProjectTrustStore, SettingsManager, hasTrustRequiringProjectResources, type ProjectTrustContext, type ProjectTrustEvent, type ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
+import { ProjectTrustStore, SettingsManager, hasTrustRequiringProjectResources, type ProjectTrustContext, type ProjectTrustEvent, type ProjectTrustEventResult } from "../../piSdk.js";
 
 /**
  * Error collected from a `project_trust` handler, mirroring the per-extension

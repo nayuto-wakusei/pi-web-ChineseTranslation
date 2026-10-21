@@ -4,6 +4,10 @@ import { annotateAssistantThinkingLevel, historyMessagesFromEntries } from "./tr
 
 export function toClientEvent(event: unknown, thinkingLevel?: string): SessionUiEvent {
   const eventType = getString(event, "type");
+  // Nested execution belongs to its parent result, not a separate durable message.
+  if (getString(event, "parentToolCallId") !== undefined && eventType?.startsWith("tool_execution_") === true) {
+    return { type: "pi.event", eventType };
+  }
   const assistantMessageEvent = getProperty(event, "assistantMessageEvent");
   if (eventType === "message_update" && getString(assistantMessageEvent, "type") === "text_delta") {
     return { type: "assistant.delta", text: getString(assistantMessageEvent, "delta") ?? "" };

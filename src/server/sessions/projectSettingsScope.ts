@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { CONFIG_DIR_NAME, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, SettingsManager } from "../../piSdk.js";
 import { projectAuthStoragePaths } from "./projectAuthService.js";
 
 /**

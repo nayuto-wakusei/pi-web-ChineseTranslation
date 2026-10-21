@@ -2,7 +2,7 @@ import type { Dirent, Stats } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, SettingsManager } from "../../piSdk.js";
 import { AGENT_SESSION_DIR_ENV_KEYS } from "../../config.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { isNodeErrorWithCode } from "../workspaces/pathSafety.js";
