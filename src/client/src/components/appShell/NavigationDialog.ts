@@ -1,7 +1,9 @@
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { paletteStyles } from "../paletteStyles";
+import { uiDialogStyles, uiSelectionStyles } from "../ui/dialogStyles";
+import { uiToolbarStyles } from "../ui/controlStyles";
 import { scrollWhenSelected } from "../scrollWhenSelected";
 import { isNavigationPinned, toggleNavigationPin, type NavigationPreferences } from "../../navigationPreferences";
 import type { AppMobileMainTab } from "./AppMobileMainTabs";
@@ -9,6 +11,11 @@ import "../ModalSurface";
 
 @customElement("navigation-dialog")
 export class NavigationDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) tabs: AppMobileMainTab[] = [];
   // Layout/search visibility must not narrow implicit-all pin edits.
   @property({ attribute: false }) pinUniverse?: readonly string[];
@@ -42,18 +49,18 @@ export class NavigationDialog extends LitElement {
     const tabs = this.filteredTabs();
     return html`
       <modal-surface .label=${t("client.actions.navigation.e72622", "Navigation")} .initialFocus=${"input"} .onClose=${this.onClose} @keydown=${this.navigateDestinations}>
-        <header>
-          <input aria-label="${t("ui.main.cf6ca6ffaff0", "Search navigation")}" aria-describedby="navigation-selection" placeholder="${t("ui.main.5bb0ee874a51", "Search navigation...")}" .value=${this.query} @input=${(event: Event) => {
+        <header class="ui-dialog-header">
+          <input class="ui-input" aria-label="${t("ui.main.cf6ca6ffaff0", "Search navigation")}" aria-describedby="navigation-selection" placeholder="${t("ui.main.5bb0ee874a51", "Search navigation...")}" .value=${this.query} @input=${(event: Event) => {
             if (event.target instanceof HTMLInputElement) {
               this.query = event.target.value;
               this.selectedIndex = 0;
             }
           }}>
-          <button aria-label="${t("ui.main.3b25082eac53", "Close navigation")}" title="${t("ui.common.close", "Close")}" @click=${this.onClose}>×</button>
+          <button class="ui-button" aria-label="${t("ui.main.3b25082eac53", "Close navigation")}" title="${t("ui.common.close", "Close")}" @click=${this.onClose}>×</button>
         </header>
         <span id="navigation-selection" class="sr-only" role="status" aria-live="polite" aria-atomic="true">${tabs.length === 0 ? t("ui.main.317d97cf06f5", "No destinations found.") : t("ui.main.7078c1e86aa2", "{arg0}, {arg1} of {arg2}", { arg0: tabs[this.selectedIndex]?.label ?? "", arg1: String(this.selectedIndex + 1), arg2: String(tabs.length) })}</span>
         <h2>${t("client.actions.navigation.e72622", "Navigation")}</h2>
-        <nav class="options" aria-label="${t("ui.main.c64c7bae5c4b", "Navigation destinations")}">
+        <nav class="options ui-selection-list" aria-label="${t("ui.main.c64c7bae5c4b", "Navigation destinations")}">
           ${tabs.length === 0 ? html`<div class="empty">${t("ui.main.317d97cf06f5", "No destinations found.")}</div>` : nothing}
           ${tabs.map((tab, index) => html`
             <div class="destination">
@@ -68,15 +75,15 @@ export class NavigationDialog extends LitElement {
             </div>
           `)}
         </nav>
-        <footer>
-          <button @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>${t("ui.main.0149e3c3b606", "Show all tabs")}</button>
+        <footer class="ui-dialog-footer">
+          <button class="ui-button" @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>${t("ui.main.0149e3c3b606", "Show all tabs")}</button>
           <div class="mobile-navigation" role="group" aria-label="${t("ui.main.d75ea589d840", "Mobile navigation")}">
             <span>${t("ui.main.31a2dd2fb14a", "Mobile navigation")}</span>
             <div class="toggle-options">
-              <button type="button" aria-pressed=${String(!this.preferences.mobileCollapsed)} @click=${() => {
+              <button class="ui-button" type="button" aria-pressed=${String(!this.preferences.mobileCollapsed)} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: false });
               }}>${t("ui.main.b0e24833f752", "Expanded")}</button>
-              <button type="button" aria-pressed=${String(this.preferences.mobileCollapsed)} @click=${() => {
+              <button class="ui-button" type="button" aria-pressed=${String(this.preferences.mobileCollapsed)} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: true });
               }}>${t("ui.main.e9132e604824", "Collapsed")}</button>
             </div>
@@ -126,25 +133,17 @@ export class NavigationDialog extends LitElement {
     buttons[next]?.scrollIntoView({ block: "nearest" });
   };
 
-  static override styles = [paletteStyles, css`
-    :host { z-index: 30; }
+  static override styles = [uiDialogStyles, uiSelectionStyles, uiToolbarStyles, css`
+    @layer pi-web-base {
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    header, footer { flex: 0 0 auto; }
-    .destination, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    h2 { margin: 0; padding: 12px 12px 4px; font-size: 14px; }
+    footer { justify-content: space-between; flex-wrap: wrap; }
+    h2 { align-self: stretch; padding: 12px 16px 4px; }
     p { margin: 0; padding: 0 12px 12px; color: var(--pi-muted); font-size: 12px; flex: 0 0 auto; }
     nav { overscroll-behavior: contain; }
-    .destination { border-bottom: 1px solid var(--pi-border-muted); gap: 0; }
-    .destination-button { flex: 1; min-width: 0; overflow-wrap: anywhere; text-align: left; padding: 10px 12px; font: inherit; font-weight: 600; }
-    .destination-button.selected, .destination-button:hover { background: var(--pi-selection-bg); }
-    .pin-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 12px; }
+    .destination-button { overflow-wrap: anywhere; font-weight: 600; }
     .pin-button[aria-pressed="true"] svg { color: var(--pi-accent); }
-    footer { padding: 12px; flex-wrap: wrap; border-top: 1px solid var(--pi-border); }
     .mobile-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
-    .toggle-options { display: inline-flex; gap: 4px; }
-    .toggle-options button { font-size: inherit; padding: 5px 7px; }
-    footer button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 7px 9px; }
-    button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
-    footer button[aria-pressed="true"] { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+
+    }
   `];
 }

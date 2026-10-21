@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
 import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
@@ -33,6 +34,11 @@ type PromptSendHandler = ((...args: PromptSendArgs) => void | Promise<void>) | (
 
 @customElement("prompt-editor")
 export class PromptEditor extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ type: Boolean }) disabled = false;
   @property() sessionId?: string;
   @property() cwd?: string;
@@ -142,13 +148,13 @@ export class PromptEditor extends LitElement {
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.compactingHistoryMessagesWillQueue", "Compacting history · Messages will queue")}</div>` : null}
           ${this.renderPromptChips()}
           ${this.renderAttachments()}
-          <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
+          <autocomplete-menu .onClose=${() => { this.closeCompletions(); }} .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
-        <div class="actions">
+        <div class="actions ui-toolbar ui-toolbar--primary">
           ${this.renderCompactStatus()}
-          <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? t("ui.promptEditor.queueAfterCurrentActivity", "Queue after current activity") : t("ui.extensionDialogCard.send", "Send")} aria-label=${queuesInput ? t("ui.promptEditor.queueMessage", "Queue message") : t("ui.extensionDialogCard.send", "Send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="${t("ui.promptEditor.steerTheCurrentResponseBeforeTheNextModel", "Steer the current response before the next model call")}" aria-label="${t("ui.promptEditor.steerCurrentResponse", "Steer current response")}" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
-          <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : t("ui.promptEditor.noTaskIsRunning", "No task is running")} aria-label="${t("ui.promptEditor.stop", "Stop")}" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
+          <button class="ui-button ui-button--icon icon-button send-button" ?disabled=${busy} title=${queuesInput ? t("ui.promptEditor.queueAfterCurrentActivity", "Queue after current activity") : t("ui.extensionDialogCard.send", "Send")} aria-label=${queuesInput ? t("ui.promptEditor.queueMessage", "Queue message") : t("ui.extensionDialogCard.send", "Send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button class="ui-button ui-button--icon icon-button steer-button" ?disabled=${busy} title="${t("ui.promptEditor.steerTheCurrentResponseBeforeTheNextModel", "Steer the current response before the next model call")}" aria-label="${t("ui.promptEditor.steerCurrentResponse", "Steer current response")}" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
+          <button class="ui-button ui-button--icon icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : t("ui.promptEditor.noTaskIsRunning", "No task is running")} aria-label="${t("ui.promptEditor.stop", "Stop")}" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
         </div>
       </footer>
     `;
@@ -192,8 +198,8 @@ export class PromptEditor extends LitElement {
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
       <div class="compact-status" aria-label="${t("ui.promptEditor.sessionStatus", "Session status")}">
-        <button class="select-model" title="${t("client.actions.choose.model.1afed6", "Choose model")}" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking icon-button" title=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} aria-label=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+        <button class="ui-button select-model" title="${t("client.actions.choose.model.1afed6", "Choose model")}" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+        <button class="ui-button ui-button--icon select-thinking icon-button" title=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} aria-label=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
       </div>
     `;
   }
@@ -456,6 +462,9 @@ export class PromptEditor extends LitElement {
   }
 
   private closeCompletions(): boolean {
+    // Dismissal also invalidates loads started while the previous menu was
+    // visible, so a late response cannot reopen it after focus moved away.
+    this.requestVersion += 1;
     if (!this.completions.length) return false;
     this.completions = [];
     return true;

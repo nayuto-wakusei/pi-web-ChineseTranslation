@@ -1,6 +1,8 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import { deepActiveElement, focusElement, isHiddenOrInertInComposedTree, registerRenderedModal, type RenderedModalRegistration } from "./modalLayerRegistry";
+import { hasOpenTransientPopup } from "./popupScope";
 
 const FOCUSABLE_SELECTOR = "button, input, select, textarea, a[href], [tabindex]";
 
@@ -9,7 +11,7 @@ const FOCUSABLE_SELECTOR = "button, input, select, textarea, a[href], [tabindex]
  * cross-cutting modal behaviors so each dialog only renders its own content:
  *
  * - moves focus into the dialog on open (the `initialFocus` target, or the
- *   `role="dialog"` section itself when no target matches),
+ *   native dialog itself when no target matches),
  * - routes Escape and backdrop presses to `onClose`, unless the host sets the
  *   `busy` opt-out (Escape is then routed to the optional `onBusyEscape`),
  * - traps Tab/Shift+Tab within the dialog's focusable elements, including
@@ -18,12 +20,17 @@ const FOCUSABLE_SELECTOR = "button, input, select, textarea, a[href], [tabindex]
  * - keeps focus and modal accessibility ownership on the visually top surface,
  * - restores focus to the previous control or surviving lower dialog on disconnect.
  *
- * The host dialog keeps its own fixed positioning and z-index, renders its
- * content as this element's children, and tunes the shared backdrop/section
- * shell through the `--modal-surface-*` custom properties in `styles`.
+ * An internal native dialog owns top-layer paint order and background inertness.
+ * Hosts render content as children and tune the existing backdrop/section shell
+ * through the `--modal-surface-*` custom properties in `styles`.
  */
 @customElement("modal-surface")
 export class ModalSurface extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   /** Called when Escape or a backdrop press requests closing. Not called while `busy`. */
   @property({ attribute: false }) onClose?: () => void;
   /**
@@ -34,23 +41,20 @@ export class ModalSurface extends LitElement {
   @property({ type: Boolean }) busy = false;
   /** Optional Escape route used only while `busy`. */
   @property({ attribute: false }) onBusyEscape?: () => void;
-  /** Selector of the content element focused on open; falls back to the dialog section. */
+  /** Selector of the content element focused on open; falls back to the native dialog. */
   @property({ attribute: false }) initialFocus?: string;
-  /** Accessible name applied as `aria-label` on the dialog section. */
+  /** Accessible name applied as `aria-label` on the native dialog. */
   @property({ attribute: false }) label?: string;
 
-  @query("section") private section?: HTMLElement;
+  @query("dialog") private dialog?: HTMLDialogElement;
 
   private modalRegistration: RenderedModalRegistration | undefined;
+  private activationAttempted = false;
 
   override connectedCallback(): void {
     super.connectedCallback();
-    this.modalRegistration = registerRenderedModal({
-      element: this,
-      paintElement: modalLayerHost(this),
-      focus: () => { this.focusDialogContent(); },
-      onTopChange: () => { this.requestUpdate(); },
-    });
+    this.activationAttempted = false;
+    this.requestUpdate();
     // Key handling lives on the host, not the shadow section: slotted dialog
     // content bubbles key events up its light-DOM tree to this element, and
     // key presses inside the surface's own shadow section reach it as composed
@@ -62,17 +66,35 @@ export class ModalSurface extends LitElement {
     this.removeEventListener("keydown", this.handleKeyDown);
     const registration = this.modalRegistration;
     this.modalRegistration = undefined;
+    this.dialog?.close();
     super.disconnectedCallback();
     registration?.unregister();
   }
 
-  protected override firstUpdated(): void {
-    this.focusDialog();
+  protected override updated(): void {
+    const dialog = this.dialog;
+    if (!this.isConnected || dialog === undefined || this.activationAttempted) return;
+    this.activationAttempted = true;
+    const registration = registerRenderedModal({
+      element: dialog,
+      focus: () => { this.focusDialogContent(); },
+      onTopChange: () => { this.requestUpdate(); },
+    });
+    this.modalRegistration = registration;
+    try {
+      dialog.showModal();
+      registration.focus();
+      this.requestUpdate();
+    } catch (error) {
+      this.modalRegistration = undefined;
+      registration.unregister();
+      throw error;
+    }
   }
 
   /**
    * Moves focus into the dialog: the `initialFocus` target when one matches,
-   * otherwise the dialog section. Hosts call this after swapping content that
+   * otherwise the native dialog. Hosts call this after swapping content that
    * held focus (for example a step change) so keys keep reaching the dialog.
    */
   focusDialog(): void {
@@ -85,22 +107,21 @@ export class ModalSurface extends LitElement {
   private focusDialogContent(): void {
     const initialTarget = this.initialFocusTarget();
     if (initialTarget !== null && focusElement(initialTarget)) return;
-    if (this.section !== undefined) focusElement(this.section);
+    if (this.dialog !== undefined) focusElement(this.dialog);
   }
 
   override render(): TemplateResult {
     const isTop = this.modalRegistration?.isTop === true;
     return html`
-      <div class="backdrop" @mousedown=${(event: MouseEvent) => { this.handleBackdropMouseDown(event); }}>
-        <section
-          role="dialog"
-          aria-modal=${isTop ? "true" : "false"}
-          aria-hidden=${isTop ? nothing : "true"}
-          aria-busy=${this.busy ? "true" : "false"}
-          aria-label=${this.label ?? nothing}
-          tabindex="-1"
-        ><slot></slot></section>
-      </div>
+      <dialog role="dialog" @cancel=${this.handleCancel}
+        aria-modal=${isTop ? "true" : "false"}
+        aria-hidden=${isTop ? nothing : "true"}
+        aria-busy=${this.busy ? "true" : "false"}
+        aria-label=${this.label ?? nothing}>
+        <div class="backdrop" @mousedown=${(event: MouseEvent) => { this.handleBackdropMouseDown(event); }}>
+          <section class="surface"><slot></slot></section>
+        </div>
+      </dialog>
     `;
   }
 
@@ -114,12 +135,23 @@ export class ModalSurface extends LitElement {
     }
   }
 
+  private readonly handleCancel = (event: Event): void => {
+    // Native cancel must never close independently of the consumer's state.
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.modalRegistration?.isTop !== true) return;
+    if (this.busy) this.onBusyEscape?.();
+    else this.onClose?.();
+  };
+
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (this.modalRegistration?.isTop !== true || event.defaultPrevented) return;
     if (event.key === "Tab") {
       this.trapTabFocus(event);
       return;
     }
     if (event.key !== "Escape") return;
+    if (hasOpenTransientPopup(this.ownerDocument)) return;
     // Escape may cancel an IME candidate without dismissing its containing dialog.
     if (event.isComposing) {
       event.stopPropagation();
@@ -140,13 +172,13 @@ export class ModalSurface extends LitElement {
     const focusable = modalSurfaceFocusableElements(this);
     if (focusable.length === 0) {
       event.preventDefault();
-      this.section?.focus();
+      this.dialog?.focus();
       return;
     }
     const active = deepActiveElement(this.ownerDocument);
     const activeIndex = focusable.findIndex((element) => element === active);
     if (activeIndex === -1) {
-      // Focus rests on the dialog section itself (or an untracked element):
+      // Focus rests on the native dialog itself (or an untracked element):
       // enter the cycle at the edge matching the direction.
       event.preventDefault();
       (event.shiftKey ? focusable.at(-1) : focusable[0])?.focus();
@@ -162,11 +194,12 @@ export class ModalSurface extends LitElement {
   private handleBackdropMouseDown(event: MouseEvent): void {
     // Presses that start on dialog content bubble through the slot; only a
     // press targeting the backdrop itself counts as a dismissal.
-    if (event.target !== event.currentTarget || this.busy) return;
+    if (event.target !== event.currentTarget || this.busy || this.modalRegistration?.isTop !== true) return;
     this.onClose?.();
   }
 
   static override styles = css`
+    @layer pi-web-base {
     /* Host dialogs tune this shell with custom properties (defaults match a
        centered 720px dialog):
          --modal-surface-place-items      backdrop grid alignment (default center)
@@ -175,8 +208,12 @@ export class ModalSurface extends LitElement {
          --modal-surface-height / --modal-surface-max-height / --modal-surface-min-height
          --modal-surface-border / --modal-surface-radius / --modal-surface-shadow */
     :host { display: block; width: 100%; height: 100%; }
+    dialog { position: fixed; inset: 0; box-sizing: border-box; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: hidden; }
+    dialog::backdrop { background: transparent; }
     .backdrop { box-sizing: border-box; width: 100%; height: 100%; display: grid; place-items: var(--modal-surface-place-items, center); padding: var(--modal-surface-backdrop-padding, 0); background: var(--modal-surface-backdrop-background, var(--pi-overlay)); overflow: hidden; }
-    section[role="dialog"] { box-sizing: border-box; width: var(--modal-surface-width, min(720px, 100%)); max-width: var(--modal-surface-max-width, 100%); height: var(--modal-surface-height, auto); max-height: var(--modal-surface-max-height, 100%); min-height: var(--modal-surface-min-height, auto); display: flex; flex-direction: column; border: var(--modal-surface-border, 1px solid var(--pi-border)); border-radius: var(--modal-surface-radius, 12px); background: var(--pi-bg); box-shadow: var(--modal-surface-shadow, 0 20px 60px var(--pi-shadow-strong)); overflow: hidden; }
+    .surface { box-sizing: border-box; width: var(--modal-surface-width, min(720px, 100%)); max-width: var(--modal-surface-max-width, 100%); height: var(--modal-surface-height, auto); max-height: var(--modal-surface-max-height, 100%); min-height: var(--modal-surface-min-height, auto); display: flex; flex-direction: column; border: var(--modal-surface-border, 1px solid var(--pi-border)); border-radius: var(--modal-surface-radius, 12px); background: var(--pi-bg); box-shadow: var(--modal-surface-shadow, 0 20px 60px var(--pi-shadow-strong)); overflow: hidden; }
+
+    }
   `;
 }
 
@@ -244,9 +281,4 @@ function flattenedChildElements(parent: Element | ShadowRoot): Element[] {
   }
   const renderedRoot = parent instanceof Element ? parent.shadowRoot ?? parent : parent;
   return Array.from(renderedRoot.children);
-}
-
-function modalLayerHost(surface: ModalSurface): HTMLElement {
-  const root = surface.getRootNode();
-  return root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : surface;
 }

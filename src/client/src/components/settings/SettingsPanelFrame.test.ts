@@ -44,10 +44,10 @@ describe("settings-panel-frame", () => {
 
     expect(notices.map(settingsNoticeTone)).toEqual(["error", "success", "warning", "info"]);
     expect(values.filter(isNoticeClassOrRole)).toEqual([
-      "notice error", "alert",
-      "notice success", "status",
-      "notice warning", "note",
-      "notice info", "note",
+      "notice ui-notice error", "alert",
+      "notice ui-notice success", "status",
+      "notice ui-notice warning", "note",
+      "notice ui-notice info", "note",
     ]);
   });
 

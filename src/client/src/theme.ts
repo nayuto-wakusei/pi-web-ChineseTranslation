@@ -1,9 +1,9 @@
 import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, ThemeToken } from "./plugins/types";
 
-export interface ThemePreference {
-  themeId: QualifiedContributionId;
-  auto: boolean;
-}
+import type { PiWebThemePreference } from "../../shared/apiTypes";
+import { parseThemePreference } from "../../shared/themePreference";
+
+export type ThemePreference = PiWebThemePreference;
 
 export interface ResolveThemePreferenceOptions {
   themes: readonly QualifiedThemeContribution[];
@@ -63,12 +63,10 @@ export const THEME_TOKENS: ThemeToken[] = [
   "--pi-terminal-selection",
 ];
 
-const qualifiedContributionIdPattern = /^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u;
-
 export function readStoredThemePreference(): ThemePreference | undefined {
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return value === null ? undefined : parseThemePreference(value);
+    return value === null ? undefined : parseThemePreference(JSON.parse(value));
   } catch {
     return undefined;
   }
@@ -82,12 +80,24 @@ export function writeStoredThemePreference(preference: ThemePreference): void {
   }
 }
 
+export function clearStoredThemePreference(): void {
+  try {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch {
+    // As with saving, following the default can still apply for this tab.
+  }
+}
+
+export function effectiveThemePreference(local: ThemePreference | undefined, configuredDefault: ThemePreference | undefined): ThemePreference {
+  return local ?? configuredDefault ?? DEFAULT_THEME_PREFERENCE;
+}
+
 export function applyPiWebTheme(theme: QualifiedThemeContribution): void {
   const root = document.documentElement;
   root.dataset["piWebTheme"] = theme.id;
   root.style.colorScheme = theme.colorScheme;
   for (const token of THEME_TOKENS) {
-    const value = theme.tokens[token];
+    const value = theme.tokens?.[token];
     if (typeof value === "string" && value !== "") root.style.setProperty(token, value);
     else root.style.removeProperty(token);
   }
@@ -114,30 +124,4 @@ export function findFallbackTheme(themes: readonly QualifiedThemeContribution[],
 
 export function findThemePairForTheme(themePairs: readonly QualifiedThemePairContribution[], themeId: QualifiedContributionId): QualifiedThemePairContribution | undefined {
   return themePairs.find((pair) => pair.light === themeId || pair.dark === themeId);
-}
-
-function parseThemePreference(value: string): ThemePreference | undefined {
-  const trimmed = value.trim();
-  if (trimmed === "") return undefined;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    return isThemePreference(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isThemePreference(value: unknown): value is ThemePreference {
-  if (!isUnknownRecord(value)) return false;
-  const themeId = value["themeId"];
-  const auto = value["auto"];
-  return isQualifiedContributionId(themeId) && typeof auto === "boolean";
-}
-
-function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isQualifiedContributionId(value: unknown): value is QualifiedContributionId {
-  return typeof value === "string" && qualifiedContributionIdPattern.test(value);
 }

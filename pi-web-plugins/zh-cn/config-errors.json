@@ -1,4 +1,5 @@
 {
+  "configError.defaultTheme.invalid": "PI WEB 配置 defaultTheme 必须包含限定的 themeId 和布尔值 auto：{source}",
   "configError.pi.web.config.update.must.include.a.config.object.ec8277": "PI WEB 配置 更新必须包含 config 对象",
   "configError.pi.web.config.update.must.include.a.config.object.ec8277.selectedMachine": "PI WEB 所选机器配置 更新必须包含 config 对象",
   "configError.pi.web.config.field.must.be.an.integer.from.1.to.65535.field.2efa42": "PI WEB 配置 {value1} 必须是 1 到 65535 的整数: {value2}",

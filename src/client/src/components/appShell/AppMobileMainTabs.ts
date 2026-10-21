@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -21,6 +22,11 @@ export interface AppMobileMainTab {
 
 @customElement("app-mobile-main-tabs")
 export class AppMobileMainTabs extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) tabs: AppMobileMainTab[] = [];
   @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ type: Boolean }) hiddenActiveDestination = false;
@@ -156,16 +162,21 @@ export class AppMobileMainTabs extends LitElement {
   };
 
   static override styles = css`
+    @layer pi-web-base {
     :host { flex: 0 0 auto; min-width: 0; }
     .mobile-tabs-frame { position: relative; display: flex; flex: 0 0 auto; min-width: 0; border-bottom: 1px solid var(--pi-border); background: var(--pi-bg); }
     .mobile-tabs-frame::before, .mobile-tabs-frame::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
     .mobile-tabs-frame::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
     .mobile-tabs-frame::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
     .mobile-tabs-frame.can-scroll-left::before, .mobile-tabs-frame.can-scroll-right::after { opacity: 1; }
-    .mobile-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 8px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+    .mobile-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; gap: 0; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
     .mobile-tabs-frame button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .mobile-tabs-frame button + button { border-inline-start: 1px solid var(--pi-border-muted); }
     .mobile-tabs .navigation-tab { display: none; }
-    .mobile-tabs-frame button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .mobile-tabs-frame button.selected { box-shadow: inset 0 -2px var(--pi-accent); background: var(--pi-selection-bg); }
+    button:hover { background: var(--pi-surface-hover); }
+    button.selected:hover { background: var(--pi-selection-bg); }
+    button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
     .tab-icon { flex: 0 0 auto; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
     .tab-custom-icon { flex: 0 0 auto; width: 18px; height: 18px; display: inline-grid; place-items: center; color: currentColor; pointer-events: none; }
     .tab-custom-icon svg { width: 18px; height: 18px; pointer-events: none; }
@@ -173,13 +184,14 @@ export class AppMobileMainTabs extends LitElement {
     .tab-label { min-width: 0; }
     .tab-badge { flex: 0 0 auto; display: inline-block; min-width: 14px; margin-left: 0; border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 0 5px; font-size: 11px; line-height: 16px; text-align: center; }
     .tab-badge.unread { border-color: var(--pi-accent-border); background: var(--pi-selection-bg); color: var(--pi-accent); }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+    button { box-sizing: border-box; min-width: 44px; min-height: 44px; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 10px 12px; cursor: pointer; }
     @media (max-width: 760px) {
-      .mobile-tabs { gap: 4px; padding: 6px 8px; }
       .mobile-tabs-frame button { min-width: 44px; height: 44px; justify-content: center; gap: 4px; padding: 0 8px; }
       .mobile-tabs .navigation-tab { display: inline-flex; }
       .tab-fallback { display: inline-block; }
       .tab-badge { min-width: 13px; padding: 0 4px; font-size: 10px; line-height: 13px; }
+    }
+
     }
   `;
 }

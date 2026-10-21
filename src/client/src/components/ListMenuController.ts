@@ -1,22 +1,25 @@
 ﻿import type { ReactiveController, ReactiveControllerHost } from "lit";
-import { actionMenuPanelStyle } from "./actionMenu";
+import { AnchoredPopupController } from "./anchoredPopup";
 
 type ListMenuHost = ReactiveControllerHost & HTMLElement;
 
 export class ListMenuController implements ReactiveController {
   openId: string | undefined;
   menuStyle = "";
+  private anchor: HTMLElement | undefined;
 
   constructor(private readonly host: ListMenuHost) {
     host.addController(this);
-  }
-
-  hostConnected(): void {
-    document.addEventListener("click", this.onDocumentClick);
+    new AnchoredPopupController(host, () => {
+      const panel = host.shadowRoot?.querySelector<HTMLElement>(".action-menu-panel");
+      return this.openId !== undefined && this.anchor !== undefined && panel
+        ? { anchor: this.anchor, panel, onClose: () => { this.close(); }, options: { minWidth: 120 } }
+        : undefined;
+    });
   }
 
   hostDisconnected(): void {
-    document.removeEventListener("click", this.onDocumentClick);
+    this.close();
   }
 
   isOpen(id: string): boolean {
@@ -28,7 +31,7 @@ export class ListMenuController implements ReactiveController {
       this.close();
       return;
     }
-    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
+    this.anchor = target instanceof HTMLElement ? target : undefined;
     this.openId = id;
     this.host.requestUpdate();
   }
@@ -37,6 +40,7 @@ export class ListMenuController implements ReactiveController {
     if (this.openId === undefined && this.menuStyle === "") return;
     this.openId = undefined;
     this.menuStyle = "";
+    this.anchor = undefined;
     this.host.requestUpdate();
   }
 
@@ -56,8 +60,4 @@ export class ListMenuController implements ReactiveController {
     return true;
   }
 
-  private readonly onDocumentClick = (event: MouseEvent) => {
-    if (event.composedPath().includes(this.host)) return;
-    this.close();
-  };
 }

@@ -14,7 +14,28 @@ import type {
   WorkspaceFilesContextValue,
   WorkspacePanelContext,
   WorkspacePanelFiles,
+  StylesheetContribution,
+  StylesheetIntegrationCapabilityV1,
+  ThemeContribution,
+  ThemeContributionV5,
 } from "@chainingintention/pi-web-cn/plugin-api";
+
+export function checkStylesheets(integration: StylesheetIntegrationCapabilityV1, root: ShadowRoot): void {
+  const release = integration.registerRoot(root, { sharedUi: true });
+  const unsubscribe = integration.subscribe(() => undefined);
+  unsubscribe();
+  release();
+}
+
+export const cssTheme: ThemeContributionV5 = {
+  id: "night", name: "Night", colorScheme: "dark",
+  stylesheets: [{ id: "palette", url: "https://plugins.test/night.css" } satisfies StylesheetContribution],
+};
+export const legacyTheme: ThemeContribution = { id: "legacy", name: "Legacy", colorScheme: "dark", tokens: { "--pi-bg": "#111" } };
+// @ts-expect-error v4 themes retain the required palette contract.
+export const missingLegacyPalette: ThemeContribution = { id: "bad", name: "Bad", colorScheme: "dark" };
+// @ts-expect-error v5 themes are CSS-first, not legacy palette objects.
+export const paletteOnV5Theme: ThemeContributionV5 = { ...cssTheme, tokens: { "--pi-bg": "#111" } };
 
 export function checkLocalization(translate?: Translator): LocalizationContribution {
   const parameters: TranslationParameters = { name: "fixture", count: 1 };

@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { isMarkdownDocumentPath, renderRelayDocumentHtml } from "./markdownDocument.js";
 import {
   ancestorDirectoryPaths,
@@ -44,6 +44,26 @@ interface RelaySelection {
  * horizontal scroll position and keyboard focus survive document switches.
  */
 class PiWebRelaysPanel extends HTMLElement {
+  private integration: StylesheetIntegrationCapabilityV1 | undefined;
+  private releaseStyles: (() => void) | undefined;
+
+  set stylesheetIntegration(value: StylesheetIntegrationCapabilityV1 | undefined) {
+    if (value === this.integration) return;
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+    this.integration = value;
+    if (this.isConnected) this.releaseStyles = value?.registerRoot(this.root, { sharedUi: true });
+  }
+
+  connectedCallback(): void {
+    this.releaseStyles ??= this.integration?.registerRoot(this.root, { sharedUi: true });
+  }
+
+  disconnectedCallback(): void {
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+  }
+
   private contextValue: WorkspacePanelContext | undefined;
   private listing: RelaysListing | undefined;
   private selectedRelayPath: string | undefined;
@@ -62,8 +82,8 @@ class PiWebRelaysPanel extends HTMLElement {
     this.root = this.attachShadow({ mode: "open" });
     this.root.innerHTML = `
       ${relaysStyles()}
-      <section class="toolbar" hidden></section>
-      <nav class="document-tabs" aria-label="${escapeAttr(t("bundled.relays.relay.documents.91711b", "Relay documents"))}" hidden></nav>
+      <section class="toolbar ui-toolbar" hidden></section>
+      <nav class="document-tabs ui-tabs" aria-label="${escapeAttr(t("bundled.relays.relay.documents.91711b", "Relay documents"))}" hidden></nav>
       <section class="viewer"><div class="empty">${escapeHtml(t("bundled.relays.select.a.workspace.234859", "Select a workspace."))}</div></section>
     `;
     this.toolbar = requiredRegion(this.root, ".toolbar");
@@ -274,9 +294,9 @@ class PiWebRelaysPanel extends HTMLElement {
     this.toolbar.hidden = false;
     this.toolbar.innerHTML = `
       <strong>${escapeHtml(t("bundled.relays.relays.715ce8", "Relays"))}</strong>
-      <span class="toolbar-actions">
+      <span class="toolbar-actions ui-toolbar-group">
         ${this.renderRelayPicker()}
-        <button class="icon-button" data-refresh aria-label="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}" title="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}">${refreshIconSvg()}</button>
+        <button class="ui-button ui-button--compact ui-button--icon" data-refresh aria-label="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}" title="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}">${refreshIconSvg()}</button>
       </span>
     `;
   }
@@ -293,7 +313,7 @@ class PiWebRelaysPanel extends HTMLElement {
       const selected = relay.path === this.selectedRelayPath ? " selected" : "";
       return `<option value="${escapeAttr(relay.path)}"${selected}>${escapeHtml(relay.name)}</option>`;
     }).join("");
-    return `<select data-relay-picker aria-label="${escapeAttr(t("bundled.relays.relays.715ce8", "Relays"))}">${options}</select>`;
+    return `<select class="ui-select" data-relay-picker aria-label="${escapeAttr(t("bundled.relays.relays.715ce8", "Relays"))}">${options}</select>`;
   }
 
   private renderTabs(): void {
@@ -319,28 +339,28 @@ class PiWebRelaysPanel extends HTMLElement {
       if (node.kind === "file") return this.renderFileTab(node);
       const chip = this.renderDirectoryChip(node, containsActivePath);
       if (!this.expandedDirs.has(node.path) || node.children.length === 0) return chip;
-      return `<span class="directory-group">${chip}${this.renderStripNodes(node.children, containsActivePath)}</span>`;
+      return `<span class="directory-group ui-toolbar-group">${chip}${this.renderStripNodes(node.children, containsActivePath)}</span>`;
     }).join("");
   }
 
   private renderFileTab(file: RelayFileNode): string {
     const active = file.path === this.selectedDocumentPath;
-    return `<button class="document-tab${active ? " active" : ""}" data-document-path="${escapeAttr(file.path)}" title="${escapeAttr(file.relativePath)}"${active ? ' aria-current="true"' : ""}>${escapeHtml(file.name)}</button>`;
+    return `<button class="ui-button ui-tab document-tab${active ? " selected" : ""}" data-document-path="${escapeAttr(file.path)}" title="${escapeAttr(file.relativePath)}"${active ? ' aria-current="page"' : ""}>${escapeHtml(file.name)}</button>`;
   }
 
   private renderDirectoryChip(directory: RelayDirectoryNode, containsActivePath: string | undefined): string {
     const expanded = this.expandedDirs.has(directory.path);
     const containsActive = directory.path === containsActivePath;
     const title = containsActive ? t("ui.main.6a634d20bc86", "Contains the open document") : directory.relativePath;
-    return `<button class="document-tab directory-tab${containsActive ? " contains-active" : ""}" data-directory-path="${escapeAttr(directory.path)}" title="${escapeAttr(title)}" aria-expanded="${expanded ? "true" : "false"}">${chevronSvg()}${escapeHtml(directory.name)}</button>`;
+    return `<button class="ui-button ui-tab document-tab directory-tab${containsActive ? " contains-active" : ""}" data-directory-path="${escapeAttr(directory.path)}" title="${escapeAttr(title)}" aria-expanded="${expanded ? "true" : "false"}">${chevronSvg()}${escapeHtml(directory.name)}</button>`;
   }
 
   /** Move the active marker between the mounted tab buttons without rebuilding them. */
   private updateActiveTab(): void {
     for (const tab of this.tabStrip.querySelectorAll("button[data-document-path]")) {
       const active = tab.getAttribute("data-document-path") === this.selectedDocumentPath;
-      tab.classList.toggle("active", active);
-      if (active) tab.setAttribute("aria-current", "true");
+      tab.classList.toggle("selected", active);
+      if (active) tab.setAttribute("aria-current", "page");
       else tab.removeAttribute("aria-current");
     }
     for (const chip of this.tabStrip.querySelectorAll("button[data-directory-path]")) chip.classList.remove("contains-active");
@@ -478,29 +498,23 @@ function relaysStyles(): string {
          (the app container is a fixed-height flex column; with shrink enabled
          the viewer's huge content basis starves them down to a sliver once a
          tall document renders). The viewer absorbs all shrinking instead. */
-      .toolbar { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--pi-border-muted); }
+      .toolbar { flex: 0 0 auto; justify-content: space-between; padding-inline-start: 10px; }
       .toolbar[hidden], .document-tabs[hidden] { display: none; }
-      .toolbar-actions { display: inline-flex; align-items: center; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; min-width: 0; }
+      .toolbar-actions { justify-content: flex-end; }
       .relay-name { min-width: 0; color: var(--pi-text-secondary); overflow-wrap: anywhere; }
-      /* Bottom padding (not viewer margin) so the gap below the tabs persists
-         when the viewer's content scrolls up against its top edge. */
-      .document-tabs { flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 6px; padding: 8px 12px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+      .document-tabs { flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
       .viewer { flex: 1 1 auto; box-sizing: border-box; display: grid; align-content: start; gap: 12px; min-height: 0; overflow: auto; padding: 12px; }
       /* Grid children default to min-width: auto; without these caps a wide code
          block or table would silently stretch the whole viewer track. */
       .viewer > * { box-sizing: border-box; min-width: 0; max-width: 100%; }
-      button, select { border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); font: inherit; }
-      button { cursor: pointer; padding: 6px 10px; }
-      button.icon-button { flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; }
-      button.icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-      select { min-width: 0; max-width: 240px; padding: 5px 6px; }
-      .document-tab { flex: 0 0 auto; white-space: nowrap; font-size: 12px; padding: 4px 10px; }
-      .document-tab.active { border-color: var(--pi-accent-border); background: var(--pi-accent); color: var(--pi-bg); }
-      .directory-group { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid var(--pi-border-muted); border-radius: 10px; background: var(--pi-bg-overlay-soft); padding: 0; margin: -1px 0; }
-      .directory-tab { display: inline-flex; align-items: center; gap: 5px; }
+      [data-refresh] svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+      select { min-width: 0; max-width: 240px; }
+      /* Folder controls interleave with file tabs; shared groups keep nested controls contiguous. */
       .directory-tab .chevron { flex: 0 0 auto; width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.12s ease; }
       .directory-tab[aria-expanded="true"] .chevron { transform: rotate(90deg); }
-      .directory-tab.contains-active { border-color: var(--pi-accent-border); color: var(--pi-accent); }
+      /* The selection survives a folder collapse: the nearest collapsed ancestor
+         highlights instead, without taking the fill reserved for the open document. */
+      .directory-tab.contains-active { color: var(--pi-accent); }
       .directory-tab.contains-active::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--pi-accent); }
       code, pre { border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-bg); color: var(--pi-text-secondary); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       code { padding: 2px 5px; }

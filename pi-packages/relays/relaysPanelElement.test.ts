@@ -858,7 +858,7 @@ function tabNames(panel: RelaysPanelTestElement): string[] {
 }
 
 function activeTab(panel: RelaysPanelTestElement): Element | null {
-  return shadow(panel).querySelector("button[data-document-path].active");
+  return shadow(panel).querySelector("button[data-document-path][aria-current='page']");
 }
 
 function tabNamed(panel: RelaysPanelTestElement, name: string): HTMLElement {

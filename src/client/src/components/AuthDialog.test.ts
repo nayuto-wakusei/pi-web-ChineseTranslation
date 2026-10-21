@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installNativeDialogFake } from "./nativeDialog.testSupport";
+installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthDialogTarget, AuthDialogState } from "../appState";
@@ -474,7 +476,7 @@ function dialogSurface(dialog: AuthDialog): ModalSurface {
 }
 
 function dialogSection(dialog: AuthDialog): HTMLElement {
-  return requiredElement(dialogSurface(dialog).shadowRoot?.querySelector("section[role='dialog']"), "auth-dialog dialog section");
+  return requiredElement(dialogSurface(dialog).shadowRoot?.querySelector("dialog"), "auth-dialog dialog");
 }
 
 function promptInput(dialog: AuthDialog): HTMLInputElement {

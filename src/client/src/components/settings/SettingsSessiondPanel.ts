@@ -1,3 +1,7 @@
+import { uiSettingsStyles } from "../ui/settingsStyles";
+import { uiButtonStyles } from "../ui/controlStyles";
+import { uiFormStyles } from "../ui/formStyles";
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -10,6 +14,11 @@ import { agentDirFieldOverridden, agentProfileActivationState, askUserConfigPatc
 
 @customElement("settings-sessiond-panel")
 export class SettingsSessiondPanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
   @property({ type: Boolean }) loading = false;
   @property({ type: Boolean }) saving = false;
@@ -70,19 +79,19 @@ export class SettingsSessiondPanel extends LitElement {
         .onAction=${this.onReload}
       >
         ${config === undefined ? this.renderUnavailableConfigState() : html`
-          <div class="config-path-card">
+          <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
             <code>${config.path}</code>
           </div>
-          <form class="profile-form" aria-label="${t("ui.settingsSessiondPanel.piCompatibleAgentProfile", "Pi-compatible agent profile")}" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
+          <form class="profile-form ui-settings-fields" aria-label="${t("ui.settingsSessiondPanel.piCompatibleAgentProfile", "Pi-compatible agent profile")}" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
             ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? t("ui.settingsSessiondPanel.thisMachineDoesNotSupportEditingPiCompatible", "This machine does not support editing Pi-compatible agent profiles.")}</div>`}
-            <label class="field">
+            <label class="field ui-form-field">
               <span class="field-heading">
                 <span>${t("ui.settingsSessiondPanel.companionCliCommand", "Companion CLI command")}</span>
                 ${agentCommandOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
               </span>
               <input
-                class="text-input"
+                class="text-input ui-input"
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
@@ -93,13 +102,13 @@ export class SettingsSessiondPanel extends LitElement {
               >
               <small>${t("ui.settingsSessiondPanel.setThePiCompatibleCompanionCliUsedFor", "Set the Pi-compatible companion CLI used for diagnostics and update checks. Embedded sessions still use the Pi SDK bundled with PI WEB.")}</small>
             </label>
-            <label class="field">
+            <label class="field ui-form-field">
               <span class="field-heading">
                 <span>${t("ui.settingsSessiondPanel.profileStateDirectory", "Profile state directory")}</span>
                 ${effectiveAgentDirOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
               </span>
               <input
-                class="text-input"
+                class="text-input ui-input"
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
@@ -110,16 +119,16 @@ export class SettingsSessiondPanel extends LitElement {
               >
               <small>${t("ui.settingsSessiondPanel.chooseThePiCompatibleAuthenticationModelSettingsAnd", "Choose the Pi-compatible authentication, model, settings, and session directory PI WEB reads. Alternate commands are saved with their required state directory.")}</small>
             </label>
-            <footer class="form-actions">
-              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsSessiondPanel.saveAgentProfile", "Save agent profile")}</button>
+            <footer class="form-actions ui-settings-actions">
+              <button class="primary ui-button ui-button--action ui-button--primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsSessiondPanel.saveAgentProfile", "Save agent profile")}</button>
             </footer>
           </form>
-          <div class="field">
+          <div class="field ui-form-field">
             <span class="field-heading">
               <span>${t("ui.settingsSessiondPanel.allowAgentsToStartSessions", "Allow agents to start sessions")}</span>
               ${spawnOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
-            <label class="toggle">
+            <label class="toggle ui-checkbox-field">
               <input
                 type="checkbox"
                 .checked=${effectiveSpawn}
@@ -130,12 +139,12 @@ export class SettingsSessiondPanel extends LitElement {
             </label>
             <small>${t("ui.settingsSessiondPanel.whenEnabledTheLlmCanStartSessionsWithin", "When enabled, the LLM can start sessions within workspaces of the same registered project, including any worktree, so every spawned session appears here. Enabled by default.")}</small>
           </div>
-          <div class="field">
+          <div class="field ui-form-field">
             <span class="field-heading">
               <span>${t("ui.settingsSessiondPanel.allowAgentsToStartTrackedSubsessions", "Allow agents to start tracked subsessions")}</span>
               ${subsessionsOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
-            <label class="toggle">
+            <label class="toggle ui-checkbox-field">
               <input
                 type="checkbox"
                 .checked=${effectiveSubsessions}
@@ -146,12 +155,12 @@ export class SettingsSessiondPanel extends LitElement {
             </label>
             <small>${t("ui.main.ff88ab94196f", "Agents can start child sessions they stay attached to (")}<code>spawn_subsession</code>${t("bundled.info.list.separator", ", ")}<code>list_subsessions</code>${t("bundled.info.list.separator", ", ")}<code>check_subsession</code>${t("bundled.info.list.separator", ", ")}<code>read_subsession</code>${t("ui.main.c36dc9dce940", ") and are notified when a child finishes. Requires \"Allow agents to start sessions\". On by default.")}</small>
           </div>
-          <div class="field">
+          <div class="field ui-form-field">
             <span class="field-heading">
               <span>${t("ui.settingsSessiondPanel.allowAgentsToAskQuestions", "Allow agents to ask questions")}</span>
               ${askUserOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
-            <label class="toggle">
+            <label class="toggle ui-checkbox-field">
               <input
                 type="checkbox"
                 aria-label="${t("ui.settingsSessiondPanel.enableAgentQuestions", "Enable agent questions")}"
@@ -165,7 +174,7 @@ export class SettingsSessiondPanel extends LitElement {
               ? html`${t("ui.settingsSessiondPanel.agentsCanPresentStructuredQuestionFormsAndPause", "Agents can present structured question forms and pause for answers. Enabled by default.")}`
               : html`${t("ui.settingsSessiondPanel.thisMachineDoesNotProvideAgentQuestionSettings", "This machine does not provide agent question settings. Update and restart PI WEB on that machine.")}`}</small>
           </div>
-          <section class="effective-card" aria-label="${t("ui.settingsGeneralPanel.effectiveConfigurationSummary", "Effective configuration summary")}">
+          <section class="effective-card ui-settings-summary" aria-label="${t("ui.settingsGeneralPanel.effectiveConfigurationSummary", "Effective configuration summary")}">
             <h3>${t("ui.settingsSessiondPanel.effectiveConfigurationAfterEnvironmentOverrides", "Effective configuration after environment overrides")}</h3>
             <dl>
               <div><dt>${t("ui.settingsSessiondPanel.desiredCommand", "Desired command")}</dt><dd>${effectiveAgent?.command ?? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>`}</dd></div>
@@ -227,43 +236,16 @@ export class SettingsSessiondPanel extends LitElement {
     await this.onSave?.(askUserConfigPatch(enabled));
   }
 
-  static override styles = css`
+  static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`
+    @layer pi-web-base {
     :host { display: block; }
     h3 { margin: 0; font-size: 13px; line-height: 1.3; }
-    button, input { font: inherit; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    .loading-card, .config-path-card, .effective-card, .profile-support-message { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
     .loading-card { color: var(--pi-muted); }
-    .config-path-card { display: grid; gap: 5px; }
-    .profile-form { display: grid; gap: 14px; }
-    .profile-support-message { color: var(--pi-muted); line-height: 1.45; }
-    .form-actions { display: flex; justify-content: flex-end; }
-    .primary { border-color: var(--pi-accent); background: var(--pi-accent); color: var(--pi-accent-contrast); }
-    .config-path-card span, .field-heading, dt { color: var(--pi-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-    .field { display: grid; gap: 7px; }
-    .field small { color: var(--pi-muted); line-height: 1.45; }
-    .field-heading { display: flex; align-items: center; gap: 8px; }
-    .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
-    .toggle input { width: 16px; height: 16px; }
-    .text-input {
-      width: 100%;
-      min-width: 0;
-      box-sizing: border-box;
-      border: 1px solid var(--pi-border);
-      border-radius: 8px;
-      background: var(--pi-bg);
-      color: var(--pi-text);
-      padding: 8px 9px;
-      outline: none;
-      font: var(--pi-control-font-size, 16px) var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-    }
-    .text-input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
-    .text-input:disabled { opacity: .55; cursor: not-allowed; }
-    .toggle input:disabled { cursor: not-allowed; }
-    .override-badge { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); background: var(--pi-warning-surface); padding: 2px 7px; font-size: 11px; font-weight: 600; text-transform: none; }
-    .effective-card { display: grid; gap: 10px; }
+    .config-path-card span, dt { color: var(--pi-muted); font-size: 12px; font-weight: 600; }
+    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
+    .field small, .effective-card small { color: var(--pi-muted); line-height: 1.45; }
+    .naming-model { justify-content: space-between; text-align: start; gap: 12px; }
+    #session-naming-model-value { min-width: 0; overflow-wrap: anywhere; }
     .effective-card dl { display: grid; gap: 8px; margin: 0; }
     .effective-card dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }
     dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
@@ -272,7 +254,9 @@ export class SettingsSessiondPanel extends LitElement {
     @media (max-width: 760px) {
       .effective-card dl > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
     }
-  `;
+
+    }
+  `];
 }
 
 function profileActivationLabel(state: ReturnType<typeof agentProfileActivationState>): string | TemplateResult {

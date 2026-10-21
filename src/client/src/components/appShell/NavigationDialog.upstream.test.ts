@@ -4,6 +4,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { NavigationDialog } from "./NavigationDialog";
 import type { ModalSurface } from "../ModalSurface";
 import { deepActiveElement } from "../modalLayerRegistry";
+import { installNativeDialogFake } from "../nativeDialog.testSupport";
+
+installNativeDialogFake();
 
 afterEach(() => {
   document.body.replaceChildren();

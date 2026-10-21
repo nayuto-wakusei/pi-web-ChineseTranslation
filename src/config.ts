@@ -299,6 +299,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["port"];
   delete existing["allowedHosts"];
   delete existing["shortcuts"];
+  delete existing["defaultTheme"];
   delete existing["plugins"];
   delete existing["pathAccess"];
   delete existing["uploads"];

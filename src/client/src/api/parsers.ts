@@ -11,6 +11,7 @@ import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 import type { MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { SessionUiEvent, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
+import { requireDefaultThemePreference } from "../../../shared/themePreference";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -1511,6 +1512,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("port", optionalNumber(record, "port")),
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
+    ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
     ...optionalField("uploads", optionalUploads(record["uploads"])),

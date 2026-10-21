@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -9,6 +10,11 @@ import type { NavigationSection } from "../../appShell/navigationState";
 
 @customElement("app-context-bar")
 export class AppContextBar extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) machine?: Machine;
   /** PWA display mode: surfaces the machine location identity in the breadcrumb. */
@@ -167,31 +173,35 @@ export class AppContextBar extends LitElement {
   };
 
   static override styles = css`
+    @layer pi-web-base {
     /* Keep the refresh menu in this shadow tree above the following mobile tab strip. */
     :host { position: relative; z-index: 20; flex: 0 0 auto; min-width: 0; }
-    .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
-    .context-bar::before, .context-bar::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-    .context-bar::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
-    .context-bar::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
-    .context-bar.can-scroll-left::before, .context-bar.can-scroll-right::after { opacity: 1; }
+    .context-bar { position: relative; flex: 0 0 auto; min-width: 0; min-height: 44px; display: flex; align-items: stretch; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+    .context-bar.can-scroll-left .context-items { box-shadow: inset 8px 0 6px -8px var(--pi-shadow-strong); }
+    .context-bar.can-scroll-right .context-items { box-shadow: inset -8px 0 6px -8px var(--pi-shadow-strong); }
+    .context-bar.can-scroll-left.can-scroll-right .context-items { box-shadow: inset 8px 0 6px -8px var(--pi-shadow-strong), inset -8px 0 6px -8px var(--pi-shadow-strong); }
     .context-bar-label { display: none; }
-    .context-items { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; gap: 5px; margin: 0; padding: 0 8px; list-style: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-padding-inline: 8px; scrollbar-width: thin; }
+    .context-items { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; margin: 0; padding: 0; list-style: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+    .context-items::-webkit-scrollbar { display: none; }
     .context-item { flex: 0 0 auto; min-width: 0; display: flex; }
-    .context-actions { position: relative; flex: 0 0 auto; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--pi-bg); pointer-events: none; }
-    .context-actions::before { content: ""; position: absolute; top: 0; bottom: 0; left: -24px; z-index: 0; width: 24px; background: linear-gradient(90deg, transparent, var(--pi-bg)); pointer-events: none; }
-    app-refresh-control, .context-action-button { position: relative; z-index: 1; pointer-events: auto; }
-    .context-action-button { box-sizing: border-box; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 0; line-height: 1; }
-    .context-action-button.selected, .context-action-button:hover, .context-action-button:focus-visible { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .context-item + .context-item { border-inline-start: 1px solid var(--pi-border-muted); }
+    .context-actions { position: relative; flex: 0 0 auto; z-index: 3; display: flex; align-items: stretch; border-inline-start: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+    .context-action-button { box-sizing: border-box; width: 44px; min-height: 44px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 0; line-height: 1; }
+    .context-actions > * + * { border-inline-start: 1px solid var(--pi-border-muted); }
+    .context-action-button.selected { background: var(--pi-selection-bg); }
+    .context-action-button:hover { background: var(--pi-surface-hover); }
+    .context-action-button:focus-visible, button.context-chip:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
     .context-action-icon { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
-    .context-chip { flex: 0 0 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border-muted); border-radius: 999px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 8px; font: inherit; text-align: left; }
+    .context-chip { box-sizing: border-box; flex: 0 0 auto; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 0 12px; font: inherit; text-align: left; }
     .context-chip-icon { flex: 0 0 auto; width: 14px; height: 14px; }
     .context-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pi-muted); font-size: 11px; }
     button.context-chip:hover { background: var(--pi-surface-hover); }
-    button.context-chip:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
-    .context-chip.empty { border-style: dashed; color: var(--pi-muted); }
+    .context-chip.empty { color: var(--pi-muted); }
     .context-kind { display: none; }
     .context-value { min-width: 0; overflow: visible; text-overflow: clip; white-space: nowrap; }
     button { cursor: pointer; }
+
+    }
   `;
 }
 

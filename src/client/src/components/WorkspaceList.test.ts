@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installPopoverFake } from "./anchoredPopup.testSupport";
+installPopoverFake();
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { trustApi } from "../api";

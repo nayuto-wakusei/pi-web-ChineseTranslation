@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import type { DisplayedMessageActionAvailabilityContext, MessageActionAvailabilityContext, MessageActionFeedback, MessageActionResult } from "../../../plugin-api";
 import { displayedMessageActionMessage, messageActionMessage, MessageActionAvailabilityCache, type RegisteredMessageAction } from "../plugins/messageActions";
 import { clientLocale, t } from "../i18n.js";
@@ -224,6 +225,11 @@ export interface RenderedChatTranscript {
 
 @customElement("chat-view")
 export class ChatView extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) messages: ChatLine[] = [];
   @property() sessionId = "";
   @property() machineId = "local";
@@ -459,7 +465,6 @@ export class ChatView extends LitElement {
       if (this.imageZoomModalRegistration === undefined) {
         const registration = registerRenderedModal({
           element: dialog,
-          nativeTopLayer: true,
           focus: () => {
             const close = this.renderRoot.querySelector<HTMLElement>(".image-zoom-close");
             (close ?? dialog).focus();

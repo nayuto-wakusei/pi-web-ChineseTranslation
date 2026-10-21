@@ -29,10 +29,11 @@ describe("ask-user-card live form", () => {
     expect(legends[0]?.textContent).toContain("Choose an editor");
     expect(fieldsets[0]?.getAttribute("aria-describedby")).toBe("ask-user-question-detail-0");
     expect(root.querySelector("#ask-user-question-detail-0")?.textContent).toBe("Used for examples.\n  Keep the indentation.");
-    expect(getComputedStyle(requiredElement(root.querySelector("#ask-user-question-detail-0"), "question detail")).whiteSpace).toBe("pre-wrap");
+    // happy-dom does not compute styles inside cascade layers.
+    expect(AskUserCard.styles.cssText).toMatch(/\.question-detail\s*\{[^}]*white-space:\s*pre-wrap/);
     const optionDetail = requiredElement(root.querySelector(".option-detail"), "option detail");
     expect(optionDetail.textContent).toBe("Fast\n  and familiar.");
-    expect(getComputedStyle(optionDetail).whiteSpace).toBe("pre-wrap");
+    expect(AskUserCard.styles.cssText).toMatch(/\.option-detail\s*\{[^}]*white-space:\s*pre-wrap/);
     expect(vim.type).toBe("radio");
     expect(code.name).toBe(vim.name);
     expect(web.type).toBe("checkbox");

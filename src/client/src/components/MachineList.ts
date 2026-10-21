@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -9,9 +10,15 @@ import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import { sidebarListStyles } from "./sidebarListStyles";
 
 @customElement("machine-list")
 export class MachineList extends LitElement implements KeyboardNavigableSection {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) selected?: Machine;
   @property({ attribute: false }) statuses: Record<string, MachineHealth> = {};
@@ -40,7 +47,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   override render() {
     return html`
       <section>
-        <h2>${this.renderHeading()}</h2>
+        <h2 class="ui-toolbar">${this.renderHeading()}</h2>
         ${this.collapsed ? null : html`
           <div class="list-body">
             ${this.machines.map((machine) => this.renderMachine(machine))}
@@ -85,7 +92,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
     return html`
       <div class="action-menu">
         <button
-          class="action-menu-toggle"
+          class="ui-button ui-button--icon action-menu-toggle"
           title="${t("ui.machineSwitcher.machineActions", "Machine actions")}"
           aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: machine.name })}
           aria-expanded=${String(open)}
@@ -93,8 +100,8 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(machine.id, event.currentTarget); }}
         >⋯</button>
         ${open ? html`
-          <div class="action-menu-panel machine-menu-panel" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-            <button class="danger" title=${t("ui.promptEditor.remove", "Remove {name}", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${t("ui.settingsPackagesPanel.remove", "Remove")}</button>
+          <div popover="auto" class="ui-menu action-menu-panel machine-menu-panel" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
+            <button class="ui-button ui-menu-item danger" title=${t("ui.promptEditor.remove", "Remove {name}", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${t("ui.settingsPackagesPanel.remove", "Remove")}</button>
           </div>
         ` : null}
       </div>
@@ -105,7 +112,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
     if (!this.collapsible) return t("bundled.info.machine.ece969", "Machine");
     const selectedSummary = this.selected?.name ?? t("ui.machineList.noMachineSelected", "No machine selected");
     const selectedTitle = this.selected?.baseUrl ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("bundled.info.machine.ece969", "Machine")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.machines.length}</small></button>`;
+    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("bundled.info.machine.ece969", "Machine")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.machines.length}</small></button>`;
   }
 
   private removeMachine(machine: Machine): void {
@@ -124,13 +131,14 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
 
   static override styles = [
     listStyles,
+    sidebarListStyles,
     css`
-      .machine-row.no-actions .action-main { border-radius: 8px; }
+    @layer pi-web-base {
       .machine-primary { display: flex; align-items: baseline; gap: 6px; }
       .machine-primary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-      .machine-menu-panel button.danger { color: var(--pi-danger); }
-      .machine-menu-panel button.danger:hover, .machine-menu-panel button.danger:focus { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
-    `,
+
+    }
+  `,
   ];
 }
 

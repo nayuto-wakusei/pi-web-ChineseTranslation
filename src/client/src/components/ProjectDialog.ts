@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -5,6 +6,7 @@ import { api, trustApi, type FileSuggestion, type WorkspaceTrustResponse } from 
 import type { ProjectTrustChoice } from "../controllers/projectController";
 import { css } from "lit";
 import "./ModalSurface";
+import { uiDialogStyles, uiFormStyles, uiSelectionStyles } from "./ui/dialogStyles";
 
 interface ProjectTrustState extends WorkspaceTrustResponse {
   loading: boolean;
@@ -13,6 +15,11 @@ interface ProjectTrustState extends WorkspaceTrustResponse {
 
 @customElement("project-dialog")
 export class ProjectDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) onSubmit?: (path: string, create: boolean, trust: ProjectTrustChoice | undefined) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @property() machineId = "local";
@@ -122,8 +129,8 @@ export class ProjectDialog extends LitElement {
     if (this.managementMode) return null;
     const unavailable = this.trust === undefined || this.trust.loading || this.trust.error !== undefined;
     return html`
-      <label class="check">
-        <input type="checkbox" .checked=${this.trust?.trusted ?? false} ?disabled=${unavailable} @change=${(event: InputEvent) => { if (event.target instanceof HTMLInputElement) this.onTrustChange(event.target.checked); }} />
+      <label class="check ui-checkbox-field">
+        <input class="ui-input" type="checkbox" .checked=${this.trust?.trusted ?? false} ?disabled=${unavailable} @change=${(event: InputEvent) => { if (event.target instanceof HTMLInputElement) this.onTrustChange(event.target.checked); }} />
         <span>${t("ui.main.bb60ec05a965", "Trust this project")}</span>
       </label>
       <small class="trust-hint">
@@ -156,57 +163,48 @@ export class ProjectDialog extends LitElement {
   override render() {
     return html`
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${t("client.actions.add.project.8964f5", "Add project")} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }}>
-          <header>
-            <strong>${t("client.actions.add.project.8964f5", "Add project")}</strong>
-            <button @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
+          <header class="ui-dialog-header">
+            <strong class="ui-dialog-title">${t("client.actions.add.project.8964f5", "Add project")}</strong>
+            <button class="ui-button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
           </header>
-          <div class="body">
-            <label>
+          <div class="body ui-dialog-body ui-form-body">
+            <label class="ui-form-field">
               ${t("ui.projectDialog.projectFolder", "Project folder")}
-              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} placeholder="${t("ui.projectDialog.pathToProjectOrCodeProject", "/path/to/project or ~/code/project")}" />
+              <input class="ui-input" .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} placeholder="${t("ui.projectDialog.pathToProjectOrCodeProject", "/path/to/project or ~/code/project")}" />
             </label>
             <div class="suggestions">
               ${this.loading ? html`<div class="hint">${t("ui.projectDialog.loadingFolders", "Loading folders…")}</div>` : null}
               ${this.suggestions.map((suggestion, index) => html`
-                <button class=${index === this.selected ? "selected" : ""} @click=${() => { this.pick(suggestion); }}>
+                <button class=${index === this.selected ? "ui-button ui-selection-option selected" : "ui-button ui-selection-option"} @click=${() => { this.pick(suggestion); }}>
                   ${suggestion.path}
                 </button>
               `)}
               ${!this.loading && this.suggestions.length === 0 ? html`<div class="hint">${t("ui.projectDialog.noMatchingFoldersEnterANewPathTo", "No matching folders. Enter a new path to create one.")}</div>` : null}
             </div>
-            <label class="check">
-              <input type="checkbox" .checked=${this.createMissing} @change=${(event: InputEvent) => { this.onCreateMissingChange(event); }} />
+            <label class="check ui-checkbox-field">
+              <input class="ui-input" type="checkbox" .checked=${this.createMissing} @change=${(event: InputEvent) => { this.onCreateMissingChange(event); }} />
               ${t("ui.projectDialog.createFolderIfItDoesNotExist", "Create folder if it does not exist")}
             </label>
             ${this.renderTrustChoice()}
           </div>
-          <footer>
-            <button @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
-            <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>${t("client.actions.add.project.8964f5", "Add project")}</button>
+          <footer class="ui-dialog-footer">
+            <button class="ui-button" @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+            <button class="ui-button ui-button--primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>${t("client.actions.add.project.8964f5", "Add project")}</button>
           </footer>
       </modal-surface>
     `;
   }
 
-  static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    modal-surface { --modal-surface-place-items: start center; --modal-surface-backdrop-padding: min(12dvh, 90px) 0 max(20px, env(safe-area-inset-bottom)); --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(700px, 100%); }
-    header, footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
-    footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
-    .body { display: grid; gap: 12px; padding: 12px; min-height: 0; overflow: auto; }
-    label { display: grid; gap: 6px; color: var(--pi-muted); }
-    input[type="text"], input:not([type]) { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
-    .check { display: flex; grid-template-columns: auto 1fr; align-items: center; color: var(--pi-text); }
-    .suggestions { min-height: 90px; max-height: 320px; overflow: auto; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); }
-    .suggestions button { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-bottom: 1px solid var(--pi-border); border-radius: 0; background: transparent; color: var(--pi-text); padding: 8px 10px; text-align: left; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .suggestions button.selected, .suggestions button:hover { background: var(--pi-selection-bg); }
+  static override styles = [uiDialogStyles, uiFormStyles, uiSelectionStyles, css`
+    @layer pi-web-base {
+    :host { --ui-dialog-max-height: 700px; --ui-input-font-family: var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
+    .suggestions { min-height: 90px; max-height: 320px; }
+    .suggestions button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .hint { padding: 12px; color: var(--pi-muted); }
     .trust-error { color: var(--pi-danger, #c0392b); }
     .trust-hint { color: var(--pi-muted); line-height: 1.3; }
     .trust-hint a { color: var(--pi-accent); }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    header button { border: 0; background: transparent; color: var(--pi-muted); font-size: 22px; padding: 0 8px; }
-    .primary { border-color: var(--pi-success-border); background: var(--pi-success-border); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-  `;
+
+    }
+  `];
 }

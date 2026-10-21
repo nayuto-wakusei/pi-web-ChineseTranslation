@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -10,11 +11,12 @@ import type { SessionLabelItem } from "../plugins/types";
 import { renderSessionLabelItems } from "./sessionLabel";
 import { normalizeSessionPath } from "../sessionPaths";
 import { isSessionActive } from "../../../shared/activity";
-import { actionMenuPanelStyle } from "./actionMenu";
+import { AnchoredPopupController } from "./anchoredPopup";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles, scrollBoundaryShadow } from "./shared";
+import { sidebarListStyles } from "./sidebarListStyles";
 
 function sessionLabel(session: SessionInfo): string {
   if (session.name !== undefined && session.name !== "") return session.name;
@@ -42,6 +44,16 @@ const NON_RENDERING_PROPERTIES = new Set([
 
 @customElement("session-list")
 export class SessionList extends LitElement implements KeyboardNavigableSection {
+  private readonly popup = new AnchoredPopupController(this, () => {
+    const panel = this.shadowRoot?.querySelector<HTMLElement>(".action-menu-panel");
+    return panel && this.menuAnchor ? { anchor: this.menuAnchor, panel, onClose: () => { this.openMenuSessionId = undefined; }, options: { minWidth: 120 } } : undefined;
+  });
+
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) scopeKey = "";
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
@@ -85,7 +97,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onCleanup?: () => void;
 
   @state() private openMenuSessionId: string | undefined;
-  @state() private menuStyle = "";
+  private menuAnchor: HTMLElement | undefined;
   @state() private archivedExpanded = false;
   @state() private selectionScopes: ReadonlySet<SessionSelectionScope> = new Set();
   @state() private selectedSessionIds: ReadonlySet<string> = new Set();
@@ -120,18 +132,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return this.treeCache;
   }
 
-  private readonly onDocumentClick = (event: MouseEvent) => {
-    if (event.composedPath().includes(this)) return;
-    this.openMenuSessionId = undefined;
-  };
-
   override connectedCallback(): void {
     super.connectedCallback();
-    document.addEventListener("click", this.onDocumentClick);
   }
 
   override disconnectedCallback(): void {
-    document.removeEventListener("click", this.onDocumentClick);
     this.loadMoreObserver?.disconnect();
     this.loadMoreObserver = undefined;
     super.disconnectedCallback();
@@ -231,7 +236,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   private renderHeading(sessionCount: number, currentSessions: SessionInfo[], unreadCount: number) {
     if (!this.collapsible) {
       return html`
-        <h2>
+        <h2 class="ui-toolbar">
           <span class="plain-heading">${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>
           ${this.renderSearchButton()}
           ${this.renderCurrentSelectionButton(currentSessions)}
@@ -244,8 +249,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const selectedSummary = this.selected === undefined ? t("ui.sessionList.noSessionSelected", "No session selected") : sessionLabel(this.selected);
     const selectedTitle = this.selected?.path ?? selectedSummary;
     return html`
-      <h2>
-        <button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>${this.collapsed ? html`<small class="section-selected" dir="auto" title=${selectedTitle}>${selectedSummary}</small>` : null}</span></button>
+      <h2 class="ui-toolbar">
+        <button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>${this.collapsed ? html`<small class="section-selected" dir="auto" title=${selectedTitle}>${selectedSummary}</small>` : null}</span></button>
         ${this.renderSearchButton()}
         ${this.renderCurrentSelectionButton(currentSessions)}
         ${this.renderUnreadCount(unreadCount)}
@@ -297,7 +302,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const active = this.selectionScopes.has("archived");
     return html`
       <h2 class="subheading">
-        <button class="section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} ${t("ui.sessionList.archived", "Archived")}</span></button>
+        <button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} ${t("ui.sessionList.archived", "Archived")}</span></button>
         ${this.archivedExpanded ? html`<button class="bulk-select-entry ${active ? "selected" : ""}" title=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-label=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${() => { this.toggleSelection("archived", visibleArchivedSessions); }}>☑</button>` : null}
         <small class="section-count">${archivedSessions.length}</small>
       </h2>
@@ -326,7 +331,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return html`
       <div class="selection-toolbar"><div class="bulk-row selecting">
         ${this.renderSelectionControls("archived", visibleSessions)}
-        <button class="danger" title=${this.canDeleteArchived ? t("ui.sessionList.permanentlyDeleteSelectedArchivedSessions", "Permanently delete selected archived sessions") : this.archivedDeleteUnavailableMessage} ?disabled=${selectedSessions.length === 0 || !this.canDeleteArchived} @click=${() => { this.confirmDeleteSelectedArchived(); }}>${t("ui.sessionList.delete", "Delete")}</button>
+        <button class="ui-button ui-menu-item danger" title=${this.canDeleteArchived ? t("ui.sessionList.permanentlyDeleteSelectedArchivedSessions", "Permanently delete selected archived sessions") : this.archivedDeleteUnavailableMessage} ?disabled=${selectedSessions.length === 0 || !this.canDeleteArchived} @click=${() => { this.confirmDeleteSelectedArchived(); }}>${t("ui.sessionList.delete", "Delete")}</button>
         ${this.canDeleteArchived ? null : html`<small class="capability-hint">${this.archivedDeleteUnavailableMessage}</small>`}
       </div></div>
     `;
@@ -383,14 +388,14 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           ${this.renderActivity(indicatorKind, unread)}
         </div>
         <div class="action-menu">
-          <button class="action-menu-toggle" title="${t("ui.sessionList.sessionActions", "Session actions")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
+          <button class="ui-button ui-button--icon action-menu-toggle" title="${t("ui.sessionList.sessionActions", "Session actions")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
           ${this.openMenuSessionId === session.id ? html`
-            <div class="action-menu-panel" style=${this.menuStyle}>
+            <div popover="auto" class="ui-menu action-menu-panel">
               ${session.archived === true
                 ? html`
                   ${canPin ? html`<button title=${pinned ? t("ui.sessionList.unpinSession", "Unpin session") : t("ui.sessionList.pinSession", "Pin session")} @click=${() => { this.openMenuSessionId = undefined; this.onTogglePin?.(session); }}>${pinned ? t("ui.sessionList.unpin", "Unpin") : t("ui.sessionList.pin", "Pin")}</button>` : null}
                   <button title="${t("ui.sessionList.restoreSession", "Restore session")}" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>${t("ui.sessionList.restore", "Restore")}</button>
-                  <button class="danger" title=${this.canDeleteArchived ? t("ui.sessionList.permanentlyDeleteArchivedSession", "Permanently delete archived session") : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.openMenuSessionId = undefined; this.confirmDeleteArchived(session); }}>${t("ui.sessionList.deleteArchivedSession", "Delete archived session")}</button>
+                  <button class="ui-button ui-menu-item danger" title=${this.canDeleteArchived ? t("ui.sessionList.permanentlyDeleteArchivedSession", "Permanently delete archived session") : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.openMenuSessionId = undefined; this.confirmDeleteArchived(session); }}>${t("ui.sessionList.deleteArchivedSession", "Delete archived session")}</button>
                 `
                 : canDeleteTransient
                   ? html`<button title="${t("ui.sessionList.deleteTemporaryNewSession", "Delete temporary new session")}" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>${t("ui.sessionList.delete", "Delete")}</button>`
@@ -537,7 +542,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       this.openMenuSessionId = undefined;
       return;
     }
-    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
+    this.menuAnchor = target instanceof HTMLElement ? target : undefined;
     this.openMenuSessionId = sessionId;
   }
 
@@ -626,7 +631,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return renderActionActivityIndicator(kind, label, unread ? t("ui.sessionList.unreadSessionActivity", "Unread session activity") : undefined);
   }
 
-  static override styles = [listStyles, css`
+  static override styles = [listStyles, sidebarListStyles, css`
+    @layer pi-web-base {
     h2 { min-height: 30px; }
     h2 > .section-count { flex: 0 0 auto; display: inline; color: var(--pi-muted); font-size: inherit; }
     h2 > .section-unread-count { flex: 0 0 auto; display: inline; color: var(--pi-accent); font-size: inherit; text-transform: none; }
@@ -675,6 +681,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .pending-session-row.starting-session .activity-indicator { flex: 0 0 auto; margin: 0; }
     .action-main.selecting { padding-left: calc(32px + var(--depth, 0) * 16px); }
     .session-checkbox { position: absolute; top: 9px; left: calc(8px + var(--depth, 0) * 16px); z-index: 2; margin: 0; }
+
+    }
   `];
 }
 

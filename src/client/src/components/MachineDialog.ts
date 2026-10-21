@@ -1,7 +1,9 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import "./ModalSurface";
+import { uiDialogStyles, uiFormStyles } from "./ui/dialogStyles";
 
 export interface MachineDialogSubmit {
   name: string;
@@ -11,6 +13,11 @@ export interface MachineDialogSubmit {
 
 @customElement("machine-dialog")
 export class MachineDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) onSubmit?: (input: MachineDialogSubmit) => void | Promise<void>;
   @property({ attribute: false }) onCancel?: () => void;
   @property() error = "";
@@ -85,59 +92,49 @@ export class MachineDialog extends LitElement {
     return html`
       <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${t("client.actions.add.machine.e4ad1b", "Add machine")} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
-            <header>
-              <strong>${t("client.actions.add.machine.e4ad1b", "Add machine")}</strong>
-              <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
+            <header class="ui-dialog-header">
+              <strong class="ui-dialog-title">${t("client.actions.add.machine.e4ad1b", "Add machine")}</strong>
+              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
             </header>
-            <div class="body">
+            <div class="body ui-dialog-body ui-form-body">
               ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
-              <label>
+              <label class="ui-form-field">
                 ${t("ui.machineDialog.remotePiWebUrl", "Remote PI WEB URL")}
-                <input name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
+                <input class="ui-input" name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
               </label>
               <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://.")}</small>
               ${hasUrl ? html`
-                <label>
+                <label class="ui-form-field">
                   ${t("ui.machineDialog.machineName", "Machine name")}
-                  <input name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
+                  <input class="ui-input" name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
                 </label>
                 <small class="hint">${t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name.")}</small>
-                <label>
+                <label class="ui-form-field">
                   Bearer token <span class="optional">${t("ui.machineDialog.optional", "Optional")}</span>
-                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
+                  <input class="ui-input" name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
                 </label>
                 <small class="hint">${t("ui.machineDialog.pasteOnlyTheTokenValuePiWebSends", "Paste only the token value; PI WEB sends it in the Authorization: Bearer header.")}</small>
               ` : html`<p class="hint intro">${t("ui.machineDialog.afterEnteringAUrlPiWebSuggestsA", "After entering a URL, PI WEB suggests a machine name and allows an optional bearer token.")}</p>`}
             </div>
-            <footer>
-              <button type="button" @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
-              <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? t("ui.machineDialog.adding", "Adding…") : t("client.actions.add.machine.e4ad1b", "Add machine")}</button>
+            <footer class="ui-dialog-footer">
+              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+              <button class="ui-button ui-button--primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? t("ui.machineDialog.adding", "Adding…") : t("client.actions.add.machine.e4ad1b", "Add machine")}</button>
             </footer>
           </form>
       </modal-surface>
     `;
   }
 
-  static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    modal-surface { --modal-surface-place-items: start center; --modal-surface-backdrop-padding: min(12dvh, 90px) 0 max(20px, env(safe-area-inset-bottom)); --modal-surface-width: min(560px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, 100%); }
-    form { display: flex; flex-direction: column; min-height: 0; }
-    header, footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
-    footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
-    .body { display: grid; gap: 8px; padding: 12px; min-height: 0; overflow: auto; }
-    label { display: grid; gap: 6px; color: var(--pi-muted); }
-    input { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
-    input:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
+  static override styles = [uiDialogStyles, uiFormStyles, css`
+    @layer pi-web-base {
+    :host { --ui-dialog-width: 560px; --ui-input-font-family: var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
     .hint { color: var(--pi-muted); }
     .intro { margin: 4px 0 0; line-height: 1.4; }
     .optional { color: var(--pi-muted); font-weight: 400; }
     .field-error { color: var(--pi-danger); }
-    .dialog-error { border: 1px solid var(--pi-danger); border-radius: 8px; background: color-mix(in srgb, var(--pi-danger) 10%, transparent); color: var(--pi-danger); padding: 9px; line-height: 1.35; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    header button { border: 0; background: transparent; color: var(--pi-muted); font-size: 22px; padding: 0 8px; }
-    .primary { border-color: var(--pi-success-border); background: var(--pi-success-border); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-  `;
+
+    }
+  `];
 }
 
 export function suggestedMachineNameFromUrl(value: string): string {

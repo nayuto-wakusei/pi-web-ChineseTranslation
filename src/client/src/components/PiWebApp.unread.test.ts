@@ -1,4 +1,6 @@
+import "./nodeThemePlugin.testSupport";
 import type { TemplateResult } from "lit";
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine, Project, SessionInfo, SessionUnreadEvent, SessionUnreadSummary, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
@@ -205,7 +207,7 @@ describe("PiWebApp session unread wiring", () => {
       void input;
       return response.promise;
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", themeStylesheetFetch(fetchMock));
     const app = createApp();
     enableUnread(app);
     const selected = session("selected");
@@ -227,7 +229,7 @@ describe("PiWebApp session unread wiring", () => {
 
   it("keeps unread support after capability metadata disappears", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ catalogId: "catalog-a", catalogRevision: 1, sessions: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", themeStylesheetFetch(fetchMock));
     const app = createApp();
     enableUnread(app);
     const localMachine = {
@@ -642,7 +644,7 @@ function stubJsonFetch(body: unknown) {
       headers: { "Content-Type": "application/json" },
     }));
   });
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", themeStylesheetFetch(fetchMock));
   return fetchMock;
 }
 

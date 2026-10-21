@@ -1,3 +1,4 @@
+import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";

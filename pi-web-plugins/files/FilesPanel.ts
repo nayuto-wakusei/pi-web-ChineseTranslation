@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import type { ContentRenderingCapability, FileTreeEntry, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, ContentRenderingCapability, FileTreeEntry, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
@@ -21,6 +21,19 @@ interface PendingWorkspaceUploadReview {
 }
 
 export class WorkspaceFilesPanel extends LitElement {
+  private integration: StylesheetIntegrationCapabilityV1 | undefined;
+  private releaseStyles: (() => void) | undefined;
+
+  @property({ attribute: false })
+  get stylesheetIntegration(): StylesheetIntegrationCapabilityV1 | undefined { return this.integration; }
+  set stylesheetIntegration(value: StylesheetIntegrationCapabilityV1 | undefined) {
+    if (value === this.integration) return;
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+    this.integration = value;
+    if (this.isConnected && this.renderRoot instanceof ShadowRoot) this.releaseStyles = value?.registerRoot(this.renderRoot, { sharedUi: true });
+  }
+
   @property({ attribute: false }) context: WorkspacePanelContext | undefined;
   @property({ attribute: false }) runtime: FilesRuntime | undefined;
   @property({ attribute: false }) contentRendering: ContentRenderingCapability | undefined;
@@ -73,6 +86,7 @@ export class WorkspaceFilesPanel extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot, { sharedUi: true });
     window.addEventListener("resize", this.handleResponsiveVisibilityChange);
     if (typeof ResizeObserver !== "undefined") {
       this.visibilityObserver ??= new ResizeObserver(this.handleResponsiveVisibilityChange);
@@ -94,6 +108,8 @@ export class WorkspaceFilesPanel extends LitElement {
     this.boundScopeKey = undefined;
     this.uploadReturnFocus = undefined;
     this.resetPendingUpload();
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
     super.disconnectedCallback();
   }
 
@@ -131,36 +147,37 @@ export class WorkspaceFilesPanel extends LitElement {
         @dragleave=${this.handleDragLeave}
         @drop=${this.handleDrop}
       >
-        <section class="toolbar">
+        <section class="toolbar ui-toolbar">
           <strong>${t("ui.toolExecutionView.file", "File")}</strong>
           ${scope.treeLoading ? html`<span class="muted">${t("ui.main.300ee3dee4dc", "loading…")}</span>` : null}
           ${scope.treeStale ? html`<span class="stale">${t("ui.workspaceGitPanel.stale", "Stale")}</span>` : null}
-          <div class="toolbar-actions">
-            <button title="${t("ui.workspaceFilesPanel.newFile", "New file")}" aria-label="${t("ui.workspaceFilesPanel.newFile", "New file")}" ?disabled=${busy} @click=${() => { this.createPath(context, runtime, scope, false); }}>${renderNewFileIcon()}</button>
-            <button title="${t("ui.workspaceFilesPanel.newFolder", "New folder")}" aria-label="${t("ui.workspaceFilesPanel.newFolder", "New folder")}" ?disabled=${busy || files.createDirectory === undefined} @click=${() => { this.createPath(context, runtime, scope, true); }}>${renderNewFolderIcon()}</button>
-            <button title="${t("ui.workspaceFilesPanel.uploadFiles", "Upload files")}" aria-label="${t("ui.workspaceFilesPanel.uploadFiles", "Upload files")}" @click=${this.openFilePicker}>${renderUploadIcon()}</button>
+          <div class="toolbar-actions ui-toolbar-group">
+            <button class="ui-button" title="${t("ui.workspaceFilesPanel.newFile", "New file")}" aria-label="${t("ui.workspaceFilesPanel.newFile", "New file")}" ?disabled=${busy} @click=${() => { this.createPath(context, runtime, scope, false); }}>${renderNewFileIcon()}</button>
+            <button class="ui-button" title="${t("ui.workspaceFilesPanel.newFolder", "New folder")}" aria-label="${t("ui.workspaceFilesPanel.newFolder", "New folder")}" ?disabled=${busy || files.createDirectory === undefined} @click=${() => { this.createPath(context, runtime, scope, true); }}>${renderNewFolderIcon()}</button>
+            <button class="ui-button" title="${t("ui.workspaceFilesPanel.uploadFiles", "Upload files")}" aria-label="${t("ui.workspaceFilesPanel.uploadFiles", "Upload files")}" @click=${this.openFilePicker}>${renderUploadIcon()}</button>
             <a class="download-action" title="${t("ui.workspaceFilesPanel.downloadFile", "Download file")}" aria-label="${t("ui.workspaceFilesPanel.downloadFile", "Download file")}" href=${ifDefined(hasSelection && !directory ? files.downloadUrl(selectedPath) : undefined)} download ?hidden=${!hasSelection || directory}>${renderDownloadIcon()}</a>
-            <button title="${t("ui.workspaceFilesPanel.moveOrRename2", "Move or rename")}" aria-label="${t("ui.workspaceFilesPanel.moveOrRename2", "Move or rename")}" ?disabled=${busy || !hasSelection || (directory && files.moveDirectory === undefined)} @click=${() => {
+            <button class="ui-button" title="${t("ui.workspaceFilesPanel.moveOrRename2", "Move or rename")}" aria-label="${t("ui.workspaceFilesPanel.moveOrRename2", "Move or rename")}" ?disabled=${busy || !hasSelection || (directory && files.moveDirectory === undefined)} @click=${() => {
               const path = window.prompt(directory ? t("ui.workspaceFilesPanel.moveOrRenameFolderTo", "Move or rename folder to") : t("ui.workspaceFilesPanel.moveOrRenameFileTo", "Move or rename file to"), selectedPath);
               if (path !== null && path.trim() !== "") void runtime.moveSelectedPath(context, path.trim());
             }}>${renderRenameIcon()}</button>
-            <button title="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" aria-label="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" ?disabled=${busy || !hasSelection || (directory && files.deleteDirectory === undefined)} @click=${() => {
+            <button class="ui-button" title="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" aria-label="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" ?disabled=${busy || !hasSelection || (directory && files.deleteDirectory === undefined)} @click=${() => {
               if (window.confirm(t("ui.workspaceFilesPanel.deleteThisCannotBeUndone", "Delete {kind} {current}? This cannot be undone.", { kind: directory ? t("ui.workspaceFilesPanel.emptyFolder", "empty folder") : t("ui.toolExecutionView.file", "File"), current: selectedPath ?? "" }))) void runtime.deleteSelectedPath(context);
             }}>${renderDeleteIcon()}</button>
-            <button title="${t("bundled.relays.refresh.aee887", "Refresh")}" aria-label="${t("bundled.relays.refresh.aee887", "Refresh")}" @click=${() => { void runtime.refreshFiles(context); }}>${renderRefreshIcon()}</button>
+            <button class="ui-button" title="${t("bundled.relays.refresh.aee887", "Refresh")}" aria-label="${t("bundled.relays.refresh.aee887", "Refresh")}" @click=${() => { void runtime.refreshFiles(context); }}>${renderRefreshIcon()}</button>
           </div>
           <input id="workspace-upload-input" class="visually-hidden" type="file" multiple hidden @change=${this.handleFileInputChange} />
         </section>
         ${scope.error === undefined ? null : html`<p class="files-error" role="alert">${scope.error}</p>`}
         ${this.renderUploadProgress(context, runtime, scope)}
         <section class="split">
-          <div class="list tree">
+          <div class="list tree ui-file-list">
             ${rows.length === 0 ? html`<p class="muted">${t("ui.workspaceFilesPanel.noFilesLoaded", "No files loaded.")}</p>` : rows.slice(0, rowLimit).map(({entry, depth}) => this.renderTreeEntry(context, runtime, scope, entry, depth))}
             ${rows.length > rowLimit ? html`<button class="tree-more" @click=${() => { this.visibleRows = rowLimit + 200; }}>${t("ui.main.a2205b3878a2", "Show more")}</button>` : null}
           </div>
           <div class="viewer">
             ${directory ? html`<p class="muted">${t("ui.main.2142df04ff19", "Selected folder: ")}${selectedPath}</p>` : html`
             <pi-web-files-viewer
+              .stylesheetIntegration=${this.stylesheetIntegration}
               .contentRendering=${this.contentRendering}
               .machineId=${context.machine.id}
               .projectId=${context.workspace.projectId}
@@ -232,15 +249,15 @@ export class WorkspaceFilesPanel extends LitElement {
     const hasChildren = children !== undefined;
     const selected = (scope.selectedDirectoryPath ?? scope.selectedFilePath) === entry.path;
     return html`
-      <button class=${selected ? "row selected" : "row"} style=${`--depth:${String(depth)}`} @click=${() => {
+      <button class=${selected ? "row ui-button ui-file-row selected" : "row ui-button ui-file-row"} style=${`--depth:${String(depth)}`} @click=${() => {
         if (entry.type === "directory") {
           runtime.selectDirectory(context, entry.path);
           void runtime.expandDir(context, entry.path);
         }
         else void runtime.selectFile(context, entry.path);
       }}>
-        <span>${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
-        <span>${entry.name}</span>
+        <span class="ui-file-leading">${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
+        <span class="ui-file-label">${entry.name}</span>
       </button>
     `;
   }
@@ -267,8 +284,8 @@ export class WorkspaceFilesPanel extends LitElement {
             <div class="upload-file-list">${batch.files.map((file) => this.renderUploadFile(file))}</div>
             <div class="upload-actions">
               ${batch.status === "uploading"
-                ? html`<button @click=${() => { runtime.cancelWorkspaceUpload(context, batch.id); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>`
-                : html`<button @click=${() => { runtime.clearWorkspaceUpload(context, batch.id); }}>${t("ui.common.close", "Close")}</button>`}
+                ? html`<button class="ui-button" @click=${() => { runtime.cancelWorkspaceUpload(context, batch.id); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>`
+                : html`<button class="ui-button" @click=${() => { runtime.clearWorkspaceUpload(context, batch.id); }}>${t("ui.common.close", "Close")}</button>`}
             </div>
           </article>
         `)}
@@ -320,8 +337,8 @@ export class WorkspaceFilesPanel extends LitElement {
           </section>
           ${this.formError === "" ? null : html`<div class="dialog-error" role="alert">${this.formError}</div>`}
           <footer>
-            <button type="button" @click=${() => { this.closeUploadDialog(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
-            <button type="submit">${t("ui.workspaceFilesPanel.upload", "Upload")}</button>
+            <button class="ui-button" type="button" @click=${() => { this.closeUploadDialog(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+            <button class="ui-button" type="submit">${t("ui.workspaceFilesPanel.upload", "Upload")}</button>
           </footer>
         </form>
       </dialog>
@@ -486,17 +503,21 @@ export class WorkspaceFilesPanel extends LitElement {
   }
 
   static override styles = css`
-    :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; color: var(--pi-text); background: var(--pi-bg); font: 13px system-ui, sans-serif; container-type: inline-size; }
+    @layer pi-web-base {
+    :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; color: var(--pi-text); background: var(--pi-bg); font: 13px var(--pi-font, system-ui, sans-serif); container-type: inline-size; }
     .files-panel { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-    .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--pi-border-muted); }
-    .toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .toolbar { gap: 8px; padding-inline-start: 10px; }
+    .toolbar .ui-toolbar-title { flex: 0 0 auto; font-weight: 500; }
+    .toolbar > .muted, .toolbar > .stale { align-self: center; }
+    .toolbar-actions { margin-inline-start: auto; }
+    /* Host UI classes own their controls, including file-row grid geometry. */
+    button:not(.ui-button) { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; cursor: pointer; }
+    button:not(.ui-button):focus-visible, input:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
     .toolbar { flex-wrap: wrap; }
     .toolbar-actions { flex-wrap: wrap; }
     .file-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .download-action { display: inline-flex; padding: 5px 7px; color: var(--pi-text); }
     .download-action[hidden] { display: none; }
-    button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; cursor: pointer; }
-    button:focus-visible, input:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
     .muted { color: var(--pi-muted); }
     .stale { border: 1px solid var(--pi-warning-border); border-radius: 999px; color: var(--pi-warning); padding: 1px 6px; font-size: 12px; }
     .files-error { flex: 0 0 auto; margin: 0; border-bottom: 1px solid var(--pi-danger); color: var(--pi-danger); padding: 8px; overflow-wrap: anywhere; }
@@ -542,7 +563,7 @@ export class WorkspaceFilesPanel extends LitElement {
     form { box-sizing: border-box; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; overscroll-behavior: contain; padding: 16px; }
     form > label { flex: 0 0 auto; display: grid; gap: 6px; }
     form > label > span, .review-files > strong { font-weight: 600; }
-    form > label > input:not([type]) { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); }
+    form > label > input:not([type]) { box-sizing: border-box; width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     .dialog-options { flex: 0 0 auto; display: grid; gap: 8px; }
     .dialog-options label { display: flex; align-items: center; gap: 8px; }
     .review-files { flex: 1 1 180px; display: grid; gap: 6px; min-height: 0; max-height: 180px; overflow: auto; border: 1px solid var(--pi-border-muted); border-radius: 8px; padding: 8px; }
@@ -550,6 +571,8 @@ export class WorkspaceFilesPanel extends LitElement {
     .review-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dialog-error { flex: 0 0 auto; border: 1px solid var(--pi-danger); border-radius: 8px; background: color-mix(in srgb, var(--pi-danger) 10%, transparent); color: var(--pi-danger); padding: 9px; overflow-wrap: anywhere; }
     footer { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+
+    }
   `;
 }
 

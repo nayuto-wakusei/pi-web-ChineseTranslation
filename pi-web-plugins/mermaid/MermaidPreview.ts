@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import type { ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 
@@ -24,6 +24,19 @@ export function mermaidFrameDocument(engine: string): string {
 }
 
 export class MermaidPreview extends LitElement {
+  private integration: StylesheetIntegrationCapabilityV1 | undefined;
+  private releaseStyles: (() => void) | undefined;
+
+  @property({ attribute: false })
+  get stylesheetIntegration(): StylesheetIntegrationCapabilityV1 | undefined { return this.integration; }
+  set stylesheetIntegration(value: StylesheetIntegrationCapabilityV1 | undefined) {
+    if (value === this.integration) return;
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+    this.integration = value;
+    if (this.isConnected && this.renderRoot instanceof ShadowRoot) this.releaseStyles = value?.registerRoot(this.renderRoot);
+  }
+
   @property({ attribute: false }) input: ContentRendererInput | undefined;
   /** The active package supplies its own module-relative asset loader. */
   @property({ attribute: false }) loadEngine: () => Promise<string> = loadMermaidEngine;
@@ -38,10 +51,13 @@ export class MermaidPreview extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot);
     if (this.hasUpdated) void this.draw();
   }
 
   override disconnectedCallback(): void {
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
     super.disconnectedCallback();
     this.generation += 1;
     this.cleanup?.();

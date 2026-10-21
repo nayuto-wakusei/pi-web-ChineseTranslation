@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installPopoverFake } from "./anchoredPopup.testSupport";
+installPopoverFake();
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 

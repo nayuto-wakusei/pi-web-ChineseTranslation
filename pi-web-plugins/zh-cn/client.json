@@ -215,5 +215,8 @@
   "client.terminalKeys.move.backward.one.word.99de53": "向后移动一个单词",
   "client.terminalKeys.move.forward.one.word.f92250": "向前移动一个单词",
   "client.workspaceUploadState.not.uploaded.because.a.previous.file.upload.failed.989382": "因前面的文件上传失败而未上传。",
-  "client.workspaceUploadState.upload.cancelled.2e6b43": "上传已取消"
+  "client.workspaceUploadState.upload.cancelled.2e6b43": "上传已取消",
+  "client.themes.paper.description": "白色和中性灰，搭配克制的状态色。",
+  "client.themes.graphite.description": "炭黑和中性灰，搭配克制的状态色。",
+  "client.themes.neutralPair.description": "跟随系统浅色/深色偏好使用中性灰主题。"
 }

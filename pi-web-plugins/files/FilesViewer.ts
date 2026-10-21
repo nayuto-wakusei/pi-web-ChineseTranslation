@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import type { ContentRendererOption, ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, ContentRendererOption, ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -34,6 +34,30 @@ export interface WorkspaceFileViewerIdentity {
 }
 
 export class WorkspaceFileViewer extends LitElement {
+  private integration: StylesheetIntegrationCapabilityV1 | undefined;
+  private releaseStyles: (() => void) | undefined;
+
+  @property({ attribute: false })
+  get stylesheetIntegration(): StylesheetIntegrationCapabilityV1 | undefined { return this.integration; }
+  set stylesheetIntegration(value: StylesheetIntegrationCapabilityV1 | undefined) {
+    if (value === this.integration) return;
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+    this.integration = value;
+    if (this.isConnected && this.renderRoot instanceof ShadowRoot) this.releaseStyles = value?.registerRoot(this.renderRoot);
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot);
+  }
+
+  override disconnectedCallback(): void {
+    this.releaseStyles?.();
+    this.releaseStyles = undefined;
+    super.disconnectedCallback();
+  }
+
   @property({ attribute: false }) machineId = "";
   @property({ attribute: false }) contentRendering: ContentRenderingCapability | undefined;
   @property({ attribute: false }) projectId = "";
@@ -199,7 +223,7 @@ export class WorkspaceFileViewer extends LitElement {
     if (file.size === 0) return this.renderStatus(t("ui.main.82ec1594fc2f", "This file is empty."));
     return html`
       ${file.truncated ? html`<p class="preview-note" role="status">${t("ui.main.e9150513f0e0", "Raw source is truncated. Use Download for the complete file.")}</p>` : null}
-      <pi-web-files-code-viewer .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
+      <pi-web-files-code-viewer .stylesheetIntegration=${this.stylesheetIntegration} .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
     `;
   }
 
@@ -338,11 +362,13 @@ export class WorkspaceFileViewer extends LitElement {
   static override styles = [
     formattedTextStyles(),
     css`
-      :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
-      .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .viewer-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-      select { max-width: 100%; border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); padding: 3px 8px; font: 12px system-ui, sans-serif; }
+    @layer pi-web-base {
+      :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
+      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 0 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+      .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+      .viewer-actions { align-self: stretch; display: flex; align-items: center; gap: 0; flex: 0 0 auto; }
+      .viewer-actions > small { padding-inline: 8px; }
+      select { max-width: 100%; border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); padding: 3px 8px; font: 12px var(--pi-font, system-ui, sans-serif); }
       select:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
       small { color: var(--pi-muted); }
       .viewer-action, .download-link { flex: 0 0 auto; border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); text-decoration: none; white-space: nowrap; }
@@ -350,10 +376,12 @@ export class WorkspaceFileViewer extends LitElement {
       .viewer-action:hover, .download-link:hover { border-color: var(--pi-border); background: var(--pi-bg); }
       .viewer-mode { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 4px; }
       .viewer-mode button, .preview-state button { border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 9px; cursor: pointer; font: inherit; }
-      .viewer-mode button { font-size: 12px; padding: 3px 8px; }
-      .viewer-mode button:hover { background: var(--pi-bg); }
-      .viewer-mode button[aria-pressed="true"] { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
-      .viewer-mode button:focus-visible, .preview-state button:focus-visible, a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
+      .viewer-mode button, .viewer-actions select, .viewer-actions .viewer-action { box-sizing: border-box; align-self: stretch; display: inline-flex; align-items: center; min-height: 32px; border: 0; border-radius: 0; background: transparent; color: var(--pi-muted); font: 12px/20px var(--pi-font, system-ui, sans-serif); padding: 6px 8px; }
+      .viewer-actions > :not(small) + *, .viewer-mode button + button { border-inline-start: 1px solid var(--pi-border-muted); }
+      .viewer-mode button:hover, .viewer-actions .viewer-action:hover, .viewer-actions select:hover { background: var(--pi-surface-hover); color: var(--pi-text); }
+      .viewer-mode button[aria-pressed="true"] { background: var(--pi-surface-hover); color: var(--pi-text); }
+      .viewer-actions button:focus-visible, .viewer-actions a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
+      .preview-state button:focus-visible, a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
       pi-web-files-code-viewer { flex: 1 1 auto; min-height: 0; }
       .markdown-preview { flex: 1 1 auto; min-height: 0; box-sizing: border-box; overflow: auto; padding: 16px; }
       .preview-note { flex: 0 0 auto; margin: 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-surface); color: var(--pi-muted); padding: 7px 10px; font-size: 12px; }
@@ -369,7 +397,9 @@ export class WorkspaceFileViewer extends LitElement {
         .viewer-header { align-items: flex-start; flex-direction: column; }
         .viewer-actions { width: 100%; flex-wrap: wrap; }
       }
-    `,
+
+    }
+  `,
   ];
 }
 
@@ -462,13 +492,14 @@ function formatScaledFileSize(value: number): string {
 
 function formattedTextStyles(): ReturnType<typeof css> {
   return css`
+    @layer pi-web-base {
   :host { display: block; }
   .formatted { white-space: normal; overflow-wrap: anywhere; line-height: 1.45; text-align: start; unicode-bidi: plaintext; }
   p, ul, ol, pre, blockquote, .table-scroll { margin: 0 0 10px; }
   :is(p, ul, ol, pre, blockquote, .table-scroll):last-child { margin-bottom: 0; }
   ul, ol { padding-left: 22px; }
   li + li { margin-top: 3px; }
-  code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); padding: 1px 4px; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; direction: ltr; text-align: left; unicode-bidi: isolate; }
+  code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); padding: 1px 4px; font: 13px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
   pre { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); padding: 10px; overflow-x: auto; overflow-y: hidden; direction: ltr; text-align: left; unicode-bidi: isolate; }
   pre code { border: 0; padding: 0; background: transparent; }
   blockquote { border-left: 3px solid var(--pi-border); padding-left: 10px; color: var(--pi-muted); }
@@ -484,5 +515,7 @@ function formattedTextStyles(): ReturnType<typeof css> {
   table { border-collapse: collapse; width: max-content; min-width: 100%; max-width: none; }
   th, td { border: 1px solid var(--pi-border); padding: 4px 8px; max-width: 48ch; overflow-wrap: anywhere; }
   th { background: var(--pi-surface); }
+
+    }
   `;
 }

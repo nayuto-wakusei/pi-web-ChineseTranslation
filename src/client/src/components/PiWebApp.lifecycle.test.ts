@@ -1,4 +1,6 @@
+import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { terminalsApi, type Workspace } from "../api";
 import { HttpRequestError } from "../api/http";
 import { BrowserErrorReporter, workspaceBrowserErrorScope } from "../browserErrors";
@@ -41,7 +43,7 @@ describe("PiWebApp connection lifecycle", () => {
 
   it("ignores an auth response from an obsolete connection", async () => {
     let resolveFetch: ((response: Response) => void) | undefined;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));
+    vi.stubGlobal("fetch", themeStylesheetFetch(vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }))));
     const app = createConnectedApp();
     const startAuthenticatedApp = replaceMethod(app, "startAuthenticatedApp", vi.fn());
     Reflect.set(app, "normalAuthInitSeq", 1);
@@ -63,7 +65,7 @@ describe("PiWebApp connection lifecycle", () => {
     const app = createConnectedApp("?embed=management");
     const terminals = vi.spyOn(terminalsApi, "listCommandRuns");
     const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("fetch", themeStylesheetFetch(fetch));
 
     const context: unknown = method(app, "createWorkspacePanelContext").call(app, workspace);
     if (!isWorkspacePanelContext(context)) throw new Error("Missing panel terminal capability");

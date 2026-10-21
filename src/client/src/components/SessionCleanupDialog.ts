@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -7,6 +8,11 @@ import "./ModalSurface";
 
 @customElement("session-cleanup-dialog")
 export class SessionCleanupDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ type: Boolean }) canCleanup = true;
   @property({ type: String }) unavailableMessage = t("ui.sessionCleanupDialog.updateAndRestartPiWebOnThisMachine", "Update and restart Pi-Web on this machine before cleaning up sessions.");
   @property({ attribute: false }) preview?: SessionCleanupPreviewResponse;
@@ -212,7 +218,8 @@ export class SessionCleanupDialog extends LitElement {
   }
 
   static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
+    @layer pi-web-base {
+    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
     modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(760px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-radius: 14px; }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--pi-border); }
     footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
@@ -225,7 +232,7 @@ export class SessionCleanupDialog extends LitElement {
     fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 10px; }
     .toggle-row { display: grid; grid-template-columns: auto minmax(0, max-content) 88px auto; align-items: center; gap: 8px; color: var(--pi-text); }
     input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--pi-accent); }
-    input.days { box-sizing: border-box; width: 88px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); }
+    input.days { box-sizing: border-box; width: 88px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     input.days:disabled { opacity: .55; }
     .warning, .unavailable, .dialog-error, .result { border: 1px solid var(--pi-border); border-radius: 10px; padding: 10px 12px; }
     .warning { border-color: var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-text); }
@@ -242,7 +249,7 @@ export class SessionCleanupDialog extends LitElement {
     thead th:first-child, td.select-cell { width: 72px; text-align: center; }
     th:nth-child(2), td:nth-child(2) { text-align: left; }
     tbody tr.unselected { opacity: .58; }
-    tbody th { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 500; }
+    tbody th { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-weight: 500; }
     tfoot th, tfoot td { border-bottom: 0; font-weight: 700; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; font: inherit; cursor: pointer; }
     button:disabled { opacity: .5; cursor: not-allowed; }
@@ -258,6 +265,8 @@ export class SessionCleanupDialog extends LitElement {
       .toggle-row span:last-child { grid-column: 2; }
       table { min-width: 560px; }
       thead th:first-child, td.select-cell { width: 58px; }
+    }
+
     }
   `;
 }

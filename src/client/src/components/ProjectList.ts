@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -9,9 +10,15 @@ import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import { sidebarListStyles } from "./sidebarListStyles";
 
 @customElement("project-list")
 export class ProjectList extends LitElement implements KeyboardNavigableSection {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) projects: Project[] = [];
   @property({ attribute: false }) selected?: Project;
   @property({ attribute: false }) activities: Record<string, WorkspaceActivity> = {};
@@ -42,7 +49,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   override render() {
     return html`
       <section>
-        <h2>${this.renderHeading()}</h2>
+        <h2 class="ui-toolbar">${this.renderHeading()}</h2>
         ${this.collapsed ? null : html`
           <div class="list-body">
             ${this.projects.length === 0 ? html`
@@ -63,9 +70,9 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                   ${this.renderActivity(project)}
                 </div>
                 <div class="action-menu">
-                  <button class="action-menu-toggle" title="${t("ui.projectList.projectActions", "Project actions")}" aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(project.id, event.currentTarget); }}>⋯</button>
+                  <button class="ui-button ui-button--icon action-menu-toggle" title="${t("ui.projectList.projectActions", "Project actions")}" aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(project.id, event.currentTarget); }}>⋯</button>
                   ${this.menu.isOpen(project.id) ? html`
-                    <div class="action-menu-panel" style=${this.menu.menuStyle}>
+                    <div popover="auto" class="ui-menu action-menu-panel" style=${this.menu.menuStyle}>
                       <button title="${t("ui.projectList.closeProject", "Close project")}" @click=${() => { this.close(project); }}>${t("ui.common.close", "Close")}</button>
                     </div>
                   ` : null}
@@ -91,7 +98,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     if (!this.collapsible) return t("client.actions.project.79f326", "Project");
     const selectedSummary = this.selected?.name ?? t("ui.projectList.noProjectSelected", "No project selected");
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("client.actions.project.79f326", "Project")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.projects.length}</small></button>`;
+    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("client.actions.project.79f326", "Project")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.projects.length}</small></button>`;
   }
 
   private renderActivity(project: Project) {
@@ -106,5 +113,5 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     if (confirm(t("ui.projectList.closeThisOnlyRemovesItFromPiWeb", "Close {name}?\n\nThis only removes it from PI WEB. The project folder will not be changed.", { name: project.name }))) this.onClose?.(project);
   }
 
-  static override styles = listStyles;
+  static override styles = [listStyles, sidebarListStyles];
 }

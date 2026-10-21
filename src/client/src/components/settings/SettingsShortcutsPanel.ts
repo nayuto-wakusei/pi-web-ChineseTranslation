@@ -1,3 +1,7 @@
+import { uiSettingsStyles } from "../ui/settingsStyles";
+import { uiFormStyles } from "../ui/formStyles";
+import { uiButtonStyles } from "../ui/controlStyles";
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -16,7 +20,7 @@ const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: stri
   {
     value: "auto",
     label: t("ui.settingsShortcutsPanel.autoDefault", "Auto/default"),
-    description: t("ui.settingsShortcutsPanel.enterSendsOnDesktopEnterInsertsANewline", "Enter sends on desktop; Enter inserts a newline on mobile, coarse-pointer, or narrow-screen devices."),
+    description: t("ui.settingsShortcutsPanel.enterSendsOnDesktopEnterInsertsANewline", "Enter sends on wide screens; Enter inserts a newline when the viewport is at most 760px wide."),
   },
   {
     value: "send",
@@ -31,11 +35,16 @@ const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: stri
 ];
 
 function renderShortcutsDescription(): TemplateResult {
-  return html`${t("ui.main.29da83a15958", "Edit app shortcuts by action. Type a shortcut such as")} <code>mod+k</code> ${t("ui.settingsShortcutsPanel.or", " or ")} <code>mod+g p</code>${t("ui.main.1c1a5ce1b6d2", ", record one from the keyboard, disable it with None, or reset it to the default. Unmodified app shortcuts work outside editable fields. Composer send bindings accept one key combination and take priority inside the editor; unassigned Enter and Shift+Enter insert newlines. Touch or narrow screen applies when the browser reports a coarse primary pointer (typically touch) or a viewport at most 760px wide; otherwise, desktop applies. When app shortcuts conflict, custom shortcuts win before defaults; ties are resolved by action id, and shorter shortcuts shadow longer sequences with the same prefix.")}`;
+  return html`${t("ui.main.29da83a15958", "Edit app shortcuts by action. Type a shortcut such as")} <code>mod+k</code> ${t("ui.settingsShortcutsPanel.or", " or ")} <code>mod+g p</code>${t("ui.main.1c1a5ce1b6d2", ", record one from the keyboard, disable it with None, or reset it to the default. Unmodified app shortcuts work outside editable fields. Composer send bindings accept one key combination and take priority inside the editor; unassigned Enter and Shift+Enter insert newlines. Narrow screen applies when the viewport is at most 760px wide; otherwise, desktop applies regardless of pointer type. When app shortcuts conflict, custom shortcuts win before defaults; ties are resolved by action id, and shorter shortcuts shadow longer sequences with the same prefix.")}`;
 }
 
 @customElement("settings-shortcuts-panel")
 export class SettingsShortcutsPanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
   @property({ type: Boolean }) loading = false;
@@ -107,7 +116,7 @@ export class SettingsShortcutsPanel extends LitElement {
       >
         ${this.renderPromptEnterPreferenceCard()}
         ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.loadingShortcuts", "Loading shortcuts…")}</div>` : html`
-          <div class="config-path-card">
+          <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
             <code>${this.configResponse?.path ?? t("bundled.updates.unknown.4d8c1c", "Unknown")}</code>
             <small>${t("ui.settingsShortcutsPanel.shortcutOverridesAreSavedUnder", "Shortcut overrides are saved under ")} <code>shortcuts</code> ${t("ui.settingsShortcutsPanel.aValueOf", ". A value of ")} <code>null</code> ${t("ui.settingsShortcutsPanel.disablesTheActionShortcut", " disables the action shortcut.")}</small>
@@ -208,8 +217,8 @@ export class SettingsShortcutsPanel extends LitElement {
             >
           </label>
           ${recordingHint !== "" ? html`<small class="recording-hint">${recordingHint}</small>` : null}
-          <div class="shortcut-actions">
-            <button class="primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
+          <div class="shortcut-actions ui-settings-actions">
+            <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
             <button ?disabled=${this.loading || this.saving} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
             <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
             <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
@@ -355,63 +364,43 @@ export class SettingsShortcutsPanel extends LitElement {
     this.recordingListenerActive = false;
   }
 
-  static override styles = css`
+  static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`
+    @layer pi-web-base {
     :host { display: block; }
     h3, p { margin: 0; }
-    h3 { font-size: 13px; line-height: 1.3; }
     p { color: var(--pi-muted); line-height: 1.45; }
-    button, input { font: inherit; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    button:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
-    .primary { border-color: var(--pi-accent); background: var(--pi-selection-bg); color: var(--pi-text-bright); }
-    .loading-card, .config-path-card, .prompt-enter-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
-    .loading-card, .config-path-card { color: var(--pi-muted); }
-    .config-path-card { display: grid; gap: 5px; }
-    .config-path-card span, .card-eyebrow { color: var(--pi-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    .prompt-enter-card { display: grid; grid-template-columns: minmax(0, .85fr) minmax(260px, 1fr); gap: 12px; align-items: start; }
-    .prompt-enter-copy { display: grid; gap: 5px; min-width: 0; }
-    .prompt-enter-copy p, .prompt-enter-option small { font-size: 12px; }
-    .prompt-enter-options { display: grid; gap: 7px; }
-    .prompt-enter-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; color: var(--pi-text); }
-    .prompt-enter-option input { box-sizing: border-box; width: 14px; min-width: 14px; height: 14px; margin: 3px 0 0; padding: 0; border: 0; background: transparent; accent-color: var(--pi-accent); font-family: inherit; }
-    .prompt-enter-option input:focus { border-color: transparent; box-shadow: none; outline: 2px solid var(--pi-accent-border); outline-offset: 2px; }
-    .prompt-enter-option span { display: grid; gap: 2px; }
-    .prompt-enter-option small { color: var(--pi-muted); line-height: 1.35; }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    .config-path-card span { color: var(--pi-muted); font-size: 12px; font-weight: 600; }
+    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
     .shortcut-group { margin: 0; }
-    .shortcut-group h3 { margin: 0 0 8px; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
-    .shortcut-list { border: 1px solid var(--pi-border); border-radius: 10px; overflow: hidden; }
-    .shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 48%); gap: 14px; align-items: start; padding: 12px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-surface); }
+    .shortcut-group:has(.shortcut-list) { padding: 0; gap: 0; }
+    .shortcut-group:has(.shortcut-list) > .ui-settings-heading { padding: 16px; background: var(--pi-surface); }
+    .shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 48%); align-items: start; }
     .shortcut-row.shadowed { background: color-mix(in srgb, var(--pi-warning) 5%, var(--pi-surface)); }
     .shortcut-row.shadowing { background: color-mix(in srgb, var(--pi-accent) 5%, var(--pi-surface)); }
     .shortcut-row:last-child { border-bottom: 0; }
     .shortcut-main { min-width: 0; display: grid; gap: 4px; }
-    .shortcut-main strong, .shortcut-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shortcut-main strong, .shortcut-main small { overflow-wrap: anywhere; }
     .shortcut-main small { color: var(--pi-muted); }
-    .shortcut-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .shortcut-id { font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
     .shortcut-editor { min-width: 0; display: grid; gap: 8px; }
     .shortcut-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     .shortcut-status small { color: var(--pi-muted); font-size: 11px; }
     .shortcut-status small.custom { color: var(--pi-accent); }
     .shortcut-status small.disabled { color: var(--pi-warning); }
-    .shortcut-status small.conflict { border: 1px solid currentColor; border-radius: 999px; padding: 2px 7px; }
     .shortcut-status small.conflict.shadowing { color: var(--pi-accent); }
     .shortcut-status small.conflict.shadowed { color: var(--pi-warning); }
-    .shortcut-input-label { min-width: 0; display: grid; gap: 5px; }
-    .shortcut-input-label span { color: var(--pi-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    input { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; outline: none; font: var(--pi-control-font-size, 16px) var(--pi-control-monospace-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
-    input:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px var(--pi-accent-border); }
-    .shortcut-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
-    kbd { border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-bg); color: var(--pi-text-secondary); padding: 3px 7px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+    .shortcut-input { --ui-input-font-family: var(--pi-control-monospace-font-family, var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)); }
+    kbd { border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-bg); color: var(--pi-text-secondary); padding: 3px 7px; font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); white-space: nowrap; }
     .unassigned { color: var(--pi-muted); font-size: 12px; }
     .recording-hint { color: var(--pi-accent); font-size: 12px; }
 
     @media (max-width: 760px) {
-      .prompt-enter-card { grid-template-columns: minmax(0, 1fr); }
       .shortcut-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
       .shortcut-status, .shortcut-actions { justify-content: flex-start; }
     }
-  `;
+
+    }
+  `];
 }
 
 interface RecordingState {

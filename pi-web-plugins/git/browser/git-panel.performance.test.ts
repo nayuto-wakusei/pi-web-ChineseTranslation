@@ -24,14 +24,14 @@ it("counts directories in the 500-row budget and reveals a later selection from 
   const renderPanel = () => { render(panel.render(context), mount); };
   document.body.append(mount);
   renderPanel();
-  await vi.waitFor(() => { renderPanel(); expect(mount.querySelectorAll(".git-row")).toHaveLength(500); });
+  await vi.waitFor(() => { renderPanel(); expect(mount.querySelectorAll(".ui-file-row")).toHaveLength(500); });
   expect(mount.querySelector(".git-warning")?.textContent).toContain("文件列表已截断");
   click("树形");
   click("全部展开");
-  expect(mount.querySelectorAll(".git-row")).toHaveLength(500);
+  expect(mount.querySelectorAll(".ui-file-row")).toHaveLength(500);
   window.history.pushState({}, "", "/?project=p&workspace=w&git.workspace.git--diff=dir-1000%2Ffile.ts");
   window.dispatchEvent(new PopStateEvent("popstate"));
-  await vi.waitFor(() => { renderPanel(); expect(mount.querySelector(".git-row.is-selected")?.textContent).toContain("file.ts"); });
+  await vi.waitFor(() => { renderPanel(); expect(mount.querySelector(".ui-file-row[aria-current='page']")?.textContent).toContain("file.ts"); });
 
   function click(label: string): void {
     const button = [...mount.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);

@@ -145,7 +145,7 @@ describe("independent Git panel request lifecycle", () => {
     expect(harness.mount.textContent).toContain("new-content");
     expect(harness.mount.textContent).not.toContain("obsolete-content");
     expect(harness.mount.querySelector('[role="alert"]')).toBeNull();
-    expect(harness.mount.querySelector(".git-row.is-selected")?.textContent).toContain(scenario === "same file" ? "a.ts" : "b.ts");
+    expect(harness.mount.querySelector(".ui-file-row[aria-current='page']")?.textContent).toContain(scenario === "same file" ? "a.ts" : "b.ts");
   });
 
   it.each(["machine", "project", "workspace"] as const)("invalidates a pending diff when the %s changes, including a later return", async (scope) => {
@@ -220,7 +220,7 @@ function mountPanel(request: NonNullable<PluginPeer["request"]>) {
     selectContext,
     async refresh() { await panel.onInvalidate?.(context); draw(); },
     click(label: string) {
-      const button = [...mount.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label || candidate.querySelector("span:last-child")?.textContent.trim() === label);
+      const button = [...mount.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label || candidate.querySelector(".ui-file-label")?.textContent.trim() === label);
       if (button === undefined) throw new Error(`Missing Git button ${label}: ${mount.textContent}`);
       button.click();
       draw();

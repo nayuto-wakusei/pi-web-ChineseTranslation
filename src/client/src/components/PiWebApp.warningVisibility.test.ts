@@ -1,3 +1,4 @@
+import "./nodeThemePlugin.testSupport";
 import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";

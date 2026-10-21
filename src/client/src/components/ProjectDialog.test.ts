@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installNativeDialogFake } from "./nativeDialog.testSupport";
+installNativeDialogFake();
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, trustApi, type WorkspaceTrustResponse } from "../api";
@@ -46,11 +48,11 @@ describe("project trust choice", () => {
     dialog.onSubmit = submit;
     await setPath(dialog, "/repo");
     await vi.waitFor(() => { expect(trustInput(dialog).disabled).toBe(false); });
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>("button.primary")?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>("button.ui-button--primary")?.click();
     expect(submit).toHaveBeenLastCalledWith("/repo", true, { trusted: false, changed: false });
     trustInput(dialog).click();
     await dialog.updateComplete;
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>("button.primary")?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>("button.ui-button--primary")?.click();
     expect(submit).toHaveBeenLastCalledWith("/repo", true, { trusted: true, changed: true });
   });
 

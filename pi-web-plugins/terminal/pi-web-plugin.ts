@@ -1,5 +1,5 @@
 import { t, setTranslator } from "./i18n.js";
-import type { PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginRuntimeContext, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginStartContext, PluginRuntimeContext, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
 import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
 import { TERMINAL_BROWSER_FACADE_CAPABILITY, TerminalFacade, type RequiredTerminalBrowserFacadeV1 } from "./TerminalFacade";
@@ -15,7 +15,25 @@ export const TERMINAL_SOFT_KEYS_ELEMENT = terminalSoftKeysElementName("pi-web.te
 
 const terminalCustomElementOwnersKey = Symbol.for("pi-web.terminal.custom-element-owners.v1");
 
+const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
+  pluginId: "pi-web", id: "stylesheet-integration", version: 1,
+  parse(value) {
+    if (!isStylesheetIntegration(value)) {
+      throw new Error("Stylesheet integration capability v1 requires registerRoot and createController");
+    }
+    return value;
+  },
+};
+
+function isStylesheetIntegration(value: unknown): value is StylesheetIntegrationCapabilityV1 {
+  return typeof value === "object" && value !== null
+    && "registerRoot" in value && typeof value.registerRoot === "function"
+    && "createController" in value && typeof value.createController === "function"
+    && "subscribe" in value && typeof value.subscribe === "function";
+}
+
 const plugin = {
+  requires: [stylesheetIntegrationCapability],
   apiVersion: 4,
   name: t("client.panels.terminal.e2a76e", "Terminal"),
   activate: (context) => { setTranslator(context.translate); return activateTerminalPlugin(context); },
@@ -46,6 +64,7 @@ export function activateTerminalPlugin(
       <path d="m7 9 3 3-3 3M13 15h4"></path>
     </svg>
   `;
+  let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
   let disposed = false;
   const disposeResources = (): void => {
     if (disposed) return;
@@ -55,6 +74,9 @@ export function activateTerminalPlugin(
   };
   context.lifetimeSignal.addEventListener("abort", disposeResources, { once: true });
   return Object.freeze({
+    start: ({ capabilities }: PluginStartContext) => {
+      stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
+    },
     provides: [{ capability: TERMINAL_BROWSER_FACADE_CAPABILITY, value: facade }],
     dispose: () => {
       context.lifetimeSignal.removeEventListener("abort", disposeResources);
@@ -70,7 +92,7 @@ export function activateTerminalPlugin(
         navigationAliases,
         badge: (workspaceContext: WorkspacePanelContext) => runtime.activeTerminalBadge(workspaceContext),
         onInvalidate: (workspaceContext: WorkspacePanelContext) => runtime.invalidate(workspaceContext),
-        render: (workspaceContext: WorkspacePanelContext) => context.html`${staticHtml`<${panelTag} .context=${workspaceContext} .runtime=${runtime} .softKeysElementName=${softKeysElement}></${panelTag}>`}`,
+        render: (workspaceContext: WorkspacePanelContext) => context.html`${staticHtml`<${panelTag} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${runtime} .softKeysElementName=${softKeysElement}></${panelTag}>`}`,
       }],
       actions: [{
         id: "view.terminal",

@@ -80,6 +80,7 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  stylesheets?: StylesheetContribution[];
   localizations?: LocalizationContribution[];
   contentRenderers?: import("../../../plugin-api").ContentRendererContribution[];
   messageActions?: import("../../../plugin-api").MessageActionContribution[];
@@ -445,7 +446,8 @@ export interface ThemeContribution {
   description?: string;
   order?: number;
   colorScheme: ThemeColorScheme;
-  tokens: ThemeTokens;
+  tokens?: import("../../../plugin-api").ThemeTokens;
+  stylesheets?: StylesheetContribution[];
 }
 
 export interface ThemePairContribution {
@@ -476,4 +478,16 @@ export interface QualifiedWorkspaceLabelContribution extends WorkspaceLabelContr
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
+}
+
+
+
+export type StylesheetContribution = import("../../../plugin-api").StylesheetContribution;
+
+
+export interface QualifiedStylesheetContribution extends StylesheetContribution {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  machineId?: string;
+  sourcePluginId?: PluginId;
 }

@@ -1,3 +1,7 @@
+import { uiSettingsStyles } from "../ui/settingsStyles";
+import { uiFormStyles } from "../ui/formStyles";
+import { uiButtonStyles } from "../ui/controlStyles";
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n.js";
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -8,6 +12,11 @@ import { isPiPackageManagementUnsupported, isPiPackageOperationPending, normaliz
 
 @customElement("settings-packages-panel")
 export class SettingsPackagesPanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) packagesResponse: PiPackagesResponse | undefined;
   @property({ type: Boolean }) loading = false;
   @property({ attribute: false }) operation: PiPackageOperationState | undefined;
@@ -104,7 +113,7 @@ export class SettingsPackagesPanel extends LitElement {
       <form class="install-card" @submit=${(event: Event) => { void this.installPackage(event); }}>
         <label for="package-source">${t("ui.settingsPackagesPanel.piPackageSource", "Pi package source")}</label>
         <div class="install-row">
-          <input id="package-source" .value=${this.installSource} ?disabled=${this.isOperating} placeholder=${t("ui.settingsPackagesPanel.npmScopePackageGitUrlOrLocalPath", "npm:@scope/package, Git URL, or local path")} @input=${(event: Event) => { this.updateInstallSource(event); }}>
+          <input class="ui-input" id="package-source" .value=${this.installSource} ?disabled=${this.isOperating} placeholder=${t("ui.settingsPackagesPanel.npmScopePackageGitUrlOrLocalPath", "npm:@scope/package, Git URL, or local path")} @input=${(event: Event) => { this.updateInstallSource(event); }}>
           <button type="submit" title=${t("ui.settingsPackagesPanel.installThisPiPackage", "Install this Pi package")} ?disabled=${this.isOperating}>${isPiPackageOperationPending(this.operation, "install") ? t("ui.settingsPackagesPanel.installing", "Installing…") : t("ui.settingsPackagesPanel.install", "Install")}</button>
         </div>
         ${this.validationMessage === "" ? null : html`<div class="field-error">${this.validationMessage}</div>`}
@@ -125,7 +134,7 @@ export class SettingsPackagesPanel extends LitElement {
             <h3>${t("ui.settingsPackagesPanel.configuredPiPackages", "Configured Pi packages")}</h3>
             <p>${t("ui.settingsPackagesPanel.listScope", "This list comes from Pi package manager settings on {machine}.", { machine: targetLabel })}</p>
           </div>
-          <button class="secondary" title=${updateAllTitle} ?disabled=${this.isOperating || updateAllReason !== undefined} @click=${() => { void this.updatePackage(); }}>
+          <button class="secondary ui-button ui-button--action" title=${updateAllTitle} ?disabled=${this.isOperating || updateAllReason !== undefined} @click=${() => { void this.updatePackage(); }}>
             ${isPiPackageOperationPending(this.operation, "update-all") ? t("ui.settingsPackagesPanel.updating", "Updating…") : t("ui.settingsPackagesPanel.updateAll", "Update all")}
           </button>
         </div>
@@ -140,7 +149,7 @@ export class SettingsPackagesPanel extends LitElement {
     if (this.loading && packages.length === 0) return html`<div class="loading-card">${t("ui.settingsPackagesPanel.loadingPackages", "Loading Pi packages from {machine}…", { machine: targetLabel })}</div>`;
     if (packages.length === 0) return html`<div class="loading-card">${t("ui.settingsPackagesPanel.noPackages", "No Pi packages are configured in Pi settings on {machine}.", { machine: targetLabel })}</div>`;
     return html`
-      <div class="package-list">
+      <div class="package-list ui-settings-list">
         ${packages.map((packageInfo) => this.renderPackage(packageInfo))}
       </div>
     `;
@@ -162,8 +171,8 @@ export class SettingsPackagesPanel extends LitElement {
           ${updateReason === undefined ? null : html`<small class="action-note">${updateReason}</small>`}
         </div>
         <div class="package-actions">
-          <button class="secondary" title=${updateReason ?? t("ui.settingsPackagesPanel.updateThisPiPackage", "Update this Pi package")} ?disabled=${this.isOperating || updateReason !== undefined} @click=${() => { void this.updatePackage(packageInfo.source); }}>${updating ? t("ui.settingsPackagesPanel.updating", "Updating…") : t("ui.settingsPackagesPanel.update", "Update")}</button>
-          <button class="danger" title=${removeReason} ?disabled=${this.isOperating || packageManagementUnavailable} @click=${() => { void this.removePackage(packageInfo); }}>${removing ? t("ui.settingsPackagesPanel.removing", "Removing…") : t("ui.settingsPackagesPanel.remove", "Remove")}</button>
+          <button class="secondary ui-button ui-button--action" title=${updateReason ?? t("ui.settingsPackagesPanel.updateThisPiPackage", "Update this Pi package")} ?disabled=${this.isOperating || updateReason !== undefined} @click=${() => { void this.updatePackage(packageInfo.source); }}>${updating ? t("ui.settingsPackagesPanel.updating", "Updating…") : t("ui.settingsPackagesPanel.update", "Update")}</button>
+          <button class="danger ui-button ui-button--action" title=${removeReason} ?disabled=${this.isOperating || packageManagementUnavailable} @click=${() => { void this.removePackage(packageInfo); }}>${removing ? t("ui.settingsPackagesPanel.removing", "Removing…") : t("ui.settingsPackagesPanel.remove", "Remove")}</button>
         </div>
       </article>
     `;
@@ -232,45 +241,35 @@ export class SettingsPackagesPanel extends LitElement {
     return this.operation !== undefined;
   }
 
-  static override styles = css`
+  static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`
+    @layer pi-web-base {
     :host { display: block; }
-    .package-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-    .package-toolbar > div, .package-main { display: grid; gap: 6px; min-width: 0; }
-    h3, p { margin: 0; }
-    h3 { font-size: 15px; line-height: 1.25; }
-    p, small { color: var(--pi-muted); line-height: 1.45; }
-    button, input { font: inherit; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
-    button:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
-    input { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; }
-    label { font-weight: 700; }
+    .package-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .package-toolbar > div { flex: 1 1 240px; min-width: 0; }
+    .package-main { flex: 1 1 240px; display: grid; gap: 6px; min-width: 0; }
+    small { color: var(--pi-muted); line-height: 1.45; }
     .secondary { flex: 0 0 auto; }
-    .danger { border-color: color-mix(in srgb, var(--pi-danger) 55%, var(--pi-border)); color: var(--pi-danger); }
-    .loading-card, .install-card, .package-card { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
     .field-error { color: var(--pi-danger); font-size: 12px; }
-    .install-card { display: grid; gap: 8px; }
+    .field-error:empty { display: none; }
     .install-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
-    .package-section { display: block; }
-    .known-package-section { display: grid; gap: 8px; margin-bottom: 14px; }
-    .known-package-list { display: grid; gap: 10px; }
-    .known-package-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 12px; }
+    .known-package-section, .package-section { padding: 0; gap: 0; }
+    .known-package-section > .ui-settings-heading, .package-toolbar { padding: 16px; }
     .loading-card, .action-note { color: var(--pi-muted); }
-    .action-note { margin-bottom: 10px; font-size: 12px; }
-    .package-list { display: grid; gap: 10px; }
-    .package-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+    .action-note { font-size: 12px; }
+    .package-section > .action-note { padding: 0 16px 12px; }
+    .package-card, .known-package-card { align-items: center; }
     .package-card.filtered { opacity: .82; }
-    .package-main strong, .package-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .package-actions { display: flex; align-items: center; gap: 8px; }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    .package-main strong, .package-main small { overflow-wrap: anywhere; }
+    code { color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
 
     @media (max-width: 760px) {
-      .package-toolbar { display: grid; gap: 12px; }
-      .package-toolbar .secondary { justify-self: start; }
-      .install-row, .package-card, .known-package-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
-      .package-actions { justify-self: start; flex-wrap: wrap; }
-      .package-main strong, .package-main small { white-space: normal; }
+      .install-row { grid-template-columns: minmax(0, 1fr); }
+      .install-row > .ui-button { justify-self: start; }
+      .package-main { flex-basis: 100%; }
     }
-  `;
+
+    }
+  `];
 }
 
 function packagesDescription(targetLabel: string): TemplateResult {

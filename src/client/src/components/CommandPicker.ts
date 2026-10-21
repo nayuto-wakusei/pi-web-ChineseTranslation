@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -7,9 +8,15 @@ import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
 import { defaultPin, defaultPinHelp, defaultPinStyles } from "./DefaultPin";
 import { commandPickerStyles } from "./styles/commandPickerStyles";
+import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
 
 @customElement("command-picker")
 export class CommandPicker extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property() override title = t("ui.commandPicker.select", "Select");
   @property({ type: Boolean }) searchable = false;
   @property({ attribute: false }) options: CommandOption[] = [];
@@ -27,13 +34,13 @@ export class CommandPicker extends LitElement {
     const options = this.filteredOptions();
     return html`
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${this.searchable ? "input" : ".options"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
-          <header>
-            <strong>${this.title}</strong>
-            <button aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button>
+          <header class="ui-dialog-header">
+            <strong class="ui-dialog-title">${this.title}</strong>
+            <button class="ui-button" aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button>
           </header>
-          ${this.searchable ? html`<input placeholder="${t("ui.commandPicker.search", "Search")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
+          ${this.searchable ? html`<input class="ui-input" placeholder="${t("ui.commandPicker.search", "Search")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
           ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
-          <div class="options" tabindex="0">
+          <div class="options ui-selection-list" tabindex="0">
             ${options.map((option, index) => this.renderOption(option, index))}
             ${options.length === 0 ? html`<div class="empty">${t("ui.commandPicker.noMatchingOptions", "No matching options")}</div>` : null}
           </div>
@@ -104,8 +111,11 @@ export class CommandPicker extends LitElement {
     }
   }
 
-  static override styles = [commandPickerStyles, defaultPinStyles, css`
+  static override styles = [uiDialogStyles, uiSelectionStyles, commandPickerStyles, defaultPinStyles, css`
+    @layer pi-web-base {
     modal-surface { --modal-surface-width: min(720px, calc(100vw - 40px)); --modal-surface-max-height: min(640px, calc(100% - 40px)); }
     modal-surface > header, modal-surface > .options, modal-surface > input { position: relative; }
+
+    }
   `];
 }

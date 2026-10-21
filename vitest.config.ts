@@ -10,6 +10,7 @@ export default defineConfig({
     alias: { "@chainingintention/pi-web-cn/server-plugin-api": fileURLToPath(new URL("./src/server-plugin-api.ts", import.meta.url)) },
   },
   test: {
+    css: { include: [/\/theme\/base\/.*\.css/] },
     projects: [
       {
         extends: true,

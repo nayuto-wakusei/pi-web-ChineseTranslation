@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
@@ -19,9 +20,14 @@ export type NavigationFocusTarget = NavigationSection | "chat";
 
 @customElement("app-navigation-panel")
 export class AppNavigationPanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) selectedMachine?: Machine;
-  /** PWA display mode: surfaces the single-machine identity bubble in the header. */
+  /** PWA display mode: surfaces the single-machine identity in the header. */
   @property({ type: Boolean }) locationIndicator = false;
   @property({ attribute: false }) machineStatuses: Record<string, MachineHealth> = {};
   @property({ attribute: false }) machineActivities: Record<string, Record<string, WorkspaceActivity>> = {};
@@ -296,11 +302,12 @@ export class AppNavigationPanel extends LitElement {
   }
 
   static override styles = css`
+    @layer pi-web-base {
     :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
     :host([compact]) { flex: 1 1 auto; }
-    header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
-    header strong { flex: 0 0 auto; }
-    machine-switcher { flex: 1 1 auto; min-width: 0; }
+    header { flex: 0 0 auto; display: flex; align-items: stretch; min-height: 44px; gap: 0; padding: 0; border-bottom: 1px solid var(--pi-border); }
+    header strong { flex: 0 0 auto; display: flex; align-items: center; padding-inline: 12px; }
+    machine-switcher { flex: 1 1 auto; min-width: 0; border-inline-start: 1px solid var(--pi-border-muted); }
     :host([compact]) header { display: none; }
     .header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
     machine-list, project-list, workspace-list, session-list { flex: 1 1 0px; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
@@ -309,6 +316,8 @@ export class AppNavigationPanel extends LitElement {
     workspace-list[collapsed],
     session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
+
+    }
   `;
 }
 

@@ -40,7 +40,7 @@ describe("settings-shortcuts-panel layout", () => {
     expect(panel.renderRoot.querySelector(".config-path-card")?.textContent).toContain("/tmp/pi-web/config.json");
     expect(panel.renderRoot.querySelector(".shortcut-group h3")?.textContent).toBe("聊天输入框");
     expect(row(panel, COMPOSER_SEND_DESKTOP).textContent).toContain("发送消息 — 桌面");
-    expect(row(panel, COMPOSER_SEND_MOBILE).textContent).toContain("发送消息 — 触屏或窄屏");
+    expect(row(panel, COMPOSER_SEND_MOBILE).textContent).toContain("发送消息 — 窄屏");
     expect(panel.renderRoot.querySelectorAll("article")).toHaveLength(2);
     expect(panel.renderRoot.querySelectorAll('input[type="radio"]')).toHaveLength(3);
     expect(panel.renderRoot.textContent).not.toContain("没有已注册操作。");

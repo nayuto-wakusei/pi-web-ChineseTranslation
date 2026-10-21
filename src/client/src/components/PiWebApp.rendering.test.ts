@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installNativeDialogFake } from "./nativeDialog.testSupport";
+installNativeDialogFake();
 
 import { LitElement, html } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +23,7 @@ import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsShortcutsPanel } from "./settings/SettingsShortcutsPanel";
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -39,7 +42,7 @@ const unexpectedRequest = vi.fn(() => Promise.reject(new Error("Rendering tests 
 beforeEach(() => {
   unexpectedRequest.mockClear();
   window.history.replaceState(null, "", "/");
-  vi.stubGlobal("fetch", unexpectedRequest);
+  vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
   // Scroll scheduling is not under test; happy-dom supplies no layout metrics.
   vi.stubGlobal("requestAnimationFrame", () => 1);
   vi.stubGlobal("cancelAnimationFrame", () => undefined);

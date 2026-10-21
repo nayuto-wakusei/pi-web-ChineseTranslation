@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installNativeDialogFake } from "./nativeDialog.testSupport";
+installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
@@ -103,7 +105,7 @@ function imageCloseButton(dialog: HTMLDialogElement): HTMLButtonElement {
 }
 
 function lowerDialogSection(surface: ModalSurface): HTMLElement {
-  return requiredElement(surface.shadowRoot?.querySelector<HTMLElement>("section[role='dialog']"), "lower dialog section");
+  return requiredElement(surface.shadowRoot?.querySelector<HTMLElement>("dialog"), "lower dialog");
 }
 
 function appendButton(text: string): HTMLButtonElement {

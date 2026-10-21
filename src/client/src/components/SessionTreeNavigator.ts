@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -38,6 +39,11 @@ const SESSION_TREE_KIND_PRESENTATION = {
 
 @customElement("session-tree-navigator")
 export class SessionTreeNavigator extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) tree: SessionTreeSnapshot = EMPTY_TREE;
   @property({ attribute: false }) onNavigate?: (targetId: string, summaryChoice: SessionTreeSummaryChoice) => Promise<SessionTreeNavigateResult>;
   @property({ attribute: false }) onFork?: (entryId: string) => Promise<SessionTreeForkResult>;
@@ -502,7 +508,8 @@ export class SessionTreeNavigator extends LitElement {
   }
 
   static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 40; color: var(--pi-text); font: 14px system-ui, sans-serif; }
+    @layer pi-web-base {
+    :host { position: fixed; inset: 0; z-index: 40; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
     * { box-sizing: border-box; }
     modal-surface { --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: 100dvh; --modal-surface-border: 0; --modal-surface-radius: 0; --modal-surface-shadow: none; }
     header, footer { display: flex; align-items: center; gap: 12px; padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 14px max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--pi-border); }
@@ -568,7 +575,7 @@ export class SessionTreeNavigator extends LitElement {
     .choice-option span { display: grid; gap: 3px; }
     .choice-option small { color: var(--pi-muted); }
     .custom-focus { display: grid; gap: 6px; margin: 2px 0 0 30px; font-weight: 600; }
-    textarea { width: 100%; resize: vertical; min-height: 94px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 9px 10px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); }
+    textarea { width: 100%; resize: vertical; min-height: 94px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 9px 10px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     textarea:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
     .character-count { justify-self: end; color: var(--pi-muted); font-size: 11px; font-weight: 400; }
     .validation-error { margin-inline-start: 30px; color: var(--pi-danger); font-size: 12px; }
@@ -598,6 +605,8 @@ export class SessionTreeNavigator extends LitElement {
       .confirmation-step { padding: 18px 12px; }
       .custom-focus, .validation-error { margin-inline-start: 0; }
       footer { flex-wrap: wrap; }
+    }
+
     }
   `;
 }

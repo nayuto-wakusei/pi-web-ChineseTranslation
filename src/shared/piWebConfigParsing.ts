@@ -1,3 +1,4 @@
+import { requireDefaultThemePreference } from "./themePreference.js";
 import { UserFacingError, type TranslationParameters } from "./i18n.js";
 import type { PiWebConfigValues } from "./apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
@@ -14,6 +15,7 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.port !== undefined ? { port: config.port } : {}),
     ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
     ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
+    ...(config.defaultTheme !== undefined ? { defaultTheme: config.defaultTheme } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.normalAuth !== undefined ? { normalAuth: config.normalAuth } : {}),
     ...(config.managementEmbed !== undefined ? { managementEmbed: config.managementEmbed } : {}),
@@ -59,6 +61,7 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["port"] !== undefined ? { port: context.format === "request" ? parseRequestPort(value["port"]) : parsePort(value["port"], "port", context.path) } : {}),
     ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], context) } : {}),
     ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], context) } : {}),
+    ...(value["defaultTheme"] !== undefined ? { defaultTheme: requireDefaultThemePreference(value["defaultTheme"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], context) } : {}),
     ...(value["normalAuth"] !== undefined ? { normalAuth: parseNormalAuth(value["normalAuth"], context) } : {}),
     ...(value["managementEmbed"] !== undefined ? { managementEmbed: parseManagementEmbed(value["managementEmbed"], context) } : {}),

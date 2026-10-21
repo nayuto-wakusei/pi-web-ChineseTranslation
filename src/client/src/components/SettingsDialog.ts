@@ -1,3 +1,5 @@
+import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -6,6 +8,9 @@ import type { AppAction } from "../actions";
 import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineRuntime, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import type { SettingsSection } from "../settingsRoute";
 import "./settings/SettingsGeneralPanel";
+import "./settings/SettingsThemePanel";
+import type { QualifiedThemeContribution } from "../plugins/types";
+import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
 import "./settings/SettingsSessiondPanel";
 import "./settings/SettingsPackagesPanel";
 import "./settings/SettingsPluginsPanel";
@@ -20,8 +25,19 @@ import { pluginLifecycleSupport } from "./settings/settingsMachineTarget";
 
 @customElement("settings-dialog")
 export class SettingsDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) section: SettingsSection = "general";
   @property({ attribute: false }) actions: AppAction[] = [];
+  @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
+  @property({ attribute: false }) themePreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
+  @property() activeThemeId = "";
+  @property({ type: Boolean }) hasLocalThemeOverride = false;
+  @property({ attribute: false }) onUseLocalTheme?: (preference: ThemePreference) => void;
+  @property({ attribute: false }) onUseDefaultTheme?: () => void;
   @property({ attribute: false }) machine: Machine | undefined;
   @property({ attribute: false }) machineRuntime: MachineRuntime | undefined;
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
@@ -215,7 +231,21 @@ export class SettingsDialog extends LitElement {
         .onReloadMachine=${() => this.loadAccessConfigForTarget()}
         .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
         .onSaveMachineConfig=${(config: PiWebConfigValues) => this.saveMachineAccessConfig(config)}
-      ></settings-general-panel>
+      >
+        <settings-theme-panel
+          slot="appearance"
+          .themes=${this.themes}
+          .preference=${this.themePreference}
+          .defaultPreference=${this.configResponse?.effectiveConfig.defaultTheme ?? DEFAULT_THEME_PREFERENCE}
+          .activeThemeId=${this.activeThemeId}
+          .hasLocalOverride=${this.hasLocalThemeOverride}
+          .loading=${this.loading || this.configResponse === undefined}
+          .saving=${this.saving}
+          .onUseLocal=${this.onUseLocalTheme}
+          .onUseDefault=${this.onUseDefaultTheme}
+          .onSetDefault=${(preference: ThemePreference) => this.saveDefaultTheme(preference)}
+        ></settings-theme-panel>
+      </settings-general-panel>
     `;
   }
 
@@ -244,7 +274,10 @@ export class SettingsDialog extends LitElement {
       });
       if (!this.isCurrentLoad(requestSeq)) return;
 
-      if (result.config !== undefined) this.configResponse = result.config;
+      if (result.config !== undefined) {
+        this.configResponse = result.config;
+        this.onConfigSaved?.(result.config.effectiveConfig);
+      }
       if (result.plugins !== undefined) this.pluginsResponse = result.plugins;
       this.error = result.error;
     } finally {
@@ -423,6 +456,28 @@ export class SettingsDialog extends LitElement {
       this.showSavedMessage();
     } catch (error) {
       this.error = t("ui.settingsDialog.failedToSaveConfiguration", "Failed to save configuration: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private async saveDefaultTheme(preference: ThemePreference): Promise<void> {
+    if (this.saving) return;
+    // Retire an older Reload result and read fresh gateway config so this
+    // focused action does not replace other settings with the dialog's snapshot.
+    this.loadRequestSeq += 1;
+    this.loading = false;
+    this.saving = true;
+    this.error = "";
+    this.savedMessage = "";
+    try {
+      const current = await configApi.config();
+      const response = await configApi.saveConfig({ ...current.config, defaultTheme: preference });
+      this.configResponse = response;
+      this.onConfigSaved?.(response.effectiveConfig);
+      this.showSavedMessage();
+    } catch (error) {
+      this.error = t("ui.settingsThemePanel.saveFailed", "Failed to save default theme: {message}", { message: errorMessage(error) });
     } finally {
       this.saving = false;
     }
@@ -669,32 +724,46 @@ export class SettingsDialog extends LitElement {
     }, 3000);
   }
 
-  static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
+  static override styles = [uiDialogStyles, uiSelectionStyles, css`
+    @layer pi-web-base {
+    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
     modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(980px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-min-height: min(620px, 100%); --modal-surface-radius: 14px; }
-    .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--pi-border); }
-    .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: 20px; line-height: 1.2; }
-    button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; font: inherit; cursor: pointer; }
-    .close-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--pi-muted); padding: 0; font-size: 24px; }
-    .close-button:hover, .close-button:focus { color: var(--pi-text); background: var(--pi-surface-hover); }
+    .settings-machine { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--pi-border); }
+    .settings-machine label { font-size: 12px; font-weight: 700; }
+    .settings-machine select { flex: 1 1 160px; max-width: 280px; background: var(--pi-bg); }
+    .machine-status { color: var(--pi-muted); line-height: 1.35; }
+    .machine-status.unavailable { color: var(--pi-warning); }
+    .machine-scope { color: var(--pi-muted); font-size: 12px; }
+    .machine-scope summary { cursor: pointer; }
+    .machine-scope[open] { flex-basis: 100%; }
+    .machine-scope p { margin: 8px 0 0; line-height: 1.45; }
+    .machine-connection-error { flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.45; color: var(--pi-warning); overflow-wrap: anywhere; }
+    .machine-scope summary:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+    .machine-switch-confirmation { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid var(--pi-warning-border); background: var(--pi-warning-surface); }
+    .machine-switch-confirmation p { margin: 0 0 8px; }
+    .machine-switch-confirmation button + button { margin-inline-start: 8px; }
     .settings-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-    .settings-nav { min-height: 0; padding: 10px; border-right: 1px solid var(--pi-border); background: var(--pi-surface); overflow: auto; }
-    .settings-nav button { display: grid; gap: 2px; width: 100%; margin: 0 0 6px; text-align: left; border-color: transparent; background: transparent; }
-    .settings-nav button:hover, .settings-nav button:focus { background: var(--pi-surface-hover); }
-    .settings-nav button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .settings-nav { min-height: 0; border-right: 1px solid var(--pi-border); background: var(--pi-surface); overflow: auto; }
+    .settings-nav button { display: grid; justify-content: stretch; gap: 2px; }
     .settings-nav small { color: var(--pi-muted); }
-    .settings-content { min-width: 0; min-height: 0; overflow: auto; padding: 18px; }
+    .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .settings-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding: 0; }
 
     @media (max-width: 760px) {
-      modal-surface { --modal-surface-place-items: stretch; --modal-surface-backdrop-padding: 0; --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: none; --modal-surface-min-height: 0; --modal-surface-border: 0; --modal-surface-radius: 0; }
-      .settings-header { padding: max(12px, env(safe-area-inset-top)) 12px 12px; }
+      modal-surface { --modal-surface-backdrop-padding: 0; --modal-surface-place-items: stretch; --modal-surface-width: 100%; --modal-surface-max-height: none; --modal-surface-min-height: 0; --modal-surface-border: 0; --modal-surface-radius: 0; }
+      .settings-header { padding-top: env(safe-area-inset-top); }
+      .settings-machine { padding: 10px 12px; }
+      .settings-machine label { flex-basis: 100%; }
+      .settings-machine select { max-width: none; }
+      .machine-scope { flex-basis: 100%; }
       .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-      .settings-nav { display: flex; gap: 8px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--pi-border); overflow-x: auto; overflow-y: hidden; }
-      .settings-nav button { flex: 0 0 auto; width: auto; min-width: 128px; margin: 0; }
-      .settings-content { padding: 14px 12px calc(18px + env(safe-area-inset-bottom)); }
+      .settings-nav { display: flex; gap: 0; padding: 0; border-right: 0; border-bottom: 1px solid var(--pi-border); overflow-x: auto; overflow-y: hidden; }
+      .settings-nav button { flex: 0 0 auto; width: auto; white-space: nowrap; border-inline-end: 1px solid var(--pi-border-muted); }
+      .settings-nav small { display: none; }
+      .settings-content { padding-bottom: env(safe-area-inset-bottom); }
     }
-  `;
+    }
+  `];
 }
 
 function errorMessage(error: unknown): string {

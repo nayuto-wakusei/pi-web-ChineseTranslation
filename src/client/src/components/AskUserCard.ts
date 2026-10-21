@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -38,6 +39,11 @@ interface DisplayedRecordAnswer {
  */
 @customElement("ask-user-card")
 export class AskUserCard extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) ask?: PendingAskUser;
   @property({ attribute: false }) outcome?: AskUserOutcome;
   /** Machine-scoped session cache key used by the ask draft store. */
@@ -392,13 +398,14 @@ export class AskUserCard extends LitElement {
   }
 
   static override styles = css`
+    @layer pi-web-base {
     :host {
       display: block;
       box-sizing: border-box;
       width: 100%;
       margin: 0 0 14px;
       color: var(--pi-text);
-      font: 14px system-ui, sans-serif;
+      font: 14px var(--pi-font, system-ui, sans-serif);
       container-type: inline-size;
     }
     .card {
@@ -552,6 +559,8 @@ export class AskUserCard extends LitElement {
       .partial-confirmation { align-items: stretch; flex-direction: column; }
       .confirmation-actions { justify-content: flex-end; }
       .primary-action { min-height: 42px; }
+    }
+
     }
   `;
 }

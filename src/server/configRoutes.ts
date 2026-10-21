@@ -2,6 +2,7 @@ import { UserFacingError, createTranslator, userFacingErrorMessage, type Transla
 import type { FastifyInstance } from "fastify";
 import { agentDirEnvSource, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, parseAgentConfig, parseAttachmentsConfig, parseUploadsConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
 import type { PiWebAgentDirEnvSource, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import { requireDefaultThemePreference } from "../shared/themePreference.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
 import { parsePiWebConfigRequest } from "../shared/piWebConfigParsing.js";
 
@@ -156,6 +157,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
   }
   if (allowedHosts !== undefined) config.allowedHosts = parseAllowedHostsRequest(allowedHosts);
   if (shortcuts !== undefined) config.shortcuts = parseShortcutsRequest(shortcuts);
+  if (value["defaultTheme"] !== undefined) config.defaultTheme = requireDefaultThemePreference(value["defaultTheme"], "request");
   if (plugins !== undefined) config.plugins = parsePluginsRequest(plugins);
   if (pathAccess !== undefined) config.pathAccess = parsePathAccessRequest(pathAccess);
   if (uploads !== undefined) config.uploads = parseUploadsConfig(uploads, "request");

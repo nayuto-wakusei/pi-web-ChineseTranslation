@@ -37,7 +37,10 @@ describe("bundled Mermaid plugin", () => {
 
   it("activates as a browser-only manual renderer without a server plugin", () => {
     expect(plugin.apiVersion).toBe(4);
-    expect(plugin.requires).toEqual([expect.objectContaining({ pluginId: "pi-web", id: "content-rendering", version: 1 })]);
+    expect(plugin.requires).toEqual([
+      expect.objectContaining({ pluginId: "pi-web", id: "stylesheet-integration", version: 1 }),
+      expect.objectContaining({ pluginId: "pi-web", id: "content-rendering", version: 1 }),
+    ]);
     const activation = plugin.activate(activationContext());
     if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
     const renderer = activation.contributions.contentRenderers?.[0];

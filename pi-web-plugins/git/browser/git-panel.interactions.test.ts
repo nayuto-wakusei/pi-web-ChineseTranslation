@@ -40,11 +40,11 @@ describe("independent Git panel migrated interactions", () => {
     expect(panel.button("全部展开")).toBeDefined();
     panel.click("全部展开");
     for (const name of ["a.ts", "b.ts", "c.ts", "README.md"]) expect(panel.row(name)).toBeDefined();
-    expect([...panel.mount.querySelectorAll(".git-row[aria-expanded]")].map((row) => row.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
+    expect([...panel.mount.querySelectorAll(".ui-file-row[aria-expanded]")].map((row) => row.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
     panel.click("全部折叠");
     for (const name of ["a.ts", "b.ts", "c.ts"]) expect(panel.row(name)).toBeUndefined();
     expect(panel.row("README.md")).toBeDefined();
-    expect([...panel.mount.querySelectorAll(".git-row[aria-expanded]")].map((row) => row.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+    expect([...panel.mount.querySelectorAll(".ui-file-row[aria-expanded]")].map((row) => row.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
     expect(panel.button("全部展开")).toBeDefined();
   });
 
@@ -77,7 +77,7 @@ describe("independent Git panel migrated interactions", () => {
       file("u.ts", { workingTree: "untracked" }),
     ]);
     for (const [name, label] of [["m.ts", "M"], ["a.ts", "A"], ["d.ts", "D"], ["u.ts", "U"]] as const) {
-      expect(panel.row(name)?.querySelector("span:first-child")?.textContent).toBe(label);
+      expect(panel.row(name)?.querySelector(".ui-file-meta")?.textContent).toBe(label);
     }
   });
 
@@ -121,7 +121,7 @@ async function mountPanel(files: GitStatusFile[], submodules: string[] = []) {
   draw();
   await panel.onInvalidate?.(context);
   draw();
-  const row = (name: string) => [...mount.querySelectorAll<HTMLButtonElement>(".git-row")].find((candidate) => candidate.querySelector("span:last-child")?.textContent.trim() === name);
+  const row = (name: string) => [...mount.querySelectorAll<HTMLButtonElement>(".ui-file-row")].find((candidate) => candidate.querySelector(".ui-file-label")?.textContent.trim() === name);
   const button = (name: string) => {
     const candidate = row(name) ?? [...mount.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent.trim() === name);
     if (candidate === undefined) throw new Error(`Missing Git button ${name}`);

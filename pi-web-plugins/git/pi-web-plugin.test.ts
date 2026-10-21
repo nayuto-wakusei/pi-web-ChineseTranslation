@@ -155,7 +155,7 @@ describe("bundled Git browser plugin", () => {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.includes("{"));
-    expect(styleRules).toContainEqual(expect.stringContaining(".git-panel .git-row"));
+    expect(container.querySelector(".git-panel .ui-file-row")).not.toBeNull();
     expect(styleRules.every((rule) => rule.startsWith(".git-panel"))).toBe(true);
     expect(container.querySelector('[role="table"][aria-label="统一差异"]')).not.toBeNull();
     expect([...container.querySelectorAll(".inline-change")].map((entry) => entry.textContent)).toContain("new");

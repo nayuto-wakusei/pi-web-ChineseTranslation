@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { installPopoverFake } from "./anchoredPopup.testSupport";
+installPopoverFake();
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMPOSER_SEND_DESKTOP, COMPOSER_SEND_MOBILE } from "../composerShortcuts";
 import { PromptEditor } from "./PromptEditor";

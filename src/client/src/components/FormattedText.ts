@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { css, LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -10,6 +11,11 @@ import { formattedTextStyles } from "./shared";
 
 @customElement("formatted-text")
 export class FormattedText extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property() text = "";
   @property() highlight = "";
   @property() intentKey: string | undefined;
@@ -111,7 +117,10 @@ export class FormattedText extends LitElement {
   }
 
   static override styles = [formattedTextStyles, css`
+    @layer pi-web-base {
     mark[data-search-highlight] { border-radius: 3px; background: color-mix(in srgb, var(--pi-warning) 42%, var(--pi-warning-surface)); color: var(--pi-text-bright, inherit); padding: 0 1px; box-shadow: 0 0 0 1px var(--pi-warning-border); }
+
+    }
   `];
 }
 

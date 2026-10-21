@@ -1,16 +1,38 @@
 import { t, setTranslator } from "./i18n.js";
-import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, PiWebPlugin, PluginCapability } from "@chainingintention/pi-web-cn/plugin-api";
 import { RELAYS_ROOT } from "./relayDiscovery.js";
 import { defineRelaysPanelElement } from "./relaysPanelElement.js";
+
+const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
+  pluginId: "pi-web", id: "stylesheet-integration", version: 1,
+  parse(value) {
+    if (!isStylesheetIntegration(value)) {
+      throw new Error("Stylesheet integration capability v1 requires registerRoot and createController");
+    }
+    return value;
+  },
+};
+
+function isStylesheetIntegration(value: unknown): value is StylesheetIntegrationCapabilityV1 {
+  return typeof value === "object" && value !== null
+    && "registerRoot" in value && typeof value.registerRoot === "function"
+    && "createController" in value && typeof value.createController === "function"
+    && "subscribe" in value && typeof value.subscribe === "function";
+}
 
 const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("bundled.relays.relays.715ce8", "Relays"),
+  requires: [stylesheetIntegrationCapability],
   activate: ({ runtimePluginId, html, svg, translate }) => {
     setTranslator(translate);
     defineRelaysPanelElement();
+    let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
 
     return {
+      start: ({ capabilities }) => {
+        stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
+      },
       contributions: {
         actions: [
           {
@@ -37,7 +59,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
               </svg>
             `,
             order: 50,
-            render: (context) => html`<pi-web-relays-panel .context=${context}></pi-web-relays-panel>`,
+            render: (context) => html`<pi-web-relays-panel .stylesheetIntegration=${stylesheetIntegration} .context=${context}></pi-web-relays-panel>`,
           },
         ],
       },

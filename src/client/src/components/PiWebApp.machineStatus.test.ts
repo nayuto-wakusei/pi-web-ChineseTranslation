@@ -1,3 +1,4 @@
+import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppState } from "../appState";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";

@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -21,6 +22,11 @@ export function statusBarWarningControlContent(count: number, expanded: boolean)
 
 @customElement("status-bar")
 export class StatusBar extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) status?: SessionStatus;
   @property({ type: Number }) warningCount = 0;
   @property({ type: Boolean }) warningsExpanded = false;

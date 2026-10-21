@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -22,6 +23,11 @@ function isTemplateResult(value: unknown): value is TemplateResult {
 /** Owns source access independently of the plugin's rendering success. */
 @customElement("pi-web-content-renderer")
 export class ContentRendererHost extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ type: Boolean, reflect: true, attribute: "external-controls" }) externalControls = false;
   @property() text = "";
   @property() intentKey: string | undefined;
@@ -158,6 +164,7 @@ export class ContentRendererHost extends LitElement {
   }
 
   static override styles = css`
+    @layer pi-web-base {
     /* Keep natural height in flex viewers: shrinking this clipping boundary
        hides content instead of giving the surrounding viewer a scroll range. */
     :host { display: block; flex-shrink: 0; margin: 0 0 10px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); overflow: hidden; color: var(--pi-text); }
@@ -172,7 +179,9 @@ export class ContentRendererHost extends LitElement {
     pre { overflow: auto; white-space: pre; text-align: left; direction: ltr; padding: 12px; margin: 0; }
     code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .preview { overflow: auto; padding: 12px; }
-    p { color: var(--pi-muted); margin: 0; padding: 10px 12px; font: 12px/1.5 system-ui, sans-serif; }
+    p { color: var(--pi-muted); margin: 0; padding: 10px 12px; font: 12px/1.5 var(--pi-font, system-ui, sans-serif); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+    }
   `;
 }

@@ -1,3 +1,4 @@
+import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import { workspacesApi, type Project } from "../api";

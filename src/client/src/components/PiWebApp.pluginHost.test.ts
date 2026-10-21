@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesRuntime } from "../../../../pi-web-plugins/files/FilesRuntime";
 import { TerminalBrowserRuntime } from "../../../../pi-web-plugins/terminal/TerminalBrowserRuntime";
@@ -1175,14 +1176,14 @@ describe("PiWebApp plugin host", () => {
     const destination = browser.url.href;
     const app = new PiWebApp();
     await markPluginLoadingReady(app);
-    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", themeStylesheetFetch(vi.fn((input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("api/machines")) {
         if (scenario === "machine load failure") return Promise.reject(new Error("machines offline"));
         return Promise.resolve(new Response(JSON.stringify({ machines: [{ id: "local", name: "Local", kind: "local", createdAt: "now", updatedAt: "now" }] }), { headers: { "content-type": "application/json" } }));
       }
       return Promise.reject(new Error("backend offline"));
-    }));
+    })));
     Reflect.set(app, "withChatScrollTransition", async (action: () => Promise<void>) => { await action(); });
     Reflect.set(app, "refreshWorkspaceDeletionRuns", () => Promise.resolve());
 
@@ -2443,7 +2444,7 @@ describe("PiWebApp plugin host", () => {
       facade: testTerminalFacade(),
     });
     setVerifiedPluginMode(app, "local", "required");
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }))));
+    vi.stubGlobal("fetch", themeStylesheetFetch(vi.fn(() => Promise.resolve(new Response("[]", { status: 200, headers: { "content-type": "application/json" } })))));
 
     await callAsyncAppMethod(app, "restoreRoute", false);
     expect(restoredTerminalIds).toEqual(["terminal-1"]);
@@ -3164,13 +3165,13 @@ describe("PiWebApp plugin host", () => {
     const composition: unknown = compositions.get("local");
     if (!isRequiredTerminalComposition(composition)) throw new Error("Local Terminal composition was unavailable");
     compositions.set("local", { ...composition, facade: new TerminalFacade() });
-    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", themeStylesheetFetch(vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes(`/workspaces/${targetWorkspace.id}/`)) {
         return Promise.resolve(new Response(JSON.stringify({ error: "Workspace not found" }), { status: 404, headers: { "content-type": "application/json" } }));
       }
       return Promise.resolve(new Response(JSON.stringify([completedRun]), { status: 200, headers: { "content-type": "application/json" } }));
-    }));
+    })));
     const workspaceController: unknown = Reflect.get(app, "workspaces");
     if (typeof workspaceController !== "object" || workspaceController === null) throw new Error("Workspace controller was unavailable");
     const refreshAfterDeleted = vi.fn<(
@@ -3472,7 +3473,7 @@ describe("PiWebApp plugin host", () => {
       requestedInit = init;
       return Promise.resolve(new Response(JSON.stringify(run), { status: 200, headers: { "content-type": "application/json" } }));
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", themeStylesheetFetch(fetchMock));
 
     await callAsyncAppMethod(app, "registerExternalPlugins", "Remote plugins", () => Promise.resolve({
       terminalMode: "required",

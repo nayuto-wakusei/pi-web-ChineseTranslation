@@ -169,7 +169,14 @@ export interface PiWebDeprecatedAgentInput {
   readonly replacement?: string;
 }
 
+export interface PiWebThemePreference {
+  themeId: string;
+  auto: boolean;
+}
+
 export interface PiWebConfigValues {
+  /** App-wide theme default; browser-local theme preferences take precedence. */
+  defaultTheme?: PiWebThemePreference;
   host?: string;
   port?: number;
   allowedHosts?: string[] | true;

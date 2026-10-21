@@ -1,3 +1,6 @@
+import { uiSettingsStyles } from "../ui/settingsStyles";
+import { uiFormStyles } from "../ui/formStyles";
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -11,6 +14,11 @@ export type SettingsPluginRow = PiWebPluginInfo & { configOnly: boolean; editabl
 
 @customElement("settings-plugins-panel")
 export class SettingsPluginsPanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) pluginsResponse: PiWebPluginsResponse | undefined;
   @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
   @property({ type: Boolean }) loading = false;
@@ -129,7 +137,7 @@ export class SettingsPluginsPanel extends LitElement {
     }
     return html`
       <div class="plugin-note">${this.targetLabel} ${t("ui.main.2432ea1a4c8b", ":")} <code>plugins</code>${t("ui.main.8ccf013eb3c2", ". Browser-only changes apply after a tab reload; server-backed changes follow sessiond's startup snapshot and can require a manual restart.")}</div>
-      <div class="plugin-list">
+      <div class="plugin-list ui-settings-list">
         ${plugins.map((plugin) => this.renderPlugin(plugin))}
       </div>
       ${this.renderRecoveryCommands()}
@@ -154,8 +162,8 @@ export class SettingsPluginsPanel extends LitElement {
           ${plugin.server?.health?.message === undefined ? nothing : html`<small class="diagnostic">${t("ui.main.cfa349711e67", "Health:")}${plugin.server.health.message}</small>`}
           ${plugin.server === undefined || plugin.required === true ? nothing : html`<small class="command">${t("ui.main.c54bd03f1522", "Offline disable:")} <code>${plugin.server.disableCommand}</code></small>`}
         </div>
-        <label class="toggle">
-          <input type="checkbox" .checked=${plugin.enabled} ?disabled=${this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
+        <label class="toggle ui-checkbox-field">
+          <input  type="checkbox" .checked=${plugin.enabled} ?disabled=${this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
           <span>${plugin.required === true ? t("ui.main.12ea99f8d0b5", "Required") : t("ui.settingsSessiondPanel.enabled", "Enabled")}</span>
         </label>
       </article>
@@ -198,18 +206,15 @@ export class SettingsPluginsPanel extends LitElement {
     await this.onTogglePlugin?.(plugin.id, enabled);
   }
 
-  static override styles = css`
+  static override styles = [uiFormStyles, uiSettingsStyles, css`
+    @layer pi-web-base {
     :host { display: block; }
-    input { font: inherit; }
-    input:disabled { opacity: .55; cursor: not-allowed; }
-    .loading-card, .plugin-note, .plugin-card, .recovery { border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
     .loading-card, .plugin-note { color: var(--pi-muted); }
-    code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-    .plugin-list { display: grid; gap: 10px; }
-    .plugin-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+    code { color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
+    .plugin-card { align-items: center; }
     .plugin-card.disabled { opacity: .8; }
-    .plugin-main { min-width: 0; display: grid; gap: 5px; }
-    .plugin-main > strong, .plugin-main > small:not(.command) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .plugin-main { flex: 1 1 280px; min-width: 0; display: grid; gap: 5px; }
+    .plugin-main > strong, .plugin-main > small:not(.command) { overflow-wrap: anywhere; }
     .plugin-main small { color: var(--pi-muted); }
     .diagnostic { color: var(--pi-text) !important; }
     .command { line-height: 1.5; }
@@ -218,17 +223,16 @@ export class SettingsPluginsPanel extends LitElement {
     .status.success { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-surface); }
     .status.warning { border-color: var(--pi-warning-border); color: var(--pi-text); background: var(--pi-warning-surface); }
     .status.error { border-color: var(--pi-danger); color: var(--pi-danger); }
-    .toggle { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-    .toggle input { width: 18px; height: 18px; accent-color: var(--pi-accent); }
-    .recovery { display: grid; gap: 7px; }
+    .toggle { white-space: nowrap; }
     .recovery small { color: var(--pi-muted); line-height: 1.4; }
     .recovery code { display: block; width: fit-content; max-width: 100%; }
 
     @media (max-width: 760px) {
-      .plugin-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
-      .toggle { justify-self: start; }
+      .plugin-main { flex-basis: 100%; }
     }
-  `;
+
+    }
+  `];
 }
 
 export function settingsPluginRows(

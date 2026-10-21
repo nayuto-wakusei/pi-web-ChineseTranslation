@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n.js";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -19,6 +20,11 @@ const TAP_MOVE_TOLERANCE_PX = 4;
 
 @customElement("app-panel-edge-control")
 export class AppPanelEdgeControl extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ reflect: true }) side: PanelEdgeSide = "navigation";
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ type: Boolean }) resizable = false;
@@ -202,6 +208,7 @@ export class AppPanelEdgeControl extends LitElement {
   }
 
   static override styles = css`
+    @layer pi-web-base {
     :host { position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: visible; background: var(--pi-border-muted); z-index: 2; }
     :host([side="navigation"]) { grid-column: 2; }
     :host([side="workspace"]) { grid-column: 4; }
@@ -219,6 +226,8 @@ export class AppPanelEdgeControl extends LitElement {
     }
     @media (max-width: 760px) {
       :host([side="navigation"]) { display: none; }
+    }
+
     }
   `;
 }

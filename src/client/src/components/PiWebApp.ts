@@ -1,3 +1,4 @@
+import { hasOpenTransientPopup } from "./popupScope";
 import type { MessageActionAvailabilityContext, MessageActionContext, DisplayedMessageActionAvailabilityContext, MessageActionResult } from "../../../plugin-api";
 import { messageActionMessage } from "../plugins/messageActions";
 import { t } from "../i18n";
@@ -43,12 +44,13 @@ import type { ServerNotice } from "../../../shared/apiTypes";
 import { HttpRequestError } from "../api/http";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
-import type { ApplicationPanelContext, PluginMachine, PluginNavigationPatchDestination, PluginNavigationOptions, SessionLabelContext, SessionLabelItem, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFilesCapabilityV1, ContributionQueryValue, WorkspacePanelNavigationV1, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput, PiWebPluginRegistration } from "../plugins/types";
+import type { ApplicationPanelContext, PluginMachine, PluginNavigationPatchDestination, PluginNavigationOptions, SessionLabelContext, SessionLabelItem, PluginPromptEditor, QualifiedContributionId, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFilesCapabilityV1, ContributionQueryValue, WorkspacePanelNavigationV1, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput, PiWebPluginRegistration } from "../plugins/types";
 import type { ExternalPluginLoadResult } from "../plugins/external";
-import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
+import { CLASSIC_THEME_ID, applyPiWebTheme, clearStoredThemePreference, effectiveThemePreference, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { resolvePluginNavigation } from "../pluginNavigation";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
+import { pluginStyles, PluginStyleRuntime, stylesheetIntegrationCapability } from "../plugins/styles";
 import { publicPluginSelection, publicPluginSession } from "../plugins/publicContext";
 import { createPluginProjects } from "../plugins/projects";
 import { PluginRegistry, installApplicationPanelScope, installPluginRuntimeScope, installSessionLabelScope, installWorkspaceLabelScope, installWorkspacePanelScope, type BrowserPluginLifecyclePhase, type PluginRegistrationFailure } from "../plugins/registry";
@@ -119,12 +121,6 @@ const ROUTE_SELECTION_SCOPE = ["machine", "project", "workspace", "session"] as 
 const WORKSPACE_SURFACE_SCOPE = ["tool", "view"] as const;
 const WORKSPACE_DELETION_RECONCILE_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const GLOBAL_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
-const THEME_AUTO_ON_VALUE = "auto:on";
-const THEME_AUTO_OFF_VALUE = "auto:off";
-const THEME_OPTION_PREFIX = "theme:";
-
-
-
 const MIN_RESIZABLE_CHAT_WIDTH_PX = 320;
 const PANEL_EDGE_COLUMNS_WIDTH_PX = 2;
 
@@ -243,6 +239,11 @@ function sameWorkspaceRouteIdentity(left: WorkspaceRouteIdentity, right: Workspa
 
 @customElement("pi-web-app")
 export class PiWebApp extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @state() private state: AppState = initialAppState();
   private readonly browserErrors = new BrowserErrorReporter(() => this.state, (patch) => { this.setState(patch); });
   @query("chat-view") private chatView?: ChatView;
@@ -427,6 +428,9 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreTimer: number | undefined;
   private remoteRouteRestoreAttempt = 0;
   private remoteRouteRestoreInProgress = false;
+  private readonly stylesheetRuntime = new PluginStyleRuntime(pluginStyles, (error) => {
+    console.error("Failed to apply plugin stylesheets", error);
+  });
   private readonly pluginLoadErrors = new Map<string, string>();
   private readonly requiredTerminalByMachine = new Map<string, RequiredTerminalBrowserComposition>();
   private readonly knownRequiredTerminalByMachine = new Map<string, RequiredTerminalBrowserComposition>();
@@ -440,6 +444,7 @@ export class PiWebApp extends LitElement {
     { id: "themes", plugin: themePackPlugin },
   ]).then(({ failures }) => {
     if (failures.length > 0) throw failures[0]?.error;
+    if (this.isConnected) this.applyPreferredTheme(false);
     this.invalidateWorkspaceSurface();
   });
   private readonly pluginLoads = new MachinePluginLoadCoordinator(
@@ -447,7 +452,11 @@ export class PiWebApp extends LitElement {
     (id, machineSpecific) => this.plugins.shouldLoadRemotePlugin(id, machineSpecific) && !(this.apiScope === "management" && id === "pi-web.terminal"),
     (id) => !this.plugins.hasPlugin(id) || (id === REQUIRED_TERMINAL_PLUGIN_ID && !this.terminalAvailableForMachine("local")),
   );
-  private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
+  @state() private localThemePreference: ThemePreference | undefined = readStoredThemePreference();
+  @state() private configuredThemePreference: ThemePreference | undefined;
+  private get themePreference(): ThemePreference {
+    return effectiveThemePreference(this.localThemePreference, this.configuredThemePreference);
+  }
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private navigationPreferences: NavigationPreferences = loadNavigationPreferences();
   @state() private navigationDialogOpen = false;
@@ -491,7 +500,7 @@ export class PiWebApp extends LitElement {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    if (this.isRenderedModalOpen() || this.promptEditor?.ownsKeyboardEvent(event) === true) {
+    if (this.isRenderedModalOpen() || (event.key === "Escape" && hasOpenTransientPopup(this.ownerDocument)) || this.promptEditor?.ownsKeyboardEvent(event) === true) {
       this.keyboard.reset();
       return;
     }
@@ -510,6 +519,7 @@ export class PiWebApp extends LitElement {
     this.committedChatIdentity = selectedChatIdentity(this.state);
     this.syncSelectedSessionReadState();
     this.plugins.notifySelectionChanged();
+    this.syncPluginStylesheets();
   }
 
   private syncSessionWarningVisibility(): void {
@@ -598,6 +608,7 @@ export class PiWebApp extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.normalAuthInitSeq += 1;
+    this.stylesheetRuntime.connect(this.ownerDocument);
     window.addEventListener("popstate", this.onPopState);
     window.addEventListener("pageshow", this.onPageShow);
     this.browserResume.connect();
@@ -652,6 +663,7 @@ export class PiWebApp extends LitElement {
     this.workspaceNavigationGeneration += 1;
     this.normalAuthInitSeq += 1;
     this.authenticatedAppRunning = false;
+    this.stylesheetRuntime.disconnect();
     this.unreadConnected = false;
     this.committedChatIdentity = undefined;
     this.readyChatIdentity = undefined;
@@ -839,6 +851,8 @@ export class PiWebApp extends LitElement {
   }
 
   private applyClientConfig(config: PiWebConfigValues): void {
+    this.configuredThemePreference = config.defaultTheme;
+    this.applyPreferredTheme(false);
     this.shortcutConfig = config.shortcuts ?? {};
     this.workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(config);
     this.workspaceAttachmentsDefaultFolder = effectiveWorkspaceAttachmentsFolder(config);
@@ -3232,49 +3246,33 @@ export class PiWebApp extends LitElement {
     await this.sessions.setModel(value.slice(0, slash), value.slice(slash + 1));
   }
 
-  private openThemeDialog() {
-    const themes = this.plugins.getThemes();
-    const resolution = this.resolveCurrentThemePreference(themes);
-    const selectedThemeId = resolution.selectedTheme?.id;
-    const autoValue = this.themePreference.auto ? THEME_AUTO_OFF_VALUE : THEME_AUTO_ON_VALUE;
-    this.setState({
-      themeDialog: {
-        title: t("client.actions.choose.theme.07a79a", "Choose theme"),
-        selectedValue: selectedThemeId === undefined ? autoValue : `${THEME_OPTION_PREFIX}${selectedThemeId}`,
-        options: [
-          {
-            value: autoValue,
-            label: t("ui.piWebApp.auto", "Auto {auto}", { auto: this.themePreference.auto ? t("ui.piWebApp.on", "✓ On") : t("thinking.label.off", "Off") }),
-            description: this.autoThemeDescription(resolution),
-          },
-          ...themes.map((theme) => ({
-            value: `${THEME_OPTION_PREFIX}${theme.id}`,
-            label: this.themeOptionLabel(theme, selectedThemeId),
-            description: this.themeOptionDescription(theme),
-          })),
-        ],
-      },
-    });
+  private openThemeDialog(): void {
+    this.navigateSettings("general");
   }
 
-  private pickTheme(value: string) {
-    this.setState({ themeDialog: undefined });
-    if (value === THEME_AUTO_ON_VALUE || value === THEME_AUTO_OFF_VALUE) {
-      const selectedThemeId = this.resolveCurrentThemePreference().selectedTheme?.id;
-      if (selectedThemeId === undefined) return;
-      this.themePreference = { themeId: selectedThemeId, auto: value === THEME_AUTO_ON_VALUE };
-      this.applyPreferredTheme(true);
-      return;
-    }
-    if (!value.startsWith(THEME_OPTION_PREFIX)) return;
-    const themeId = value.slice(THEME_OPTION_PREFIX.length);
-    const theme = this.plugins.getThemes().find((candidate) => candidate.id === themeId);
-    if (theme === undefined) return;
-    this.themePreference = { themeId: theme.id, auto: this.themePreference.auto };
+  private pickTheme(preference: ThemePreference): void {
+    if (!this.plugins.getThemes().some((theme) => theme.id === preference.themeId)) return;
+    this.localThemePreference = { ...preference };
     this.applyPreferredTheme(true);
   }
 
+  private useDefaultTheme(): void {
+    this.localThemePreference = undefined;
+    clearStoredThemePreference();
+    this.applyPreferredTheme(false);
+  }
+
+  private syncPluginStylesheets(): void {
+    if (!this.isConnected) return;
+    const theme = this.resolveCurrentThemePreference().activeTheme;
+    this.stylesheetRuntime.update([
+      ...this.plugins.getStylesheets(selectedMachineId(this.state)),
+      ...(theme?.stylesheets ?? []),
+    ]);
+  }
+
   private applyPreferredTheme(persist: boolean): void {
+    this.syncPluginStylesheets();
     const theme = this.resolveCurrentThemePreference().activeTheme;
     if (theme === undefined) return;
     this.activeThemeId = theme.id;
@@ -3291,34 +3289,8 @@ export class PiWebApp extends LitElement {
     });
   }
 
-  private themePairForTheme(themeId: QualifiedContributionId): QualifiedThemePairContribution | undefined {
-    return findThemePairForTheme(this.plugins.getThemePairs(), themeId);
-  }
-
   private systemPrefersLight(): boolean {
     return this.systemLightThemeMedia?.matches ?? false;
-  }
-
-  private autoThemeDescription(resolution: ThemePreferenceResolution): string {
-    if (!this.themePreference.auto) return t("ui.piWebApp.followTheSystemLightDarkPreferenceWhenThe", "Follow the system light/dark preference when the selected theme has a paired theme.");
-    if (resolution.selectedTheme === undefined) return t("ui.piWebApp.followTheSystemLightDarkPreferenceWhenThe", "Follow the system light/dark preference when the selected theme has a paired theme.");
-    if (resolution.selectedThemePair === undefined) return t("ui.piWebApp.enabledButTheSelectedThemeHasNoLight", "Enabled, but the selected theme has no light/dark pair, so the current theme will be kept.");
-    return t("ui.piWebApp.enabledFollowsTheSystemPreference", "Enabled · {name} follows the system {systemPrefersLight} preference.", { name: resolution.selectedThemePair.name, systemPrefersLight: this.systemPrefersLight() ? t("ui.piWebApp.light", "light") : t("ui.piWebApp.dark", "dark") });
-  }
-
-  private themeOptionLabel(theme: QualifiedThemeContribution, selectedThemeId: QualifiedContributionId | undefined): string {
-    const markers = [
-      ...(theme.id === selectedThemeId ? [t("ui.piWebApp.selected", "Selected")] : []),
-      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? [t("ui.piWebApp.active", "Active")] : []),
-    ];
-    return markers.length === 0 ? theme.name : `${theme.name} ✓ ${markers.join(" · ")}`;
-  }
-
-  private themeOptionDescription(theme: QualifiedThemeContribution): string {
-    const parts: string[] = [theme.colorScheme];
-    if (this.themePairForTheme(theme.id) !== undefined) parts.push(t("ui.piWebApp.autoPair", "Auto pair"));
-    if (theme.description !== undefined) parts.push(theme.description);
-    return parts.join(" · ");
   }
 
   private async openThinkingDialog() {
@@ -3779,8 +3751,7 @@ export class PiWebApp extends LitElement {
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
-        ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
-        ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
+        ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .themes=${this.plugins.getThemes()} .themePreference=${this.themePreference} .activeThemeId=${this.activeThemeId} .hasLocalThemeOverride=${this.localThemePreference !== undefined} .onUseLocalTheme=${(preference: ThemePreference) => { this.pickTheme(preference); }} .onUseDefaultTheme=${() => { this.useDefaultTheme(); }} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
         ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
       </div>
     `;

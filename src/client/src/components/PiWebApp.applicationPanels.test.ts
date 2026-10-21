@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { LitElement, html } from "lit";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ApplicationPanelContext, PiWebPlugin, PiWebStatusResponse, PluginProjects, PluginSelectionService, WorkspacePanelContext } from "../../../plugin-api";
@@ -353,7 +354,7 @@ function projectDiscoveryTransport() {
       ? [{ ...project, name: `${machineId} project`, path: `/${machineId}/repo` }]
       : [{ path: `/${machineId}/directory`, kind: "other" }])));
   });
-  vi.stubGlobal("fetch", fetch);
+  vi.stubGlobal("fetch", themeStylesheetFetch(fetch));
   return fetch;
 }
 
@@ -392,10 +393,10 @@ function invalidateToolSurface(app: PiWebApp): void {
 }
 
 async function mount(plugin: PiWebPlugin, { id = "info", state = {}, machineSpecific = false }: { id?: string; state?: Partial<AppState>; machineSpecific?: boolean } = {}): Promise<ApplicationPanelsApp> {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+  vi.stubGlobal("fetch", themeStylesheetFetch(vi.fn().mockResolvedValue(new Response(JSON.stringify({
     lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, terminalMode: "recovery-disabled",
     plugins: [{ id, module: `${id}/pi-web-plugin.js`, machineSpecific }],
-  }))));
+  })))));
   const app = new ApplicationPanelsApp();
   Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
   Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"], ["remote", "recovery-disabled"]]));

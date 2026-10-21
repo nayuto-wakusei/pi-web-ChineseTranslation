@@ -1,3 +1,4 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -26,6 +27,11 @@ export interface WorkspaceToolPanel {
 
 @customElement("workspace-panel")
 export class WorkspacePanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) workspace: Workspace | undefined;
   @property({ attribute: false }) emptyState: WorkspacePanelEmptyState | undefined;
   @property() error = "";
