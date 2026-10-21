@@ -1,6 +1,6 @@
 {
   "name": "@chainingintention/pi-web-cn",
-  "version": "1.202610.3",
+  "version": "1.202610.4",
   "description": "Web UI for persistent Pi Coding Agent sessions in real workspaces.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
