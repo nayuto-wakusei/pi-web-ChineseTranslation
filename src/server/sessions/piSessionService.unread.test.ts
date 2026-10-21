@@ -664,7 +664,7 @@ describe("PiSessionService daemon-owned unread state", () => {
       ]);
 
       expect(result.archivedSessionIds).toEqual(["already-archived", "listed-idle", "active-idle"]);
-      expect(result.failures).toEqual([{ sessionId: "busy", error: "Stop current session activity before archiving" }]);
+      expect(result.failures).toEqual([{ sessionId: "busy", error: "归档前请先停止当前会话活动" }]);
       expect(activeIdle.calls.dispose).toBe(1);
       expect(busy.calls.abort).toBe(0);
       expect((await service.unreadCatalog()).sessions).toMatchObject([{ sessionId: "busy", cwd: WORKSPACE_CWD }]);
@@ -801,7 +801,7 @@ describe("PiSessionService daemon-owned unread state", () => {
 
       expect(result).toMatchObject({
         deletedSessionIds: ["idle-archived"],
-        failures: [{ sessionId: "busy-archived", error: "Stop current session activity before deleting archived session" }],
+        failures: [{ sessionId: "busy-archived", error: "删除已归档会话前请先停止当前会话活动" }],
       });
       expect((await service.unreadCatalog()).sessions).toMatchObject([{ sessionId: "busy-archived", cwd: WORKSPACE_CWD }]);
     } finally {

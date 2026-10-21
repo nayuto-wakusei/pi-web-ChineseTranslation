@@ -33,6 +33,7 @@ import { SessionNotificationStore } from "./sessionNotificationStore.js";
 import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
 import type { ClientSession } from "../types.js";
 import { registerSessionRoutes } from "./sessionRoutes.js";
+import { loadNodeTranslator } from "../../localization.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
@@ -56,6 +57,21 @@ afterEach(async () => {
 });
 
 describe("session routes", () => {
+  it("translates owned validation errors at the route boundary", async () => {
+    const localized = Fastify({ logger: false });
+    await localized.register(fastifyWebsocket);
+    registerSessionRoutes(localized, service, new SessionEventHub(), "", loadNodeTranslator("server", {}));
+    try {
+      const missing = await localized.inject({ method: "GET", url: "/sessions" });
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json()).toEqual({ error: "必须提供 cwd 查询参数" });
+      const invalid = await localized.inject({ method: "POST", url: "/sessions/s1/thinking-level", payload: { cwd: "/repo", level: 1 } });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: "level 字段无效" });
+    } finally {
+      await localized.close();
+    }
+  });
   it("returns notification catalog and selected-inbox snapshots with required cwd context", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);

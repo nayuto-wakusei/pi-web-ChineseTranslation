@@ -6,6 +6,15 @@ import { appTestContext, fakeRemoteClient, registerAppTestHooks } from "./app.te
 registerAppTestHooks();
 
 describe("buildApp PI WEB plugin routes", () => {
+  it("serves the disabled language manifest without depending on the daemon profile", async () => {
+    appTestContext.agentProfileResult = { status: "invalid", error: "Daemon unavailable" };
+    appTestContext.piWebConfig = { plugins: { "zh-cn": { enabled: false } } };
+    const response = await appTestContext.app.inject({ method: "GET", url: "/pi-web-plugins/localization.json" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ plugins: [] });
+    expect(appTestContext.sessionDaemonRequests).toEqual([]);
+  });
+
   it("serves application-root plugin modules through the manifest and plugin-list APIs", async () => {
     const manifestResponse = await appTestContext.app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" });
     expect(manifestResponse.statusCode).toBe(200);
@@ -128,7 +137,7 @@ describe("buildApp PI WEB plugin routes", () => {
     const response = await appTestContext.app.inject({ method: "GET", url: `/pi-web-plugins/${scopedPluginId}/..%2F..%2Fapi%2Fconfig` });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Invalid remote PI WEB plugin asset path" });
+    expect(response.json()).toEqual({ error: "远程 PI WEB 插件资源路径无效" });
     expect(request).not.toHaveBeenCalled();
   });
 });

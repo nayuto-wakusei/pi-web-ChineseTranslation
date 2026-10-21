@@ -1229,8 +1229,8 @@ describe("PiSessionService", () => {
     expect(archiveMany.mock.calls[0]?.[0].map((input) => input.sessionId)).toEqual(["ok"]);
     expect(result.archivedSessionIds).toEqual(["ok"]);
     expect(result.failures).toEqual([
-      { sessionId: "busy", error: "Stop current session activity before archiving" },
-      { sessionId: "missing", error: "Session not found" },
+      { sessionId: "busy", error: "归档前请先停止当前会话活动" },
+      { sessionId: "missing", error: "未找到会话" },
     ]);
     await service.dispose();
   });
@@ -1266,8 +1266,8 @@ describe("PiSessionService", () => {
     expect(deleteArchivedMany).toHaveBeenCalledWith(["idle-archived"]);
     expect(result.deletedSessionIds).toEqual(["idle-archived"]);
     expect(result.failures).toEqual([
-      { sessionId: "busy-archived", error: "Stop current session activity before deleting archived session" },
-      { sessionId: "unarchived", error: "Archived session not found" },
+      { sessionId: "busy-archived", error: "删除已归档会话前请先停止当前会话活动" },
+      { sessionId: "unarchived", error: "未找到已归档会话" },
     ]);
     await service.dispose();
   });
@@ -2563,8 +2563,8 @@ describe("PiSessionService", () => {
         await service.status(sessionRef("parent-1", "/workspace"));
 
         await expect(service.listSubsessions("parent-1", copiedParentFile)).resolves.toEqual([]);
-        await expect(service.checkSubsession("parent-1", "child-1", copiedParentFile)).rejects.toThrow("not one of your subsessions");
-        await expect(service.readSubsession("parent-1", "child-1", {}, copiedParentFile)).rejects.toThrow("not one of your subsessions");
+        await expect(service.checkSubsession("parent-1", "child-1", copiedParentFile)).rejects.toThrow("不是你的子会话");
+        await expect(service.readSubsession("parent-1", "child-1", {}, copiedParentFile)).rejects.toThrow("不是你的子会话");
 
         child.session.isStreaming = true;
         child.emit({ type: "agent_start" });
@@ -2796,8 +2796,8 @@ describe("PiSessionService", () => {
       await service.start("/workspace");
       await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace-feature" });
 
-      await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
-      await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");
+      await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("不是你的子会话");
+      await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("不是你的子会话");
       await service.dispose();
     });
 

@@ -1,3 +1,4 @@
+import { createTranslator, type Translator } from "../../shared/i18n.js";
 import { accessSync, constants, existsSync, statSync, type Stats } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -5,7 +6,6 @@ import { dirname, join } from "node:path";
 export const PI_WEB_SPAWN_HELPER_ISSUE_URL = "https://github.com/jmfederico/pi-web/issues/4";
 export const NODE_PTY_SPAWN_HELPER_UPSTREAM_ISSUE_URL = "https://github.com/microsoft/node-pty/issues/850";
 
-const doctorLabel = "node-pty macOS spawn-helper executable";
 const requireFromHere = createRequire(import.meta.url);
 
 type FileExists = (path: string) => boolean;
@@ -79,7 +79,8 @@ export function checkNodePtyDarwinSpawnHelper(options: NodePtyDarwinSpawnHelperC
   }
 }
 
-export function formatNodePtyDarwinSpawnHelperCheck(check: NodePtyDarwinSpawnHelperCheck): FormattedNodePtyDarwinSpawnHelperCheck {
+export function formatNodePtyDarwinSpawnHelperCheck(check: NodePtyDarwinSpawnHelperCheck, t: Translator = createTranslator("en", {})): FormattedNodePtyDarwinSpawnHelperCheck {
+  const doctorLabel = t("diagnostics.helperLabel", "node-pty macOS spawn-helper executable");
   if (check.status === "skipped") return { ok: true, lines: [] };
   if (check.status === "ok") {
     return {
@@ -93,19 +94,19 @@ export function formatNodePtyDarwinSpawnHelperCheck(check: NodePtyDarwinSpawnHel
       ok: false,
       lines: [
         `✗ ${doctorLabel}`,
-        `  ${check.helperPath} exists but is not executable.`,
-        `  Known upstream node-pty packaging issue: ${NODE_PTY_SPAWN_HELPER_UPSTREAM_ISSUE_URL}`,
-        `  PI WEB tracking issue: ${PI_WEB_SPAWN_HELPER_ISSUE_URL}`,
-        "  Proposed workaround:",
+        t("diagnostics.notExecutable", "  {arg0} exists but is not executable.", { arg0: check.helperPath }),
+        t("diagnostics.upstreamIssue", "  Known upstream node-pty packaging issue: {arg0}", { arg0: NODE_PTY_SPAWN_HELPER_UPSTREAM_ISSUE_URL }),
+        t("diagnostics.trackingIssue", "  PI WEB tracking issue: {arg0}", { arg0: PI_WEB_SPAWN_HELPER_ISSUE_URL }),
+        t("diagnostics.workaround", "  Proposed workaround:"),
         `    ${check.fixCommand}`,
-        "  Then run `pi-web doctor` again and retry opening a terminal.",
+        t("diagnostics.retryTerminal", "  Then run `pi-web doctor` again and retry opening a terminal."),
       ],
     };
   }
 
   return {
     ok: false,
-    lines: [`✗ ${doctorLabel}`, ...failureDetails(check)],
+    lines: [`✗ ${doctorLabel}`, ...failureDetails(check, t)],
   };
 }
 
@@ -125,35 +126,35 @@ function nodePtyNativeDirs(nodePtyRoot: string, platform: NodeJS.Platform, arch:
   return dirs.flatMap((dir) => [join(nodePtyRoot, dir), join(nodePtyRoot, "lib", dir)]);
 }
 
-function failureDetails(check: Exclude<NodePtyDarwinSpawnHelperCheck, { status: "ok" | "skipped" | "spawn-helper-not-executable" }>): string[] {
+function failureDetails(check: Exclude<NodePtyDarwinSpawnHelperCheck, { status: "ok" | "skipped" | "spawn-helper-not-executable" }>, t: Translator = createTranslator("en", {})): string[] {
   if (check.status === "node-pty-not-found") {
     return [
-      `  Could not resolve node-pty from PI WEB: ${check.message}`,
-      "  Reinstall or update PI WEB, then run `pi-web doctor` again.",
+      t("diagnostics.ptyResolve", "  Could not resolve node-pty from PI WEB: {arg0}", { arg0: check.message }),
+      t("diagnostics.reinstall", "  Reinstall or update PI WEB, then run `pi-web doctor` again."),
     ];
   }
   if (check.status === "native-module-not-found") {
     return [
-      `  Could not find node-pty's native pty.node module under ${check.nodePtyRoot}.`,
-      `  Expected macOS helper location: ${check.expectedHelperPath}`,
-      "  Reinstall or update PI WEB, then run `pi-web doctor` again.",
+      t("diagnostics.nativeMissing", "  Could not find node-pty's native pty.node module under {arg0}.", { arg0: check.nodePtyRoot }),
+      t("diagnostics.helperExpected", "  Expected macOS helper location: {arg0}", { arg0: check.expectedHelperPath }),
+      t("diagnostics.reinstall", "  Reinstall or update PI WEB, then run `pi-web doctor` again."),
     ];
   }
   if (check.status === "spawn-helper-missing") {
     return [
-      `  Expected helper is missing: ${check.helperPath}`,
-      "  Reinstall or update PI WEB, then run `pi-web doctor` again.",
+      t("diagnostics.helperMissing", "  Expected helper is missing: {arg0}", { arg0: check.helperPath }),
+      t("diagnostics.reinstall", "  Reinstall or update PI WEB, then run `pi-web doctor` again."),
     ];
   }
   if (check.status === "spawn-helper-not-file") {
     return [
-      `  Expected helper is not a regular file: ${check.helperPath}`,
-      "  Reinstall or update PI WEB, then run `pi-web doctor` again.",
+      t("diagnostics.helperNotFile", "  Expected helper is not a regular file: {arg0}", { arg0: check.helperPath }),
+      t("diagnostics.reinstall", "  Reinstall or update PI WEB, then run `pi-web doctor` again."),
     ];
   }
   return [
-    `  Could not inspect ${check.helperPath}: ${check.message}`,
-    "  Check the file permissions, then run `pi-web doctor` again.",
+    t("diagnostics.inspectFailed", "  Could not inspect {arg0}: {arg1}", { arg0: check.helperPath, arg1: check.message }),
+    t("diagnostics.permissions", "  Check the file permissions, then run `pi-web doctor` again."),
   ];
 }
 

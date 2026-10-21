@@ -1,7 +1,11 @@
 import type { WorkbenchAgentAccessState } from "./types.js";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 
 export class WorkbenchAccessStateStore {
   private readonly states = new Map<string, WorkbenchAgentAccessState>();
+
+  constructor(private readonly t: Translator = loadNodeTranslator("server")) {}
 
   set(handle: string, state: WorkbenchAgentAccessState): void {
     if (handle.trim() === "") throw new Error("Workbench access handle is required");
@@ -10,11 +14,11 @@ export class WorkbenchAccessStateStore {
   }
 
   require(handle: string | undefined): WorkbenchAgentAccessState {
-    if (handle === undefined) throw new Error("当前管理会话没有工作台资源授权，请从工作台重新进入桂小智。");
+    if (handle === undefined) throw new Error(this.t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
     const state = this.states.get(handle);
     if (state === undefined || Date.parse(state.expiresAt) <= Date.now()) {
       this.states.delete(handle);
-      throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。");
+      throw new Error(this.t("workbench.authorizationExpired", "Resource authorization has expired or changed. Reopen the assistant from Workbench."));
     }
     return state;
   }

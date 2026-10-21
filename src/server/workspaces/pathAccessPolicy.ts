@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep, win32 } from "node:path";
@@ -36,14 +37,14 @@ export interface PathAccessPolicyOptions {
 
 export async function createPathAccessPolicy(workspaceRootPath: string, pathAccess: PiWebPathAccessConfig | undefined, options: PathAccessPolicyOptions = {}): Promise<PathAccessPolicy> {
   return {
-    workspaceRoot: await canonicalDirectory(workspaceRootPath, "Workspace path"),
+    workspaceRoot: await canonicalDirectory(workspaceRootPath, "workspace"),
     allowedRoots: await resolveAllowedRoots(pathAccess?.allowedPaths ?? [], options),
   };
 }
 
 export async function resolveWorkspacePathAccessTarget(rootPath: string, requestedPath: string | undefined, pathAccess?: PiWebPathAccessConfig, options: PathAccessPolicyOptions = {}): Promise<ResolvedPathAccessTarget> {
   const request = requestedPath ?? "";
-  const workspaceRoot = await canonicalDirectory(rootPath, "Workspace path");
+  const workspaceRoot = await canonicalDirectory(rootPath, "workspace");
   const allowedRoots = isAbsoluteishPath(request) ? await resolveAllowedRoots(pathAccess?.allowedPaths ?? [], options) : [];
   return resolvePathAccessTarget({ workspaceRoot, allowedRoots }, requestedPath, options);
 }
@@ -54,7 +55,7 @@ export async function resolvePathAccessTarget(policy: PathAccessPolicy, requeste
 
   const displayPath = normalizeRelativePath(request);
   const target = await canonicalExistingPath(resolve(policy.workspaceRoot, displayPath));
-  ensureInside(policy.workspaceRoot, target, "Path escapes workspace");
+  ensureInside(policy.workspaceRoot, target);
   return { kind: "workspace", root: policy.workspaceRoot, target, displayPath };
 }
 
@@ -65,8 +66,8 @@ export function isAbsoluteishPath(path: string): boolean {
 async function resolveAllowedRoots(allowedPaths: readonly string[], options: PathAccessPolicyOptions): Promise<AllowedPathRoot[]> {
   const roots: AllowedPathRoot[] = [];
   for (const source of allowedPaths) {
-    const expanded = expandAbsoluteishPath(source, options, `Allowed path must be absolute or start with ~: ${source}`);
-    const realPath = await canonicalDirectory(expanded, `Allowed path ${source}`);
+    const expanded = expandAbsoluteishPath(source, options, new WorkspaceUserError("server.files.allowedPathMustBeAbsolute", "Allowed path must be absolute or start with ~: {path}", { path: source }));
+    const realPath = await canonicalDirectory(expanded, "allowed", source);
     if (roots.some((root) => root.realPath === realPath)) continue;
     roots.push({ source, path: expanded, realPath });
   }
@@ -74,42 +75,47 @@ async function resolveAllowedRoots(allowedPaths: readonly string[], options: Pat
 }
 
 async function resolveAllowedTarget(policy: PathAccessPolicy, request: string, options: PathAccessPolicyOptions): Promise<ResolvedPathAccessTarget> {
-  if (policy.allowedRoots.length === 0) throw new Error("Absolute paths are not allowed");
+  if (policy.allowedRoots.length === 0) throw new WorkspaceUserError("server.files.absolutePathsDenied", "Absolute paths are not allowed");
 
-  const displayPath = expandAbsoluteishPath(request, options, `Path is not absolute: ${request}`);
+  const displayPath = expandAbsoluteishPath(request, options, new WorkspaceUserError("server.files.pathNotAbsolute", "Path is not absolute: {path}", { path: request }));
   const target = await canonicalExistingPath(displayPath);
   const root = policy.allowedRoots.find((allowedRoot) => isInsideOrSame(allowedRoot.realPath, target));
-  if (root === undefined) throw new Error("Path is outside allowed paths");
+  if (root === undefined) throw new WorkspaceUserError("server.files.pathNotAllowed", "Path is outside allowed paths");
   return { kind: "allowed", root: root.realPath, target, displayPath };
 }
 
-function expandAbsoluteishPath(path: string, options: PathAccessPolicyOptions, relativeMessage: string): string {
+function expandAbsoluteishPath(path: string, options: PathAccessPolicyOptions, relativeError: WorkspaceUserError): string {
   const home = options.homeDir ?? homedir();
   if (path === "~") return home;
   if (path.startsWith("~/") || path.startsWith("~\\")) return resolve(home, path.slice(2));
   if (isAbsolute(path)) return resolve(path);
-  if (win32.isAbsolute(path)) throw new Error(`Absolute path is not valid on this host: ${path}`);
-  throw new Error(relativeMessage);
+  if (win32.isAbsolute(path)) throw new WorkspaceUserError("server.files.absolutePathInvalid", "Absolute path is not valid on this host: {path}", { path });
+  throw relativeError;
 }
 
-async function canonicalDirectory(path: string, label: string): Promise<string> {
-  const canonical = await canonicalExistingPath(path, `${label} does not exist`);
+async function canonicalDirectory(path: string, kind: "workspace" | "allowed", source = path): Promise<string> {
+  const missing = kind === "workspace"
+    ? new WorkspaceUserError("server.files.workspacePathMissing", "Workspace path does not exist")
+    : new WorkspaceUserError("server.files.allowedPathMissing", "Allowed path {path} does not exist", { path: source });
+  const canonical = await canonicalExistingPath(path, missing);
   const result = await stat(canonical);
-  if (!result.isDirectory()) throw new Error(`${label} must be a directory`);
+  if (!result.isDirectory()) throw kind === "workspace"
+    ? new WorkspaceUserError("server.files.workspaceMustBeDirectory", "Workspace path must be a directory")
+    : new WorkspaceUserError("server.files.allowedMustBeDirectory", "Allowed path {path} must be a directory", { path: source });
   return canonical;
 }
 
-async function canonicalExistingPath(path: string, missingMessage = "Path does not exist"): Promise<string> {
+async function canonicalExistingPath(path: string, missing = new WorkspaceUserError("server.files.pathMissing", "Path does not exist")): Promise<string> {
   try {
     return await realpath(path);
   } catch (error) {
-    if (isNodeErrorWithCode(error, "ENOENT")) throw new Error(missingMessage, { cause: error });
+    if (isNodeErrorWithCode(error, "ENOENT")) throw new WorkspaceUserError(missing.key, missing.fallback, missing.parameters, { cause: error });
     throw error;
   }
 }
 
-function ensureInside(root: string, target: string, message: string): void {
-  if (!isInsideOrSame(root, target)) throw new Error(message);
+function ensureInside(root: string, target: string): void {
+  if (!isInsideOrSame(root, target)) throw new WorkspaceUserError("server.files.pathOutsideWorkspace", "Path escapes workspace");
 }
 
 function isInsideOrSame(root: string, target: string): boolean {

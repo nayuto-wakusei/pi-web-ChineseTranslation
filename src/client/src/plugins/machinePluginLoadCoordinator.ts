@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { Machine } from "../api";
 import { loadExternalPlugins } from "./external";
 import type { PiWebPluginRegistration } from "./types";
@@ -15,7 +16,7 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", () => loadExternalPlugins());
+    this.gatewayLoad ??= this.registerPlugins(t("client.machinePluginLoadCoordinator.pi.web.plugins.54b78f", "PI WEB plugins"), () => loadExternalPlugins());
     return this.gatewayLoad;
   }
 
@@ -26,7 +27,7 @@ export class MachinePluginLoadCoordinator {
     if (existing !== undefined) return existing;
 
     const load = this.registerPlugins(
-      `来自 ${machine.name} 的 PI WEB 插件`,
+      t("client.machinePluginLoadCoordinator.pi.web.plugins.from.cf3236", "PI WEB plugins from {value1}", { value1: machine.name }),
       () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),

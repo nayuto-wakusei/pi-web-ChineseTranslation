@@ -1,4 +1,6 @@
 import type { TemplateResult } from "lit";
+import type { LocalizationContribution, Translator } from "./shared/i18n.js";
+export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator } from "./shared/i18n.js";
 import type { FileContentResponse, FileTreeResponse, MachineKind, PiWebStatusResponse, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse } from "./shared/apiTypes.js";
 
 export type {
@@ -45,6 +47,8 @@ export interface PluginActivationContext {
   pluginId: PluginId;
   html: HtmlTemplateTag;
   svg: SvgTemplateTag;
+  /** Browser language chosen by the gateway. Optional on older hosts. */
+  translate?: Translator;
 }
 
 export interface PluginActivationResult {
@@ -52,6 +56,7 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  localizations?: LocalizationContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];

@@ -1,3 +1,4 @@
+import { UserFacingError, createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { FastifyInstance } from "fastify";
 import type { RawData } from "ws";
 import { normalizeRequestCwd } from "../workingDirectory.js";
@@ -21,13 +22,13 @@ export interface TerminalRouteService {
   cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun;
 }
 
-export function registerTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService, prefix = ""): void {
+export function registerTerminalRoutes(app: FastifyInstance, terminals: TerminalRouteService, prefix = "", t: Translator = createTranslator("en", {})): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/terminals`, (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
     try {
       return terminals.list(normalizeRequestCwd(request.query.cwd));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -36,17 +37,17 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
       const managementContext = managementContextFromHeaders(request.headers);
       return terminals.create({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.delete<{ Querystring: { cwd?: string } }>(`${prefix}/terminals`, (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
     try {
       terminals.closeForCwd(normalizeRequestCwd(request.query.cwd));
       return { closed: true };
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -55,7 +56,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
       const managementContext = managementContextFromHeaders(request.headers);
       return terminals.runCommand({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -63,7 +64,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     try {
       return terminals.listCommandRuns(parseCommandRunFilter(request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -71,13 +72,13 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     try {
       return terminals.cancelCommandRun(request.params.runId, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.get<{ Params: { runId: string } }>(`${prefix}/terminal-command-runs/:runId`, (request, reply) => {
     const run = terminals.getCommandRun(request.params.runId, managementContextFromHeaders(request.headers));
-    if (run === undefined) return reply.code(404).send({ error: "Terminal command run not found" });
+    if (run === undefined) return reply.code(404).send({ error: t("routing.commandRunMissing", "Terminal command run not found") });
     return run;
   });
 
@@ -85,7 +86,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     try {
       return terminals.continue(request.params.terminalId, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -98,14 +99,14 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
     let detach: () => void = () => undefined;
     try {
       const initialSize = parseTerminalSize(request.query.cols, request.query.rows);
-      if (managementContextFromHeaders(request.headers) !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
+      if (managementContextFromHeaders(request.headers) !== undefined) throw new UserFacingError("routing.terminalDisabled", "Interactive terminal is disabled in management embed mode");
       if (initialSize !== undefined) terminals.resize(request.params.terminalId, initialSize.cols, initialSize.rows);
       detach = terminals.attach(request.params.terminalId, {
         output: (data, replay) => { socket.send(JSON.stringify({ type: "output", data, replay })); },
         exit: (exitCode) => { socket.send(JSON.stringify({ type: "exit", exitCode })); },
       });
     } catch (error) {
-      socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : String(error) }));
+      socket.send(JSON.stringify({ type: "error", message: userFacingErrorMessage(error, t) }));
       socket.close();
       return;
     }
@@ -116,7 +117,7 @@ export function registerTerminalRoutes(app: FastifyInstance, terminals: Terminal
         if (message.type === "input") terminals.write(request.params.terminalId, message.data);
         if (message.type === "resize") terminals.resize(request.params.terminalId, message.cols, message.rows);
       } catch (error) {
-        socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : String(error) }));
+        socket.send(JSON.stringify({ type: "error", message: userFacingErrorMessage(error, t) }));
       }
     });
     socket.on("close", () => { detach(); });
@@ -154,25 +155,25 @@ function parseCommandRunFilter(query: TerminalCommandRunQuery): TerminalCommandR
 }
 
 function parseCommandRunStatus(value: string): TerminalCommandRunStatus {
-  if (value !== "queued" && value !== "running" && value !== "succeeded" && value !== "failed") throw new Error(`Invalid command run status: ${value}`);
+  if (value !== "queued" && value !== "running" && value !== "succeeded" && value !== "failed") throw new UserFacingError("routing.commandStatusInvalid", "Invalid command run status: {arg0}", { arg0: value });
   return value;
 }
 
 function parseMetadataFilter(value: string): Record<string, string> {
   const parsed: unknown = JSON.parse(value);
-  if (!isRecord(parsed) || Array.isArray(parsed)) throw new Error("metadata filter must be an object");
+  if (!isRecord(parsed) || Array.isArray(parsed)) throw new UserFacingError("routing.metadataFilterObject", "metadata filter must be an object");
   return Object.fromEntries(Object.entries(parsed).map(([key, metadataValue]) => {
-    if (typeof metadataValue !== "string") throw new Error(`metadata filter value must be a string: ${key}`);
+    if (typeof metadataValue !== "string") throw new UserFacingError("routing.metadataFilterString", "metadata filter value must be a string: {arg0}", { arg0: key });
     return [key, metadataValue];
   }));
 }
 
 function parseClientMessage(data: RawData): ClientTerminalMessage {
   const value: unknown = JSON.parse(rawDataToString(data));
-  if (!isRecord(value) || typeof value["type"] !== "string") throw new Error("Invalid terminal message");
+  if (!isRecord(value) || typeof value["type"] !== "string") throw new UserFacingError("routing.terminalMessageInvalid", "Invalid terminal message");
   if (value["type"] === "input" && typeof value["data"] === "string") return { type: "input", data: value["data"] };
   if (value["type"] === "resize" && typeof value["cols"] === "number" && typeof value["rows"] === "number") return { type: "resize", cols: value["cols"], rows: value["rows"] };
-  throw new Error("Invalid terminal message");
+  throw new UserFacingError("routing.terminalMessageInvalid", "Invalid terminal message");
 }
 
 function rawDataToString(data: RawData): string {

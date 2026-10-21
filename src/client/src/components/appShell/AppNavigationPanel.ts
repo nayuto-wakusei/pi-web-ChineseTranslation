@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
@@ -51,8 +52,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean }) canReloadSessions = false;
   @property({ type: Boolean }) canCleanupSessions = false;
   @property({ type: Boolean }) authoritativeSessionPersistence = false;
-  @property({ type: String }) archivedDeleteUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再删除已归档会话。";
-  @property({ type: String }) cleanupUnavailableMessage = "请更新并重启此机器上的 Pi-Web 后再清理会话。";
+  @property({ type: String }) archivedDeleteUnavailableMessage = t("ui.appNavigationPanel.updateAndRestartPiWebOnThisMachine2", "Update and restart Pi-Web on this machine before deleting archived sessions.");
+  @property({ type: String }) cleanupUnavailableMessage = t("ui.appNavigationPanel.updateAndRestartPiWebOnThisMachine", "Update and restart Pi-Web on this machine before cleaning up sessions.");
   @property({ attribute: false }) onShowActions?: () => void;
   @property({ attribute: false }) onToggleMachines?: () => void;
   @property({ attribute: false }) onToggleProjects?: () => void;
@@ -122,7 +123,7 @@ export class AppNavigationPanel extends LitElement {
         ` : null}
         <div class="header-actions">
           ${this.refreshControl}
-          <button title="显示操作" aria-label="显示操作" @click=${() => { this.onShowActions?.(); }}>操作</button>
+          <button title=${t("ui.appNavigationPanel.showActions", "Show actions")} aria-label=${t("ui.appNavigationPanel.showActions", "Show actions")} @click=${() => { this.onShowActions?.(); }}>${t("ui.appNavigationPanel.actions", "Actions")}</button>
         </div>
       </header>
       ${this.compact && shouldShowMachinesSection(this.machines) ? html`

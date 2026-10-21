@@ -1,3 +1,4 @@
+import { UserFacingError, createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { FastifyInstance } from "fastify";
 import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
@@ -41,32 +42,32 @@ const MAX_NOTIFICATION_CWD_LENGTH = 32 * 1024;
 const MAX_NOTIFICATION_DAEMON_ID_LENGTH = 512;
 const MAX_NOTIFICATION_ID_LENGTH = 1024;
 
-export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRouteService, eventHub: SessionEventHub, prefix = ""): void {
+export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRouteService, eventHub: SessionEventHub, prefix = "", t: Translator = createTranslator("en", {})): void {
   app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
     try {
       return await sessions.list(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
   app.get<{ Querystring: SearchQuery }>(`${prefix}/sessions/search`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
-    if (request.query.q === undefined) return reply.code(400).send({ error: "q query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
+    if (request.query.q === undefined) return reply.code(400).send({ error: t("routing.queryRequired", "q query parameter is required") });
     try {
       return await sessions.search(normalizeRequestCwd(request.query.cwd), request.query.q, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
   app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions/pins`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
     try {
       return await sessions.listPinned(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -83,7 +84,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         ...optionalField("managementContext", managementContext),
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -91,7 +92,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.notificationCatalog();
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -99,7 +100,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.unreadCatalog();
     } catch (error) {
-      return reply.code(503).send({ error: errorMessage(error) });
+      return reply.code(503).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -115,12 +116,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         throughCompletionOrder: requirePositiveSafeInteger(body["throughCompletionOrder"], "throughCompletionOrder"),
       };
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
     try {
       return await sessions.acknowledgeUnread(sessionId, acknowledgement);
     } catch (error) {
-      return reply.code(503).send({ error: errorMessage(error) });
+      return reply.code(503).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -128,7 +129,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.cleanupPreview(normalizeSessionCleanupRequest(optionalRecord(request.body)));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -136,7 +137,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.cleanup(normalizeSessionCleanupRequest(optionalRecord(request.body)));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -144,7 +145,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.archiveMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -152,7 +153,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.deleteArchivedMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -161,7 +162,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = requireRecord(request.body);
       return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, body), true, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -169,7 +170,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, request.query), false, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -177,7 +178,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.notificationInbox(notificationRefFromQuery(request.params.sessionId, request.query));
     } catch (error) {
-      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -190,7 +191,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         notificationId: requireNonEmptyBoundedString(body["notificationId"], "notificationId", MAX_NOTIFICATION_ID_LENGTH),
       });
     } catch (error) {
-      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -204,7 +205,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         throughOverflowWatermark: requireNonNegativeSafeInteger(body["throughOverflowWatermark"], "throughOverflowWatermark"),
       });
     } catch (error) {
-      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(notificationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -214,7 +215,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const messages = await sessions.messages(sessionLookupFromQuery(request.params.sessionId, request.query), page, managementContextFromHeaders(request.headers));
       return projectBrowserMessageResponse(messages);
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -222,17 +223,17 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.status(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
   app.get<{ Querystring: SearchQuery }>(`${prefix}/sessions/search-content`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
-    if (request.query.q === undefined || request.query.q.trim() === "") return reply.code(400).send({ error: "q query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: t("routing.cwdQueryRequired", "cwd query parameter is required") });
+    if (request.query.q === undefined || request.query.q.trim() === "") return reply.code(400).send({ error: t("routing.queryRequired", "q query parameter is required") });
     try {
       return await sessions.searchContent(normalizeRequestCwd(request.query.cwd), request.query.q, managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return reply.code(400).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -240,7 +241,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.streamSnapshot(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -248,7 +249,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { models: await sessions.availableModels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -257,7 +258,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = optionalRecord(request.body);
       return await sessions.setModel(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "provider"), requireString(body, "modelId"), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -265,10 +266,10 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const body = optionalRecord(request.body);
       const direction = body["direction"];
-      if (direction !== undefined && direction !== "forward" && direction !== "backward") throw new Error("direction must be forward or backward");
+      if (direction !== undefined && direction !== "forward" && direction !== "backward") throw new UserFacingError("routing.directionInvalid", "direction must be forward or backward");
       return await sessions.cycleModel(sessionLookupFromBody(request.params.sessionId, body), direction ?? "forward", managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -276,7 +277,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return { levels: await sessions.availableThinkingLevels(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers)) };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -287,7 +288,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       // in the service, so it stays correct if pi changes the set.
       return await sessions.setThinkingLevel(sessionLookupFromBody(request.params.sessionId, body), requireThinkingLevel(body["level"]), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -296,7 +297,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = optionalRecord(request.body);
       return await sessions.cycleThinkingLevel(sessionLookupFromBody(request.params.sessionId, body), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -304,7 +305,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.commands(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -321,7 +322,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       );
       return { accepted: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -329,7 +330,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.clearQueue(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -339,7 +340,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const askId = requireBoundedId(body["askId"], "askId");
       return await sessions.submitAsk(sessionLookupFromBody(request.params.sessionId, body), askId, askUserSubmissionFromBody(body));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -348,7 +349,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = requireRecord(request.body);
       return await sessions.cancelAsk(sessionLookupFromBody(request.params.sessionId, body), requireBoundedId(body["askId"], "askId"));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -363,7 +364,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         managementContextFromHeaders(request.headers),
       );
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -377,7 +378,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         managementContextFromHeaders(request.headers),
       );
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -386,7 +387,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = optionalRecord(request.body);
       return await sessions.dismissWarning(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "dismissId"));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -394,11 +395,11 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const body = optionalRecord(request.body);
       const folder = body["folder"];
-      if (folder !== undefined && typeof folder !== "string") throw new Error("folder field must be a string");
+      if (folder !== undefined && typeof folder !== "string") throw new UserFacingError("routing.folderInvalid", "folder field must be a string");
       const attachments = await sessions.saveAttachments(sessionLookupFromBody(request.params.sessionId, body), body["attachments"], folder, managementContextFromHeaders(request.headers));
       return { attachments };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -408,7 +409,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.shell(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "text"), managementContextFromHeaders(request.headers));
       return { accepted: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -417,7 +418,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = optionalRecord(request.body);
       return await sessions.runCommand(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "text"), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -426,7 +427,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       const body = optionalRecord(request.body);
       return await sessions.respondToCommand(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "requestId"), requireString(body, "value"), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -439,7 +440,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         managementContextFromHeaders(request.headers),
       );
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -448,7 +449,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.abort(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { aborted: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -457,7 +458,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.stop(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { stopped: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -466,7 +467,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.archive(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { archived: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -474,7 +475,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       return await sessions.archiveTree(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -483,7 +484,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.restore(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { restored: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -492,7 +493,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.deleteArchived(sessionLookupFromQuery(request.params.sessionId, request.query), managementContextFromHeaders(request.headers));
       return { deleted: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -501,7 +502,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.reload(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { reloaded: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -510,7 +511,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       await sessions.detachParent(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)), managementContextFromHeaders(request.headers));
       return { detached: true };
     } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
   });
 
@@ -532,16 +533,16 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
 function bulkMutationRefsFromBody(body: SessionBulkMutationRequest | undefined): SessionBulkMutationRef[] {
   const record = requireRecord(body);
   const sessions = record["sessions"];
-  if (!Array.isArray(sessions)) throw new Error("sessions field must be an array");
+  if (!Array.isArray(sessions)) throw new UserFacingError("routing.sessionsInvalid", "sessions field must be an array");
   return sessions.map(parseBulkMutationRef);
 }
 
 function parseBulkMutationRef(value: unknown): SessionBulkMutationRef {
   const record = requireRecord(value);
   const id = requireString(record, "id").trim();
-  if (id === "") throw new Error("id field must not be empty");
+  if (id === "") throw new UserFacingError("routing.idEmpty", "id field must not be empty");
   const cwd = record["cwd"];
-  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd field is required");
+  if (typeof cwd !== "string" || cwd === "") throw new UserFacingError("routing.cwdRequired", "cwd field is required");
   return { id, cwd: normalizeRequestCwd(cwd) };
 }
 
@@ -584,7 +585,7 @@ function sessionLookupFromBody(id: string, body: Record<string, unknown>): Sessi
 
 function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown> | SessionQuery, message = "cwd query parameter is required"): SessionLookup {
   const cwd = value.cwd;
-  if (typeof cwd !== "string" || cwd === "") throw new Error(message);
+  if (typeof cwd !== "string" || cwd === "") throw new UserFacingError(message === "cwd field is required" ? "routing.cwdRequired" : "routing.cwdQueryRequired", message);
   return { id, cwd: normalizeRequestCwd(cwd) };
 }
 
@@ -598,26 +599,26 @@ function sessionTreeSummaryChoice(value: unknown): SessionTreeSummaryChoice {
   const summary = requireRecord(value);
   const mode = requireString(summary, "mode");
   if (mode === "none" || mode === "default") {
-    if (Object.hasOwn(summary, "instructions")) throw new Error(`instructions field is not valid for ${mode} summary mode`);
+    if (Object.hasOwn(summary, "instructions")) throw new UserFacingError("routing.instructionsMode", "instructions field is not valid for {arg0} summary mode", { arg0: mode });
     requireExactFields(summary, ["mode"], "summary");
     return { mode };
   }
   if (mode === "custom") {
     requireExactFields(summary, ["mode", "instructions"], "summary");
     const instructions = requireString(summary, "instructions");
-    if (instructions.trim() === "") throw new Error("instructions field must not be blank");
+    if (instructions.trim() === "") throw new UserFacingError("routing.instructionsBlank", "instructions field must not be blank");
     if (instructions.length > SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) {
-      throw new Error(`instructions field must be at most ${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)} characters`);
+      throw new UserFacingError("routing.instructionsLength", "instructions field must be at most {arg0} characters", { arg0: String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) });
     }
     return { mode, instructions: instructions.trim() };
   }
-  throw new Error("summary mode is invalid");
+  throw new UserFacingError("routing.summaryMode", "summary mode is invalid");
 }
 
 function requireExactFields(record: Record<string, unknown>, fields: readonly string[], label: string): void {
   const allowed = new Set(fields);
   const unexpected = Object.keys(record).find((field) => !allowed.has(field));
-  if (unexpected !== undefined) throw new Error(`${label} field contains unsupported property: ${unexpected}`);
+  if (unexpected !== undefined) throw new UserFacingError("routing.unsupportedProperty", "{arg0} field contains unsupported property: {arg1}", { arg0: label, arg1: unexpected });
 }
 
 /**
@@ -627,19 +628,19 @@ function requireExactFields(record: Record<string, unknown>, fields: readonly st
  */
 function askUserSubmissionFromBody(body: Record<string, unknown>): AskUserSubmission {
   const answers = body["answers"];
-  if (!Array.isArray(answers)) throw new Error("answers field must be an array");
-  if (answers.length > ASK_USER_QUESTION_LIMIT) throw new Error("answers field has too many entries");
+  if (!Array.isArray(answers)) throw new UserFacingError("routing.answersArray", "answers field must be an array");
+  if (answers.length > ASK_USER_QUESTION_LIMIT) throw new UserFacingError("routing.answersLimit", "answers field has too many entries");
   return { answers: answers.map(askUserAnswerFromValue) };
 }
 
 function askUserAnswerFromValue(value: unknown): AskUserAnswer {
   const record = requireRecord(value);
   const values = record["values"];
-  if (!Array.isArray(values)) throw new Error("values field must be an array");
-  if (values.length > ASK_USER_OPTION_LIMIT) throw new Error("values field has too many entries");
+  if (!Array.isArray(values)) throw new UserFacingError("routing.valuesArray", "values field must be an array");
+  if (values.length > ASK_USER_OPTION_LIMIT) throw new UserFacingError("routing.valuesLimit", "values field has too many entries");
   const otherText = record["otherText"];
-  if (otherText !== undefined && typeof otherText !== "string") throw new Error("otherText field must be a string");
-  if (typeof otherText === "string" && otherText.length > ASK_USER_OTHER_TEXT_MAX_LENGTH) throw new Error("otherText field is too long");
+  if (otherText !== undefined && typeof otherText !== "string") throw new UserFacingError("routing.otherTextString", "otherText field must be a string");
+  if (typeof otherText === "string" && otherText.length > ASK_USER_OTHER_TEXT_MAX_LENGTH) throw new UserFacingError("routing.otherTextLength", "otherText field is too long");
   return {
     id: requireBoundedId(record["id"], "id"),
     values: values.map((entry) => requireBoundedId(entry, "values entry")),
@@ -656,10 +657,10 @@ function extensionDialogAnswerFromBody(body: Record<string, unknown>): Extension
   const value = body["value"];
   if (typeof value === "boolean") return { dialogId, value };
   if (typeof value === "string") {
-    if (value.length > EXTENSION_DIALOG_INPUT_MAX_LENGTH) throw new Error("value exceeds its length limit");
+    if (value.length > EXTENSION_DIALOG_INPUT_MAX_LENGTH) throw new UserFacingError("routing.valueLength", "value exceeds its length limit");
     return { dialogId, value };
   }
-  throw new Error("value must be a boolean or string");
+  throw new UserFacingError("routing.valueType", "value must be a boolean or string");
 }
 
 function extensionDialogCancelFromBody(body: Record<string, unknown>): ExtensionDialogCancelRequest {
@@ -672,53 +673,53 @@ function optionalRecord(value: unknown): Record<string, unknown> {
 }
 
 function requireRecord(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error("request body must be an object");
+  if (!isRecord(value)) throw new UserFacingError("routing.bodyObject", "request body must be an object");
   return value;
 }
 
 function requireString(record: Record<string, unknown>, field: string): string {
   const value = record[field];
-  if (typeof value !== "string") throw new Error(`${field} field must be a string`);
+  if (typeof value !== "string") throw new UserFacingError("routing.fieldString", "{arg0} field must be a string", { arg0: field });
   return value;
 }
 
 function requireNonEmptyString(record: Record<string, unknown>, field: string): string {
   const value = requireString(record, field);
-  if (value.trim() === "") throw new Error(`${field} field must not be empty`);
+  if (value.trim() === "") throw new UserFacingError("routing.fieldEmpty", "{arg0} field must not be empty", { arg0: field });
   return value;
 }
 
 function requireNullableString(record: Record<string, unknown>, field: string): string | null {
-  if (!Object.hasOwn(record, field)) throw new Error(`${field} field is required`);
+  if (!Object.hasOwn(record, field)) throw new UserFacingError("routing.fieldRequired", "{arg0} field is required", { arg0: field });
   const value = record[field];
   if (value === null) return null;
-  if (typeof value !== "string") throw new Error(`${field} field must be a string or null`);
-  if (value.trim() === "") throw new Error(`${field} field must not be empty`);
+  if (typeof value !== "string") throw new UserFacingError("routing.fieldNullableString", "{arg0} field must be a string or null", { arg0: field });
+  if (value.trim() === "") throw new UserFacingError("routing.fieldEmpty", "{arg0} field must not be empty", { arg0: field });
   return value;
 }
 
 function requireNonEmptyBoundedString(value: unknown, field: string, maxLength: number): string {
-  if (typeof value !== "string") throw new Error(`${field} field must be a string`);
-  if (value === "") throw new Error(`${field} field must not be empty`);
-  if (value.length > maxLength) throw new Error(`${field} field is too long`);
+  if (typeof value !== "string") throw new UserFacingError("routing.fieldString", "{arg0} field must be a string", { arg0: field });
+  if (value === "") throw new UserFacingError("routing.fieldEmpty", "{arg0} field must not be empty", { arg0: field });
+  if (value.length > maxLength) throw new UserFacingError("routing.fieldLength", "{arg0} field is too long", { arg0: field });
   return value;
 }
 
 function requireNonNegativeSafeInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${field} field must be a non-negative safe integer`);
+    throw new UserFacingError("routing.fieldSafeInteger", "{arg0} field must be a non-negative safe integer", { arg0: field });
   }
   return value;
 }
 
 function requirePositiveSafeInteger(value: unknown, field: string): number {
   const parsed = requireNonNegativeSafeInteger(value, field);
-  if (parsed === 0) throw new Error(`${field} field must be positive`);
+  if (parsed === 0) throw new UserFacingError("routing.fieldPositive", "{arg0} field must be positive", { arg0: field });
   return parsed;
 }
 
 function requireThinkingLevel(value: unknown): string {
-  if (typeof value !== "string" || value === "") throw new Error("level field is invalid");
+  if (typeof value !== "string" || value === "") throw new UserFacingError("routing.levelInvalid", "level field is invalid");
   return value;
 }
 
@@ -732,8 +733,8 @@ function optionalNumber(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(error: unknown, t: Translator = createTranslator("en", {})): string {
+  return userFacingErrorMessage(error, t);
 }
 
 function mutationErrorStatus(error: unknown): 400 | 404 {

@@ -24,6 +24,22 @@ Pi package settings are separate from PI WEB config. They live in Pi's package-m
 
 If you installed services with a custom config path, rerun `pi-web install --config /path/to/config.json` after changing that path or after upgrading from a version that only applied the custom path to the web service. This regenerates service files so the web/API and session daemon use the same `PI_WEB_CONFIG`.
 
+## 中文语言插件
+
+`zh-cn` 是默认启用的内置插件。可在目标机器的 **Settings → PI WEB plugins** 中关闭，或在该机器的全局配置中设置：
+
+```json
+{
+  "plugins": {
+    "zh-cn": { "enabled": false }
+  }
+}
+```
+
+关闭后使用英文；删除该显式禁用值或设为 `true` 恢复中文。网页刷新后生效，CLI 下次运行时生效；服务端提示需要重启 Web 服务与 `pi-web-sessiond.service`。采用开发服务布局时，重启 `pi-web-ui-dev.service` 和 `pi-web-sessiond.service`，确保两者使用同一个有效 `PI_WEB_CONFIG`。这不会通过浏览器刷新自动重启活动会话。
+
+浏览器语言取自网关机器配置，与当前选择的远端机器无关。每台机器的 CLI 和服务端独立读取本机配置，因此远端返回的提示可能与浏览器语言不同。没有浏览器语言偏好或请求级语言覆盖。
+
 ## Reverse-proxy deployment paths
 
 The deployment path is not a PI WEB config-file key or environment setting. The published client is portable: one build works at `/` and at canonical trailing-slash prefixes such as `/ai/` or `/test/ai/`.

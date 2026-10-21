@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { css, html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { TERMINAL_SOFT_KEYS, terminalSoftKeySequence, type TerminalModesSnapshot, type TerminalSoftKeyDefinition } from "../terminalKeys";
@@ -62,7 +63,7 @@ export class TerminalSoftKeys extends LitElement {
 
   override render() {
     return html`
-      <div class="terminal-soft-keys" role="toolbar" aria-label="终端快捷键">
+      <div class="terminal-soft-keys" role="toolbar" aria-label=${t("ui.terminalSoftKeys.terminalShortcuts", "Terminal shortcuts")}>
         ${TERMINAL_SOFT_KEYS.map((key) => html`
           <button
             type="button"

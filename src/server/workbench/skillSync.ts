@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import * as yauzl from "yauzl";
@@ -22,6 +24,7 @@ export class WorkbenchSkillSynchronizer {
     private readonly dataDir: string,
     fetchImpl: typeof fetch = fetch,
     private readonly logger?: { info(details: Record<string, unknown>, message: string): void },
+    private readonly t: Translator = loadNodeTranslator("server"),
   ) {
     this.fetchImpl = fetchImpl;
   }
@@ -123,7 +126,7 @@ export class WorkbenchSkillSynchronizer {
     });
     if (!response.ok) throw new WorkbenchHttpError(
       response.status,
-      response.status === 410 ? "该Skill已被管理员停用，请刷新工作台授权后重试。" : `MCP Skill ${resource} returned HTTP ${String(response.status)}`,
+      response.status === 410 ? this.t("workbench.skillDisabled", "This Skill was disabled by an administrator. Refresh Workbench authorization and retry.") : `MCP Skill ${resource} returned HTTP ${String(response.status)}`,
     );
     return response;
   }

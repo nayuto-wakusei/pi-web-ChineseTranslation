@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { CommandOption } from "../api";
@@ -6,7 +7,7 @@ import { commandPickerStyles } from "./styles/commandPickerStyles";
 
 @customElement("command-picker")
 export class CommandPicker extends LitElement {
-  @property() override title = "选择";
+  @property() override title = t("ui.commandPicker.select", "Select");
   @property({ type: Boolean }) searchable = false;
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) selectedValue?: string;
@@ -24,7 +25,7 @@ export class CommandPicker extends LitElement {
             <strong>${this.title}</strong>
             <button @click=${() => this.onCancel?.()}>×</button>
           </header>
-          ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>` : null}
+          ${this.searchable ? html`<input placeholder=${t("ui.commandPicker.search", "Search")} .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>` : null}
           <div class="options" @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }} tabindex="0">
             ${options.map((option, index) => html`
               <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @click=${() => this.onPick?.(option.value)}>
@@ -32,7 +33,7 @@ export class CommandPicker extends LitElement {
                 ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
               </button>
             `)}
-            ${options.length === 0 ? html`<div class="empty">没有匹配选项</div>` : null}
+            ${options.length === 0 ? html`<div class="empty">${t("ui.commandPicker.noMatchingOptions", "No matching options")}</div>` : null}
           </div>
         </section>
       </div>

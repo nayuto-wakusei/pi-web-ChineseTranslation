@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { html, type TemplateResult } from "lit";
 import { renderBuiltinTabIcon } from "../../components/tabIcons";
 import "../../components/WorkspaceFilesPanel";
@@ -8,7 +9,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
   return [
     {
       id: "workspace.files",
-      title: "文件",
+      title: t("client.panels.files.39932f", "Files"),
       icon: renderBuiltinTabIcon("files"),
       order: 10,
       render: renderFiles,
@@ -23,7 +24,7 @@ export function createCoreWorkspacePanels(): WorkspacePanelContribution[] {
     },
     {
       id: "workspace.terminal",
-      title: "终端",
+      title: t("client.panels.terminal.e2a76e", "Terminal"),
       icon: renderBuiltinTabIcon("terminal"),
       order: 30,
       badge: (context) => context.activeTerminalCount > 0 ? context.activeTerminalCount : undefined,

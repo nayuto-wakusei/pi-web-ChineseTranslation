@@ -256,8 +256,8 @@ function toolbarSlots(rendered: TemplateResult): { expandCollapseSlot: unknown; 
     throw new Error("view toggle is not the control immediately after the expand/collapse-all slot");
   }
   const refreshOpenChunk = strings[toggleIndex + 1] ?? "";
-  const refreshLabelChunk = strings[toggleIndex + 2] ?? "";
-  if (!refreshOpenChunk.includes("<button") || !refreshLabelChunk.includes(">刷新</button>")) {
+  const refreshLabel = values[toggleIndex + 2];
+  if (!refreshOpenChunk.includes("<button") || refreshLabel !== "刷新") {
     throw new Error("Refresh button does not immediately follow the view toggle");
   }
   return { expandCollapseSlot: values[actionsIndex], toggleIndex };

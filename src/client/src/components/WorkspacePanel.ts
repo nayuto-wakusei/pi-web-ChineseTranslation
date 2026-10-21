@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { css, LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Workspace } from "../api";
@@ -110,13 +111,13 @@ export class WorkspacePanel extends LitElement {
   override render() {
     const workspace = this.workspace;
     if (workspace === undefined) return this.renderEmptyState(this.emptyState ?? {
-      title: "选择工作区",
-      body: "选择工作区来查看文件、Git 或终端。",
+      title: t("ui.workspacePanel.selectWorkspace", "Select workspace"),
+      body: t("ui.workspacePanel.selectAWorkspaceToViewFilesGitOr", "Select a workspace to view files, Git, or terminals."),
     });
     const context = this.panelContext;
     if (context === undefined) return this.renderEmptyState({
-      title: "工作区工具不可用",
-      body: "请尝试重新选择工作区。",
+      title: t("ui.workspacePanel.workspaceToolsUnavailable", "Workspace tools unavailable"),
+      body: t("ui.workspacePanel.trySelectingTheWorkspaceAgain", "Try selecting the workspace again."),
     });
     const visiblePanels = this.panels;
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
@@ -142,8 +143,8 @@ export class WorkspacePanel extends LitElement {
         </header>
       `}
       ${selectedPanel === undefined ? this.renderEmptyState({
-        title: "没有可用的工作区工具",
-        body: "此工作区没有可用工具。",
+        title: t("ui.workspacePanel.noWorkspaceToolsAvailable", "No workspace tools available"),
+        body: t("ui.workspacePanel.noToolsAreAvailableForThisWorkspace", "No tools are available for this workspace."),
       }) : html`
         <div class="panel-content">
           ${selectedPanel.render(context)}

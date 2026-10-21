@@ -1,3 +1,4 @@
+import { createTranslator, type Translator } from "../shared/i18n.js";
 import { posix as posixPath } from "node:path";
 import {
   createDevelopmentNativeServicePlan,
@@ -100,14 +101,15 @@ export function inferInstalledNativeServiceMode(serviceIds: ReadonlySet<NativeSe
 export function inspectInstalledProductionServiceContext(
   backend: NativeServiceBackend,
   definitions: readonly InstalledNativeServiceDefinition[],
+  t: Translator = createTranslator("en", {})
 ): InstalledNativeServiceInspection<InstalledNativeServiceContext> {
-  const parsed = parseConsistentDefinitions(backend, definitions);
+  const parsed = parseConsistentDefinitions(backend, definitions, t);
   if (!parsed.ok) return parsed;
   const withWorkingDirectory = parsed.value.find((definition) => definition.workingDirectory !== null);
   if (withWorkingDirectory !== undefined) {
     return {
       ok: false,
-      message: `Installed production service ${withWorkingDirectory.id} unexpectedly has working directory ${withWorkingDirectory.workingDirectory ?? ""}.`,
+      message: t("doctor.productionCwd", "Installed production service {arg0} unexpectedly has working directory {arg1}.", { arg0: withWorkingDirectory.id, arg1: withWorkingDirectory.workingDirectory ?? "" }),
     };
   }
   return {
@@ -122,12 +124,13 @@ export function inspectInstalledProductionServiceContext(
 export function inspectInstalledDevelopmentServiceInput(
   backend: NativeServiceBackend,
   definitions: readonly InstalledNativeServiceDefinition[],
+  t: Translator = createTranslator("en", {})
 ): InstalledNativeServiceInspection<DevelopmentNativeServicePlanInput> {
-  const parsed = parseConsistentDefinitions(backend, definitions);
+  const parsed = parseConsistentDefinitions(backend, definitions, t);
   if (!parsed.ok) return parsed;
   const first = parsed.value[0] ?? impossibleMissingDefinition();
   if (first.workingDirectory === null) {
-    return { ok: false, message: "Installed development services do not declare a working directory." };
+    return { ok: false, message: t("doctor.cwdMissing", "Installed development services do not declare a working directory.") };
   }
 
   const input: DevelopmentNativeServicePlanInput = {
@@ -143,7 +146,7 @@ export function inspectInstalledDevelopmentServiceInput(
     if (expected?.shellCommand !== definition.shellCommand) {
       return {
         ok: false,
-        message: `Installed ${definition.id} service command does not match the canonical development plan.`,
+        message: t("doctor.developmentMismatch", "Installed {arg0} service command does not match the canonical development plan.", { arg0: definition.id }),
       };
     }
   }
@@ -174,14 +177,14 @@ export async function runNativeServiceDoctor(
   return { kind: "plan-validation", scope, plan, validation };
 }
 
-export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResult): NativeServiceDoctorReport {
+export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResult, t: Translator = createTranslator("en", {})): NativeServiceDoctorReport {
   if (result.kind === "inspection-failure") {
     return {
       ok: false,
       failureKind: "inspection",
       lines: [
-        `✗ Installed native-service plan could not be inspected: ${result.message}`,
-        "  Run `pi-web install` or `pi-web install --dev` to replace mixed, partial, or outdated service definitions.",
+        t("doctor.inspectionFailed", "✗ Installed native-service plan could not be inspected: {arg0}", { arg0: result.message }),
+        t("doctor.replaceDefinitions", "  Run `pi-web install` or `pi-web install --dev` to replace mixed, partial, or outdated service definitions."),
       ],
       plan: null,
       adviceShell: null,
@@ -190,22 +193,22 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
     };
   }
 
-  const lines = [scopeHeading(result.scope)];
+  const lines = [scopeHeading(result.scope, t)];
   if (result.kind === "plan-resolution-failure") {
     let infrastructure = false;
     for (const failure of result.failures) {
       if (failure.kind === "probe-infrastructure") {
         infrastructure = true;
-        lines.push(`✗ Native service probe infrastructure failure (${failure.reason}): ${failure.message}`);
+        lines.push(t("doctor.infrastructureFailure", "✗ Native service probe infrastructure failure ({arg0}): {arg1}", { arg0: failure.reason, arg1: failure.message }));
       } else if (failure.kind === "entrypoint-inspection-failure") {
         infrastructure = true;
-        lines.push(`✗ Could not inspect bundled ${failure.serviceId} entrypoint ${failure.entrypointPath}: ${failure.message}`);
+        lines.push(t("doctor.entrypointFailed", "✗ Could not inspect bundled {arg0} entrypoint {arg1}: {arg2}", { arg0: failure.serviceId, arg1: failure.entrypointPath, arg2: failure.message }));
       } else {
-        lines.push(`✗ ${failure.namedCommand} is unavailable to the native service manager, and bundled entrypoint ${failure.bundledEntrypointPath} is missing.`);
+        lines.push(t("doctor.commandMissing", "✗ {arg0} is unavailable to the native service manager, and bundled entrypoint {arg1} is missing.", { arg0: failure.namedCommand, arg1: failure.bundledEntrypointPath }));
         if (failure.namedCommandFailure !== null) lines.push(`  ${failure.namedCommandFailure}`);
       }
     }
-    if (infrastructure) lines.push("  This infrastructure failure is not proof of a PATH mismatch.");
+    if (infrastructure) lines.push(t("doctor.notPathProof", "  This infrastructure failure is not proof of a PATH mismatch."));
     return {
       ok: false,
       failureKind: infrastructure ? "infrastructure" : "requirements",
@@ -220,10 +223,10 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
 
   const configuredOverrides = result.plan.services.filter((service) => service.strategy.kind === "configured-override");
   for (const service of configuredOverrides) {
-    lines.push(`! ${service.description} uses a configured command override; doctor does not execute arbitrary configured commands.`);
+    lines.push(t("doctor.overrideSkipped", "! {arg0} uses a configured command override; doctor does not execute arbitrary configured commands.", { arg0: service.description }));
   }
   if (result.validation.ok) {
-    lines.push("✓ All verifiable native-service plan requirements are satisfied in the service-manager context.");
+    lines.push(t("doctor.requirementsSatisfied", "✓ All verifiable native-service plan requirements are satisfied in the service-manager context."));
     return {
       ok: true,
       failureKind: "none",
@@ -240,14 +243,14 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
   for (const failure of result.validation.failures) {
     if (failure.kind === "probe-infrastructure") {
       infrastructure = true;
-      lines.push(`✗ Native service probe infrastructure failure (${failure.reason}): ${failure.message}`);
+      lines.push(t("doctor.infrastructureFailure", "✗ Native service probe infrastructure failure ({arg0}): {arg1}", { arg0: failure.reason, arg1: failure.message }));
     } else {
       failedPrerequisites.push(failure.prerequisite);
-      lines.push(`✗ Native service requirement failed: ${failure.prerequisite.description}`);
+      lines.push(t("doctor.requirementFailed", "✗ Native service requirement failed: {arg0}", { arg0: failure.prerequisite.description }));
       if (failure.detail !== null && failure.detail !== failure.prerequisite.description) lines.push(`  ${failure.detail}`);
     }
   }
-  if (infrastructure) lines.push("  This infrastructure failure is not proof of a PATH mismatch.");
+  if (infrastructure) lines.push(t("doctor.notPathProof", "  This infrastructure failure is not proof of a PATH mismatch."));
   return {
     ok: false,
     failureKind: infrastructure ? "infrastructure" : "requirements",
@@ -260,22 +263,23 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
   };
 }
 
-function scopeHeading(scope: NativeServiceDoctorScope): string {
-  if (scope.kind === "installed-development") return "Installed development native-service plan:";
-  return `Prospective production native-service plan (${scope.reason ?? "installed strategy is unknown"}):`;
+function scopeHeading(scope: NativeServiceDoctorScope, t: Translator = createTranslator("en", {})): string {
+  if (scope.kind === "installed-development") return t("doctor.installedDev", "Installed development native-service plan:");
+  return t("doctor.prospectiveProduction", "Prospective production native-service plan ({arg0}):", { arg0: scope.reason ?? t("doctor.strategyUnknown", "installed strategy is unknown") });
 }
 
 function parseConsistentDefinitions(
   backend: NativeServiceBackend,
   definitions: readonly InstalledNativeServiceDefinition[],
+  t: Translator = createTranslator("en", {})
 ): InstalledNativeServiceInspection<readonly ParsedServiceDefinition[]> {
-  if (definitions.length === 0) return { ok: false, message: "No installed service definitions were provided." };
+  if (definitions.length === 0) return { ok: false, message: t("doctor.definitionsMissing", "No installed service definitions were provided.") };
 
   const parsed: ParsedServiceDefinition[] = [];
   for (const definition of definitions) {
     const result = backend.kind === "systemd"
-      ? parseSystemdDefinition(definition)
-      : parseLaunchdDefinition(definition);
+      ? parseSystemdDefinition(definition, t)
+      : parseLaunchdDefinition(definition, t);
     if (!result.ok) return result;
     parsed.push(result.value);
   }
@@ -283,13 +287,13 @@ function parseConsistentDefinitions(
   const first = parsed[0] ?? impossibleMissingDefinition();
   for (const definition of parsed.slice(1)) {
     if (definition.shell.executable !== first.shell.executable) {
-      return { ok: false, message: "Installed service definitions use different login shells." };
+      return { ok: false, message: t("doctor.shellMismatch", "Installed service definitions use different login shells.") };
     }
     if (!recordsEqual(definition.environment, first.environment)) {
-      return { ok: false, message: "Installed service definitions use different environments." };
+      return { ok: false, message: t("doctor.environmentMismatch", "Installed service definitions use different environments.") };
     }
     if (definition.workingDirectory !== first.workingDirectory) {
-      return { ok: false, message: "Installed service definitions use different working directories." };
+      return { ok: false, message: t("doctor.cwdMismatch", "Installed service definitions use different working directories.") };
     }
   }
   return { ok: true, value: parsed };
@@ -324,57 +328,58 @@ function systemdServiceDirectives(contents: string): ParsedSystemdDirective[] | 
 
 function parseSystemdDefinition(
   definition: InstalledNativeServiceDefinition,
+  t: Translator = createTranslator("en", {})
 ): InstalledNativeServiceInspection<ParsedServiceDefinition> {
   const directives = systemdServiceDirectives(definition.contents);
   if (directives === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has unrecognized service directives.` };
+    return { ok: false, message: t("doctor.systemd.unrecognized_service_directives", "Installed {arg0} systemd unit has unrecognized service directives.", { arg0: definition.id }) };
   }
   const execStarts = directives.filter((directive) => directive.name === "ExecStart");
   const execStart = execStarts.length === 1
     ? /^(?:\/usr\/bin\/env )?(.+?) -lc (.+)$/u.exec(execStarts[0]?.value ?? "")
     : null;
   if (execStart?.[1] === undefined || execStart[2] === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit must have exactly one recognized ExecStart.` };
+    return { ok: false, message: t("doctor.systemd.exactly_one_recognized_ExecStart", "Installed {arg0} systemd unit must have exactly one recognized ExecStart.", { arg0: definition.id }) };
   }
   const shellExecutable = parseSystemdExecArgument(execStart[1]);
   if (shellExecutable === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized login shell argument.` };
+    return { ok: false, message: t("doctor.systemd.an_unrecognized_login_shell_argument", "Installed {arg0} systemd unit has an unrecognized login shell argument.", { arg0: definition.id }) };
   }
-  const shell = installedShell(shellExecutable);
+  const shell = installedShell(shellExecutable, t);
   if (!shell.ok) return shell;
   const shellCommand = parseSystemdShellCommand(shell.value.name, execStart[2]);
   if (shellCommand === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized shell command.` };
+    return { ok: false, message: t("doctor.systemd.an_unrecognized_shell_command", "Installed {arg0} systemd unit has an unrecognized shell command.", { arg0: definition.id }) };
   }
 
   const environment: Record<string, string> = {};
   for (const directive of directives.filter((item) => item.name === "Environment")) {
     const rawValue = directive.value;
     if (!/^"(?:\\.|[^"])*"$/u.test(rawValue)) {
-      return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized environment entry.` };
+      return { ok: false, message: t("doctor.systemd.an_unrecognized_environment_entry", "Installed {arg0} systemd unit has an unrecognized environment entry.", { arg0: definition.id }) };
     }
     const assignment = parseSystemdDirectiveValue(rawValue);
     const separator = assignment?.indexOf("=") ?? -1;
     const key = assignment?.slice(0, separator) ?? "";
     if (separator <= 0 || Object.hasOwn(environment, key)) {
-      return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed environment entry.` };
+      return { ok: false, message: t("doctor.systemd.a_malformed_environment_entry", "Installed {arg0} systemd unit has a malformed environment entry.", { arg0: definition.id }) };
     }
     environment[key] = assignment?.slice(separator + 1) ?? "";
   }
 
   const workingDirectories = directives.filter((directive) => directive.name === "WorkingDirectory");
   if (workingDirectories.length > 1) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has duplicate working directories.` };
+    return { ok: false, message: t("doctor.systemd.duplicate_working_directories", "Installed {arg0} systemd unit has duplicate working directories.", { arg0: definition.id }) };
   }
   const rawWorkingDirectory = workingDirectories[0]?.value;
   if (rawWorkingDirectory?.startsWith('"') === true || rawWorkingDirectory?.startsWith("'") === true) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has an invalid quoted working directory.` };
+    return { ok: false, message: t("doctor.systemd.an_invalid_quoted_working_directory", "Installed {arg0} systemd unit has an invalid quoted working directory.", { arg0: definition.id }) };
   }
   const workingDirectory = rawWorkingDirectory === undefined
     ? null
     : parseSystemdDirectiveValue(rawWorkingDirectory);
   if (workingDirectories.length === 1 && workingDirectory === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed working directory.` };
+    return { ok: false, message: t("doctor.systemd.a_malformed_working_directory", "Installed {arg0} systemd unit has a malformed working directory.", { arg0: definition.id }) };
   }
 
   return {
@@ -385,27 +390,28 @@ function parseSystemdDefinition(
 
 function parseLaunchdDefinition(
   definition: InstalledNativeServiceDefinition,
+  t: Translator = createTranslator("en", {})
 ): InstalledNativeServiceInspection<ParsedServiceDefinition> {
   const argumentsMatches = [...definition.contents.matchAll(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/gu)];
   const arguments_ = argumentsMatches.length === 1
     ? parseXmlStringSequence(argumentsMatches[0]?.[1] ?? "")
     : undefined;
   if (arguments_?.length !== 4 || arguments_[0] !== "/usr/bin/env" || arguments_[2] !== "-lc") {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has unrecognized ProgramArguments.` };
+    return { ok: false, message: t("doctor.launchd.unrecognized_ProgramArguments", "Installed {arg0} LaunchAgent has unrecognized ProgramArguments.", { arg0: definition.id }) };
   }
-  const shell = installedShell(arguments_[1] ?? "");
+  const shell = installedShell(arguments_[1] ?? "", t);
   if (!shell.ok) return shell;
 
   const environmentMatches = [...definition.contents.matchAll(/<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/gu)];
   const environmentKeyCount = [...definition.contents.matchAll(/<key>EnvironmentVariables<\/key>/gu)].length;
   if (environmentMatches.length > 1 || environmentKeyCount !== environmentMatches.length) {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed environment dictionary.` };
+    return { ok: false, message: t("doctor.launchd.a_malformed_environment_dictionary", "Installed {arg0} LaunchAgent has a malformed environment dictionary.", { arg0: definition.id }) };
   }
   const environment = environmentMatches.length === 0
     ? {}
     : parseXmlStringDictionary(environmentMatches[0]?.[1] ?? "");
   if (environment === undefined) {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed environment dictionary.` };
+    return { ok: false, message: t("doctor.launchd.a_malformed_environment_dictionary", "Installed {arg0} LaunchAgent has a malformed environment dictionary.", { arg0: definition.id }) };
   }
 
   const contentsWithoutEnvironment = environmentMatches[0]?.[0] === undefined
@@ -414,13 +420,13 @@ function parseLaunchdDefinition(
   const workingDirectoryMatches = [...contentsWithoutEnvironment.matchAll(/<key>WorkingDirectory<\/key>\s*<string>([\s\S]*?)<\/string>/gu)];
   const workingDirectoryKeyCount = [...contentsWithoutEnvironment.matchAll(/<key>WorkingDirectory<\/key>/gu)].length;
   if (workingDirectoryMatches.length > 1 || workingDirectoryKeyCount !== workingDirectoryMatches.length) {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed working directory.` };
+    return { ok: false, message: t("doctor.launchd.a_malformed_working_directory", "Installed {arg0} LaunchAgent has a malformed working directory.", { arg0: definition.id }) };
   }
   const workingDirectory = workingDirectoryMatches[0]?.[1] === undefined
     ? null
     : xmlUnescapeStrict(workingDirectoryMatches[0][1]);
   if (workingDirectoryMatches.length === 1 && workingDirectory === undefined) {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed working directory.` };
+    return { ok: false, message: t("doctor.launchd.a_malformed_working_directory", "Installed {arg0} LaunchAgent has a malformed working directory.", { arg0: definition.id }) };
   }
 
   return {
@@ -435,10 +441,10 @@ function parseLaunchdDefinition(
   };
 }
 
-function installedShell(executable: string): InstalledNativeServiceInspection<NativeServiceShell> {
+function installedShell(executable: string, t: Translator = createTranslator("en", {})): InstalledNativeServiceInspection<NativeServiceShell> {
   const name = posixPath.basename(executable).replace(/^-/, "");
   if (name !== "bash" && name !== "zsh" && name !== "fish") {
-    return { ok: false, message: `Installed service definition uses unsupported login shell ${executable}.` };
+    return { ok: false, message: t("doctor.shellUnsupported", "Installed service definition uses unsupported login shell {arg0}.", { arg0: executable }) };
   }
   return {
     ok: true,

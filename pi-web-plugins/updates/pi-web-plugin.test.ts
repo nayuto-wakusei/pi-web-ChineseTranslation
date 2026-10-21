@@ -1,23 +1,30 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { html, svg } from "lit";
+// @vitest-environment happy-dom
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { html, svg, render } from "lit";
 import type { PiWebStatusResponse, PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
 
+beforeEach(() => { setTranslator(translateChinese); });
+
 describe("updates plugin Chinese display text", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    document.body.replaceChildren();
   });
 
   it("exposes a Chinese panel title", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg });
 
     expect(plugin.name).toBe("更新");
     expect(activation.contributions.workspacePanels?.[0]?.title).toBe("更新");
   });
 
   it("renders Chinese loading and status copy", () => {
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
     expect(serializeTemplate(panel?.render(createWorkspacePanelContext()))).toContain("正在检查 PI WEB 更新状态");
@@ -58,7 +65,7 @@ describe("updates plugin Chinese display text", () => {
 
   it("keeps run buttons available in management embed mode", () => {
     vi.stubGlobal("location", { search: "?embed=management&token=launch-token" });
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
 
     const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
@@ -73,20 +80,23 @@ describe("updates plugin Chinese display text", () => {
 
   it("does not throw when the clipboard API is unavailable", () => {
     vi.stubGlobal("navigator", {});
-    const activation = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg });
+    const activation = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg });
     const panel = activation.contributions.workspacePanels?.[0];
     const panelContext = createWorkspacePanelContext({ state: { piWebStatus: statusWithCommands() } });
     Reflect.set(panelContext, "terminal", undefined);
     const rendered = panel?.render(panelContext);
-    const handler = copyButtonHandler(rendered);
-
-    expect(() => { handler(); }).not.toThrow();
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(rendered, container);
+    const button = [...container.querySelectorAll("button")].find((candidate) => candidate.textContent === "复制");
+    expect(button).toBeDefined();
+    expect(() => { button?.click(); }).not.toThrow();
   });
 });
 
 describe("updates plugin actions", () => {
   it("forces an update check through the host runtime context", async () => {
-    const action = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
+    const action = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
     if (action === undefined) throw new Error("Expected update check action");
     const checkForPiWebUpdates = vi.fn(() => Promise.resolve());
     const context = runtimeContext({ checkForPiWebUpdates });
@@ -99,7 +109,7 @@ describe("updates plugin actions", () => {
   });
 
   it("disables the action on older hosts without the update-check helper", () => {
-    const action = plugin.activate({ apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
+    const action = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "updates", html, svg }).contributions.actions?.find((candidate) => candidate.id === "check");
     if (action === undefined) throw new Error("Expected update check action");
     const context = runtimeContext();
 
@@ -107,46 +117,6 @@ describe("updates plugin actions", () => {
     expect(action.disabledReason?.(context)).toContain("较新版本的 PI WEB 网关");
   });
 });
-
-type CopyButtonHandler = (event?: Event) => void;
-
-// This node-only plugin test would need a full plugin-host DOM harness just to verify one click binding.
-// Anchor the narrow escape hatch to the stable visible "复制" label instead of invoking every template function.
-function copyButtonHandler(value: unknown): CopyButtonHandler {
-  const handler = findCopyButtonHandler(value);
-  if (handler === undefined) throw new Error("Expected a 复制 button handler");
-  return handler;
-}
-
-function findCopyButtonHandler(value: unknown): CopyButtonHandler | undefined {
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const handler = findCopyButtonHandler(entry);
-      if (handler !== undefined) return handler;
-    }
-    return undefined;
-  }
-  if (typeof value !== "object" || value === null) return undefined;
-
-  const strings: unknown = Reflect.get(value, "strings");
-  const values: unknown = Reflect.get(value, "values");
-  if (!isUnknownArray(strings) || !isUnknownArray(values)) return undefined;
-  for (let index = 0; index < values.length; index += 1) {
-    const candidate = values[index];
-    const before: unknown = strings[index];
-    const after: unknown = strings[index + 1];
-    if (typeof candidate === "function" && typeof before === "string" && before.includes("@click=") && typeof after === "string" && after.includes(">复制</button>")) {
-      return (event?: Event) => { Reflect.apply(candidate, undefined, [event]); };
-    }
-    const nested = findCopyButtonHandler(candidate);
-    if (nested !== undefined) return nested;
-  }
-  return undefined;
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
-}
 
 function statusWithCommands(): PiWebStatusResponse {
   return {

@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
 import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
@@ -111,19 +112,19 @@ export class PromptEditor extends LitElement {
     return html`
       <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
-          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="给 pi 发送消息" aria-disabled=${this.disabled ? "true" : "false"}></div>
+          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label=${t("ui.promptEditor.messagePi", "Message pi")} aria-disabled=${this.disabled ? "true" : "false"}></div>
           <input class="attachment-input" type="file" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
-          <button class="editor-attach icon-button" ?disabled=${busy} title="附加文件" aria-label="附加文件" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
-          ${shellMode ? html`<div class="mode-hint">终端命令${shellInputMode.excludeFromContext ? " · 已排除上下文" : ""}</div>` : null}
-          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">正在压缩历史 · 消息将排队发送</div>` : null}
+          <button class="editor-attach icon-button" ?disabled=${busy} title=${t("ui.promptEditor.attachFiles", "Attach files")} aria-label=${t("ui.promptEditor.attachFiles", "Attach files")} @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
+          ${shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.shellCommand", "Shell command")}${shellInputMode.excludeFromContext ? t("ui.promptEditor.excludedFromContext", " · Excluded from context") : ""}</div>` : null}
+          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.compactingHistoryMessagesWillQueue", "Compacting history · Messages will queue")}</div>` : null}
           ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
           ${this.renderCompactStatus()}
-          <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? "当前活动结束后排队发送" : "发送"} aria-label=${queuesInput ? "排队发送" : "发送"} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="在下次模型调用前引导当前回复" aria-label="引导当前回复" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
-          <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "停止当前工作并清空排队消息" : "当前没有运行任务"} aria-label="停止" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
+          <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? t("ui.promptEditor.queueAfterCurrentActivity", "Queue after current activity") : t("ui.promptEditor.send", "Send")} aria-label=${queuesInput ? t("ui.promptEditor.queueMessage", "Queue message") : t("ui.promptEditor.send", "Send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title=${t("ui.promptEditor.steerTheCurrentResponseBeforeTheNextModel", "Steer the current response before the next model call")} aria-label=${t("ui.promptEditor.steerCurrentResponse", "Steer current response")} @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
+          <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : t("ui.promptEditor.noTaskIsRunning", "No task is running")} aria-label=${t("ui.promptEditor.stop", "Stop")} @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
         </div>
       </footer>
     `;
@@ -163,12 +164,12 @@ export class PromptEditor extends LitElement {
   private renderCompactStatus() {
     const status = this.status;
     if (status === undefined) return null;
-    const model = status.model?.id ?? "无模型";
+    const model = status.model?.id ?? t("ui.promptEditor.noModel", "No model");
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
-      <div class="compact-status" aria-label="会话状态">
-        <button class="select-model" title="选择模型" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="select-thinking icon-button" title=${`思考级别：${thinkingLevelDisplayLabel(status.thinkingLevel)}`} aria-label=${`思考级别：${thinkingLevelDisplayLabel(status.thinkingLevel)}`} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+      <div class="compact-status" aria-label=${t("ui.promptEditor.sessionStatus", "Session status")}>
+        <button class="select-model" title=${t("ui.promptEditor.selectModel", "Select model")} @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+        <button class="select-thinking icon-button" title=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} aria-label=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
       </div>
     `;
   }
@@ -178,18 +179,18 @@ export class PromptEditor extends LitElement {
     const canUseInlineDelivery = promptAttachmentsCanUseInlineDelivery(this.attachments);
     const delivery = this.effectiveAttachmentDelivery();
     return html`
-      <div class="attachments" aria-label="待发送附件">
+      <div class="attachments" aria-label=${t("ui.promptEditor.pendingAttachments", "Pending attachments")}>
         ${this.attachments.map((attachment) => html`
           <div class=${`attachment-chip ${isInlinePromptAttachment(attachment) ? "attachment-chip-image" : "attachment-chip-file"}`} title=${attachment.name}>
             ${this.renderAttachmentPreview(attachment)}
-            <button type="button" class="attachment-remove" title="移除附件" aria-label=${`移除 ${attachment.name}`} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
+            <button type="button" class="attachment-remove" title=${t("ui.promptEditor.removeAttachment", "Remove attachment")} aria-label=${t("ui.promptEditor.remove", "Remove {name}", { name: attachment.name })} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
           </div>
         `)}
         ${this.attachments.length > 0 ? html`
-          <label class="attachment-delivery" title=${canUseInlineDelivery ? "附件发送给代理的方式" : "普通文件会保存到工作区并通过引用提及"}>
+          <label class="attachment-delivery" title=${canUseInlineDelivery ? t("ui.promptEditor.howAttachmentsAreSentToTheAgent", "How attachments are sent to the agent") : t("ui.promptEditor.regularFilesAreSavedToTheWorkspaceAnd", "Regular files are saved to the workspace and referenced")}>
             <select .value=${delivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
-              <option value="inline" ?disabled=${!canUseInlineDelivery}>附加到消息${canUseInlineDelivery ? "" : "（仅图片）"}</option>
-              <option value="folder">保存到 .pi-web/attachments</option>
+              <option value="inline" ?disabled=${!canUseInlineDelivery}>${t("ui.promptEditor.attachToMessage", "Attach to message")}${canUseInlineDelivery ? "" : t("ui.promptEditor.imagesOnly", " (images only)")}</option>
+              <option value="folder">${t("ui.promptEditor.saveToPiWebAttachments", "Save to .pi-web/attachments")}</option>
             </select>
           </label>
         ` : null}
@@ -284,7 +285,7 @@ export class PromptEditor extends LitElement {
             keyup: (event) => this.handleEditorKeyUp(event),
             blur: () => this.resetEditorModifierState(),
           }),
-          placeholder("给 pi 发送消息... 使用 / 输入命令，@ 输入已跟踪文件，@ 空格显示所有文件，# 选择模型"),
+          placeholder(t("ui.promptEditor.messagePiForCommandsForTrackedFilesSpace", "Message pi... / for commands, @ for tracked files, @ space for all files, # for models")),
           this.editableCompartment.of(EditorView.editable.of(!this.disabled)),
           this.readOnlyCompartment.of(EditorState.readOnly.of(this.disabled)),
           EditorView.updateListener.of((update) => {
@@ -552,16 +553,16 @@ function fileExtensionLabel(name: string): string {
   const trimmed = name.trim();
   const dotIndex = trimmed.lastIndexOf(".");
   if (dotIndex >= 0 && dotIndex < trimmed.length - 1) return trimmed.slice(dotIndex + 1, dotIndex + 5).toUpperCase();
-  return "文件";
+  return t("ui.promptEditor.file", "File");
 }
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => { reject(reader.error ?? new Error("读取文件失败")); };
+    reader.onerror = () => { reject(reader.error ?? new Error(t("ui.promptEditor.failedToReadFile", "Failed to read file"))); };
     reader.onload = () => {
       const result = reader.result;
-      if (typeof result !== "string") { reject(new Error("文件读取结果异常")); return; }
+      if (typeof result !== "string") { reject(new Error(t("ui.promptEditor.unexpectedFileReadResult", "Unexpected file read result"))); return; }
       const commaIndex = result.indexOf(",");
       resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
     };

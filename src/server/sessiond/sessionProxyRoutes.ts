@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import { WebSocket, type RawData } from "ws";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
 import { assertManagedCwd, encodeManagementContext, managementContextForRequest, managementProjectRoot, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
@@ -10,7 +11,7 @@ export interface SessionProxyDaemon {
 
 export type ManagementProjectCwdResolver = (projectId: string, context: ManagementEmbedContext) => Promise<readonly string[]>;
 
-export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver): void {
+export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, t: Translator = createTranslator("en", {})): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
@@ -22,7 +23,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
       return upstream.body !== "" ? parseJson(upstream.body) : undefined;
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   };
@@ -35,7 +36,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
       return upstream.body !== "" ? parseJson(upstream.body) : undefined;
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   });
@@ -48,7 +49,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       if (contentType !== undefined && contentType !== "") reply.header("content-type", contentType);
       return upstream.body !== "" ? parseJson(upstream.body) : undefined;
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   });
@@ -57,7 +58,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     void managementContextForRequest(request, managementEmbed).then((context) => {
       bridgeSockets(socket, daemon.connectWebSocket(stripPrefix(request.url, prefix), managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
+      closeSocketWithError(socket, error, t);
     });
   });
 
@@ -65,7 +66,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     void managementContextForRequest(request, managementEmbed).then((context) => {
       bridgeSockets(socket, daemon.connectWebSocket("/sessions/events", managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
+      closeSocketWithError(socket, error, t);
     });
   });
 
@@ -73,7 +74,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     void managementContextForRequest(request, managementEmbed).then((context) => {
       bridgeSockets(socket, daemon.connectWebSocket("/events", managementHeaders(context, managementEmbed)));
     }).catch((error: unknown) => {
-      closeSocketWithError(socket, error);
+      closeSocketWithError(socket, error, t);
     });
   });
 
@@ -142,8 +143,8 @@ function parseJson(text: string): unknown {
   return value;
 }
 
-function requestFailed(reply: FastifyReply, error: unknown): void {
-  reply.code(502).send({ error: `Session daemon unavailable: ${error instanceof Error ? error.message : String(error)}` });
+function requestFailed(reply: FastifyReply, error: unknown, t: Translator): void {
+  reply.code(502).send({ error: t("routing.daemonUnavailable", "Session daemon unavailable: {error}", { error: userFacingErrorMessage(error, t) }) });
 }
 
 function bridgeSockets(client: WebSocket, upstream: WebSocket): void {
@@ -161,8 +162,8 @@ function sendIfOpen(socket: WebSocket, data: RawData): void {
   }
 }
 
-function closeSocketWithError(socket: WebSocket, error: unknown): void {
-  socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : String(error) }));
+function closeSocketWithError(socket: WebSocket, error: unknown, t: Translator): void {
+  socket.send(JSON.stringify({ type: "error", message: userFacingErrorMessage(error, t) }));
   socket.close();
 }
 

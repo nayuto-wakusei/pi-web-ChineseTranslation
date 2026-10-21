@@ -3,6 +3,8 @@ import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, type RawData } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes";
+import { createTranslator, type Translator } from "../shared/i18n";
+import { loadNodeTranslator } from "../localization";
 import { NORMAL_AUTH_COOKIE, NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth";
 
 let app: FastifyInstance;
@@ -15,7 +17,7 @@ beforeEach(async () => {
   await initializeApp();
 });
 
-async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxTrackedAddresses: 100 }): Promise<void> {
+async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxTrackedAddresses: 100 }, translator: Translator = createTranslator("en", {})): Promise<void> {
   app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
   const auth = new NormalModeAuthService({
@@ -24,7 +26,7 @@ async function initializeApp(rateLimit = { maxFailures: 2, windowMs: 5_000, maxT
       piWebConfig = config;
       return piWebConfigResponse(piWebConfig);
     },
-  });
+  }, undefined, undefined, translator);
   const loginAttempts = registerNormalAuthRoutes(app, auth, { now: () => nowMs, rateLimit });
   registerNormalModeAuthGate(app, auth, undefined, loginAttempts);
   app.get("/api/protected", () => ({ ok: true }));
@@ -65,6 +67,30 @@ describe("normal mode auth websocket gate", () => {
     await waitForOpen(socket);
     await expect(ready).resolves.toBe("ready");
     socket.close();
+  });
+});
+
+describe("normal mode localized messages", () => {
+  it.each([
+    { enabled: true, setup: "需要设置普通模式密码", invalid: "普通模式密码无效", limited: "普通模式登录失败次数过多" },
+    { enabled: false, setup: "Ordinary mode password setup is required", invalid: "Invalid ordinary mode password", limited: "Too many failed ordinary mode login attempts" },
+  ])("uses machine-local messages without changing HTTP contracts: enabled=$enabled", async ({ enabled, setup, invalid, limited }) => {
+    await app.close();
+    await initializeApp(undefined, loadNodeTranslator("server", { plugins: { "zh-cn": { enabled } } }));
+    const denied = await app.inject({ method: "GET", url: "/api/protected" });
+    expect(denied.statusCode).toBe(401);
+    expect(denied.json()).toEqual({ error: setup });
+    const created = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "secret-pass" } });
+    expect(created.json()).toEqual({ accepted: true });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const rejected = await login("wrong-pass", "203.0.113.10");
+      expect(rejected.statusCode).toBe(401);
+      expect(rejected.json()).toEqual({ error: invalid });
+    }
+    const blocked = await login("secret-pass", "203.0.113.10");
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json()).toEqual({ error: limited, retryAfterSeconds: 5 });
+    expect(blocked.headers["retry-after"]).toBe("5");
   });
 });
 

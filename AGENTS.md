@@ -1,6 +1,6 @@
 # Agent Notes
 
-This repository is the Chinese-localized fork of PI WEB. Preserve upstream functionality while keeping user-visible core and bundled-plugin copy in Chinese. Do not translate protocol identifiers, API fields, commands, paths, or runtime payloads unless they are explicitly mapped for display.
+This repository is the Chinese-localized fork of PI WEB. Preserve upstream functionality and the default Chinese experience through the bundled `zh-cn` language plugin. Keep English fallback text at display call sites and Chinese translations in that plugin's catalogs. Do not translate protocol identifiers, API fields, commands, paths, user/model content, or runtime payloads unless they are explicitly mapped for display.
 
 When committing, use the GitHub username as the author name and do not provide an email address.
 

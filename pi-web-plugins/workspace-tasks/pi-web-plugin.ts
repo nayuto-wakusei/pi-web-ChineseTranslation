@@ -1,11 +1,13 @@
+import { t, setTranslator } from "./i18n.js";
 import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { TASKS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 1,
-  name: "工作区任务",
-  activate: ({ pluginId, html, svg }) => {
+  get name() { return t("bundled.workspace-tasks.workspace.tasks.b4ef49", "Workspace tasks"); },
+  activate: ({ pluginId, html, svg, translate }) => {
+    setTranslator(translate);
     defineTasksPanelElement();
 
     return {
@@ -13,9 +15,9 @@ const plugin: PiWebPlugin = {
         actions: [
           {
             id: "workspace.open-tasks",
-            title: "打开工作区任务",
-            description: `打开工作区任务标签页。在 ${TASKS_CONFIG_PATH} 中配置任务。`,
-            group: "工作区",
+            title: t("bundled.workspace-tasks.open.workspace.tasks.6243e7", "Open workspace tasks"),
+            description: t("bundled.workspace-tasks.open.the.workspace.tasks.tab.configure.tasks.in.d72915", "Open the workspace tasks tab. Configure tasks in {value1}.", { value1: TASKS_CONFIG_PATH }),
+            group: t("bundled.workspace-tasks.workspace.379798", "Workspace"),
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
@@ -26,7 +28,7 @@ const plugin: PiWebPlugin = {
         workspacePanels: [
           {
             id: "workspace.tasks",
-            title: "任务",
+            title: t("bundled.workspace-tasks.tasks.525304", "Tasks"),
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 6h11"></path>

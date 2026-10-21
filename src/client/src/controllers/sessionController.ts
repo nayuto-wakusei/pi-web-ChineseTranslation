@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type PendingAskUser, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
@@ -433,7 +434,7 @@ export class SessionController {
         this.applySessionName(session.id, result.session?.name ?? trimmed);
         return;
       }
-      this.setState({ error: result.type === "unsupported" ? result.message : "重命名会话失败" });
+      this.setState({ error: result.type === "unsupported" ? result.message : t("client.sessionController.failed.to.rename.session.702159", "Failed to rename session") });
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -442,7 +443,7 @@ export class SessionController {
   private enqueuePendingSessionSend(session: ClientPendingStartSessionInfo, input: QueuedPendingSessionSendInput): void {
     const pending = this.pendingSessionStarts.get(session.id);
     if (pending === undefined || pending.discarded) {
-      this.setState({ error: "后端会话尚未准备好发送排队消息。丢弃此次启动失败前，请先复制你的消息。" });
+      this.setState({ error: t("client.sessionController.the.backend.session.is.not.ready.to.send.queued.messages.copy.your.mes.22460a", "The backend session is not ready to send queued messages. Copy your messages before discarding this failed start.") });
       return;
     }
     const queued: QueuedPendingSessionSend = { ...input, id: `pending-send-${String(++this.pendingQueuedSendSeq)}` };
@@ -520,7 +521,7 @@ export class SessionController {
     try {
       const result = await this.api.runCommand(session, text, machineId);
       if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) this.applyCommandResult(result);
-      else if (result.type === "select" || result.type === "tree") this.setState({ error: `排队命令“${text}”需要输入；请打开会话并重新运行。` });
+      else if (result.type === "select" || result.type === "tree") this.setState({ error: t("client.sessionController.queued.command.requires.input.open.the.session.and.run.it.again.2a98cf", "Queued command \"{value1}\" requires input; open the session and run it again.", { value1: text }) });
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
@@ -560,7 +561,7 @@ export class SessionController {
     const session = state.selectedSession;
     const tree = state.treeDialog;
     if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
-      throw new Error("会话树导航器已不可用");
+      throw new Error(t("client.sessionController.session.tree.navigator.is.no.longer.available.34846d", "Session tree navigator is no longer available"));
     }
 
     const machineId = selectedMachineId(state);
@@ -686,9 +687,9 @@ export class SessionController {
         if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
         else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
       }
-      this.applyBulkSessionFailures("归档", failures);
+      this.applyBulkSessionFailures(t("client.sessionController.archive.5292ab", "Archive"), failures);
     } catch (error) {
-      this.setState({ error: `归档失败：${errorMessage(error)}` });
+      this.setState({ error: t("client.sessionController.archive.failed.aaa500", "Archive failed: {value1}", { value1: errorMessage(error) }) });
     }
   }
 
@@ -711,9 +712,9 @@ export class SessionController {
         }
         await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
-      this.applyBulkSessionFailures("删除", failures);
+      this.applyBulkSessionFailures(t("client.sessionController.delete.2f9daa", "Delete"), failures);
     } catch (error) {
-      this.setState({ error: `删除失败：${errorMessage(error)}` });
+      this.setState({ error: t("client.sessionController.delete.failed.59ec26", "Delete failed: {value1}", { value1: errorMessage(error) }) });
     }
   }
 
@@ -1119,7 +1120,7 @@ export class SessionController {
 
   private applyBulkSessionFailures(action: string, failures: readonly string[]): void {
     if (failures.length === 0) return;
-    this.setState({ error: `${action}失败，${String(failures.length)} 个会话处理失败：${failures.join("；")}` });
+    this.setState({ error: t("client.sessionController.failed.for.sessions.5ef9b2", "{value1} failed for {value2} sessions: {value3}", { value1: action, value2: String(failures.length), value3: failures.join("；") }) });
   }
 
   private sessionCacheKey(sessionId: string): string {
@@ -1158,7 +1159,7 @@ export class SessionController {
       path: `pi-web://pending-session/${tempId}`,
       cwd: workspace.path,
       persisted: false,
-      name: "新会话",
+      name: t("client.sessionController.new.session.c57c30", "New session"),
       created: now,
       modified: now,
       messageCount: 0,
@@ -1273,7 +1274,7 @@ export class SessionController {
       sessionActivities: { ...state.sessionActivities, [tempId]: activity },
       activity: state.selectedSession?.id === tempId ? activity : state.activity,
       ...(state.selectedSession?.id === tempId ? { pendingDialogs: [] } : {}),
-      error: `启动会话失败：${message}`,
+      error: t("client.sessionController.failed.to.start.session.881118", "Failed to start session: {value1}", { value1: message }),
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
   }
@@ -1770,18 +1771,18 @@ function creatingPendingSessionActivity(sessionId: string, queuedCount = 0): Ses
   return {
     sessionId,
     phase: "active",
-    label: "正在创建会话",
-    detail: queuedCount > 0 ? `后端会话准备好后将发送 ${String(queuedCount)} 条排队消息` : "正在等待后端会话准备就绪",
+    label: t("client.sessionController.creating.session.673806", "Creating session"),
+    detail: queuedCount > 0 ? t("client.sessionController.will.send.queued.messages.when.the.backend.session.is.ready.f49381", "Will send {value1} queued messages when the backend session is ready", { value1: String(queuedCount) }) : t("client.sessionController.waiting.for.the.backend.session.3a8a3d", "Waiting for the backend session"),
     at: new Date().toISOString(),
   };
 }
 
 function failedPendingSessionActivity(sessionId: string, message: string, queuedCount = 0): SessionActivity {
-  const queuedDetail = queuedCount > 0 ? ` · 下方保留了 ${String(queuedCount)} 条排队消息` : "";
+  const queuedDetail = queuedCount > 0 ? t("client.sessionController.queued.messages.retained.below.2194c6", " · {value1} queued messages retained below", { value1: String(queuedCount) }) : "";
   return {
     sessionId,
     phase: "error",
-    label: "会话创建失败",
+    label: t("client.sessionController.session.creation.failed.aff35c", "Session creation failed"),
     detail: `${message}${queuedDetail}`,
     at: new Date().toISOString(),
   };
@@ -1805,11 +1806,11 @@ function queuedAttachmentSummary(attachments: PromptAttachment[] | undefined): s
   if (attachments === undefined || attachments.length === 0) return undefined;
   const names = attachments.map((attachment) => attachment.name?.trim()).filter((name): name is string => name !== undefined && name !== "");
   const count = attachments.length;
-  const label = `${String(count)} 个附件`;
-  if (names.length === 0) return `[已排队 ${label}]`;
+  const label = t("client.sessionController.attachments.092014", "{value1} attachments", { value1: String(count) });
+  if (names.length === 0) return t("client.sessionController.queued.6fc044", "[Queued {value1}]", { value1: label });
   const shownNames = names.slice(0, 3).join("、");
-  const suffix = names.length > 3 ? `，另有 ${String(names.length - 3)} 个` : "";
-  return `[已排队 ${label}：${shownNames}${suffix}]`;
+  const suffix = names.length > 3 ? t("client.sessionController.plus.more.675fd5", ", plus {value1} more", { value1: String(names.length - 3) }) : "";
+  return t("client.sessionController.queued.871266", "[Queued {value1}: {value2}{value3}]", { value1: label, value2: shownNames, value3: suffix });
 }
 
 function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {

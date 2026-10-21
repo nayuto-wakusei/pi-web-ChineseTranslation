@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { SessionCleanupPreviewResponse, SessionCleanupRequest } from "./api";
 
 export interface SessionCleanupDraft {
@@ -19,7 +20,7 @@ export const DEFAULT_SESSION_CLEANUP_DRAFT: SessionCleanupDraft = {
 };
 
 export function validateSessionCleanupDraft(draft: SessionCleanupDraft): SessionCleanupDraftValidation {
-  if (!draft.archiveIdleEnabled && !draft.deleteArchivedEnabled) return { ok: false, error: "请至少启用一项清理操作。" };
+  if (!draft.archiveIdleEnabled && !draft.deleteArchivedEnabled) return { ok: false, error: t("client.sessionCleanupUi.enable.at.least.one.cleanup.action.d2ce50", "Enable at least one cleanup action.") };
 
   const request: SessionCleanupRequest = {
     archiveIdleDays: null,
@@ -27,13 +28,13 @@ export function validateSessionCleanupDraft(draft: SessionCleanupDraft): Session
   };
 
   if (draft.archiveIdleEnabled) {
-    const archiveIdleDays = parseDayThreshold(draft.archiveIdleDays, "归档空闲会话天数");
+    const archiveIdleDays = parseDayThreshold(draft.archiveIdleDays, t("client.sessionCleanupUi.archive.idle.sessions.after.6d41ea", "Archive idle sessions after"));
     if (typeof archiveIdleDays === "string") return { ok: false, error: archiveIdleDays };
     request.archiveIdleDays = archiveIdleDays;
   }
 
   if (draft.deleteArchivedEnabled) {
-    const deleteArchivedDays = parseDayThreshold(draft.deleteArchivedDays, "删除已归档会话天数");
+    const deleteArchivedDays = parseDayThreshold(draft.deleteArchivedDays, t("client.sessionCleanupUi.delete.archived.sessions.after.923bee", "Delete archived sessions after"));
     if (typeof deleteArchivedDays === "string") return { ok: false, error: deleteArchivedDays };
     request.deleteArchivedDays = deleteArchivedDays;
   }
@@ -98,20 +99,20 @@ export function sessionCleanupConfirmationMessage(preview: Pick<SessionCleanupPr
   const archiveCount = preview.totals.archiveCount;
   const deleteCount = preview.totals.deleteCount;
   const parts: string[] = [];
-  if (archiveCount > 0) parts.push(`归档 ${String(archiveCount)} 个空闲会话`);
-  if (deleteCount > 0) parts.push(`永久删除 ${String(deleteCount)} 个已归档会话`);
-  const action = parts.length === 0 ? "执行清理" : parts.join("并");
-  return `运行清理并${action}？\n\n永久删除只适用于已归档会话，且无法撤销。`;
+  if (archiveCount > 0) parts.push(t("client.sessionCleanupUi.archive.idle.sessions.27a4f1", "archive {value1} idle sessions", { value1: String(archiveCount) }));
+  if (deleteCount > 0) parts.push(t("client.sessionCleanupUi.permanently.delete.archived.sessions.360209", "permanently delete {value1} archived sessions", { value1: String(deleteCount) }));
+  const action = parts.length === 0 ? t("client.sessionCleanupUi.run.cleanup.233f8e", "run cleanup") : parts.join(t("client.sessionCleanupUi.and.2f4b60", " and "));
+  return t("client.sessionCleanupUi.run.cleanup.and.permanent.deletion.only.applies.to.archived.sessions.a.9775e2", "Run cleanup and {value1}?\n\nPermanent deletion only applies to archived sessions and cannot be undone.", { value1: action });
 }
 
 export function sessionCleanupUnavailableMessage(machineName: string | undefined): string {
-  return `请更新并重启 ${machineName ?? "此机器"} 上的 Pi-Web 后再清理会话。`;
+  return t("client.sessionCleanupUi.update.and.restart.pi.web.on.before.cleaning.up.sessions.3c493f", "Update and restart Pi-Web on {value1} before cleaning up sessions.", { value1: machineName ?? t("client.sessionCleanupUi.this.machine.74a83f", "this machine") });
 }
 
 function parseDayThreshold(value: string, label: string): number | string {
   const trimmed = value.trim();
-  if (trimmed === "") return `${label}必须设置。`;
+  if (trimmed === "") return t("client.sessionCleanupUi.must.be.set.208394", "{value1} must be set.", { value1: label });
   const parsed = Number(trimmed);
-  if (!Number.isInteger(parsed) || parsed < 0) return `${label}必须是非负整数天数。`;
+  if (!Number.isInteger(parsed) || parsed < 0) return t("client.sessionCleanupUi.must.be.a.non.negative.integer.number.of.days.7ed7a9", "{value1} must be a non-negative integer number of days.", { value1: label });
   return parsed;
 }

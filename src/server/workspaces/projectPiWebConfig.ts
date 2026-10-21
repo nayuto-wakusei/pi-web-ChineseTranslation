@@ -21,7 +21,7 @@ export async function loadProjectPiWebConfig(projectPath: string): Promise<Loade
   const path = join(projectPath, PROJECT_PI_WEB_CONFIG_PATH);
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!isRecord(parsed)) throw new Error(`PI WEB project config must be a JSON object: ${path}`);
+    if (!isRecord(parsed)) throw new WorkspaceUserError("server.files.projectConfigObject", "PI WEB project config must be a JSON object: {path}", { path });
     return { path, exists: true, config: parseProjectPiWebConfig(parsed, path) };
   } catch (error) {
     if (isNodeErrorWithCode(error, "ENOENT")) return { path, exists: false, config: {} };
@@ -54,7 +54,7 @@ function parseProjectPiWebConfig(value: Record<string, unknown>, path: string): 
 }
 
 function parseProjectConfigVersion(value: unknown, path: string): 1 {
-  if (value !== 1) throw new Error(`PI WEB project config version must be 1: ${path}`);
+  if (value !== 1) throw new WorkspaceUserError("server.files.projectConfigVersion", "PI WEB project config version must be 1: {path}", { path });
   return 1;
 }
 
@@ -76,3 +76,4 @@ function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.Errn
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+import { WorkspaceUserError } from "./workspaceUserError.js";

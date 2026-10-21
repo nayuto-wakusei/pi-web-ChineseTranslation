@@ -4,6 +4,7 @@ import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ManagementEmbedContext, ManagementEmbedRuntime } from "../managementEmbed.js";
 import { WorkbenchClient } from "./workbenchClient.js";
 import { WORKBENCH_ACCESS_STATE_ROUTE } from "./accessStateRoutes.js";
+import { UserFacingError } from "../../shared/i18n.js";
 
 interface WorkbenchBinding {
   handle: string;
@@ -67,7 +68,7 @@ async function createWorkbenchBinding(
   const response = await daemon.request("PUT", `${WORKBENCH_ACCESS_STATE_ROUTE}/${encodeURIComponent(handle)}`, state);
   if (response.statusCode !== 204) {
     await client.revoke(state).catch(() => undefined);
-    throw new Error("Session daemon rejected the workbench resource state");
+    throw new UserFacingError("managementError.workbench.stateRejected", "Session daemon rejected the workbench resource state");
   }
   return {
     handle,

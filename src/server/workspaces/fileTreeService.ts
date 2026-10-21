@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { lstat, readdir } from "node:fs/promises";
 import { isAbsolute, join, win32 } from "node:path";
 import type { FileTreeEntry, FileTreeResponse, PiWebPathAccessConfig } from "../../shared/apiTypes.js";
@@ -8,7 +9,7 @@ const MAX_ENTRIES = 1000;
 export async function listWorkspaceTree(rootPath: string, path: string | undefined, pathAccess?: PiWebPathAccessConfig): Promise<FileTreeResponse> {
   const { target, displayPath } = await resolveWorkspacePathAccessTarget(rootPath, path, pathAccess);
   const stat = await lstat(target);
-  if (!stat.isDirectory()) throw new Error("Path is not a directory");
+  if (!stat.isDirectory()) throw new WorkspaceUserError("server.files.notDirectory", "Path is not a directory");
 
   const dirents = await readdir(target, { withFileTypes: true });
   const sorted = dirents.sort((a, b) => {

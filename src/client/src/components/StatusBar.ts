@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SessionStatus } from "../api";
@@ -11,10 +12,10 @@ export interface StatusBarWarningControlContent {
 
 export function statusBarWarningControlContent(count: number, expanded: boolean): StatusBarWarningControlContent | undefined {
   if (!Number.isInteger(count) || count <= 0) return undefined;
-  const warningText = `${String(count)} 条警告`;
+  const warningText = t("ui.statusBar.warnings", "{count} warnings", { count: String(count) });
   return {
     countText: String(count),
-    accessibleLabel: expanded ? `最小化 ${warningText}` : `在警告区域显示 ${warningText}`,
+    accessibleLabel: expanded ? t("ui.statusBar.minimize", "Minimize {warningText}", { warningText: warningText }) : t("ui.statusBar.showInTheWarningArea", "Show {warningText} in the warning area", { warningText: warningText }),
   };
 }
 
@@ -31,13 +32,13 @@ export class StatusBar extends LitElement {
 
   override render() {
     const status = this.status;
-    if (status === undefined) return html`<div class="bar muted">尚无会话状态</div>`;
+    if (status === undefined) return html`<div class="bar muted">${t("ui.statusBar.noSessionStatusYet", "No session status yet")}</div>`;
     const context = status.contextUsage;
     const contextText = context
       ? context.percent == null
-        ? `上下文 ${formatTokenCount(context.contextWindow)}`
+        ? t("ui.statusBar.context", "Context {contextWindow}", { contextWindow: formatTokenCount(context.contextWindow) })
         : `${context.percent.toFixed(1)}%/${formatTokenCount(context.contextWindow)}`
-      : "上下文未知";
+      : t("ui.statusBar.contextUnknown", "Context unknown");
     const tokens = status.tokens;
     const warningControl = statusBarWarningControlContent(this.warningCount, this.warningsExpanded);
     return html`
@@ -59,7 +60,7 @@ export class StatusBar extends LitElement {
         <span>↓${formatTokenCount(tokens.output)}</span>
         <span class="context">${contextText}</span>
         <span>${formatCost(status.cost)}</span>
-        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} 条排队中</span>` : null}
+        ${status.pendingMessageCount > 0 ? html`<span>${t("ui.statusBar.queuedCount", "{count} queued", { count: status.pendingMessageCount })}</span>` : null}
       </div>
     `;
   }

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { AuthEvent, AuthInteraction, AuthPrompt, AuthType } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CommandOption, OAuthFlowState } from "../../shared/apiTypes.js";
+import { createTranslator, type Translator } from "../../shared/i18n.js";
 
 /** The single runtime capability this service drives — narrowed for testable DI. */
 type OAuthLoginRuntime = Pick<ModelRuntime, "login">;
@@ -32,6 +33,7 @@ export interface OAuthLoginFlowLogger {
 }
 
 export interface OAuthLoginFlowServiceOptions {
+  translator?: Translator;
   terminalTtlMs?: number;
   runningTtlMs?: number;
   now?: () => number;
@@ -52,12 +54,14 @@ export class OAuthLoginFlowService {
   private readonly runningTtlMs: number;
   private readonly now: () => number;
   private readonly logger: OAuthLoginFlowLogger;
+  private readonly t: Translator;
 
   constructor(options: OAuthLoginFlowServiceOptions = {}) {
     this.terminalTtlMs = options.terminalTtlMs ?? DEFAULT_TERMINAL_TTL_MS;
     this.runningTtlMs = options.runningTtlMs ?? DEFAULT_RUNNING_TTL_MS;
     this.now = options.now ?? (() => Date.now());
     this.logger = options.logger ?? noopLogger;
+    this.t = options.translator ?? createTranslator("en", {});
   }
 
   start(options: {
@@ -109,18 +113,18 @@ export class OAuthLoginFlowService {
 
   get(flowId: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("Login flow not found");
+    if (record === undefined) throw new Error(this.t("providerAuth.flowMissing", "Login flow not found"));
     return cloneState(record.state);
   }
 
   respond(flowId: string, requestId: string, value: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("Login flow not found");
+    if (record === undefined) throw new Error(this.t("providerAuth.flowMissing", "Login flow not found"));
     if (record.state.status !== "running") return cloneState(record.state);
     const pending = record.pending;
-    if (pending?.requestId !== requestId) throw new Error("Login request expired");
-    if (!pending.allowEmpty && value.trim() === "") throw new Error("A value is required");
-    if (pending.allowedValues !== undefined && !pending.allowedValues.has(value)) throw new Error("Invalid login selection");
+    if (pending?.requestId !== requestId) throw new Error(this.t("providerAuth.requestExpired", "Login request expired"));
+    if (!pending.allowEmpty && value.trim() === "") throw new Error(this.t("providerAuth.valueRequired", "A value is required"));
+    if (pending.allowedValues !== undefined && !pending.allowedValues.has(value)) throw new Error(this.t("providerAuth.invalidSelection", "Invalid login selection"));
     this.clearPending(record);
     this.updateState(record, withoutInteraction(record.state));
     pending.resolve(value);
@@ -129,12 +133,12 @@ export class OAuthLoginFlowService {
 
   cancel(flowId: string): OAuthFlowState {
     const record = this.flows.get(flowId);
-    if (record === undefined) throw new Error("Login flow not found");
+    if (record === undefined) throw new Error(this.t("providerAuth.flowMissing", "Login flow not found"));
     if (record.state.status === "running") {
       record.abort.abort();
       const pending = this.clearPending(record);
-      this.markTerminal(record, { ...withoutInteraction(record.state), status: "cancelled", error: "Login cancelled" });
-      pending?.reject(new Error("Login cancelled"));
+      this.markTerminal(record, { ...withoutInteraction(record.state), status: "cancelled", error: this.t("providerAuth.loginCancelled", "Login cancelled") });
+      pending?.reject(new Error(this.t("providerAuth.loginCancelled", "Login cancelled")));
     }
     return cloneState(record.state);
   }
@@ -144,7 +148,7 @@ export class OAuthLoginFlowService {
       this.clearTimer(record);
       record.abort.abort();
       const pending = this.clearPending(record);
-      pending?.reject(new Error("Login cancelled"));
+      pending?.reject(new Error(this.t("providerAuth.loginCancelled", "Login cancelled")));
     }
     this.flows.clear();
   }
@@ -167,7 +171,7 @@ export class OAuthLoginFlowService {
           ...record.state,
           auth: {
             url: event.verificationUri,
-            instructions: `Enter code: ${event.userCode}`,
+            instructions: this.t("providerAuth.enterCode", "Enter code: {code}", { code: event.userCode }),
             deviceCode: {
               userCode: event.userCode,
               ...(event.intervalSeconds === undefined ? {} : { intervalSeconds: event.intervalSeconds }),
@@ -203,7 +207,7 @@ export class OAuthLoginFlowService {
   private waitForPrompt(record: OAuthFlowRecord, prompt: ValuePrompt): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
-        reject(new Error("Login cancelled"));
+        reject(new Error(this.t("providerAuth.loginCancelled", "Login cancelled")));
         return;
       }
       const requestId = crypto.randomUUID();
@@ -233,7 +237,7 @@ export class OAuthLoginFlowService {
   private waitForSelect(record: OAuthFlowRecord, prompt: SelectPrompt): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.isCurrentRunning(record)) {
-        reject(new Error("Login cancelled"));
+        reject(new Error(this.t("providerAuth.loginCancelled", "Login cancelled")));
         return;
       }
       const requestId = crypto.randomUUID();
@@ -265,7 +269,7 @@ export class OAuthLoginFlowService {
       if (record.pending !== pending) return;
       this.clearPending(record);
       if (this.isCurrentRunning(record)) this.updateState(record, withoutInteraction(record.state));
-      pending.reject(new Error("Prompt cancelled"));
+      pending.reject(new Error(this.t("providerAuth.promptCancelled", "Prompt cancelled")));
     };
     pending.cleanup = () => { signal.removeEventListener("abort", onAbort); };
     signal.addEventListener("abort", onAbort, { once: true });
@@ -299,7 +303,7 @@ export class OAuthLoginFlowService {
     if (!this.isCurrent(record)) return;
     const completed = withoutInteraction(record.state);
     delete completed.error;
-    this.markTerminal(record, { ...completed, status: "complete", progress: [...record.state.progress, "Login complete"] });
+    this.markTerminal(record, { ...completed, status: "complete", progress: [...record.state.progress, this.t("providerAuth.loginComplete", "Login complete")] });
   }
 
   private isCurrent(record: OAuthFlowRecord): boolean {
@@ -358,8 +362,8 @@ export class OAuthLoginFlowService {
     if (!this.isCurrentRunning(record)) return;
     record.abort.abort();
     const pending = this.clearPending(record);
-    this.markTerminal(record, { ...withoutInteraction(record.state), status: "error", error: "Login flow expired" });
-    pending?.reject(new Error("Login flow expired"));
+    this.markTerminal(record, { ...withoutInteraction(record.state), status: "error", error: this.t("providerAuth.flowExpired", "Login flow expired") });
+    pending?.reject(new Error(this.t("providerAuth.flowExpired", "Login flow expired")));
   }
 
   private setTimer(record: OAuthFlowRecord, delayMs: number, callback: () => void): void {

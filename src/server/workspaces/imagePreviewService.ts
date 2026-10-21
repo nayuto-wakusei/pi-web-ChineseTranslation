@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { createReadStream, type ReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname } from "node:path";
@@ -30,13 +31,13 @@ export function imageMimeTypeForPath(path: string): string | undefined {
 }
 
 export async function readWorkspaceImagePreview(rootPath: string, path: string | undefined, pathAccess?: PiWebPathAccessConfig): Promise<WorkspaceImagePreview> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
+  if (path === undefined || path === "") throw new WorkspaceUserError("server.files.pathRequired", "path query parameter is required");
   const { target, displayPath } = await resolveWorkspacePathAccessTarget(rootPath, path, pathAccess);
   const s = await stat(target);
-  if (!s.isFile()) throw new Error("Path is not a file");
+  if (!s.isFile()) throw new WorkspaceUserError("server.files.notFile", "Path is not a file");
   const mimeType = imageMimeTypeForPath(displayPath);
-  if (mimeType === undefined) throw new Error("Image preview is not supported for this file type");
-  if (s.size > MAX_IMAGE_PREVIEW_BYTES) throw new Error(`Image is too large to preview (limit ${MAX_IMAGE_PREVIEW_LABEL})`);
+  if (mimeType === undefined) throw new WorkspaceUserError("server.files.previewUnsupported", "Image preview is not supported for this file type");
+  if (s.size > MAX_IMAGE_PREVIEW_BYTES) throw new WorkspaceUserError("server.files.imageTooLarge", "Image is too large to preview (limit {limit})", { limit: MAX_IMAGE_PREVIEW_LABEL });
   return {
     path: displayPath,
     mimeType,

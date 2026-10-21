@@ -6,6 +6,7 @@ import { WebSocket, type RawData } from "ws";
 import type { TerminalCommandRun, TerminalCommandRunFilter } from "../../shared/apiTypes.js";
 import type { RunTerminalCommandOptions, TerminalInfo } from "./terminalService.js";
 import { registerTerminalRoutes, type TerminalRouteService } from "./terminalRoutes.js";
+import { loadNodeTranslator } from "../../localization.js";
 
 let app: FastifyInstance;
 let terminals: FakeTerminals;
@@ -23,6 +24,21 @@ afterEach(async () => {
 });
 
 describe("terminal routes", () => {
+  it("translates own terminal validation without changing response codes or status identifiers", async () => {
+    const localized = Fastify({ logger: false });
+    await localized.register(fastifyWebsocket);
+    registerTerminalRoutes(localized, terminals, "", loadNodeTranslator("server", {}));
+    try {
+      const invalid = await localized.inject({ method: "GET", url: "/terminal-command-runs?statuses=running,stuck" });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: "无效的命令运行状态：stuck" });
+      const missing = await localized.inject({ method: "GET", url: "/terminal-command-runs/missing" });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({ error: "未找到终端命令运行记录" });
+    } finally {
+      await localized.close();
+    }
+  });
   it("applies the initial socket size before attaching and replaying output", async () => {
     const socket = new WebSocket(`${serverUrl(app)}/terminals/t1/socket?cols=120.9&rows=40.2`);
 

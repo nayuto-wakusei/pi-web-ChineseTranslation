@@ -276,6 +276,9 @@ After editing, check the manifest endpoint and browser-console failure cases.</c
 
             <section id="built-in-plugins">
               <h2>Built-in plugins</h2>
+              <p>内置 <code>zh-cn</code> 语言插件默认启用，关闭后刷新网页恢复英文。浏览器语言跟随网关，不随所选远端机器切换。用户内容、模型回复、第三方输出和开发日志不参与翻译。</p>
+              <p>推理级别的显示标签、说明与自动生成的默认项目名随语言切换，级别标识（如 <code>high</code>）、路径和外部项目名不变。已有会话、通知和模型侧工具说明、提示词、工具结果保留原文，不会被追溯改写，其中仍可能包含中文。配置与服务重启要求见 <a href="config.html#precedence">配置文档</a>。</p>
+              <p>激活上下文提供可选的 <code>translate(key, fallback, parameters?)</code>，使用 <code>{name}</code> 参数并返回普通文本；语言包通过 <code>localizations</code> 贡献词典。CLI 和服务端仅读取内置插件的 JSON 数据，不执行浏览器插件代码。详细契约见 <a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/dev/docs/plugins.md">插件 API 文档</a>。</p>
               <p>
                 PI WEB ships core, discoverable plugins in the main <code>@chainingintention/pi-web-cn</code> npm package. No
                 separate <code>pi install</code> step is required: update PI WEB, reload the browser tab, and the bundled

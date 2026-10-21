@@ -3,7 +3,7 @@ import type { TemplateResult } from "lit";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { SettingsGeneralPanel } from "./SettingsGeneralPanel";
 import type { GatewayServerConfigDraft, MachineAccessConfigDraft } from "./settingsConfigDraft";
-import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
+import { isTemplateResult, templateText, templateValues } from "../../templateInspection.testSupport";
 
 describe("settings-general-panel copy", () => {
   it("uses factual scope copy for gateway and selected-machine settings", () => {
@@ -13,14 +13,13 @@ describe("settings-general-panel copy", () => {
     panel.machineConfigResponse = configResponse({ pathAccess: { allowedPaths: ["/mnt/share"] }, uploads: { defaultFolder: "manual/uploads" } });
 
     const template = panel.render();
-    const strings = collectTemplateStrings(template).join("");
-    const values = collectTemplateValues(template);
+    const strings = templateText(template);
 
     expect(strings).toContain("<settings-panel-frame");
     expect(strings).toContain("网关服务器字段用于编辑当前本地网关；文件访问和上传默认值用于编辑 ");
     expect(strings).toContain("主机地址、端口和允许的主机名会保存到网关配置中。");
     expect(strings).toContain("外部文件系统根目录和上传默认值会保存到 ");
-    expect(values.filter((value) => value === "Lab Mac (remote machine)")).toHaveLength(4);
+    expect(strings.match(/Lab Mac \(remote machine\)/g)).toHaveLength(4);
   });
 
   it("shows reload copy when selected-machine access config is unavailable", () => {
@@ -139,23 +138,6 @@ describe("settings-general-panel save payloads", () => {
     expect(getPanelProperty(panel, "machineLocalError")).toBe("上传默认文件夹必须是工作区相对路径。");
   });
 });
-
-function collectTemplateStrings(template: TemplateResult): string[] {
-  const strings: string[] = [];
-  visitTemplate(template);
-  return strings;
-
-  function visitTemplate(current: TemplateResult): void {
-    strings.push(...templateStrings(current));
-    for (const value of templateValues(current)) {
-      if (Array.isArray(value)) {
-        for (const item of value) if (isTemplateResult(item)) visitTemplate(item);
-      } else if (isTemplateResult(value)) {
-        visitTemplate(value);
-      }
-    }
-  }
-}
 
 function collectTemplateValues(template: TemplateResult): unknown[] {
   const values: unknown[] = [];

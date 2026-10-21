@@ -1,4 +1,6 @@
 import type { AuthorizedResource } from "./types.js";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 
 export interface SearchCapabilitiesInput {
   keyword?: string;
@@ -34,9 +36,9 @@ export function searchAuthorizedCapabilities(resources: readonly AuthorizedResou
   return { items: candidates.slice(0, limit).map((candidate) => toCapabilitySummary(candidate.item)), total: candidates.length };
 }
 
-export function requireAuthorizedL0Capability(resources: readonly AuthorizedResource[], name: string): AuthorizedResource {
+export function requireAuthorizedL0Capability(resources: readonly AuthorizedResource[], name: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
   const item = resources.find((resource) => resource.resourceName === name && isAuthorizedL0Capability(resource));
-  if (item === undefined) throw new Error("当前账号未获授权使用该L0能力");
+  if (item === undefined) throw new Error(t("workbench.capabilityUnauthorized", "This account is not authorized to use this L0 capability"));
   return item;
 }
 

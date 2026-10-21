@@ -2,6 +2,8 @@ import type { ClientSession } from "../types.js";
 import type { PiAgentSession, PiSessionListEntry } from "./piSessionService.js";
 import type { ArchivedSessionRecord, ArchiveSessionInput } from "./sessionArchiveStore.js";
 import type { SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 
 export interface WorkspaceArchiveCandidate extends SessionArchiveTreeCandidate {
   cwd: string;
@@ -23,9 +25,9 @@ export function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveS
   };
 }
 
-export function archiveInputFromActiveSession(session: PiAgentSession): ArchiveSessionInput {
+export function archiveInputFromActiveSession(session: PiAgentSession, t: Translator = loadNodeTranslator("server")): ArchiveSessionInput {
   const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
+  if (sessionFile === undefined || sessionFile === "") throw new Error(t("session.notPersisted", "Session has not been persisted"));
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
   return {
     sessionId: session.sessionId,
@@ -65,9 +67,9 @@ export function archiveCandidateFromArchivedRecord(record: ArchivedSessionRecord
   };
 }
 
-export function archiveCandidateFromActiveSession(session: PiAgentSession, archived: boolean): WorkspaceArchiveCandidate {
+export function archiveCandidateFromActiveSession(session: PiAgentSession, archived: boolean, t: Translator = loadNodeTranslator("server")): WorkspaceArchiveCandidate {
   const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
+  if (sessionFile === undefined || sessionFile === "") throw new Error(t("session.notPersisted", "Session has not been persisted"));
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
   return {
     id: session.sessionId,
@@ -79,10 +81,10 @@ export function archiveCandidateFromActiveSession(session: PiAgentSession, archi
   };
 }
 
-export function archiveInputFromCandidate(candidate: WorkspaceArchiveCandidate): ArchiveSessionInput {
+export function archiveInputFromCandidate(candidate: WorkspaceArchiveCandidate, t: Translator = loadNodeTranslator("server")): ArchiveSessionInput {
   if (candidate.listEntry !== undefined) return archiveInputFromListEntry(candidate.listEntry);
-  if (candidate.activeSession !== undefined) return archiveInputFromActiveSession(candidate.activeSession);
-  throw new Error(`Session is not available for archiving: ${candidate.id}`);
+  if (candidate.activeSession !== undefined) return archiveInputFromActiveSession(candidate.activeSession, t);
+  throw new Error(t("session.archiveUnavailable", "Session is not available for archiving: {sessionId}", { sessionId: candidate.id }));
 }
 
 export function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, fallback: PiSessionListEntry | undefined): ClientSession | undefined {

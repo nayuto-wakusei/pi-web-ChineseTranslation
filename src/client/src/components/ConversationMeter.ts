@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
@@ -9,7 +10,7 @@ export class ConversationMeter extends LitElement {
   override render() {
     const position = clampPercent(this.positionPercent);
     const loaded = clampPercent(this.loadedPercent);
-    const label = `消息位置：约在会话 ${String(Math.round(position))}% 处。已加载 ${String(Math.round(loaded))}% 的消息。`;
+    const label = t("ui.conversationMeter.messagePositionApproximatelyThroughTheSessionOfMessages", "Message position: approximately {roundposition}% through the session. {roundloaded}% of messages loaded.", { roundposition: String(Math.round(position)), roundloaded: String(Math.round(loaded)) });
     return html`
       <div
         class="meter"

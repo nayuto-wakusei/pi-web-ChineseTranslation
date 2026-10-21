@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { createTranslator, type Translator } from "./i18n.js";
 
 // pi owns the set of thinking levels. We re-export pi's type so the domain has a
 // single source of truth, while the HTTP/wire contract (apiTypes.ts) keeps using
@@ -23,29 +24,29 @@ export function thinkingLevelLabel(level: string | undefined): string {
   return level === undefined || level === "" ? "off" : level;
 }
 
-export function thinkingLevelDisplayLabel(level: string | undefined): string {
+export function thinkingLevelDisplayLabel(level: string | undefined, t: Translator = createTranslator("en", {})): string {
   const normalized = thinkingLevelLabel(level);
   const labels: Partial<Record<ThinkingLevel, string>> = {
-    off: "关闭",
-    minimal: "最低",
-    low: "低",
-    medium: "中",
-    high: "高",
-    xhigh: "极高",
-    max: "最高",
+    off: t("thinking.label.off", "Off"),
+    minimal: t("thinking.label.minimal", "Minimal"),
+    low: t("thinking.label.low", "Low"),
+    medium: t("thinking.label.medium", "Medium"),
+    high: t("thinking.label.high", "High"),
+    xhigh: t("thinking.label.xhigh", "Extra high"),
+    max: t("thinking.label.max", "Maximum"),
   };
   return isKnownThinkingLevel(normalized) ? labels[normalized] ?? normalized : normalized;
 }
 
-export function thinkingLevelDescription(level: string): string | undefined {
+export function thinkingLevelDescription(level: string, t: Translator = createTranslator("en", {})): string | undefined {
   switch (level) {
-    case "off": return "不使用推理";
-    case "minimal": return "极简推理（约 1k tokens）";
-    case "low": return "轻量推理（约 2k tokens）";
-    case "medium": return "中等推理（约 8k tokens）";
-    case "high": return "深度推理（约 16k tokens）";
-    case "xhigh": return "最大推理（约 32k tokens）";
-    case "max": return "最高推理（约 64k tokens）";
+    case "off": return t("thinking.description.off", "No reasoning");
+    case "minimal": return t("thinking.description.minimal", "Minimal reasoning (about 1k tokens)");
+    case "low": return t("thinking.description.low", "Light reasoning (about 2k tokens)");
+    case "medium": return t("thinking.description.medium", "Moderate reasoning (about 8k tokens)");
+    case "high": return t("thinking.description.high", "Deep reasoning (about 16k tokens)");
+    case "xhigh": return t("thinking.description.xhigh", "Extra high reasoning (about 32k tokens)");
+    case "max": return t("thinking.description.max", "Maximum reasoning (about 64k tokens)");
     default: return undefined;
   }
 }

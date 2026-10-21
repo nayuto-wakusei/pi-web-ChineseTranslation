@@ -1,3 +1,4 @@
+import { clientLocale, t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -35,8 +36,20 @@ import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
 
-const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
-const notificationTimestampFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const timestampFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function timestampFormatter(kind: "message" | "notification"): Intl.DateTimeFormat {
+  const locale = clientLocale();
+  const key = `${locale}:${kind}`;
+  let formatter = timestampFormatters.get(key);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat(locale, kind === "message"
+      ? { dateStyle: "medium", timeStyle: "medium" }
+      : { timeStyle: "short" });
+    timestampFormatters.set(key, formatter);
+  }
+  return formatter;
+}
 
 function renderNotificationDisclosureIcon(collapsed: boolean) {
   return html`
@@ -86,8 +99,8 @@ export interface QueuedMessageSection {
 
 export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
   return [
-    clientQueued.length === 0 ? undefined : { source: "client", heading: "等待会话启动后发送", detail: "后端会话就绪后将自动发送", messages: clientQueued },
-    serverQueued.length === 0 ? undefined : { source: "server", heading: "排队中的消息", detail: `${String(serverQueued.length)} 条待处理`, messages: serverQueued },
+    clientQueued.length === 0 ? undefined : { source: "client", heading: t("ui.chatView.waitingForSessionStartup", "Waiting for session startup"), detail: t("ui.chatView.willSendAutomaticallyWhenTheBackendSessionIs", "Will send automatically when the backend session is ready"), messages: clientQueued },
+    serverQueued.length === 0 ? undefined : { source: "server", heading: t("ui.chatView.queuedMessages", "Queued messages"), detail: t("ui.chatView.pending", "{length} pending", { length: String(serverQueued.length) }), messages: serverQueued },
   ].filter((section): section is QueuedMessageSection => section !== undefined);
 }
 
@@ -95,26 +108,26 @@ export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
 /** Derive the `<img>` source URL and alt text for a rendered image part. */
 export function chatImagePartSource(part: ChatImagePart): { src: string; alt: string } {
-  return { src: `data:${part.mimeType};base64,${part.data}`, alt: "附加图片" };
+  return { src: `data:${part.mimeType};base64,${part.data}`, alt: t("ui.chatView.attachedImage", "Attached image") };
 }
 
 /** The message-header label used when a tool message renders as an image output. */
 export function chatToolOutputLabel(toolName?: string): string {
-  return toolName === undefined || toolName === "" ? "工具输出" : `${toolName} 输出`;
+  return toolName === undefined || toolName === "" ? t("ui.chatView.toolOutput", "Tool output") : t("ui.chatView.output", "{toolName} output", { toolName: toolName });
 }
 
-const chatMessageRoleLabels: Record<ChatLine["role"], string> = {
-  user: "用户",
-  assistant: "助手",
-  tool: "工具",
-  system: "系统",
-  bash: "命令",
-  skill: "技能",
+const chatMessageRoleLabels: Record<ChatLine["role"], () => string> = {
+  user: () => t("ui.chatView.user", "User"),
+  assistant: () => t("ui.chatView.assistant", "Assistant"),
+  tool: () => t("ui.chatView.tool", "Tool"),
+  system: () => t("ui.chatView.system", "System"),
+  bash: () => t("ui.chatView.command", "Command"),
+  skill: () => t("ui.chatView.skill", "Skill"),
 };
 
 /** User-facing label for a protocol-level chat role. */
 export function chatMessageRoleLabel(role: ChatLine["role"]): string {
-  return chatMessageRoleLabels[role];
+  return chatMessageRoleLabels[role]();
 }
 
 /** The stable scroll-anchor/render key for a top-level message at `index`. */
@@ -144,7 +157,7 @@ export function chatMessageGroupClassName(defaultOpen: boolean): string {
 
 /** The disclosure summary label for an event group, distinguishing the live tail. */
 export function chatMessageGroupLabel(defaultOpen: boolean): string {
-  return defaultOpen ? "实时事件" : "事件";
+  return defaultOpen ? t("ui.chatView.liveEvent", "Live event") : t("ui.chatView.event", "Event");
 }
 
 /** Whether a queued-message section shows the server clear-queue action. */
@@ -179,15 +192,15 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
   const thinkingLevel = message.meta?.thinkingLevel;
-  const parts = [time, model, thinkingLevel === undefined || thinkingLevel === "" ? undefined : thinkingLevelDisplayLabel(thinkingLevel)]
+  const parts = [time, model, thinkingLevel === undefined || thinkingLevel === "" ? undefined : thinkingLevelDisplayLabel(thinkingLevel, t)]
     .filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? "没有可用的 Pi 消息元数据" : parts.join(" · ");
+  return parts.length === 0 ? t("ui.chatView.noPiMessageMetadataAvailable", "No Pi message metadata available") : parts.join(" · ");
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return undefined;
-  return messageTimestampFormatter.format(date);
+  return timestampFormatter("message").format(date);
 }
 
 function chatMessageModelLabel(message: ChatLine): string | undefined {
@@ -479,7 +492,7 @@ export class ChatView extends LitElement {
     const totalCount = notificationInboxTotalCount(inbox);
     if (totalCount === 0 && !hasPendingOverlay && !retainsFocusTarget) return null;
     const collapsed = notificationTrayIsCollapsed(this.collapsedNotificationTargetKeys, inbox);
-    const toggleLabel = collapsed ? "展开通知" : "折叠通知";
+    const toggleLabel = collapsed ? t("ui.chatView.expandNotifications", "Expand notifications") : t("ui.chatView.collapseNotifications", "Collapse notifications");
     return html`
       <section class=${`notification-tray${collapsed ? " collapsed" : ""}`} role="region" aria-labelledby="session-notifications-heading" @focusout=${(event: FocusEvent) => { this.releaseEmptyNotificationTray(event); }}>
         <header class="notification-header" data-notification-focus="header" tabindex="-1">
@@ -488,11 +501,11 @@ export class ChatView extends LitElement {
             <button
               type="button"
               class="notification-control notification-clear"
-              aria-label="清除所有通知"
-              title="清除所有通知"
+              aria-label=${t("ui.chatView.clearAllNotifications", "Clear all notifications")}
+              title=${t("ui.chatView.clearAllNotifications", "Clear all notifications")}
               ?disabled=${inbox.dismissAllPending || totalCount === 0 || this.onDismissAllNotifications === undefined}
               @click=${() => { this.dismissAllNotifications(); }}
-            >清除</button>
+            >${t("ui.chatView.clear", "Clear")}</button>
             <button
               type="button"
               class="notification-control notification-toggle"
@@ -516,7 +529,7 @@ export class ChatView extends LitElement {
                 <div class="notification-metadata">
                   <strong class="notification-severity">${label}</strong>
                   <span aria-hidden="true">·</span>
-                  <time datetime=${notification.receivedAt}>${notificationTimestampFormatter.format(new Date(notification.receivedAt))}</time>
+                  <time datetime=${notification.receivedAt}>${timestampFormatter("notification").format(new Date(notification.receivedAt))}</time>
                 </div>
                 <p class="notification-message" dir="auto">${notification.message}</p>
                 ${truncationLabel === undefined ? null : html`<p class="notification-truncated">${truncationLabel}</p>`}
@@ -524,7 +537,7 @@ export class ChatView extends LitElement {
                   type="button"
                   class="notification-row-dismiss"
                   aria-label=${notificationDismissLabel(notification)}
-                  title="关闭通知"
+                  title=${t("ui.chatView.dismissNotification", "Dismiss notification")}
                   ?disabled=${inbox.pendingDismissedIds.has(notification.id) || inbox.dismissAllPending || this.onDismissNotification === undefined}
                   @click=${() => { this.dismissNotification(notification.id); }}
                 >${renderNotificationCloseIcon()}</button>
@@ -611,14 +624,14 @@ export class ChatView extends LitElement {
             <button
               type="button"
               class="session-warnings-collapse"
-              title="最小化警告"
-              aria-label="最小化警告"
+              title=${t("ui.chatView.minimizeWarning", "Minimize warning")}
+              aria-label=${t("ui.chatView.minimizeWarning", "Minimize warning")}
               @click=${this.handleToggleWarnings}
             >
               <svg class="session-warnings-collapse-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="m18 15-6-6-6 6"></path>
               </svg>
-              <span>最小化</span>
+              <span>${t("ui.chatView.minimize", "Minimize")}</span>
             </button>
           </div>
         `}
@@ -638,8 +651,8 @@ export class ChatView extends LitElement {
               <button
                 type="button"
                 class="session-warning-dismiss"
-                title="不再显示此警告"
-                aria-label="关闭警告"
+                title=${t("ui.chatView.doNotShowThisWarningAgain", "Do not show this warning again")}
+                aria-label=${t("ui.chatView.dismissWarning", "Dismiss warning")}
                 @click=${() => { this.onDismissWarning?.(dismissId); }}
               >×</button>
             `}
@@ -654,7 +667,7 @@ export class ChatView extends LitElement {
     return html`
       <dialog class="image-zoom" @click=${this.onImageZoomDialogClick} @close=${this.closeImageZoom} @cancel=${this.closeImageZoom}>
         ${this.zoomedImage === undefined ? null : html`
-          <button type="button" class="image-zoom-close" aria-label="关闭图片" @click=${this.closeImageZoom}>×</button>
+          <button type="button" class="image-zoom-close" aria-label=${t("ui.chatView.closeImage", "Close image")} @click=${this.closeImageZoom}>×</button>
           <img class="image-zoom-full" src=${this.zoomedImage.src} alt=${this.zoomedImage.alt} />
         `}
       </dialog>
@@ -686,7 +699,7 @@ export class ChatView extends LitElement {
       return html`
         <div class="activity-dock active" aria-live="polite">
           <span class="dot"></span>
-          <span class="activity-text">正在发送你的消息…</span>
+          <span class="activity-text">${t("ui.chatView.sendingYourMessage", "Sending your message…")}</span>
         </div>
       `;
     }
@@ -716,12 +729,12 @@ export class ChatView extends LitElement {
             <small>${section.detail}</small>
           </div>
           ${canClear ? html`
-            <button type="button" class="queued-clear-button" title="清除排队消息且不停止当前任务" @click=${this.handleClearServerQueue}>清除队列</button>
+            <button type="button" class="queued-clear-button" title=${t("ui.chatView.clearQueuedMessagesWithoutStoppingTheCurrentTask", "Clear queued messages without stopping the current task")} @click=${this.handleClearServerQueue}>${t("ui.chatView.clearQueue", "Clear queue")}</button>
           ` : null}
         </div>
         ${section.messages.map((message, index) => html`
           <div class="queued-message">
-            <span class="queued-kind">${message.kind === "steer" ? "引导" : "后续"} ${String(index + 1)}</span>
+            <span class="queued-kind">${message.kind === "steer" ? t("ui.chatView.steering", "Steering") : t("ui.chatView.followUp", "Follow-up")} ${String(index + 1)}</span>
             <formatted-text .text=${message.text}></formatted-text>
           </div>
         `)}
@@ -766,7 +779,7 @@ export class ChatView extends LitElement {
           .onAnswer=${this.onAnswerDialog}
           .onCancel=${this.onCancelDialog}
         ></extension-dialog-card>
-        ${queuedCount > 0 ? html`<p class="queued-dialogs" role="status">另有 ${String(queuedCount)} 个扩展对话框正在排队</p>` : null}
+        ${queuedCount > 0 ? html`<p class="queued-dialogs" role="status">${t("ui.chatView.queuedDialogCount", "{count} more extension dialogs queued", { count: queuedCount })}</p>` : null}
       `}
     `;
   }
@@ -775,9 +788,9 @@ export class ChatView extends LitElement {
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">
-        <strong>正在压缩历史记录…</strong>
-        <span>代理正在总结较早的上下文。压缩完成前，新提示词将进入队列。</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} 条消息正在排队</small>` : null}
+        <strong>${t("ui.chatView.compactingHistory", "Compacting history…")}</strong>
+        <span>${t("ui.chatView.theAgentIsSummarizingEarlierContextNewPrompts", "The agent is summarizing earlier context. New prompts will queue until compaction finishes.")}</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${t("ui.chatView.queuedMessageCount", "{count} messages queued", { count: this.pendingMessageCount })}</small>` : null}
       </aside>
     `;
   }
@@ -818,15 +831,15 @@ export class ChatView extends LitElement {
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>正在加载较早消息…</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>${t("ui.chatView.loadingEarlierMessages", "Loading earlier messages…")}</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>加载较早消息</button>
-        <span>向上滚动以加载较早消息</span>
+        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>${t("ui.chatView.loadEarlierMessages", "Load earlier messages")}</button>
+        <span>${t("ui.chatView.scrollUpToLoadEarlierMessages", "Scroll up to load earlier messages")}</span>
         ${range}
       </div>
     `;
-    if (this.messages.length) return html`<div class="history-boundary"><span>会话开始</span>${range}</div>`;
+    if (this.messages.length) return html`<div class="history-boundary"><span>${t("ui.chatView.startOfSession", "Start of session")}</span>${range}</div>`;
     return null;
   }
 
@@ -835,7 +848,7 @@ export class ChatView extends LitElement {
     const from = this.messageStart + 1;
     const to = this.loadedRawMessageEnd();
     const total = Math.max(this.messageTotal, to);
-    return html`<small>显示消息 ${from}–${to}，共 ${total} 条</small>`;
+    return html`<small>${t("ui.chatView.messageRange", "Showing messages {from}–{to} of {total}", { from, to, total })}</small>`;
   }
 
   private loadedRawMessageEnd(): number {
@@ -927,8 +940,8 @@ export class ChatView extends LitElement {
     if (!this.isCopyableMessage(message)) return null;
     const copied = this.copiedMessageKey === key;
     return html`
-      <div class="msg-actions" aria-label="消息操作">
-        <button type="button" class="msg-action" title=${copied ? "已复制" : "复制消息"} aria-label=${`${copied ? "已复制" : "复制"}${chatMessageRoleLabel(message.role)}消息`} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
+      <div class="msg-actions" aria-label=${t("ui.chatView.messageActions", "Message actions")}>
+        <button type="button" class="msg-action" title=${copied ? t("ui.chatView.copied", "Copied") : t("ui.chatView.copyMessage", "Copy message")} aria-label=${t("ui.chatView.message", "{copied} {role} message", { copied: copied ? t("ui.chatView.copied", "Copied") : t("ui.chatView.copy", "Copy"), role: chatMessageRoleLabel(message.role) })} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
           <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
         </button>
       </div>
@@ -979,7 +992,7 @@ export class ChatView extends LitElement {
   private renderPart(part: ChatPart, message?: ChatLine) {
     if (part.type === "text" && message?.role === "bash") return html`<pre class="part shell-output">${part.text}</pre>`;
     if (part.type === "text") return html`<formatted-text class="part" .text=${part.text}></formatted-text>`;
-    if (part.type === "thinking") return html`<details class="part"><summary>思考</summary><formatted-text .text=${part.text}></formatted-text></details>`;
+    if (part.type === "thinking") return html`<details class="part"><summary>${t("ui.chatView.thinking", "Thinking")}</summary><formatted-text .text=${part.text}></formatted-text></details>`;
     if (part.type === "skillInvocation") return html`
       <details class="part skill-invocation">
         <summary><b>[skill]</b> ${part.name}</summary>
@@ -1002,7 +1015,7 @@ export class ChatView extends LitElement {
     `;
     if (part.type === "image") {
       const { src, alt } = chatImagePartSource(part);
-      return html`<img class="part chat-image" src=${src} alt=${alt} loading="lazy" role="button" tabindex="0" title="点击放大" @load=${this.onImageLoad} @click=${() => { this.openImageZoom(src, alt); }} @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.openImageZoom(src, alt); } }} />`;
+      return html`<img class="part chat-image" src=${src} alt=${alt} loading="lazy" role="button" tabindex="0" title=${t("ui.chatView.clickToEnlarge", "Click to enlarge")} @load=${this.onImageLoad} @click=${() => { this.openImageZoom(src, alt); }} @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.openImageZoom(src, alt); } }} />`;
     }
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
@@ -1437,44 +1450,44 @@ export function chatActivityText(state: string, activity?: SessionActivity): str
 }
 
 function activityStateLabel(state: string, phase?: SessionActivity["phase"]): string {
-  if (phase === "idle") return "空闲";
+  if (phase === "idle") return t("ui.chatView.idle", "Idle");
   if (phase !== undefined) return activityStateLabel(state);
   const labels: Record<string, string> = {
-    "agent running": "代理正在运行",
-    "bash complete": "命令执行完成",
-    "bash failed": "命令执行失败",
-    "branch summary aborted": "分支汇总已终止",
-    "compacting": "正在压缩上下文",
-    "compaction complete": "上下文压缩完成",
-    "compaction failed": "上下文压缩失败",
-    "duplicate queued message ignored": "已忽略重复的排队消息",
-    "error": "发生错误",
-    "extension error": "扩展错误",
-    "idle": "空闲",
-    "message complete": "消息处理完成",
-    "message queued": "消息已排队",
-    "message queued during compaction": "压缩期间消息已排队",
-    "message started": "消息开始处理",
-    "navigating session tree": "正在切换会话树",
-    "prompt accepted": "消息已接收",
-    "receiving response": "正在接收回复",
-    "reload failed": "重新加载失败",
-    "reloading resources": "正在重新加载资源",
-    "resources reloaded": "资源已重新加载",
-    running: "运行中",
-    "running bash": "正在运行命令",
-    "running tool": "正在运行工具",
-    "session tree navigated": "已切换会话树",
-    "steering queued": "插队消息已排队",
-    "stop failed": "停止失败",
-    "stopped": "已停止",
-    "summarizing branch": "正在汇总分支",
-    "tool complete": "工具执行完成",
-    "tool failed": "工具执行失败",
-    "tree navigation cancelled": "会话树切换已取消",
-    "turn complete": "本轮已完成",
-    "updating session": "正在更新会话",
-    queued: "正在排队",
+    "agent running": t("ui.chatView.agentRunning", "Agent running"),
+    "bash complete": t("ui.chatView.commandCompleted", "Command completed"),
+    "bash failed": t("ui.chatView.commandFailed", "Command failed"),
+    "branch summary aborted": t("ui.chatView.branchSummaryAborted", "Branch summary aborted"),
+    "compacting": t("ui.chatView.compactingContext", "Compacting context"),
+    "compaction complete": t("ui.chatView.contextCompactionCompleted", "Context compaction completed"),
+    "compaction failed": t("ui.chatView.contextCompactionFailed", "Context compaction failed"),
+    "duplicate queued message ignored": t("ui.chatView.duplicateQueuedMessageIgnored", "Duplicate queued message ignored"),
+    "error": t("ui.chatView.anErrorOccurred", "An error occurred"),
+    "extension error": t("ui.chatView.extensionError", "Extension error"),
+    "idle": t("ui.chatView.idle", "Idle"),
+    "message complete": t("ui.chatView.messageCompleted", "Message completed"),
+    "message queued": t("ui.chatView.messageQueued", "Message queued"),
+    "message queued during compaction": t("ui.chatView.messageQueuedDuringCompaction", "Message queued during compaction"),
+    "message started": t("ui.chatView.messageStarted", "Message started"),
+    "navigating session tree": t("ui.chatView.navigatingSessionTree", "Navigating session tree"),
+    "prompt accepted": t("ui.chatView.messageReceived", "Message received"),
+    "receiving response": t("ui.chatView.receivingResponse", "Receiving response"),
+    "reload failed": t("ui.chatView.reloadFailed", "Reload failed"),
+    "reloading resources": t("ui.chatView.reloadingResources", "Reloading resources"),
+    "resources reloaded": t("ui.chatView.resourcesReloaded", "Resources reloaded"),
+    running: t("ui.chatView.running", "Running"),
+    "running bash": t("ui.chatView.runningCommand", "Running command"),
+    "running tool": t("ui.chatView.runningTool", "Running tool"),
+    "session tree navigated": t("ui.chatView.sessionTreeUpdated", "Session tree updated"),
+    "steering queued": t("ui.chatView.steeringMessageQueued", "Steering message queued"),
+    "stop failed": t("ui.chatView.stopFailed", "Stop failed"),
+    "stopped": t("ui.chatView.stopped", "Stopped"),
+    "summarizing branch": t("ui.chatView.summarizingBranch", "Summarizing branch"),
+    "tool complete": t("ui.chatView.toolCompleted", "Tool completed"),
+    "tool failed": t("ui.chatView.toolFailed", "Tool failed"),
+    "tree navigation cancelled": t("ui.chatView.sessionTreeNavigationCancelled", "Session tree navigation cancelled"),
+    "turn complete": t("ui.chatView.turnCompleted", "Turn completed"),
+    "updating session": t("ui.chatView.updatingSession", "Updating session"),
+    queued: t("ui.chatView.queueing", "Queueing"),
   };
   return labels[state] ?? state;
 }

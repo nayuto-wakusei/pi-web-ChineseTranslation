@@ -120,13 +120,13 @@ describe("PiSessionService session-tree behavior", () => {
     const { service, fake } = treeHarness({ getLeafId: () => "new-leaf" }, { navigateTree });
 
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest({ mode: "none" }, "old-leaf"))).rejects.toThrow(
-      "The session changed since /tree was opened. Reopen /tree and try again.",
+      "打开 /tree 后会话已发生变化。请重新打开 /tree 后重试。",
     );
     expect(navigateTree).not.toHaveBeenCalled();
 
     fake.session.isStreaming = true;
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest({ mode: "none" }, "new-leaf"))).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
     fake.session.isStreaming = false;
 
@@ -141,7 +141,7 @@ describe("PiSessionService session-tree behavior", () => {
 
     const unavailable = treeHarness();
     await expect(unavailable.service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Session tree navigation is not supported by this Pi runtime",
+      "当前 Pi 运行时不支持会话树导航",
     );
     await unavailable.service.dispose();
   });
@@ -155,27 +155,27 @@ describe("PiSessionService session-tree behavior", () => {
     await vi.waitFor(() => { expect(navigateTree).toHaveBeenCalledOnce(); });
 
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
     await expect(service.prompt(sessionRef(SESSION_ID), "do not append yet")).rejects.toThrow(
-      "Cannot send a prompt while session tree navigation is active",
+      "会话树导航期间无法执行 发送提示",
     );
     await expect(service.shell(sessionRef(SESSION_ID), "!pwd")).rejects.toThrow(
-      "Cannot run a shell command while session tree navigation is active",
+      "会话树导航期间无法执行 运行 Shell 命令",
     );
     await expect(service.setThinkingLevel(sessionRef(SESSION_ID), "off")).rejects.toThrow(
-      "Cannot change the thinking level while session tree navigation is active",
+      "会话树导航期间无法执行 更改思考级别",
     );
     const model = testModel();
     await expect(service.setModel(sessionRef(SESSION_ID), model.provider, model.id)).rejects.toThrow(
-      "Cannot change models while session tree navigation is active",
+      "会话树导航期间无法执行 切换模型",
     );
     await expect(service.cycleModel(sessionRef(SESSION_ID), "forward")).rejects.toThrow(
-      "Cannot change models while session tree navigation is active",
+      "会话树导航期间无法执行 切换模型",
     );
     await expect(service.runCommand(sessionRef(SESSION_ID), "/name blocked")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令，请先停止或完成导航。",
     });
     await expect(service.archive(sessionRef(SESSION_ID))).rejects.toThrow("归档前请先停止当前会话活动");
     expect(fake.calls.prompt).toEqual([]);
@@ -197,7 +197,7 @@ describe("PiSessionService session-tree behavior", () => {
     await service.prompt(sessionRef(SESSION_ID), "preflight is still running");
     await vi.waitFor(() => { expect(prompt).toHaveBeenCalledOnce(); });
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     promptOperation.resolve(undefined);
@@ -215,7 +215,7 @@ describe("PiSessionService session-tree behavior", () => {
     const changingModel = service.setModel(sessionRef(SESSION_ID), model.provider, model.id);
     await vi.waitFor(() => { expect(setModel).toHaveBeenCalledOnce(); });
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     modelChange.resolve(undefined);
@@ -250,7 +250,7 @@ describe("PiSessionService session-tree behavior", () => {
     const cloning = service.runCommand(sessionRef(SESSION_ID), "/clone");
     await rebound.promise;
     await expect(service.navigateTree(sessionRef(replacementSessionId), navigationRequest({ mode: "none" }, "replacement-leaf"))).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     replacement.resolve({ cancelled: false });
@@ -269,7 +269,7 @@ describe("PiSessionService session-tree behavior", () => {
     const reloading = service.runCommand(sessionRef(SESSION_ID), "/reload");
     await vi.waitFor(() => { expect(reload).toHaveBeenCalledOnce(); });
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     reloadOperation.resolve(undefined);
@@ -288,7 +288,7 @@ describe("PiSessionService session-tree behavior", () => {
     const reloading = service.reload(sessionRef(SESSION_ID));
     await vi.waitFor(() => { expect(dispose).toHaveBeenCalledOnce(); });
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     disposal.resolve(undefined);
@@ -306,7 +306,7 @@ describe("PiSessionService session-tree behavior", () => {
     const archiving = service.archive(sessionRef(SESSION_ID));
     await vi.waitFor(() => { expect(archive).toHaveBeenCalledOnce(); });
     await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest())).rejects.toThrow(
-      "Stop current session activity before navigating the session tree",
+      "浏览会话树前请先停止当前会话活动",
     );
 
     archiveOperation.resolve({ sessionId: SESSION_ID, cwd: "/workspace", archivedAt: "2026-01-01T00:00:00.000Z" });

@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
@@ -44,32 +45,32 @@ export class AppContextBar extends LitElement {
     const workspaceLabel = workspaceContextLabel(this.workspace);
     const sessionLabel = sessionContextLabel(this.session);
     return html`
-      <nav class=${this.contextBarClass()} aria-label="当前位置">
-        <span class="context-bar-label">位置</span>
+      <nav class=${this.contextBarClass()} aria-label=${t("ui.appContextBar.currentLocation", "Current location")}>
+        <span class="context-bar-label">${t("ui.appContextBar.location", "Location")}</span>
         <ol class="context-items" @scroll=${this.onContextScroll}>
           ${showMachineContext ? html`
             <li class="context-item">
-              <button type="button" class=${this.machine === undefined ? "context-chip empty" : "context-chip"} title=${machineContextTitle(this.machine)} aria-label=${`机器：${machineLabel}。打开机器选择。`} @click=${() => { this.onOpenSection?.("machines"); }}>
-                <span class="context-kind">机器</span>
+              <button type="button" class=${this.machine === undefined ? "context-chip empty" : "context-chip"} title=${machineContextTitle(this.machine)} aria-label=${t("ui.appContextBar.machineOpenMachineSelection", "Machine: {machineLabel}. Open machine selection.", { machineLabel: machineLabel })} @click=${() => { this.onOpenSection?.("machines"); }}>
+                <span class="context-kind">${t("ui.appContextBar.machines", "Machines")}</span>
                 <span class="context-value">${machineLabel}</span>
               </button>
             </li>
           ` : null}
           <li class="context-item">
-            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${`项目：${projectLabel}。打开项目选择。`} @click=${() => { this.onOpenSection?.("projects"); }}>
-              <span class="context-kind">项目</span>
+            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${t("ui.appContextBar.projectOpenProjectSelection", "Project: {projectLabel}. Open project selection.", { projectLabel: projectLabel })} @click=${() => { this.onOpenSection?.("projects"); }}>
+              <span class="context-kind">${t("ui.appContextBar.project", "Project")}</span>
               <span class="context-value">${projectLabel}</span>
             </button>
           </li>
           <li class="context-item">
-            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${`工作区：${workspaceLabel}。打开工作区选择。`} @click=${() => { this.onOpenSection?.("workspaces"); }}>
-              <span class="context-kind">工作区</span>
+            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${t("ui.appContextBar.workspaceOpenWorkspaceSelection", "Workspace: {workspaceLabel}. Open workspace selection.", { workspaceLabel: workspaceLabel })} @click=${() => { this.onOpenSection?.("workspaces"); }}>
+              <span class="context-kind">${t("ui.appContextBar.workspace", "Workspace")}</span>
               <span class="context-value">${workspaceLabel}</span>
             </button>
           </li>
           <li class="context-item">
-            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${`会话：${sessionLabel}。打开会话选择。`} @click=${() => { this.onOpenSection?.("sessions"); }}>
-              <span class="context-kind">会话</span>
+            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${t("ui.appContextBar.sessionOpenSessionSelection", "Session: {sessionLabel}. Open session selection.", { sessionLabel: sessionLabel })} @click=${() => { this.onOpenSection?.("sessions"); }}>
+              <span class="context-kind">${t("ui.appContextBar.sessions", "Sessions")}</span>
               <span class="context-value">${sessionLabel}</span>
             </button>
           </li>
@@ -82,7 +83,7 @@ export class AppContextBar extends LitElement {
   private renderActionsButton() {
     if (this.onShowActions === undefined) return null;
     return html`
-      <button type="button" class="context-action-button" title="显示操作" aria-label="显示操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
+      <button type="button" class="context-action-button" title=${t("ui.appContextBar.showActions", "Show actions")} aria-label=${t("ui.appContextBar.showActions", "Show actions")} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
         <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path>
         </svg>
@@ -168,35 +169,35 @@ export function shouldShowMachineContext(machines: readonly Machine[]): boolean 
 }
 
 function machineContextLabel(machine: Machine | undefined): string {
-  return machine === undefined ? "未选择机器" : `${machine.name}${machine.kind === "remote" ? " · 远程" : ""}`;
+  return machine === undefined ? t("ui.appContextBar.noMachineSelected", "No machine selected") : `${machine.name}${machine.kind === "remote" ? t("ui.appContextBar.remote", " · Remote") : ""}`;
 }
 
 function machineContextTitle(machine: Machine | undefined): string {
-  return machine === undefined ? "未选择机器" : machine.baseUrl ?? machine.name;
+  return machine === undefined ? t("ui.appContextBar.noMachineSelected", "No machine selected") : machine.baseUrl ?? machine.name;
 }
 
 function projectContextLabel(project: Project | undefined): string {
-  return project?.name ?? "未选择项目";
+  return project?.name ?? t("ui.appContextBar.noProjectSelected", "No project selected");
 }
 
 function projectContextTitle(project: Project | undefined): string {
-  return project === undefined ? "未选择项目" : `${project.name} — ${project.path}`;
+  return project === undefined ? t("ui.appContextBar.noProjectSelected", "No project selected") : `${project.name} — ${project.path}`;
 }
 
 function workspaceContextLabel(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "未选择工作区" : `${workspace.label}${workspace.isMain ? " · 主工作区" : ""} · ${workspace.path}`;
+  return workspace === undefined ? t("ui.appContextBar.noWorkspaceSelected", "No workspace selected") : `${workspace.label}${workspace.isMain ? t("ui.appContextBar.mainWorkspace", " · Main workspace") : ""} · ${workspace.path}`;
 }
 
 function workspaceContextTitle(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "未选择工作区" : `${workspace.label}${workspace.isMain ? " · 主工作区" : ""} — ${workspace.path}`;
+  return workspace === undefined ? t("ui.appContextBar.noWorkspaceSelected", "No workspace selected") : `${workspace.label}${workspace.isMain ? t("ui.appContextBar.mainWorkspace", " · Main workspace") : ""} — ${workspace.path}`;
 }
 
 function sessionContextLabel(session: SessionInfo | undefined): string {
   const name = session?.name?.trim();
   const firstMessage = session?.firstMessage.trim();
-  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? "未选择会话" : shortSessionId(session.id);
+  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? t("ui.appContextBar.noSessionSelected", "No session selected") : shortSessionId(session.id);
 }
 
 function sessionContextTitle(session: SessionInfo | undefined): string {
-  return session === undefined ? "未选择会话" : session.path;
+  return session === undefined ? t("ui.appContextBar.noSessionSelected", "No session selected") : session.path;
 }

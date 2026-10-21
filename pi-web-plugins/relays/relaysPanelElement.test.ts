@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
 
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { FileContentResponse, FileTreeEntry, WorkspaceFiles, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { RELAYS_ROOT, type RelayDiscoveryFiles } from "./relayDiscovery";
 import { defineRelaysPanelElement, relaysPanelTagName } from "./relaysPanelElement";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 interface RelaysPanelTestElement extends HTMLElement {
   context: WorkspacePanelContext | undefined;
@@ -20,6 +24,15 @@ afterEach(() => {
 });
 
 describe("workspace states", () => {
+  it("treats translated text and attributes as text rather than markup", async () => {
+    setTranslator(() => '<img src=x onerror="bad()">');
+    const panel = await mountPanel();
+
+    expect(shadow(panel).querySelector("img")).toBeNull();
+    expect(shadow(panel).textContent).toContain('<img src=x onerror="bad()">');
+    expect(shadow(panel).querySelector("nav")?.getAttribute("aria-label")).toBe('<img src=x onerror="bad()">');
+  });
+
   it("asks for a workspace when no context is set", async () => {
     const panel = await mountPanel();
 

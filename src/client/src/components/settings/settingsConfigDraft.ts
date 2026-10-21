@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { PiWebConfigValues } from "../../api";
 
 export interface GatewayServerConfigDraft {
@@ -76,7 +77,7 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
   if (host !== "") config.host = host;
   if (port !== "") {
     const parsed = Number(port);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error("端口必须是 1 到 65535 之间的整数。");
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error(t("ui.settingsConfigDraft.portMustBeAnIntegerFrom1To", "Port must be an integer from 1 to 65535."));
     config.port = parsed;
   }
   config.allowedHosts = draft.allowedHostsMode === "all" ? true : parseAllowedHostsText(draft.allowedHostsText);
@@ -114,17 +115,17 @@ function parseAllowedHostsText(value: string): string[] {
 function parseAllowedPathsText(value: string): string[] {
   const paths = value.split("\n").map((path) => path.trim()).filter((path) => path !== "");
   const invalid = paths.find((path) => !isAbsoluteishAllowedPath(path));
-  if (invalid !== undefined) throw new Error(`允许的外部路径必须是绝对路径或以 ~ 开头：${invalid}`);
+  if (invalid !== undefined) throw new Error(t("ui.settingsConfigDraft.allowedExternalPathsMustBeAbsoluteOrStart", "Allowed external paths must be absolute or start with ~: {invalid}", { invalid: invalid }));
   return paths;
 }
 
 function normalizeWorkspaceRelativeFolder(value: string): string {
   const trimmed = value.trim();
   if (trimmed === "") return "";
-  if (isAbsoluteLike(trimmed)) throw new Error("上传默认文件夹必须是工作区相对路径。");
+  if (isAbsoluteLike(trimmed)) throw new Error(t("ui.settingsConfigDraft.defaultUploadFolderMustBeWorkspaceRelative", "Default upload folder must be workspace-relative."));
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) return "";
-  if (parts.some((part) => part === "..")) throw new Error("上传默认文件夹不能包含路径穿越。");
+  if (parts.some((part) => part === "..")) throw new Error(t("ui.settingsConfigDraft.defaultUploadFolderCannotContainPathTraversal", "Default upload folder cannot contain path traversal."));
   return parts.join("/");
 }
 

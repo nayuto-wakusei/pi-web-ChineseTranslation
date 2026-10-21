@@ -43,7 +43,7 @@ describe("buildApp project routes", () => {
 
     const closeResponse = await appTestContext.app.inject({ method: "DELETE", url: "/api/projects/does-not-exist" });
     expect(closeResponse.statusCode).toBe(404);
-    expect(closeResponse.json()).toEqual({ error: "Project not found" });
+    expect(closeResponse.json()).toEqual({ error: "找不到项目" });
   });
 
   it("lists a non-git project as a single workspace", async () => {

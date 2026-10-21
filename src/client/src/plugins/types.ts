@@ -1,4 +1,5 @@
 import type { TemplateResult } from "lit";
+import type { LocalizationContribution, Translator } from "../../../shared/i18n";
 import type { AppAction } from "../actions";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeEntry, FileTreeResponse, GitDiffResponse, GitStatusResponse, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { AppState } from "../appState";
@@ -28,6 +29,7 @@ export interface PluginActivationContext {
   pluginId: PluginId;
   html: HtmlTemplateTag;
   svg: SvgTemplateTag;
+  translate?: Translator;
 }
 
 export interface PluginActivationResult {
@@ -35,6 +37,7 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  localizations?: LocalizationContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];

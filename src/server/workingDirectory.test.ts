@@ -1,5 +1,7 @@
 import { join, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import messages from "../../pi-web-plugins/zh-cn/projects.json";
+import { createTranslator, UserFacingError, userFacingErrorMessage } from "../shared/i18n.js";
 import { canonicalizeStoredCwd, cwdPathsEqual, normalizeRequestCwd } from "./workingDirectory.js";
 
 // resolve() so the base already carries a drive letter on Windows, matching
@@ -7,6 +9,18 @@ import { canonicalizeStoredCwd, cwdPathsEqual, normalizeRequestCwd } from "./wor
 const absoluteBase = resolve(sep, "srv", "projects", "demo");
 
 describe("normalizeRequestCwd", () => {
+  it.each([
+    ["en", undefined, "cwd is required"],
+    ["zh-CN", undefined, "必须提供 cwd"],
+    ["en", "relative", "cwd must be an absolute path"],
+    ["zh-CN", "relative", "cwd 必须是绝对路径"],
+  ])("exposes tagged validation copy for %s without localizing path values", (locale, input, message) => {
+    let error: unknown;
+    try { normalizeRequestCwd(input); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(UserFacingError);
+    expect(userFacingErrorMessage(error, createTranslator(locale, messages))).toBe(message);
+  });
+
   it("returns absolute paths in canonical form", () => {
     expect(normalizeRequestCwd(absoluteBase)).toBe(absoluteBase);
     expect(normalizeRequestCwd(`${absoluteBase}${sep}`)).toBe(absoluteBase);

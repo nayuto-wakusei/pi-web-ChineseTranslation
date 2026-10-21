@@ -6,6 +6,8 @@ import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { effectivePiWebConfig } from "../config.js";
+import { loadNodeTranslator } from "../localization.js";
+import { userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
@@ -51,6 +53,7 @@ import type { Project, Workspace } from "./types.js";
 import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
 export interface AppDependencies {
+  translator?: Translator;
   projects?: ProjectService;
   workspaces?: WorkspaceService;
   machines?: MachineService;
@@ -68,48 +71,50 @@ export interface AppDependencies {
 }
 
 interface LocalProjectRouteOptions {
+  translator: Translator;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
-function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalProjectRouteOptions = {}): void {
+function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalProjectRouteOptions): void {
   const managementEmbed = options.managementEmbed;
+  const t = options.translator;
 
   app.get(`${prefix}/projects`, async (request, reply) => {
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      if (context !== undefined) return await projectsFromManagedEmbedContext(managementProjectRoot(managementEmbed), context);
+      if (context !== undefined) return await projectsFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, t);
       return await projects.list();
     } catch (error) {
-      return reply.code(401).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(401).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.post<{ Body: { name?: string; path: string; create?: boolean } }>(`${prefix}/projects`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: t("gateway.projectManagementDisabled", "Project management is disabled in management embed mode") });
       return await projects.add(request.body);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project management is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: t("gateway.projectManagementDisabled", "Project management is disabled in management embed mode") });
       await projects.close(request.params.projectId);
       return { closed: true };
     } catch (error) {
-      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(404).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.get<{ Querystring: { q?: string } }>(`${prefix}/project-directories`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project directory browsing is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: t("gateway.projectBrowsingDisabled", "Project directory browsing is disabled in management embed mode") });
       return await listDirectorySuggestions(request.query.q ?? "");
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -117,13 +122,13 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
-        const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
+        const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: true }, t);
         return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
       }
       const project = await projects.requireProject(request.params.projectId);
       return await listWorkspacesWithEffectiveConfig(project, workspaces, options.config);
     } catch (error) {
-      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(404).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 }
@@ -142,15 +147,17 @@ async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWeb
 }
 
 interface LocalFileSuggestionRouteOptions {
+  translator: Translator;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
-function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalFileSuggestionRouteOptions = {}): void {
+function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string, options: LocalFileSuggestionRouteOptions): void {
   const managementEmbed = options.managementEmbed;
+  const t = options.translator;
 
   app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/files`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: options.translator("gateway.cwdRequired", "cwd query parameter is required") });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementProjectRoot(managementEmbed), context, request.query.cwd, { create: false });
@@ -159,7 +166,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
       if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);
       return await listFileSuggestions(cwd, query, { kind: request.query.kind, scope: request.query.scope, pathAccess });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 }
@@ -201,6 +208,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const workspaces = deps.workspaces ?? new WorkspaceService();
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
+  const t = deps.translator ?? loadNodeTranslator("server", await readConfig());
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const agentProfileProvider = deps.agentProfileProvider ?? new SessionDaemonActiveAgentProfileProvider(sessionDaemon);
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService({
@@ -212,6 +220,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     async ({ force }) => {
       const activeAgentProfile = await agentProfileProvider.getActiveAgentProfile();
       return getPiWebStatus(sessionDaemon, {
+        translator: t,
         forceReleaseCheck: force,
         ...(activeAgentProfile.status === "available" ? { activeAgentProfile: activeAgentProfile.profile } : {}),
       });
@@ -219,27 +228,35 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     { onError: (error) => { app.log.warn({ err: error }, "failed to refresh PI WEB status cache"); } },
   );
   const machines = deps.machines ?? new MachineService(undefined, {
+    translate: t,
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
   const runtimeConfig = effectivePiWebConfig().config;
   const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
   const managementEmbed = createWorkbenchManagementRuntime(baseManagementEmbed, runtimeConfig.workbenchIntegration, sessionDaemon);
   const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
-    const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, projectId, { create: false });
+    const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, projectId, { create: false }, t);
     return (await workspaces.list(project)).map((workspace) => workspace.path);
   };
-  const normalAuth = new NormalModeAuthService(configService);
+  const normalAuth = new NormalModeAuthService(configService, undefined, undefined, t);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
 
   app.get("/pi-web-plugins/manifest.json", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.manifest()));
 
+  // Login copy must be available even when the session daemon or Pi profile is offline.
+  const languagePlugins = new PiWebPluginService({ configProvider: readConfig, packageProvider: false });
+  app.get("/pi-web-plugins/localization.json", async () => {
+    const manifest = await languagePlugins.manifest();
+    return { plugins: manifest.plugins.filter((plugin) => plugin.id === "zh-cn") };
+  });
+
   app.get<{ Params: { pluginId: string; "*": string } }>("/pi-web-plugins/:pluginId/*", async (request, reply) => {
-    if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply)) return;
+    if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply, t)) return;
 
     return withProfileDependency(reply, async () => {
       const asset = await piWebPlugins.readAsset(request.params.pluginId, request.params["*"]);
-      if (asset === undefined) return reply.code(404).send({ error: "Plugin asset not found" });
+      if (asset === undefined) return reply.code(404).send({ error: t("gateway.pluginAssetNotFound", "Plugin asset not found") });
       return reply.type(asset.contentType).send(asset.content);
     });
   });
@@ -257,30 +274,30 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerPiPackageRoutes(app, piPackages);
   registerPiPackageRoutes(app, piPackages, "/api/machines/local");
   const invalidatingConfigService = invalidatePiWebStatusOnWrite(configService, piWebStatusCache);
-  registerConfigRoutes(app, invalidatingConfigService);
-  registerLocalMachineConfigRoutes(app, invalidatingConfigService);
+  registerConfigRoutes(app, invalidatingConfigService, t);
+  registerLocalMachineConfigRoutes(app, invalidatingConfigService, t);
 
-  registerMachineRoutes(app, machines);
-  registerMachinePluginProxyRoutes(app, machines);
+  registerMachineRoutes(app, machines, t);
+  registerMachinePluginProxyRoutes(app, machines, t);
 
-  registerLocalProjectRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
-  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
+  registerLocalProjectRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed, translator: t });
+  registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed, translator: t });
 
-  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds);
-  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds);
-  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
-  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
+  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, t);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, t);
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed, translate: t });
+  registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed, translate: t });
   registerGitRoutes(app, projects, workspaces, "/api", managementEmbed);
   registerGitRoutes(app, projects, workspaces, "/api/machines/local", managementEmbed);
-  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
-  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
-  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed);
-  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed, t);
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed, t);
+  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api", managementEmbed, t);
+  registerWorkspaceDeletionRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local", managementEmbed, t);
 
-  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed });
-  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed });
+  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api", { config: configService, managementEmbed, translator: t });
+  registerLocalFileSuggestionRoutes(app, projects, workspaces, "/api/machines/local", { config: configService, managementEmbed, translator: t });
 
-  registerMachineProxyRoutes(app, machines);
+  registerMachineProxyRoutes(app, machines, t);
 
   const packagedClientDist = join(dirname(fileURLToPath(import.meta.url)), "..", "client");
   const clientDist = deps.clientDist ?? (existsSync(packagedClientDist) ? packagedClientDist : join(process.cwd(), "dist", "client"));
@@ -292,7 +309,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       if (request.method === "GET" && acceptsHtml && !pathname.startsWith("/api/") && !pathname.startsWith("/assets/") && !pathname.startsWith("/pi-web-plugins/")) {
         return reply.sendFile("index.html");
       }
-      return reply.code(404).send({ error: "Not Found" });
+      return reply.code(404).send({ error: t("gateway.notFound", "Not Found") });
     });
   }
 

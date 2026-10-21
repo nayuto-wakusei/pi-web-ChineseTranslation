@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api, type Machine, type MachineHealth, type MachineRuntime } from "../api";
 import { resetWorkspaceScopedState } from "../appState";
 import type { GetState, SetState, UpdateUrl } from "./types";
@@ -70,7 +71,7 @@ export class MachineController {
   async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine, options: { selectFallback?: boolean } = {}): Promise<Machine | undefined> {
     if (machine === undefined) return undefined;
     if (machine.kind === "local") {
-      this.setState({ error: "无法移除本地机器。" });
+      this.setState({ error: t("client.machineController.cannot.remove.the.local.machine.9e88e1", "Cannot remove the local machine.") });
       return undefined;
     }
     try {
@@ -124,7 +125,7 @@ export class MachineController {
     const health = await this.safeRemoteHealth(requestedMachine);
     this.setState({
       machineStatuses: { ...this.getState().machineStatuses, [health.machineId]: health },
-      ...(health.ok ? {} : { error: `${requestedMachine.name} 暂不可用，正在重新连接…` }),
+      ...(health.ok ? {} : { error: t("client.machineController.is.unavailable.reconnecting.221f0e", "{value1} is unavailable. Reconnecting...", { value1: requestedMachine.name }) }),
     });
     return requestedMachine;
   }

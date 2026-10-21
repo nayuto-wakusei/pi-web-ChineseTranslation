@@ -78,6 +78,35 @@ afterEach(async () => {
 });
 
 describe("buildApp", () => {
+  it("captures the gateway language at startup and uses English when the plugin is disabled", async () => {
+    const chinese = await app.inject({ method: "GET", url: "/api/files" });
+    expect(chinese.json()).toEqual({ error: "必须提供 cwd 查询参数" });
+    await app.close();
+    piWebConfig = { plugins: { "zh-cn": { enabled: false } } };
+    app = await buildApp({ config: fakeConfigService(), sessionDaemon: fakeSessionDaemon(), clientDist: false, logger: false });
+    const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "test-password" } });
+    installDefaultAuthCookie(app, authCookie(setup));
+    const english = await app.inject({ method: "GET", url: "/api/files" });
+    expect(english.json()).toEqual({ error: "cwd query parameter is required" });
+    piWebConfig = { ...piWebConfig, plugins: {} };
+    const unchanged = await app.inject({ method: "GET", url: "/api/files" });
+    expect(unchanged.json()).toEqual({ error: "cwd query parameter is required" });
+  });
+
+  it("does not translate a remote machine error through the Chinese gateway", async () => {
+    const added = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = added.json<{ id: string }>();
+    remoteClient = fakeRemoteClient({
+      request: () => Promise.resolve({
+        statusCode: 404, headers: { "content-type": "application/json" },
+        body: Readable.from([JSON.stringify({ error: "Session not found" })]),
+      }),
+    });
+    const response = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/reload`, payload: { cwd: "/repo" } });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "Session not found" });
+  });
+
   it("uses the SPA fallback only for HTML navigation requests", async () => {
     await app.close();
     const clientDist = join(tempDir, "client");
@@ -91,11 +120,11 @@ describe("buildApp", () => {
 
     const missingAsset = await app.inject({ method: "GET", url: "/assets/missing.js", headers: { accept: "*/*" } });
     expect(missingAsset.statusCode).toBe(404);
-    expect(missingAsset.json()).toEqual({ error: "Not Found" });
+    expect(missingAsset.json()).toEqual({ error: "未找到" });
 
     const missingImage = await app.inject({ method: "GET", url: "/missing.png", headers: { accept: "image/*" } });
     expect(missingImage.statusCode).toBe(404);
-    expect(missingImage.json()).toEqual({ error: "Not Found" });
+    expect(missingImage.json()).toEqual({ error: "未找到" });
   });
 
   it("lists synthesized local machine through the HTTP contract", async () => {
@@ -256,7 +285,7 @@ describe("buildApp", () => {
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json<{ error: string }>().error).toContain("PI WEB selected-machine config key is not allowed: host");
+    expect(response.json<{ error: string }>().error).toContain("PI WEB 所选机器配置 不允许此键：host");
     expect(requestJson).not.toHaveBeenCalled();
   });
 
@@ -413,7 +442,7 @@ describe("buildApp", () => {
     const response = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/prompt`, payload: { text: "hello" } });
 
     expect(response.statusCode).toBe(504);
-    expect(response.json()).toMatchObject({ error: "Remote machine timeout", machineId: remote.id, statusCode: 504 });
+    expect(response.json()).toMatchObject({ error: "远程机器请求超时", machineId: remote.id, statusCode: 504 });
     expect(request).toHaveBeenCalledWith("POST", "/api/sessions/s1/prompt", { text: "hello" });
   });
 
@@ -452,7 +481,7 @@ describe("buildApp", () => {
     const secondSetupResponse = await app.inject({ method: "POST", url: "/api/normal-auth/setup", headers: { cookie }, payload: { password: "other-pass" } });
 
     expect(blockedResponse.statusCode).toBe(401);
-    expect(blockedResponse.json()).toEqual({ error: "Ordinary mode password setup is required" });
+    expect(blockedResponse.json()).toEqual({ error: "需要设置普通模式密码" });
     expect(statusResponse.statusCode).toBe(200);
     expect(statusResponse.json()).toEqual({ configured: false, authenticated: false });
     expect(setupResponse.statusCode).toBe(200);
@@ -711,7 +740,7 @@ describe("buildApp", () => {
     const response = await app.inject({ method: "GET", url: `/pi-web-plugins/${scopedPluginId}/..%2F..%2Fapi%2Fconfig` });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Invalid remote PI WEB plugin asset path" });
+    expect(response.json()).toEqual({ error: "远程 PI WEB 插件资源路径无效" });
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -727,7 +756,7 @@ describe("buildApp", () => {
 
     const closeResponse = await app.inject({ method: "DELETE", url: "/api/projects/does-not-exist" });
     expect(closeResponse.statusCode).toBe(404);
-    expect(closeResponse.json()).toEqual({ error: "Project not found" });
+    expect(closeResponse.json()).toEqual({ error: "找不到项目" });
   });
 
   it("lists a non-git project as a single workspace", async () => {
@@ -870,11 +899,11 @@ describe("buildApp", () => {
 
     const rejectedResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("note.txt")}` });
     expect(rejectedResponse.statusCode).toBe(400);
-    expect(rejectedResponse.json()).toEqual({ error: "Image preview is not supported for this file type" });
+    expect(rejectedResponse.json()).toEqual({ error: "此文件类型不支持图片预览" });
 
     const tooLargeResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("huge.png")}` });
     expect(tooLargeResponse.statusCode).toBe(400);
-    expect(tooLargeResponse.json()).toEqual({ error: "Image is too large to preview (limit 10 MB)" });
+    expect(tooLargeResponse.json()).toEqual({ error: "图片过大，无法预览（上限 10 MB）" });
   });
 
   it("keeps normal file suggestions workspace-local when path access config is invalid", async () => {
@@ -932,7 +961,7 @@ describe("buildApp", () => {
     expect(localSuggestionResponse.statusCode).toBe(200);
     expect(localSuggestionResponse.json()).toEqual([]);
     expect(deniedResponse.statusCode).toBe(400);
-    expect(deniedResponse.json()).toEqual({ error: "Path is outside allowed paths" });
+    expect(deniedResponse.json()).toEqual({ error: "路径不在允许访问的范围内" });
   });
 
   it("writes workspace files through the HTTP contract", async () => {
@@ -948,7 +977,7 @@ describe("buildApp", () => {
 
     const missingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}` });
     expect(missingFileResponse.statusCode).toBe(404);
-    expect(missingFileResponse.json()).toEqual({ error: "Path does not exist" });
+    expect(missingFileResponse.json()).toEqual({ error: "路径不存在" });
 
     const optionalMissingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}&optional=true` });
     expect(optionalMissingFileResponse.statusCode).toBe(204);
@@ -1011,7 +1040,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noOverwriteResponse.statusCode).toBe(400);
-    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("文件已存在");
 
     const traversalResponse = await app.inject({
       method: "PUT",
@@ -1020,7 +1049,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(traversalResponse.statusCode).toBe(400);
-    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+    expect(traversalResponse.json<{ error: string }>().error).toContain("路径穿越");
 
     const noPathResponse = await app.inject({
       method: "PUT",
@@ -1029,7 +1058,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noPathResponse.statusCode).toBe(400);
-    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+    expect(noPathResponse.json<{ error: string }>().error).toContain("必须提供 path 查询参数");
 
     const noDirsResponse = await app.inject({
       method: "PUT",
@@ -1086,14 +1115,14 @@ describe("buildApp", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
     });
     expect(traversalResponse.statusCode).toBe(400);
-    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+    expect(traversalResponse.json<{ error: string }>().error).toContain("路径穿越");
 
     const noPathResponse = await app.inject({
       method: "DELETE",
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
     });
     expect(noPathResponse.statusCode).toBe(400);
-    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+    expect(noPathResponse.json<{ error: string }>().error).toContain("必须提供 path 查询参数");
   });
 
   it("moves workspace files through the HTTP contract", async () => {
@@ -1165,7 +1194,7 @@ describe("buildApp", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("source3.txt")}&toPath=${encodeURIComponent("target3.txt")}`,
     });
     expect(noOverwriteResponse.statusCode).toBe(400);
-    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("文件已存在");
 
     const traversalFromResponse = await app.inject({
       method: "POST",
@@ -1178,7 +1207,7 @@ describe("buildApp", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move`,
     });
     expect(noParamsResponse.statusCode).toBe(400);
-    expect(noParamsResponse.json<{ error: string }>().error).toContain("fromPath query parameter is required");
+    expect(noParamsResponse.json<{ error: string }>().error).toContain("必须提供 fromPath 查询参数");
   });
 });
 

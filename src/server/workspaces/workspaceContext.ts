@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import type { ProjectService } from "../projects/projectService.js";
 import type { Project, Workspace } from "../types.js";
 import type { WorkspaceService } from "./workspaceService.js";
@@ -15,6 +16,6 @@ export async function resolveWorkspaceContext(projects: ProjectService, workspac
 
 export async function resolveProjectWorkspaceContext(workspaces: WorkspaceService, project: Project, workspaceId: string): Promise<WorkspaceContext> {
   const workspace = (await workspaces.list(project)).find((candidate) => candidate.id === workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new WorkspaceUserError("server.files.workspaceMissing", "Workspace not found");
   return { project, workspace, root: workspace.path };
 }

@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { clampPanelWidth, panelResizeConstraints, panelWidthFromDrag, panelWidthFromKeyboard, type PanelResizeConstraints, type ResizablePanelSide } from "../../appShell/panelResizeController";
@@ -25,9 +26,9 @@ export class AppPanelEdgeControl extends LitElement {
   @property({ type: Number }) minWidth?: number;
   @property({ type: Number }) maxWidth?: number;
   @property() controls = "";
-  @property() resizeLabel = "调整面板宽度";
-  @property() expandLabel = "展开面板";
-  @property() collapseLabel = "折叠面板";
+  @property() resizeLabel = t("ui.appPanelEdgeControl.resizePanel", "Resize panel");
+  @property() expandLabel = t("ui.appPanelEdgeControl.expandPanel", "Expand panel");
+  @property() collapseLabel = t("ui.appPanelEdgeControl.collapsePanel", "Collapse panel");
   @property({ attribute: false }) onToggle?: () => void;
   @property({ attribute: false }) onResizeStart?: () => number | undefined;
   @property({ attribute: false }) onResize?: (width: number) => void;
@@ -67,7 +68,7 @@ export class AppPanelEdgeControl extends LitElement {
         role="separator"
         tabindex="0"
         aria-label=${this.resizeLabel}
-        title=${`${this.resizeLabel}。双击或双击轻触可重置。`}
+        title=${t("ui.appPanelEdgeControl.doubleClickOrDoubleTapToReset", "{resizeLabel}. Double-click or double-tap to reset.", { resizeLabel: this.resizeLabel })}
         aria-controls=${this.controls}
         aria-orientation="vertical"
         aria-valuemin=${String(constraints.minWidth)}

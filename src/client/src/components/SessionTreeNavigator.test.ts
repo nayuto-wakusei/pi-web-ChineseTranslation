@@ -1,10 +1,7 @@
-import type { TemplateResult } from "lit";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { render } from "lit";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionTreeNavigateResult, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
-// Genuine Lit callback extraction is limited to pointer row/confirmation wiring;
-// keyboard state and hierarchy are covered through the pure sessionTreeModel.
-// A DOM harness would otherwise add a new test environment only for two clicks.
-import { templateClickHandlerForText, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
 import { SessionTreeNavigator, sessionTreeEntryReturnsToEditor, sessionTreeVisualDepth } from "./SessionTreeNavigator";
 
 type NavigateCallback = (targetId: string, summaryChoice: SessionTreeSummaryChoice) => Promise<SessionTreeNavigateResult>;
@@ -12,13 +9,15 @@ type VoidMethod = (this: SessionTreeNavigator) => void;
 type PromiseMethod = (this: SessionTreeNavigator) => Promise<void>;
 type SummaryModeMethod = (this: SessionTreeNavigator, mode: SessionTreeSummaryChoice["mode"]) => void;
 
+afterEach(() => { document.body.replaceChildren(); });
+
 describe("session-tree-navigator interactions", () => {
   it("uses pointer selection for explicit navigation and retains it after cancellation", async () => {
     const navigator = initializedNavigator();
     const onNavigate = vi.fn<NavigateCallback>().mockResolvedValue({ cancelled: true, aborted: true });
     navigator.onNavigate = onNavigate;
 
-    templateClickHandlerForText(renderNavigator(navigator), "Side branch")(new Event("click"));
+    renderNavigator(navigator).querySelector<HTMLElement>('[data-tree-node-id="side"]')?.click();
     clickTreeNavigate(navigator);
     await callPromiseMethod(navigator, "submitNavigation");
 
@@ -179,12 +178,17 @@ function tree(): SessionTreeSnapshot {
   };
 }
 
-function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
-  return navigator.render();
+function renderNavigator(navigator: SessionTreeNavigator): HTMLElement {
+  const container = document.createElement("div");
+  document.body.append(container);
+  render(navigator.render(), container);
+  return container;
 }
 
 function clickTreeNavigate(navigator: SessionTreeNavigator): void {
-  templateEventHandlerNearMarker(renderNavigator(navigator), ">导航</button>")(new Event("click"));
+  const button = [...renderNavigator(navigator).querySelectorAll("button")].find((item) => item.textContent.trim() === "导航");
+  expect(button).toBeDefined();
+  button?.click();
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {

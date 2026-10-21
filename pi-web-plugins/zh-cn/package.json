@@ -1,0 +1,10 @@
+{
+  "name": "pi-web-zh-cn",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      { "id": "zh-cn", "module": "pi-web-plugin.js" }
+    ]
+  }
+}

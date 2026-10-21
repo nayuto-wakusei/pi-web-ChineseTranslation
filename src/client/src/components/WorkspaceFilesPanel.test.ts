@@ -8,7 +8,7 @@ import type { WorkspaceUploadBatchState } from "../workspaceUploadState";
 // hatch; see ../templateInspection.testSupport for the proportionality
 // rationale. Viewer content messaging is asserted via the public
 // workspaceFileViewerStatusLabel seam instead of scraping Lit markup.
-import { findOptionalTemplateEventHandlerAfterMarker, templateClickHandlerForText, templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
+import { findOptionalTemplateEventHandlerAfterMarker, templateClickHandlerForText, templateEventHandlerAfterMarker, templateEventHandlerAfterValue } from "../templateInspection.testSupport";
 import { selectedWorkspacePathKind, WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceFileViewerStatusLabel, workspaceNewPathDefault, workspaceUploadBatchesForScope, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./WorkspaceFilesPanel";
 
 afterEach(() => {
@@ -118,11 +118,11 @@ describe("workspace-files-panel file actions", () => {
     });
     const rendered = panel.render();
 
-    templateEventHandlerAfterMarker(rendered, 'aria-label="新建文件"')(new Event("click"));
-    templateEventHandlerAfterMarker(rendered, 'aria-label="新建文件夹"')(new Event("click"));
-    templateEventHandlerAfterMarker(rendered, 'aria-label="下载文件"')(new Event("click"));
-    templateEventHandlerAfterMarker(rendered, 'aria-label="移动或重命名"')(new Event("click"));
-    templateEventHandlerAfterMarker(rendered, 'aria-label="删除文件或文件夹"')(new Event("click"));
+    templateEventHandlerAfterValue(rendered, "新建文件", "@click=")(new Event("click"));
+    templateEventHandlerAfterValue(rendered, "新建文件夹", "@click=")(new Event("click"));
+    templateEventHandlerAfterValue(rendered, "下载文件", "@click=")(new Event("click"));
+    templateEventHandlerAfterValue(rendered, "移动或重命名", "@click=")(new Event("click"));
+    templateEventHandlerAfterValue(rendered, "删除文件或文件夹", "@click=")(new Event("click"));
 
     expect(onCreateFile).toHaveBeenCalledWith("src/new.ts");
     expect(onCreateDirectory).toHaveBeenCalledWith("src/new-folder");

@@ -29,6 +29,18 @@ Use **Settings → PI WEB plugins** to enable or disable discovered PI WEB brows
 
 After installing, removing, or updating a Pi package, type `/reload` in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for newly discovered or changed PI WEB browser plugins. A provider-registering Pi extension follows a separate daemon-start policy; see [Pi extension provider baseline](https://pi-web.dev/config#pi-extension-provider-baseline).
 
+## 中文语言插件
+
+内置 `zh-cn` 插件默认启用。禁用后刷新网页即可恢复英文；没有单独的语言选择器。核心界面与内置插件使用英文默认文案，中文词典由语言插件提供，缺失词条回退英文。用户消息、模型回复、第三方原始输出、协议标识和开发日志不参与翻译。
+
+推理级别的显示标签、说明与自动生成的默认项目名也随语言切换，但推理级别标识（如 `high`）、路径和外部提供的项目名不变。已有会话或通知中保存的原文不会被追溯改写；模型侧的工具说明、提示词与工具结果属于运行时内容，保持原样，因此禁用语言插件不保证这些原文没有中文。
+
+浏览器语言始终跟随网关机器，不随当前选中的远端机器切换。修改远端机器的插件开关只影响该机器；服务端返回的提示保留来源机器的语言。
+
+插件激活上下文新增可选的 `translate(key, fallback, parameters?)`，返回普通字符串，参数使用 `{name}` 形式。兼容旧宿主时应使用英文回退。`PluginContributions.localizations` 支持 `{ locale, messages }` 词典；当前启动流程只选择网关的 `zh-cn` 贡献，不接受远端词典覆盖界面语言。
+
+CLI 和服务端只读取随内置语言插件分发的 JSON 数据，不执行插件 JavaScript，也不开放服务端插件钩子。配置与服务重启要求见 [语言插件配置](config.md#中文语言插件)。
+
 ## PI WEB 中的 Pi 扩展对话框
 
 运行在 PI WEB 会话守护进程中的 Pi 扩展可以通过 `ctx.ui.confirm()`、`ctx.ui.select()` 和 `ctx.ui.input()` 向用户提问。PI WEB 会报告 `ctx.hasUI === true`，并且这三种对话框方法确实可用：调用后会在会话记录中以内联方式显示对话框卡片，返回的 Promise 将以用户的实际回答结束，确认框返回布尔值，选择框返回所选项，输入框返回输入文本。

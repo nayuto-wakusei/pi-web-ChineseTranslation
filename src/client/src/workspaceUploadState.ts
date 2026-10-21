@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { WriteWorkspaceFileResponse } from "../../shared/apiTypes";
 import { workspaceUploadPath, type WorkspaceUploadBatchProgress } from "./api/workspaceUploads";
 
@@ -143,7 +144,7 @@ export function failWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, error
   const files = batch.files.map((file): WorkspaceUploadFileState => {
     if (file.status === "completed" || file.status === "error") return file;
     if (file.status === "uploading" || file.index === batch.currentFileIndex) return { ...file, status: "error", error };
-    return { ...file, status: "cancelled", error: "因前面的文件上传失败而未上传。" };
+    return { ...file, status: "cancelled", error: t("client.workspaceUploadState.not.uploaded.because.a.previous.file.upload.failed.989382", "Not uploaded because a previous file upload failed.") };
   });
   return {
     ...batch,
@@ -156,7 +157,7 @@ export function failWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, error
 }
 
 export function cancelWorkspaceUploadBatch(batch: WorkspaceUploadBatchState, completedAt: string): WorkspaceUploadBatchState {
-  const error = "上传已取消";
+  const error = t("client.workspaceUploadState.upload.cancelled.2e6b43", "Upload cancelled");
   const files = batch.files.map((file): WorkspaceUploadFileState => file.status === "completed" || file.status === "error" ? file : { ...file, status: "cancelled", error });
   return {
     ...batch,

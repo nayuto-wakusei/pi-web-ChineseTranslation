@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionUiEvent } from "../../shared/apiTypes.js";
+import { loadNodeTranslator } from "../../localization.js";
 import { SessionCommandService, type CommandActiveSession, type CommandSession } from "./sessionCommandService.js";
 
 interface TestCommandSession extends CommandSession {
@@ -54,6 +55,20 @@ function eventPublisher() {
 }
 
 describe("SessionCommandService", () => {
+  it("uses English when Chinese is disabled without changing user names or forwarded commands", async () => {
+    const active = activeSession();
+    const prompt = vi.fn(promptAccepted);
+    const service = new SessionCommandService(
+      () => getActive(active), prompt, eventPublisher(), {}, {},
+      loadNodeTranslator("server", { plugins: { "zh-cn": { enabled: false } } }),
+    );
+    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
+    await expect(service.run("s1", "/name 中文名称")).resolves.toMatchObject({
+      type: "done", message: "Session named: 中文名称", session: { name: "中文名称" },
+    });
+    await service.run("s1", "/ext 用户内容");
+    expect(prompt).toHaveBeenCalledWith("s1", "/ext 用户内容", undefined);
+  });
   it("rejects unknown commands and forwards runtime commands as prompts", async () => {
     const active = activeSession();
     const prompt = vi.fn(promptAccepted);
@@ -183,20 +198,20 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot open the session tree while the session is active. Stop current activity and try /tree again.",
+      message: "会话活动期间无法打开会话树，请停止当前活动后重试 /tree。",
     });
     expect(getSessionTree).not.toHaveBeenCalled();
 
     externallyActive = false;
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot navigate an empty session tree.",
+      message: "无法浏览空的会话树。",
     });
 
     const unavailable = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
     await expect(unavailable.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "Session tree navigation is not available with this Pi runtime.",
+      message: "当前 Pi 运行时不支持会话树导航。",
     });
   });
 
@@ -212,11 +227,11 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/name changed")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令，请先停止或完成导航。",
     });
     await expect(service.respond("s1", pendingFork.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令，请先停止或完成导航。",
     });
     expect(active.runtime.session.setSessionName).not.toHaveBeenCalled();
     expect(active.runtime.fork).not.toHaveBeenCalled();
@@ -312,7 +327,7 @@ describe("SessionCommandService", () => {
 
     await expect(clone).resolves.toEqual({
       type: "unsupported",
-      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      message: "会话树导航期间无法运行命令，请先停止或完成导航。",
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });

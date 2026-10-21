@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api as defaultApi, type ApiScope, type AuthProviderOption, type AuthRequestTarget, type AuthType, type OAuthFlowState, type SessionStatus } from "../api";
 import type { AuthDialogState, AuthDialogTarget } from "../appState";
 import { selectedMachineId, type GetState, type SetState } from "./types";
@@ -85,7 +86,7 @@ export class AuthController {
     if (dialog?.step !== "apiKey") return;
     const key = dialog.value.trim();
     if (key === "") {
-      this.setState({ authDialog: { ...dialog, error: "必须填写 API key" } });
+      this.setState({ authDialog: { ...dialog, error: t("client.authController.api.key.is.required.4d3120", "API key is required") } });
       return;
     }
     const clean = { ...dialog };
@@ -109,7 +110,7 @@ export class AuthController {
       if (providerId !== undefined && providerId !== "") {
         const provider = providers.find((candidate) => candidate.id === providerId);
         if (provider !== undefined && !this.rejectRemoteOAuth("logout", provider, target)) await this.logoutProviderForTarget(provider.id, target);
-        else if (provider === undefined) this.setState({ error: `没有 ${providerId} 的已保存凭据` });
+        else if (provider === undefined) this.setState({ error: t("client.authController.no.saved.credentials.for.cc5494", "No saved credentials for {value1}", { value1: providerId }) });
         return;
       }
       this.setState({ authDialog: { step: "logout", providers, target } });
@@ -193,7 +194,7 @@ export class AuthController {
       const { providers } = await this.api.authProviders({ mode: "login", ...authRequestTarget(target) });
       const exact = providers.filter((provider) => provider.id === providerId);
       if (exact.length === 0) {
-        this.setState({ error: `找不到认证提供商：${providerId}` });
+        this.setState({ error: t("client.authController.authentication.provider.not.found.a59b6e", "Authentication provider not found: {value1}", { value1: providerId }) });
         return;
       }
       if (exact.length > 1) {
@@ -237,9 +238,9 @@ export class AuthController {
   private rejectRemoteOAuth(action: "login" | "logout", provider: AuthProviderOption, target: AuthDialogTarget): boolean {
     const machine = this.getState().selectedMachine;
     if (provider.authType !== "oauth" || target.machineKind !== "remote") return false;
-    const where = machine?.baseUrl ?? "对应的远程 PI WEB 实例";
-    const actionLabel = action === "login" ? "登录" : "退出";
-    this.setState({ error: `远程机器的 OAuth ${actionLabel}必须直接在 ${where} 上配置。` });
+    const where = machine?.baseUrl ?? t("client.authController.the.corresponding.remote.pi.web.instance.9ee53e", "the corresponding remote PI WEB instance");
+    const actionLabel = action === "login" ? t("client.authController.login.1e2df9", "login") : t("client.authController.logout.498e1d", "logout");
+    this.setState({ error: t("client.authController.remote.oauth.must.be.configured.directly.on.4a97a8", "Remote OAuth {value1} must be configured directly on {value2}.", { value1: actionLabel, value2: where }) });
     return true;
   }
 
@@ -331,7 +332,7 @@ export class AuthController {
     if (this.scope === "management") return target;
     const project = state.selectedProject;
     if (project === undefined) {
-      this.setState({ error: "请先选择项目，再配置提供商认证。" });
+      this.setState({ error: t("client.authController.select.a.project.before.configuring.provider.authentication.a2a76e", "Select a project before configuring provider authentication.") });
       return undefined;
     }
     return { ...target, projectId: project.id, projectName: project.name };

@@ -4,6 +4,8 @@ import { encodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, type Manageme
 import { AuthService } from "./authService.js";
 import { registerAuthRoutes } from "./authRoutes.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
+import { createTranslator } from "../../shared/i18n.js";
+import translations from "../../../pi-web-plugins/zh-cn/provider-auth.json";
 
 beforeEach(() => {
   vi.stubEnv("PI_OFFLINE", "1");
@@ -14,6 +16,28 @@ afterEach(() => {
 });
 
 describe("auth routes", () => {
+  it("localizes owned validation without rewriting provider errors or changing status codes", async () => {
+    const runtime = await createTestModelRuntime();
+    const translator = createTranslator("zh-CN", translations);
+    const auth = new AuthService({ modelRuntime: runtime.modelRuntime, translator });
+    const app = Fastify({ logger: false });
+    registerAuthRoutes(app, { normal: { forProject: () => Promise.resolve(auth) }, management: auth }, "", translator);
+    try {
+      const missingProject = await app.inject({ method: "GET", url: "/auth/providers" });
+      expect(missingProject.statusCode).toBe(400);
+      expect(missingProject.json()).toEqual({ error: "必须提供 projectId 查询参数" });
+      const blankKey = await app.inject({ method: "POST", url: "/auth/api-key?projectId=normal", payload: { providerId: "anthropic", key: " " } });
+      expect(blankKey.statusCode).toBe(400);
+      expect(blankKey.json()).toEqual({ error: "必须填写 API key" });
+      vi.spyOn(auth, "saveApiKey").mockRejectedValue(new Error("upstream: keep original"));
+      const upstream = await app.inject({ method: "POST", url: "/auth/api-key?projectId=normal", payload: { providerId: "anthropic", key: "example" } });
+      expect(upstream.json()).toEqual({ error: "upstream: keep original" });
+    } finally {
+      auth.dispose();
+      await app.close();
+    }
+  });
+
   it("routes normal and management auth requests to separate credential stores", async () => {
     const normalRuntime = await createTestModelRuntime();
     const managementRuntime = await createTestModelRuntime();

@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { css, html, LitElement, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 
@@ -27,32 +28,32 @@ export class NormalAuthDialog extends LitElement {
           <section role="dialog" aria-modal="true" aria-label=${normalAuthDialogTitle(this.mode)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <div>
-              <span class="eyebrow">普通模式</span>
+              <span class="eyebrow">${t("ui.normalAuthDialog.normalMode", "Normal mode")}</span>
               <h1>${normalAuthDialogTitle(this.mode)}</h1>
             </div>
-            ${this.mode === "change" ? html`<button class="close-button" title="关闭" aria-label="关闭" @click=${() => this.onCancel?.()}>×</button>` : null}
+            ${this.mode === "change" ? html`<button class="close-button" title=${t("ui.normalAuthDialog.close", "Close")} aria-label=${t("ui.normalAuthDialog.close", "Close")} @click=${() => this.onCancel?.()}>×</button>` : null}
           </header>
           <form @submit=${(event: Event) => { void this.submit(event); }}>
             ${this.mode === "change" ? html`
               <label>
-                <span>当前密码</span>
+                <span>${t("ui.normalAuthDialog.currentPassword", "Current password")}</span>
                 <input type="password" .value=${this.currentPassword} autocomplete="current-password" @input=${(event: Event) => { this.currentPassword = inputValue(event); this.localError = ""; }}>
               </label>
             ` : null}
             <label>
-              <span>${this.mode === "login" ? "密码" : "新密码"}</span>
+              <span>${this.mode === "login" ? t("ui.normalAuthDialog.password", "Password") : t("ui.normalAuthDialog.newPassword", "New password")}</span>
               <input type="password" .value=${this.password} autocomplete=${this.mode === "login" ? "current-password" : "new-password"} @input=${(event: Event) => { this.password = inputValue(event); this.localError = ""; }}>
             </label>
             ${this.mode !== "login" ? html`
               <label>
-                <span>确认密码</span>
+                <span>${t("ui.normalAuthDialog.confirmPassword", "Confirm password")}</span>
                 <input type="password" .value=${this.confirmPassword} autocomplete="new-password" @input=${(event: Event) => { this.confirmPassword = inputValue(event); this.localError = ""; }}>
               </label>
             ` : null}
             ${this.message() === "" ? null : html`<p class="message">${this.message()}</p>`}
             <footer>
-              ${this.mode === "change" ? html`<button type="button" class="secondary" ?disabled=${this.loading} @click=${() => this.onCancel?.()}>取消</button>` : null}
-              <button class="primary" ?disabled=${this.loading}>${this.loading ? "正在处理..." : this.submitLabel()}</button>
+              ${this.mode === "change" ? html`<button type="button" class="secondary" ?disabled=${this.loading} @click=${() => this.onCancel?.()}>${t("ui.normalAuthDialog.cancel", "Cancel")}</button>` : null}
+              <button class="primary" ?disabled=${this.loading}>${this.loading ? t("ui.normalAuthDialog.processing", "Processing...") : this.submitLabel()}</button>
             </footer>
           </form>
         </section>
@@ -61,9 +62,9 @@ export class NormalAuthDialog extends LitElement {
   }
 
   private submitLabel(): string {
-    if (this.mode === "setup") return "设置并进入";
-    if (this.mode === "change") return "保存密码";
-    return "进入";
+    if (this.mode === "setup") return t("ui.normalAuthDialog.setPasswordAndEnter", "Set password and enter");
+    if (this.mode === "change") return t("ui.normalAuthDialog.savePassword", "Save password");
+    return t("ui.normalAuthDialog.enter", "Enter");
   }
 
   private message(): string {
@@ -111,15 +112,15 @@ export class NormalAuthDialog extends LitElement {
 }
 
 export function normalAuthDialogTitle(mode: NormalAuthDialogMode): string {
-  if (mode === "setup") return "设置进入密码";
-  if (mode === "change") return "修改进入密码";
-  return "输入密码";
+  if (mode === "setup") return t("ui.normalAuthDialog.setAccessPassword", "Set access password");
+  if (mode === "change") return t("ui.normalAuthDialog.changeAccessPassword", "Change access password");
+  return t("ui.normalAuthDialog.enterPassword", "Enter password");
 }
 
 export function normalAuthPasswordFormError(mode: NormalAuthDialogMode, form: NormalAuthPasswordForm): string | undefined {
-  if (mode === "change" && (form.currentPassword ?? "") === "") return "请输入当前密码。";
-  if (form.password === "") return "请输入密码。";
-  if (mode !== "login" && form.password !== (form.confirmPassword ?? "")) return "两次输入的密码不一致。";
+  if (mode === "change" && (form.currentPassword ?? "") === "") return t("ui.normalAuthDialog.enterYourCurrentPassword", "Enter your current password.");
+  if (form.password === "") return t("ui.normalAuthDialog.enterAPassword", "Enter a password.");
+  if (mode !== "login" && form.password !== (form.confirmPassword ?? "")) return t("ui.normalAuthDialog.passwordsDoNotMatch", "Passwords do not match.");
   return undefined;
 }
 

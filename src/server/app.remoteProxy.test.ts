@@ -262,7 +262,7 @@ describe("buildApp remote machine proxy routes", () => {
     const response = await appTestContext.app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/prompt`, payload: { text: "hello" } });
 
     expect(response.statusCode).toBe(504);
-    expect(response.json()).toMatchObject({ error: "Remote machine timeout", machineId: remote.id, statusCode: 504 });
+    expect(response.json()).toMatchObject({ error: "远程机器请求超时", machineId: remote.id, statusCode: 504 });
     expect(request).toHaveBeenCalledWith("POST", "/api/sessions/s1/prompt", { text: "hello" });
   });
 });

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "../../../shared/apiTypes";
 import { parseWriteWorkspaceFileResponse } from "./parsers";
 import { workspaceFileWriteUrl } from "./urls";
@@ -78,7 +79,7 @@ export interface UploadWorkspaceFilesOptions extends WriteWorkspaceFileOptions {
 }
 
 export class WorkspaceUploadCancelledError extends Error {
-  constructor(message = "工作区上传已取消") {
+  constructor(message = t("client.workspaceUploads.workspace.upload.cancelled.ac6723", "Workspace upload cancelled")) {
     super(message);
     this.name = "WorkspaceUploadCancelledError";
   }
@@ -111,8 +112,8 @@ export function workspaceEffectiveUploadFolder(config: WorkspaceUploadFolderConf
 }
 
 export function workspaceUploadPath(destinationFolder: string, fileName: string): string {
-  const folder = normalizeWorkspaceUploadPath(destinationFolder, "上传目标", { allowEmpty: true });
-  const name = normalizeWorkspaceUploadPath(fileName, "上传文件名", { allowEmpty: false });
+  const folder = normalizeWorkspaceUploadPath(destinationFolder, t("client.workspaceUploads.upload.destination.874cbb", "Upload destination"), { allowEmpty: true });
+  const name = normalizeWorkspaceUploadPath(fileName, t("client.workspaceUploads.upload.filename.9252dd", "Upload filename"), { allowEmpty: false });
   return folder === "" ? name : `${folder}/${name}`;
 }
 
@@ -156,8 +157,8 @@ export function uploadWorkspaceFile(
       }
       fail(new Error(readXhrErrorMessage(xhr)));
     };
-    xhr.onerror = () => { fail(new Error("工作区上传失败")); };
-    xhr.onabort = () => { fail(new WorkspaceUploadCancelledError(cancelled ? undefined : "工作区上传已中止")); };
+    xhr.onerror = () => { fail(new Error(t("client.workspaceUploads.workspace.upload.failed.a87e6b", "Workspace upload failed"))); };
+    xhr.onabort = () => { fail(new WorkspaceUploadCancelledError(cancelled ? undefined : t("client.workspaceUploads.workspace.upload.aborted.58a455", "Workspace upload aborted"))); };
     xhr.send(input.file);
   });
 
@@ -296,8 +297,8 @@ function percentFor(loaded: number, total: number): number {
 }
 
 function uploadBatchErrorMessage(failures: readonly WorkspaceUploadFileFailure[]): string {
-  if (failures.length === 1) return failures[0]?.error ?? "工作区上传失败";
-  return `${String(failures.length)} 个文件上传失败`;
+  if (failures.length === 1) return failures[0]?.error ?? t("client.workspaceUploads.workspace.upload.failed.a87e6b", "Workspace upload failed");
+  return t("client.workspaceUploads.file.uploads.failed.fa7a1e", "{value1} file uploads failed", { value1: String(failures.length) });
 }
 
 function errorMessage(error: unknown): string {
@@ -312,15 +313,15 @@ function normalizeWorkspaceUploadPath(value: string, label: string, options: { a
   const trimmed = value.trim();
   if (trimmed === "") {
     if (options.allowEmpty) return "";
-    throw new Error(`${label}不能为空`);
+    throw new Error(t("client.workspaceUploads.must.not.be.empty.b22cd8", "{value1} must not be empty", { value1: label }));
   }
-  if (isAbsoluteLike(trimmed)) throw new Error(`${label}必须是工作区相对路径`);
+  if (isAbsoluteLike(trimmed)) throw new Error(t("client.workspaceUploads.must.be.a.workspace.relative.path.79fcd6", "{value1} must be a workspace-relative path", { value1: label }));
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) {
     if (options.allowEmpty) return "";
-    throw new Error(`${label}不能为空`);
+    throw new Error(t("client.workspaceUploads.must.not.be.empty.b22cd8", "{value1} must not be empty", { value1: label }));
   }
-  if (parts.some((part) => part === "..")) throw new Error(`${label}不能包含路径穿越`);
+  if (parts.some((part) => part === "..")) throw new Error(t("client.workspaceUploads.must.not.contain.path.traversal.dac533", "{value1} must not contain path traversal", { value1: label }));
   return parts.join("/");
 }
 

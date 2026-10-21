@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import {
   api as defaultApi,
   uploadWorkspaceFiles as defaultUploadWorkspaceFiles,
@@ -227,7 +228,7 @@ export class FileExplorerController {
     const project = this.getState().selectedProject;
     const workspace = this.getState().selectedWorkspace;
     if (project === undefined || workspace === undefined) {
-      this.setState({ error: "上传文件前请选择工作区。" });
+      this.setState({ error: t("client.fileExplorerController.select.a.workspace.before.uploading.files.9fd15e", "Select a workspace before uploading files.") });
       return undefined;
     }
     if (files.length === 0) return undefined;

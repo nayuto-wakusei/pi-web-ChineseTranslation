@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { Project, SessionInfo, Workspace } from "./api";
 import { normalizeSessionPath } from "./sessionPaths";
 
@@ -55,15 +56,15 @@ export function resolveParentSessionLocation(session: SessionInfo, sources: Pare
 
 /** Short user-facing text for the row indicator, e.g. `parent in feature/foo`. */
 export function parentSessionLocationLabel(location: ParentSessionLocation): string {
-  return location.kind === "unknown" ? "父会话不可用" : `父会话位于 ${location.label}`;
+  return location.kind === "unknown" ? t("client.parentSessionLocation.parent.session.unavailable.8f9b5d", "Parent session unavailable") : t("client.parentSessionLocation.parent.session.in.f2452e", "Parent session in {value1}", { value1: location.label });
 }
 
 /** Full detail for the row tooltip, where the whole path is useful. */
 export function parentSessionLocationTitle(location: ParentSessionLocation): string {
   switch (location.kind) {
-    case "workspace": return `父会话位于 ${location.label}（${location.cwd}）`;
-    case "path": return `父会话位于 ${location.cwd}`;
-    case "unknown": return "当前工作区中没有可用的父会话";
+    case "workspace": return t("client.parentSessionLocation.parent.session.in.6e8f20", "Parent session in {value1} ({value2})", { value1: location.label, value2: location.cwd });
+    case "path": return t("client.parentSessionLocation.parent.session.in.f2452e", "Parent session in {value1}", { value1: location.cwd });
+    case "unknown": return t("client.parentSessionLocation.no.parent.session.available.in.this.workspace.cbd17a", "No parent session available in this workspace");
   }
 }
 

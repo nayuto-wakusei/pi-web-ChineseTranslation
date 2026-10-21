@@ -1,4 +1,5 @@
 import { html, svg } from "lit";
+import { t } from "../i18n";
 import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -36,7 +37,7 @@ export class PluginRegistry {
 
     const apiVersion: unknown = plugin.apiVersion;
     if (apiVersion !== 1) throw new Error(`Unsupported plugin API version for ${id}: ${String(apiVersion)}`);
-    const result = plugin.activate({ apiVersion: 1, pluginId: id, html, svg });
+    const result = plugin.activate({ apiVersion: 1, pluginId: id, html, svg, translate: t });
     const contributions = result.contributions;
     for (const action of contributions.actions ?? []) this.actions.push(this.qualifyAction(id, action, registration.machineId, registration.sourcePluginId));
     for (const panel of contributions.workspacePanels ?? []) this.workspacePanels.push(this.qualifyWorkspacePanel(id, panel, registration.machineId, registration.sourcePluginId));

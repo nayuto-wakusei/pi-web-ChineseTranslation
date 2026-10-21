@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { api, type FileSuggestion } from "../api";
@@ -92,31 +93,31 @@ export class ProjectDialog extends LitElement {
       <div class="backdrop" @click=${() => this.onCancel?.()}>
         <section @click=${(event: Event) => { event.stopPropagation(); }}>
           <header>
-            <strong>添加项目</strong>
-            <button @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
+            <strong>${t("ui.projectDialog.addProject", "Add project")}</strong>
+            <button @click=${() => { this.onCancel?.(); }} aria-label=${t("ui.projectDialog.close", "Close")}>×</button>
           </header>
           <div class="body">
             <label>
-              项目文件夹
-              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }} placeholder="/path/to/project 或 ~/code/project" autofocus />
+              ${t("ui.projectDialog.projectFolder", "Project folder")}
+              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }} placeholder=${t("ui.projectDialog.pathToProjectOrCodeProject", "/path/to/project or ~/code/project")} autofocus />
             </label>
             <div class="suggestions">
-              ${this.loading ? html`<div class="hint">正在加载文件夹…</div>` : null}
+              ${this.loading ? html`<div class="hint">${t("ui.projectDialog.loadingFolders", "Loading folders…")}</div>` : null}
               ${this.suggestions.map((suggestion, index) => html`
                 <button class=${index === this.selected ? "selected" : ""} @click=${() => { this.pick(suggestion); }}>
                   ${suggestion.path}
                 </button>
               `)}
-              ${!this.loading && this.suggestions.length === 0 ? html`<div class="hint">没有匹配的文件夹。输入新路径即可创建。</div>` : null}
+              ${!this.loading && this.suggestions.length === 0 ? html`<div class="hint">${t("ui.projectDialog.noMatchingFoldersEnterANewPathTo", "No matching folders. Enter a new path to create one.")}</div>` : null}
             </div>
             <label class="check">
               <input type="checkbox" .checked=${this.createMissing} @change=${(event: InputEvent) => { this.onCreateMissingChange(event); }} />
-              如果文件夹不存在则创建
+              ${t("ui.projectDialog.createFolderIfItDoesNotExist", "Create folder if it does not exist")}
             </label>
           </div>
           <footer>
-            <button @click=${() => { this.onCancel?.(); }}>取消</button>
-            <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>添加项目</button>
+            <button @click=${() => { this.onCancel?.(); }}>${t("ui.projectDialog.cancel", "Cancel")}</button>
+            <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>${t("ui.projectDialog.addProject", "Add project")}</button>
           </footer>
         </section>
       </div>

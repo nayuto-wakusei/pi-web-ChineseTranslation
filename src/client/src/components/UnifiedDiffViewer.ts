@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { parseUnifiedDiff, type UnifiedDiffLine, type UnifiedDiffTextSpan } from "../diff/unifiedDiff";
@@ -8,10 +9,10 @@ export class UnifiedDiffViewer extends LitElement {
 
   override render(): TemplateResult {
     const lines = parseUnifiedDiff(this.diff);
-    if (lines.length === 0) return html`<p class="empty">没有差异。</p>`;
+    if (lines.length === 0) return html`<p class="empty">${t("ui.unifiedDiffViewer.noDiff", "No diff.")}</p>`;
     return html`
       <div class="scroller">
-        <div class="diff-grid" role="table" aria-label="统一差异">
+        <div class="diff-grid" role="table" aria-label=${t("ui.unifiedDiffViewer.unifiedDiff", "Unified diff")}>
           ${lines.map((line) => this.renderLine(line))}
         </div>
       </div>

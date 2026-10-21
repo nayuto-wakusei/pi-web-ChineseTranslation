@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../shared/i18n.js";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -60,12 +61,12 @@ export class TerminalService {
   }
 
   closeForCwd(cwd: string): void {
-    if (cwd === "") throw new Error("cwd is required");
+    if (cwd === "") throw new UserFacingError("routing.terminalCwdRequired", "cwd is required");
     for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd)) this.close(terminal.id);
   }
 
   create(options: { cwd: string; name?: string; cols?: number; rows?: number; managementContext?: ManagementEmbedContext }): TerminalInfo {
-    if (options.managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
+    if (options.managementContext !== undefined) throw new UserFacingError("routing.terminalDisabled", "Interactive terminal is disabled in management embed mode");
     const shell = interactiveShell();
     return this.createTerminal({ ...options, shell, shellArgs: interactiveShellArgs(shell) });
   }
@@ -73,7 +74,7 @@ export class TerminalService {
   runCommand(options: RunTerminalCommandOptions): TerminalCommandRun {
     validateCommandRunOptions(options);
     if (options.managementContext !== undefined && !managementToolAllowed(options.managementContext, "terminal-command-runs")) {
-      throw new Error("Terminal command runs are disabled in management embed mode");
+      throw new UserFacingError("routing.commandRunsDisabled", "Terminal command runs are disabled in management embed mode");
     }
     const commandRunId = randomUUID();
     const terminalId = randomUUID();
@@ -134,12 +135,12 @@ export class TerminalService {
   }
 
   cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun {
-    if (this.commandRunScopes.get(runId) !== eventScopeFromManagementContext(managementContext)) throw new Error("Terminal command run not found");
+    if (this.commandRunScopes.get(runId) !== eventScopeFromManagementContext(managementContext)) throw new UserFacingError("routing.commandRunMissing", "Terminal command run not found");
     const run = this.commandRuns.get(runId);
-    if (run === undefined) throw new Error("Terminal command run not found");
+    if (run === undefined) throw new UserFacingError("routing.commandRunMissing", "Terminal command run not found");
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
-    if (terminal === undefined) throw new Error("Terminal not found");
+    if (terminal === undefined) throw new UserFacingError("routing.terminalMissing", "Terminal not found");
     if (!terminal.exited) terminal.pty.write("\x03");
     return copyCommandRun(run);
   }
@@ -176,7 +177,7 @@ export class TerminalService {
   }
 
   continue(id: string, managementContext?: ManagementEmbedContext): TerminalInfo {
-    if (managementContext !== undefined) throw new Error("Interactive terminal is disabled in management embed mode");
+    if (managementContext !== undefined) throw new UserFacingError("routing.terminalDisabled", "Interactive terminal is disabled in management embed mode");
     const record = this.require(id);
     if (!record.exited) return toInfo(record);
     delete record.exitCode;
@@ -215,7 +216,7 @@ export class TerminalService {
   }
 
   private createTerminal(options: { id?: string; cwd: string; name?: string; cols?: number; rows?: number; shellArgs: string[]; commandRunId?: string; eventScope?: SessionEventScope; env?: NodeJS.ProcessEnv; shell?: string }): TerminalInfo {
-    if (options.cwd === "") throw new Error("cwd is required");
+    if (options.cwd === "") throw new UserFacingError("routing.terminalCwdRequired", "cwd is required");
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
     const shell = options.shell ?? interactiveShell();
@@ -278,7 +279,7 @@ export class TerminalService {
 
   private require(id: string): TerminalRecord {
     const terminal = this.terminals.get(id);
-    if (terminal === undefined) throw new Error("Terminal not found");
+    if (terminal === undefined) throw new UserFacingError("routing.terminalMissing", "Terminal not found");
     return terminal;
   }
 
@@ -319,21 +320,21 @@ function shellQuote(value: string): string {
 }
 
 function validateCommandRunOptions(options: RunTerminalCommandOptions): void {
-  if (options.origin.trim() === "") throw new Error("origin is required");
-  if (options.projectId.trim() === "") throw new Error("projectId is required");
-  if (options.workspaceId.trim() === "") throw new Error("workspaceId is required");
-  if (options.cwd.trim() === "") throw new Error("cwd is required");
-  if (options.title.trim() === "") throw new Error("title is required");
-  if (options.command.trim() === "") throw new Error("command is required");
+  if (options.origin.trim() === "") throw new UserFacingError("routing.originRequired", "origin is required");
+  if (options.projectId.trim() === "") throw new UserFacingError("routing.projectIdRequired", "projectId is required");
+  if (options.workspaceId.trim() === "") throw new UserFacingError("routing.workspaceIdRequired", "workspaceId is required");
+  if (options.cwd.trim() === "") throw new UserFacingError("routing.terminalCwdRequired", "cwd is required");
+  if (options.title.trim() === "") throw new UserFacingError("routing.titleRequired", "title is required");
+  if (options.command.trim() === "") throw new UserFacingError("routing.commandRequired", "command is required");
   parseMetadata(options.metadata);
 }
 
 function parseMetadata(value: unknown): Record<string, string> {
   if (value === undefined || value === null) return {};
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("metadata must be an object");
+  if (!isRecord(value) || Array.isArray(value)) throw new UserFacingError("routing.metadataObject", "metadata must be an object");
   return Object.fromEntries(Object.entries(value).map(([key, metadataValue]) => {
-    if (key.trim() === "") throw new Error("metadata keys must not be empty");
-    if (typeof metadataValue !== "string") throw new Error("metadata values must be strings");
+    if (key.trim() === "") throw new UserFacingError("routing.metadataKeyEmpty", "metadata keys must not be empty");
+    if (typeof metadataValue !== "string") throw new UserFacingError("routing.metadataValueString", "metadata values must be strings");
     return [key, metadataValue];
   }));
 }

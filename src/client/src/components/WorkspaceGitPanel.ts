@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { GitDiffResponse, GitStatusFile, GitStatusResponse } from "../api";
@@ -67,17 +68,17 @@ export class WorkspaceGitPanel extends LitElement {
 
   override render(): TemplateResult {
     const context = this.context;
-    if (context === undefined) return html`<p class="muted">Git 不可用。</p>`;
+    if (context === undefined) return html`<p class="muted">${t("ui.workspaceGitPanel.gitUnavailable", "Git unavailable.")}</p>`;
     const status = context.gitStatus;
     const viewState = this.computeViewState(status);
     return html`
       <section class="toolbar">
         <strong>Git</strong>
-        ${context.gitStale ? html`<span class="stale">已过期</span>` : null}
+        ${context.gitStale ? html`<span class="stale">${t("ui.workspaceGitPanel.stale", "Stale")}</span>` : null}
         <div class="toolbar-actions">
           ${viewState.expandablePaths.length > 0 ? this.renderExpandCollapseAll(viewState.expandablePaths) : null}
           ${this.renderViewToggle()}
-          <button type="button" @click=${context.onRefreshGit}>刷新</button>
+          <button type="button" @click=${context.onRefreshGit}>${t("ui.workspaceGitPanel.refresh", "Refresh")}</button>
         </div>
       </section>
       <section class="split">
@@ -91,9 +92,9 @@ export class WorkspaceGitPanel extends LitElement {
 
   private renderViewToggle(): TemplateResult {
     return html`
-      <div class="view-toggle" role="group" aria-label="变更文件视图">
-        ${this.renderViewToggleButton("list", "列表")}
-        ${this.renderViewToggleButton("tree", "树")}
+      <div class="view-toggle" role="group" aria-label=${t("ui.workspaceGitPanel.changedFilesView", "Changed files view")}>
+        ${this.renderViewToggleButton("list", t("ui.workspaceGitPanel.list", "List"))}
+        ${this.renderViewToggleButton("tree", t("ui.workspaceGitPanel.tree", "Tree"))}
       </div>
     `;
   }
@@ -108,15 +109,15 @@ export class WorkspaceGitPanel extends LitElement {
   private renderExpandCollapseAll(expandablePaths: readonly string[]): TemplateResult {
     const allExpanded = expandablePaths.every((path) => this.expandedDirectories.has(path));
     return html`
-      <button type="button" @click=${() => { this.toggleExpandAll(expandablePaths, allExpanded); }}>${allExpanded ? "全部折叠" : "全部展开"}</button>
+      <button type="button" @click=${() => { this.toggleExpandAll(expandablePaths, allExpanded); }}>${allExpanded ? t("ui.workspaceGitPanel.collapseAll", "Collapse all") : t("ui.workspaceGitPanel.expandAll", "Expand all")}</button>
     `;
   }
 
   private renderFileList(context: WorkspacePanelContext, status: GitStatusResponse | undefined, viewState: GitViewState): TemplateResult {
-    if (status === undefined) return html`<p class="muted">未加载状态。</p>`;
-    if (!status.isGitRepo) return html`<p class="muted">不是 Git 仓库。</p>`;
+    if (status === undefined) return html`<p class="muted">${t("ui.workspaceGitPanel.statusNotLoaded", "Status not loaded.")}</p>`;
+    if (!status.isGitRepo) return html`<p class="muted">${t("ui.workspaceGitPanel.notAGitRepository", "Not a Git repository.")}</p>`;
     const summary = html`<p class="summary">${gitSummary(status)}</p>`;
-    if (status.files.length === 0) return html`${summary}<p class="muted">没有更改。</p>`;
+    if (status.files.length === 0) return html`${summary}<p class="muted">${t("ui.workspaceGitPanel.noChanges", "No changes.")}</p>`;
     const body = this.view === "tree"
       ? viewState.nodes.map((node) => this.renderTreeNode(context, node, 0))
       : this.renderListBody(context, viewState.listModel);
@@ -215,16 +216,16 @@ export class WorkspaceGitPanel extends LitElement {
 }
 
 function submoduleBadge(): TemplateResult {
-  return html`<span class="submodule-badge">子模块</span>`;
+  return html`<span class="submodule-badge">${t("ui.workspaceGitPanel.submodule", "Submodule")}</span>`;
 }
 
 function renderDiffViewer(context: WorkspacePanelContext): TemplateResult {
-  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">请选择已更改的文件。</p>`;
+  if (context.selectedDiffPath === undefined || context.selectedDiffPath === "") return html`<p class="muted">${t("ui.workspaceGitPanel.selectAChangedFile", "Select a changed file.")}</p>`;
   const unstaged = context.selectedDiff;
   const staged = context.selectedStagedDiff;
-  if (unstaged === undefined || staged === undefined) return html`<p class="muted">正在加载差异…</p>`;
+  if (unstaged === undefined || staged === undefined) return html`<p class="muted">${t("ui.workspaceGitPanel.loadingDiff", "Loading diff…")}</p>`;
   const diffs = [staged, unstaged].filter((diff) => diff.diff !== "");
-  if (diffs.length === 0) return html`<p class="muted">没有已暂存或未暂存的差异。</p>`;
+  if (diffs.length === 0) return html`<p class="muted">${t("ui.workspaceGitPanel.noStagedOrUnstagedDiff", "No staged or unstaged diff.")}</p>`;
   return html`
     <div class=${diffs.length === 1 ? "diffs single" : "diffs"}>
       ${diffs.map((diff) => renderDiffSection(diff))}
@@ -236,7 +237,7 @@ function renderDiffSection(diff: GitDiffResponse): TemplateResult {
   loadUnifiedDiffViewer();
   return html`
     <section class="diff-section">
-      <div class="viewer-header"><strong>${diff.path ?? "差异"}</strong><small>${diff.staged ? "已暂存" : "未暂存"}${diff.truncated ? " · 已截断" : ""}</small></div>
+      <div class="viewer-header"><strong>${diff.path ?? t("ui.workspaceGitPanel.diff", "Diff")}</strong><small>${diff.staged ? t("ui.workspaceGitPanel.staged", "Staged") : t("ui.workspaceGitPanel.unstaged", "Unstaged")}${diff.truncated ? t("ui.workspaceGitPanel.truncated", " · Truncated") : ""}</small></div>
       <unified-diff-viewer .diff=${diff.diff}></unified-diff-viewer>
     </section>
   `;
@@ -247,7 +248,7 @@ function loadUnifiedDiffViewer(): void {
 }
 
 function gitSummary(status: GitStatusResponse): string {
-  const branch = status.branch ?? "游离 HEAD";
+  const branch = status.branch ?? t("ui.workspaceGitPanel.detachedHead", "Detached HEAD");
   const ahead = status.ahead ?? 0;
   const behind = status.behind ?? 0;
   return ahead === 0 && behind === 0 ? branch : `${branch} · ↑${String(ahead)} ↓${String(behind)}`;

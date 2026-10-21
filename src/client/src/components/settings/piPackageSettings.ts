@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { Machine, MachineKind, MachineRuntime, PiPackageInfo, PiPackageMutationAction } from "../../api";
 
 export type PiPackageOperationKind = PiPackageMutationAction | "update-all";
@@ -22,11 +23,11 @@ export interface PiPackageManagementSupport {
 
 export function piPackageTargetContext(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): PiPackageTargetContext {
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
-  return { id: "local", name: "本机", kind: "local" };
+  return { id: "local", name: t("ui.piPackageSettings.local", "Local"), kind: "local" };
 }
 
 export function piPackageTargetLabel(target: PiPackageTargetContext): string {
-  return target.kind === "local" ? `${target.name}（本地网关）` : `${target.name}（远程机器）`;
+  return target.kind === "local" ? t("ui.piPackageSettings.localGateway", "{name} (local gateway)", { name: target.name }) : t("ui.piPackageSettings.remoteMachine", "{name} (remote machine)", { name: target.name });
 }
 
 export function piPackageManagementSupport(target: PiPackageTargetContext, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): PiPackageManagementSupport {
@@ -44,7 +45,7 @@ export function isPiPackageManagementUnsupported(support: PiPackageManagementSup
 }
 
 export function piPackageManagementUnavailableMessage(target: PiPackageTargetContext): string {
-  return `${target.name} 不支持 Pi 包管理。请更新并重启该机器上的 PI WEB，然后重试。`;
+  return t("ui.piPackageSettings.doesNotSupportPiPackageManagementUpdateAnd", "{name} does not support Pi package management. Update and restart PI WEB on that machine, then retry.", { name: target.name });
 }
 
 export function shouldRefreshGatewayPluginsAfterPiPackageMutation(target: PiPackageTargetContext): boolean {
@@ -57,19 +58,19 @@ export function normalizePiPackageSource(source: string): string {
 
 export function piPackageSourceValidationMessage(source: string): string | undefined {
   if (normalizePiPackageSource(source) !== "") return undefined;
-  return "请输入 Pi 支持的包来源，例如 npm:@scope/package、Git/URL 来源或本地路径。";
+  return t("ui.piPackageSettings.enterAPiSupportedPackageSourceSuchAs", "Enter a Pi-supported package source, such as npm:@scope/package, a Git/URL source, or a local path.");
 }
 
 export function piPackageScopeLabel(packageInfo: Pick<PiPackageInfo, "scope">): string {
-  return packageInfo.scope === "project" ? "项目范围" : "用户范围";
+  return packageInfo.scope === "project" ? t("ui.piPackageSettings.projectScope", "Project scope") : t("ui.piPackageSettings.userScope", "User scope");
 }
 
 export function piPackageFilteredLabel(packageInfo: Pick<PiPackageInfo, "filtered">): string {
-  return packageInfo.filtered ? "已被当前 Pi 包设置过滤" : "可用于此 PI WEB 进程";
+  return packageInfo.filtered ? t("ui.piPackageSettings.filteredByCurrentPiPackageSettings", "Filtered by current Pi package settings") : t("ui.piPackageSettings.availableToThisPiWebProcess", "Available to this PI WEB process");
 }
 
 export function piPackageInstalledPathLabel(packageInfo: Pick<PiPackageInfo, "installedPath">): string {
-  return packageInfo.installedPath ?? "Pi 未报告安装路径";
+  return packageInfo.installedPath ?? t("ui.piPackageSettings.piDidNotReportAnInstallationPath", "Pi did not report an installation path");
 }
 
 export function canUpdatePiPackage(packageInfo: Pick<PiPackageInfo, "scope">): boolean {
@@ -78,7 +79,7 @@ export function canUpdatePiPackage(packageInfo: Pick<PiPackageInfo, "scope">): b
 
 export function piPackageUpdateDisabledReason(packageInfo: Pick<PiPackageInfo, "scope">): string | undefined {
   if (canUpdatePiPackage(packageInfo)) return undefined;
-  return "此处会列出项目范围的 Pi 包，但 PI WEB 只能在此界面安全更新用户范围的 Pi 包。";
+  return t("ui.piPackageSettings.projectScopedPiPackagesAreListedHereBut", "Project-scoped Pi packages are listed here, but PI WEB can only safely update user-scoped Pi packages in this interface.");
 }
 
 export function canUpdateAllPiPackages(packages: readonly Pick<PiPackageInfo, "scope">[]): boolean {
@@ -86,9 +87,9 @@ export function canUpdateAllPiPackages(packages: readonly Pick<PiPackageInfo, "s
 }
 
 export function updateAllPiPackagesDisabledReason(packages: readonly Pick<PiPackageInfo, "scope">[]): string | undefined {
-  if (packages.length === 0) return "尚未配置 Pi 包。";
+  if (packages.length === 0) return t("ui.piPackageSettings.noPiPackagesConfigured", "No Pi packages configured.");
   if (canUpdateAllPiPackages(packages)) return undefined;
-  return "列表中包含项目范围的 Pi 包，无法全部更新；请逐个更新用户范围的包。";
+  return t("ui.piPackageSettings.theListIncludesProjectScopedPiPackagesSo", "The list includes project-scoped Pi packages, so update-all is unavailable. Update user-scoped packages individually.");
 }
 
 export function isPiPackageOperationPending(operation: PiPackageOperationState | undefined, kind: PiPackageOperationKind, source?: string): boolean {
@@ -97,11 +98,11 @@ export function isPiPackageOperationPending(operation: PiPackageOperationState |
 }
 
 export function piPackageMutationFollowUpMessage(action: PiPackageMutationAction, target = piPackageTargetContext(undefined)): string {
-  const verb = action === "install" ? "已安装" : action === "remove" ? "已移除" : "已更新";
-  const targetSuffix = target.kind === "local" ? "" : `（${target.name}）`;
-  const sessionScope = target.kind === "local" ? "每个空闲的 PI WEB 会话" : `${target.name} 上每个空闲的 PI WEB 会话`;
-  const pluginScope = target.kind === "local" ? "PI WEB 浏览器插件变更" : `${target.name} 提供的 PI WEB 浏览器插件变更`;
-  return `Pi 包${verb}${targetSuffix}。请在 ${sessionScope} 中输入 /reload，重新发现 Pi 运行时资源：扩展、技能、提示词模板、主题以及上下文/系统提示文件。对于 ${pluginScope}，请另外重新加载浏览器页面。`;
+  const verb = action === "install" ? t("ui.piPackageSettings.installed", "installed") : action === "remove" ? t("ui.piPackageSettings.removed", "removed") : t("ui.piPackageSettings.updated", "updated");
+  const targetSuffix = target.kind === "local" ? "" : t("ui.piPackageSettings.targetSuffix", " ({name})", { name: target.name });
+  const sessionScope = target.kind === "local" ? t("ui.piPackageSettings.everyIdlePiWebSession", "every idle PI WEB session") : t("ui.piPackageSettings.everyIdlePiWebSessionOn", "every idle PI WEB session on {name}", { name: target.name });
+  const pluginScope = target.kind === "local" ? t("ui.piPackageSettings.piWebBrowserPluginChanges", "PI WEB browser plugin changes") : t("ui.piPackageSettings.piWebBrowserPluginChangesFrom", "PI WEB browser plugin changes from {name}", { name: target.name });
+  return t("ui.piPackageSettings.piPackageEnterReloadInToRediscoverPi", "Pi package {verb}{targetSuffix}. Enter /reload in {sessionScope} to rediscover Pi runtime resources: extensions, skills, prompt templates, themes, and context/system prompt files. For {pluginScope}, also reload the browser page.", { verb: verb, targetSuffix: targetSuffix, sessionScope: sessionScope, pluginScope: pluginScope });
 }
 
 export function friendlyPiPackageErrorMessage(message: string, target: PiPackageTargetContext): string {
@@ -111,10 +112,10 @@ export function friendlyPiPackageErrorMessage(message: string, target: PiPackage
     return piPackageManagementUnavailableMessage(target);
   }
   if (normalized === "Remote machine timeout") {
-    return `联系 ${target.name} 进行 Pi 包管理时超时。包操作可能仍在远端运行；重试前请重新加载包列表。`;
+    return t("ui.piPackageSettings.timedOutContactingForPiPackageManagementThe", "Timed out contacting {name} for Pi package management. The operation may still be running remotely; reload the package list before retrying.", { name: target.name });
   }
   if (normalized === "Remote machine unavailable") {
-    return `无法连接 ${target.name} 进行 Pi 包管理。请检查机器连接后重试。`;
+    return t("ui.piPackageSettings.unableToConnectToForPiPackageManagement", "Unable to connect to {name} for Pi package management. Check the machine connection and retry.", { name: target.name });
   }
   return normalized;
 }

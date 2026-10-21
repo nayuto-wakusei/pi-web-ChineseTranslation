@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { createTranslator, type Translator } from "../shared/i18n.js";
+import { workspaceErrorMessage } from "./workspaces/workspaceUserError.js";
 import type { WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import type { ProjectService } from "./projects/projectService.js";
@@ -15,10 +17,12 @@ import type { WorkspaceService } from "./workspaces/workspaceService.js";
 export interface WorkspaceExplorerRouteOptions {
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
+  translate?: Translator;
 }
 
 export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix = "/api", options: WorkspaceExplorerRouteOptions = {}): void {
   const managementEmbed = options.managementEmbed;
+  const translate = options.translate ?? createTranslator("en", {});
   registerWorkspaceFileContentParsers(app);
 
   app.get<{ Params: { projectId: string; workspaceId: string }; Querystring: { path?: string } }>(`${prefix}/projects/:projectId/workspaces/:workspaceId/tree`, async (request, reply) => {
@@ -26,7 +30,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTree(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -37,9 +41,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
     } catch (error) {
       if (isMissingPathError(error)) {
         if (request.query.optional === "true") return reply.code(204).send();
-        return reply.code(404).send({ error: error.message });
+        return reply.code(404).send({ error: workspaceErrorMessage(error, translate) });
       }
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -52,7 +56,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       };
       return await writeWorkspaceFile(context.root, request.query.path, request.body, writeOptions);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -61,7 +65,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await deleteWorkspaceFile(context.root, request.query.path);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -73,7 +77,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         overwrite: request.query.overwrite === "true",
       });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -89,7 +93,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .header("X-Content-Type-Options", "nosniff")
         .send(download.stream);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -98,7 +102,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await createWorkspaceDirectory(context.root, request.body);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -107,7 +111,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: true });
       return await moveWorkspaceDirectory(context.root, request.body);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -116,7 +120,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await deleteWorkspaceDirectory(context.root, request.query.path);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -133,7 +137,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .header("X-Content-Type-Options", "nosniff")
         .send(preview.stream);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 
@@ -145,7 +149,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       if (request.query.mode === "path") return await listPathSuggestions(context.root, query, pathAccess);
       return await listFileSuggestions(context.root, query, { kind: request.query.kind, scope: request.query.scope, pathAccess });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: workspaceErrorMessage(error, translate) });
     }
   });
 }

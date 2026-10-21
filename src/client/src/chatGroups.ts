@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { ChatLine, ChatPart } from "./components/shared";
 
 export type ChatGroup =
@@ -44,15 +45,15 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
 }
 
 export function summarizeChatGroup(messages: ChatLine[]): string {
-  if (messages.every((message) => message.source === "compaction")) return `${String(messages.length)} 条历史压缩摘要`;
-  if (messages.every((message) => message.source === "branch_summary")) return `${String(messages.length)} 条分支摘要`;
+  if (messages.every((message) => message.source === "compaction")) return t("client.chatGroups.compaction.summaries.e2309c", "{value1} compaction summaries", { value1: String(messages.length) });
+  if (messages.every((message) => message.source === "branch_summary")) return t("client.chatGroups.branch.summaries.c232fa", "{value1} branch summaries", { value1: String(messages.length) });
   const counts = messages.reduce<Record<string, number>>((acc, message) => {
     acc[message.role] = (acc[message.role] ?? 0) + 1;
     return acc;
   }, {});
-  const roleLabels: Record<string, string> = { user: "用户", assistant: "助手", tool: "工具", system: "系统", bash: "命令", skill: "技能" };
+  const roleLabels: Record<string, string> = { user: t("client.chatGroups.user.0d0e1a", "User"), assistant: t("client.chatGroups.assistant.e5ce5f", "Assistant"), tool: t("client.chatGroups.tool.5ca673", "Tool"), system: t("client.chatGroups.system.5b50d7", "System"), bash: t("client.chatGroups.command.928f87", "Command"), skill: t("client.chatGroups.skill.99aea2", "Skill") };
   const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${roleLabels[role] ?? role}`).join(" · ");
-  return `${String(messages.length)} 个事件${details !== "" ? ` · ${details}` : ""}`;
+  return t("client.chatGroups.events.12f406", "{value1} events{value2}", { value1: String(messages.length), value2: details !== "" ? ` · ${details}` : "" });
 }
 
 function isToolImageMessage(message: ChatLine): boolean {

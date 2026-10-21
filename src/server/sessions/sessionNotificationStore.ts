@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../shared/i18n.js";
 import { randomUUID } from "node:crypto";
 import {
   SESSION_NOTIFICATION_LIMIT,
@@ -131,9 +132,9 @@ export class SessionNotificationStore {
   ): SessionNotificationGeneration {
     requireIdentity(target.sessionId, target.cwd);
     const binding = this.bindings.get(activeGeneration);
-    if (binding?.role !== "active") throw new Error("Notification runtime generation is no longer active");
+    if (binding?.role !== "active") throw new UserFacingError("routing.notificationInactive", "Notification runtime generation is no longer active");
     const state = binding.state;
-    if (state.candidate !== undefined) throw new Error("Notification runtime replacement is already in progress");
+    if (state.candidate !== undefined) throw new UserFacingError("routing.notificationReplacing", "Notification runtime replacement is already in progress");
 
     const sameIdentity = state.activeProjection.sessionId === target.sessionId && state.activeProjection.cwd === target.cwd;
     let projection: NotificationProjection;
@@ -141,7 +142,7 @@ export class SessionNotificationStore {
       projection = state.activeProjection;
     } else {
       const existing = this.statesBySessionId.get(target.sessionId);
-      if (existing !== undefined && existing !== state) throw new Error("Notification target session is already registered");
+      if (existing !== undefined && existing !== state) throw new UserFacingError("routing.notificationRegistered", "Notification target session is already registered");
       projection = {
         sessionId: target.sessionId,
         cwd: target.cwd,
@@ -379,7 +380,7 @@ export class SessionNotificationStore {
     if (state === undefined) return [];
     const projection = state.activeProjection.sessionId === sessionId ? state.activeProjection : state.candidate?.projection;
     if (projection?.sessionId !== sessionId) return [];
-    if (projection.cwd !== cwd) throw new Error("Session cwd mismatch");
+    if (projection.cwd !== cwd) throw new UserFacingError("routing.sessionCwdMismatch", "Session cwd mismatch");
     return this.clearSession(sessionId, reason);
   }
 
@@ -412,20 +413,20 @@ export class SessionNotificationStore {
 
   private requireCandidate(candidateGeneration: SessionNotificationGeneration): GenerationBinding {
     const binding = this.bindings.get(candidateGeneration);
-    if (binding?.role !== "candidate") throw new Error("Notification replacement generation is no longer active");
+    if (binding?.role !== "candidate") throw new UserFacingError("routing.notificationReplacementInactive", "Notification replacement generation is no longer active");
     return binding;
   }
 
   private requireProjection(sessionId: string, cwd: string): NotificationProjection {
     const state = this.statesBySessionId.get(sessionId);
-    if (state === undefined) throw new Error("Session not found");
+    if (state === undefined) throw new UserFacingError("routing.sessionNotFound", "Session not found");
     const projection = state.activeProjection.sessionId === sessionId
       ? state.activeProjection
       : state.candidate?.projection.sessionId === sessionId
         ? state.candidate.projection
         : undefined;
-    if (projection === undefined) throw new Error("Session not found");
-    if (projection.cwd !== cwd) throw new Error("Session cwd mismatch");
+    if (projection === undefined) throw new UserFacingError("routing.sessionNotFound", "Session not found");
+    if (projection.cwd !== cwd) throw new UserFacingError("routing.sessionCwdMismatch", "Session cwd mismatch");
     return projection;
   }
 
@@ -485,7 +486,7 @@ export function truncateSessionNotificationMessage(
   message: string,
   maxBytes = SESSION_NOTIFICATION_MESSAGE_BYTES,
 ): { message: string; truncated: boolean } {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new Error("maxBytes must be a non-negative safe integer");
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new UserFacingError("routing.maxBytesInvalid", "maxBytes must be a non-negative safe integer");
   const encoder = new TextEncoder();
   if (encoder.encode(message).byteLength <= maxBytes) return { message, truncated: false };
   let bytes = 0;
@@ -582,8 +583,8 @@ function uniqueProjectionList(projections: NotificationProjection[]): Notificati
 }
 
 function requireIdentity(sessionId: string, cwd: string): void {
-  if (sessionId === "") throw new Error("sessionId must not be empty");
-  if (cwd === "") throw new Error("cwd must not be empty");
+  if (sessionId === "") throw new UserFacingError("routing.sessionIdEmpty", "sessionId must not be empty");
+  if (cwd === "") throw new UserFacingError("routing.cwdEmpty", "cwd must not be empty");
 }
 
 function incrementSafe(value: number, message: string): number {

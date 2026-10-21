@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
+import { beforeEach, describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebReleaseStatus, PiWebStatusResponse, PluginMachine, Workspace } from "@chainingintention/pi-web-cn/plugin-api";
 import { componentDetails, componentHealth, diagnosticsSummary, formatVersion, installationLabel, machineKindLabel, releaseSummary, workspaceFlags } from "./infoInternals.js";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("componentHealth", () => {
   it("reports current when the component is available and not stale", () => {

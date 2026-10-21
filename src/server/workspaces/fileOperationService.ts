@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { createReadStream, type ReadStream } from "node:fs";
 import { lstat, mkdir, rename, rmdir, stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -30,7 +31,7 @@ export interface WorkspaceDownload {
 }
 
 export async function createWorkspaceDirectory(rootPath: string, input: WorkspacePathInput): Promise<WorkspacePathResponse> {
-  if (!isPathInput(input)) throw new Error("Directory body must include path");
+  if (!isPathInput(input)) throw new WorkspaceUserError("server.files.directoryPathRequired", "Directory body must include path");
   const { target, relativePath } = await resolveParentInsideWorkspace(rootPath, input.path);
   await mkdir(target);
   return { path: relativePath };
@@ -38,30 +39,30 @@ export async function createWorkspaceDirectory(rootPath: string, input: Workspac
 
 export async function moveWorkspaceDirectory(rootPath: string, input: WorkspaceMoveInput): Promise<WorkspacePathResponse> {
   const move = await resolveMove(rootPath, input);
-  if (move.destinationRelativePath.startsWith(`${move.sourceRelativePath}/`)) throw new Error("Directory cannot be moved inside itself");
+  if (move.destinationRelativePath.startsWith(`${move.sourceRelativePath}/`)) throw new WorkspaceUserError("server.files.recursiveMoveDenied", "Directory cannot be moved inside itself");
   const s = await lstat(move.sourceTarget);
-  if (!s.isDirectory()) throw new Error("Path is not a directory");
+  if (!s.isDirectory()) throw new WorkspaceUserError("server.files.notDirectory", "Path is not a directory");
   await rename(move.sourceTarget, move.destinationTarget);
   return { path: move.destinationRelativePath };
 }
 
 export async function deleteWorkspaceDirectory(rootPath: string, path: string | undefined): Promise<WorkspaceDeleteResponse> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
+  if (path === undefined || path === "") throw new WorkspaceUserError("server.files.pathRequired", "path query parameter is required");
   const { target, relativePath } = await resolveInsideWorkspace(rootPath, path);
   const s = await lstat(target);
-  if (!s.isDirectory()) throw new Error("Path is not a directory");
+  if (!s.isDirectory()) throw new WorkspaceUserError("server.files.notDirectory", "Path is not a directory");
   await rmdir(target).catch((error: unknown) => {
-    if (isNodeErrorWithCode(error, "ENOTEMPTY") || isNodeErrorWithCode(error, "EEXIST")) throw new Error("Directory is not empty");
+    if (isNodeErrorWithCode(error, "ENOTEMPTY") || isNodeErrorWithCode(error, "EEXIST")) throw new WorkspaceUserError("server.files.directoryNotEmpty", "Directory is not empty");
     throw error;
   });
   return { deleted: true, path: relativePath };
 }
 
 export async function readWorkspaceFileDownload(rootPath: string, path: string | undefined): Promise<WorkspaceDownload> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
+  if (path === undefined || path === "") throw new WorkspaceUserError("server.files.pathRequired", "path query parameter is required");
   const { target, relativePath } = await resolveInsideWorkspace(rootPath, path);
   const s = await stat(target);
-  if (!s.isFile()) throw new Error("Path is not a file");
+  if (!s.isFile()) throw new WorkspaceUserError("server.files.notFile", "Path is not a file");
   return {
     path: relativePath,
     filename: basename(relativePath),
@@ -72,10 +73,10 @@ export async function readWorkspaceFileDownload(rootPath: string, path: string |
 }
 
 async function resolveMove(rootPath: string, input: WorkspaceMoveInput) {
-  if (!isMoveInput(input)) throw new Error("Move body must include fromPath and toPath");
+  if (!isMoveInput(input)) throw new WorkspaceUserError("server.files.movePathsRequired", "Move body must include fromPath and toPath");
   const source = await resolveInsideWorkspace(rootPath, input.fromPath);
   const destination = await resolveParentInsideWorkspace(rootPath, input.toPath);
-  if (source.relativePath === destination.relativePath) throw new Error("Destination path must be different");
+  if (source.relativePath === destination.relativePath) throw new WorkspaceUserError("server.files.sameDestination", "Destination path must be different");
   return {
     sourceTarget: source.target,
     sourceRelativePath: source.relativePath,

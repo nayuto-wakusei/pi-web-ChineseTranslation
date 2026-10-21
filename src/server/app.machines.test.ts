@@ -179,7 +179,7 @@ describe("buildApp machine routes", () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
-      error: "Remote machine did not persist the requested agent profile",
+      error: "远程机器未保存请求的代理配置档案",
       machineId: remote.id,
     });
     expect(requestJson).toHaveBeenNthCalledWith(1, "GET", "/api/config");
@@ -205,7 +205,7 @@ describe("buildApp machine routes", () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ error: "Remote machine did not persist the requested agent profile" });
+    expect(response.json()).toMatchObject({ error: "远程机器未保存请求的代理配置档案" });
     expect(requestJson).toHaveBeenNthCalledWith(2, "PUT", "/api/config", {
       config: { ...fullPiWebConfig(), agent: {} },
     });
@@ -268,7 +268,7 @@ describe("buildApp machine routes", () => {
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json<{ error: string }>().error).toContain("PI WEB selected-machine config key is not allowed: host");
+    expect(response.json<{ error: string }>().error).toContain("PI WEB 所选机器配置 不允许此键：host");
     expect(requestJson).not.toHaveBeenCalled();
   });
 });

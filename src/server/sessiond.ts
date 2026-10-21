@@ -35,9 +35,11 @@ import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
 import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
 import { managementProjectIdForCwd } from "./managementEmbed.js";
+import { loadNodeTranslator } from "../localization.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
 const { config } = effectivePiWebConfig({ env: daemonEnvironment });
+const translator = loadNodeTranslator("server", config);
 const activeAgentProfile = createActiveAgentProfileDescriptor({
   command: config.agent.command,
   dir: config.agent.dir,
@@ -53,14 +55,15 @@ await runSessionDaemonStartup({
     const workspaceActivity = new WorkspaceActivityService(eventHub);
     const projects = new ProjectService(new ProjectStore());
     const workspaces = new WorkspaceService();
-    const projectAuth = new ProjectAuthService({ projects, workspaces });
+    const projectAuth = new ProjectAuthService({ projects, workspaces, translator });
     const managementAuth = new AuthService({
+      translator,
       modelRuntime: await ModelRuntime.create({
         authPath: join(piWebDataDir(), "management-embed", "auth.json"),
         modelsPath: join(activeAgentProfile.dir, "models.json"),
       }),
     });
-    const accessStates = new WorkbenchAccessStateStore();
+    const accessStates = new WorkbenchAccessStateStore(translator);
     const normalAuditConfig = config.auditLog?.normalMode;
     let normalToolAudit: NormalToolAuditStore | undefined;
     if (normalAuditConfig?.enabled !== false) {
@@ -107,19 +110,21 @@ await runSessionDaemonStartup({
         requestTimeoutMs: config.workbenchIntegration.requestTimeoutMs ?? 10_000,
       });
       return {
+        translator,
         accessStates,
         client,
         mcp: new WorkbenchMcpClient({
           mcpUrl: config.workbenchIntegration.mcpUrl,
           timeoutMs: config.workbenchIntegration.capabilityTimeoutMs ?? 30_000,
         }),
-        skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log),
+        skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log, translator),
       };
     })();
     const spawnTargets = config.spawnSessions
       ? new ProjectScopedSpawnTargetResolver({ projects, workspaces })
       : undefined;
     const sessions = new PiSessionService(eventHub, {
+      translator,
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
       normalModelRuntimeForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRuntime,
@@ -162,9 +167,9 @@ await runSessionDaemonStartup({
   },
   registerRoutes({ eventHub, workspaceActivity, projectAuth, managementAuth, sessions, terminals, accessStates, runtimeComponent }) {
     registerWorkspaceActivityRoutes(app, workspaceActivity);
-    registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
-    registerSessionRoutes(app, sessions, eventHub);
-    registerTerminalRoutes(app, terminals);
+    registerAuthRoutes(app, { normal: projectAuth, management: managementAuth }, "", translator);
+    registerSessionRoutes(app, sessions, eventHub, "", translator);
+    registerTerminalRoutes(app, terminals, "", translator);
     registerWorkbenchAccessStateRoutes(app, accessStates);
 
     app.get("/health", () => ({

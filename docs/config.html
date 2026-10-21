@@ -179,7 +179,7 @@
                 <li><code>workbenchIntegration</code>: restart both the web/API process and session daemon; both must use the same endpoints and limits.</li>
                 <li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
                 <li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
-                <li><code>plugins</code>: reload the browser tab after changing PI WEB plugin enablement.</li>
+                <li><code>plugins</code>: reload the browser tab after changing PI WEB plugin enablement. 内置 <code>zh-cn</code> 默认启用，设为 <code>false</code> 后恢复英文。其 CLI 文案下次运行生效；服务端文案需重启 Web 服务与 <code>pi-web-sessiond.service</code>，两者必须使用同一个有效 <code>PI_WEB_CONFIG</code>。开发服务布局对应 <code>pi-web-ui-dev.service</code> 和 <code>pi-web-sessiond.service</code>。</li>
                 <li>Pi package install/remove/update: not a PI WEB config key; after a mutation, type <code>/reload</code> in each idle PI WEB session on the target machine to refresh ordinary Pi resources such as extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for PI WEB browser plugin changes. If a global Pi extension adds or removes a provider, or changes a provider's connection settings, manually restart <code>pi-web-sessiond.service</code>; <code>/reload</code> cannot change the startup provider baseline. A known provider refreshing only its own model list is applied without a restart. See <a href="#pi-extension-provider-baseline">Pi extension provider baseline</a>.</li>
                 <li><code>shortcuts</code>: saved settings apply in the browser after config refresh/save.</li>
               </ul>
@@ -187,6 +187,7 @@
 
             <section id="global-config">
               <h2>Global config example</h2>
+              <p>中文语言插件可通过 <code>{"plugins":{"zh-cn":{"enabled":false}}}</code> 禁用，设为 <code>true</code> 或移除禁用值恢复默认中文。浏览器语言跟随网关机器；每台机器的 CLI 和服务端独立使用本机配置，因此远端提示可能与浏览器语言不同。没有独立语言选择器或请求级语言覆盖。</p>
               <p>
                 <code>pi-web install</code> creates the initial file. You can also save PI WEB config settings from
                 <strong>Settings → General</strong>, <strong>Settings → PI WEB plugins</strong>,

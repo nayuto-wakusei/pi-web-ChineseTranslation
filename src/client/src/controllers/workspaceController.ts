@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api as defaultApi, type Project, type Workspace } from "../api";
 import { resetWorkspaceScopedState, type AppState } from "../appState";
 import { mergeCachedNewSessions } from "../cachedNewSessions";
@@ -77,7 +78,7 @@ export class WorkspaceController {
 
   async refreshProjectWorkspaces(projectId: string): Promise<Workspace[]> {
     const project = this.getState().projects.find((candidate) => candidate.id === projectId);
-    if (project === undefined) throw new Error("找不到项目");
+    if (project === undefined) throw new Error(t("client.workspaceController.project.not.found.3b6bf4", "Project not found"));
     const workspaces = await this.api.workspaces(project.id, selectedMachineId(this.getState()));
     this.applyProjectWorkspaces(project.id, workspaces);
     return workspaces;

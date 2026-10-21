@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes";
 import { parseAskUserOutcome } from "./api/parsers";
 import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
@@ -71,8 +72,8 @@ export function normalizeMessage(message: unknown): ChatLine[] {
 function assistantErrorLine(message: unknown): ChatLine | undefined {
   if (getString(message, "role") !== "assistant" || getString(message, "stopReason") !== "error") return undefined;
   const errorMessage = getString(message, "errorMessage")?.trim();
-  const detail = errorMessage === undefined || errorMessage === "" ? "模型返回了错误。" : errorMessage;
-  return textMessage("system", `模型响应失败：${detail}`);
+  const detail = errorMessage === undefined || errorMessage === "" ? t("client.chatMessages.the.model.returned.an.error.8306e3", "The model returned an error.") : errorMessage;
+  return textMessage("system", t("client.chatMessages.model.response.failed.f24385", "Model response failed: {value1}", { value1: detail }));
 }
 
 function isChatLine(message: unknown): message is ChatLine {
@@ -143,15 +144,15 @@ function normalizeModel(message: unknown): NonNullable<ChatLine["meta"]>["model"
 
 function normalizeBashExecution(message: unknown): ChatLine {
   const command = getString(message, "command") ?? "";
-  const lines = getBoolean(message, "excludeFromContext") === true ? ["已从上下文中排除", "", `$ ${command}`] : [`$ ${command}`];
+  const lines = getBoolean(message, "excludeFromContext") === true ? [t("client.chatMessages.excluded.from.context.858b78", "Excluded from context"), "", `$ ${command}`] : [`$ ${command}`];
   const output = getProperty(message, "output");
   if (output != null) lines.push("", stringifyPrimitive(output));
   const exitCode = getProperty(message, "exitCode");
-  if (exitCode != null) lines.push("", `退出码 ${stringifyPrimitive(exitCode)}`);
-  if (getBoolean(message, "cancelled") === true) lines.push("", "已取消");
-  if (getBoolean(message, "truncated") === true) lines.push("", "输出已截断");
+  if (exitCode != null) lines.push("", t("client.chatMessages.exit.code.2beadf", "Exit code {value1}", { value1: stringifyPrimitive(exitCode) }));
+  if (getBoolean(message, "cancelled") === true) lines.push("", t("client.chatMessages.cancelled.a37778", "Cancelled"));
+  if (getBoolean(message, "truncated") === true) lines.push("", t("client.chatMessages.output.truncated.07e9bf", "Output truncated"));
   const fullOutputPath = getString(message, "fullOutputPath");
-  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `完整输出：${fullOutputPath}`);
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", t("client.chatMessages.full.output.89763a", "Full output: {value1}", { value1: fullOutputPath }));
   return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
 }
 

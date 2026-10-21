@@ -1,7 +1,12 @@
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
 import { html, svg } from "lit";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginRuntimeContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("Info plugin copy-diagnostics action", () => {
   afterEach(() => {
@@ -9,7 +14,7 @@ describe("Info plugin copy-diagnostics action", () => {
   });
 
   it("copies a diagnostics summary to the clipboard", async () => {
-    const writeText = vi.fn((text: string) => { void text; return Promise.resolve(); });
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const action = findCopyDiagnosticsAction();
     const context = runtimeContext({
@@ -40,7 +45,7 @@ describe("Info plugin copy-diagnostics action", () => {
 });
 
 function findCopyDiagnosticsAction() {
-  const action = plugin.activate({ apiVersion: 1, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
+  const action = plugin.activate({ translate: translateChinese, apiVersion: 1, pluginId: "info", html, svg }).contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;
 }

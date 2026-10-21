@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TemplateResult } from "lit";
+import { render, type TemplateResult } from "lit";
 import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { SettingsShortcutsPanel } from "./SettingsShortcutsPanel";
@@ -8,6 +9,7 @@ import { isTemplateResult, templateStrings, templateValues } from "../../templat
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  document.body.replaceChildren();
 });
 
 describe("settings-shortcuts-panel layout", () => {
@@ -48,23 +50,23 @@ describe("settings-shortcuts-panel layout", () => {
 
 describe("settings-shortcuts-panel shortcut row actions", () => {
   it("saves edited shortcuts, disables them with None, and resets overrides", () => {
-    vi.stubGlobal("HTMLInputElement", FakeHTMLInputElement);
     const onSave = vi.fn<SaveHandler>();
     const savePanel = panelWithShortcuts({ shortcuts: { "core:other": "mod+o" } }, onSave);
 
-    findTemplateEventHandler<Event>(savePanel.render(), "@input=")(
-      new EventWithTarget("input", new FakeHTMLInputElement(" control + shift + p ")),
-    );
+    const input = renderPanel(savePanel).querySelector<HTMLInputElement>(".shortcut-input");
+    if (input === null) throw new Error("Shortcut input is unavailable");
+    input.value = " control + shift + p ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
 
     expectTextOrder(flattenTemplateContent(savePanel.render()), ["Open palette", "Ctrl+Shift+P", "配置覆盖 · 未保存"]);
 
-    findTemplateEventHandler<Event>(savePanel.render(), ">保存</button>")(new Event("click"));
+    clickButton(savePanel, "保存");
 
     const nonePanel = panelWithShortcuts({ shortcuts: { "core:open-palette": "mod+shift+p", "core:other": "mod+o" } }, onSave);
-    findTemplateEventHandler<Event>(nonePanel.render(), ">无</button>")(new Event("click"));
+    clickButton(nonePanel, "无");
 
     const resetPanel = panelWithShortcuts({ shortcuts: { "core:open-palette": null, "core:other": "mod+o" } }, onSave);
-    findTemplateEventHandler<Event>(resetPanel.render(), ">重置</button>")(new Event("click"));
+    clickButton(resetPanel, "重置");
 
     expect(onSave.mock.calls).toEqual([
       [{ shortcuts: { "core:other": "mod+o", "core:open-palette": "mod+shift+p" } }],
@@ -158,7 +160,6 @@ function isSettingsNoticeArray(value: unknown): value is readonly SettingsNotice
 
 
 type SaveHandler = (config: PiWebConfigValues) => void | Promise<void>;
-type TemplateEventHandler<E extends Event> = (event: E) => void;
 
 function panelWithShortcuts(config: PiWebConfigValues, onSave: SaveHandler): SettingsShortcutsPanel {
   const panel = new SettingsShortcutsPanel();
@@ -179,62 +180,17 @@ function shortcutAction(): AppAction {
   };
 }
 
-function findTemplateEventHandler<E extends Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> {
-  const handler = findOptionalTemplateEventHandler<E>(template, marker);
-  if (handler === undefined) throw new Error(`Expected template event handler near ${marker}`);
-  return handler;
+function renderPanel(panel: SettingsShortcutsPanel): HTMLElement {
+  const container = document.createElement("div");
+  document.body.append(container);
+  render(panel.render(), container);
+  return container;
 }
 
-function findOptionalTemplateEventHandler<E extends Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> | undefined {
-  return findInTemplate(template);
-
-  function findInTemplate(current: TemplateResult): TemplateEventHandler<E> | undefined {
-    const strings = templateStrings(current);
-    const values = templateValues(current);
-    for (let index = 0; index < values.length; index += 1) {
-      const value = values[index];
-      if (isTemplateEventHandler<E>(value) && templateEventHandlerMatches(strings, index, marker)) return value;
-      const nestedHandler = findInValue(value);
-      if (nestedHandler !== undefined) return nestedHandler;
-    }
-    return undefined;
-  }
-
-  function findInValue(value: unknown): TemplateEventHandler<E> | undefined {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const nestedHandler = findInValue(item);
-        if (nestedHandler !== undefined) return nestedHandler;
-      }
-      return undefined;
-    }
-    if (isTemplateResult(value)) return findInTemplate(value);
-    return undefined;
-  }
-}
-
-function templateEventHandlerMatches(strings: readonly string[], valueIndex: number, marker: string): boolean {
-  return (strings[valueIndex] ?? "").includes(marker) || (strings[valueIndex + 1] ?? "").includes(marker);
-}
-
-function isTemplateEventHandler<E extends Event>(value: unknown): value is TemplateEventHandler<E> {
-  return typeof value === "function";
-}
-
-class FakeHTMLInputElement extends EventTarget {
-  constructor(readonly value: string) {
-    super();
-  }
-}
-
-class EventWithTarget extends Event {
-  constructor(type: string, private readonly eventTarget: EventTarget) {
-    super(type);
-  }
-
-  override get target(): EventTarget {
-    return this.eventTarget;
-  }
+function clickButton(panel: SettingsShortcutsPanel, label: string): void {
+  const button = [...renderPanel(panel).querySelectorAll("button")].find((item) => item.textContent.trim() === label);
+  if (button === undefined) throw new Error(`Missing ${label} button`);
+  button.click();
 }
 
 function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
