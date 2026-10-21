@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ let response: unknown;
 let daemonRequest: ReturnType<typeof vi.fn<SessionProxyDaemon["request"]>>;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "pi-web-managed-terminal-proxy-"));
+  root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-terminal-proxy-")));
   app = Fastify({ logger: false });
   context = { user: { id: "user", rootUserId: "owner", roles: [], permissions: [] }, projects: [{ id: "managed", name: "Managed" }], tools: { allow: ["terminal-command-runs"] } };
   response = { id: "run", projectId: "managed", status: "running" };

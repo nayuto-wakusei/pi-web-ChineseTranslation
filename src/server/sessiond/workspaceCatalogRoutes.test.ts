@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -208,7 +208,7 @@ describe("local management route isolation", () => {
 
   beforeEach(async () => {
     app = Fastify({ logger: false });
-    projectRoot = await mkdtemp(join(tmpdir(), "pi-web-managed-catalog-"));
+    projectRoot = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-catalog-")));
     resolvedProject = undefined;
     registerWorkspaceCatalogRoutes(app, {
       projects: { requireProject: (projectId) => projectId === normalProject.id ? Promise.resolve(normalProject) : Promise.reject(new Error("Project not found")) },

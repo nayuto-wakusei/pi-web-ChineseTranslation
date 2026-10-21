@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -125,7 +125,7 @@ describe("local management route isolation", () => {
 
   beforeEach(async () => {
     app = Fastify({ logger: false });
-    projectRoot = await mkdtemp(join(tmpdir(), "pi-web-managed-removal-"));
+    projectRoot = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-removal-")));
     removedProject = undefined;
     removedManagementContext = undefined;
     mutatedScope = undefined;

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -21,7 +21,7 @@ describe("managed agent tools", () => {
     expect(managedHostPath("/workspace/project", "/workspace/project-other/file.txt")).toBe(resolve("/workspace/project", "project-other/file.txt"));
   });
   it("allows file tools inside the managed workspace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-managed-tools-")));
     await writeFile(join(root, "README.md"), "hello");
     const options = createManagedAgentToolOptions(root);
 

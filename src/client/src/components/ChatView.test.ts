@@ -288,7 +288,7 @@ describe("ChatView notification tray wiring", () => {
 describe("chatMessageMetadataLabel", () => {
   it("uses one full date and model label without a model prefix", () => {
     const timestamp = "2026-07-10T19:15:30.000Z";
-    const formattedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
+    const formattedTimestamp = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
 
     expect(chatMessageMetadataLabel({
       role: "assistant",
@@ -299,7 +299,7 @@ describe("chatMessageMetadataLabel", () => {
 
   it("appends the localized thinking level after the model when present", () => {
     const timestamp = "2026-07-10T19:15:30.000Z";
-    const formattedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
+    const formattedTimestamp = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
 
     expect(chatMessageMetadataLabel({
       role: "assistant",
