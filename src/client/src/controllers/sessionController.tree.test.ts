@@ -45,6 +45,10 @@ describe("SessionController message history actions", () => {
       ...defaultApi,
       runCommand: () => Promise.resolve({ type: "tree", tree }),
       forkTree,
+      messages: () => Promise.resolve({ messages: [], start: 0, total: 0 }),
+      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
       () => state,
@@ -59,6 +63,7 @@ describe("SessionController message history actions", () => {
 
     expect(forkTree).toHaveBeenCalledTimes(1);
     expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1" }, "local");
+    expect(state.selectedSession?.id).toBe(replacementSession.id);
   });
 });
 

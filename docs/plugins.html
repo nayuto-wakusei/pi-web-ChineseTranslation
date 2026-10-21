@@ -353,8 +353,21 @@ pi-web plugins safe-start clear --restart</code></pre></div>
 </div>
         </div>
       </section>
-    <section id="chinese-language-plugin" class="section"><h2>中文语言插件</h2><p>内置 <code>zh-cn</code> 默认启用；在有效机器配置设置 <code>"plugins": { "zh-cn": { "enabled": false } }</code> 可恢复英文。缺失词条回退英文，不新增语言选择器或配置文件。</p><p>浏览器使用网关机器的语言，不随所选远端机器切换。CLI 与服务端各自读取所属机器配置；远端提示原样保留，不翻译用户内容、模型回复、第三方输出、命令、错误码或协议字段。</p><p>修改后刷新网页、下次启动 CLI，并重启 <code>pi-web-sessiond.service</code> 及 Web 服务（开发安装为 <code>pi-web-ui-dev.service</code>），确保二者使用相同有效 <code>PI_WEB_CONFIG</code>。不支持运行中热切换。</p></section>
-<section class="section"><h2>插件翻译接口</h2><p>激活上下文可选 <code>translate(key, englishFallback, params)</code> 使用稳定键及命名参数，旧 API 兼容。语言插件通过 <code>localizations</code> 提供纯文本词典，不扫描 DOM，不注入 HTML。服务端按自身机器配置翻译自有提示；Node 只读取 JSON，不执行浏览器入口。不得猜测翻译用户或远端内容。</p></section>
+      <section id="chinese-language-plugin" class="section">
+        <div class="container">
+          <h2>中文语言插件</h2>
+          <p>内置 <code>zh-cn</code> 默认启用；在有效机器配置设置 <code>"plugins": { "zh-cn": { "enabled": false } }</code> 可恢复英文。缺失词条回退英文，不新增语言选择器或配置文件。</p>
+          <p>浏览器使用网关机器的语言，不随所选远端机器切换。CLI 与服务端各自读取所属机器配置；远端提示原样保留，不翻译用户内容、模型回复、第三方输出、命令、错误码或协议字段。</p>
+          <p>修改后刷新网页、下次启动 CLI，并重启 <code>pi-web-sessiond.service</code> 及 Web 服务（开发安装为 <code>pi-web-ui-dev.service</code>），确保二者使用相同有效 <code>PI_WEB_CONFIG</code>。不支持运行中热切换。</p>
+        </div>
+      </section>
+      <section class="section">
+        <div class="container">
+          <h2>插件翻译接口</h2>
+          <p>激活上下文可选 <code>translate(key, englishFallback, params)</code> 使用稳定键及命名参数，旧 API 兼容。语言插件通过 <code>localizations</code> 提供纯文本词典，不扫描 DOM，不注入 HTML。服务端按自身机器配置翻译自有提示；Node 只读取 JSON，不执行浏览器入口。不得猜测翻译用户或远端内容。</p>
+          <p>浏览器插件可从 <code>@chainingintention/pi-web-cn/plugin-api</code> 使用 <code>import type</code> 导入 <code>Translator</code>、<code>TranslationParameters</code>、<code>TranslationMessages</code> 和 <code>LocalizationContribution</code>；服务端入口 <code>@chainingintention/pi-web-cn/server-plugin-api</code> 导出前两项。通过上下文调用翻译器，不要导入宿主内部的 <code>createTranslator</code> 或私有 <code>dist/</code> 路径。上下文的 <code>translate</code> 保持可选，兼容未提供该能力的旧宿主。</p>
+        </div>
+      </section>
 </main>
     <footer class="site-footer">
       <div class="container footer-inner">

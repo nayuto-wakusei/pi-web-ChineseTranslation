@@ -10,6 +10,8 @@
 
 浏览器插件可通过激活上下文的可选 `translate(key, englishFallback, params)` 使用稳定消息键和命名参数；未提供翻译器或词条缺失时使用英文。语言插件以 `localizations` 贡献纯文本词典，不扫描 DOM 或注入 HTML。服务端激活上下文也可提供 `translate`，按所属机器配置格式化自有提示。旧插件 API 仍兼容；不要翻译用户输入、模型回复或代理转发的远端响应。Node 端只读取随包的 JSON 词典，不执行浏览器入口。
 
+浏览器插件需要显式声明翻译类型时，可从公开入口 `@chainingintention/pi-web-cn/plugin-api` 使用 `import type` 导入 `Translator`、`TranslationParameters`、`TranslationMessages` 和 `LocalizationContribution`；服务端入口 `@chainingintention/pi-web-cn/server-plugin-api` 导出前两项。通过上下文调用翻译器，不要导入宿主内部的 `createTranslator` 或私有 `dist/` 路径。上下文的 `translate` 保持可选，兼容未提供该能力的旧宿主。
+
 <a id="what-can-be-built"></a>
 ## 可实现的功能
 
