@@ -17,7 +17,7 @@ import { PluginBackendRegistry } from "./plugins/pluginBackendRegistry.js";
 import type { ServerPluginPairedBackendContribution } from "./plugins/serverPluginRuntime.js";
 import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import type { Project } from "./types.js";
-import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
+import { handleWebSocketError, installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { WorkspaceProviderRegistry } from "./workspaces/workspaceProviderRegistry.js";
 
 const project: Project = {
@@ -215,7 +215,7 @@ async function createTopology(
 
 async function websocketApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  await app.register(fastifyWebsocket);
+  await app.register(fastifyWebsocket, { errorHandler: handleWebSocketError });
   installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
   return app;
 }

@@ -64,6 +64,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
     selectMainView: vi.fn((view: AppState["mainView"]) => { calls.push(`selectMainView:${view}`); }),
     selectWorkspaceTool: vi.fn((tool: QualifiedContributionId) => { calls.push(`selectWorkspaceTool:${tool}`); }),
     openTerminal: vi.fn((options?: { terminalId?: string | undefined }) => { calls.push(`openTerminal:${options?.terminalId ?? ""}`); }),
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- The context fixture must retain the supported legacy callback.
     refreshFiles: vi.fn(() => { calls.push("refreshFiles"); }),
     refreshGit: vi.fn(() => { calls.push("refreshGit"); }),
     refreshWorkspacePanels: vi.fn(() => { calls.push("refreshWorkspacePanels"); }),

@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import type { FastifyRequest } from "fastify";
 import { WebSocket, type Data, type RawData, type WebSocketServer } from "ws";
 import {
   boundedPluginBackendChannelCloseReason,
@@ -14,6 +15,15 @@ import {
 
 const pluginChannelLimitedServers = new WeakSet<WebSocketServer>();
 const pendingPluginBackendChannelUpgrades = new WeakSet<IncomingMessage>();
+
+export function handleWebSocketError(error: Error, socket: WebSocket, request: Pick<FastifyRequest, "log">): void {
+  request.log.error(error);
+  // ws starts its protocol close handshake before emitting receiver errors.
+  // Terminating here would discard the close frame (for example 1009).
+  if (socket.readyState === WebSocket.CLOSING && "code" in error
+    && typeof error.code === "string" && error.code.startsWith("WS_ERR_")) return;
+  socket.terminate();
+}
 
 export class PluginBackendChannelTransportFrameError extends Error {
   override name = "PluginBackendChannelTransportFrameError";

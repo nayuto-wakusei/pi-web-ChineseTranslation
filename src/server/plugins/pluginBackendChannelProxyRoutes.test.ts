@@ -10,7 +10,7 @@ import {
   serializePluginBackendChannelDataEnvelope,
 } from "../../shared/pluginBackendProtocol.js";
 import { PluginBackendChannelProxyAdmissionPool } from "./pluginBackendChannelProxyAdmission.js";
-import { installPluginBackendChannelWebSocketPayloadLimit } from "../webSocketBridge.js";
+import { handleWebSocketError, installPluginBackendChannelWebSocketPayloadLimit } from "../webSocketBridge.js";
 import { registerPluginBackendChannelProxyRoutes } from "./pluginBackendChannelProxyRoutes.js";
 import { decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 
@@ -20,7 +20,7 @@ let sockets: WebSocket[];
 
 beforeEach(async () => {
   app = Fastify({ logger: false });
-  await app.register(fastifyWebsocket);
+  await app.register(fastifyWebsocket, { errorHandler: handleWebSocketError });
   installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
   upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await waitForListening(upstream);

@@ -98,6 +98,7 @@ describe("fork installation and documentation build", () => {
       const requirements = window.document.querySelector("#requirements").textContent;
       expect(requirements).toContain("0.86.1");
       expect(requirements).toContain("0.87.0");
+      expect(requirements).toContain("1.3.0");
       expect(requirements).not.toContain(">=0.87.0");
       expect(window.document.querySelector("#one-line-install").textContent).toContain(
         "https://raw.githubusercontent.com/nayuto-wakusei/pi-web-ChineseTranslation/main/install.sh",

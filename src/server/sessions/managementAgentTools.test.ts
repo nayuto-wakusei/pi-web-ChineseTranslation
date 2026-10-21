@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { createManagedAgentToolOptions, createManagedBashToolDefinition, managedHostPath } from "./managementAgentTools.js";
 import * as managementSandbox from "./managementSandbox.js";
@@ -150,8 +150,8 @@ function managementContext(): ManagementEmbedContext {
   };
 }
 
-function unusedExtensionContext(): ExtensionContext {
+function unusedExtensionContext(): ExtensionToolContext {
   const sessionManager = { getSessionId: () => "session-1", getSessionFile: () => undefined };
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- execute requires a context the bash tool does not read.
-  return { sessionManager } as unknown as ExtensionContext;
+  return { sessionManager } as unknown as ExtensionToolContext;
 }

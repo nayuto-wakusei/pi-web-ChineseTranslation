@@ -9,7 +9,7 @@ PI WEB 的中文本地化分支，保留上游功能，并将核心界面与内�
 
 **PI WEB 是 [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) 的 Web 界面，让代理会话持续运行在机器或服务器的真实工作区中。**
 
-内置运行时支持已测试的 Pi `0.86.1` 或 `0.87.0`。每个会话守护进程独占 `PI_WEB_DATA_DIR`，并发实例必须使用独立数据目录和 daemon endpoint。
+内置运行时支持 Pi `0.86.1`、`0.87.0` 或 `1.3.0`，开发依赖使用 `1.3.0`。每个会话守护进程独占 `PI_WEB_DATA_DIR`，并发实例必须使用独立数据目录和 daemon endpoint。
 
 让代理在代码、工具、凭据和构建缓存所在的机器工作，从任何浏览器监督。
 
@@ -33,7 +33,7 @@ PI WEB 的中文本地化分支，保留上游功能，并将核心界面与内�
 
 ## 快速开始
 
-需要 Node.js 22.19.0 或更新版本、npm、为当前用户配置的 Pi Coding Agent `0.86.1` 或 `0.87.0`，以及 Git 和项目所需开发工具。
+需要 Node.js 22.19.0 或更新版本、npm、为当前用户配置的 Pi Coding Agent `0.86.1`、`0.87.0` 或 `1.3.0`，以及 Git 和项目所需开发工具。
 
 安装并启动用户服务：
 

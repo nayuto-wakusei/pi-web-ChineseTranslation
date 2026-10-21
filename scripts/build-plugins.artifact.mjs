@@ -280,7 +280,14 @@ async function bundledServerPlugins(pluginsRoot) {
   const plugins = [];
   for (const entry of await readdir(pluginsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const metadata = JSON.parse(await readFile(join(pluginsRoot, entry.name, "package.json"), "utf8"));
+    let content;
+    try {
+      content = await readFile(join(pluginsRoot, entry.name, "package.json"), "utf8");
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+      throw error;
+    }
+    const metadata = JSON.parse(content);
     if (!isRecord(metadata)) throw new Error(`Bundled plugin package metadata is invalid: ${entry.name}`);
     const piWeb = metadata["piWeb"];
     if (!isRecord(piWeb)) continue;

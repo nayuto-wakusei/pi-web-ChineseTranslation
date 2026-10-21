@@ -536,6 +536,7 @@ function runtimeContext(patch: Partial<PluginRuntimeContext> = {}): PluginRuntim
     selectWorkspaceTool: noop,
     openTerminal: noop,
     refreshGit: noop,
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- The context fixture must retain the supported legacy callback.
     refreshFiles: noop,
     refreshWorkspacePanels: noop,
     refreshAppData: noop,

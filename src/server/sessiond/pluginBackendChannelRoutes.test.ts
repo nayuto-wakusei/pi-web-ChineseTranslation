@@ -15,7 +15,7 @@ import { PluginBackendRegistry } from "../plugins/pluginBackendRegistry.js";
 import type { ServerPluginPairedBackendContribution } from "../plugins/serverPluginRuntime.js";
 import type { Project } from "../types.js";
 import { WorkspaceProviderRegistry } from "../workspaces/workspaceProviderRegistry.js";
-import { installPluginBackendChannelWebSocketPayloadLimit } from "../webSocketBridge.js";
+import { handleWebSocketError, installPluginBackendChannelWebSocketPayloadLimit } from "../webSocketBridge.js";
 import { registerPluginBackendChannelRoutes } from "./pluginBackendChannelRoutes.js";
 
 const project: Project = {
@@ -30,7 +30,7 @@ let sockets: WebSocket[];
 
 beforeEach(async () => {
   app = Fastify({ logger: false });
-  await app.register(fastifyWebsocket);
+  await app.register(fastifyWebsocket, { errorHandler: handleWebSocketError });
   installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
   sockets = [];
 });

@@ -2820,6 +2820,7 @@ export class PiWebApp extends LitElement {
       navigate: (destination) => this.navigate(destination),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
       openTerminal: (options) => { this.openTerminal(options); },
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- Implement the supported legacy callback without encouraging new callers.
       refreshFiles: () => this.invalidateSelectedWorkspaceFiles(),
       refreshGit: () => this.invalidateWorkspacePanels(),
       refreshWorkspacePanels: (panelId) => this.invalidateWorkspacePanels(panelId),

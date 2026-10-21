@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { createManagementPermissionSystemPolicy, managementAgentToolNames } from "../sessions/managementPermissionSystem.js";
 import { WorkbenchMcpClient } from "./mcpClient.js";
@@ -110,7 +110,7 @@ function harness(patch: Partial<AuthorizedResource> = {}) {
   return { state, getState, tools, tool, issueToken, retrieve, ragflow, invalidate, logger, audit };
 }
 
-function context(): ExtensionContext {
+function context(): ExtensionToolContext {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the controlled tool does not read extension context.
-  return {} as ExtensionContext;
+  return {} as ExtensionToolContext;
 }

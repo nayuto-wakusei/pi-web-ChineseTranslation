@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
-import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
+import { handleWebSocketError, installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
 import { registerWorkspaceActivityRoutes } from "./activity/workspaceActivityRoutes.js";
 import { MachineStatusService } from "./status/machineStatusService.js";
@@ -122,7 +122,7 @@ const serverPluginCatalog = new PiWebPluginCatalog({
   configProvider: () => config,
   warningSink: (message) => { app.log.warn({ component: "server-plugins" }, message); },
 });
-await app.register(fastifyWebsocket);
+await app.register(fastifyWebsocket, { errorHandler: handleWebSocketError });
 installPluginBackendChannelWebSocketPayloadLimit(app.websocketServer);
 let runtimeShutdown: (() => Promise<void>) | undefined;
 let pendingShutdownSignal: NodeJS.Signals | undefined;

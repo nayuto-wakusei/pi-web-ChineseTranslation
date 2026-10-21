@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
 import type { AuthorizedResource, WorkbenchAgentAccessState } from "./types.js";
@@ -266,9 +266,9 @@ describe("Workbench controlled tools", () => {
   });
 });
 
-function extensionContext(): ExtensionContext {
+function extensionContext(): ExtensionToolContext {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the controlled tool does not read extension context.
-  return {} as ExtensionContext;
+  return {} as ExtensionToolContext;
 }
 
 function accessState(resources: AuthorizedResource[]): WorkbenchAgentAccessState {

@@ -63,6 +63,8 @@
 
 仅受支持路由列入联邦白名单；并非任意 `/api/...` 都能透传。消息、终端和插件 channel 使用不同 WebSocket 路由，必须同时保持机器和认证作用域。字段及响应以 [apiTypes.ts](../../src/shared/apiTypes.ts) 和具体路由为准，本页不是无版本约束的 REST API 承诺。
 
+Web 与 daemon 使用相同的 WebSocket 错误处理：接收器因协议错误已发起关闭握手时，保留其关闭帧（例如载荷超限的 `1009`），不以立即断开覆盖为 `1006`；其他错误仍终止连接。此处理不放宽插件 channel 的握手帧或数据帧限额。
+
 本机能力同时保留传统 `/api/...` 与 `/api/machines/local/...` 别名；远端走 `/api/machines/:machineId/...` 代理。新增机器 HTTP/WS 端点必须同步 `src/shared/federatedRoutes.ts`、本机路由注册、客户端和联邦路由契约测试。
 
 浏览器传输统一在 `src/client/src/api/`：`clients.ts` 管理端点族，`urls.ts` 构造地址，`http.ts` 管理 HTTP/认证作用域，`sockets.ts` 管理 socket。共享请求/响应类型放在 `src/shared/apiTypes.ts`；响应视为不可信输入，在 `parsers.ts` 或其子模块校验，不能在组件或 controller 中强制类型转换。浏览器 URL 约束：
