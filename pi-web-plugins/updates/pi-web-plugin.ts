@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 import type { TemplateResult } from "lit";
 import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusMessage, PluginRuntimeState, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
 import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor, type CommandEntry, type UpdatesRuntimeHint } from "./updatesLogic.js";
@@ -9,7 +10,7 @@ function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, c
     open: true,
     metadata: { "pi.plugin": "updates" },
   }).catch((error: unknown) => {
-    console.error(`更新插件执行 "${label}" 失败`, error);
+    console.error(t("ui.main.3b3df75b9391", "Updates plugin failed to run \"{arg0}\"", { arg0: label }), error);
   });
 }
 
@@ -18,7 +19,7 @@ async function copyCommandToClipboard(command: string, target: EventTarget | nul
   const copied = await writeClipboard(command);
   if (button === undefined) return;
   const original = button.textContent;
-  button.textContent = copied ? "已复制" : "复制失败";
+  button.textContent = copied ? t("ui.toolExecutionView.copied", "Copied") : t("bundled.updates.copy.failed.753d8b", "Copy failed");
   window.setTimeout(() => {
     button.textContent = original;
   }, 1200);
@@ -70,17 +71,17 @@ function copyWithSelectionFallback(text: string): boolean {
 }
 
 function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus): TemplateResult {
-  const label = component.component === "sessiond" ? "会话守护进程" : "Web/界面";
+  const label = component.component === "sessiond" ? t("bundled.updates.session.daemon.757666", "Session daemon") : t("bundled.updates.web.ui.86d6a2", "Web/UI");
   const status = !component.available
-    ? "不可用"
+    ? t("bundled.info.unavailable.460b35", "Unavailable")
     : component.stale
-      ? "需要重启"
-      : "当前版本";
+      ? t("bundled.info.restart.needed.1ffd00", "Restart needed")
+      : t("bundled.info.current.837bc9", "Current");
   return html`
     <div class="updates-version-row">
       <strong>${label}</strong>
       <span>${status}</span>
-      <small>运行中 ${formatVersion(component.runtimeVersion)} · 已安装 ${formatVersion(component.installedVersion)}</small>
+      <small>${t("ui.toolExecutionView.running", "Running")} ${formatVersion(component.runtimeVersion)}${t("ui.main.b2a2f69aef6f", " · installed ")}${formatVersion(component.installedVersion)}</small>
       <small>${installationLabel(component.installation)}${component.installation?.path === undefined ? "" : ` · ${component.installation.path}`}</small>
     </div>
   `;
@@ -89,8 +90,8 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
 function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <span class="updates-command-actions">
-      <button @click=${(event?: Event) => { void copyCommandToClipboard(command, event?.currentTarget); }}>复制</button>
-      ${terminal === undefined ? null : html`<button class="primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>运行</button>`}
+      <button @click=${(event?: Event) => { void copyCommandToClipboard(command, event?.currentTarget); }}>${t("bundled.updates.copy.63d90d", "Copy")}</button>
+      ${terminal === undefined ? null : html`<button class="primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>${t("bundled.workspace-tasks.run.75b269", "Run")}</button>`}
     </span>
   `;
 }
@@ -126,14 +127,14 @@ function renderNotice(html: HtmlTemplateTag, message: PiWebStatusMessage): Templ
 }
 
 function renderNotices(html: HtmlTemplateTag, messages: readonly PiWebStatusMessage[]): TemplateResult {
-  return html`<section>${messages.length === 0 ? html`<p class="muted">没有 PI WEB 更新或重启消息。</p>` : messages.map((message) => renderNotice(html, message))}</section>`;
+  return html`<section>${messages.length === 0 ? html`<p class="muted">${t("bundled.updates.no.pi.web.update.or.restart.messages.a2f50d", "No PI WEB update or restart messages.")}</p>` : messages.map((message) => renderNotice(html, message))}</section>`;
 }
 
 function renderRecommended(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, recommended: CommandEntry, messages: readonly PiWebStatusMessage[]): TemplateResult {
   return html`
     <section class="updates-recommended">
-      <strong>推荐</strong>
-      ${messages.length === 0 ? html`<p class="muted">运行这一条命令即可将当前安装更新到最新状态。不需要其他操作。</p>` : messages.map((message) => renderNotice(html, message))}
+      <strong>${t("bundled.updates.recommended.1452de", "Recommended")}</strong>
+      ${messages.length === 0 ? html`<p class="muted">${t("bundled.updates.run.this.command.to.bring.the.current.installation.up.to.date.no..99197c", "Run this command to bring the current installation up to date. No other steps are required.")}</p>` : messages.map((message) => renderNotice(html, message))}
       ${renderCommand(html, terminal, recommended.label, recommended.command)}
     </section>
   `;
@@ -143,8 +144,8 @@ function renderAdditionalCommands(html: HtmlTemplateTag, terminal: WorkspacePane
   if (additional.length === 0) return undefined;
   return html`
     <section>
-      <strong>${hasRecommended ? "其他命令（可选）" : "建议命令"}</strong>
-      ${hasRecommended ? html`<p class="muted">仅在需要更细粒度控制时使用，例如只重启某个服务。</p>` : null}
+      <strong>${hasRecommended ? t("ui.main.7ccbaa176fa0", "Additional commands (optional)") : t("bundled.updates.suggested.commands.d22916", "Suggested commands")}</strong>
+      ${hasRecommended ? html`<p class="muted">${t("bundled.updates.use.only.for.finer.control.such.as.restarting.a.single.service.f2c8d9", "Use only for finer control, such as restarting a single service.")}</p>` : null}
       ${additional.map((entry) => renderCommand(html, terminal, entry.label, entry.command))}
     </section>
   `;
@@ -154,8 +155,8 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
   const status = statusFor(state) ?? fallbackDockerStatus(runtimeHint);
   if (status === undefined) {
     return html`
-      <section class="toolbar"><strong>更新</strong></section>
-      <section class="viewer"><p class="muted">正在检查 PI WEB 更新状态…</p></section>
+      <section class="toolbar"><strong>${t("bundled.updates.updates.3055a0", "Updates")}</strong></section>
+      <section class="viewer"><p class="muted">${t("bundled.updates.checking.pi.web.update.status.24e243", "Checking PI WEB update status...")}</p></section>
     `;
   }
 
@@ -186,12 +187,12 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
         .updates-command > span { grid-column: 1 / -1; }
       }
     </style>
-    <section class="toolbar"><strong>更新</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
+    <section class="toolbar"><strong>${t("bundled.updates.updates.3055a0", "Updates")}</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
     <section class="viewer updates-status">
       ${recommended === undefined ? renderNotices(html, messages) : renderRecommended(html, terminal, recommended, messages)}
 
       <section>
-        <strong>已安装服务</strong>
+        <strong>${t("bundled.updates.installed.services.ef70c6", "Installed services")}</strong>
         ${renderComponent(html, status.components.web)}
         ${renderComponent(html, status.components.sessiond)}
       </section>
@@ -199,42 +200,42 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
       ${renderAdditionalCommands(html, terminal, additional, recommended !== undefined)}
 
       <section class="updates-meta">
-        <span>生成时间 ${status.generatedAt}</span>
-        ${status.release.latestVersion === undefined ? null : html`<span>最新 npm 版本 ${status.release.latestVersion}</span>`}
-        ${status.release.checkedAt === undefined || status.release.skipped === true ? null : html`<span>发布检查时间 ${status.release.checkedAt}</span>`}
-        ${status.release.skipped === true ? html`<span>远程版本检查已跳过。</span>` : null}
-        ${status.release.error === undefined ? null : html`<span>远程版本检查失败：${status.release.error}</span>`}
+        <span>${t("ui.main.2213d2e64aff", "Generated")} ${status.generatedAt}</span>
+        ${status.release.latestVersion === undefined ? null : html`<span>${t("ui.main.f7047c4cb0e0", "Latest npm release")} ${status.release.latestVersion}</span>`}
+        ${status.release.checkedAt === undefined || status.release.skipped === true ? null : html`<span>${t("ui.main.58006f4511ed", "Release checked")} ${status.release.checkedAt}</span>`}
+        ${status.release.skipped === true ? html`<span>${t("bundled.updates.remote.version.check.skipped.66de71", "Remote version check skipped.")}</span>` : null}
+        ${status.release.error === undefined ? null : html`<span>${t("ui.main.30c7a262a7d1", "Remote version check failed:")}${status.release.error}</span>`}
       </section>
     </section>
   `;
 }
 
 function severityLabel(severity: string): string {
-  if (severity === "warning") return "警告";
-  if (severity === "error") return "错误";
+  if (severity === "warning") return t("client.sessionNotifications.warning.a8b7a4", "Warning");
+  if (severity === "error") return t("client.sessionNotifications.error.0bc1fb", "Error");
   return severity;
 }
 
 const plugin = {
   apiVersion: 4,
-  name: "更新",
-  activate: ({ html, svg }) => ({
+  name: t("bundled.updates.updates.3055a0", "Updates"),
+  activate: ({ html, svg, translate }) => { setTranslator(translate); return ({
     contributions: {
       actions: [
         {
           id: "check",
-          title: "检查 PI WEB 更新",
-          description: "忽略缓存的发布信息，立即检查所选机器",
-          group: "更新",
+          title: t("bundled.updates.check.for.pi.web.updates.2062d8", "Check for PI WEB updates"),
+          description: t("bundled.updates.check.the.selected.machine.now.ignoring.cached.release.informatio.e12ea5", "Check the selected machine now, ignoring cached release information"),
+          group: t("bundled.updates.updates.3055a0", "Updates"),
           enabled: (context) => context.checkForPiWebUpdates !== undefined,
-          disabledReason: () => "检查更新需要较新版本的 PI WEB 网关",
+          disabledReason: () => t("bundled.updates.checking.for.updates.requires.a.newer.pi.web.gateway.0a72c8", "Checking for updates requires a newer PI WEB gateway"),
           run: (context) => context.checkForPiWebUpdates?.(),
         },
       ],
       workspacePanels: [
         {
           id: "workspace.updates",
-          title: "更新",
+          title: t("bundled.updates.updates.3055a0", "Updates"),
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 6v5h-5"></path>
@@ -253,7 +254,7 @@ const plugin = {
         },
       ],
     },
-  }),
+  }); },
 } satisfies PiWebPlugin;
 
 export default plugin;

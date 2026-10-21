@@ -1,3 +1,4 @@
+import { createTranslator, UserFacingError, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { Machine, MachineHealth, MachineRuntime, PiWebComponentStatus, PiWebDeprecatedAgentInput, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebStatusResponse } from "../../shared/apiTypes.js";
 import { parsePiWebRuntimeResponse } from "../../shared/piWebStatusParsing.js";
 import { getPiWebRuntime } from "../piWebStatus.js";
@@ -14,6 +15,7 @@ export interface CreateMachineInput {
 export type UpdateMachineInput = Partial<CreateMachineInput>;
 
 export interface MachineServiceDependencies {
+  translate?: Translator;
   localRuntime?: () => Promise<PiWebRuntimeResponse>;
   remoteClientFactory?: (machine: StoredMachine) => MachineClient;
   now?: () => Date;
@@ -25,10 +27,13 @@ const LOCAL_MACHINE_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 const DEFAULT_HEALTH_CACHE_TTL_MS = 5_000;
 
 export class MachineService {
+  private readonly translate: Translator;
   private readonly healthCache = new Map<string, { expiresAt: number; health: MachineHealth }>();
   private readonly runtimeCache = new Map<string, { expiresAt: number; runtime: MachineRuntime }>();
 
-  constructor(private readonly store = new MachineStore(), private readonly deps: MachineServiceDependencies = {}) {}
+  constructor(private readonly store = new MachineStore(), private readonly deps: MachineServiceDependencies = {}) {
+    this.translate = deps.translate ?? createTranslator("en", {});
+  }
 
   async list(): Promise<Machine[]> {
     return [localMachine(), ...(await this.store.list()).map(publicMachine)];
@@ -48,7 +53,7 @@ export class MachineService {
   }
 
   async update(id: string, input: UpdateMachineInput): Promise<Machine | undefined> {
-    if (id === "local") throw new Error("Local machine cannot be changed");
+    if (id === "local") throw new UserFacingError("machineError.localImmutable", "Local machine cannot be changed");
     const patch: Partial<Pick<StoredMachine, "name" | "baseUrl" | "token" | "headers">> = {};
     if (input.name !== undefined) patch.name = validateName(input.name);
     if (input.baseUrl !== undefined) patch.baseUrl = validateBaseUrl(input.baseUrl);
@@ -63,7 +68,7 @@ export class MachineService {
   }
 
   async remove(id: string): Promise<boolean> {
-    if (id === "local") throw new Error("Local machine cannot be deleted");
+    if (id === "local") throw new UserFacingError("machineError.localCannotDelete", "Local machine cannot be deleted");
     const removed = await this.store.remove(id);
     if (removed) {
       this.healthCache.delete(id);
@@ -117,7 +122,7 @@ export class MachineService {
         sessiond: componentStatusFromRuntime(runtime.components.sessiond),
       };
     } catch (error) {
-      return { machineId: "local", ok: false, checkedAt, status: "error", error: errorMessage(error) };
+      return { machineId: "local", ok: false, checkedAt, status: "error", error: userFacingErrorMessage(error, this.translate) };
     }
   }
 
@@ -130,9 +135,9 @@ export class MachineService {
       if (response.statusCode >= 200 && response.statusCode < 300 && isPiWebStatusResponse(response.body)) {
         return { machineId: id, ok: true, checkedAt, status: "online", web: response.body.components.web, sessiond: response.body.components.sessiond };
       }
-      return { machineId: id, ok: false, checkedAt, status: "error", error: `Remote health returned HTTP ${String(response.statusCode)}` };
+      return { machineId: id, ok: false, checkedAt, status: "error", error: this.translate("machineError.healthHttpStatus", "Remote health returned HTTP {status}", { status: response.statusCode }) };
     } catch (error) {
-      return { machineId: id, ok: false, checkedAt, status: "offline", error: errorMessage(error) };
+      return { machineId: id, ok: false, checkedAt, status: "offline", error: userFacingErrorMessage(error, this.translate) };
     }
   }
 
@@ -141,7 +146,7 @@ export class MachineService {
     try {
       return machineRuntime("local", checkedAt, await (this.deps.localRuntime ?? getPiWebRuntime)());
     } catch (error) {
-      return { machineId: "local", ok: false, checkedAt, error: errorMessage(error) };
+      return { machineId: "local", ok: false, checkedAt, error: userFacingErrorMessage(error, this.translate) };
     }
   }
 
@@ -153,14 +158,14 @@ export class MachineService {
       const response = await this.clientFor(machine).requestJson("GET", "/api/pi-web/runtime", undefined, { timeoutMs: DEFAULT_REMOTE_HEALTH_TIMEOUT_MS });
       const runtime = parsePiWebRuntimeResponse(response.body);
       if (response.statusCode >= 200 && response.statusCode < 300 && runtime !== undefined) return machineRuntime(id, checkedAt, runtime);
-      return { machineId: id, ok: false, checkedAt, error: `Remote runtime returned HTTP ${String(response.statusCode)}` };
+      return { machineId: id, ok: false, checkedAt, error: this.translate("machineError.runtimeHttpStatus", "Remote runtime returned HTTP {status}", { status: response.statusCode }) };
     } catch (error) {
-      return { machineId: id, ok: false, checkedAt, error: errorMessage(error) };
+      return { machineId: id, ok: false, checkedAt, error: userFacingErrorMessage(error, this.translate) };
     }
   }
 
   private clientFor(machine: StoredMachine): MachineClient {
-    return this.deps.remoteClientFactory?.(machine) ?? new RemoteMachineClient(machine);
+    return this.deps.remoteClientFactory?.(machine) ?? new RemoteMachineClient(machine, undefined, this.translate);
   }
 
   private now(): Date {
@@ -178,22 +183,22 @@ function publicMachine(machine: StoredMachine): Machine {
 
 function validateName(value: string | undefined): string {
   const name = value?.trim();
-  if (name === undefined || name === "") throw new Error("Machine name is required");
+  if (name === undefined || name === "") throw new UserFacingError("machineError.nameRequired", "Machine name is required");
   return name;
 }
 
 function validateBaseUrl(value: string | undefined): string {
   const raw = value?.trim();
-  if (raw === undefined || raw === "") throw new Error("Machine baseUrl is required");
+  if (raw === undefined || raw === "") throw new UserFacingError("machineError.urlRequired", "Machine baseUrl is required");
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new Error("Machine baseUrl must be a valid URL");
+    throw new UserFacingError("machineError.urlInvalid", "Machine baseUrl must be a valid URL");
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Machine baseUrl must use http or https");
-  if (url.username !== "" || url.password !== "") throw new Error("Machine baseUrl must not include credentials");
-  if (url.search !== "" || url.hash !== "") throw new Error("Machine baseUrl must not include query or hash");
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new UserFacingError("machineError.urlProtocol", "Machine baseUrl must use http or https");
+  if (url.username !== "" || url.password !== "") throw new UserFacingError("machineError.urlCredentials", "Machine baseUrl must not include credentials");
+  if (url.search !== "" || url.hash !== "") throw new UserFacingError("machineError.urlQuery", "Machine baseUrl must not include query or hash");
   return url.href.replace(/\/$/u, "");
 }
 
@@ -206,10 +211,6 @@ function optionalSecrets(input: CreateMachineInput): { token?: string; headers?:
 
 function validateHeaders(value: Record<string, string>): Record<string, string> {
   return validateConfiguredMachineHeaders(value) ?? {};
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function componentStatusFromRuntime(runtime: PiWebRuntimeComponent): PiWebComponentStatus {

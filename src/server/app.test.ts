@@ -76,6 +76,35 @@ afterEach(async () => {
 });
 
 describe("buildApp", () => {
+  it("captures the gateway language at startup and uses English when the plugin is disabled", async () => {
+    const chinese = await app.inject({ method: "GET", url: "/api/files" });
+    expect(chinese.json()).toEqual({ error: "必须提供 cwd 查询参数" });
+    await app.close();
+    piWebConfig = { plugins: { "zh-cn": { enabled: false } } };
+    app = await buildApp({ config: fakeConfigService(), sessionDaemon: fakeSessionDaemon(new ProjectService(new ProjectStore(join(tempDir, "projects.json")))), clientDist: false, logger: false });
+    const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "test-password" } });
+    installDefaultAuthCookie(app, authCookie(setup));
+    const english = await app.inject({ method: "GET", url: "/api/files" });
+    expect(english.json()).toEqual({ error: "cwd query parameter is required" });
+    piWebConfig = { ...piWebConfig, plugins: {} };
+    const unchanged = await app.inject({ method: "GET", url: "/api/files" });
+    expect(unchanged.json()).toEqual({ error: "cwd query parameter is required" });
+  });
+
+  it("does not translate a remote machine error through the Chinese gateway", async () => {
+    const added = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = added.json<{ id: string }>();
+    remoteClient = fakeRemoteClient({
+      request: () => Promise.resolve({
+        statusCode: 404, headers: { "content-type": "application/json" },
+        body: Readable.from([JSON.stringify({ error: "Session not found" })]),
+      }),
+    });
+    const response = await app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/reload`, payload: { cwd: "/repo" } });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "Session not found" });
+  });
+
   it("uses the SPA fallback only for HTML navigation requests", async () => {
     await app.close();
     const clientDist = join(tempDir, "client");
@@ -89,11 +118,11 @@ describe("buildApp", () => {
 
     const missingAsset = await app.inject({ method: "GET", url: "/assets/missing.js", headers: { accept: "*/*" } });
     expect(missingAsset.statusCode).toBe(404);
-    expect(missingAsset.json()).toEqual({ error: "Not Found" });
+    expect(missingAsset.json()).toEqual({ error: "未找到" });
 
     const missingImage = await app.inject({ method: "GET", url: "/missing.png", headers: { accept: "image/*" } });
     expect(missingImage.statusCode).toBe(404);
-    expect(missingImage.json()).toEqual({ error: "Not Found" });
+    expect(missingImage.json()).toEqual({ error: "未找到" });
   });
 
   it("reports effective machine runtime capabilities for remote machines", async () => {
@@ -235,7 +264,7 @@ describe("buildApp", () => {
     const secondSetupResponse = await app.inject({ method: "POST", url: "/api/normal-auth/setup", headers: { cookie }, payload: { password: "other-pass" } });
 
     expect(blockedResponse.statusCode).toBe(401);
-    expect(blockedResponse.json()).toEqual({ error: "Ordinary mode password setup is required" });
+    expect(blockedResponse.json()).toEqual({ error: "需要设置普通模式密码" });
     expect(statusResponse.statusCode).toBe(200);
     expect(statusResponse.json()).toEqual({ configured: false, authenticated: false });
     expect(setupResponse.statusCode).toBe(200);
@@ -492,7 +521,7 @@ describe("buildApp", () => {
 
     const missingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}` });
     expect(missingFileResponse.statusCode).toBe(404);
-    expect(missingFileResponse.json()).toEqual({ error: "Path does not exist" });
+    expect(missingFileResponse.json()).toEqual({ error: "路径不存在" });
 
     const optionalMissingFileResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("missing.txt")}&optional=true` });
     expect(optionalMissingFileResponse.statusCode).toBe(204);
@@ -555,7 +584,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noOverwriteResponse.statusCode).toBe(400);
-    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("文件已存在");
 
     const traversalResponse = await app.inject({
       method: "PUT",
@@ -564,7 +593,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(traversalResponse.statusCode).toBe(400);
-    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+    expect(traversalResponse.json<{ error: string }>().error).toContain("路径穿越");
 
     const noPathResponse = await app.inject({
       method: "PUT",
@@ -573,7 +602,7 @@ describe("buildApp", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noPathResponse.statusCode).toBe(400);
-    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+    expect(noPathResponse.json<{ error: string }>().error).toContain("必须提供 path 查询参数");
 
     const noDirsResponse = await app.inject({
       method: "PUT",

@@ -1,4 +1,5 @@
 import type { TemplateResult } from "lit";
+import type { LocalizationContribution, Translator } from "./shared/i18n.js";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 export type { FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, MachineKind, PiWebComponentStatus, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
 export type PluginId = string;
@@ -16,6 +17,7 @@ export interface PiWebPlugin {
 }
 /** Host-owned frozen values supplied once during browser plugin activation. */
 export interface PluginActivationContext {
+    readonly translate?: Translator;
     readonly apiVersion: 4;
     /** Stable package/source identity, including on federated machines. */
     readonly pluginId: PluginId;
@@ -113,6 +115,7 @@ export interface ContentRenderingCapability {
     renderMarkdown(request: ContentMarkdownRenderRequest): TemplateResult;
 }
 export interface PluginContributions {
+    localizations?: LocalizationContribution[];
     contentRenderers?: ContentRendererContribution[];
     actions?: PluginAction[];
     workspacePanels?: WorkspacePanelContribution[];

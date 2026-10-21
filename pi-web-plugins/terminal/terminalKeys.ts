@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 export type TerminalSoftKeyId =
   | "escape"
   | "tab"
@@ -33,27 +34,27 @@ export interface TerminalSoftKeyDefinition {
 }
 
 export const TERMINAL_SOFT_KEYS: readonly TerminalSoftKeyDefinition[] = [
-  { id: "escape", label: "Esc", ariaLabel: "Escape 键", title: "发送 Escape" },
-  { id: "tab", label: "Tab", ariaLabel: "Tab 键", title: "发送 Tab" },
-  { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Ctrl+C", title: "中断前台进程" },
-  { id: "ctrl-d", label: "Ctrl+D", ariaLabel: "Ctrl+D", title: "发送 EOF / 关闭输入" },
-  { id: "ctrl-z", label: "Ctrl+Z", ariaLabel: "Ctrl+Z", title: "挂起前台进程" },
-  { id: "ctrl-l", label: "Ctrl+L", ariaLabel: "Ctrl+L", title: "清屏 / 重绘终端" },
-  { id: "ctrl-r", label: "Ctrl+R", ariaLabel: "Ctrl+R", title: "反向搜索历史" },
-  { id: "ctrl-u", label: "Ctrl+U", ariaLabel: "Ctrl+U", title: "删除到行首" },
-  { id: "ctrl-w", label: "Ctrl+W", ariaLabel: "Ctrl+W", title: "删除上一个单词" },
-  { id: "arrow-left", label: "←", ariaLabel: "左箭头", title: "向左移动" },
-  { id: "arrow-up", label: "↑", ariaLabel: "上箭头", title: "向上移动 / 上一条命令" },
-  { id: "arrow-down", label: "↓", ariaLabel: "下箭头", title: "向下移动 / 下一条命令" },
-  { id: "arrow-right", label: "→", ariaLabel: "右箭头", title: "向右移动" },
-  { id: "home", label: "Home", ariaLabel: "行首键", title: "移动到开头" },
-  { id: "end", label: "End", ariaLabel: "行尾键", title: "移动到末尾" },
-  { id: "page-up", label: "PgUp", ariaLabel: "向上翻页", title: "向上翻页" },
-  { id: "page-down", label: "PgDn", ariaLabel: "向下翻页", title: "向下翻页" },
-  { id: "delete", label: "Del", ariaLabel: "删除键", title: "向前删除" },
-  { id: "backspace", label: "⌫", ariaLabel: "退格键", title: "退格" },
-  { id: "meta-backward-word", label: "M-B", ariaLabel: "Meta+B", title: "向后移动一个单词" },
-  { id: "meta-forward-word", label: "M-F", ariaLabel: "Meta+F", title: "向前移动一个单词" },
+  { id: "escape", label: "Esc", ariaLabel: t("client.terminalKeys.escape.key.78695d", "Escape key"), title: t("client.terminalKeys.send.escape.a69d7f", "Send Escape") },
+  { id: "tab", label: "Tab", ariaLabel: t("client.terminalKeys.tab.key.5b5875", "Tab key"), title: t("client.terminalKeys.send.tab.b37b74", "Send Tab") },
+  { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Ctrl+C", title: t("client.terminalKeys.interrupt.foreground.process.171a44", "Interrupt foreground process") },
+  { id: "ctrl-d", label: "Ctrl+D", ariaLabel: "Ctrl+D", title: t("client.terminalKeys.send.eof.close.input.9b905d", "Send EOF / close input") },
+  { id: "ctrl-z", label: "Ctrl+Z", ariaLabel: "Ctrl+Z", title: t("client.terminalKeys.suspend.foreground.process.a0aaa2", "Suspend foreground process") },
+  { id: "ctrl-l", label: "Ctrl+L", ariaLabel: "Ctrl+L", title: t("client.terminalKeys.clear.redraw.terminal.ef70df", "Clear / redraw terminal") },
+  { id: "ctrl-r", label: "Ctrl+R", ariaLabel: "Ctrl+R", title: t("client.terminalKeys.reverse.history.search.9baa58", "Reverse history search") },
+  { id: "ctrl-u", label: "Ctrl+U", ariaLabel: "Ctrl+U", title: t("client.terminalKeys.delete.to.start.of.line.c2bd72", "Delete to start of line") },
+  { id: "ctrl-w", label: "Ctrl+W", ariaLabel: "Ctrl+W", title: t("client.terminalKeys.delete.previous.word.582578", "Delete previous word") },
+  { id: "arrow-left", label: "←", ariaLabel: t("client.terminalKeys.left.arrow.1978cf", "Left arrow"), title: t("client.terminalKeys.move.left.1db768", "Move left") },
+  { id: "arrow-up", label: "↑", ariaLabel: t("client.terminalKeys.up.arrow.7663cd", "Up arrow"), title: t("client.terminalKeys.move.up.previous.command.326744", "Move up / previous command") },
+  { id: "arrow-down", label: "↓", ariaLabel: t("client.terminalKeys.down.arrow.07c01f", "Down arrow"), title: t("client.terminalKeys.move.down.next.command.1a2b07", "Move down / next command") },
+  { id: "arrow-right", label: "→", ariaLabel: t("client.terminalKeys.right.arrow.e0ed6e", "Right arrow"), title: t("client.terminalKeys.move.right.5ac956", "Move right") },
+  { id: "home", label: "Home", ariaLabel: t("client.terminalKeys.home.key.0c1b1d", "Home key"), title: t("client.terminalKeys.move.to.start.162d77", "Move to start") },
+  { id: "end", label: "End", ariaLabel: t("client.terminalKeys.end.key.aa23a6", "End key"), title: t("client.terminalKeys.move.to.end.ef9a38", "Move to end") },
+  { id: "page-up", label: "PgUp", ariaLabel: t("client.terminalKeys.page.up.d918c1", "Page up"), title: t("client.terminalKeys.page.up.d918c1", "Page up") },
+  { id: "page-down", label: "PgDn", ariaLabel: t("client.terminalKeys.page.down.f03168", "Page down"), title: t("client.terminalKeys.page.down.f03168", "Page down") },
+  { id: "delete", label: "Del", ariaLabel: t("client.terminalKeys.delete.key.1649bc", "Delete key"), title: t("client.terminalKeys.delete.forward.ada4b7", "Delete forward") },
+  { id: "backspace", label: "⌫", ariaLabel: t("client.terminalKeys.backspace.key.e79e22", "Backspace key"), title: t("client.terminalKeys.backspace.d5407b", "Backspace") },
+  { id: "meta-backward-word", label: "M-B", ariaLabel: "Meta+B", title: t("client.terminalKeys.move.backward.one.word.99de53", "Move backward one word") },
+  { id: "meta-forward-word", label: "M-F", ariaLabel: "Meta+F", title: t("client.terminalKeys.move.forward.one.word.f92250", "Move forward one word") },
 ];
 
 const ESC = "\x1b";

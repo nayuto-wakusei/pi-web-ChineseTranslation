@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -96,7 +97,7 @@ export class TerminalService {
   ) {}
 
   bindActivitySink(sink: TerminalActivitySink): void {
-    if (this.activitySink !== undefined) throw new Error("终端活动接收器已绑定");
+    if (this.activitySink !== undefined) throw new Error(t("ui.main.5d3c64acebaa", "Terminal activity sink is already bound"));
     this.activitySink = sink;
   }
 
@@ -108,7 +109,7 @@ export class TerminalService {
   }
 
   closeForCwd(cwd: string): void {
-    if (cwd === "") throw new Error("cwd 不能为空");
+    if (cwd === "") throw new Error(t("ui.main.3554e67956ef", "cwd is required"));
     for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd)) {
       this.closeRecord(terminal);
     }
@@ -129,7 +130,7 @@ export class TerminalService {
     const metadata = parseMetadata(options.metadata);
     const failureNotice = parseFailureNotice(options.failureNotice);
     if (failureNotice !== undefined && this.recordNotice === undefined) {
-      throw new Error("终端命令失败通知不可用");
+      throw new Error(t("ui.main.e4f11dab9de6", "Terminal command failure notices are unavailable"));
     }
     const queued: TerminalCommandRun = {
       id: commandRunId,
@@ -198,7 +199,7 @@ export class TerminalService {
 
   cancelCommandRunForScope(scope: TerminalWorkspaceScope, runId: string): TerminalCommandRun {
     const run = this.getCommandRunForScope(scope, runId);
-    if (run === undefined) throw new Error("此工作区中未找到终端命令运行记录");
+    if (run === undefined) throw new Error(t("ui.main.3bea6b3edcd2", "Terminal command run not found in this workspace"));
     return this.cancelCommandRunRecord(this.requireCommandRun(runId));
   }
 
@@ -249,7 +250,7 @@ export class TerminalService {
     delete record.exitCode;
     delete record.commandRunId;
     record.exited = false;
-    const marker = "\r\n[已继续进入交互式终端]\r\n";
+    const marker = t("ui.main.7e39d66ff416", "\r\n[continued in interactive shell]\r\n");
     record.buffer = trimReplayBuffer(record.buffer + marker);
     record.events.emit("output", marker);
     const shell = interactiveShell();
@@ -277,7 +278,7 @@ export class TerminalService {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined) return;
-    if (!matchesScope(terminal, scope)) throw new Error("此工作区中未找到终端");
+    if (!matchesScope(terminal, scope)) throw new Error(t("ui.main.002ca07f2de5", "Terminal not found in this workspace"));
     this.closeRecord(terminal);
   }
 
@@ -367,21 +368,21 @@ export class TerminalService {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined || !matchesScope(terminal, scope)) {
-      throw new Error("此工作区中未找到终端");
+      throw new Error(t("ui.main.002ca07f2de5", "Terminal not found in this workspace"));
     }
     return terminal;
   }
 
   private requireCommandRun(runId: string): TerminalCommandRun {
     const run = this.commandRuns.get(runId);
-    if (run === undefined) throw new Error("未找到终端命令运行记录");
+    if (run === undefined) throw new Error(t("ui.shared.ca71fd855ae2", "Terminal command run not found"));
     return run;
   }
 
   private cancelCommandRunRecord(run: TerminalCommandRun): TerminalCommandRun {
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
-    if (terminal === undefined) throw new Error("未找到终端");
+    if (terminal === undefined) throw new Error(t("ui.main.970ebf253e68", "Terminal not found"));
     if (!terminal.exited && terminal.cancellationRequested !== true) {
       terminal.cancellationRequested = true;
       try { terminal.pty.write("\x03"); }
@@ -399,7 +400,7 @@ export class TerminalService {
   }
 
   private requireAvailable(): void {
-    if (this.disposed) throw new Error("终端服务已停止");
+    if (this.disposed) throw new Error(t("ui.main.ee0fa7cb477f", "Terminal service is stopped"));
   }
 }
 
@@ -458,9 +459,9 @@ function shellQuote(value: string): string {
 }
 
 function validateScope(scope: TerminalWorkspaceScope): void {
-  if (scope.projectId.trim() === "") throw new Error("projectId 不能为空");
-  if (scope.workspaceId.trim() === "") throw new Error("workspaceId 不能为空");
-  if (scope.cwd.trim() === "") throw new Error("cwd 不能为空");
+  if (scope.projectId.trim() === "") throw new Error(t("ui.main.c785a1f6204e", "projectId is required"));
+  if (scope.workspaceId.trim() === "") throw new Error(t("ui.main.9850b858e3ba", "workspaceId is required"));
+  if (scope.cwd.trim() === "") throw new Error(t("ui.main.3554e67956ef", "cwd is required"));
 }
 
 function matchesScope(record: TerminalWorkspaceScope, scope: TerminalWorkspaceScope): boolean {
@@ -471,18 +472,18 @@ function matchesScope(record: TerminalWorkspaceScope, scope: TerminalWorkspaceSc
 
 function validateCommandRunOptions(options: RunTerminalCommandOptions): void {
   validateScope(options);
-  if (options.origin.trim() === "") throw new Error("origin 不能为空");
-  if (options.title.trim() === "") throw new Error("title 不能为空");
-  if (options.command.trim() === "") throw new Error("command 不能为空");
+  if (options.origin.trim() === "") throw new Error(t("ui.main.0b08e0eda1a4", "origin is required"));
+  if (options.title.trim() === "") throw new Error(t("ui.main.394f110fbd2e", "title is required"));
+  if (options.command.trim() === "") throw new Error(t("ui.main.f3029405fa76", "command is required"));
   parseMetadata(options.metadata);
 }
 
 function parseMetadata(value: unknown): Record<string, string> {
   if (value === undefined || value === null) return {};
-  if (!isRecord(value)) throw new Error("metadata 必须是对象");
+  if (!isRecord(value)) throw new Error(t("ui.main.8aaf09278346", "metadata must be an object"));
   return Object.fromEntries(Object.entries(value).map(([key, metadataValue]) => {
-    if (key.trim() === "") throw new Error("metadata 键不能为空");
-    if (typeof metadataValue !== "string") throw new Error("metadata 值必须是字符串");
+    if (key.trim() === "") throw new Error(t("ui.main.32968c7e6565", "metadata keys must not be empty"));
+    if (typeof metadataValue !== "string") throw new Error(t("ui.main.ca6186d140b2", "metadata values must be strings"));
     return [key, metadataValue];
   }));
 }
@@ -490,10 +491,10 @@ function parseMetadata(value: unknown): Record<string, string> {
 function parseFailureNotice(value: TerminalCommandFailureNotice | undefined): TerminalCommandFailureNotice | undefined {
   if (value === undefined) return undefined;
   if (typeof value.message !== "string" || value.message.trim() === "") {
-    throw new Error("failureNotice message 必须是非空字符串");
+    throw new Error(t("ui.main.b63294884798", "failureNotice message must be a non-empty string"));
   }
   if (!isRecord(value.context) || !Object.values(value.context).every((item) => typeof item === "string")) {
-    throw new Error("failureNotice context 只能包含字符串");
+    throw new Error(t("ui.main.a38dcafc6669", "failureNotice context must contain only strings"));
   }
   return Object.freeze({ message: value.message, context: Object.freeze({ ...value.context }) });
 }

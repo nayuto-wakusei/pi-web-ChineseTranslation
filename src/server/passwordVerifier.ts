@@ -1,7 +1,9 @@
+import type { Translator } from "../shared/i18n.js";
+import { loadNodeTranslator } from "../localization.js";
 import { createHmac, pbkdf2, randomBytes, timingSafeEqual } from "node:crypto";
 
 export class PasswordVerificationBusyError extends Error {
-  constructor() { super("认证服务繁忙，请稍后重试"); }
+  constructor(t: Translator = loadNodeTranslator("server")) { super(t("server.main.d65046b27147", "Authentication service is busy; try again later")); }
 }
 
 /** Bound expensive work separately from HTTP concurrency. Never retain plaintext in the cache. */

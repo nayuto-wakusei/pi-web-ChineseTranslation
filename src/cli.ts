@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { loadNodeTranslator } from "./localization.js";
+import { createTranslator, type Translator } from "./shared/i18n.js";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -133,22 +135,22 @@ function currentServiceBackend(): ServiceBackend | undefined {
   return serviceBackendForPlatform(process.platform);
 }
 
-function requireServiceBackend(command: string): ServiceBackend {
+function requireServiceBackend(command: string, t: Translator = createTranslator("en", {})): ServiceBackend {
   const backend = currentServiceBackend();
   if (backend !== undefined) return backend;
-  throw new Error(`\`${command}\` requires a supported per-user service manager (systemd user services or LaunchAgents) and is not supported on ${platformLabel()}.\n\n${manualRunAdvice()}`);
+  throw new Error(t("service.unsupported", "`{command}` requires a supported per-user service manager (systemd user services or LaunchAgents) and is not supported on {platform}.\n\n{advice}", { command, platform: platformLabel(), advice: manualRunAdvice(t) }));
 }
 
-function manualRunAdvice(): string {
+function manualRunAdvice(t: Translator = createTranslator("en", {})): string {
   return [
-    "Run PI WEB manually from a checkout:",
+    t("manual.checkout", "Run PI WEB manually from a checkout:"),
     "  npm run start:sessiond",
     "  PI_WEB_PORT=8504 npm start",
     "",
-    "For development in one terminal:",
+    t("manual.singleTerminal", "For development in one terminal:"),
     "  npm run dev",
     "",
-    "For split development, keep sessiond separate and run web/API plus Vite UI separately:",
+    t("manual.split", "For split development, keep sessiond separate and run web/API plus Vite UI separately:"),
     "  npm run dev:sessiond",
     "  npm run dev:web",
     "  npm run dev:client",
@@ -204,28 +206,28 @@ function isLingerEnabled(): boolean | undefined {
   return undefined;
 }
 
-function parseInstallOptions(args: string[]): InstallOptions {
+function parseInstallOptions(args: string[], t: Translator = createTranslator("en", {})): InstallOptions {
   const options: InstallOptions = { host: "127.0.0.1", port: "8504", mode: "production" };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === undefined) continue;
     if (arg === "--host") {
       const value = args[i + 1];
-      if (value === undefined) throw new Error("--host requires a value");
+      if (value === undefined) throw new Error(t("install.hostRequired", "--host requires a value"));
       options.host = value;
       i += 1;
     } else if (arg.startsWith("--host=")) {
       options.host = arg.slice("--host=".length);
     } else if (arg === "--port") {
       const value = args[i + 1];
-      if (value === undefined) throw new Error("--port requires a value");
+      if (value === undefined) throw new Error(t("install.portRequired", "--port requires a value"));
       options.port = value;
       i += 1;
     } else if (arg.startsWith("--port=")) {
       options.port = arg.slice("--port=".length);
     } else if (arg === "--config") {
       const value = args[i + 1];
-      if (value === undefined) throw new Error("--config requires a value");
+      if (value === undefined) throw new Error(t("install.configRequired", "--config requires a value"));
       options.config = value;
       i += 1;
     } else if (arg.startsWith("--config=")) {
@@ -235,7 +237,7 @@ function parseInstallOptions(args: string[]): InstallOptions {
     } else if (arg === "--user-systemd") {
       // Accepted for backwards-compatible readability; PI WEB chooses the native user service backend automatically.
     } else {
-      throw new Error(`Unknown install option: ${arg}`);
+      throw new Error(t("install.unknownOption", "Unknown install option: {arg}", { arg: arg }));
     }
   }
   return options;
@@ -329,15 +331,15 @@ function devRootPath(): string {
   return resolve(process.cwd());
 }
 
-function validateDevCheckout(root: string): void {
+function validateDevCheckout(root: string, t: Translator): void {
   const packageJsonPath = join(root, "package.json");
   if (!existsSync(packageJsonPath)) {
-    throw new Error(`Development mode must be installed from a PI WEB checkout. Missing package.json: ${packageJsonPath}`);
+    throw new Error(t("install.checkoutMissing", "Development mode must be installed from a PI WEB checkout. Missing package.json: {path}", { path: packageJsonPath }));
   }
 
   const parsed: unknown = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   if (!isRecord(parsed) || parsed["name"] !== PI_WEB_PACKAGE_NAME) {
-    throw new Error(`Development mode must be installed from a PI WEB checkout. ${packageJsonPath} is not ${PI_WEB_PACKAGE_NAME}.`);
+    throw new Error(t("install.checkoutWrong", "Development mode must be installed from a PI WEB checkout. {path} is not {packageName}.", { path: packageJsonPath, packageName: PI_WEB_PACKAGE_NAME }));
   }
 }
 
@@ -488,10 +490,10 @@ async function uninstallNativeServices(backend: ServiceBackend): Promise<void> {
   else await uninstallLaunchdServices();
 }
 
-function serviceDisplayName(ref: ServiceRef): string {
-  if (ref.id === "sessiond") return "session daemon";
-  if (ref.id === "uiDev") return "UI/API dev server";
-  return "web server";
+function serviceDisplayName(ref: ServiceRef, t: Translator = createTranslator("en", {})): string {
+  if (ref.id === "sessiond") return t("service.sessiond", "session daemon");
+  if (ref.id === "uiDev") return t("service.uiDev", "UI/API dev server");
+  return t("service.web", "web server");
 }
 
 function statusServiceRefs(backend: ServiceBackend): ServiceRef[] {
@@ -503,16 +505,16 @@ function statusServiceRefs(backend: ServiceBackend): ServiceRef[] {
   return serviceRefList(["sessiond"]);
 }
 
-function serviceInstallMode(backend: ServiceBackend): string {
+function serviceInstallMode(backend: ServiceBackend, t: Translator): string {
   const ids = installedServiceIds(backend);
-  if (ids.size === 0) return "not installed";
+  if (ids.size === 0) return t("service.notInstalled", "not installed");
   const hasSessiond = ids.has("sessiond");
   const hasWeb = ids.has("web");
   const hasUiDev = ids.has("uiDev");
-  if (hasWeb && hasUiDev) return "mixed";
-  if (hasUiDev) return hasSessiond ? "development" : "development (incomplete)";
-  if (hasWeb) return hasSessiond ? "production" : "production (incomplete)";
-  return "partial";
+  if (hasWeb && hasUiDev) return t("service.mixed", "mixed");
+  if (hasUiDev) return hasSessiond ? t("service.development", "development") : t("service.developmentIncomplete", "development (incomplete)");
+  if (hasWeb) return hasSessiond ? t("service.production", "production") : t("service.productionIncomplete", "production (incomplete)");
+  return t("service.partial", "partial");
 }
 
 function makeServiceRuntimeStatus(ref: ServiceRef, health: ServiceHealth, detail: string, target: string, filePath: string, pid?: string): ServiceRuntimeStatus {
@@ -586,25 +588,25 @@ function runtimeStatus(backend: ServiceBackend, ref: ServiceRef): ServiceRuntime
   return backend.kind === "systemd" ? systemdRuntimeStatus(backend, ref) : launchdRuntimeStatus(backend, ref);
 }
 
-function printServiceStatus(status: ServiceRuntimeStatus): void {
+function printServiceStatus(status: ServiceRuntimeStatus, t: Translator = createTranslator("en", {})): void {
   const icon = status.health === "running" ? "✓" : "✗";
   const pid = status.pid === undefined ? "" : `, pid ${status.pid}`;
-  console.log(`${icon} ${serviceDisplayName(status.ref)}: ${status.detail} (${status.target}${pid})`);
-  if (status.health === "not-installed") console.log(`  missing service file: ${status.filePath}`);
+  console.log(`${icon} ${serviceDisplayName(status.ref, t)}: ${status.detail} (${status.target}${pid})`);
+  if (status.health === "not-installed") console.log(t("status.missingFile", "  missing service file: {filePath}", { filePath: status.filePath }));
 }
 
-function printServiceStatusReport(backend: ServiceBackend): boolean {
+function printServiceStatusReport(backend: ServiceBackend, t: Translator = createTranslator("en", {})): boolean {
   const refs = statusServiceRefs(backend);
-  console.log(`PI WEB services: ${serviceInstallMode(backend)} (${backend.label})`);
+  console.log(t("status.services", "PI WEB services: {mode} ({backend})", { mode: serviceInstallMode(backend, t), backend: backend.label }));
   if (refs.length === 0) {
-    console.log("✗ no PI WEB service files found");
-    console.log("  Run `pi-web install` or `pi-web install --dev`.");
+    console.log(t("status.noServices", "✗ no PI WEB service files found"));
+    console.log(t("status.installAdvice", "  Run `pi-web install` or `pi-web install --dev`."));
     return false;
   }
 
   const statuses = refs.map((ref) => runtimeStatus(backend, ref));
-  for (const status of statuses) printServiceStatus(status);
-  console.log("\nUse `pi-web logs` for service logs.");
+  for (const status of statuses) printServiceStatus(status, t);
+  console.log(t("status.logsAdvice", "\nUse `pi-web logs` for service logs."));
   return statuses.every((status) => status.health === "running");
 }
 
@@ -665,15 +667,15 @@ function nativeServiceInstallCandidate(
   };
 }
 
-function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure): void {
+function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure, t: Translator): void {
   if (failure.kind === "plan-resolution") {
     for (const item of failure.failures) {
       if (item.kind === "probe-infrastructure") {
-        console.log(`✗ Service-manager probe infrastructure failure (${item.reason}): ${item.message}`);
+        console.log(t("install.probeFailure", "✗ Service-manager probe infrastructure failure ({reason}): {message}", { reason: item.reason, message: item.message }));
       } else if (item.kind === "entrypoint-inspection-failure") {
-        console.log(`✗ Could not inspect bundled ${item.serviceId} entrypoint ${item.entrypointPath}: ${item.message}`);
+        console.log(t("install.entrypointFailure", "✗ Could not inspect bundled {service} entrypoint {path}: {message}", { service: item.serviceId, path: item.entrypointPath, message: item.message }));
       } else {
-        console.log(`✗ ${item.namedCommand} is unavailable to the service manager, and bundled entrypoint ${item.bundledEntrypointPath} is missing.`);
+        console.log(t("install.commandMissing", "✗ {command} is unavailable to the service manager, and bundled entrypoint {path} is missing.", { command: item.namedCommand, path: item.bundledEntrypointPath }));
         if (item.namedCommandFailure !== null) console.log(`  ${item.namedCommandFailure}`);
       }
     }
@@ -682,7 +684,7 @@ function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure):
 
   for (const item of failure.failures) {
     if (item.kind === "probe-infrastructure") {
-      console.log(`✗ Service-manager probe infrastructure failure (${item.reason}): ${item.message}`);
+      console.log(t("install.probeFailure", "✗ Service-manager probe infrastructure failure ({reason}): {message}", { reason: item.reason, message: item.message }));
     } else {
       console.log(`✗ ${item.prerequisite.description}`);
       if (item.detail !== null && item.detail !== item.prerequisite.description) console.log(`  ${item.detail}`);
@@ -690,19 +692,19 @@ function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure):
   }
 }
 
-async function install(args: string[]): Promise<void> {
-  const backend = requireServiceBackend("pi-web install");
-  const options = parseInstallOptions(args);
+async function install(args: string[], t: Translator = createTranslator("en", {})): Promise<void> {
+  const backend = requireServiceBackend("pi-web install", t);
+  const options = parseInstallOptions(args, t);
   const devRoot = options.mode === "dev" ? devRootPath() : undefined;
-  if (devRoot !== undefined) validateDevCheckout(devRoot);
+  if (devRoot !== undefined) validateDevCheckout(devRoot, t);
   const configPath = installConfigPath(options);
   const candidate = nativeServiceInstallCandidate(options, backend, configPath, devRoot);
 
-  console.log(`Running PI WEB ${options.mode} install preflight checks...`);
-  console.log(`Service backend: ${backend.label}`);
-  console.log(`Service shell: ${describeServiceShell()}`);
-  if (!printNodePtyNativeModuleCheck()) {
-    throw new Error("Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail.");
+  console.log(t("install.preflight", "Running PI WEB {mode} install preflight checks...", { mode: options.mode }));
+  console.log(t("service.backend", "Service backend: {label}", { label: backend.label }));
+  console.log(t("service.shell", "Service shell: {value}", { value: describeServiceShell() }));
+  if (!printNodePtyNativeModuleCheck(t)) {
+    throw new Error(t("install.preflightFailed", "Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail."));
   }
   const result = await installNativeServiceCandidate(candidate, {
     probe: createNativeServiceAuthoritativeProbe(),
@@ -711,49 +713,49 @@ async function install(args: string[]): Promise<void> {
     replaceServices: installNativeServices,
   });
   if (!result.ok) {
-    printNativeServiceInstallFailure(result.failure);
-    if (nativeServiceInstallFailureNeedsPathAdvice(result.failure)) printPathSetupAdvice();
-    throw new Error("Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail.");
+    printNativeServiceInstallFailure(result.failure, t);
+    if (nativeServiceInstallFailureNeedsPathAdvice(result.failure)) printPathSetupAdvice(undefined, t);
+    throw new Error(t("install.preflightFailed", "Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail."));
   }
   for (const service of result.plan.services.filter((item) => item.strategy.kind === "configured-override")) {
-    console.log(`! ${service.description} uses a configured command override; preflight did not execute that arbitrary command.`);
+    console.log(t("install.overrideSkipped", "! {service} uses a configured command override; preflight did not execute that arbitrary command.", { service: service.description }));
   }
 
-  console.log(`\nPI WEB ${options.mode} services are installed and starting.`);
-  console.log(`Config: ${configPath}`);
+  console.log(t("install.started", "\nPI WEB {mode} services are installed and starting.", { mode: options.mode }));
+  console.log(t("install.config", "Config: {configPath}", { configPath: configPath }));
   if (options.mode === "dev") {
-    console.log("Open: http://127.0.0.1:8505");
+    console.log(t("install.open", "Open: {url}", { url: "http://127.0.0.1:8505" }));
   } else {
-    console.log(`Open: http://${options.host === "0.0.0.0" ? "127.0.0.1" : options.host}:${options.port}`);
+    console.log(t("install.open", "Open: {url}", { url: `http://${options.host === "0.0.0.0" ? "127.0.0.1" : options.host}:${options.port}` }));
   }
 
   if (backend.kind === "systemd") {
     const linger = isLingerEnabled();
     if (linger === false) {
-      console.log("\nRecommended for server use: keep user services running after logout/reboot:");
+      console.log(t("install.lingerAdvice", "\nRecommended for server use: keep user services running after logout/reboot:"));
       console.log(`  sudo loginctl enable-linger ${userInfo().username}`);
     } else if (linger === undefined) {
-      console.log("\nRecommended for server use: enable systemd user lingering so services survive logout/reboot:");
+      console.log(t("install.enableLinger", "\nRecommended for server use: enable systemd user lingering so services survive logout/reboot:"));
       console.log(`  sudo loginctl enable-linger ${userInfo().username}`);
     }
   }
 
-  console.log("\nUseful commands:");
+  console.log(t("install.commands", "\nUseful commands:"));
   console.log("  pi-web status");
   console.log("  pi-web logs");
   console.log("  pi-web restart");
 }
 
-async function uninstall(): Promise<void> {
-  const backend = requireServiceBackend("pi-web uninstall");
+async function uninstall(t: Translator = createTranslator("en", {})): Promise<void> {
+  const backend = requireServiceBackend("pi-web uninstall", t);
   await uninstallNativeServices(backend);
-  console.log(`PI WEB ${backend.label} removed. Production and development service files were removed; config and data were left in place.`);
+  console.log(t("uninstall.done", "PI WEB {label} removed. Production and development service files were removed; config and data were left in place.", { label: backend.label }));
 }
 
-async function serviceAction(action: "stop" | "status"): Promise<void> {
+async function serviceAction(action: "stop" | "status", t: Translator = createTranslator("en", {})): Promise<void> {
   const backend = requireServiceBackend(`pi-web ${action}`);
   if (action === "status") {
-    if (!printServiceStatusReport(backend)) process.exitCode = 1;
+    if (!printServiceStatusReport(backend, t)) process.exitCode = 1;
     return;
   }
   await performLifecycleServiceAction(backend, action, process.env);
@@ -847,8 +849,8 @@ function truthyEnvValue(value: string | undefined): boolean {
   return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false";
 }
 
-function logs(): void {
-  const backend = requireServiceBackend("pi-web logs");
+function logs(t: Translator = createTranslator("en", {})): void {
+  const backend = requireServiceBackend("pi-web logs", t);
   const refs = installedServiceRefs(backend);
   if (backend.kind === "systemd") {
     run("journalctl", ["--user", ...refs.flatMap((ref) => ["-u", ref.systemdName]), "-f"]);
@@ -922,7 +924,7 @@ function optionalDoctorChecks(): Check[] {
   return [[`Caller login ${shell} can find optional ripgrep (rg)`, serviceShellCommand(commandCheck("rg"))]];
 }
 
-function printOptionalDoctorChecks(): void {
+function printOptionalDoctorChecks(t: Translator = createTranslator("en", {})): void {
   let missingOptionalTool = false;
   for (const [label, command] of optionalDoctorChecks()) {
     const [bin, ...args] = command;
@@ -934,8 +936,8 @@ function printOptionalDoctorChecks(): void {
     printCheckOutput(result.stdout || result.stderr);
   }
   if (missingOptionalTool) {
-    console.log("  Install ripgrep, or make rg visible to the service shell, for faster all-file @ suggestions.");
-    console.log("  PI WEB falls back to a bounded filesystem scan when rg is unavailable.");
+    console.log(t("doctor.ripgrep", "  Install ripgrep, or make rg visible to the service shell, for faster all-file @ suggestions."));
+    console.log(t("doctor.scanFallback", "  PI WEB falls back to a bounded filesystem scan when rg is unavailable."));
   }
 }
 
@@ -1106,7 +1108,7 @@ export async function runReadinessCliCommand(
   });
 }
 
-function readinessCliCommandDependencies(): ReadinessCliCommandDependencies {
+function readinessCliCommandDependencies(t: Translator = createTranslator("en", {})): ReadinessCliCommandDependencies {
   return {
     environment: process.env,
     currentBackend: currentServiceBackend,
@@ -1118,7 +1120,7 @@ function readinessCliCommandDependencies(): ReadinessCliCommandDependencies {
       backend, ids, purpose, purpose === "doctor" ? () => { /* Reported with native-service checks. */ } : undefined,
     ),
     runLifecycle: performLifecycleServiceAction,
-    runDoctor: doctor,
+    runDoctor: (context) => doctor(context, t),
     printVersion: async () => { await printPiWebVersionReport(); },
   };
 }
@@ -1126,19 +1128,20 @@ function readinessCliCommandDependencies(): ReadinessCliCommandDependencies {
 function nativeServiceDoctorTarget(
   backend: ServiceBackend,
   ids: ReadonlySet<ServiceId>,
+  t: Translator = createTranslator("en", {}),
 ): NativeServiceDoctorTarget {
   const mode = inferInstalledNativeServiceMode(ids);
   if (mode === "ambiguous") {
     return {
       kind: "inspection-failure",
-      message: `installed service IDs do not identify one mode (${[...ids].join(", ") || "none"}).`,
+      message: t("doctor.ambiguousMode", "installed service IDs do not identify one mode ({ids}).", { ids: [...ids].join(", ") || "none" }),
     };
   }
   if (mode === "none") {
     return {
       kind: "prospective-production",
       input: productionNativeServicePlanInput(backend, detectServiceShell(), {}),
-      reason: "no installed service strategy is available",
+      reason: t("doctor.noStrategy", "no installed service strategy is available"),
     };
   }
   const expectedIds = mode === "production"
@@ -1148,7 +1151,7 @@ function nativeServiceDoctorTarget(
   if (missingId !== undefined) {
     return {
       kind: "inspection-failure",
-      message: `installed ${mode} service set is incomplete; ${missingId} is missing.`,
+      message: t("doctor.incompleteSet", "installed {mode} service set is incomplete; {service} is missing.", { mode, service: missingId }),
     };
   }
 
@@ -1167,7 +1170,7 @@ function nativeServiceDoctorTarget(
     ? {
         kind: "prospective-production",
         input: productionNativeServicePlanInput(backend, inspection.value.shell, inspection.value.environment),
-        reason: "installed executable strategy is not recorded",
+        reason: t("doctor.unrecordedStrategy", "installed executable strategy is not recorded"),
       }
     : { kind: "inspection-failure", message: inspection.message };
 }
@@ -1175,18 +1178,19 @@ function nativeServiceDoctorTarget(
 async function printNativeServiceDoctorChecks(
   backend: ServiceBackend,
   installedIds: ReadonlySet<ServiceId>,
+  t: Translator = createTranslator("en", {}),
 ): Promise<NativeServiceDoctorReport> {
-  const result = await runNativeServiceDoctor(nativeServiceDoctorTarget(backend, installedIds), {
+  const result = await runNativeServiceDoctor(nativeServiceDoctorTarget(backend, installedIds, t), {
     probe: createNativeServiceAuthoritativeProbe(),
     fileExists: regularFileExists,
   });
-  const report = formatNativeServiceDoctorResult(result);
+  const report = formatNativeServiceDoctorResult(result, t);
   for (const line of report.lines) console.log(line);
-  printCallerContextComparisons(report);
+  printCallerContextComparisons(report, t);
   return report;
 }
 
-function printCallerContextComparisons(report: NativeServiceDoctorReport): void {
+function printCallerContextComparisons(report: NativeServiceDoctorReport, t: Translator): void {
   if (report.plan === null || report.failedPrerequisites.length === 0) return;
   const seen = new Set<string>();
   for (const prerequisite of report.failedPrerequisites) {
@@ -1196,7 +1200,11 @@ function printCallerContextComparisons(report: NativeServiceDoctorReport): void 
     const command = nativeServicePrerequisiteShellCheck(report.plan.shell.name, prerequisite);
     const result = captureServiceShell(report.plan.shell, command, service?.workingDirectory ?? null);
     console.log(
-      `  Caller-invoked ${report.plan.shell.name} -lc ${result.status === 0 ? "satisfies" : "also does not satisfy"} ${prerequisite.description}; the service-manager result is authoritative.`,
+      t("doctor.callerComparison", "  Caller-invoked {shell} -lc {outcome} {requirement}; the service-manager result is authoritative.", {
+        shell: report.plan.shell.name,
+        outcome: result.status === 0 ? t("doctor.satisfies", "satisfies") : t("doctor.unsatisfied", "also does not satisfy"),
+        requirement: prerequisite.description,
+      }),
     );
   }
 }
@@ -1216,18 +1224,18 @@ function shellQuoteFor(shell: NativeServiceShell["name"], value: string): string
   return shell === "fish" ? fishSingleQuote(value) : shellSingleQuote(value);
 }
 
-function printPathSetupAdvice(shell: NativeServiceShell = detectServiceShell()): void {
-  console.log("\nPATH setup advice:");
+function printPathSetupAdvice(shell: NativeServiceShell = detectServiceShell(), t: Translator = createTranslator("en", {})): void {
+  console.log(t("doctor.pathAdvice", "\nPATH setup advice:"));
   if (shell.name === "bash") {
-    console.log("  Detected bash. Put PATH setup for node/version managers/tools in ~/.bash_profile or ~/.profile.");
-    console.log("  If ~/.bash_profile exists, bash will not read ~/.profile unless you source it from ~/.bash_profile.");
-    console.log("  Do not rely only on ~/.bashrc or prompt hooks for tools needed by services or agents.");
+    console.log(t("doctor.bashPath", "  Detected bash. Put PATH setup for node/version managers/tools in ~/.bash_profile or ~/.profile."));
+    console.log(t("doctor.bashProfile", "  If ~/.bash_profile exists, bash will not read ~/.profile unless you source it from ~/.bash_profile."));
+    console.log(t("doctor.bashHooks", "  Do not rely only on ~/.bashrc or prompt hooks for tools needed by services or agents."));
   } else if (shell.name === "zsh") {
-    console.log("  Detected zsh. Put PATH setup for node/version managers/tools in ~/.zprofile, not only ~/.zshrc.");
-    console.log("  Avoid relying on prompt hooks; PI WEB services run non-interactive login shells.");
+    console.log(t("doctor.zshPath", "  Detected zsh. Put PATH setup for node/version managers/tools in ~/.zprofile, not only ~/.zshrc."));
+    console.log(t("doctor.promptHooks", "  Avoid relying on prompt hooks; PI WEB services run non-interactive login shells."));
   } else {
-    console.log("  Detected fish. Prefer universal PATH setup such as `fish_add_path -U ...` for tools needed by services or agents.");
-    console.log("  Avoid relying on prompt hooks; PI WEB services run non-interactive login shells.");
+    console.log(t("doctor.fishPath", "  Detected fish. Prefer universal PATH setup such as `fish_add_path -U ...` for tools needed by services or agents."));
+    console.log(t("doctor.promptHooks", "  Avoid relying on prompt hooks; PI WEB services run non-interactive login shells."));
   }
 }
 
@@ -1260,13 +1268,13 @@ export function doctorExitCode(
   return generalReadinessOk && nativeServicePlanOk && nodePtyRuntimeOk && runningComponentsOk ? 0 : 1;
 }
 
-async function doctor(context: ReadinessDoctorCommandContext): Promise<void> {
+async function doctor(context: ReadinessDoctorCommandContext, t: Translator = createTranslator("en", {})): Promise<void> {
   const { backend, installedIds, environment, versionReportOptions, managedInspectionFailed } = context;
   console.log(`Platform: ${platformLabel()}`);
   console.log(`Service backend: ${backend?.label ?? "manual run only"}`);
   console.log(`Service shell: ${describeServiceShell()}`);
   if (backend === undefined) {
-    console.log(`- Native user service plan checks skipped on ${platformLabel()}; no native-service drift is reported.`);
+    console.log(t("doctor.nativeSkipped", "- Native user service plan checks skipped on {value}; no native-service drift is reported.", { value: platformLabel() }));
   }
   console.log("");
 
@@ -1278,13 +1286,13 @@ async function doctor(context: ReadinessDoctorCommandContext): Promise<void> {
     console.log("  Run `pi-web restart`, then check `pi-web status`.");
   }
 
-  console.log("\nGeneral login-shell readiness (separate from native-service requirements):");
+  console.log(t("doctor.loginShell", "\nGeneral login-shell readiness (separate from native-service requirements):"));
   const generalReadinessOk = runChecks(generalDoctorChecks());
-  printOptionalDoctorChecks();
+  printOptionalDoctorChecks(t);
 
-  console.log("\nNative terminal runtime readiness:");
-  const nodePtyNativeModuleOk = printNodePtyNativeModuleCheck();
-  const nodePtySpawnHelperOk = nodePtyNativeModuleOk ? printNodePtyDarwinSpawnHelperCheck() : true;
+  console.log(t("doctor.terminal", "\nNative terminal runtime readiness:"));
+  const nodePtyNativeModuleOk = printNodePtyNativeModuleCheck(t);
+  const nodePtySpawnHelperOk = nodePtyNativeModuleOk ? printNodePtyDarwinSpawnHelperCheck(t) : true;
 
   let nativeServiceReport: NativeServiceDoctorReport | null = null;
   if (backend !== undefined) {
@@ -1293,52 +1301,52 @@ async function doctor(context: ReadinessDoctorCommandContext): Promise<void> {
       console.log("✗ Installed native-service plan could not be inspected consistently with the readiness probe (see \"Running services\" above).");
       console.log("  Repair the reported service-manager definition before relying on doctor results.");
     } else {
-      nativeServiceReport = await printNativeServiceDoctorChecks(backend, installedIds);
+      nativeServiceReport = await printNativeServiceDoctorChecks(backend, installedIds, t);
     }
   }
 
   if (backend?.kind === "systemd") {
     const linger = isLingerEnabled();
     if (linger === true) {
-      console.log("✓ systemd user lingering enabled");
+      console.log(t("doctor.lingerEnabled", "✓ systemd user lingering enabled"));
     } else if (linger === false) {
-      console.log("✗ systemd user lingering disabled");
-      console.log(`  Recommended on servers: sudo loginctl enable-linger ${userInfo().username}`);
+      console.log(t("doctor.lingerDisabled", "✗ systemd user lingering disabled"));
+      console.log(t("doctor.lingerCommand", "  Recommended on servers: sudo loginctl enable-linger {username}", { username: userInfo().username }));
     } else {
-      console.log("? systemd user lingering unknown");
-      console.log(`  Recommended on servers: sudo loginctl enable-linger ${userInfo().username}`);
+      console.log(t("doctor.lingerUnknown", "? systemd user lingering unknown"));
+      console.log(t("doctor.lingerCommand", "  Recommended on servers: sudo loginctl enable-linger {username}", { username: userInfo().username }));
     }
   } else if (backend?.kind === "launchd") {
-    console.log("- user services start at login with LaunchAgents");
+    console.log(t("doctor.launchAgents", "- user services start at login with LaunchAgents"));
   } else {
-    console.log(`- systemd user lingering skipped on ${platformLabel()}`);
+    console.log(t("doctor.lingerSkipped", "- systemd user lingering skipped on {value}", { value: platformLabel() }));
   }
 
   const nativeServicePlanOk = !managedInspectionFailed && (nativeServiceReport?.ok ?? true);
   const pathFailure = !generalReadinessOk || nativeServiceReport?.pathAdviceRecommended === true;
   if (pathFailure) {
-    console.log("\nIf a command works in your terminal but fails in the service-manager check, compare the caller and manager contexts above.");
+    console.log(t("doctor.compareContexts", "\nIf a command works in your terminal but fails in the service-manager check, compare the caller and manager contexts above."));
     const adviceShell = nativeServiceReport?.pathAdviceRecommended === true && nativeServiceReport.adviceShell !== null
       ? nativeServiceReport.adviceShell
       : detectServiceShell();
-    printPathSetupAdvice(adviceShell);
+    printPathSetupAdvice(adviceShell, t);
   }
 
   if (generalReadinessOk && backend === undefined) {
-    console.log(`\n${manualRunAdvice()}`);
+    console.log(`\n${manualRunAdvice(t)}`);
   }
 
   if (doctorExitCode(generalReadinessOk, nativeServicePlanOk, nodePtyNativeModuleOk && nodePtySpawnHelperOk, runningComponentsOk) !== 0) process.exitCode = 1;
 }
 
-function printNodePtyNativeModuleCheck(): boolean {
-  const result = formatNodePtyNativeModuleCheck(checkNodePtyNativeModule());
+function printNodePtyNativeModuleCheck(t: Translator): boolean {
+  const result = formatNodePtyNativeModuleCheck(checkNodePtyNativeModule(), t);
   for (const line of result.lines) console.log(line);
   return result.ok;
 }
 
-function printNodePtyDarwinSpawnHelperCheck(): boolean {
-  const result = formatNodePtyDarwinSpawnHelperCheck(checkNodePtyDarwinSpawnHelper());
+function printNodePtyDarwinSpawnHelperCheck(t: Translator): boolean {
+  const result = formatNodePtyDarwinSpawnHelperCheck(checkNodePtyDarwinSpawnHelper(), t);
   for (const line of result.lines) console.log(line);
   return result.ok;
 }
@@ -1347,8 +1355,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function help(): void {
-  console.log(`PI WEB
+export function cliHelp(t: Translator): string {
+  return t("help", `PI WEB
 
 Usage:
   pi-web install [--dev] [--host 127.0.0.1] [--port 8504] [--config ~/.config/pi-web/config.json]
@@ -1373,21 +1381,22 @@ Development service install from a checkout:
 }
 
 async function main(): Promise<void> {
+  const t = loadNodeTranslator("cli");
   const [command = "help", ...args] = process.argv.slice(2);
-  if (command === "install") await install(args);
-  else if (command === "uninstall") await uninstall();
+  if (command === "install") await install(args, t);
+  else if (command === "uninstall") await uninstall(t);
   else if (command === "start" || command === "restart" || command === "doctor" || command === "version") {
-    await runReadinessCliCommand(command, readinessCliCommandDependencies());
-  } else if (command === "stop" || command === "status") await serviceAction(command);
-  else if (command === "logs") logs();
+    await runReadinessCliCommand(command, readinessCliCommandDependencies(t));
+  } else if (command === "stop" || command === "status") await serviceAction(command, t);
+  else if (command === "logs") logs(t);
    else if (command === "audit") {
      const { runNormalToolAuditCommand } = await import("./server/audit/normalToolAuditCli.js");
      runNormalToolAuditCommand(args);
    }
-  else if (command === "plugins") runPluginRecoveryCli(args, { restartPlan: (context) => sessionDaemonRestartPlan(context) });
+  else if (command === "plugins") runPluginRecoveryCli(args, { restartPlan: (context) => sessionDaemonRestartPlan(context) }, t);
   else if (command === "--version" || command === "-v") console.log(packageVersion());
-  else if (command === "help" || command === "--help" || command === "-h") help();
-  else throw new Error(`Unknown command: ${command}`);
+  else if (command === "help" || command === "--help" || command === "-h") console.log(cliHelp(t));
+  else throw new Error(t("cli.unknownCommand", "Unknown command: {command}", { command: command }));
 }
 
 export function isCliEntrypoint(entrypoint: string | undefined = process.argv[1], modulePath: string = fileURLToPath(import.meta.url)): boolean {

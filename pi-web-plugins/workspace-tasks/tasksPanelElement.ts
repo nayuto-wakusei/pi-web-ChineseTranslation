@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type { WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { TASKS_CONFIG_PATH, type WorkspaceTask } from "./config.js";
 import { runWorkspaceTaskInTerminal } from "./taskRunner.js";
@@ -66,7 +67,7 @@ class PiWebTasksPanel extends HTMLElement {
   private render(): void {
     const context = this.contextValue;
     if (context === undefined) {
-      this.root.innerHTML = `${taskStyles()}<section class="empty">请选择一个工作区。</section>`;
+      this.root.innerHTML = `${taskStyles()}<section class="empty">${escapeHtml(t("bundled.workspace-tasks.select.a.workspace.95796d", "Select a workspace."))}</section>`;
       return;
     }
 
@@ -74,10 +75,10 @@ class PiWebTasksPanel extends HTMLElement {
     this.root.innerHTML = `
       ${taskStyles()}
       <section class="toolbar">
-        <strong>工作区任务</strong>
+        <strong>${escapeHtml(t("bundled.workspace-tasks.workspace.tasks.b4ef49", "Workspace tasks"))}</strong>
         <span class="toolbar-tasks">
-          <button class="secondary" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>刷新</button>
-          <button class="secondary" data-open-terminal>打开终端</button>
+          <button class="secondary" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>${escapeHtml(t("bundled.workspace-tasks.refresh.aee887", "Refresh"))}</button>
+          <button class="secondary" data-open-terminal>${escapeHtml(t("bundled.workspace-tasks.open.terminal.b89a0e", "Open terminal"))}</button>
         </span>
       </section>
       ${this.renderStatus()}
@@ -105,7 +106,7 @@ class PiWebTasksPanel extends HTMLElement {
     if (!this.isCurrentContext(context)) return Promise.resolve();
     const task = taskFromConfigState(getCachedWorkspaceConfig(context), taskId);
     if (task === undefined) {
-      this.status = { kind: "error", message: "该任务已不可用。请点击刷新后重试。" };
+      this.status = { kind: "error", message: t("bundled.workspace-tasks.this.task.is.no.longer.available.click.refresh.and.try.again.158c41", "This task is no longer available. Click Refresh and try again.") };
       this.render();
       return Promise.resolve();
     }
@@ -117,13 +118,13 @@ class PiWebTasksPanel extends HTMLElement {
   }
 
   private renderConfigState(state: ConfigState): string {
-    if (state.kind === "loading") return `<p class="muted">正在加载 ${escapeHtml(TASKS_CONFIG_PATH)}…</p>`;
+    if (state.kind === "loading") return `<p class="muted">${escapeHtml(t("bundled.workspace-tasks.loading.9f624f", "Loading {value1}...", { value1: TASKS_CONFIG_PATH }))}</p>`;
     if (state.kind === "missing") return renderMissingState(state);
     if (state.kind === "unavailable") return renderUnavailableState(state);
 
-    if (state.config.tasks.length === 0) return `<p class="muted">${escapeHtml(state.path)} 中没有定义任务。请在文件中添加任务，然后点击刷新。</p>`;
+    if (state.config.tasks.length === 0) return `<p class="muted">${escapeHtml(t("bundled.workspace-tasks.no.tasks.defined.in.add.tasks.to.the.file.then.click.refresh.3af272", "No tasks defined in {value1}. Add tasks to the file, then click Refresh.", { value1: state.path }))}</p>`;
     return `
-      <p class="muted">任务会在专用工作区终端中运行，并切换到该终端。编辑 ${escapeHtml(state.path)} 后点击刷新重新加载。</p>
+      <p class="muted">${escapeHtml(t("bundled.workspace-tasks.tasks.run.in.a.dedicated.workspace.terminal.and.switch.to.it.edit.3188f4", "Tasks run in a dedicated workspace terminal and switch to it. Edit {value1}, then click Refresh to reload.", { value1: state.path }))}</p>
       ${renderTaskGroups(state.config.tasks, this.runningTaskId)}
     `;
   }
@@ -135,32 +136,32 @@ class PiWebTasksPanel extends HTMLElement {
   }
 
   private async refreshConfig(context: WorkspacePanelContext): Promise<void> {
-    this.status = { kind: "info", message: `正在刷新 ${TASKS_CONFIG_PATH}…` };
+    this.status = { kind: "info", message: t("bundled.workspace-tasks.refreshing.b85709", "Refreshing {value1}...", { value1: TASKS_CONFIG_PATH }) };
     configCache.set(cacheKeyForContext(context), { kind: "loading" });
     this.render();
 
     const state = await refreshWorkspaceConfig(context);
     if (!this.isCurrentContext(context)) return;
     this.status = state.kind === "loaded"
-      ? { kind: "success", message: `已加载 ${String(state.config.tasks.length)} 个任务。` }
+      ? { kind: "success", message: t("bundled.workspace-tasks.loaded.tasks.cc36a1", "Loaded {value1} tasks.", { value1: String(state.config.tasks.length) }) }
       : undefined;
     this.render();
   }
 
   private async dispatchTask(context: WorkspacePanelContext, task: WorkspaceTask): Promise<void> {
     if (this.runningTaskId !== undefined) {
-      this.status = { kind: "info", message: "已有其他任务正在启动。请等待其分发完成后重试。" };
+      this.status = { kind: "info", message: t("bundled.workspace-tasks.another.task.is.starting.wait.for.dispatch.to.finish.and.try.agai.e4971f", "Another task is starting. Wait for dispatch to finish and try again.") };
       this.render();
       return;
     }
-    if (task.confirm && !window.confirm(`运行 ${task.title}？\n\n${task.command}`)) {
-      this.status = { kind: "info", message: `已取消 ${task.title}。` };
+    if (task.confirm && !window.confirm(t("bundled.workspace-tasks.run.e5ba41", "Run {value1}?\n\n{value2}", { value1: task.title, value2: task.command }))) {
+      this.status = { kind: "info", message: t("bundled.workspace-tasks.cancelled.1a65c2", "Cancelled {value1}.", { value1: task.title }) };
       this.render();
       return;
     }
 
     this.runningTaskId = task.id;
-    this.status = { kind: "info", message: `正在启动 ${task.title}…` };
+    this.status = { kind: "info", message: t("bundled.workspace-tasks.starting.80ae5c", "Starting {value1}...", { value1: task.title }) };
     this.render();
 
     try {
@@ -168,7 +169,7 @@ class PiWebTasksPanel extends HTMLElement {
       if (!this.isCurrentContext(context)) return;
       this.status = {
         kind: "success",
-        message: `已启动终端命令“${handle.run.title}”。`,
+        message: t("bundled.workspace-tasks.started.terminal.command.318e6c", "Started terminal command \"{value1}\".", { value1: handle.run.title }),
         detail: task.command,
       };
       this.runningTaskId = undefined;
@@ -184,7 +185,7 @@ class PiWebTasksPanel extends HTMLElement {
   private openWorkspaceTerminal(terminalId?: string): void {
     const context = this.contextValue;
     if (context === undefined) {
-      this.status = { kind: "error", message: "打开终端前请先选择工作区。" };
+      this.status = { kind: "error", message: t("bundled.workspace-tasks.select.a.workspace.before.opening.a.terminal.1f87b4", "Select a workspace before opening a terminal.") };
       this.render();
       return;
     }
@@ -211,8 +212,8 @@ async function refreshWorkspaceConfig(context: WorkspacePanelContext): Promise<C
   const key = cacheKeyForContext(context);
   const state = await loadWorkspaceTasksConfig(context.files).catch((error: unknown): ConfigState => ({
     kind: "unavailable",
-    message: tasksConfigUnavailableMessage,
-    hint: tasksConfigRefreshHint,
+    message: tasksConfigUnavailableMessage(),
+    hint: tasksConfigRefreshHint(),
     detail: error instanceof Error ? error.message : String(error),
   }));
   configCache.set(key, state);
@@ -268,7 +269,7 @@ function renderTask(task: WorkspaceTask, runningTaskId: string | undefined): str
         ${description}
         <code>${escapeHtml(task.command)}</code>
       </div>
-      <button data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${running ? "正在分发…" : "运行"}</button>
+      <button data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${escapeHtml(running ? t("bundled.workspace-tasks.dispatching.f0ad17", "Dispatching...") : t("bundled.workspace-tasks.run.75b269", "Run"))}</button>
     </article>
   `;
 }

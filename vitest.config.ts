@@ -15,6 +15,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "general",
+          setupFiles: ["src/testSupport/localization.testSupport.ts"],
           include: allTests,
           exclude: piSessionServiceTests,
           sequence: { groupOrder: 0 },
@@ -24,6 +25,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "pi-session-service",
+          setupFiles: ["src/testSupport/localization.testSupport.ts"],
           include: piSessionServiceTests,
           fileParallelism: false,
           sequence: { groupOrder: 1 },

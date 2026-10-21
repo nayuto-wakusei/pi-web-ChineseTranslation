@@ -1,3 +1,5 @@
+import { createTranslator, type Translator } from "../shared/i18n.js";
+import { workspaceErrorMessage } from "./workspaces/workspaceUserError.js";
 import type { FastifyInstance } from "fastify";
 import type { WorkspaceTreeBatchRequest, WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
 import type { PiWebConfigService } from "./configRoutes.js";
@@ -19,10 +21,12 @@ export interface WorkspaceExplorerRouteOptions {
   fileSuggestions?: FileSuggestionCatalog;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
+  translate?: Translator;
 }
 
 export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix = "/api", options: WorkspaceExplorerRouteOptions = {}): void {
   const managementEmbed = options.managementEmbed;
+  const translate = options.translate ?? createTranslator("en", {});
   const fileSuggestions = options.fileSuggestions ?? new FileSuggestionCatalog();
   registerWorkspaceFileContentParsers(app);
 
@@ -31,7 +35,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTreeBatch(context.root, readFileTreeBatchPaths(request.body), await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -40,7 +44,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTree(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -51,9 +55,9 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
     } catch (error) {
       if (isMissingPathError(error)) {
         if (request.query.optional === "true") return reply.code(204).send();
-        return reply.code(404).send({ error: error.message });
+        return reply.code(404).send({ error: workspaceErrorMessage(error, translate) });
       }
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -68,7 +72,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -79,7 +83,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -93,7 +97,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -108,7 +112,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .send(download.body);
     } catch (error) {
       applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -119,7 +123,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -130,7 +134,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -141,7 +145,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       fileSuggestions.invalidate(context.root);
       return result;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -158,7 +162,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
         .send(preview.body);
     } catch (error) {
       applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 
@@ -170,7 +174,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       if (request.query.mode === "path") return await listPathSuggestions(context.root, query, pathAccess);
       return await listFileSuggestions(context.root, query, { kind: request.query.kind, scope: request.query.scope, pathAccess }, { catalog: fileSuggestions, catalogKey: JSON.stringify([context.managementContext?.user, context.project.id, context.workspace.id]) });
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, 400);
+      return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });
 }

@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Implementation details of the bundled Info plugin.
 //
 // This file is NOT part of the plugin skeleton. If you copied the Info plugin
@@ -17,80 +18,80 @@ export function componentHealth(component: PiWebComponentStatus): ComponentHealt
 }
 
 function componentHealthLabel(health: ComponentHealth): string {
-  if (health === "current") return "当前版本";
-  if (health === "restart needed") return "需要重启";
-  return "不可用";
+  if (health === "current") return t("bundled.info.current.837bc9", "Current");
+  if (health === "restart needed") return t("bundled.info.restart.needed.1ffd00", "Restart needed");
+  return t("bundled.info.unavailable.460b35", "Unavailable");
 }
 
 function componentDisplayLabel(component: PiWebComponentStatus): string {
-  if (component.component === "web") return "Web/界面";
-  return "会话守护进程";
+  if (component.component === "web") return t("bundled.info.web.ui.86d6a2", "Web/UI");
+  return t("bundled.info.session.daemon.757666", "Session daemon");
 }
 
 export function formatVersion(version: string | undefined): string {
-  return version === undefined || version === "" ? "未知" : version;
+  return version === undefined || version === "" ? t("bundled.info.unknown.4d8c1c", "Unknown") : version;
 }
 
 export function installationLabel(installation: PiWebInstallationInfo | undefined): string {
-  if (installation === undefined) return "安装方式未知";
+  if (installation === undefined) return t("bundled.info.unknown.installation.b61c94", "Unknown installation");
   if (installation.kind === "pi-package") {
     const scope = installation.scope === undefined ? "" : ` · ${installationScopeLabel(installation.scope)}`;
-    const source = installation.source ?? "Pi 包";
+    const source = installation.source ?? t("bundled.info.pi.package.feed18", "Pi package");
     return `${source}${scope}`;
   }
-  if (installation.kind === "npm-global") return "全局 npm 包";
-  if (installation.kind === "local") return "本地检出";
-  if (installation.kind === "docker") return installation.dockerMode === "dev" ? "Docker 开发运行时" : "Docker 运行时";
-  return "安装方式未知";
+  if (installation.kind === "npm-global") return t("bundled.info.global.npm.package.5e8079", "Global npm package");
+  if (installation.kind === "local") return t("bundled.info.local.checkout.19c28f", "Local checkout");
+  if (installation.kind === "docker") return installation.dockerMode === "dev" ? t("bundled.info.docker.development.runtime.9ba6d5", "Docker development runtime") : t("bundled.info.docker.runtime.8ce6fc", "Docker runtime");
+  return t("bundled.info.unknown.installation.b61c94", "Unknown installation");
 }
 
 function installationScopeLabel(scope: "user" | "project"): string {
-  return scope === "user" ? "用户范围" : "项目范围";
+  return scope === "user" ? t("bundled.info.user.scope.7baed5", "User scope") : t("bundled.info.project.scope.0d9798", "Project scope");
 }
 
 export function machineKindLabel(kind: MachineKind): string {
-  return kind === "local" ? "本地机器" : "远程机器";
+  return kind === "local" ? t("bundled.info.local.machine.ae3fff", "Local machine") : t("bundled.info.remote.machine.674281", "Remote machine");
 }
 
 export function releaseSummary(release: PiWebReleaseStatus): string {
   if (release.updateAvailable) {
     return release.latestVersion === undefined || release.latestVersion === ""
-      ? "有可用更新"
-      : `有可用更新：${release.latestVersion}`;
+      ? t("bundled.info.update.available.5f3ed8", "Update available")
+      : t("bundled.info.update.available.6dee04", "Update available: {value1}", { value1: release.latestVersion });
   }
-  if (release.error !== undefined && release.error !== "") return `更新检查失败：${release.error}`;
-  if (release.skipped === true) return "已跳过更新检查";
-  return "已是最新版本";
+  if (release.error !== undefined && release.error !== "") return t("bundled.info.update.check.failed.b2e600", "Update check failed: {value1}", { value1: release.error });
+  if (release.skipped === true) return t("bundled.info.update.check.skipped.966bfb", "Update check skipped");
+  return t("bundled.info.up.to.date.bc3104", "Up to date");
 }
 
 /** One-line component summary used by the panel rows and the clipboard diagnostics. */
 export function componentDetails(component: PiWebComponentStatus): string {
   const parts = [
-    `运行版本 ${formatVersion(component.runtimeVersion)}`,
-    `安装版本 ${formatVersion(component.installedVersion)}`,
+    t("bundled.info.runtime.09b6b8", "Runtime {value1}", { value1: formatVersion(component.runtimeVersion) }),
+    t("bundled.info.installed.a6f713", "Installed {value1}", { value1: formatVersion(component.installedVersion) }),
     `Pi ${formatVersion(component.piVersion)}`,
     componentHealthLabel(componentHealth(component)),
     installationLabel(component.installation),
   ];
   if (component.installation?.path !== undefined && component.installation.path !== "") parts.push(component.installation.path);
-  if (component.error !== undefined && component.error !== "") parts.push(`错误：${component.error}`);
+  if (component.error !== undefined && component.error !== "") parts.push(t("bundled.info.error.66432a", "Error: {value1}", { value1: component.error }));
   return parts.join(" · ");
 }
 
 /** Notes when the daemon has not yet reloaded the Pi version used by the web process. */
 export function piVersionDriftNote(web: PiWebComponentStatus, sessiond: PiWebComponentStatus): string | undefined {
   if (!sessiond.available || web.piVersion === undefined || sessiond.piVersion === undefined) return undefined;
-  return web.piVersion === sessiond.piVersion ? undefined : `会话守护进程正在运行 ${formatVersion(sessiond.piVersion)}`;
+  return web.piVersion === sessiond.piVersion ? undefined : t("ui.main.5f903de305f2", "The session daemon is running {arg0}", { arg0: formatVersion(sessiond.piVersion) });
 }
 
 export function workspaceFlags(workspace: Workspace): string[] {
   return [
     workspace.provider === undefined
-      ? workspace.isGitRepo === undefined && workspace.isGitWorktree !== true ? "文件夹工作区" : undefined
-      : `提供器 ${workspace.provider.pluginId}`,
-    workspace.branch === undefined || workspace.branch === "" ? undefined : `分支 ${workspace.branch}`,
-    workspace.isGitWorktree === true ? "Git 工作树" : workspace.isGitRepo === true ? "Git 仓库" : workspace.isGitRepo === false ? "非 Git 仓库" : undefined,
-    workspace.isMain ? "主工作区" : undefined,
+      ? workspace.isGitRepo === undefined && workspace.isGitWorktree !== true ? t("ui.main.5a99dc72f4a4", "folder workspace") : undefined
+      : t("ui.main.830784126ed0", "Provider {arg0}", { arg0: workspace.provider.pluginId }),
+    workspace.branch === undefined || workspace.branch === "" ? undefined : t("bundled.info.branch.198c3e", "Branch {value1}", { value1: workspace.branch }),
+    workspace.isGitWorktree === true ? t("bundled.info.git.worktree.c0db6b", "Git worktree") : workspace.isGitRepo === true ? t("bundled.info.git.repository.6a0dac", "Git repository") : workspace.isGitRepo === false ? t("bundled.info.non.git.directory.0936b0", "Non-Git directory") : undefined,
+    workspace.isMain ? t("bundled.info.main.workspace.2ac45d", "Main workspace") : undefined,
   ].filter((flag): flag is string => flag !== undefined);
 }
 
@@ -102,22 +103,22 @@ export interface DiagnosticsInput {
 
 /** Plain-text status block suitable for pasting into a bug report. */
 export function diagnosticsSummary({ status, machine, workspace }: DiagnosticsInput): string {
-  const lines: string[] = ["PI WEB 诊断信息"];
+  const lines: string[] = [t("bundled.info.pi.web.diagnostics.1e6afe", "PI WEB diagnostics")];
   if (status === undefined) {
-    lines.push("状态：不可用");
+    lines.push(t("bundled.info.status.unavailable.e0e66a", "Status: unavailable"));
   } else {
-    lines.push(`包：${status.packageName}`);
-    lines.push(`${componentDisplayLabel(status.components.web)}：${componentDetails(status.components.web)}`);
-    lines.push(`${componentDisplayLabel(status.components.sessiond)}：${componentDetails(status.components.sessiond)}`);
-    const checked = status.release.checkedAt === undefined || status.release.skipped === true ? "" : `（检查于 ${status.release.checkedAt}）`;
-    lines.push(`发布状态：${releaseSummary(status.release)}${checked}`);
-    lines.push(`状态生成时间：${status.generatedAt}`);
+    lines.push(t("bundled.info.package.6efebc", "Package: {value1}", { value1: status.packageName }));
+    lines.push(t("bundled.info.component.details", "{component}: {details}", { component: componentDisplayLabel(status.components.web), details: componentDetails(status.components.web) }));
+    lines.push(t("bundled.info.component.details", "{component}: {details}", { component: componentDisplayLabel(status.components.sessiond), details: componentDetails(status.components.sessiond) }));
+    const checked = status.release.checkedAt === undefined || status.release.skipped === true ? "" : t("bundled.info.checked.at.1ecc98", " (checked at {value1})", { value1: status.release.checkedAt });
+    lines.push(t("bundled.info.release.386d3e", "Release: {value1}{value2}", { value1: releaseSummary(status.release), value2: checked }));
+    lines.push(t("bundled.info.status.generated.ff5eec", "Status generated: {value1}", { value1: status.generatedAt }));
   }
-  if (machine !== undefined) lines.push(`机器：${machine.name}（${machineKindLabel(machine.kind)}）`);
+  if (machine !== undefined) lines.push(t("bundled.info.machine.58d58d", "Machine: {value1} ({value2})", { value1: machine.name, value2: machineKindLabel(machine.kind) }));
   if (workspace === undefined) {
-    lines.push("工作区：未选择");
+    lines.push(t("bundled.info.workspace.not.selected.a88368", "Workspace: not selected"));
   } else {
-    lines.push(`工作区：${workspace.label} - ${workspace.path}（${workspaceFlags(workspace).join("、")}）`);
+    lines.push(t("bundled.info.workspace.fd59a8", "Workspace: {value1} - {value2} ({value3})", { value1: workspace.label, value2: workspace.path, value3: workspaceFlags(workspace).join(t("bundled.info.list.separator", ", ")) }));
   }
   return lines.join("\n");
 }
@@ -148,7 +149,7 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
     return html`
       <section>
         <strong>PI WEB</strong>
-        <p class="muted">PI WEB 状态暂不可用，后台会自动刷新。</p>
+        <p class="muted">${t("bundled.info.pi.web.status.is.unavailable.it.will.refresh.automatically.381f51", "PI WEB status is unavailable. It will refresh automatically.")}</p>
       </section>
     `;
   }
@@ -159,9 +160,9 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
     <section>
       <strong>PI WEB</strong>
       <div class="info-row">
-        <span>版本</span>
+        <span>${t("bundled.info.version.5f76b2", "Version")}</span>
         <span>${formatVersion(web.runtimeVersion)}</span>
-        ${web.installedVersion === undefined || web.installedVersion === web.runtimeVersion ? null : html`<small>已安装 ${formatVersion(web.installedVersion)}</small>`}
+        ${web.installedVersion === undefined || web.installedVersion === web.runtimeVersion ? null : html`<small>${t("ui.piPackageSettings.installed", "installed")} ${formatVersion(web.installedVersion)}</small>`}
       </div>
       <div class="info-row">
         <span>Pi</span>
@@ -169,24 +170,24 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
         ${driftNote === undefined ? null : html`<small>${driftNote}</small>`}
       </div>
       <div class="info-row">
-        <span>包</span>
+        <span>${t("bundled.info.package.26b9c4", "Package")}</span>
         <span>${status.packageName}</span>
       </div>
       <div class="info-row">
-        <span>安装方式</span>
+        <span>${t("bundled.info.installation.9c320c", "Installation")}</span>
         <span>${installationLabel(web.installation)}</span>
         ${web.installation?.path === undefined || web.installation.path === "" ? null : html`<small>${web.installation.path}</small>`}
       </div>
       <div class="info-row">
-        <span>发布状态</span>
+        <span>${t("bundled.info.release.5100f0", "Release")}</span>
         <span>${releaseSummary(status.release)}</span>
-        ${status.release.checkedAt === undefined || status.release.skipped === true ? null : html`<small>检查于 ${status.release.checkedAt}</small>`}
+        ${status.release.checkedAt === undefined || status.release.skipped === true ? null : html`<small>${t("bundled.info.checked.at.cc4691", "Checked at {value1}", { value1: status.release.checkedAt })}</small>`}
       </div>
-      ${messageCount === 0 ? null : html`<p class="muted">${String(messageCount)} 条状态消息，请打开“更新”标签页查看详情。</p>`}
-      <p class="muted">状态生成于 ${status.generatedAt}</p>
+      ${messageCount === 0 ? null : html`<p class="muted">${t("bundled.info.status.messages.open.updates.for.details.6ca1fc", "{value1} status messages. Open Updates for details.", { value1: String(messageCount) })}</p>`}
+      <p class="muted">${t("bundled.info.status.generated.at.92be3c", "Status generated at {value1}", { value1: status.generatedAt })}</p>
     </section>
     <section>
-      <strong>服务</strong>
+      <strong>${t("bundled.info.services.ec309a", "Services")}</strong>
       ${renderComponent(html, status.components.web)}
       ${renderComponent(html, status.components.sessiond)}
     </section>
@@ -196,13 +197,13 @@ function renderStatusSection(html: HtmlTemplateTag, status: PiWebStatusResponse 
 function renderMachineSection(html: HtmlTemplateTag, machine: PluginMachine): TemplateResult {
   return html`
     <section>
-      <strong>机器</strong>
+      <strong>${t("bundled.info.machine.ece969", "Machine")}</strong>
       <div class="info-row">
-        <span>名称</span>
+        <span>${t("bundled.info.name.d44e9b", "Name")}</span>
         <span>${machine.name}</span>
       </div>
       <div class="info-row">
-        <span>类型</span>
+        <span>${t("bundled.info.type.ba4001", "Type")}</span>
         <span>${machineKindLabel(machine.kind)}</span>
       </div>
     </section>
@@ -212,13 +213,13 @@ function renderMachineSection(html: HtmlTemplateTag, machine: PluginMachine): Te
 function renderWorkspaceSection(html: HtmlTemplateTag, workspace: Workspace): TemplateResult {
   return html`
     <section>
-      <strong>工作区</strong>
+      <strong>${t("bundled.info.workspace.379798", "Workspace")}</strong>
       <div class="info-row">
-        <span>名称</span>
+        <span>${t("bundled.info.name.d44e9b", "Name")}</span>
         <span>${workspace.label}</span>
       </div>
       <div class="info-row">
-        <span>路径</span>
+        <span>${t("bundled.info.path.77e1ea", "Path")}</span>
         <span class="info-path">${workspace.path}</span>
         ${workspaceFlags(workspace).length === 0 ? null : html`<small>${workspaceFlags(workspace).join(" · ")}</small>`}
       </div>
@@ -240,7 +241,7 @@ export function renderInfoPanel(html: HtmlTemplateTag, context: WorkspacePanelCo
       .info-health-ok { color: var(--pi-success); }
       .info-health-attention { color: var(--pi-warning); }
     </style>
-    <section class="toolbar"><strong>信息</strong></section>
+    <section class="toolbar"><strong>${t("bundled.info.info.e70286", "Info")}</strong></section>
     <section class="viewer info-status">
       ${renderStatusSection(html, context.state?.piWebStatus)}
       ${renderMachineSection(html, context.machine)}

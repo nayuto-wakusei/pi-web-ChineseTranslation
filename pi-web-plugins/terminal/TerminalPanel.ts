@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import { css, html, LitElement, unsafeCSS } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
@@ -625,7 +626,7 @@ export class TerminalPanel extends LitElement {
       void channel.closed.then((close) => { this.handleChannelClosed(generation, terminalId, terminal, close); });
     }).catch((error: unknown) => {
       if (controller.signal.aborted || !this.channelIsCurrent(generation, terminalId, terminal)) return;
-      this.connectionError = `终端连接失败：${errorMessage(error)}`;
+      this.connectionError = t("ui.main.f677acd42ea1", "Terminal connection failed: {arg0}", { arg0: errorMessage(error) });
       this.scheduleChannelReconnect(terminalId, terminal);
     });
   }
@@ -637,13 +638,13 @@ export class TerminalPanel extends LitElement {
       return;
     }
     if (frame.type === "exit") {
-      terminal.writeln(`\r\n[进程已退出${frame.exitCode === undefined ? "" : `，退出码 ${String(frame.exitCode)}`}]`);
+      terminal.writeln(t("ui.terminalPanel.processExited", "\r\n[Process exited{exitCode}]", { exitCode: frame.exitCode === undefined ? "" : t("ui.terminalPanel.exitCode", ", exit code {exitCode}", { exitCode: String(frame.exitCode) }) }));
       this.terminals = this.terminals.map((item) => item.id === terminalId ? { ...item, exited: true, ...(frame.exitCode === undefined ? {} : { exitCode: frame.exitCode }) } : item);
       if (this.context !== undefined && this.runtime !== undefined) this.runtime.updateTerminals(this.context, this.terminals);
       void this.loadCommandRuns();
       return;
     }
-    terminal.writeln(`\r\n[终端错误：${frame.message}]`);
+    terminal.writeln(t("ui.terminalPanel.terminalError2", "\r\n[Terminal error: {message}]", { message: frame.message }));
   }
 
   private handleChannelClosed(generation: number, terminalId: string, terminal: Terminal, close: PluginPeerChannelClose): void {
@@ -654,8 +655,8 @@ export class TerminalPanel extends LitElement {
       void this.refreshAfterCleanChannelClose(generation, terminalId, terminal);
       return;
     }
-    this.connectionError = `终端连接已关闭：${failure}`;
-    terminal.writeln(`\r\n[终端连接已关闭：${failure}]`);
+    this.connectionError = t("ui.main.2209fc68d330", "Terminal connection closed: {arg0}", { arg0: failure });
+    terminal.writeln(t("ui.main.0675e3752fcb", "\r\n[Terminal connection closed: {arg0}]", { arg0: failure }));
     this.scheduleChannelReconnect(terminalId, terminal);
   }
 
@@ -784,7 +785,7 @@ export class TerminalPanel extends LitElement {
       channel.send(message);
       return true;
     } catch (error) {
-      this.connectionError = `终端发送失败：${errorMessage(error)}`;
+      this.connectionError = t("ui.main.603bc928e65e", "Terminal send failed: {arg0}", { arg0: errorMessage(error) });
       return false;
     }
   }
@@ -824,10 +825,10 @@ export class TerminalPanel extends LitElement {
         <section class="command-run-notice running">
           <div>
             <strong>${run.title}</strong>
-            <p>命令正在运行。按 <kbd>Ctrl</kbd>+<kbd>C</kbd> 或使用按钮取消。</p>
+            <p>${t("ui.terminalPanel.commandRunningPress", "Command running. Press")} <kbd>Ctrl</kbd>+<kbd>C</kbd> ${t("ui.terminalPanel.orUseTheButtonToCancel", "or use the button to cancel.")}</p>
             <code>${run.command}</code>
           </div>
-          <button class="danger" ?disabled=${cancelling} @click=${() => { void this.cancelCommandRun(run); }}>${cancelling ? "已发送取消…" : "取消命令"}</button>
+          <button class="danger" ?disabled=${cancelling} @click=${() => { void this.cancelCommandRun(run); }}>${cancelling ? t("ui.terminalPanel.cancellationSent", "Cancellation sent…") : t("ui.terminalPanel.cancelCommand", "Cancel command")}</button>
         </section>
       `;
     }
@@ -837,10 +838,10 @@ export class TerminalPanel extends LitElement {
         <section class=${`command-run-notice ${run.status}`}>
           <div>
             <strong>${commandRunCompletionLabel(run)}</strong>
-            <p>输出已保留。可继续进入命令行查看或运行后续命令。</p>
+            <p>${t("ui.terminalPanel.outputPreservedContinueInTheShellToInspect", "Output preserved. Continue in the shell to inspect it or run more commands.")}</p>
             <code>${run.command}</code>
           </div>
-          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? "正在启动命令行…" : "在命令行中继续"}</button>
+          <button ?disabled=${continuing} @click=${() => { void this.continueTerminal(terminal.id); }}>${continuing ? t("ui.terminalPanel.startingShell", "Starting shell…") : t("ui.terminalPanel.continueInShell", "Continue in shell")}</button>
         </section>
       `;
     }
@@ -903,10 +904,10 @@ export class TerminalPanel extends LitElement {
   private async copyAllSnapshotText(): Promise<void> {
     const text = this.copySnapshot?.text ?? "";
     if (text === "") {
-      this.copyStatus = "没有可复制的终端输出。";
+      this.copyStatus = t("ui.terminalPanel.noTerminalOutputToCopy", "No terminal output to copy.");
       return;
     }
-    this.copyStatus = await writeClipboardText(text) ? "已复制全部终端输出。" : "无法复制终端输出。";
+    this.copyStatus = await writeClipboardText(text) ? t("ui.terminalPanel.copiedAllTerminalOutput", "Copied all terminal output.") : t("ui.terminalPanel.unableToCopyTerminalOutput", "Unable to copy terminal output.");
   }
 
   private renderCopyModeToggle() {
@@ -916,12 +917,12 @@ export class TerminalPanel extends LitElement {
       <button
         type="button"
         class=${active ? "copy-mode-toggle selected" : "copy-mode-toggle"}
-        title=${active ? "返回交互式终端" : "选择并复制终端输出"}
-        aria-label=${active ? "关闭终端复制模式" : "打开终端复制模式"}
+        title=${active ? t("ui.terminalPanel.returnToInteractiveTerminal", "Return to interactive terminal") : t("ui.terminalPanel.selectAndCopyTerminalOutput", "Select and copy terminal output")}
+        aria-label=${active ? t("ui.terminalPanel.closeTerminalCopyMode", "Close terminal copy mode") : t("ui.terminalPanel.openTerminalCopyMode", "Open terminal copy mode")}
         aria-pressed=${String(active)}
         @click=${() => { if (active) this.exitCopyMode(); else this.enterCopyMode(); }}
       >
-        <span>${active ? "完成" : "选择"}</span>
+        <span>${active ? t("ui.toolExecutionView.done", "Done") : t("ui.commandPicker.select", "Select")}</span>
       </button>
     `;
   }
@@ -930,11 +931,11 @@ export class TerminalPanel extends LitElement {
     const snapshot = this.copySnapshot;
     if (snapshot === undefined) return null;
     return html`
-      <div class="terminal-copy-toolbar" role="toolbar" aria-label="终端复制控件">
-        <span aria-live="polite">${this.copyStatus ?? "快照 · 长按并选择文本"}</span>
-        <small>${snapshot.physicalLineCount} 行</small>
-        <button type="button" @click=${() => { this.refreshCopyMode(); }}>刷新</button>
-        <button type="button" @click=${() => { void this.copyAllSnapshotText(); }}>全部复制</button>
+      <div class="terminal-copy-toolbar" role="toolbar" aria-label="${t("ui.terminalPanel.terminalCopyControls", "Terminal copy controls")}">
+        <span aria-live="polite">${this.copyStatus ?? t("ui.terminalPanel.snapshotHoldToSelectText", "Snapshot · Hold to select text")}</span>
+        <small>${snapshot.physicalLineCount}${t("ui.main.0a4e6bb96b31", " lines")}</small>
+        <button type="button" @click=${() => { this.refreshCopyMode(); }}>${t("bundled.relays.refresh.aee887", "Refresh")}</button>
+        <button type="button" @click=${() => { void this.copyAllSnapshotText(); }}>${t("ui.terminalPanel.copyAll", "Copy all")}</button>
       </div>
     `;
   }
@@ -943,7 +944,7 @@ export class TerminalPanel extends LitElement {
     const snapshot = this.copySnapshot;
     if (snapshot === undefined) return null;
     return html`
-      <section class="terminal-copy-view" aria-label="终端复制模式">
+      <section class="terminal-copy-view" aria-label="${t("ui.terminalPanel.terminalCopyMode", "Terminal copy mode")}">
         ${this.copyToolbarReplacesSoftKeys() ? null : this.renderCopyModeToolbar()}
         <div class="terminal-copy-layers">
           <pre class="terminal-copy-content" aria-hidden="true">${snapshot.lines.map((line, index) => html`${index === 0 ? null : "\n"}${line.runs.map((run) => html`<span style=${styleMap(terminalCopyRunStyle(run.style))}>${run.text}</span>`)}`)}</pre>
@@ -955,7 +956,7 @@ export class TerminalPanel extends LitElement {
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
-            aria-label="可选择的终端输出"
+            aria-label="${t("ui.terminalPanel.selectableTerminalOutput", "Selectable terminal output")}"
             .value=${snapshot.text}
             @scroll=${() => { this.syncCopySnapshotScroll(); }}
           ></textarea>
@@ -1000,8 +1001,8 @@ export class TerminalPanel extends LitElement {
       <button
         type="button"
         class=${this.softKeysEnabled ? "soft-keys-toggle selected" : "soft-keys-toggle"}
-        title=${this.softKeysEnabled ? "隐藏终端快捷键" : "显示终端快捷键"}
-        aria-label=${this.softKeysEnabled ? "隐藏终端快捷键" : "显示终端快捷键"}
+        title=${this.softKeysEnabled ? t("ui.terminalPanel.hideTerminalShortcuts", "Hide terminal shortcuts") : t("ui.terminalPanel.showTerminalShortcuts", "Show terminal shortcuts")}
+        aria-label=${this.softKeysEnabled ? t("ui.terminalPanel.hideTerminalShortcuts", "Hide terminal shortcuts") : t("ui.terminalPanel.showTerminalShortcuts", "Show terminal shortcuts")}
         aria-pressed=${String(this.softKeysEnabled)}
         @click=${() => { this.toggleSoftKeys(); }}
       >
@@ -1009,7 +1010,7 @@ export class TerminalPanel extends LitElement {
           <rect x="3" y="5" width="18" height="14" rx="2"></rect>
           <path d="M7 9h.01M10 9h.01M13 9h.01M16 9h.01M7 12h.01M10 12h.01M13 12h.01M16 12h.01M8 16h8"></path>
         </svg>
-        <span>按键</span>
+        <span>${t("ui.terminalPanel.keys", "Keys")}</span>
       </button>
     `;
   }
@@ -1034,17 +1035,17 @@ export class TerminalPanel extends LitElement {
           ${this.renderSoftKeysToggle()}
           ${this.terminals.map((terminal) => html`
             <button class=${this.selectedId === terminal.id ? "selected" : ""} @click=${() => { this.selectTerminal(terminal.id); }}>
-              <span>${terminal.name}${terminal.exited ? " · 已退出" : ""}</span>
+              <span>${terminal.name}${terminal.exited ? t("ui.terminalPanel.exited", " · Exited") : ""}</span>
               <small @click=${(event: Event) => { void this.closeTerminal(terminal.id, event); }}>×</small>
             </button>
           `)}
-          <button class="new" ?disabled=${this.context === undefined} @click=${() => { void this.startTerminal(); }}>+ 终端</button>
+          <button class="new" ?disabled=${this.context === undefined} @click=${() => { void this.startTerminal(); }}>${t("ui.terminalPanel.terminal", "+ Terminal")}</button>
         </div>
         ${this.error === undefined ? null : html`<p class="error">${this.error}</p>`}
         ${this.connectionError === undefined ? null : html`<p class="error">${this.connectionError}</p>`}
         ${this.renderCommandRunNotice()}
         ${this.renderTerminalAccessoryBar()}
-        ${this.loading ? html`<p class="muted">正在加载终端…</p>` : null}
+        ${this.loading ? html`<p class="muted">${t("ui.terminalPanel.loadingTerminals", "Loading terminals…")}</p>` : null}
         <div class="terminal-stage">
           <div class=${this.copySnapshot === undefined ? "terminal-host" : "terminal-host copying"} ?inert=${this.copySnapshot !== undefined}></div>
           ${this.renderCopyMode()}
@@ -1149,8 +1150,8 @@ function isCommandRunPending(run: TerminalCommandRun): boolean {
 }
 
 function commandRunCompletionLabel(run: TerminalCommandRun): string {
-  if (run.status === "succeeded") return `命令成功${run.exitCode === undefined ? "" : `，退出码 ${String(run.exitCode)}`}`;
-  return `命令失败${run.exitCode === undefined ? "" : `，退出码 ${String(run.exitCode)}`}`;
+  if (run.status === "succeeded") return t("ui.main.9ebd05a92aa7", "Command succeeded{arg0}", { arg0: run.exitCode === undefined ? "" : t("ui.terminalPanel.exitCode", ", exit code {exitCode}", { exitCode: String(run.exitCode) }) });
+  return t("ui.terminalPanel.commandFailed", "Command failed{exitCode}", { exitCode: run.exitCode === undefined ? "" : t("ui.terminalPanel.exitCode", ", exit code {exitCode}", { exitCode: String(run.exitCode) }) });
 }
 
 export function filterTerminalInput(data: string): string {

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import type { WorkspaceTreeBatchRequest, WorkspaceRemovalRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
 import { parseSessionDefaults } from "../../../shared/sessionDefaults";
@@ -372,7 +373,7 @@ async function getOptionalTerminalCommandRun(runId: string, machineId: string): 
  */
 export class SessionTreeForkUnavailableError extends Error {
   constructor() {
-    super("会话树分叉暂不可用，请重启会话守护进程以启用。");
+    super(t("ui.main.8501d1e756a4", "Fork from the session tree is unavailable. Restart the session daemon to enable it."));
     this.name = "SessionTreeForkUnavailableError";
   }
 }

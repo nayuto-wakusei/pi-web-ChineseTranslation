@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 import type {
   JsonObject,
   JsonValue,
@@ -44,7 +45,7 @@ interface TerminalActivation extends ServerPluginActivation {
 
 const plugin: PiWebServerPlugin = {
   apiVersion: 3,
-  name: "终端",
+  name: t("client.panels.terminal.e2a76e", "Terminal"),
   activate(context) {
     return activateTerminalPlugin(context);
   },
@@ -53,12 +54,13 @@ const plugin: PiWebServerPlugin = {
 export default plugin;
 
 export function activateTerminalPlugin(context: ServerPluginActivationContext): TerminalActivation {
+  setTranslator(context.translate);
   if (context.pluginId !== "pi-web.terminal") {
-    throw new Error(`终端服务端入口必须以插件标识 pi-web.terminal 激活，实际为 ${context.pluginId}`);
+    throw new Error(t("ui.main.4b7ba025964e", "The terminal server entry must activate as pi-web.terminal, received {arg0}", { arg0: context.pluginId }));
   }
   const notices = context.notices;
   if (notices?.version !== 1) {
-    throw new Error("终端服务端入口需要版本 1 的服务通知报告器");
+    throw new Error(t("ui.main.1bf6de0c1567", "Terminal server entry requires server notice reporter version 1"));
   }
   const service = new TerminalService((input) => { notices.record(input); });
   const requiredTerminalService: RequiredTerminalServiceContribution = Object.freeze({
@@ -75,7 +77,7 @@ export function activateTerminalPlugin(context: ServerPluginActivationContext): 
     peer: createTerminalPeer(service, context),
     provides: Object.freeze([serviceProvision] as const),
     health: () => stopped
-      ? Object.freeze({ status: "unhealthy" as const, message: "终端服务已停止" })
+      ? Object.freeze({ status: "unhealthy" as const, message: t("ui.main.ee0fa7cb477f", "Terminal service is stopped") })
       : Object.freeze({ status: "healthy" as const }),
     dispose: () => {
       if (stopped) return;
@@ -87,7 +89,7 @@ export function activateTerminalPlugin(context: ServerPluginActivationContext): 
 
 function snapshotTerminalServiceCapability(value: unknown): RequiredTerminalServiceContribution {
   if (!isRequiredTerminalServiceContribution(value)) {
-    throw new Error("终端服务能力必须提供 closeForCwd、runCommand 和 bindActivitySink");
+    throw new Error(t("ui.main.11f40a27d612", "Terminal service capability must expose closeForCwd, runCommand, and bindActivitySink"));
   }
   return Object.freeze({
     closeForCwd: (cwd: string) => { value.closeForCwd(cwd); },
@@ -149,7 +151,7 @@ function terminalRequest(service: TerminalService, context: ServerPluginPeerRequ
     case "terminal.cancel-run":
       return commandRunJson(service.cancelCommandRunForScope(scope, requireIdInput(context.input, context.operation, "runId")));
     default:
-      throw new Error(`不支持的终端操作： ${context.operation}`);
+      throw new Error(t("ui.main.1ba4d446a5f7", "Unsupported terminal operation: {arg0}", { arg0: context.operation }));
   }
 }
 
@@ -159,7 +161,7 @@ function openTerminalChannel(
   activationContext?: Pick<ServerPluginActivationContext, "logger">,
 ): ServerPluginPeerChannel {
   if (context.operation !== "terminal.attach") {
-    throw new Error(`不支持的终端通道操作： ${context.operation}`);
+    throw new Error(t("ui.main.745a3a62852f", "Unsupported terminal channel operation: {arg0}", { arg0: context.operation }));
   }
   throwIfAborted(context.signal);
   const scope = terminalScope(context);
@@ -180,7 +182,7 @@ function openTerminalChannel(
     } catch (error) {
       if (opening) throw error;
       detach();
-      activationContext?.logger.error("终端通道输出失败", {
+      activationContext?.logger.error("Terminal channel output failed", {
         terminalId,
         message: boundedErrorMessage(error),
       });
@@ -223,7 +225,7 @@ function openTerminalChannel(
         service.resize(scope, terminalId, parsed.cols, parsed.rows);
         return;
       }
-      throw new Error(`不支持的终端通道消息： ${type}`);
+      throw new Error(t("ui.main.8de3f24e9b34", "Unsupported terminal channel message: {arg0}", { arg0: type }));
     },
     close(): void {
       cleanup();
@@ -233,7 +235,7 @@ function openTerminalChannel(
 
 function terminalScope(context: Pick<ServerPluginPeerRequestContext, "project" | "workspace">): TerminalWorkspaceScope {
   if (context.workspace.projectId !== context.project.id) {
-    throw new Error("终端工作区的项目作用域与宿主项目不匹配");
+    throw new Error(t("ui.main.0e2bca4bb08e", "Terminal workspace project scope does not match the host project"));
   }
   return Object.freeze({
     projectId: context.project.id,
@@ -312,8 +314,8 @@ function optionalTerminalSize(input: JsonObject): Pick<CreateTerminalOptions, "c
 function requireTerminalSize(input: JsonObject, label: string): { cols: number; rows: number } {
   const cols = input["cols"];
   const rows = input["rows"];
-  if (typeof cols !== "number" || !Number.isFinite(cols) || cols <= 0) throw new Error(`${label} cols 必须是正数`);
-  if (typeof rows !== "number" || !Number.isFinite(rows) || rows <= 0) throw new Error(`${label} rows 必须是正数`);
+  if (typeof cols !== "number" || !Number.isFinite(cols) || cols <= 0) throw new Error(t("ui.main.4fe2e9e99007", "{arg0} cols must be positive", { arg0: label }));
+  if (typeof rows !== "number" || !Number.isFinite(rows) || rows <= 0) throw new Error(t("ui.main.8c77f7625da9", "{arg0} rows must be positive", { arg0: label }));
   return { cols: Math.floor(cols), rows: Math.floor(rows) };
 }
 
@@ -322,7 +324,7 @@ function requireIdInput(input: JsonValue, operation: string, key: string): strin
 }
 
 function requireObject(value: JsonValue, label: string): JsonObject {
-  if (!isJsonObject(value)) throw new Error(`${label} 输入必须是对象`);
+  if (!isJsonObject(value)) throw new Error(t("ui.main.d808dc8965e3", "{arg0} input must be an object", { arg0: label }));
   return value;
 }
 
@@ -336,39 +338,39 @@ function requireObjectOrEmpty(value: JsonValue, label: string): JsonObject {
 
 function requireNullishInput(value: JsonValue, label: string): void {
   if (value !== null && (typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 0)) {
-    throw new Error(`${label} 输入必须是 null 或空对象`);
+    throw new Error(t("ui.main.5c96c91dedb1", "{arg0} input must be null or an empty object", { arg0: label }));
   }
 }
 
 function requireString(record: JsonObject, key: string, label: string): string {
   const value = record[key];
-  if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} ${key} 必须是非空字符串`);
+  if (typeof value !== "string" || value.trim() === "") throw new Error(t("bundled.workspace-tasks.must.be.a.non.empty.string.838d0a", "{value1} {value2} must be a non-empty string", { value1: label, value2: key }));
   return value;
 }
 
 function requireTerminalInputData(record: JsonObject): string {
   const value = record["data"];
-  if (typeof value !== "string" || value === "") throw new Error("terminal.attach input frame data 必须是非空字符串");
+  if (typeof value !== "string" || value === "") throw new Error(t("ui.main.5bac4f59d1de", "terminal.attach input frame data must be a non-empty string"));
   return value;
 }
 
 function optionalString(record: JsonObject, key: string, label: string): string | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`${label} ${key} 必须是字符串`);
+  if (typeof value !== "string") throw new Error(t("ui.main.90ec567aed4b", "{arg0} {arg1} must be a string", { arg0: label, arg1: key }));
   return value;
 }
 
 function stringRecord(value: JsonValue, label: string): Record<string, string> {
   const record = requireObject(value, label);
   return Object.fromEntries(Object.entries(record).map(([key, child]) => {
-    if (typeof child !== "string") throw new Error(`${label} ${key} 必须是字符串`);
+    if (typeof child !== "string") throw new Error(t("ui.main.90ec567aed4b", "{arg0} {arg1} must be a string", { arg0: label, arg1: key }));
     return [key, child];
   }));
 }
 
 function requireArray(value: JsonValue, label: string): readonly JsonValue[] {
-  if (!isJsonArray(value)) throw new Error(`${label} 必须是数组`);
+  if (!isJsonArray(value)) throw new Error(t("ui.main.05dcf0046d6e", "{arg0} must be an array", { arg0: label }));
   return value;
 }
 
@@ -378,7 +380,7 @@ function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
 
 function parseCommandRunStatus(value: JsonValue): TerminalCommandRunStatus {
   if (value === "queued" || value === "running" || value === "succeeded" || value === "failed") return value;
-  throw new Error(`无效的终端命令运行状态： ${JSON.stringify(value)}`);
+  throw new Error(t("ui.main.b302a96237f7", "Invalid terminal command run status: {arg0}", { arg0: JSON.stringify(value) }));
 }
 
 interface TerminalOutputFrame extends JsonObject {
@@ -419,7 +421,7 @@ function terminalOutputFrame(data: string, replay: boolean, replayComplete: bool
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   const reason: unknown = signal.reason;
-  throw reason instanceof Error ? reason : new Error("终端操作已取消", { cause: reason });
+  throw reason instanceof Error ? reason : new Error(t("ui.main.398328b7ef67", "Terminal operation was cancelled"), { cause: reason });
 }
 
 function boundedErrorMessage(error: unknown): string {

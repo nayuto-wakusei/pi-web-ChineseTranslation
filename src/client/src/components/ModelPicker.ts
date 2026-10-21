@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -72,7 +73,7 @@ interface ModelPickerRow {
 
 @customElement("model-picker")
 export class ModelPicker extends LitElement {
-  @property() override title = "选择模型";
+  @property() override title = t("client.actions.choose.model.1afed6", "Choose model");
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) catalog: SessionModelCatalogEntry[] = [];
   @property({ attribute: false }) selectedValue?: string;
@@ -98,25 +99,25 @@ export class ModelPicker extends LitElement {
     const rows = this.visibleRows();
     return html`
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input.search"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
-        <header><strong>${this.title}</strong><button aria-label="关闭" @click=${() => this.onCancel?.()}>×</button></header>
-        <div class="scope-toggle" role="group" aria-label="模型范围">
-          ${this.renderScopeToggleButton("enabled", "已启用")}
-          ${this.renderScopeToggleButton("all", "全部模型")}
+        <header><strong>${this.title}</strong><button aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button></header>
+        <div class="scope-toggle" role="group" aria-label="${t("ui.main.24575c56a20e", "Model scope")}">
+          ${this.renderScopeToggleButton("enabled", t("ui.settingsSessiondPanel.enabled", "Enabled"))}
+          ${this.renderScopeToggleButton("all", t("ui.main.688facc5f591", "All models"))}
         </div>
         ${!this.modelScopeEditable ? html`
           <div class="scope-notice" role="status">
-            <strong>项目覆盖</strong>
-            <span>当前工作区的 <code>.pi/settings.json</code> 控制模型可用性，无法在此修改。</span>
+            <strong>${t("ui.main.4a76d59ee88e", "Project override")}</strong>
+            <span>${t("ui.main.b839179fd6bd", "Showing models from this workspace’s")} <code>.pi/settings.json</code> ${t("ui.main.98408917bb6f", ". Model availability selection is disabled.")}</span>
           </div>
         ` : nothing}
         ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
         <div class="search-row">
-          <input class="search" aria-label="搜索模型" placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
+          <input class="search" aria-label="${t("ui.main.df5586278501", "Search models")}" placeholder="${t("ui.commandPicker.search", "Search")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
           ${this.mode === "all" ? this.renderToggleAllButton() : nothing}
         </div>
-        <div class="options" role="region" aria-label=${this.mode === "all" ? "按目录顺序显示的全部模型" : "已启用模型"} tabindex="0" aria-busy=${this.membershipChangePending ? "true" : "false"}>
+        <div class="options" role="region" aria-label=${this.mode === "all" ? t("ui.main.95424120e087", "All models in catalog order") : t("ui.main.380eb29a60a3", "Enabled models")} tabindex="0" aria-busy=${this.membershipChangePending ? "true" : "false"}>
           ${this.mode === "all" ? this.renderCatalogList() : this.renderEnabledList()}
-          ${rows.length === 0 ? html`<div class="empty">没有匹配选项</div>` : null}
+          ${rows.length === 0 ? html`<div class="empty">${t("ui.commandPicker.noMatchingOptions", "No matching options")}</div>` : null}
         </div>
       </modal-surface>
     `;
@@ -162,10 +163,10 @@ export class ModelPicker extends LitElement {
 
   private renderToggleAllButton(): TemplateResult {
     const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue);
-    const label = plan.mode === "all" ? "全选" : "除当前模型外全部取消";
+    const label = plan.mode === "all" ? t("ui.sessionCleanupDialog.selectAll", "Select all") : t("ui.main.2d6cec165a76", "Deselect all");
     return html`
-      <button class="toggle-all" ?disabled=${!this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.toggleAllPending || this.pendingToggles.size > 0} aria-describedby="model-scope-status" title=${!this.modelScopeEditable ? "工作区设置控制模型可用性" : !plan.canApply ? "当前模型不可用" : nothing} @click=${() => { this.requestToggleAll(); }}>${label}</button>
-      <span id="model-scope-status" class="scope-status" aria-live="polite">${this.membershipChangePending ? "正在更新模型可用性" : !this.modelScopeEditable ? "工作区设置控制模型可用性" : !plan.canApply ? "当前模型不可用" : nothing}</span>
+      <button class="toggle-all" ?disabled=${!this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.toggleAllPending || this.pendingToggles.size > 0} aria-describedby="model-scope-status" title=${!this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : !plan.canApply ? t("ui.main.46b71cd9c032", "The current model is unavailable") : nothing} @click=${() => { this.requestToggleAll(); }}>${label}</button>
+      <span id="model-scope-status" class="scope-status" aria-live="polite">${this.membershipChangePending ? t("ui.main.6fa086f67183", "Updating model availability") : !this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : !plan.canApply ? t("ui.main.46b71cd9c032", "The current model is unavailable") : nothing}</span>
     `;
   }
 
@@ -221,12 +222,12 @@ export class ModelPicker extends LitElement {
     const selected = index === this.selectedIndex;
     const protectsCurrentModel = value === this.selectedValue && entry.enabled;
     const membershipDisabled = !this.modelScopeEditable || this.membershipChangePending || protectsCurrentModel;
-    const membershipLabel = !this.modelScopeEditable ? `${value} 的模型可用性由工作区设置控制` : protectsCurrentModel ? `不能取消当前模型 ${value}` : `${entry.enabled ? "禁用" : "启用"} ${value}`;
+    const membershipLabel = !this.modelScopeEditable ? t("ui.main.d05c48dbb58b", "Availability of {arg0} is controlled by workspace settings", { arg0: value }) : protectsCurrentModel ? t("ui.main.613b6d756a13", "Cannot deselect the current model {arg0}", { arg0: value }) : `${entry.enabled ? t("ui.main.be70be5a2e12", "Disable") : t("ui.settingsSessiondPanel.enable", "Enable")} ${value}`;
     return html`
       <div class="catalog-row ${selected ? "selected" : ""}" data-model-value=${value} ${scrollWhenSelected(selected, value)}>
-        <input type="checkbox" .checked=${entry.enabled} ?disabled=${membershipDisabled} aria-label=${membershipLabel} title=${!this.modelScopeEditable ? "工作区设置控制模型可用性" : protectsCurrentModel ? "当前模型必须保持启用" : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.handleEnableToggleClick(entry, event); }} />
+        <input type="checkbox" .checked=${entry.enabled} ?disabled=${membershipDisabled} aria-label=${membershipLabel} title=${!this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : protectsCurrentModel ? t("ui.main.c22854b56cf8", "The current model must remain enabled") : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.handleEnableToggleClick(entry, event); }} />
         <button class="membership" ?disabled=${membershipDisabled} aria-label=${membershipLabel} aria-current=${value === this.selectedValue ? "true" : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.requestEnabledToggle(entry, event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined); }}>
-          <span>${entry.id}${value === this.selectedValue ? " ✓ 当前" : ""}</span><small>${entry.provider}</small>
+          <span>${entry.id}${value === this.selectedValue ? t("ui.piWebApp.current", " ✓ Current") : ""}</span><small>${entry.provider}</small>
         </button>
         ${this.renderDefaultPin(value, entry.name ?? entry.id, entry.enabled)}
       </div>

@@ -276,7 +276,10 @@ async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedCont
   await writeFile(outside, "OUTSIDE_WORKSPACE_SENTINEL");
   await writeFile(join(agentDir, "AGENTS.md"), "GLOBAL_CONTEXT_SENTINEL");
   await writeFile(join(agentDir, "skills", "global-probe", "SKILL.md"), "---\nname: global-probe\ndescription: Test global skill\n---\nGlobal resource fixture\n");
-  await writeFile(join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: trust }));
+  await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+    defaultProjectTrust: trust,
+    ...(process.env["PI_WEB_TEST_BASH"] === undefined ? {} : { shellPath: process.env["PI_WEB_TEST_BASH"] }),
+  }));
   await writeFile(join(cwd, ".pi", "extensions", "probe.js"), 'export default function(pi) { pi.registerCommand("project-probe", { description: "Test project command", async handler() {} }); }\n');
   await writeFile(join(agentDir, "extensions", "mcp.js"), 'export default function(pi) { pi.registerTool({ name: "mcp", label: "mcp", description: "Test global MCP contribution: " + (process.env["PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR"] ?? "default"), parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "GLOBAL_MCP_FIXTURE" }] }; } }); }\n');
   const managedModelRuntime = await createTestModelRuntime();

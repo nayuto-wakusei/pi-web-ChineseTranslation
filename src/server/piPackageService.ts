@@ -9,6 +9,7 @@ import {
 import { KNOWN_PI_PACKAGES, type KnownPiPackage } from "./knownPiPackages.js";
 import { resolveDeclaredPiPackageName } from "./piPackageIdentity.js";
 import { PiPackageDismissalStore } from "./storage/piPackageDismissalStore.js";
+import { createTranslator, type Translator } from "../shared/i18n.js";
 
 export interface PiPackageManagerPort {
   listConfiguredPackages(): PiPackageInfo[];
@@ -55,6 +56,7 @@ export class ActiveProfilePiPackageService implements PiPackageService {
     private readonly identityResolver: PiPackageIdentityResolver = defaultIdentityResolver,
     private readonly knownPackages: readonly KnownPiPackage[] = KNOWN_PI_PACKAGES,
     private readonly packageRoot: string = defaultPiWebPackageRoot(),
+    private readonly translate: Translator = createTranslator("en", {}),
   ) {}
 
   async list(): Promise<PiPackagesResponse> {
@@ -92,8 +94,8 @@ export class ActiveProfilePiPackageService implements PiPackageService {
       .filter((known) => !installedIds.has(known.id))
       .map((known) => ({
         id: known.id,
-        label: known.label,
-        description: known.description,
+        label: this.translate(`package.known.${known.id}.label`, known.label),
+        description: this.translate(`package.known.${known.id}.description`, known.description),
         source: resolveShippedPiPackagePath(known, this.packageRoot),
       }));
     return installableKnownPackages.length === 0 ? response : { ...response, installableKnownPackages };
@@ -213,8 +215,9 @@ export function createActiveProfilePiPackageService(
   activeAgentProfile: ActiveAgentProfileProvider,
   cwd = process.cwd(),
   dismissalTracker: PiPackageDismissalTracker = new PiPackageDismissalStore(),
+  translate: Translator = createTranslator("en", {}),
 ): PiPackageService {
-  return new ActiveProfilePiPackageService(activeAgentProfile, (agentDir) => createDefaultPiPackageService(cwd, agentDir), dismissalTracker);
+  return new ActiveProfilePiPackageService(activeAgentProfile, (agentDir) => createDefaultPiPackageService(cwd, agentDir), dismissalTracker, undefined, undefined, undefined, translate);
 }
 
 export function createDefaultPiPackageService(cwd: string, agentDir: string): PiPackageService {

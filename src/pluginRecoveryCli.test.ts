@@ -112,14 +112,15 @@ describe("plugin recovery CLI", () => {
       env: {
         ...process.env,
         PI_WEB_DATA_DIR: join(tempDir, "data"),
+        PI_WEB_CONFIG: configPath,
         PI_WEB_SESSIOND_SOCKET: join(tempDir, "missing-sessiond.sock"),
       },
       encoding: "utf8",
     });
 
-    expect(result.stdout).toContain("Disabled server plugin \"poison\"");
-    expect(result.stdout).toContain("Warning: PI WEB config serverPlugins.safeStart");
-    expect(result.stdout).toContain("cannot be restarted automatically");
+    expect(result.stdout).toContain('禁用服务端插件 "poison"');
+    expect(result.stdout).toContain("警告：PI WEB config serverPlugins.safeStart");
+    expect(result.stdout).toContain("无法自动重启会话守护进程");
     expect(result.stdout).toContain(`PI_WEB_CONFIG=${JSON.stringify(configPath)}`);
     expect(existsSync(markerPath)).toBe(false);
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({

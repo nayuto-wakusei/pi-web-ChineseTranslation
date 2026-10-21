@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionInfo } from "../api";
@@ -17,35 +18,35 @@ export class SessionSearchDialog extends LitElement {
   override render(): TemplateResult {
     const hasQuery = this.query.trim() !== "";
     return html`
-      <modal-surface .onClose=${() => { this.onClose?.(); }} .initialFocus=${"input"} .label=${"搜索会话内容"}>
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .initialFocus=${"input"} .label=${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}>
           <header>
             <div>
-              <span class="eyebrow">会话</span>
-              <h1>搜索会话内容</h1>
+              <span class="eyebrow">${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>
+              <h1>${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}</h1>
             </div>
-            <button class="close-button" title="关闭搜索" aria-label="关闭搜索" @click=${() => { this.onClose?.(); }}>×</button>
+            <button class="close-button" title=${t("ui.sessionSearchDialog.closeSearch", "Close search")} aria-label=${t("ui.sessionSearchDialog.closeSearch", "Close search")} @click=${() => { this.onClose?.(); }}>×</button>
           </header>
           <div class="body">
             <label class="search-field">
               <span aria-hidden="true">⌕</span>
-              <input type="search" aria-label="搜索用户提问或 AI 回答" .value=${this.query} @input=${(event: Event) => { this.onSearch?.(inputValue(event)); }}>
-              ${this.searching ? html`<span class="spinner" aria-label="正在搜索"></span>` : null}
+              <input type="search" aria-label=${t("ui.sessionSearchDialog.searchUserQuestionsOrAiAnswers", "Search user questions or AI answers")} .value=${this.query} @input=${(event: Event) => { this.onSearch?.(inputValue(event)); }}>
+              ${this.searching ? html`<span class="spinner" aria-label=${t("ui.sessionSearchDialog.searching", "Searching")}></span>` : null}
             </label>
             ${this.renderStatus(hasQuery)}
             ${this.renderResults()}
           </div>
           <footer>
             <span>${this.resultSummary()}</span>
-            <button @click=${() => { this.onClose?.(); }}>关闭</button>
+            <button @click=${() => { this.onClose?.(); }}>${t("ui.sessionSearchDialog.close", "Close")}</button>
           </footer>
       </modal-surface>
     `;
   }
 
   private renderStatus(hasQuery: boolean): TemplateResult | null {
-    if (this.error !== "") return html`<div class="status error" role="alert">搜索失败：${this.error}</div>`;
+    if (this.error !== "") return html`<div class="status error" role="alert">${t("ui.sessionSearchDialog.searchError", "Search failed: {error}", { error: this.error })}</div>`;
     if (!hasQuery) return null;
-    if (!this.searching && this.response?.results.length === 0) return html`<div class="empty" role="status">未找到匹配内容。</div>`;
+    if (!this.searching && this.response?.results.length === 0) return html`<div class="empty" role="status">${t("ui.sessionSearchDialog.noMatchesFound", "No matches found.")}</div>`;
     return null;
   }
 
@@ -53,12 +54,12 @@ export class SessionSearchDialog extends LitElement {
     const response = this.response;
     if (response === undefined || response.results.length === 0) return null;
     return html`
-      <div class="results" aria-label="会话内容搜索结果">
+      <div class="results" aria-label=${t("ui.sessionSearchDialog.sessionContentSearchResults", "Session content search results")}>
         ${response.results.map((result) => html`
           <section class="session-group">
             <div class="session-heading">
               <strong dir="auto">${sessionLabel(result.session)}</strong>
-              <span>${result.matches.length} 条匹配</span>
+              <span>${t("ui.sessionSearchDialog.matchCount", "{count} matches", { count: result.matches.length })}</span>
             </div>
             ${result.matches.map((match) => this.renderMatch(result.session, match))}
           </section>
@@ -68,7 +69,7 @@ export class SessionSearchDialog extends LitElement {
   }
 
   private renderMatch(session: SessionInfo, match: SessionContentSearchMatch): TemplateResult {
-    const role = match.role === "user" ? "用户提问" : "AI 回答";
+    const role = match.role === "user" ? t("ui.sessionSearchDialog.userQuestion", "User question") : t("ui.sessionSearchDialog.aiAnswer", "AI answer");
     return html`
       <button class="match-row" @click=${() => { void this.onSelect?.(session, match); }}>
         <span class="match-meta"><span class=${`role ${match.role}`}>${role}</span></span>
@@ -83,7 +84,7 @@ export class SessionSearchDialog extends LitElement {
   private resultSummary(): string {
     const response = this.response;
     if (response === undefined || this.query.trim() === "") return "";
-    return `${String(response.matchCount)} 条消息匹配${response.truncated ? "，仅显示前 200 条" : ""}`;
+    return t("ui.sessionSearchDialog.matchingMessages", "{matchCount} matching messages{truncated200}", { matchCount: String(response.matchCount), truncated200: response.truncated ? t("ui.sessionSearchDialog.showingTheFirst200", ", showing the first 200") : "" });
   }
 
   static override styles = css`

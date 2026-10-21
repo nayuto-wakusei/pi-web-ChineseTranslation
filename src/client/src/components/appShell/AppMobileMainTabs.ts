@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { QualifiedContributionId } from "../../plugins/types";
@@ -63,7 +64,7 @@ export class AppMobileMainTabs extends LitElement {
               </button>
             `;
           })}
-          ${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}
+          ${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${this.hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}
         </div>
       </div>
     `;

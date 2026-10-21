@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Machine, MachineHealth, MachineStatus, WorkspaceActivity } from "../api";
@@ -76,7 +77,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
           ${this.renderMachineIcon(selected)}
           ${this.renderActivity(selected)}
           <span class="machine-switcher-text">
-            <span class="machine-switcher-kicker">机器</span>
+            <span class="machine-switcher-kicker">${t("bundled.info.machine.ece969", "Machine")}</span>
             <span class="machine-switcher-label">${label}</span>
           </span>
           <span class=${`machine-status ${status}`}>${machineStatusLabel(status)}</span>
@@ -114,14 +115,14 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
             <button
               type="button"
               class="machine-option-actions-toggle"
-              title="机器操作"
-              aria-label=${`${machine.name}的操作`}
+              title="${t("ui.machineSwitcher.machineActions", "Machine actions")}"
+              aria-label=${t("ui.machineSwitcher.actionsFor", "Actions for {name}", { name: machine.name })}
               aria-expanded=${String(actionsOpen)}
               @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleActionsMenu(machine.id, event.currentTarget); }}
             >⋯</button>
             ${actionsOpen ? html`
               <div class="machine-option-actions-panel" style=${this.actionMenuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-                <button class="danger" title=${`移除 ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>移除</button>
+                <button class="danger" title=${t("ui.promptEditor.remove", "Remove {name}", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${t("ui.settingsPackagesPanel.remove", "Remove")}</button>
               </div>
             ` : null}
           </div>
@@ -157,8 +158,8 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
     const snapshot = this.statusSnapshots[machine.id];
     const flags = snapshot?.machine;
     const kind = status === "offline" || status === "error" ? undefined : (snapshot === undefined ? machineActivityIndicator(this.activities[machine.id]) : statusActivityKind(flags));
-    const unreadLabel = snapshot === undefined ? (this.unreadMachineIds.has(machine.id) ? "此机器上有未读会话" : undefined) : (hasStatusUnread(flags) ? "此机器上有未读会话" : undefined);
-    return renderActivityIndicator(kind, kind === "terminal" ? "机器终端活动中" : "机器活动中", unreadLabel);
+    const unreadLabel = snapshot === undefined ? (this.unreadMachineIds.has(machine.id) ? t("ui.machineSwitcher.unreadSessionsOnThisMachine", "Unread sessions on this machine") : undefined) : (hasStatusUnread(flags) ? t("ui.machineSwitcher.unreadSessionsOnThisMachine", "Unread sessions on this machine") : undefined);
+    return renderActivityIndicator(kind, kind === "terminal" ? t("ui.machineSwitcher.machineTerminalActive", "Machine terminal active") : t("ui.machineSwitcher.machineActive", "Machine active"), unreadLabel);
   }
 
   private selectedMachine(): Machine | undefined {
@@ -166,7 +167,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
   }
 
   private machineSwitcherAriaLabel(machine: Machine): string {
-    return `机器：${machine.name}。切换机器。`;
+    return t("ui.machineSwitcher.machineSwitchMachine", "Machine: {name}. Switch machine.", { name: machine.name });
   }
 
   private switcherButton(): HTMLElement | null {
@@ -353,7 +354,7 @@ function machineStatus(machine: Machine, statuses: Record<string, MachineHealth>
 }
 
 function machineStatusLabel(status: MachineStatus): string {
-  return status === "online" ? "在线" : status === "offline" ? "离线" : status === "error" ? "错误" : "未知";
+  return status === "online" ? t("ui.machineSwitcher.online", "Online") : status === "offline" ? t("ui.machineSwitcher.offline", "Offline") : status === "error" ? t("client.sessionNotifications.error.0bc1fb", "Error") : t("bundled.updates.unknown.4d8c1c", "Unknown");
 }
 
 function machineTitle(machine: Machine): string {
@@ -362,7 +363,7 @@ function machineTitle(machine: Machine): string {
 
 function machineSubtitle(machine: Machine): string {
   if (machine.kind === "local") return browserGatewayDisplayUrl();
-  return machine.baseUrl ?? "远程 PI WEB";
+  return machine.baseUrl ?? t("ui.machineSwitcher.remotePiWeb", "Remote PI WEB");
 }
 
 function machineSwitcherMenuStyle(target: EventTarget | null): string {

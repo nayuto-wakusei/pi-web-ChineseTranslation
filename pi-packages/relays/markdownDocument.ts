@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import { marked } from "./vendor/marked.esm.js";
 
 // Raw HTML inside relay documents is escaped before sanitizing, so the
@@ -65,7 +66,7 @@ function wrapTablesInScrollRegions(root: DocumentFragment): void {
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", "表格");
+    wrapper.setAttribute("aria-label", t("bundled.relays.table.22d9e7", "Table"));
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

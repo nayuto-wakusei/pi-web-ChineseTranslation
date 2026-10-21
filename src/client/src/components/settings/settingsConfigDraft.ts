@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { PiWebConfigValues } from "../../api";
 
 export interface GatewayServerConfigDraft {
@@ -78,7 +79,7 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
   if (host !== "") config.host = host;
   if (port !== "") {
     const parsed = Number(port);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error("端口必须是 1 到 65535 之间的整数。");
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error(t("ui.settingsConfigDraft.portMustBeAnIntegerFrom1To", "Port must be an integer from 1 to 65535."));
     config.port = parsed;
   }
   config.allowedHosts = draft.allowedHostsMode === "all" ? true : parseAllowedHostsText(draft.allowedHostsText);
@@ -87,8 +88,8 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
 
 export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraft): PiWebConfigValues {
   const allowedPaths = parseAllowedPathsText(draft.allowedPathsText);
-  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, "上传默认文件夹");
-  const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, "附件默认文件夹");
+  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, t("ui.main.d70e26e84489", "Upload default folder"));
+  const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, t("ui.main.14cfd18bd406", "Attachment default folder"));
   return {
     pathAccess: { allowedPaths },
     uploads: uploadDefaultFolder === "" ? {} : { defaultFolder: uploadDefaultFolder },
@@ -119,17 +120,17 @@ function parseAllowedHostsText(value: string): string[] {
 function parseAllowedPathsText(value: string): string[] {
   const paths = value.split("\n").map((path) => path.trim()).filter((path) => path !== "");
   const invalid = paths.find((path) => !isAbsoluteishAllowedPath(path));
-  if (invalid !== undefined) throw new Error(`允许的外部路径必须是绝对路径或以 ~ 开头：${invalid}`);
+  if (invalid !== undefined) throw new Error(t("ui.settingsConfigDraft.allowedExternalPathsMustBeAbsoluteOrStart", "Allowed external paths must be absolute or start with ~: {invalid}", { invalid: invalid }));
   return paths;
 }
 
 function normalizeWorkspaceRelativeFolder(value: string, label: string): string {
   const trimmed = value.trim();
   if (trimmed === "") return "";
-  if (isAbsoluteLike(trimmed)) throw new Error(`${label}必须是工作区相对路径。`);
+  if (isAbsoluteLike(trimmed)) throw new Error(t("ui.main.4b7d0c261f32", "{arg0} must be a workspace-relative path.", { arg0: label }));
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) return "";
-  if (parts.some((part) => part === "..")) throw new Error(`${label}不能包含路径穿越。`);
+  if (parts.some((part) => part === "..")) throw new Error(t("ui.main.36766761e71a", "{arg0} must not contain path traversal.", { arg0: label }));
   return parts.join("/");
 }
 

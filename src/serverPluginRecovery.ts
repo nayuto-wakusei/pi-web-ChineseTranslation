@@ -1,3 +1,5 @@
+import type { Translator } from "./shared/i18n.js";
+import { loadNodeTranslator } from "./localization.js";
 import {
   chmodSync,
   existsSync,
@@ -62,11 +64,11 @@ export function loadServerPluginRecoveryConfig(
 /** Offline recovery mutation that preserves settings and unrelated config. */
 export function disableServerPlugin(
   pluginId: string,
-  options: ServerPluginRecoveryConfigOptions = {},
+  options: ServerPluginRecoveryConfigOptions = {}, t: Translator = loadNodeTranslator("server")
 ): ServerPluginRecoveryConfig {
   if (!isPiWebPluginId(pluginId)) throw new Error(`Invalid PI WEB plugin id: ${pluginId}`);
   if (pluginId === REQUIRED_TERMINAL_PLUGIN_ID) {
-    throw new Error(`不能禁用必需的 Terminal 插件。${REQUIRED_TERMINAL_RECOVERY_GUIDANCE}`);
+    throw new Error(t("server.main.441e39d0647e", "Terminal is a required bundled plugin and cannot be disabled. {arg0}", { arg0: REQUIRED_TERMINAL_RECOVERY_GUIDANCE }));
   }
   return mutateRecoveryConfig(options, (root, path) => {
     const configuredPlugins = root["plugins"];

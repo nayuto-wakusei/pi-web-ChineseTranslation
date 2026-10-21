@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 import type { ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
 import { FilesCodeViewer } from "./FilesCodeViewer";
 import { WorkspaceFilesPanel } from "./FilesPanel";
@@ -34,8 +35,8 @@ function isContentRenderingCapability(value: unknown): value is ContentRendering
 const plugin = {
   requires: [contentRenderingCapability],
   apiVersion: 4,
-  name: "文件",
-  activate: (context) => activateFilesPlugin(context, new FilesRuntime()),
+  name: "Files",
+  activate: (context) => { setTranslator(context.translate); return activateFilesPlugin(context, new FilesRuntime()); },
 } satisfies PiWebPlugin;
 
 export default plugin;
@@ -54,7 +55,7 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
     contributions: {
       workspacePanels: [{
         id: "workspace.files",
-        title: "文件",
+        title: t("ui.toolExecutionView.file", "File"),
         icon,
         order: 10,
         routeAliases: ["files", "core:workspace.files"],
@@ -67,19 +68,19 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
       actions: [
         {
           id: "view.files",
-          title: "转到文件",
+          title: t("client.actions.go.to.files.84659f", "Go to files"),
           shortcut: "mod+2",
           shortcutAliases: ["core:view.files"],
-          group: "导航",
+          group: t("client.actions.navigation.e72622", "Navigation"),
           enabled: (runtimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
           run: (runtimeContext) => { runtimeContext.selectWorkspaceTool(panelId); },
         },
         {
           id: "workspace.refresh-files",
-          title: "刷新文件",
+          title: t("client.actions.refresh.files.bac6fb", "Refresh files"),
           shortcut: "mod+shift+f",
           shortcutAliases: ["core:workspace.refresh-files"],
-          group: "工作区",
+          group: t("bundled.workspace-tasks.workspace.379798", "Workspace"),
           enabled: (runtimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
           run: (runtimeContext) => runtimeContext.refreshWorkspacePanels(panelId),
         },

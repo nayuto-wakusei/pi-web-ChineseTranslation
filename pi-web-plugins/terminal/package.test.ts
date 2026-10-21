@@ -103,6 +103,7 @@ describe("bundled Terminal package", () => {
       .sort();
     expect(files).toEqual([
       "browser/pi-web-plugin.js",
+      "i18n.js",
       "package.json",
       "server-plugin.js",
       "terminalService.js",

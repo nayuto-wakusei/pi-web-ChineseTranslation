@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 import { basename, resolve } from "node:path";
 import type {
   PiWebServerPlugin,
@@ -35,6 +36,7 @@ const plugin: PiWebServerPlugin = {
   apiVersion: 3,
   name: "Git",
   activate(context) {
+    setTranslator(context.translate);
     return {
       workspaceProvider: createGitWorkspaceProvider(context),
       peer: { request: (request) => requestGitBackend(context, request) },
@@ -49,29 +51,29 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
     fallback: true,
     async probe(project: ProjectInput, signal: AbortSignal): Promise<ProviderClaim> {
       const result = await runGit(context, project.path, ["rev-parse", "--is-inside-work-tree"], signal);
-      if (result.signal !== null) throw new Error(`Git 仓库探测因信号 ${result.signal} 结束`);
+      if (result.signal !== null) throw new Error(t("ui.main.8919cbc9c0bd", "Git repository probe ended with signal {arg0}", { arg0: result.signal }));
       if (result.exitCode !== 0) return "pass";
       return result.stdout.trim() === "true" ? "claim" : "pass";
     },
     async list(project: ProjectInput, signal: AbortSignal): Promise<ProviderWorkspace[]> {
       const rootResult = await requireGit(
         runGit(context, project.path, ["rev-parse", "--show-toplevel"], signal),
-        "解析 Git 工作树根目录",
+        t("ui.main.49c35c822771", "resolve the Git worktree root"),
       );
       const mainRootOutput = rootResult.stdout.trim();
-      if (mainRootOutput === "") throw new Error("Git 返回了空的工作树根目录");
+      if (mainRootOutput === "") throw new Error(t("ui.main.f1639c9e2fd7", "Git returned an empty worktree root"));
       const mainRoot = resolve(mainRootOutput);
       const commonDirectoryResult = await requireGit(
         runGit(context, project.path, ["rev-parse", "--git-common-dir"], signal),
-        "解析 Git 公共目录",
+        t("ui.main.d59fce8c03cf", "resolve the Git common directory"),
       );
       const commonDirectoryOutput = commonDirectoryResult.stdout.trim();
-      if (commonDirectoryOutput === "") throw new Error("Git 返回了空的公共目录");
+      if (commonDirectoryOutput === "") throw new Error(t("ui.main.8d51c7fbda53", "Git returned an empty common directory"));
       const commonDirectory = resolve(project.path, commonDirectoryOutput);
 
       const listResult = await requireGit(
         runGit(context, project.path, ["worktree", "list", "--porcelain", "-z"], signal),
-        "列出 Git 工作树",
+        t("ui.main.09734cee0f68", "list Git worktrees"),
       );
       const worktrees = parseGitWorktreeList(listResult.stdout)
         .filter((worktree) => worktree.bare !== true)
@@ -91,7 +93,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
       if (selectable.length === 0) return [singleGitWorkspace(project)];
 
       return selectable.map(({ worktree, path, isMain }) => {
-        const label = worktree.branch ?? (worktree.detached === true ? "游离 HEAD" : basename(worktree.path) || worktree.path);
+        const label = worktree.branch ?? (worktree.detached === true ? t("ui.workspaceGitPanel.detachedHead", "Detached HEAD") : basename(worktree.path) || worktree.path);
         return {
           key: path,
           path,
@@ -114,20 +116,20 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {
       const privatePath = gitPrivateWorktreePath(workspace);
       if (resolve(privatePath) !== workspace.path) {
-        throw new Error("Git 工作区删除数据与当前工作区路径不再匹配");
+        throw new Error(t("ui.main.ee323b371b28", "Git workspace removal data no longer matches the current workspace path"));
       }
       const listResult = await requireGit(
         runGit(context, project.path, ["worktree", "list", "--porcelain", "-z"], signal),
-        "删除前验证 Git 工作树",
+        t("ui.main.67b7774d37e3", "validate the Git worktree before removal"),
       );
       const current = parseGitWorktreeList(listResult.stdout)
         .find((worktree) => resolve(worktree.path) === workspace.path);
       if (current === undefined || current.prunable === true) {
-        throw new Error("Git 工作树已不可用于删除");
+        throw new Error(t("ui.main.2eaaec45ffc2", "Git worktree is no longer available for removal"));
       }
-      if (current.bare === true) throw new Error("裸 Git 仓库不能作为链接工作树删除");
+      if (current.bare === true) throw new Error(t("ui.main.e316bd0c1e32", "A bare Git workspace cannot be removed as a linked worktree"));
       return {
-        title: `删除工作区：${workspace.label}`,
+        title: t("ui.shared.168f8f19045c", "Delete workspace: {workspace}", { workspace: workspace.label }),
         command: `git worktree remove ${shellQuote(workspace.path)}`,
       };
     },
@@ -166,18 +168,18 @@ function singleGitWorkspace(project: ProjectInput): ProviderWorkspace {
 
 function gitRemovalPresentation(label: string, path: string): NonNullable<ProviderWorkspace["removal"]> {
   return {
-    actionLabel: "删除工作区",
-    confirmation: `删除工作区 ${label}？\n\n此操作将运行 git worktree remove 并删除：\n${path}\n\n不会删除对应的 Git 分支。`,
+    actionLabel: t("client.actions.delete.workspace.1bca7e", "Delete workspace"),
+    confirmation: t("ui.main.8e2b2416adcd", "Delete workspace {arg0}?\n\nThis runs git worktree remove and deletes:\n{arg1}\n\nThe corresponding Git branch will not be deleted.", { arg0: label, arg1: path }),
   };
 }
 
 function gitPrivateWorktreePath(workspace: ProviderWorkspace): string {
   const data = workspace.data;
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new Error("Git 工作区删除数据不可用");
+    throw new Error(t("ui.main.b6c981521483", "Git workspace removal data is unavailable"));
   }
   const path: unknown = Reflect.get(data, "worktreePath");
-  if (typeof path !== "string" || path === "") throw new Error("用于删除的 Git 工作树路径不可用");
+  if (typeof path !== "string" || path === "") throw new Error(t("ui.main.2f42169d50eb", "Git worktree path is unavailable for removal"));
   return path;
 }
 
@@ -198,7 +200,7 @@ async function runGit(
     signal,
   });
   if (result.stdoutTruncated || result.stderrTruncated) {
-    throw new Error(`git ${args.join(" ")} 超出宿主输出限制`);
+    throw new Error(t("ui.main.f1dbb26bf138", "git {arg0} exceeded the host output limit", { arg0: args.join(" ") }));
   }
   return result;
 }
@@ -210,6 +212,6 @@ async function requireGit(
   const result = await resultPromise;
   if (result.signal === null && result.exitCode === 0) return result;
   const detail = result.stderr.trim();
-  const outcome = result.signal === null ? `退出码 ${String(result.exitCode)}` : `信号 ${result.signal}`;
-  throw new Error(`无法${action}（${outcome}）${detail === "" ? "" : `：${detail}`}`);
+  const outcome = result.signal === null ? t("client.shellMessages.exit.code.2beadf", "Exit code {value1}", { value1: String(result.exitCode) }) : t("ui.main.c008196ee907", "signal {arg0}", { arg0: result.signal });
+  throw new Error(t("ui.main.0def9a625382", "Could not {arg0} ({arg1}){arg2}", { arg0: action, arg1: outcome, arg2: detail === "" ? "" : `：${detail}` }));
 }

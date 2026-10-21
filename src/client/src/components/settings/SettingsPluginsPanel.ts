@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { PiWebConfigResponse, PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
@@ -17,7 +18,7 @@ export class SettingsPluginsPanel extends LitElement {
   @property({ type: Boolean }) recoveryCommandsSupported = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "本机（本地网关）";
+  @property() targetLabel = t("ui.settingsSessiondPanel.localLocalGateway", "Local (local gateway)");
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onTogglePlugin?: (pluginId: string, enabled: boolean) => void | Promise<void>;
 
@@ -26,10 +27,10 @@ export class SettingsPluginsPanel extends LitElement {
     const hasPluginResponse = this.pluginsResponse !== undefined;
     return html`
       <settings-panel-frame
-        heading="PI WEB 插件"
+        heading="${t("client.machinePluginLoadCoordinator.pi.web.plugins.54b78f", "PI WEB plugins")}"
         .description=${pluginsDescription(this.targetLabel)}
-        actionLabel="重新加载"
-        actionTitle=${`从 ${this.targetLabel} 重新加载 PI WEB 插件`}
+        actionLabel="${t("ui.settingsPackagesPanel.reload", "Reload")}"
+        actionTitle=${t("ui.settingsPluginsPanel.reloadPiWebPluginsFrom", "Reload PI WEB plugins from {targetLabel}", { targetLabel: this.targetLabel })}
         .actionDisabled=${this.loading}
         .notices=${this.panelNotices(plugins.length > 0)}
         .onAction=${this.onReload}
@@ -43,7 +44,7 @@ export class SettingsPluginsPanel extends LitElement {
     const notices: SettingsNotice[] = [];
     if (this.error !== "") notices.push({ type: "error", content: this.error });
     if (this.shouldShowConfigUnavailableNotice(showTrustedCodeWarning)) {
-      notices.push({ type: "availability", content: "配置不可用。更改插件启用状态前请重新加载。" });
+      notices.push({ type: "availability", content: t("ui.settingsPluginsPanel.configurationUnavailableReloadBeforeChangingPluginActivation", "Configuration unavailable. Reload before changing plugin activation.") });
     }
     if (this.savedMessage !== "") notices.push({ type: "success", content: this.savedNotice() });
 
@@ -51,52 +52,52 @@ export class SettingsPluginsPanel extends LitElement {
     if (runtime?.status === "unavailable") {
       notices.push({
         type: "availability",
-        title: "服务端插件活动状态不可用",
-        content: html`期望配置仍可编辑，但 PI WEB 无法验证 sessiond 的启动快照。 ${runtime.message ?? "请重启或重新连接 sessiond，然后重新加载。"}`,
+        title: t("ui.main.a82125df2e73", "Active server-plugin state unavailable"),
+        content: html`${t("ui.main.6287fc62588d", "Desired config remains editable, but PI WEB cannot verify the sessiond snapshot. ")}${runtime.message ?? t("ui.main.2cf299cf47cb", "Restart or reconnect sessiond, then reload.")}`,
       });
     } else if (runtime?.status === "incompatible") {
       notices.push({
         type: "error",
-        title: "插件生命周期版本不匹配",
-        content: html`${runtime.message ?? "Web 进程与会话守护进程的插件生命周期协议不一致。"} 加载依赖服务端的浏览器插件前，请更新并重启两个组件。`,
+        title: t("ui.main.712114e46934", "Plugin lifecycle version mismatch"),
+        content: html`${runtime.message ?? t("ui.main.9b21bc233c7c", "The web process and session daemon do not support the same plugin lifecycle protocol.")}${t("ui.main.b080e2709663", " Update and restart both components before loading server-backed browser plugins.")}`,
       });
     }
     if (runtime?.safeStart !== undefined) {
       notices.push({
         type: "warning",
-        title: "服务端插件安全启动模式已生效",
+        title: t("ui.main.0a4319cf8398", "Server-plugin safe mode active"),
         content: runtime.safeStart === "bundled-only"
-          ? html`仅导入了内置服务端插件。清除安全启动模式： <code>${runtime.recovery.clearSafeStart}</code>.`
-          : html`未导入任何服务端插件；终端不可用，核心目录工作区仍可用于诊断。清除安全启动模式： <code>${runtime.recovery.clearSafeStart}</code>.`,
+          ? html`${t("ui.main.b9dae93a22c0", "Only bundled server plugins were imported. Clear safe mode with")} <code>${runtime.recovery.clearSafeStart}</code>.`
+          : html`${t("ui.main.66b054df2b58", "No server plugins were imported; Terminal is unavailable and the kernel folder workspace remains available for diagnosis. Clear safe mode with")} <code>${runtime.recovery.clearSafeStart}</code>.`,
       });
     }
     if (runtime?.desiredSafeStart !== undefined && runtime.desiredSafeStart !== (runtime.safeStart ?? "off")) {
       notices.push({
         type: "warning",
-        title: "安全启动模式等待重启",
+        title: t("ui.main.298ed29158e3", "Safe-mode restart pending"),
         content: runtime.desiredSafeStart === "off"
-          ? "离线配置已清除安全启动模式，但在 sessiond 重启前仍保持生效。"
-          : `离线配置请求 ${runtime.desiredSafeStart} 安全启动模式，将在下次 sessiond 重启时、插件导入前生效。`,
+          ? t("ui.main.49a77159c6e3", "Safe start is cleared in offline config but remains active until sessiond restarts.")
+          : t("ui.main.d2ac58b29d16", "Offline configuration requests safe-start mode {arg0}; it takes effect before plugin imports on the next sessiond restart.", { arg0: runtime.desiredSafeStart }),
       });
     }
     if (runtime?.restartRequired === true) {
       notices.push({
         type: "warning",
-        title: "需要重启会话守护进程",
-        content: "期望插件配置或包版本与 sessiond 的启动快照不一致。重启 sessiond 可能中断活动会话。",
+        title: t("ui.main.612b234166d8", "Session-daemon restart required"),
+        content: t("ui.main.484f6a3d0361", "Desired plugin config or package revisions differ from sessiond's active startup snapshot. Restarting sessiond may interrupt active sessions."),
       });
     }
     for (const diagnostic of this.pluginsResponse?.diagnostics ?? []) {
       notices.push({
         type: diagnostic.kind === "conflict" ? "error" : "warning",
-        title: diagnostic.kind === "conflict" ? "插件 ID 冲突" : "插件发现诊断",
-        content: `${diagnostic.snapshot === "active" ? "活动快照" : "期望目录"}: ${diagnostic.message}`,
+        title: diagnostic.kind === "conflict" ? t("ui.main.609dbc2f0e1d", "Plugin id conflict") : t("ui.main.35e12ff16006", "Plugin discovery diagnostic"),
+        content: `${diagnostic.snapshot === "active" ? t("ui.main.54f92b108f4c", "Active snapshot") : t("ui.main.7431e6af59cf", "Desired catalog")}: ${diagnostic.message}`,
       });
     }
     if (showTrustedCodeWarning) {
       notices.push({
         type: "security",
-        content: html`<strong>受信代码警告：</strong>PI WEB 插件和 Pi 包可使用你的用户权限运行。请仅启用可信来源的插件。`,
+        content: html`<strong>${t("ui.settingsPackagesPanel.trustedCodeWarning", "Trusted code warning:")}</strong>${t("ui.settingsPluginsPanel.piWebPluginsAndPiPackagesCanRun", "PI WEB plugins and Pi packages can run with your user permissions. Only enable plugins from trusted sources.")}`,
       });
     }
     return notices;
@@ -104,9 +105,9 @@ export class SettingsPluginsPanel extends LitElement {
 
   private savedNotice(): string {
     if (this.pluginsResponse?.serverRuntime.status !== "available" || this.pluginsResponse.serverRuntime.restartRequired) {
-      return `${this.savedMessage} 重启会话守护进程以应用服务端插件更改；仅浏览器插件的更改在重新加载此标签页后生效。`;
+      return t("ui.main.2e4750a31e03", "{arg0} Restart the session daemon to apply server plugin changes; browser-only changes take effect after reloading this tab.", { arg0: this.savedMessage });
     }
-    return `${this.savedMessage} 重新加载浏览器标签页以应用仅浏览器插件的更改。`;
+    return t("ui.main.ccf27b0f4ff9", "{arg0} Reload the browser tab to apply browser-only plugin changes.", { arg0: this.savedMessage });
   }
 
   private shouldShowConfigUnavailableNotice(hasLoadedPlugins: boolean): boolean {
@@ -116,18 +117,18 @@ export class SettingsPluginsPanel extends LitElement {
   private renderPanelContent(plugins: SettingsPluginRow[], hasPluginResponse: boolean): TemplateResult {
     if (!hasPluginResponse && plugins.length === 0) {
       return html`
-        <div class="loading-card">${this.loading ? "正在加载 PI WEB 插件…" : `${this.targetLabel} 的 PI WEB 插件列表不可用，请重新加载。`}</div>
+        <div class="loading-card">${this.loading ? t("ui.settingsPluginsPanel.loadingPiWebPlugins", "Loading PI WEB plugins…") : t("ui.settingsPluginsPanel.piWebPluginListForIsUnavailableReload", "PI WEB plugin list for {targetLabel} is unavailable. Reload.", { targetLabel: this.targetLabel })}</div>
         ${this.renderRecoveryCommands()}
       `;
     }
     if (plugins.length === 0) {
       return html`
-        <div class="loading-card">在 ${this.targetLabel} 上未发现或启用任何 PI WEB 插件。</div>
+        <div class="loading-card">${t("ui.main.686b703f41f3", "No PI WEB plugins are discovered or active on")} ${this.targetLabel} ${t("ui.main.b7ad7cf69387", ".")}</div>
         ${this.renderRecoveryCommands()}
       `;
     }
     return html`
-      <div class="plugin-note">${this.targetLabel} 上的配置键： <code>plugins</code>. 仅浏览器插件的更改在重新加载标签页后生效；依赖服务端的更改遵循 sessiond 的启动快照，可能需要手动重启。</div>
+      <div class="plugin-note">${this.targetLabel} ${t("ui.main.2432ea1a4c8b", ":")} <code>plugins</code>${t("ui.main.8ccf013eb3c2", ". Browser-only changes apply after a tab reload; server-backed changes follow sessiond's startup snapshot and can require a manual restart.")}</div>
       <div class="plugin-list">
         ${plugins.map((plugin) => this.renderPlugin(plugin))}
       </div>
@@ -138,24 +139,24 @@ export class SettingsPluginsPanel extends LitElement {
   private renderPlugin(plugin: SettingsPluginRow): TemplateResult {
     const configured = this.configResponse?.config.plugins?.[plugin.id];
     const configuredState = plugin.required === true
-      ? "必需插件 · 普通配置无法禁用"
+      ? t("ui.main.fb76852a3fdc", "Required · ordinary config cannot disable")
       : !plugin.discovered && configured === undefined
-        ? "期望包或配置不存在"
-        : configured?.enabled === false ? "配置已禁用" : configured?.enabled === true ? "配置已启用" : "默认启用";
+        ? t("ui.main.ccf65fb6a4e5", "Desired package/config absent")
+        : configured?.enabled === false ? t("ui.settingsPluginsPanel.disabledByConfiguration", "Disabled by configuration") : configured?.enabled === true ? t("ui.settingsPluginsPanel.enabledByConfiguration", "Enabled by configuration") : t("ui.settingsPluginsPanel.enabledByDefault", "Enabled by default");
     return html`
       <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
           <strong>${plugin.id}</strong>
-          <small>${plugin.configOnly ? "仅有配置 · 未发现插件包" : `${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? " · 机器专属" : ""}${plugin.required === true ? " · 必需" : ""}${plugin.discovered ? "" : " · 仅活动快照"}`}</small>
+          <small>${plugin.configOnly ? t("ui.main.40098da54072", "configured only · package not discovered") : `${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? t("ui.settingsPluginsPanel.machineSpecific", " · Machine-specific") : ""}${plugin.required === true ? t("ui.main.5ce75af5c91a", " · required") : ""}${plugin.discovered ? "" : t("ui.main.b00e20aa7b93", " · active snapshot only")}`}</small>
           <small>${configuredState}</small>
           ${this.renderPluginStatuses(plugin)}
           ${plugin.server?.message === undefined ? nothing : html`<small class="diagnostic">${plugin.server.message}</small>`}
-          ${plugin.server?.health?.message === undefined ? nothing : html`<small class="diagnostic">健康状态：${plugin.server.health.message}</small>`}
-          ${plugin.server === undefined || plugin.required === true ? nothing : html`<small class="command">离线禁用： <code>${plugin.server.disableCommand}</code></small>`}
+          ${plugin.server?.health?.message === undefined ? nothing : html`<small class="diagnostic">${t("ui.main.cfa349711e67", "Health:")}${plugin.server.health.message}</small>`}
+          ${plugin.server === undefined || plugin.required === true ? nothing : html`<small class="command">${t("ui.main.c54bd03f1522", "Offline disable:")} <code>${plugin.server.disableCommand}</code></small>`}
         </div>
         <label class="toggle">
           <input type="checkbox" .checked=${plugin.enabled} ?disabled=${this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
-          <span>${plugin.required === true ? "必需插件" : "已启用"}</span>
+          <span>${plugin.required === true ? t("ui.main.12ea99f8d0b5", "Required") : t("ui.settingsSessiondPanel.enabled", "Enabled")}</span>
         </label>
       </article>
     `;
@@ -164,12 +165,12 @@ export class SettingsPluginsPanel extends LitElement {
   private renderPluginStatuses(plugin: SettingsPluginRow): TemplateResult {
     const server = plugin.server;
     return html`
-      <div class="status-list" aria-label=${`${plugin.id} 插件状态`}>
-        ${server === undefined ? html`<span class="status neutral">${plugin.configOnly ? "仅有配置" : "仅浏览器"}</span>` : html`<span class=${`status ${serverStateTone(server.state)}`}>${serverStateLabel(server.state)}</span>`}
-        ${plugin.conflict ? html`<span class="status error">冲突</span>` : nothing}
-        ${server?.staleRevision === true ? html`<span class="status warning">版本过期</span>` : nothing}
-        ${server?.restartRequired === true ? html`<span class="status warning">需要重启</span>` : nothing}
-        ${server?.health === undefined ? nothing : html`<span class=${`status ${healthTone(server.health.status)}`}>健康状态 ${healthLabel(server.health.status)}</span>`}
+      <div class="status-list" aria-label=${t("ui.main.062b4cb6a584", "{arg0} plugin status", { arg0: plugin.id })}>
+        ${server === undefined ? html`<span class="status neutral">${plugin.configOnly ? t("ui.main.886efbba295e", "Configured only") : t("ui.main.a36380d21dcd", "Browser only")}</span>` : html`<span class=${`status ${serverStateTone(server.state)}`}>${serverStateLabel(server.state)}</span>`}
+        ${plugin.conflict ? html`<span class="status error">${t("ui.main.dc60132944dd", "Conflict")}</span>` : nothing}
+        ${server?.staleRevision === true ? html`<span class="status warning">${t("ui.main.4e68d6d5c959", "Stale revision")}</span>` : nothing}
+        ${server?.restartRequired === true ? html`<span class="status warning">${t("bundled.info.restart.needed.1ffd00", "Restart needed")}</span>` : nothing}
+        ${server?.health === undefined ? nothing : html`<span class=${`status ${healthTone(server.health.status)}`}>${t("ui.main.2e604c06f096", "Health")} ${healthLabel(server.health.status)}</span>`}
       </div>
     `;
   }
@@ -180,9 +181,9 @@ export class SettingsPluginsPanel extends LitElement {
     const recovery = responseRecovery ?? (this.recoveryCommandsSupported ? PI_WEB_PLUGIN_RECOVERY_COMMANDS : undefined);
     if (recovery === undefined) return nothing;
     return html`
-      <aside class="recovery" aria-label="离线服务端插件恢复命令">
-        <strong>${this.targetLabel} 的离线恢复</strong>
-        <small>这些命令不连接 sessiond、不导入插件，只编辑配置；命令中不包含机器凭据。</small>
+      <aside class="recovery" aria-label="${t("ui.main.a444df361594", "Offline server-plugin recovery commands")}">
+        <strong>${this.targetLabel} ${t("ui.main.ca56f3ca43d1", " offline recovery")}</strong>
+        <small>${t("ui.main.277115ec7cae", "These commands edit config without contacting sessiond or importing plugins. They never include machine credentials.")}</small>
         <code>${recovery.showSafeStart}</code>
         <code>${recovery.bundledOnly}</code>
         <code>${recovery.noServerPlugins}</code>
@@ -267,12 +268,12 @@ export function settingsPluginRows(
 
 function serverStateLabel(state: NonNullable<PiWebPluginInfo["server"]>["state"]): string {
   switch (state) {
-    case "active": return "已激活";
-    case "failed": return "失败";
-    case "incompatible": return "不兼容";
-    case "disabled": return "已禁用";
-    case "missing": return "未激活";
-    case "unknown": return "活动状态不可用";
+    case "active": return t("ui.main.b1eea7b855e6", "Active");
+    case "failed": return t("ui.toolExecutionView.failed", "Failed");
+    case "incompatible": return t("ui.main.8d1f2155372e", "Incompatible");
+    case "disabled": return t("ui.settingsShortcutsPanel.disabled", "Disabled");
+    case "missing": return t("ui.main.f1ebc7eeb432", "Not active");
+    case "unknown": return t("ui.main.36946f6e6dec", "Active state unavailable");
   }
 }
 
@@ -296,27 +297,27 @@ function healthTone(status: NonNullable<NonNullable<PiWebPluginInfo["server"]>["
 }
 
 function pluginsDescription(targetLabel: string): TemplateResult {
-  return html`比较期望插件配置与以下机器的 sessiond 活动启动快照： <strong>${targetLabel}</strong>. 这与安装 Pi 包相互独立。`;
+  return html`${t("ui.main.4bc9cf7ff997", "Compare desired plugin config with the active sessiond startup snapshot on")} <strong>${targetLabel}</strong>${t("ui.main.9c96947ff33e", ". This is separate from installing Pi packages.")}`;
 }
 
 function pluginSourceLabel(source: string): string {
-  if (source === "bundled") return "内置";
-  if (source === "local") return "本地";
-  if (source === "dev") return "开发";
+  if (source === "bundled") return t("ui.settingsPluginsPanel.bundled", "Bundled");
+  if (source === "local") return t("ui.settingsPluginsPanel.local", "Local");
+  if (source === "dev") return t("ui.settingsPluginsPanel.development", "Development");
   return source;
 }
 function pluginScopeLabel(scope: PiWebPluginInfo["scope"]): string {
   switch (scope) {
-    case "bundled": return "内置范围";
-    case "local": return "本地范围";
-    case "user": return "用户范围";
-    case "project": return "项目范围";
+    case "bundled": return t("ui.settingsPluginsPanel.bundledScope", "Bundled scope");
+    case "local": return t("ui.settingsPluginsPanel.localScope", "Local scope");
+    case "user": return t("ui.settingsPluginsPanel.userScope", "User scope");
+    case "project": return t("ui.settingsPluginsPanel.projectScope", "Project scope");
   }
 }
 function healthLabel(status: NonNullable<NonNullable<PiWebPluginInfo["server"]>["health"]>["status"]): string {
   switch (status) {
-    case "healthy": return "正常";
-    case "degraded": return "降级";
-    case "unhealthy": return "异常";
+    case "healthy": return t("ui.main.f78d037abccd", "Healthy");
+    case "degraded": return t("ui.main.d8518883839d", "Degraded");
+    case "unhealthy": return t("ui.main.5caf27933926", "Unhealthy");
   }
 }

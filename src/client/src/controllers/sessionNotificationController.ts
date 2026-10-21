@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api as defaultApi, type Machine, type SessionInfo } from "../api";
 import type { AppState } from "../appState";
 import {
@@ -182,7 +183,7 @@ export class SessionNotificationController {
           ...current,
           optimisticDismissedIds: current.optimisticDismissedIds.filter((id) => id !== notificationId),
         }));
-        this.setState({ error: `关闭通知失败：${errorMessage(error)}` });
+        this.setState({ error: t("client.sessionNotificationController.failed.to.dismiss.notification.080d8f", "Failed to dismiss notification: {value1}", { value1: errorMessage(error) }) });
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {
@@ -213,7 +214,7 @@ export class SessionNotificationController {
           delete next.optimisticDismissAllThrough;
           return next;
         });
-        this.setState({ error: `关闭会话通知失败：${errorMessage(error)}` });
+        this.setState({ error: t("client.sessionNotificationController.failed.to.dismiss.session.notifications.5621de", "Failed to dismiss session notifications: {value1}", { value1: errorMessage(error) }) });
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {

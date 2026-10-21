@@ -5,6 +5,7 @@ export interface RawMessagePage {
   messages: unknown[];
   start: number;
   total: number;
+  leafId?: string | null;
 }
 
 export interface CachedChatHistory extends RawMessagePage {
@@ -21,7 +22,7 @@ export function readChatHistoryCache(sessionId: string): RawMessagePage | undefi
       sessionStorage.removeItem(cacheKey(sessionId));
       return undefined;
     }
-    return { messages: parsed.messages, start: parsed.start, total: parsed.total };
+    return { messages: parsed.messages, start: parsed.start, total: parsed.total, ...(parsed.leafId === undefined ? {} : { leafId: parsed.leafId }) };
   } catch {
     return undefined;
   }
@@ -46,6 +47,7 @@ export function removeChatHistoryCache(sessionId: string): void {
 export function mergeChatHistory(existing: RawMessagePage | undefined, incoming: RawMessagePage): RawMessagePage {
   if (existing === undefined || !isValidMessagePage(existing)) return incoming;
   if (!isValidMessagePage(incoming)) return existing;
+  if (incoming.leafId !== existing.leafId) return incoming;
   if (isCompleteReplacement(existing, incoming)) return incoming;
 
   const start = Math.min(existing.start, incoming.start);
@@ -55,7 +57,7 @@ export function mergeChatHistory(existing: RawMessagePage | undefined, incoming:
   copyInto(messages, start, incoming);
 
   if (hasSparseEntries(messages)) return incoming;
-  return { start, total: Math.max(existing.total, incoming.total), messages };
+  return { start, total: Math.max(existing.total, incoming.total), messages, ...(incoming.leafId === undefined ? {} : { leafId: incoming.leafId }) };
 }
 
 /**
@@ -68,6 +70,7 @@ export function mergeChatHistory(existing: RawMessagePage | undefined, incoming:
  */
 export function isHistoryTailSlice(history: RawMessagePage | undefined, page: RawMessagePage): boolean {
   if (history === undefined || !isValidMessagePage(page)) return false;
+  if (history.leafId !== page.leafId) return false;
   if (page.total !== history.total) return false;
   const offset = page.start - history.start;
   if (offset < 0 || offset + page.messages.length !== history.messages.length) return false;
@@ -100,6 +103,7 @@ function isCachedHistory(value: unknown): value is CachedChatHistory {
   if (!("messages" in value) || !("start" in value) || !("total" in value) || !("savedAt" in value)) return false;
   const { messages, start, total, savedAt } = value;
   return Array.isArray(messages)
+    && (!("leafId" in value) || value.leafId === null || typeof value.leafId === "string")
     && typeof start === "number"
     && typeof total === "number"
     && typeof savedAt === "number"

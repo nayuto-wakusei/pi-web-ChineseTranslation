@@ -1,9 +1,13 @@
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 import type { WorkbenchAgentAccessState } from "./types.js";
 import type { WorkbenchClient } from "./workbenchClient.js";
 
 export class WorkbenchAccessStateStore {
   private readonly states = new Map<string, WorkbenchAgentAccessState>();
   private readonly refreshes = new Map<string, Promise<WorkbenchAgentAccessState>>();
+
+  constructor(private readonly t: Translator = loadNodeTranslator("server")) {}
 
   set(handle: string, state: WorkbenchAgentAccessState): void {
     if (handle.trim() === "") throw new Error("Workbench access handle is required");
@@ -16,19 +20,19 @@ export class WorkbenchAccessStateStore {
     this.states.set(handle, state);
   }
 
-  require(handle: string | undefined): WorkbenchAgentAccessState {
-    if (handle === undefined) throw new Error("当前管理会话没有工作台资源授权，请从工作台重新进入桂小智。");
+  require(handle: string | undefined, t: Translator = loadNodeTranslator("server")): WorkbenchAgentAccessState {
+    if (handle === undefined) throw new Error(this.t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
     const state = this.states.get(handle);
     if (state === undefined || Date.parse(state.expiresAt) <= Date.now()) {
-      throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。");
+      throw new Error(t("workbench.authorizationExpired", "Resource authorization has expired or changed. Reopen the assistant from Workbench."));
     }
     return state;
   }
 
-  async prepare(handle: string | undefined, client: WorkbenchClient): Promise<WorkbenchAgentAccessState> {
-    if (handle === undefined) throw new Error("当前管理会话没有工作台资源授权，请从工作台重新进入桂小智。");
+  async prepare(handle: string | undefined, client: WorkbenchClient, t: Translator = loadNodeTranslator("server")): Promise<WorkbenchAgentAccessState> {
+    if (handle === undefined) throw new Error(t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
     const state = this.states.get(handle);
-    if (state === undefined) throw new Error("当前管理会话没有工作台资源授权，请从工作台重新进入桂小智。");
+    if (state === undefined) throw new Error(t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
     const existing = this.refreshes.get(handle);
     if (existing !== undefined) return existing;
     const pending = client.refreshAgentAccessState(state).then((renewed) => {

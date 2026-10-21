@@ -1,3 +1,4 @@
+import type { Translator } from "./shared/i18n.js";
 import type {
   JsonObject,
   JsonPrimitive,
@@ -31,6 +32,7 @@ export interface PiWebServerPlugin {
 
 /** Host-owned frozen values supplied during server plugin activation. */
 export interface ServerPluginActivationContext {
+  readonly translate?: Translator;
   readonly apiVersion: 3;
   readonly pluginId: string;
   readonly packageRoot: string;

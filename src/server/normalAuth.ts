@@ -1,5 +1,6 @@
 import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createTranslator, userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 import { isRecord } from "../shared/piWebConfigParsing.js";
 import type { PiWebConfigService } from "./configRoutes.js";
 import { createFixedTtlSessionStore, readCookie, type FixedTtlSessionStore } from "./httpSessions.js";
@@ -47,6 +48,7 @@ export class NormalModeAuthService {
     private readonly config: Pick<PiWebConfigService, "read" | "write">,
     now: () => number = () => Date.now(),
     newSessionId: () => string = () => randomUUID(),
+    readonly translate: Translator = createTranslator("en", {}),
   ) {
     this.verifier = new PasswordVerifier(now);
     this.sessions = createFixedTtlSessionStore(SESSION_TTL_MS, now, newSessionId);
@@ -63,7 +65,7 @@ export class NormalModeAuthService {
   async setup(password: unknown): Promise<SetupResult> {
     const current = await this.config.read();
     if (current.config.normalAuth?.passwordHash !== undefined) return { status: "already-configured" };
-    const passwordHash = hashPassword(requirePassword(password, "password"));
+    const passwordHash = hashPassword(requirePassword(password, "password", this.translate));
     await this.config.write({ ...current.config, normalAuth: { passwordHash } });
     await this.passwordHash();
     this.sessions.clear();
@@ -119,21 +121,22 @@ export class NormalModeAuthService {
 }
 
 export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeAuthService, options: NormalAuthRouteOptions = {}): FailedLoginAttemptTracker {
+  const t = auth.translate;
   const loginAttempts = new FailedLoginAttemptTracker(options.rateLimit ?? DEFAULT_LOGIN_RATE_LIMIT, options.now ?? (() => Date.now()));
 
   app.get("/api/normal-auth/status", async (request) => await auth.status(request.headers.cookie));
 
   app.post<{ Body: unknown }>("/api/normal-auth/setup", async (request, reply) => {
     try {
-      const result = await auth.setup(bodyRecord(request.body)["password"]);
+      const result = await auth.setup(bodyRecord(request.body, t)["password"]);
       if (result.status === "already-configured") {
-        await reply.code(409).send({ error: "Ordinary mode password is already configured" });
+        await reply.code(409).send({ error: t("auth.alreadyConfigured", "Ordinary mode password is already configured") });
         return;
       }
       setSessionCookie(reply, result.sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: userFacingErrorMessage(error, t) });
       return;
     }
   });
@@ -141,41 +144,41 @@ export function registerNormalAuthRoutes(app: FastifyInstance, auth: NormalModeA
   app.post<{ Body: unknown }>("/api/normal-auth/login", async (request, reply) => {
     const retryAfterSeconds = loginAttempts.retryAfterSeconds(request.ip);
     if (retryAfterSeconds !== undefined) {
-      await sendLoginRateLimit(reply, retryAfterSeconds);
+      await sendLoginRateLimit(reply, retryAfterSeconds, t);
       return;
     }
     try {
-      const sessionId = await auth.login(bodyRecord(request.body)["password"]);
+      const sessionId = await auth.login(bodyRecord(request.body, t)["password"]);
       if (sessionId === undefined) {
         loginAttempts.recordFailure(request.ip);
-        await reply.code(401).send({ error: "Invalid ordinary mode password" });
+        await reply.code(401).send({ error: t("auth.invalidPassword", "Invalid ordinary mode password") });
         return;
       }
       loginAttempts.clear(request.ip);
       setSessionCookie(reply, sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: userFacingErrorMessage(error, t) });
       return;
     }
   });
 
   app.post<{ Body: unknown }>("/api/normal-auth/change-password", async (request, reply) => {
     try {
-      const body = bodyRecord(request.body);
+      const body = bodyRecord(request.body, t);
       const result = await auth.changePassword(request.headers.cookie, body["currentPassword"], body["newPassword"]);
       if (result.status === "unauthorized") {
-        await reply.code(401).send({ error: "Ordinary mode login is required" });
+        await reply.code(401).send({ error: t("auth.loginRequired", "Ordinary mode login is required") });
         return;
       }
       if (result.status === "invalid-password") {
-        await reply.code(401).send({ error: "Invalid ordinary mode password" });
+        await reply.code(401).send({ error: t("auth.invalidPassword", "Invalid ordinary mode password") });
         return;
       }
       setSessionCookie(reply, result.sessionId);
       return { accepted: true };
     } catch (error) {
-      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: errorMessage(error) });
+      await reply.code(error instanceof PasswordVerificationBusyError ? 503 : 400).send({ error: userFacingErrorMessage(error, t) });
       return;
     }
   });
@@ -228,18 +231,19 @@ export class FailedLoginAttemptTracker {
 }
 
 export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalModeAuthService, managementEmbed: ManagementEmbedRuntime | undefined, loginAttempts = new FailedLoginAttemptTracker(DEFAULT_LOGIN_RATE_LIMIT, () => Date.now())): void {
+  const t = auth.translate;
   app.addHook("preValidation", async (request, reply) => {
     if (!requiresNormalAuth(request)) return;
     if (isManagementRequest(request)) {
       try {
         if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) {
           if (!allowsManagementRequest(request)) {
-            await reply.code(403).send({ error: "管理嵌入模式不允许访问此接口" });
+            await reply.code(403).send({ error: t("server.main.1a3657afd344", "This endpoint is unavailable in management embed mode") });
           }
           return;
         }
       } catch (error) {
-        await reply.code(401).send({ error: errorMessage(error) });
+        await reply.code(401).send({ error: userFacingErrorMessage(error, t) });
         return;
       }
     }
@@ -247,7 +251,7 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
     if (bearer !== undefined) {
       const retryAfterSeconds = loginAttempts.retryAfterSeconds(request.ip);
       if (retryAfterSeconds !== undefined) {
-        await sendLoginRateLimit(reply, retryAfterSeconds);
+        await sendLoginRateLimit(reply, retryAfterSeconds, t);
         return;
       }
     }
@@ -263,7 +267,9 @@ export function registerNormalModeAuthGate(app: FastifyInstance, auth: NormalMod
       return;
     }
     if (bearer !== undefined) loginAttempts.recordFailure(request.ip);
-    const error = authorization === "setup-required" ? "Ordinary mode password setup is required" : "Ordinary mode login is required";
+    const error = authorization === "setup-required"
+      ? t("auth.setupRequired", "Ordinary mode password setup is required")
+      : t("auth.loginRequired", "Ordinary mode login is required");
     await reply.code(401).send({ error });
   });
 }
@@ -299,10 +305,10 @@ function bearerToken(header: string | string[] | undefined): string | undefined 
   return match?.[1]?.trim();
 }
 
-async function sendLoginRateLimit(reply: FastifyReply, retryAfterSeconds: number): Promise<void> {
+async function sendLoginRateLimit(reply: FastifyReply, retryAfterSeconds: number, t: Translator): Promise<void> {
   reply.header("retry-after", String(retryAfterSeconds));
   await reply.code(429).send({
-    error: "Too many failed ordinary mode login attempts",
+    error: t("auth.rateLimited", "Too many failed ordinary mode login attempts"),
     retryAfterSeconds,
   });
 }
@@ -317,16 +323,12 @@ function hashPassword(password: string): string {
   return `${HASH_ALGORITHM}$${String(HASH_ITERATIONS)}$${salt.toString("base64url")}$${hash.toString("base64url")}`;
 }
 
-function requirePassword(value: unknown, field: string): string {
-  if (typeof value !== "string" || value === "") throw new Error(`${field} must be a non-empty string`);
+function requirePassword(value: unknown, field: string, t: Translator = createTranslator("en", {})): string {
+  if (typeof value !== "string" || value === "") throw new Error(t("auth.passwordRequired", "{field} must be a non-empty string", { field }));
   return value;
 }
 
-function bodyRecord(body: unknown): Record<string, unknown> {
-  if (!isRecord(body)) throw new Error("Request body must be an object");
+function bodyRecord(body: unknown, t: Translator): Record<string, unknown> {
+  if (!isRecord(body)) throw new Error(t("auth.bodyObject", "Request body must be an object"));
   return body;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

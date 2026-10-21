@@ -1,4 +1,5 @@
 import type { TemplateResult } from "lit";
+import type { LocalizationContribution, Translator } from "./shared/i18n.js";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 
 export type {
@@ -53,6 +54,7 @@ export interface PiWebPlugin {
 
 /** Host-owned frozen values supplied once during browser plugin activation. */
 export interface PluginActivationContext {
+  readonly translate?: Translator;
   readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
@@ -155,6 +157,7 @@ export interface ContentRenderingCapability {
 }
 
 export interface PluginContributions {
+  localizations?: LocalizationContribution[];
   contentRenderers?: ContentRendererContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];

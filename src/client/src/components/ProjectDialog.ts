@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { api, trustApi, type FileSuggestion, type WorkspaceTrustResponse } from "../api";
@@ -123,13 +124,13 @@ export class ProjectDialog extends LitElement {
     return html`
       <label class="check">
         <input type="checkbox" .checked=${this.trust?.trusted ?? false} ?disabled=${unavailable} @change=${(event: InputEvent) => { if (event.target instanceof HTMLInputElement) this.onTrustChange(event.target.checked); }} />
-        <span>信任此项目</span>
+        <span>${t("ui.main.bb60ec05a965", "Trust this project")}</span>
       </label>
       <small class="trust-hint">
-        信任后允许 pi 加载此项目的 .pi 设置、扩展、技能和包。
-        <a href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">了解项目信任</a>
+        ${t("ui.main.18fc18a3fab2", "Trusting lets pi load this project's .pi settings, extensions, skills, and packages.")}
+        <a href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${t("ui.main.4a0d54a22e9b", "Learn about project trust")}</a>
       </small>
-      ${this.trust?.error === undefined ? null : html`<small class="trust-error">无法读取信任状态： ${this.trust.error}</small>`}
+      ${this.trust?.error === undefined ? null : html`<small class="trust-error">${t("ui.main.72d4284601a6", "Trust state unavailable:")} ${this.trust.error}</small>`}
     `;
   }
 
@@ -154,34 +155,34 @@ export class ProjectDialog extends LitElement {
 
   override render() {
     return html`
-      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${"添加项目"} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${t("client.actions.add.project.8964f5", "Add project")} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }}>
           <header>
-            <strong>添加项目</strong>
-            <button @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
+            <strong>${t("client.actions.add.project.8964f5", "Add project")}</strong>
+            <button @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
           </header>
           <div class="body">
             <label>
-              项目文件夹
-              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} placeholder="/path/to/project 或 ~/code/project" />
+              ${t("ui.projectDialog.projectFolder", "Project folder")}
+              <input .value=${this.path} @input=${(event: InputEvent) => { this.onPathInput(event); }} placeholder="${t("ui.projectDialog.pathToProjectOrCodeProject", "/path/to/project or ~/code/project")}" />
             </label>
             <div class="suggestions">
-              ${this.loading ? html`<div class="hint">正在加载文件夹…</div>` : null}
+              ${this.loading ? html`<div class="hint">${t("ui.projectDialog.loadingFolders", "Loading folders…")}</div>` : null}
               ${this.suggestions.map((suggestion, index) => html`
                 <button class=${index === this.selected ? "selected" : ""} @click=${() => { this.pick(suggestion); }}>
                   ${suggestion.path}
                 </button>
               `)}
-              ${!this.loading && this.suggestions.length === 0 ? html`<div class="hint">没有匹配的文件夹。输入新路径即可创建。</div>` : null}
+              ${!this.loading && this.suggestions.length === 0 ? html`<div class="hint">${t("ui.projectDialog.noMatchingFoldersEnterANewPathTo", "No matching folders. Enter a new path to create one.")}</div>` : null}
             </div>
             <label class="check">
               <input type="checkbox" .checked=${this.createMissing} @change=${(event: InputEvent) => { this.onCreateMissingChange(event); }} />
-              如果文件夹不存在则创建
+              ${t("ui.projectDialog.createFolderIfItDoesNotExist", "Create folder if it does not exist")}
             </label>
             ${this.renderTrustChoice()}
           </div>
           <footer>
-            <button @click=${() => { this.onCancel?.(); }}>取消</button>
-            <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>添加项目</button>
+            <button @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+            <button class="primary" ?disabled=${this.path.trim() === ""} @click=${() => { this.submit(); }}>${t("client.actions.add.project.8964f5", "Add project")}</button>
           </footer>
       </modal-surface>
     `;

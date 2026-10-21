@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../shared/i18n.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupThresholds } from "../../shared/apiTypes.js";
 import type { PiSessionListEntry } from "./piSessionService.js";
 import type { ArchivedSessionRecord, ArchiveSessionInput } from "./sessionArchiveStore.js";
@@ -143,21 +144,21 @@ export function summarizeSessionCleanupExecution(input: {
 function optionalDayThreshold(record: Record<string, unknown>, field: keyof SessionCleanupThresholds): number | undefined {
   const value = record[field];
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new Error(`${field} field must be a non-negative integer`);
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new UserFacingError("routing.fieldNonnegative", "{arg0} field must be a non-negative integer", { arg0: field });
   return value;
 }
 
 function optionalProjectCwds(record: Record<string, unknown>): string[] | undefined {
   const value = record["projectCwds"];
   if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("projectCwds field must be an array of strings");
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new UserFacingError("routing.projectCwdsArray", "projectCwds field must be an array of strings");
   return [...new Set(value)];
 }
 
 function optionalProjectId(record: Record<string, unknown>): string | undefined {
   const value = record["projectId"];
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string" || value.trim() === "") throw new Error("projectId field must be a non-empty string");
+  if (typeof value !== "string" || value.trim() === "") throw new UserFacingError("routing.projectIdInvalid", "projectId field must be a non-empty string");
   return value;
 }
 

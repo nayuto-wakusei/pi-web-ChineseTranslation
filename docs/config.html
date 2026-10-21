@@ -760,7 +760,9 @@
 </tbody></table></div>
 <p><a href="config.md#worktree-pre-remove-hook">脚本示例与执行细节 →</a></p>
 </section>
-<div class="doc-actions"><a class="button" href="config.md">详细 Markdown 参考</a></div></div></div></main>
+<div class="doc-actions"><a class="button" href="config.md">详细 Markdown 参考</a></div></div></div><section id="chinese-language-plugin" class="section"><h2>中文语言插件</h2><p>内置 <code>zh-cn</code> 默认启用；在有效机器配置设置 <code>"plugins": { "zh-cn": { "enabled": false } }</code> 可恢复英文。缺失词条回退英文，不新增语言选择器或配置文件。</p><p>浏览器使用网关机器的语言，不随所选远端机器切换。CLI 与服务端各自读取所属机器配置；远端提示原样保留，不翻译用户内容、模型回复、第三方输出、命令、错误码或协议字段。</p><p>修改后刷新网页、下次启动 CLI，并重启 <code>pi-web-sessiond.service</code> 及 Web 服务（开发安装为 <code>pi-web-ui-dev.service</code>），确保二者使用相同有效 <code>PI_WEB_CONFIG</code>。不支持运行中热切换。</p></section>
+<section class="section"><h2>受限管理 Skill 同步</h2><p>受限管理会话只加载所属项目允许范围内的 Skills；SDK 同名去重时恢复被全局副本遮蔽的授权项目版本。启动和 <code>/reload</code> 同步随当前 SDK 适配的 <code>relay</code>、<code>relay-runner</code> 模板。</p><p><code>.pi/skills/relay/</code> 与 <code>.pi/skills/relay-runner/</code> 为平台保留目录，旧内容会更新，其他自定义 Skill 不覆盖。普通模式及完整特权管理模式不执行此同步，保持现有资源加载行为。</p></section>
+</main>
 
     <footer class="site-footer">
       <div class="container footer-inner">

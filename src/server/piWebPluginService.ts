@@ -1,3 +1,5 @@
+import type { Translator } from "../shared/i18n.js";
+import { loadNodeTranslator } from "../localization.js";
 import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, type PiWebPluginSafeStart, type PiWebPluginsResponse, type PiWebPluginScope } from "../shared/apiTypes.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID, type TerminalPluginMode } from "../shared/requiredTerminalPlugin.js";
@@ -94,13 +96,13 @@ export class PiWebPluginService {
     this.recoveryProvider = options.recoveryProvider;
   }
 
-  async manifest(): Promise<PiWebPluginManifest> {
+  async manifest(t: Translator = loadNodeTranslator("server")): Promise<PiWebPluginManifest> {
     const lifecycle = await this.lifecycle();
     const runtime = lifecycle.response.serverRuntime;
     if (runtime.status !== "available") {
       throw new PiWebPluginManifestRuntimeError(
         runtime.status,
-        requiredRuntimeFailureMessage(runtime.status, runtime.message),
+        requiredRuntimeFailureMessage(runtime.status, runtime.message, t),
       );
     }
     const plugins: PiWebPluginManifestEntry[] = [];
@@ -119,12 +121,26 @@ export class PiWebPluginService {
       });
     }
     const terminalMode = lifecycle.response.serverRuntime.terminalMode;
-    if (terminalMode === "required") requireTerminalManifestEntry(plugins);
+    if (terminalMode === "required") requireTerminalManifestEntry(plugins, t);
     return { lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, terminalMode, plugins };
   }
 
   async plugins(): Promise<PiWebPluginsResponse> {
     return (await this.lifecycle()).response;
+  }
+
+  /** Language bootstrap must work before sessiond or required plugins are ready. */
+  async localizationManifest(): Promise<PiWebPluginManifest> {
+    const snapshot = await this.catalog.snapshot({ scope: "bundled" });
+    const plugin = snapshot.plugins.find((entry) => entry.id === "zh-cn" && entry.enabled);
+    if (plugin === undefined || await this.captureBrowserArtifact(plugin) === undefined) {
+      return { lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, terminalMode: "recovery-disabled", plugins: [] };
+    }
+    return {
+      lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION,
+      terminalMode: "recovery-disabled",
+      plugins: [{ id: plugin.id, module: browserModuleUrl(plugin), source: plugin.source, scope: plugin.scope, machineSpecific: false }],
+    };
   }
 
   async readAsset(pluginId: string, assetPath: string, browserRevision?: string): Promise<{ content: Buffer; contentType: string } | undefined> {
@@ -262,21 +278,21 @@ function browserModuleUrl(plugin: PiWebPluginCatalogEntry): string {
   return `/pi-web-plugins/${encodeURIComponent(plugin.id)}/${path}?${pluginModuleQuery(plugin.id, browserModule.revision)}`;
 }
 
-function requiredRuntimeFailureMessage(status: "unavailable" | "incompatible", message: string | undefined): string {
-  const detail = message === undefined || message === "" ? "没有可用的运行时详情" : message;
-  return `必需的终端插件运行时${status === "unavailable" ? "不可用" : "不兼容"}：${detail}。请在会话守护进程可用且兼容后重试；仅已生效的 safe-start none 恢复模式可禁用终端。`;
+function requiredRuntimeFailureMessage(status: "unavailable" | "incompatible", message: string | undefined, t: Translator = loadNodeTranslator("server")): string {
+  const detail = message === undefined || message === "" ? t("server.main.282cd5275cef", "no runtime detail was available") : message;
+  return t("server.main.8af35369452e", "Required Terminal plugin runtime is {arg0}: {arg1}. Retry when the session daemon is available and compatible; only an active safe-start-none runtime may disable Terminal.", { arg0: status === "unavailable" ? t("server.main.unavailable", "unavailable") : t("server.main.8d1f2155372e", "Incompatible"), arg1: detail });
 }
 
-function requireTerminalManifestEntry(plugins: readonly PiWebPluginManifestEntry[]): void {
+function requireTerminalManifestEntry(plugins: readonly PiWebPluginManifestEntry[], t: Translator = loadNodeTranslator("server")): void {
   const terminal = plugins.find(({ id }) => id === REQUIRED_TERMINAL_PLUGIN_ID);
-  if (terminal === undefined) throw new Error("必需的终端浏览器入口不可用；请使用 safe start none 进行恢复");
+  if (terminal === undefined) throw new Error(t("server.main.865fa5d8d3ad", "Required Terminal browser entry is unavailable; use safe start none for recovery"));
   if (terminal.scope !== "bundled" || terminal.source !== "bundled" || !terminal.machineSpecific) {
-    throw new Error("必需的终端浏览器入口不是内置的机器专属包");
+    throw new Error(t("server.main.d61ab23bfd9b", "Required Terminal browser entry is not the bundled machine-specific package"));
   }
   if (terminal.backendRevision === undefined || terminal.pairedRequestVersion !== 1 || terminal.pairedChannelVersion !== 1) {
-    throw new Error("必需的终端浏览器/服务端配对不兼容；请重启或使用 safe start none 进行恢复");
+    throw new Error(t("server.main.496affb7523c", "Required Terminal browser/server pairing is incompatible; restart or use safe start none for recovery"));
   }
-  if (plugins[0] !== terminal) throw new Error("必需的终端浏览器入口必须先于普通插件激活");
+  if (plugins[0] !== terminal) throw new Error(t("server.main.a77a108c062b", "Required Terminal browser entry must be activated before ordinary plugins"));
 }
 
 function pluginModuleQuery(pluginId: string, revision: string): string {
@@ -312,6 +328,7 @@ function contentTypeFor(path: string): string {
   const lowerPath = path.toLowerCase();
   if (lowerPath.endsWith(".js") || lowerPath.endsWith(".mjs")) return "application/javascript; charset=utf-8";
   if (lowerPath.endsWith(".json")) return "application/json; charset=utf-8";
+  if (lowerPath.endsWith(".webmanifest")) return "application/manifest+json; charset=utf-8";
   if (lowerPath.endsWith(".css")) return "text/css; charset=utf-8";
   if (lowerPath.endsWith(".html")) return "text/html; charset=utf-8";
   if (lowerPath.endsWith(".svg")) return "image/svg+xml";

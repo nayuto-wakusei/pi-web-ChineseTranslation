@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionUiEvent } from "../../shared/apiTypes.js";
+import { loadNodeTranslator } from "../../localization.js";
 import { SessionCommandService, type CommandActiveSession, type CommandSession } from "./sessionCommandService.js";
 
 interface TestCommandSession extends CommandSession {
@@ -54,6 +55,20 @@ function eventPublisher() {
 }
 
 describe("SessionCommandService", () => {
+  it("uses English when Chinese is disabled without changing user names or forwarded commands", async () => {
+    const active = activeSession();
+    const prompt = vi.fn(promptAccepted);
+    const service = new SessionCommandService(
+      () => getActive(active), prompt, eventPublisher(), {}, {},
+      loadNodeTranslator("server", { plugins: { "zh-cn": { enabled: false } } }),
+    );
+    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
+    await expect(service.run("s1", "/name 中文名称")).resolves.toMatchObject({
+      type: "done", message: "Session named: 中文名称", session: { name: "中文名称" },
+    });
+    await service.run("s1", "/ext 用户内容");
+    expect(prompt).toHaveBeenCalledWith("s1", "/ext 用户内容", undefined);
+  });
   it("rejects unknown commands and forwards runtime commands as prompts", async () => {
     const active = activeSession();
     const prompt = vi.fn(promptAccepted);

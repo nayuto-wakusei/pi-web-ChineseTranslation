@@ -1,3 +1,4 @@
+import { t, setTranslator } from "../../i18n.js";
 import type { PiWebPlugin, WorkspacePanelContext, PluginPeerChannel } from "@chainingintention/pi-web-cn/plugin-api";
 import { isLogEntry, MAX_FINDINGS, type LogEntry } from "./protocol.js";
 import { captainStatusLabel, renderCaptainPanel, selectedSourceSession } from "./panel.js";
@@ -11,8 +12,9 @@ interface PanelState {
 }
 const plugin: PiWebPlugin = {
   apiVersion: 4,
-  name: "船长日志",
-  activate({ html, runtimePluginId, lifetimeSignal }) {
+  name: t("ui.main.40c450439267", "Captain's Log"),
+  activate({ html, runtimePluginId, lifetimeSignal, translate: translator }) {
+    setTranslator(translator);
     if (!customElements.get("captains-log-lifetime")) {
       customElements.define("captains-log-lifetime", class extends HTMLElement {
         mount?: () => void;
@@ -36,7 +38,7 @@ const plugin: PiWebPlugin = {
       delete state.channel;
       delete state.controller;
       state.connecting = false;
-      if (state.pending !== undefined) state.status = "通道已关闭，请求接收状态不确定；请重新连接后再重试，不会自动重发。";
+      if (state.pending !== undefined) state.status = t("ui.main.f396b70620bc", "Channel closed. Admission is uncertain; reconnect before retrying. Questions are never resent automatically.");
     }
     const stopAll = () => { for (const state of states.values()) stop(state); };
     lifetimeSignal.addEventListener("abort", stopAll, { once: true });
@@ -44,7 +46,7 @@ const plugin: PiWebPlugin = {
       const key = JSON.stringify([context.machine.id, context.workspace.projectId, context.workspace.id]);
       let state = states.get(key);
       if (!state) {
-        state = { entries: [], status: "正在连接船长日志…", connecting: false, revision: 0, readRevision: 0, updates: new Map() };
+        state = { entries: [], status: t("ui.main.b53dd9c80b8e", "Connecting to Captain's Log…"), connecting: false, revision: 0, readRevision: 0, updates: new Map() };
         states.set(key, state);
       }
       if (current !== state) { if (current) stop(current); current = state; }
@@ -63,10 +65,10 @@ const plugin: PiWebPlugin = {
       const readRevision = ++state.readRevision;
       const before = state.updates.get(id);
       try {
-        if (!context.peer?.request) throw new Error("船长日志保存记录不可用");
+        if (!context.peer?.request) throw new Error(t("ui.main.1f43dcbac9b1", "Captain saved records unavailable"));
         const entry: unknown = await context.peer.request("read", id, { signal: state.controller?.signal ?? lifetimeSignal });
         if (revision !== state.revision || readRevision !== state.readRevision || lifetimeSignal.aborted) return;
-        if (!isLogEntry(entry)) throw new Error("船长日志记录无效");
+        if (!isLogEntry(entry)) throw new Error(t("ui.main.66223db3b219", "Invalid Captain record"));
         const record = state.updates.get(id) !== before ? state.updates.get(id) ?? entry : entry;
         state.selected = record;
         state.updates.set(id, record);
@@ -86,23 +88,23 @@ const plugin: PiWebPlugin = {
       state.connecting = true;
       state.updates.clear();
       const live = () => revision === state.revision && !controller.signal.aborted && !lifetimeSignal.aborted;
-      state.status = "正在连接船长日志…";
+      state.status = t("ui.main.b53dd9c80b8e", "Connecting to Captain's Log…");
       context.host.requestRender();
       try {
-        if (!context.peer?.openChannel || !context.peer.request) throw new Error("当前机器的船长日志后端通道不可用");
+        if (!context.peer?.openChannel || !context.peer.request) throw new Error(t("ui.main.8c0382b8ace3", "Captain backend channels unavailable on this machine"));
         const channel = await context.peer.openChannel(LOG_CHANNEL, null, {
           signal: controller.signal,
           onData(data) {
             if (!live()) return;
-            if (!isCaptainServerFrame(data)) { state.status = "船长日志通道帧无效"; stop(state); context.host.requestRender(); return; }
+            if (!isCaptainServerFrame(data)) { state.status = t("ui.main.009b398507ef", "Invalid Captain channel frame"); stop(state); context.host.requestRender(); return; }
             if (data.type === "admitted" && data.requestId === state.pending) {
               delete state.pending;
-              state.status = `后端已接收 ${data.id}，接收不代表完成。`;
+              state.status = t("ui.main.39c27a5c621c", "The backend accepted {arg0}; acceptance is not completion.", { arg0: data.id });
             } else if (data.type === "rejected" && data.requestId === state.pending) {
               delete state.pending; state.status = data.message; state.notice = data.message;
             } else if (data.type === "entry") {
               upsert(state, data.entry);
-              state.status = data.saved && data.entry.status !== "running" ? `后端已保存结果，状态：${captainStatusLabel(data.entry.status)}。` : "船长日志正在接收进度。";
+              state.status = data.saved && data.entry.status !== "running" ? t("ui.main.ba9cee805bff", "The backend saved the result with status {arg0}.", { arg0: captainStatusLabel(data.entry.status) }) : t("ui.main.330b2b9daff1", "Captain's Log is receiving progress.");
             } else if (data.type === "text") {
               const entry = state.updates.get(data.id);
               if (entry) {
@@ -121,13 +123,13 @@ const plugin: PiWebPlugin = {
         void channel.closed.then((closed) => {
           if (!live()) return;
           stop(state);
-          state.status = `${closed.error?.message ?? "通道已关闭"}。请求接收状态可能不确定，请重新连接恢复已保存状态；不会自动重发。`;
+          state.status = t("ui.main.59bb9b623aa3", "{arg0}. Request acceptance may be uncertain; reconnect to restore saved state. Requests are not resent automatically.", { arg0: closed.error?.message ?? t("ui.main.5de098bdc01f", "Channel closed") });
           context.host.requestRender();
         });
         // Subscribe first, then merge the snapshot without overwriting newer pushed entries.
         const result: unknown = await context.peer.request("list", null, { signal: controller.signal });
         if (!live()) return;
-        if (!Array.isArray(result) || !result.every(isLogEntry)) throw new Error("船长日志快照无效");
+        if (!Array.isArray(result) || !result.every(isLogEntry)) throw new Error(t("ui.main.e18b3550af5f", "Invalid Captain snapshot"));
         state.entries = [...state.updates.values(), ...result.filter((entry) => entry.sourceSessionId !== undefined && !state.updates.has(entry.id))].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         delete state.pending;
         const id = state.selected?.id ?? state.entries[0]?.id;
@@ -137,13 +139,13 @@ const plugin: PiWebPlugin = {
           else await readEntry(context, state, id);
         } else delete state.selected;
         if (!live()) return;
-        state.status = "已连接，后端将实时推送更新。";
+        state.status = t("ui.main.a1fa58242a2e", "Connected. Live updates arrive from the backend.");
         delete state.notice;
         state.connecting = false;
         context.host.requestRender();
       } catch (error) {
         if (!live()) return;
-        stop(state); state.status = `${String(error)}。请手动重新连接，没有重发转述请求。`;
+        stop(state); state.status = t("ui.main.b74852b31c3b", "{arg0}. Reconnect manually; the relay request has not been resent.", { arg0: String(error) });
         context.host.requestRender();
       }
     }
@@ -152,21 +154,21 @@ const plugin: PiWebPlugin = {
       if (!source || !state.channel || state.connecting || state.pending !== undefined || lifetimeSignal.aborted || state.entries.some((entry) => entry.status === "running" || entry.sessionId === source.id)) return;
       state.pending = crypto.randomUUID();
       delete state.notice;
-      state.status = `源会话 ${source.id} 的转述已排队，等待后端接收。`;
+      state.status = t("ui.main.f0eb1567fb8f", "Relay for source session {arg0} is queued, awaiting backend acceptance.", { arg0: source.id });
       const frame: CaptainClientFrame = { type: "translate", requestId: state.pending, sourceSessionId: source.id };
       try { state.channel.send(frame); }
-      catch (error) { stop(state); state.status = `${String(error)}。请求接收状态不确定，请重新连接后再重试。`; }
+      catch (error) { stop(state); state.status = t("ui.main.737a9ae0b915", "{arg0}. Request acceptance is uncertain; reconnect before retrying.", { arg0: String(error) }); }
       context.host.requestRender();
     }
     return {
       contributions: {
         actions: [{
-          id: "summon", title: "打开船长转述", group: "船长日志",
+          id: "summon", title: t("ui.main.77d215cd18a6", "Open pirate translator"), group: t("ui.main.40c450439267", "Captain's Log"),
           enabled: ({ state }) => Boolean(state.selectedWorkspace),
           run: ({ selectWorkspaceTool }) => { selectWorkspaceTool(`${runtimePluginId}:log`); },
         }],
         workspacePanels: [{
-          id: "log", title: "船长日志",
+          id: "log", title: t("ui.main.40c450439267", "Captain's Log"),
           render(context) {
             const state = stateFor(context);
             const source = selectedSourceSession(context);

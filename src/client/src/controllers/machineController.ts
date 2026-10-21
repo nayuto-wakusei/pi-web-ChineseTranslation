@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api, type Machine, type MachineHealth, type MachineRuntime } from "../api";
 import { resetWorkspaceScopedState } from "../appState";
 import { BrowserErrorReporter, machineBrowserErrorScope } from "../browserErrors";
@@ -90,7 +91,7 @@ export class MachineController {
   async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine, options: { selectFallback?: boolean } = {}): Promise<Machine | undefined> {
     if (machine === undefined) return undefined;
     if (machine.kind === "local") {
-      this.browserErrors.report(machineBrowserErrorScope(machine.id), "无法移除本地机器。");
+      this.browserErrors.report(machineBrowserErrorScope(machine.id), t("client.machineController.cannot.remove.the.local.machine.9e88e1", "Cannot remove the local machine."));
       return undefined;
     }
     try {
@@ -145,7 +146,7 @@ export class MachineController {
 
     const health = await this.safeRemoteHealth(requestedMachine);
     this.setState({ machineStatuses: { ...this.getState().machineStatuses, [health.machineId]: health } });
-    if (!health.ok) this.browserErrors.report(machineBrowserErrorScope(requestedMachine.id), `${requestedMachine.name} 暂不可用，正在重新连接…`);
+    if (!health.ok) this.browserErrors.report(machineBrowserErrorScope(requestedMachine.id), t("ui.piWebApp.isUnavailableReconnecting", "{machineName} is unavailable. Reconnecting…", { machineName: requestedMachine.name }));
     return requestedMachine;
   }
 

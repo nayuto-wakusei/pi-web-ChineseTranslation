@@ -1,3 +1,4 @@
+import { t as translate } from "../../../src/client/src/i18n";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IPty, spawn } from "node-pty";
 import type {
@@ -290,7 +291,7 @@ function activationContext(
   recordNotice: (input: ServerPluginNoticeInput) => void = () => undefined,
 ): ServerPluginActivationContext {
   return Object.freeze({
-    apiVersion: 3,
+    apiVersion: 3, translate,
     pluginId,
     packageRoot: process.cwd(),
     dataDirectory: "/data/plugin-data/pi-web.terminal",

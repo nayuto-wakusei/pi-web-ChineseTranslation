@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
@@ -18,11 +19,11 @@ const COUNTDOWN_TICK_MS = 1_000;
 /** Header status label for a closed extension dialog. */
 export function extensionDialogCloseLabel(reason: ExtensionDialogCloseReason): string {
   switch (reason) {
-    case "answered": return "已回答";
-    case "cancelled": return "已取消";
-    case "timeout": return "已超时";
-    case "aborted": return "已中止";
-    case "session-ended": return "会话已结束";
+    case "answered": return t("ui.extensionDialogCard.answered", "Answered");
+    case "cancelled": return t("ui.extensionDialogCard.cancelled", "Cancelled");
+    case "timeout": return t("ui.extensionDialogCard.timedOut", "Timed out");
+    case "aborted": return t("ui.extensionDialogCard.aborted", "Aborted");
+    case "session-ended": return t("ui.extensionDialogCard.sessionEnded", "Session ended");
   }
 }
 
@@ -33,14 +34,14 @@ export function extensionDialogCloseSummary(closed: ClosedExtensionDialog): stri
       const answer = closed.answer;
       // An answered close without an answer value breaks the wire contract;
       // the card still renders rather than crashing the transcript.
-      if (answer === undefined) return "已关闭，但未记录回答。";
-      if (typeof answer === "boolean") return `回答：${answer ? "是" : "否"}`;
-      return answer === "" ? "回答为空。" : `回答：${answer}`;
+      if (answer === undefined) return t("ui.extensionDialogCard.closedWithoutARecordedAnswer", "Closed without a recorded answer.");
+      if (typeof answer === "boolean") return t("ui.extensionDialogCard.answer", "Answer: {answer}", { answer: answer ? t("ui.extensionDialogCard.yes", "Yes") : t("ui.extensionDialogCard.no", "No") });
+      return answer === "" ? t("ui.extensionDialogCard.answerWasEmpty", "Answer was empty.") : t("ui.extensionDialogCard.answer", "Answer: {answer}", { answer: answer });
     }
-    case "cancelled": return "已取消，未回答。";
-    case "timeout": return "对话框超时前未收到回答。";
-    case "aborted": return "本轮运行在回答前已中止。";
-    case "session-ended": return "会话在回答前已结束。";
+    case "cancelled": return t("ui.extensionDialogCard.cancelledWithoutAnAnswer", "Cancelled without an answer.");
+    case "timeout": return t("ui.extensionDialogCard.noAnswerReceivedBeforeTheDialogTimedOut", "No answer received before the dialog timed out.");
+    case "aborted": return t("ui.extensionDialogCard.theTurnWasAbortedBeforeAnAnswer", "The turn was aborted before an answer.");
+    case "session-ended": return t("ui.extensionDialogCard.theSessionEndedBeforeAnAnswer", "The session ended before an answer.");
   }
 }
 
@@ -54,19 +55,19 @@ export function extensionDialogCountdownText(timeoutAt: string | undefined, nowM
   const deadline = Date.parse(timeoutAt);
   if (!Number.isFinite(deadline)) return undefined;
   const remainingMs = deadline - nowMs;
-  if (remainingMs <= 0) return "即将自动取消";
+  if (remainingMs <= 0) return t("ui.extensionDialogCard.autoCancellingSoon", "Auto-cancelling soon");
   const seconds = Math.ceil(remainingMs / 1000);
   if (seconds >= 3600) {
     const hours = Math.floor(seconds / 3600);
     // Floor, not round: rounding yields "1h 60m" in the last half-minute of an hour.
     const minutes = Math.floor((seconds % 3600) / 60);
-    return `${String(hours)} 小时 ${String(minutes)} 分钟后自动取消`;
+    return t("ui.extensionDialogCard.autoCancelsInHM", "Auto-cancels in {hours}h {minutes}m", { hours: String(hours), minutes: String(minutes) });
   }
   if (seconds >= 60) {
     const minutes = Math.floor(seconds / 60);
-    return `${String(minutes)} 分 ${String(seconds % 60)} 秒后自动取消`;
+    return t("ui.extensionDialogCard.autoCancelsInMS", "Auto-cancels in {minutes}m {seconds60}s", { minutes: String(minutes), seconds60: String(seconds % 60) });
   }
-  return `${String(seconds)} 秒后自动取消`;
+  return t("ui.extensionDialogCard.autoCancelsInS", "Auto-cancels in {seconds}s", { seconds: String(seconds) });
 }
 
 /**
@@ -151,22 +152,22 @@ export class ExtensionDialogCard extends LitElement {
     return html`
       ${dialog.message === undefined ? null : html`<p class="dialog-message">${dialog.message}</p>`}
       <footer class="dialog-footer">
-        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>取消</button>
-        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.answerDialog(dialog, false); }}>否</button>
-        <button class="primary-action" type="button" ?disabled=${this.closing} @click=${() => { this.answerDialog(dialog, true); }}>是</button>
+        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>${t("ui.extensionDialogCard.cancel", "Cancel")}</button>
+        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.answerDialog(dialog, false); }}>${t("ui.extensionDialogCard.no", "No")}</button>
+        <button class="primary-action" type="button" ?disabled=${this.closing} @click=${() => { this.answerDialog(dialog, true); }}>${t("ui.extensionDialogCard.yes", "Yes")}</button>
       </footer>
     `;
   }
 
   private renderSelectBody(dialog: PendingExtensionDialog): TemplateResult {
     return html`
-      <div class="dialog-options" role="group" aria-label="选项">
+      <div class="dialog-options" role="group" aria-label=${t("ui.extensionDialogCard.options", "Options")}>
         ${(dialog.options ?? []).map((option) => html`
           <button class="option-button" type="button" ?disabled=${this.closing} @click=${() => { this.answerDialog(dialog, option); }}>${option}</button>
         `)}
       </div>
       <footer class="dialog-footer">
-        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>取消</button>
+        <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>${t("ui.extensionDialogCard.cancel", "Cancel")}</button>
       </footer>
     `;
   }
@@ -178,7 +179,7 @@ export class ExtensionDialogCard extends LitElement {
           class="dialog-input"
           type="text"
           name="dialog-answer"
-          aria-label="你的回答"
+          aria-label=${t("ui.extensionDialogCard.yourAnswer", "Your answer")}
           placeholder=${ifDefined(dialog.placeholder)}
           maxlength=${String(EXTENSION_DIALOG_INPUT_MAX_LENGTH)}
           .value=${this.inputValue}
@@ -186,8 +187,8 @@ export class ExtensionDialogCard extends LitElement {
           @input=${(event: Event) => { this.changeInput(event); }}
         />
         <footer class="dialog-footer">
-          <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>取消</button>
-          <button class="primary-action" type="submit" ?disabled=${this.closing}>${this.closing ? "发送中…" : "发送"}</button>
+          <button class="secondary-action" type="button" ?disabled=${this.closing} @click=${() => { this.cancelDialog(dialog); }}>${t("ui.extensionDialogCard.cancel", "Cancel")}</button>
+          <button class="primary-action" type="submit" ?disabled=${this.closing}>${this.closing ? t("ui.extensionDialogCard.sending", "Sending…") : t("ui.extensionDialogCard.send", "Send")}</button>
         </footer>
       </form>
     `;
@@ -202,7 +203,7 @@ export class ExtensionDialogCard extends LitElement {
         </header>
         <p class="closed-summary">${extensionDialogCloseSummary(closed)}</p>
         <footer class="dialog-footer">
-          <button class="secondary-action" type="button" @click=${() => { this.dismissClosed(closed); }}>关闭</button>
+          <button class="secondary-action" type="button" @click=${() => { this.dismissClosed(closed); }}>${t("ui.extensionDialogCard.close", "Close")}</button>
         </footer>
       </article>
     `;

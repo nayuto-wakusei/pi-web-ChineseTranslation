@@ -420,7 +420,7 @@ describe("buildApp PI WEB plugin routes", () => {
     const response = await appTestContext.app.inject({ method: "GET", url: `/pi-web-plugins/${scopedPluginId}/..%2F..%2Fapi%2Fconfig` });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Invalid remote PI WEB plugin asset path" });
+    expect(response.json()).toEqual({ error: "远程 PI WEB 插件资源路径无效" });
     expect(request).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,5 @@
+import type { Translator } from "../../shared/i18n.js";
+import { loadNodeTranslator } from "../../localization.js";
 import type { AuthorizedResource } from "./types.js";
 
 export interface SearchKnowledgeInput {
@@ -42,21 +44,21 @@ export function searchAuthorizedKnowledge(resources: readonly AuthorizedResource
   return { items: candidates.slice(0, limit).map((candidate) => toKnowledgeSummary(candidate.item)), total: candidates.length };
 }
 
-export function requireAuthorizedRagflowKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string): AuthorizedResource {
-  return requireAuthorizedKnowledge(resources, name, "ragflow", version);
+export function requireAuthorizedRagflowKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
+  return requireAuthorizedKnowledge(resources, name, "ragflow", version, t);
 }
 
-export function requireAuthorizedBookstackKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string): AuthorizedResource {
-  return requireAuthorizedKnowledge(resources, name, "bookstack", version);
+export function requireAuthorizedBookstackKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
+  return requireAuthorizedKnowledge(resources, name, "bookstack", version, t);
 }
 
-function requireAuthorizedKnowledge(resources: readonly AuthorizedResource[], name: string, provider: "ragflow" | "bookstack", version?: string): AuthorizedResource {
+function requireAuthorizedKnowledge(resources: readonly AuthorizedResource[], name: string, provider: "ragflow" | "bookstack", version?: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
   const resourceName = name.trim();
   const resourceVersion = version?.trim();
   const item = resources.find((resource) => resource.resourceName === resourceName && isAuthorizedKnowledge(resource) && knowledgeProvider(resource) === provider);
-  if (item === undefined) throw new Error("当前账号未获授权检索该知识资源");
+  if (item === undefined) throw new Error(t("server.main.3f21310f8d85", "The current account is not authorized to search this knowledge resource"));
   if (resourceVersion !== undefined && resourceVersion !== "" && item.resourceVersion !== resourceVersion) {
-    throw new Error("知识资源版本不在当前授权快照中");
+    throw new Error(t("server.main.7cd088bdbe27", "The knowledge resource version is not in the current authorization snapshot"));
   }
   return item;
 }

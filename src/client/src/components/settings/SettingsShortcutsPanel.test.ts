@@ -12,6 +12,7 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  document.body.replaceChildren();
 });
 
 describe("settings-shortcuts-panel layout", () => {

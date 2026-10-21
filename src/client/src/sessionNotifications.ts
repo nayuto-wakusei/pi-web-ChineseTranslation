@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import {
   SESSION_NOTIFICATION_LIMIT,
   SESSION_NOTIFICATION_MESSAGE_BYTES,
@@ -192,14 +193,14 @@ export function selectedNotificationView(inbox: SelectedSessionNotificationInbox
   };
 }
 
-export function notificationSeverityLabel(severity: SessionNotificationSeverity): "信息" | "警告" | "错误" {
-  if (severity === "error") return "错误";
-  if (severity === "warning") return "警告";
-  return "信息";
+export function notificationSeverityLabel(severity: SessionNotificationSeverity): string {
+  if (severity === "error") return t("client.sessionNotifications.error.0bc1fb", "Error");
+  if (severity === "warning") return t("client.sessionNotifications.warning.a8b7a4", "Warning");
+  return t("client.sessionNotifications.info.e70286", "Info");
 }
 
 export function notificationAnnouncementLabel(announcement: Pick<SessionNotificationAnnouncement, "severity">): string {
-  return `收到${notificationSeverityLabel(announcement.severity)}通知。`;
+  return t("client.sessionNotifications.notification.received.0cb785", "{value1} notification received.", { value1: notificationSeverityLabel(announcement.severity) });
 }
 
 export function notificationInboxTotalCount(inbox: Pick<SelectedSessionNotificationView, "retainedCount" | "discardedCount">): number {
@@ -207,16 +208,16 @@ export function notificationInboxTotalCount(inbox: Pick<SelectedSessionNotificat
 }
 
 export function notificationTrayHeading(inbox: Pick<SelectedSessionNotificationView, "retainedCount" | "discardedCount">): string {
-  return `通知（${String(notificationInboxTotalCount(inbox))}）`;
+  return t("client.sessionNotifications.notifications.38c528", "Notifications ({value1})", { value1: String(notificationInboxTotalCount(inbox)) });
 }
 
 export function notificationDismissLabel(notification: Pick<SessionNotification, "message" | "severity">): string {
   const message = notification.message.replace(/\s+/gu, " ").trim();
-  if (message === "") return `关闭${notificationSeverityLabel(notification.severity)}通知`;
+  if (message === "") return t("client.sessionNotifications.dismiss.notification.137f92", "Dismiss {value1} notification", { value1: notificationSeverityLabel(notification.severity) });
   const maxCharacters = 80;
   const characters = Array.from(message);
   const summary = characters.length <= maxCharacters ? message : `${characters.slice(0, maxCharacters - 1).join("").trimEnd()}…`;
-  return `关闭通知：${summary}`;
+  return t("client.sessionNotifications.dismiss.notification.600367", "Dismiss notification: {value1}", { value1: summary });
 }
 
 export type NotificationFocusTarget = { kind: "notification"; notificationId: string } | { kind: "header" };
@@ -247,13 +248,13 @@ export function setNotificationTrayCollapsed(collapsedTargetKeys: ReadonlySet<st
 }
 
 export function notificationInboxOverflowLabel(discardedCount: number): string {
-  return `还有 ${String(discardedCount)} 条较早通知未显示。`;
+  return t("client.sessionNotifications.older.notifications.not.shown.7c54ee", "{value1} older notifications not shown.", { value1: String(discardedCount) });
 }
 
 export function notificationMessageTruncationLabel(notification: Pick<SessionNotification, "truncated">): string | undefined {
   if (!notification.truncated) return undefined;
   const kibibytes = SESSION_NOTIFICATION_MESSAGE_BYTES / 1024;
-  return `消息已在 ${String(kibibytes)} KiB 处截断。`;
+  return t("client.sessionNotifications.message.truncated.at.kib.ac3119", "Message truncated at {value1} KiB.", { value1: String(kibibytes) });
 }
 
 export function notificationTargetsEqual(left: SessionNotificationTarget, right: SessionNotificationTarget): boolean {

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNodeKind, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
@@ -20,19 +21,19 @@ export interface SessionTreeKindPresentation {
 }
 
 const SESSION_TREE_KIND_PRESENTATION = {
-  user: { label: "用户", tone: "user", bookkeeping: false },
-  assistant: { label: "助手", tone: "assistant", bookkeeping: false },
-  "tool-result": { label: "工具结果", tone: "tool", bookkeeping: false },
-  bash: { label: "命令", tone: "shell", bookkeeping: false },
-  "custom-message": { label: "自定义消息", tone: "context", bookkeeping: false },
-  compaction: { label: "上下文压缩", tone: "context", bookkeeping: false },
-  "branch-summary": { label: "分支摘要", tone: "context", bookkeeping: false },
-  "model-change": { label: "模型", tone: "metadata", bookkeeping: true },
-  "thinking-level-change": { label: "思考级别", tone: "metadata", bookkeeping: true },
-  "session-info": { label: "会话信息", tone: "metadata", bookkeeping: true },
-  label: { label: "标签", tone: "metadata", bookkeeping: true },
-  custom: { label: "自定义", tone: "metadata", bookkeeping: true },
-  other: { label: "其他", tone: "metadata", bookkeeping: true },
+  user: { label: t("ui.chatView.user", "User"), tone: "user", bookkeeping: false },
+  assistant: { label: t("ui.chatView.assistant", "Assistant"), tone: "assistant", bookkeeping: false },
+  "tool-result": { label: t("ui.sessionTreeNavigator.toolResult", "Tool result"), tone: "tool", bookkeeping: false },
+  bash: { label: t("ui.toolExecutionView.command", "Command"), tone: "shell", bookkeeping: false },
+  "custom-message": { label: t("ui.sessionTreeNavigator.customMessage", "Custom message"), tone: "context", bookkeeping: false },
+  compaction: { label: t("ui.sessionTreeNavigator.contextCompaction", "Context compaction"), tone: "context", bookkeeping: false },
+  "branch-summary": { label: t("ui.sessionTreeNavigator.branchSummary", "Branch summary"), tone: "context", bookkeeping: false },
+  "model-change": { label: t("ui.sessionTreeNavigator.model", "Model"), tone: "metadata", bookkeeping: true },
+  "thinking-level-change": { label: t("ui.sessionTreeNavigator.thinkingLevel", "Thinking level"), tone: "metadata", bookkeeping: true },
+  "session-info": { label: t("ui.sessionTreeNavigator.sessionInformation", "Session information"), tone: "metadata", bookkeeping: true },
+  label: { label: t("ui.sessionTreeNavigator.label", "Label"), tone: "metadata", bookkeeping: true },
+  custom: { label: t("ui.main.custom", "Custom"), tone: "metadata", bookkeeping: true },
+  other: { label: t("ui.settingsShortcutsPanel.other", "Other"), tone: "metadata", bookkeeping: true },
 } as const satisfies Record<SessionTreeNodeKind, SessionTreeKindPresentation>;
 
 @customElement("session-tree-navigator")
@@ -74,13 +75,13 @@ export class SessionTreeNavigator extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .initialFocus=${this.selectedId === undefined ? ".close-button" : "[data-tree-node-id][tabindex='0']"} .label=${"浏览会话树"}>
+      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .initialFocus=${this.selectedId === undefined ? ".close-button" : "[data-tree-node-id][tabindex='0']"} .label=${t("ui.sessionTreeNavigator.browseSessionTree", "Browse session tree")}>
           <header>
             <div>
-              <span class="eyebrow">对话历史</span>
-              <h1 id="session-tree-heading">浏览会话树</h1>
+              <span class="eyebrow">${t("ui.sessionTreeNavigator.conversationHistory", "Conversation history")}</span>
+              <h1 id="session-tree-heading">${t("ui.sessionTreeNavigator.browseSessionTree", "Browse session tree")}</h1>
             </div>
-            <button class="close-button" ?disabled=${this.busy} title="关闭会话树" aria-label="关闭会话树" @click=${() => { this.onCancel?.(); }}>×</button>
+            <button class="close-button" ?disabled=${this.busy} title="${t("ui.sessionTreeNavigator.closeSessionTree", "Close session tree")}" aria-label="${t("ui.sessionTreeNavigator.closeSessionTree", "Close session tree")}" @click=${() => { this.onCancel?.(); }}>×</button>
           </header>
           ${this.step === "tree" ? this.renderTreeStep() : this.renderActionStep()}
           ${this.renderFooter()}
@@ -93,18 +94,18 @@ export class SessionTreeNavigator extends LitElement {
     return html`
       <div class="body tree-step">
         <div class="tree-intro">
-          <p>选择要从哪一条历史记录继续。</p>
-          <div class="legend" aria-label="会话树标记">
-            <span><span class="marker active-path-marker" aria-hidden="true"></span>活动路径</span>
-            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>活动叶节点</span>
+          <p>${t("ui.main.accac83dc4d6", "Select the history entry where you would like to continue.")}</p>
+          <div class="legend" aria-label="${t("ui.sessionTreeNavigator.sessionTreeMarkers", "Session tree markers")}">
+            <span><span class="marker active-path-marker" aria-hidden="true"></span>${t("ui.sessionTreeNavigator.activePath", "Active path")}</span>
+            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>${t("ui.sessionTreeNavigator.activeLeaf", "Active leaf")}</span>
           </div>
         </div>
         ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
         ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
         ${rows.length === 0 ? html`
-          <div class="empty" role="status">此会话不包含可选择的历史条目。</div>
+          <div class="empty" role="status">${t("ui.sessionTreeNavigator.thisSessionContainsNoSelectableHistoryEntries", "This session contains no selectable history entries.")}</div>
         ` : html`
-          <div class="tree" role="tree" aria-label="完整会话历史">
+          <div class="tree" role="tree" aria-label="${t("ui.sessionTreeNavigator.fullSessionHistory", "Full session history")}">
             ${rows.map((row) => this.renderTreeRow(row))}
           </div>
         `}
@@ -140,15 +141,15 @@ export class SessionTreeNavigator extends LitElement {
       >
         <span
           class=${`disclosure${row.childIds.length === 0 ? " leaf" : ""}`}
-          title=${row.childIds.length === 0 ? "没有子条目" : expanded ? "折叠分支" : "展开分支"}
+          title=${row.childIds.length === 0 ? t("ui.sessionTreeNavigator.noChildEntries", "No child entries") : expanded ? t("ui.sessionTreeNavigator.collapseBranch", "Collapse branch") : t("ui.sessionTreeNavigator.expandBranch", "Expand branch")}
           aria-hidden="true"
           @click=${(event: MouseEvent) => { this.toggleNode(row.node.id, event); }}
         >${row.childIds.length === 0 ? "·" : expanded ? "▾" : "▸"}</span>
         <span class="metadata">
           ${this.renderKindBadge(kindPresentation)}
           <span class="badges">
-            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">活动路径</span>` : null}
-            ${row.activeLeaf ? html`<span class="badge leaf">活动叶节点</span>` : null}
+            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">${t("ui.sessionTreeNavigator.activePath", "Active path")}</span>` : null}
+            ${row.activeLeaf ? html`<span class="badge leaf">${t("ui.sessionTreeNavigator.activeLeaf", "Active leaf")}</span>` : null}
           </span>
         </span>
         <span class="entry">
@@ -169,10 +170,10 @@ export class SessionTreeNavigator extends LitElement {
       <div class="body confirmation-step">
         <div class="confirmation-card">
           <div>
-            <span class="eyebrow">所选条目</span>
-            <h2>选择继续方式</h2>
+            <span class="eyebrow">${t("ui.sessionTreeNavigator.selectedEntry", "Selected entry")}</span>
+            <h2>${t("ui.main.f3c6c9300115", "Choose how to continue")}</h2>
           </div>
-          ${selectedNode === undefined ? html`<div class="empty">所选历史条目已不可用。</div>` : html`
+          ${selectedNode === undefined ? html`<div class="empty">${t("ui.sessionTreeNavigator.theSelectedHistoryEntryIsNoLongerAvailable", "The selected history entry is no longer available.")}</div>` : html`
             <div class="selected-entry">
               ${this.renderKindBadge(sessionTreeKindPresentation(selectedNode.kind))}
               <strong dir="auto">${selectedNode.summary}</strong>
@@ -180,19 +181,19 @@ export class SessionTreeNavigator extends LitElement {
             </div>
           `}
           <fieldset ?disabled=${this.busy}>
-            <legend>如何继续？</legend>
-            ${this.renderOperationOption("continue", "在当前会话中继续", "在此会话文件内从所选条目创建分支，并保留其他分支。")}
-            ${this.renderOperationOption("fork", "分叉为新会话", "创建并切换到单独的会话文件，原会话保持不变。")}
+            <legend>${t("ui.main.5069774980d8", "How would you like to continue?")}</legend>
+            ${this.renderOperationOption("continue", t("ui.main.689bd86d4d1c", "Continue in this session"), t("ui.main.a832b2f7249f", "Branch from the selected entry in this session file and keep its other branches."))}
+            ${this.renderOperationOption("fork", t("ui.main.845e53aa3f7c", "Fork into new session"), t("ui.main.f69557cbab5d", "Create and switch to a separate session file while leaving the original unchanged."))}
           </fieldset>
           ${this.operation === "continue" ? html`
             <fieldset ?disabled=${this.busy}>
-              <legend>已放弃分支摘要</legend>
-              ${this.renderSummaryOption("none", "不生成摘要", "切换分支且不添加摘要条目。")}
-              ${this.renderSummaryOption("default", "生成摘要", "让 Pi 总结即将离开的上下文。")}
-              ${this.renderSummaryOption("custom", "按自定义重点生成摘要", "引导 Pi 关注与新分支相关的重要细节。")}
+              <legend>${t("ui.sessionTreeNavigator.abandonedBranchSummary", "Abandoned branch summary")}</legend>
+              ${this.renderSummaryOption("none", t("ui.sessionTreeNavigator.skipSummary", "Skip summary"), t("ui.sessionTreeNavigator.switchBranchesWithoutAddingASummaryEntry", "Switch branches without adding a summary entry."))}
+              ${this.renderSummaryOption("default", t("ui.sessionTreeNavigator.generateSummary", "Generate summary"), t("ui.sessionTreeNavigator.askPiToSummarizeTheContextYouAre", "Ask Pi to summarize the context you are leaving."))}
+              ${this.renderSummaryOption("custom", t("ui.sessionTreeNavigator.summarizeWithCustomFocus", "Summarize with custom focus"), t("ui.sessionTreeNavigator.guidePiTowardDetailsRelevantToTheNew", "Guide Pi toward details relevant to the new branch."))}
               ${this.summaryMode === "custom" ? html`
                 <label class="custom-focus" for="session-tree-custom-focus">
-                  <span>自定义摘要重点</span>
+                  <span>${t("ui.sessionTreeNavigator.customSummaryFocus", "Custom summary focus")}</span>
                   <textarea
                     id="session-tree-custom-focus"
                     rows="5"
@@ -207,7 +208,7 @@ export class SessionTreeNavigator extends LitElement {
             </fieldset>
           ` : null}
           <div class="side-effects-note" role="note">
-            <strong>仅影响对话上下文。</strong>继续或分叉都不会撤销文件系统更改、终端命令、工具调用或其他副作用。
+            <strong>${t("ui.sessionTreeNavigator.onlyConversationContextIsAffected", "Only conversation context is affected.")}</strong>${t("ui.main.93b34a54b41f", "Continuing or forking does not undo filesystem changes, shell commands, tool calls, or other side effects.")}
           </div>
           ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
           ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
@@ -219,12 +220,12 @@ export class SessionTreeNavigator extends LitElement {
   private selectedEntryDescription(kind: SessionTreeNodeKind): string {
     if (this.operation === "fork") {
       return kind === "user"
-        ? "新会话会在此用户消息之前分叉，并把消息文本恢复为新会话的提示词草稿。"
-        : "新会话会包含此条目以及此前的全部历史记录。";
+        ? t("ui.main.31853eda65e0", "The new session will branch before this user message, and its text will return to the prompt editor as the new session draft.")
+        : t("ui.main.51b8f85261ba", "The new session will include this entry and all history leading to it.");
     }
     return sessionTreeEntryReturnsToEditor(kind)
-      ? "此消息的文本会返回提示词编辑器，供你选择编辑并重新提交。"
-      : "从此条目继续后，提示词编辑器将为空。";
+      ? t("ui.sessionTreeNavigator.thisMessageSTextReturnsToThePrompt", "This message's text returns to the prompt editor for optional editing and resubmission.")
+      : t("ui.main.c3432d0efd76", "The prompt editor will be empty after continuing from this entry in this session.");
   }
 
   private renderOperationOption(operation: NavigatorOperation, label: string, description: string): TemplateResult {
@@ -261,9 +262,9 @@ export class SessionTreeNavigator extends LitElement {
     if (this.step === "tree") {
       return html`
         <footer>
-          <button @click=${() => { this.onCancel?.(); }}>取消</button>
+          <button @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
           <span class="footer-spacer"></span>
-          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToAction(); }}>下一步</button>
+          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToAction(); }}>${t("ui.main.ea0ef2ae7245", "Next")}</button>
         </footer>
       `;
     }
@@ -272,10 +273,10 @@ export class SessionTreeNavigator extends LitElement {
     const summarizing = continuing && this.summaryMode !== "none";
     return html`
       <footer>
-        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>返回</button>
+        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>${t("ui.sessionTreeNavigator.back", "Back")}</button>
         <span class="footer-spacer"></span>
         ${this.busy && summarizing ? html`
-          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? "正在取消…" : "取消摘要"}</button>
+          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? t("ui.sessionTreeNavigator.cancelling", "Cancelling…") : t("ui.sessionTreeNavigator.cancelSummary", "Cancel summary")}</button>
         ` : null}
         <button class="primary" ?disabled=${this.busy || this.selectedId === undefined} @click=${() => { void this.submitSelectedOperation(); }}>
           ${this.primaryActionLabel()}
@@ -377,9 +378,9 @@ export class SessionTreeNavigator extends LitElement {
   }
 
   private primaryActionLabel(): string {
-    if (!this.busy) return this.operation === "continue" ? "从此处继续" : "分叉为新会话";
-    if (this.operation === "fork") return "正在分叉…";
-    return this.summaryMode === "none" ? "正在继续…" : "正在生成摘要…";
+    if (!this.busy) return this.operation === "continue" ? t("ui.main.ae07f9cb8a7e", "Continue from here") : t("ui.main.845e53aa3f7c", "Fork into new session");
+    if (this.operation === "fork") return t("ui.main.a45a4265c22a", "Forking…");
+    return this.summaryMode === "none" ? t("ui.main.3f87d4e5ac2e", "Continuing…") : t("ui.sessionTreeNavigator.summarizing", "Summarizing…");
   }
 
   private submitSelectedOperation(): Promise<void> {
@@ -397,7 +398,7 @@ export class SessionTreeNavigator extends LitElement {
     }
     const navigate = this.onNavigate;
     if (navigate === undefined) {
-      this.error = "会话树导航不可用。请关闭并重新打开 /tree，然后重试。";
+      this.error = t("ui.sessionTreeNavigator.sessionTreeNavigationIsUnavailableCloseAndReopen", "Session tree navigation is unavailable. Close and reopen /tree, then retry.");
       return;
     }
 
@@ -415,15 +416,15 @@ export class SessionTreeNavigator extends LitElement {
       if (!result.cancelled) return;
       this.step = "tree";
       this.statusMessage = result.aborted === true
-        ? "摘要已取消，所选历史条目未更改。"
-        : "导航已取消，所选历史条目未更改。";
+        ? t("ui.sessionTreeNavigator.summaryCancelledTheSelectedHistoryEntryIsUnchanged", "Summary cancelled. The selected history entry is unchanged.")
+        : t("ui.sessionTreeNavigator.navigationCancelledTheSelectedHistoryEntryIsUnchanged", "Navigation cancelled. The selected history entry is unchanged.");
       this.pendingFocus = "tree";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = `无法导航会话历史：${errorMessage(error)}`;
+      this.error = t("ui.sessionTreeNavigator.unableToNavigateSessionHistory", "Unable to navigate session history: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
     }
   }
 
@@ -431,7 +432,7 @@ export class SessionTreeNavigator extends LitElement {
     if (this.busy || this.selectedId === undefined) return;
     const fork = this.onFork;
     if (fork === undefined) {
-      this.error = "会话树分叉不可用。请关闭并重新打开 /tree，然后重试。";
+      this.error = t("ui.main.8c3057119b0c", "Fork from the session tree is unavailable. Close and reopen /tree, then try again.");
       return;
     }
 
@@ -445,13 +446,13 @@ export class SessionTreeNavigator extends LitElement {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       if (!result.cancelled) return;
-      this.statusMessage = "分叉已取消，未创建新会话；所选历史条目未更改。";
+      this.statusMessage = t("ui.main.d38652912c3f", "Fork cancelled. No new session was created; your selected history entry is unchanged.");
       this.pendingFocus = "operation";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       this.statusMessage = "";
-      this.error = `无法分叉会话：${errorMessage(error)}`;
+      this.error = t("ui.main.390c887eead8", "Could not fork session: {arg0}", { arg0: errorMessage(error) });
     }
   }
 
@@ -459,20 +460,20 @@ export class SessionTreeNavigator extends LitElement {
     if (!this.busy || this.summaryMode === "none" || this.aborting) return;
     const abort = this.onAbort;
     if (abort === undefined) {
-      this.error = "无法从此客户端取消摘要。";
+      this.error = t("ui.sessionTreeNavigator.unableToCancelTheSummaryFromThisClient", "Unable to cancel the summary from this client.");
       return;
     }
     const generation = this.operationGeneration;
     this.aborting = true;
     this.error = "";
-    this.statusMessage = "正在取消摘要…";
+    this.statusMessage = t("ui.sessionTreeNavigator.cancellingSummary", "Cancelling summary…");
     try {
       await abort();
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = `无法取消摘要：${errorMessage(error)}`;
+      this.error = t("ui.sessionTreeNavigator.unableToCancelSummary", "Unable to cancel summary: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
     }
   }
 

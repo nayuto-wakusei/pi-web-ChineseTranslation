@@ -16,6 +16,48 @@ afterEach(() => {
 });
 
 describe("PiWebApp session unread wiring", () => {
+  it("refreshes a selected live transcript after completion before treating streamed content as loaded", async () => {
+    const fetchMock = stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
+    const app = createApp();
+    enableUnread(app);
+    const refresh = vi.fn(() => Promise.resolve());
+    const sessions: unknown = Reflect.get(app, "sessions");
+    if (typeof sessions !== "object" || sessions === null || !Reflect.set(sessions, "refreshSelectedSession", refresh)) {
+      throw new Error("Could not stub the selected-session history refresh");
+    }
+    const selected = session("selected");
+    setAppState(app, { ...initialAppState(), sessions: [selected], selectedSession: selected, mainView: "chat",
+      messagePageStart: 200, messagePageEnd: 250, messagePageTotal: 250, messagePageLeafId: "previous" });
+    exposeSelectedChat(app);
+    handleRealtimeEvent(app, unreadEvent(1, { ...unreadSummary(selected, 1), messageRange: { start: 250, end: 400, leafId: "completed" } }));
+    expect(refresh).toHaveBeenCalledExactlyOnceWith(selected.id);
+    expect(fetchMock).not.toHaveBeenCalled();
+    setState(app, { messagePageStart: 250, messagePageEnd: 400, messagePageTotal: 400, messagePageLeafId: "completed" });
+    invokeUpdated(app);
+    expect(fetchMock).not.toHaveBeenCalled();
+    exposeSelectedChat(app);
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalledOnce(); });
+  });
+
+  it("waits for all unread pages and the child transcript render before automatically acknowledging", async () => {
+    const fetchMock = stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
+    const app = createApp();
+    enableUnread(app);
+    const selected = session("selected");
+    setAppState(app, { ...initialAppState(), sessions: [selected], selectedSession: selected, mainView: "chat",
+      messagePageStart: 350, messagePageEnd: 450, messagePageTotal: 450, messagePageLeafId: "completed" });
+    exposeSelectedChat(app);
+    handleRealtimeEvent(app, unreadEvent(1, { ...unreadSummary(selected, 1), messageRange: { start: 200, end: 450, leafId: "completed" } }));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    setState(app, { messagePageStart: 200 });
+    invokeUpdated(app);
+    expect(fetchMock).not.toHaveBeenCalled();
+    exposeSelectedChat(app);
+    await vi.waitFor(() => { expect(navigationUnreadSessionIds(app).size).toBe(0); });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("shows a server completion for a background chat and acknowledges the exact observed order when viewed", async () => {
     const fetchMock = stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
     const app = createApp();
@@ -437,6 +479,12 @@ function exposeSelectedChat(app: PiWebApp): void {
     throw new Error("Could not mark selected chat ready");
   }
   invokeUpdated(app);
+  const rendered: unknown = Reflect.get(app, "handleTranscriptRendered");
+  if (typeof rendered !== "function") throw new Error("Missing transcript-render callback");
+  const messages: unknown = Reflect.get(state, "messages");
+  const start: unknown = Reflect.get(state, "messagePageStart");
+  const end: unknown = Reflect.get(state, "messagePageEnd");
+  Reflect.apply(rendered, app, [{ sessionId, messages, start, end }]);
 }
 
 function setMobileNavigationLayout(app: PiWebApp, mobile: boolean): void {

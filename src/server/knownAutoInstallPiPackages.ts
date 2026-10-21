@@ -27,8 +27,8 @@ export interface KnownAutoInstallablePiPackage {
 export const KNOWN_AUTO_INSTALLABLE_PI_PACKAGES: readonly KnownAutoInstallablePiPackage[] = [
   {
     id: "@jmfederico/pi-relay",
-    label: "中继",
-    description: "提供与工具无关的 Relay 方法、约定式 Relay Runner 配置，以及由人工确认后派发的独立 Pi 会话链提示词。",
+    label: "Relays",
+    description: "Tool-agnostic Relay method, opinionated runner profile, and human-gated preparation prompts for independent Pi session chains.",
     shippedPathSegments: ["dist", "pi-packages", "relays"],
   },
 ];

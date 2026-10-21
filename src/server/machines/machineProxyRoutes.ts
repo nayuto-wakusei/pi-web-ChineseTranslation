@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { WebSocket } from "ws";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../shared/federatedRoutes.js";
 import {
@@ -49,6 +50,7 @@ export function registerMachineProxyRoutes(
   app: FastifyInstance,
   machines: MachineProxyService = new MachineService(),
   pluginChannelAdmissions: PluginBackendChannelProxyAdmissionPool = pluginBackendChannelProxyAdmissionPool(app),
+  t: Translator = createTranslator("en", {}),
 ): void {
   for (const spec of REMOTE_HTTP_ROUTES) {
     app.route<{ Params: { machineId: string }; Body: unknown }>({
@@ -70,6 +72,7 @@ export function registerMachineProxyRoutes(
             request.headers["content-type"],
             reply,
             cancellation?.signal,
+            t,
           );
         } finally {
           cancellation?.dispose();
@@ -126,26 +129,27 @@ async function proxyHttpRequest(
   contentType: string | string[] | undefined,
   reply: FastifyReply,
   signal?: AbortSignal,
+  t: Translator = createTranslator("en", {}),
 ): Promise<FastifyReply> {
   if (machineId === "local") {
-    return reply.code(501).send({ error: "Local machine route is not registered for this endpoint" });
+    return reply.code(501).send({ error: t("machineError.localRouteMissing", "Local machine route is not registered for this endpoint") });
   }
 
   const client = await machines.remoteClient(machineId);
   if (client === undefined) {
-    return reply.code(404).send({ error: "Machine not found" });
+    return reply.code(404).send({ error: t("machineError.notFound", "Machine not found") });
   }
 
   try {
     const remotePath = remoteApiPath(machineId, requestUrl);
-    if (spec.path === "/config") return await proxySelectedMachineConfigRequest(client, machineId, method, remotePath, body, reply);
+    if (spec.path === "/config") return await proxySelectedMachineConfigRequest(client, machineId, method, remotePath, body, reply, t);
 
     let preview: RemoteFilePreviewRequest | undefined;
     try {
       preview = remoteFilePreviewRequest(spec, remotePath);
     } catch (error) {
       applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-      return await reply.code(400).send({ error: errorMessage(error) });
+      return await reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
     const previewPolicy = preview?.policy;
     const responseBodyLimit = preview === undefined ? spec.responseBodyLimit : preview.responseBodyLimit;
@@ -183,46 +187,46 @@ async function proxyHttpRequest(
     else if (preview !== undefined) reply.removeHeader("Content-Length");
     return await reply.send(responseBody);
   } catch (error) {
-    if (isSelectedMachineConfigRequestError(error)) return reply.code(400).send({ error: errorMessage(error) });
+    if (isSelectedMachineConfigRequestError(error)) return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     if (spec.path === WORKSPACE_FILE_PREVIEW_ROUTE_PATH) applyWorkspaceFilePreviewErrorResponsePolicy(reply);
-    return sendGatewayError(reply, machineId, error);
+    return sendGatewayError(reply, machineId, error, t);
   }
 }
 
-async function proxySelectedMachineConfigRequest(client: MachineClient, machineId: string, method: string, remotePath: string, body: unknown, reply: FastifyReply): Promise<FastifyReply> {
+async function proxySelectedMachineConfigRequest(client: MachineClient, machineId: string, method: string, remotePath: string, body: unknown, reply: FastifyReply, t: Translator): Promise<FastifyReply> {
   if (method === "GET") {
-    return sendSelectedMachineConfigResponse(reply, await client.requestJson("GET", remotePath), machineId);
+    return sendSelectedMachineConfigResponse(reply, await client.requestJson("GET", remotePath), machineId, t);
   }
 
   if (method === "PUT") {
     const patch = parseSelectedMachineConfigRequest(configPayload(body), "portable");
     const currentResponse = await client.requestJson("GET", remotePath);
-    if (!isSuccessfulStatus(currentResponse.statusCode)) return sendUpstreamJsonResponse(reply, currentResponse, machineId);
+    if (!isSuccessfulStatus(currentResponse.statusCode)) return sendUpstreamJsonResponse(reply, currentResponse, machineId, t);
 
     const current = parsePiWebConfigResponseBody(currentResponse.body, "Remote machine config response");
     const merged = mergeSelectedMachineConfig(current.config, patch);
-    return sendSelectedMachineConfigResponse(reply, await client.requestJson("PUT", remotePath, { config: merged }), machineId);
+    return sendSelectedMachineConfigResponse(reply, await client.requestJson("PUT", remotePath, { config: merged }), machineId, t);
   }
 
-  return reply.code(405).send({ error: "Method not allowed" });
+  return reply.code(405).send({ error: t("machineError.methodNotAllowed", "Method not allowed") });
 }
 
 function configPayload(body: unknown): unknown {
   return isRecord(body) ? body["config"] : undefined;
 }
 
-function sendSelectedMachineConfigResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string): FastifyReply {
-  if (!isSuccessfulStatus(upstream.statusCode)) return sendUpstreamJsonResponse(reply, upstream, machineId);
+function sendSelectedMachineConfigResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string, t: Translator): FastifyReply {
+  if (!isSuccessfulStatus(upstream.statusCode)) return sendUpstreamJsonResponse(reply, upstream, machineId, t);
   const response = parsePiWebConfigResponseBody(upstream.body, "Remote machine config response");
   reply.code(upstream.statusCode);
   applySafeHeaders(reply, upstream.headers);
   return reply.send(selectedMachineConfigResponse(response));
 }
 
-function sendUpstreamJsonResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string): FastifyReply {
+function sendUpstreamJsonResponse(reply: FastifyReply, upstream: MachineJsonResponse, machineId: string, t: Translator): FastifyReply {
   reply.code(upstream.statusCode);
   applySafeHeaders(reply, upstream.headers);
-  return reply.send(upstream.body ?? { error: "Remote machine config request failed", machineId, statusCode: upstream.statusCode });
+  return reply.send(upstream.body ?? { error: t("machineError.configRequestFailed", "Remote machine config request failed"), machineId, statusCode: upstream.statusCode });
 }
 
 function isSuccessfulStatus(statusCode: number): boolean {
@@ -240,6 +244,7 @@ async function proxyWebSocket(
   requestUrl: string,
   socket: WebSocket,
   boundedPluginChannel: BoundedPluginChannelProxyContext | undefined,
+  t: Translator = createTranslator("en", {}),
 ): Promise<void> {
   if (boundedPluginChannel !== undefined) {
     proxyBoundedPluginChannel(machines, machineId, requestUrl, socket, boundedPluginChannel);
@@ -247,20 +252,20 @@ async function proxyWebSocket(
   }
 
   if (machineId === "local") {
-    socket.close(1011, "Local machine route is not registered for this endpoint");
+    socket.close(1011, t("machineError.localRouteMissing", "Local machine route is not registered for this endpoint"));
     return;
   }
 
   const client = await machines.remoteClient(machineId);
   if (client === undefined) {
-    socket.close(1008, "Machine not found");
+    socket.close(1008, t("machineError.notFound", "Machine not found"));
     return;
   }
 
   try {
     bridgeSockets(socket, client.connectWebSocket(remoteApiPath(machineId, requestUrl)));
   } catch {
-    socket.close(1011, "Remote machine unavailable");
+    socket.close(1011, t("machineError.unavailable", "Remote machine unavailable"));
   }
 }
 
@@ -447,7 +452,7 @@ function readBoundedRemoteBody(body: NodeJS.ReadableStream, maxBytes: number, ti
       resolve(Buffer.concat(chunks));
     };
     const onError = (error: unknown): void => {
-      fail(new RemoteMachineRequestError(errorMessage(error), 502));
+      fail(new RemoteMachineRequestError(userFacingErrorMessage(error, createTranslator("en", {})), 502));
     };
 
     body.on("data", onData);
@@ -467,21 +472,17 @@ function isSelectedMachineConfigRequestError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("PI WEB selected-machine config");
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function sendGatewayError(reply: FastifyReply, machineId: string, error: unknown): FastifyReply {
+function sendGatewayError(reply: FastifyReply, machineId: string, error: unknown, t: Translator): FastifyReply {
   const statusCode = error instanceof RemoteMachineRequestError ? error.statusCode : 502;
-  const label = statusCode === 504 ? "Remote machine timeout" : "Remote machine unavailable";
+  const label = statusCode === 504 ? t("machineError.timeout", "Remote machine timeout") : t("machineError.unavailable", "Remote machine unavailable");
   return reply.code(statusCode).send({
     error: label,
     machineId,
     statusCode,
-    detail: errorMessage(error),
+    detail: userFacingErrorMessage(error, t),
   });
 }

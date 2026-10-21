@@ -6,6 +6,8 @@ import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { effectivePiWebConfig } from "../config.js";
+import { loadNodeTranslator } from "../localization.js";
+import { userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 import { ProjectStore } from "./storage/projectStore.js";
 import { ProjectService } from "./projects/projectService.js";
 import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions, type WorkspaceListAdapter } from "./workspaces/workspaceCatalog.js";
@@ -61,6 +63,7 @@ import type { WorkspaceProviderResolution } from "../shared/apiTypes.js";
 import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
 export interface AppDependencies {
+  translator?: Translator;
   projects?: ProjectService;
   workspaces?: WorkspaceListAdapter;
   workspaceCatalog?: WorkspaceCatalog;
@@ -81,30 +84,32 @@ export interface AppDependencies {
 }
 
 interface LocalProjectRouteOptions {
+  translator: Translator;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
-function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix: string, options: LocalProjectRouteOptions = {}): void {
+function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix: string, options: LocalProjectRouteOptions): void {
   const catalog = asWorkspaceCatalog(projects, workspaces);
   const managementEmbed = options.managementEmbed;
+  const t = options.translator;
 
   app.get(`${prefix}/projects`, async (request, reply) => {
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
-      if (context !== undefined) return await projectsFromManagedEmbedContext(managementProjectRoot(managementEmbed), context);
+      if (context !== undefined) return await projectsFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, t);
       return await projects.list();
     } catch (error) {
-      return reply.code(401).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(401).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
   app.get<{ Querystring: { q?: string } }>(`${prefix}/project-directories`, async (request, reply) => {
     try {
-      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: "Project directory browsing is disabled in management embed mode" });
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return await reply.code(403).send({ error: t("gateway.projectBrowsingDisabled", "Project directory browsing is disabled in management embed mode") });
       return await listDirectorySuggestions(request.query.q ?? "");
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -163,17 +168,19 @@ async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWeb
 }
 
 interface LocalFileSuggestionRouteOptions {
+  translator: Translator;
   fileSuggestions?: FileSuggestionCatalog;
   config?: Pick<PiWebConfigService, "read">;
   managementEmbed?: ManagementEmbedRuntime | undefined;
 }
 
-function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix: string, options: LocalFileSuggestionRouteOptions = {}): void {
+function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceCatalogInput, prefix: string, options: LocalFileSuggestionRouteOptions): void {
   const catalog = asWorkspaceCatalog(projects, workspaces);
   const managementEmbed = options.managementEmbed;
+  const t = options.translator;
 
   app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other"; mode?: "file" | "path"; scope?: "tracked" | "all" } }>(`${prefix}/files`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: options.translator("gateway.cwdRequired", "cwd query parameter is required") });
     try {
       const context = await managementContextForRequest(request, managementEmbed, reply);
       const cwd = context === undefined ? normalizeRequestCwd(request.query.cwd) : await assertManagedCwd(managementProjectRoot(managementEmbed), context, request.query.cwd, { create: false });
@@ -182,7 +189,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, projects: Proje
       if (request.query.mode === "path") return await listPathSuggestions(cwd, query, pathAccess);
       return await listFileSuggestions(cwd, query, { kind: request.query.kind, scope: request.query.scope, pathAccess }, { ...(options.fileSuggestions === undefined ? {} : { catalog: options.fileSuggestions }), catalogKey: JSON.stringify([context?.user, cwd]) });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 }
@@ -245,6 +252,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
+  const t = deps.translator ?? loadNodeTranslator("server", await readConfig());
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const runtimeConfig = effectivePiWebConfig().config;
   const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
@@ -265,11 +273,12 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     ...(providerRuntime === undefined ? {} : { runtimeProvider: providerRuntime }),
     recoveryProvider: () => loadServerPluginRecoveryConfig(),
   });
-  const piPackages = deps.piPackages ?? createActiveProfilePiPackageService(agentProfileProvider);
+  const piPackages = deps.piPackages ?? createActiveProfilePiPackageService(agentProfileProvider, undefined, undefined, t);
   const piWebStatusCache = deps.piWebStatusCache ?? createPiWebStatusCache(
     async ({ force }) => {
       const activeAgentProfile = await agentProfileProvider.getActiveAgentProfile();
       return getPiWebStatus(sessionDaemon, {
+        translator: t,
         forceReleaseCheck: force,
         ...(activeAgentProfile.status === "available" ? { activeAgentProfile: activeAgentProfile.profile } : {}),
       });
@@ -277,6 +286,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     { onError: (error) => { app.log.warn({ err: error }, "failed to refresh PI WEB status cache"); } },
   );
   const machines = deps.machines ?? new MachineService(undefined, {
+    translate: t,
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
   const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
@@ -290,22 +300,29 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       ? await workspaceInput.list(project)
       : await workspaces.list(project.id),
   });
-  const normalAuth = new NormalModeAuthService(configService);
+  const normalAuth = new NormalModeAuthService(configService, undefined, undefined, t);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
 
-  app.get("/pi-web-plugins/manifest.json", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.manifest()));
+  app.get("/pi-web-plugins/manifest.json", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.manifest(t)));
+  const languagePlugins = new PiWebPluginService({ configProvider: readConfig, packageProvider: false });
+  app.get("/pi-web-plugins/localization.json", async () => {
+    return languagePlugins.localizationManifest();
+  });
 
   app.get<{ Params: { pluginId: string; "*": string }; Querystring: { v?: string } }>("/pi-web-plugins/:pluginId/*", async (request, reply) => {
-    if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply)) return;
+    if (await proxyMachinePluginAsset(machines, request.params.pluginId, request.params["*"], request.url, reply, t)) return;
 
     return withProfileDependency(reply, async () => {
-      const asset = await piWebPlugins.readAsset(
+      // Bootstrap resources must use the same bundled catalog as the language
+      // manifest, independently of sessiond and active Pi-package discovery.
+      if (request.params.pluginId === "zh-cn") await languagePlugins.localizationManifest();
+      const asset = await (request.params.pluginId === "zh-cn" ? languagePlugins : piWebPlugins).readAsset(
         request.params.pluginId,
         request.params["*"],
         new URL(request.url, "http://pi-web.local").searchParams.get("v") ?? undefined,
       );
-      if (asset === undefined) return reply.code(404).send({ error: "Plugin asset not found" });
+      if (asset === undefined) return reply.code(404).send({ error: t("gateway.pluginAssetNotFound", "Plugin asset not found") });
       return reply.type(asset.contentType).send(asset.content);
     });
   });
@@ -326,14 +343,14 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerPiPackageRoutes(app, piPackages);
   registerPiPackageRoutes(app, piPackages, "/api/machines/local");
   const invalidatingConfigService = invalidatePiWebStatusOnWrite(configService, piWebStatusCache);
-  registerConfigRoutes(app, invalidatingConfigService);
-  registerLocalMachineConfigRoutes(app, invalidatingConfigService);
+  registerConfigRoutes(app, invalidatingConfigService, t);
+  registerLocalMachineConfigRoutes(app, invalidatingConfigService, t);
 
-  registerMachineRoutes(app, machines, managementEmbed);
-  registerMachinePluginProxyRoutes(app, machines);
+  registerMachineRoutes(app, machines, managementEmbed, t);
+  registerMachinePluginProxyRoutes(app, machines, t);
 
-  registerLocalProjectRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed });
-  registerLocalProjectRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed });
+  registerLocalProjectRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, translator: t });
+  registerLocalProjectRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, translator: t });
   const projectTrustDeps = {
     agentDir: async () => (await requireActiveAgentProfile(agentProfileProvider)).dir,
     authorize: async (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
@@ -345,24 +362,24 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerProjectTrustRoutes(app, projects, asWorkspaceCatalog(projects, workspaceInput), projectTrustDeps);
   registerProjectTrustRoutes(app, projects, asWorkspaceCatalog(projects, workspaceInput), projectTrustDeps, "/api/machines/local");
 
-  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
-  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds, t);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds, t);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
   registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
   const fileSuggestions = new FileSuggestionCatalog();
-  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
-  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });
+  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions, translate: t });
+  registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions, translate: t });
   registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api", managementEmbed);
   registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api/machines/local", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
 
-  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions });
-  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions });
+  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api", { config: configService, managementEmbed, fileSuggestions, translator: t });
+  registerLocalFileSuggestionRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions, translator: t });
 
-  registerMachineProxyRoutes(app, machines);
+  registerMachineProxyRoutes(app, machines, undefined, t);
 
   const packagedClientDist = join(dirname(fileURLToPath(import.meta.url)), "..", "client");
   const clientDist = deps.clientDist ?? (existsSync(packagedClientDist) ? packagedClientDist : join(process.cwd(), "dist", "client"));
@@ -382,7 +399,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       if (request.method === "GET" && acceptsHtml && !pathname.startsWith("/api/") && !pathname.startsWith("/assets/") && !pathname.startsWith("/pi-web-plugins/")) {
         return reply.sendFile("index.html");
       }
-      return reply.code(404).send({ error: "Not Found" });
+      return reply.code(404).send({ error: t("gateway.notFound", "Not Found") });
     });
   }
 

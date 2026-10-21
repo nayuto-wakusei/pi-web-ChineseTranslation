@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../../actions";
@@ -14,23 +15,23 @@ const RECORD_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
 const PROMPT_ENTER_OPTIONS: readonly { value: PromptEnterPreference; label: string; description: string }[] = [
   {
     value: "auto",
-    label: "自动/默认",
-    description: "桌面环境按 Enter 发送；移动设备、粗略指针或窄屏环境按 Enter 换行。",
+    label: t("ui.settingsShortcutsPanel.autoDefault", "Auto/default"),
+    description: t("ui.settingsShortcutsPanel.enterSendsOnDesktopEnterInsertsANewline", "Enter sends on desktop; Enter inserts a newline on mobile, coarse-pointer, or narrow-screen devices."),
   },
   {
     value: "send",
-    label: "Enter 发送消息",
-    description: "Enter 发送聊天消息；支持时 Shift+Enter 插入新行。",
+    label: t("ui.settingsShortcutsPanel.enterSendsMessages", "Enter sends messages"),
+    description: t("ui.settingsShortcutsPanel.enterSendsChatMessagesShiftEnterInsertsA", "Enter sends chat messages; Shift+Enter inserts a newline when supported."),
   },
   {
     value: "newline",
-    label: "Enter 插入新行",
-    description: "Enter 插入换行；支持时 Shift+Enter 发送聊天消息。",
+    label: t("ui.settingsShortcutsPanel.enterInsertsNewline", "Enter inserts newline"),
+    description: t("ui.settingsShortcutsPanel.enterInsertsANewlineShiftEnterSendsChat", "Enter inserts a newline; Shift+Enter sends chat messages when supported."),
   },
 ];
 
 function renderShortcutsDescription(): TemplateResult {
-  return html`按操作编辑应用快捷键。可以输入 <code>mod+k</code> 或 <code>mod+g p</code>，也可以从键盘录制、设为无或恢复默认。无修饰键序列可以保存，但正在输入时不会触发。发送键是单个组合键，未保存前仍沿用当前浏览器的 Enter 偏好。`;
+  return html`${t("ui.main.29da83a15958", "Edit app shortcuts by action. Type a shortcut such as")} <code>mod+k</code> ${t("ui.settingsShortcutsPanel.or", " or ")} <code>mod+g p</code>${t("ui.main.1c1a5ce1b6d2", ", record one from the keyboard, disable it with None, or reset it to the default. Unmodified app shortcuts work outside editable fields. Composer send bindings accept one key combination and take priority inside the editor; unassigned Enter and Shift+Enter insert newlines. Touch or narrow screen applies when the browser reports a coarse primary pointer (typically touch) or a viewport at most 760px wide; otherwise, desktop applies. When app shortcuts conflict, custom shortcuts win before defaults; ties are resolved by action id, and shorter shortcuts shadow longer sequences with the same prefix.")}`;
 }
 
 @customElement("settings-shortcuts-panel")
@@ -63,11 +64,11 @@ export class SettingsShortcutsPanel extends LitElement {
 
     const token = shortcutTokenFromEvent(event);
     if (token === undefined) {
-      this.localError = "请按字母、数字、标点、功能键或导航键。按 Esc 取消录制。";
+      this.localError = t("ui.settingsShortcutsPanel.pressALetterNumberPunctuationFunctionOrNavigation", "Press a letter, number, punctuation, function, or navigation key. Press Esc to cancel recording.");
       return;
     }
     if (recording.tokens.length > 0 && isComposerShortcut(recording.actionId)) {
-      this.localError = "发送键只能是一个组合键，不能录成序列。";
+      this.localError = t("ui.main.e5fcfdb23aec", "The send shortcut must be a single key combination, not a sequence.");
       return;
     }
 
@@ -97,21 +98,21 @@ export class SettingsShortcutsPanel extends LitElement {
     const shortcutResolutions = this.shortcutResolutions();
     return html`
       <settings-panel-frame
-        heading="键盘快捷键"
+        heading="${t("ui.settingsShortcutsPanel.keyboardShortcuts", "Keyboard shortcuts")}"
         .description=${renderShortcutsDescription()}
-        actionLabel="重新加载"
+        actionLabel="${t("ui.settingsPackagesPanel.reload", "Reload")}"
         .actionDisabled=${this.loading}
         .notices=${this.panelNotices()}
         .onAction=${this.onReload}
       >
         ${this.renderPromptEnterPreferenceCard()}
-        ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">正在加载快捷键…</div>` : html`
+        ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.loadingShortcuts", "Loading shortcuts…")}</div>` : html`
           <div class="config-path-card">
-            <span>配置文件</span>
-            <code>${this.configResponse?.path ?? "未知"}</code>
-            <small>快捷键覆盖项保存在 <code>shortcuts</code> 下。值为 <code>null</code> 时会禁用该操作快捷键。</small>
+            <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
+            <code>${this.configResponse?.path ?? t("bundled.updates.unknown.4d8c1c", "Unknown")}</code>
+            <small>${t("ui.settingsShortcutsPanel.shortcutOverridesAreSavedUnder", "Shortcut overrides are saved under ")} <code>shortcuts</code> ${t("ui.settingsShortcutsPanel.aValueOf", ". A value of ")} <code>null</code> ${t("ui.settingsShortcutsPanel.disablesTheActionShortcut", " disables the action shortcut.")}</small>
           </div>
-          ${groups.length === 0 ? html`<div class="loading-card">没有已注册操作。</div>` : groups.map((group) => html`
+          ${groups.length === 0 ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.noRegisteredActions", "No registered actions.")}</div>` : groups.map((group) => html`
             <section class="shortcut-group">
               <h3>${group.name}</h3>
               <div class="shortcut-list">
@@ -136,11 +137,11 @@ export class SettingsShortcutsPanel extends LitElement {
     return html`
       <section class="prompt-enter-card" aria-labelledby="prompt-enter-preference-title">
         <div class="prompt-enter-copy">
-          <span class="card-eyebrow">聊天输入框</span>
-          <h3 id="prompt-enter-preference-title">Enter 键行为</h3>
-          <p>选择当前浏览器中 Enter 键的行为。支持时 Shift+Enter 执行相反操作；为避免误发送，会忽略触摸键盘的自动大写状态。</p>
+          <span class="card-eyebrow">${t("ui.settingsShortcutsPanel.chatInput", "Chat input")}</span>
+          <h3 id="prompt-enter-preference-title">${t("ui.settingsShortcutsPanel.enterKeyBehavior", "Enter key behavior")}</h3>
+          <p>${t("ui.settingsShortcutsPanel.chooseEnterBehaviorInThisBrowserShiftEnter", "Choose Enter behavior in this browser. Shift+Enter performs the opposite action when supported; touch-keyboard auto-capitalization is ignored to prevent accidental sends.")}</p>
         </div>
-        <div class="prompt-enter-options" role="radiogroup" aria-label="聊天输入框中的 Enter 和 Shift Enter 行为">
+        <div class="prompt-enter-options" role="radiogroup" aria-label="${t("ui.settingsShortcutsPanel.enterAndShiftEnterBehaviorInChatInput", "Enter and Shift Enter behavior in chat input")}">
           ${PROMPT_ENTER_OPTIONS.map((option) => html`
             <label class="prompt-enter-option">
               <input
@@ -184,16 +185,16 @@ export class SettingsShortcutsPanel extends LitElement {
           <strong>${action.title}</strong>
           ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
           <small class="shortcut-id">${action.id}</small>
-          <small>${action.shortcut !== undefined && action.shortcut !== "" ? html`默认：<kbd>${formatShortcut(action.shortcut)}</kbd>` : "无默认快捷键"}</small>
+          <small>${action.shortcut !== undefined && action.shortcut !== "" ? html`${t("ui.settingsShortcutsPanel.default2", "Default:")}<kbd>${formatShortcut(action.shortcut)}</kbd>` : t("ui.settingsShortcutsPanel.noDefaultShortcut", "No default shortcut")}</small>
         </div>
         <div class="shortcut-editor">
           <div class="shortcut-status">
-            ${previewShortcut !== undefined && previewShortcut !== "" ? html`<kbd>${formatShortcut(previewShortcut)}</kbd>` : html`<span class="unassigned">${state === "disabled" ? "已禁用" : "未分配"}</span>`}
-            <small class=${displayState}>${shortcutStateLabel(displayState)}${hasDraft ? " · 未保存" : ""}</small>
+            ${previewShortcut !== undefined && previewShortcut !== "" ? html`<kbd>${formatShortcut(previewShortcut)}</kbd>` : html`<span class="unassigned">${state === "disabled" ? t("ui.settingsShortcutsPanel.disabled", "Disabled") : t("ui.settingsShortcutsPanel.unassigned", "Unassigned")}</span>`}
+            <small class=${displayState}>${shortcutStateLabel(displayState)}${hasDraft ? t("ui.settingsShortcutsPanel.unsaved", " · Unsaved") : ""}</small>
             ${conflictLabel === undefined ? null : html`<small class=${shortcutConflictClass(resolution)}>${conflictLabel}</small>`}
           </div>
           <label class="shortcut-input-label">
-            <span>快捷键</span>
+            <span>${t("ui.settingsShortcutsPanel.shortcut", "Shortcut")}</span>
             <input
               class="shortcut-input"
               data-action-id=${action.id}
@@ -208,10 +209,10 @@ export class SettingsShortcutsPanel extends LitElement {
           </label>
           ${recordingHint !== "" ? html`<small class="recording-hint">${recordingHint}</small>` : null}
           <div class="shortcut-actions">
-            <button class="primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>保存</button>
-            <button ?disabled=${this.loading || this.saving} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? "取消录制" : "录制"}</button>
-            <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action); }}>无</button>
-            <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>重置</button>
+            <button class="primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
+            <button ?disabled=${this.loading || this.saving} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
+            <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
+            <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
           </div>
         </div>
       </article>
@@ -229,8 +230,8 @@ export class SettingsShortcutsPanel extends LitElement {
   private recordingHint(actionId: string): string {
     const recording = this.recording;
     if (recording?.actionId !== actionId) return "";
-    if (recording.tokens.length === 0) return "正在录制：请按 Ctrl/⌘ 或 Alt 加一个按键。按 Esc 取消。";
-    return `正在录制：${formatShortcut(recording.tokens.join(" "))}。继续按键可添加序列，或等待录制完成。`;
+    if (recording.tokens.length === 0) return t("ui.settingsShortcutsPanel.recordingPressCtrlOrAltPlusAKey", "Recording: press Ctrl/⌘ or Alt plus a key. Press Esc to cancel.");
+    return t("ui.settingsShortcutsPanel.recordingPressMoreKeysToAddASequence", "Recording: {join}. Press more keys to add a sequence, or wait to finish.", { join: formatShortcut(recording.tokens.join(" ")) });
   }
 
   private updateDraft(actionId: string, value: string): void {
@@ -247,7 +248,7 @@ export class SettingsShortcutsPanel extends LitElement {
       return;
     }
     if (isComposerShortcut(action.id) && parsed.tokens.length !== 1) {
-      this.localError = "发送快捷键只能使用一个组合键，不能使用按键序列。";
+      this.localError = t("ui.main.3c6a5ae4d855", "Composer send shortcuts must be a single key combination, not a sequence.");
       return;
     }
     this.localError = "";
@@ -432,25 +433,25 @@ function shortcutConflictClass(resolution: ShortcutBindingResolution | undefined
 
 function shortcutConflictLabel(resolution: ShortcutBindingResolution | undefined): string | undefined {
   if (resolution === undefined) return undefined;
-  if (!resolution.active) return `被“${resolution.shadowedBy?.action.title ?? "另一项操作"}”覆盖`;
+  if (!resolution.active) return t("ui.settingsShortcutsPanel.shadowedBy", "Shadowed by \"{title}\"", { title: resolution.shadowedBy?.action.title ?? t("ui.settingsShortcutsPanel.anotherAction", "another action") });
   const shadowedCount = resolution.shadows.length;
   if (shadowedCount === 0) return undefined;
   const shadowedNames = resolution.shadows.slice(0, 2).map((binding) => binding.action.title).join(", ");
-  const suffix = shadowedCount > 2 ? `，另有 ${String(shadowedCount - 2)} 项` : "";
-  return `覆盖 ${String(shadowedCount)} 项操作：${shadowedNames}${suffix}`;
+  const suffix = shadowedCount > 2 ? t("ui.settingsShortcutsPanel.plusMore", ", plus {shadowedCount2} more", { shadowedCount2: String(shadowedCount - 2) }) : "";
+  return t("ui.settingsShortcutsPanel.shadowsActions", "Shadows {shadowedCount} actions: {shadowedNames}{suffix}", { shadowedCount: String(shadowedCount), shadowedNames: shadowedNames, suffix: suffix });
 }
 
 function shortcutGroups(actions: AppAction[]): { name: string; actions: AppAction[] }[] {
   const grouped = new Map<string, AppAction[]>();
   for (const action of [...actions].sort(compareActions)) {
-    const group = action.group ?? "其他";
+    const group = action.group ?? t("ui.settingsShortcutsPanel.other", "Other");
     grouped.set(group, [...(grouped.get(group) ?? []), action]);
   }
   return [...grouped.entries()].map(([name, groupActions]) => ({ name, actions: groupActions }));
 }
 
 function compareActions(left: AppAction, right: AppAction): number {
-  return (left.group ?? "其他").localeCompare(right.group ?? "其他") || left.title.localeCompare(right.title);
+  return (left.group ?? t("ui.settingsShortcutsPanel.other", "Other")).localeCompare(right.group ?? t("ui.settingsShortcutsPanel.other", "Other")) || left.title.localeCompare(right.title);
 }
 
 function withoutShortcutPreferences(shortcuts: PiWebShortcutConfig, actionIds: readonly string[]): PiWebShortcutConfig {
@@ -473,10 +474,10 @@ function shortcutState(action: AppAction, shortcuts: PiWebShortcutConfig | undef
 
 function shortcutStateLabel(state: ShortcutState): string {
   switch (state) {
-    case "default": return "默认";
-    case "custom": return "配置覆盖";
-    case "disabled": return "配置禁用";
-    case "unassigned": return "无默认值";
+    case "default": return t("ui.settingsShortcutsPanel.default", "Default");
+    case "custom": return t("ui.settingsShortcutsPanel.configurationOverride", "Configuration override");
+    case "disabled": return t("ui.settingsShortcutsPanel.disabledInConfiguration", "Disabled in configuration");
+    case "unassigned": return t("ui.settingsShortcutsPanel.noDefault", "No default");
   }
 }
 

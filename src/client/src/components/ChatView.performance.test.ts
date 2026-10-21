@@ -10,6 +10,22 @@ afterEach(() => {
 });
 
 describe("ChatView transcript element index", () => {
+  it("reports transcript coverage only after the corresponding messages have rendered", async () => {
+    const view = await renderView([message("user", "old question")]);
+    const onTranscriptRendered = vi.fn(() => {
+      expect(view.shadowRoot?.querySelector("formatted-text")?.shadowRoot?.textContent).toContain("new answer");
+    });
+    const messages = [message("assistant", "new answer")];
+    view.onTranscriptRendered = onTranscriptRendered;
+    view.messages = messages;
+    view.messageStart = 200;
+    view.messageEnd = 350;
+    expect(onTranscriptRendered).not.toHaveBeenCalled();
+    await view.updateComplete;
+    await vi.waitFor(() => { expect(onTranscriptRendered).toHaveBeenCalled(); });
+    expect(onTranscriptRendered).toHaveBeenCalledWith({ sessionId: "session-1", messages, start: 200, end: 350 });
+  });
+
   it("reuses the DOM index for text-only updates and rebuilds it for structural changes", async () => {
     const user = message("user", "question");
     const view = await renderView([user, message("assistant", "partial")]);

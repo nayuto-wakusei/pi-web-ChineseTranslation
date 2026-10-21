@@ -245,8 +245,8 @@ describe("plugin delivery artifacts", () => {
           },
         };
       });
-      expect(builtModule.default).toMatchObject({ apiVersion: 4, name: "文件" });
-      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 4, name: "文件" });
+      expect(builtModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
+      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
       expect(secondBuiltModule.FilesRuntime).not.toBe(builtModule.FilesRuntime);
       expect(registrations.panelMachineIds).toEqual(["remote-1", "remote-2"]);
       expect(registrations.firstElementConstructor).toBeDefined();

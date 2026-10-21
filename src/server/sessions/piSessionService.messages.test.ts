@@ -40,6 +40,7 @@ describe("PiSessionService", () => {
       const page = await service.messages(sessionRef("session-1"));
 
       expect(page).toEqual({
+        leafId: "leaf-1",
         start: 0,
         total: 6,
         messages: [

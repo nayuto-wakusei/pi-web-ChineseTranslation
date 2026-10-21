@@ -1,17 +1,9 @@
 // @vitest-environment happy-dom
-import type { TemplateResult } from "lit";
+import { render, type TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-// Legacy bulk-toolbar checks use template inspection; row menus use the DOM.
-import {
-  isTemplateEventHandler,
-  isTemplateResult,
-  templateStrings,
-  templateValues,
-  type TemplateEventHandler,
-} from "../templateInspection.testSupport";
 import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, sessionRowUnread, unarchivedDescendantCount, unreadSessionCount } from "./SessionList";
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
@@ -260,46 +252,14 @@ function setComponentState(list: SessionList, property: string, value: unknown):
   if (!Reflect.set(list, property, value)) throw new Error(`Could not set session list property ${property}`);
 }
 
-// Locates the bulk mark-read button inside the selection toolbar template,
-// anchored to the button's own static text so unrelated toolbar changes do not
-// break the lookup. The disabled binding sits immediately before its @click.
-function markReadButton(template: TemplateResult): { disabled: boolean; click: TemplateEventHandler } {
-  const host = findTemplateWithStaticText(template, ">标记已读</button>");
-  const strings = templateStrings(host);
-  const values = templateValues(host);
-  for (let index = 0; index < values.length; index += 1) {
-    if (strings[index + 1]?.includes(">标记已读</button>") !== true) continue;
-    const click = values[index];
-    const disabled = values[index - 1];
-    if (!isTemplateEventHandler(click) || typeof disabled !== "boolean") throw new Error("Mark read button wiring is unavailable");
-    return { disabled, click };
-  }
-  throw new Error("Expected a click handler before >标记已读</button>");
+function markReadButton(template: TemplateResult): { disabled: boolean; click: (event: Event) => void } {
+  const host = document.createElement("div");
+  document.body.append(host);
+  render(template, host);
+  const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.trim() === "标记已读");
+  if (button === undefined) throw new Error("Expected bulk mark-read button");
+  return { disabled: button.disabled, click: () => { button.click(); } };
 }
-
-function findTemplateWithStaticText(value: unknown, text: string): TemplateResult {
-  const found = findOptionalTemplateWithStaticText(value, text);
-  if (found === undefined) throw new Error(`Expected template containing ${text}`);
-  return found;
-}
-
-function findOptionalTemplateWithStaticText(value: unknown, text: string): TemplateResult | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findOptionalTemplateWithStaticText(item, text);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-  if (!isTemplateResult(value)) return undefined;
-  if (templateStrings(value).some((chunk) => chunk.includes(text))) return value;
-  for (const item of templateValues(value)) {
-    const found = findOptionalTemplateWithStaticText(item, text);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
 
 function sessionStatus(sessionId: string, overrides: Partial<SessionStatus> = {}): SessionStatus {
   return {

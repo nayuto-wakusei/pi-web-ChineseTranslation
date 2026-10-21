@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import "./ModalSurface";
@@ -82,35 +83,35 @@ export class MachineDialog extends LitElement {
     const urlError = hasUrl ? machineBaseUrlValidationMessage(this.url) : undefined;
     const canSubmit = this.validInput() !== undefined && !this.submitting;
     return html`
-      <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${"添加机器"} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
+      <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${t("client.actions.add.machine.e4ad1b", "Add machine")} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
             <header>
-              <strong>添加机器</strong>
-              <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="关闭">×</button>
+              <strong>${t("client.actions.add.machine.e4ad1b", "Add machine")}</strong>
+              <button type="button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
             </header>
             <div class="body">
               ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
               <label>
-                远程 PI WEB URL
+                ${t("ui.machineDialog.remotePiWebUrl", "Remote PI WEB URL")}
                 <input name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
               </label>
-              <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? "先输入可访问的基础 URL，包含 http:// 或 https://。"}</small>
+              <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://.")}</small>
               ${hasUrl ? html`
                 <label>
-                  机器名称
-                  <input name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || "开发机"} autocomplete="off" />
+                  ${t("ui.machineDialog.machineName", "Machine name")}
+                  <input name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
                 </label>
-                <small class="hint">根据 URL 自动建议。可以改成更友好的侧栏名称。</small>
+                <small class="hint">${t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name.")}</small>
                 <label>
-                  Bearer token <span class="optional">可选</span>
-                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="如果远程机器不需要令牌，可留空" autocomplete="off" />
+                  Bearer token <span class="optional">${t("ui.machineDialog.optional", "Optional")}</span>
+                  <input name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
                 </label>
-                <small class="hint">只粘贴令牌值；PI WEB 会通过 Authorization: Bearer 请求头发送。</small>
-              ` : html`<p class="hint intro">输入 URL 后，PI WEB 会建议机器名称，并允许添加可选的 bearer token。</p>`}
+                <small class="hint">${t("ui.machineDialog.pasteOnlyTheTokenValuePiWebSends", "Paste only the token value; PI WEB sends it in the Authorization: Bearer header.")}</small>
+              ` : html`<p class="hint intro">${t("ui.machineDialog.afterEnteringAUrlPiWebSuggestsA", "After entering a URL, PI WEB suggests a machine name and allows an optional bearer token.")}</p>`}
             </div>
             <footer>
-              <button type="button" @click=${() => { this.onCancel?.(); }}>取消</button>
-              <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? "正在添加…" : "添加机器"}</button>
+              <button type="button" @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+              <button class="primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? t("ui.machineDialog.adding", "Adding…") : t("client.actions.add.machine.e4ad1b", "Add machine")}</button>
             </footer>
           </form>
       </modal-surface>
@@ -149,16 +150,16 @@ export function suggestedMachineNameFromUrl(value: string): string {
 
 export function machineBaseUrlValidationMessage(value: string): string | undefined {
   const raw = value.trim();
-  if (raw === "") return "必须填写远程 PI WEB URL。";
+  if (raw === "") return t("ui.machineDialog.remotePiWebUrlIsRequired", "Remote PI WEB URL is required.");
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return "请输入包含 http:// 或 https:// 的有效 URL。";
+    return t("ui.machineDialog.enterAValidUrlIncludingHttpOrHttps", "Enter a valid URL including http:// or https://.");
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return "请使用 http:// 或 https:// URL。";
-  if (url.username !== "" || url.password !== "") return "机器 URL 中不要包含凭据。";
-  if (url.search !== "" || url.hash !== "") return "不要包含查询字符串或片段。";
+  if (url.protocol !== "http:" && url.protocol !== "https:") return t("ui.machineDialog.useAnHttpOrHttpsUrl", "Use an http:// or https:// URL.");
+  if (url.username !== "" || url.password !== "") return t("ui.machineDialog.doNotIncludeCredentialsInTheMachineUrl", "Do not include credentials in the machine URL.");
+  if (url.search !== "" || url.hash !== "") return t("ui.machineDialog.doNotIncludeAQueryStringOrFragment", "Do not include a query string or fragment.");
   return undefined;
 }
 

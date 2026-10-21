@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { t as translate } from "../../src/client/src/i18n";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, render, svg } from "lit";
 import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
@@ -71,7 +72,7 @@ describe("bundled Mermaid plugin", () => {
 
 function activationContext(): PluginActivationContext {
   return {
-    apiVersion: 4,
+    apiVersion: 4, translate,
     pluginId: "mermaid",
     runtimePluginId: "mermaid",
     html,

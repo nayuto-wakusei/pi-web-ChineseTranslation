@@ -6,4 +6,4 @@ export function terminalPluginModeForSafeStart(safeStart: "bundled-only" | "none
   return safeStart === "none" ? "recovery-disabled" : "required";
 }
 
-export const REQUIRED_TERMINAL_RECOVERY_GUIDANCE = "使用 `pi-web plugins safe-start set none --restart`，以不启用终端的恢复模式启动 PI WEB。";
+export const REQUIRED_TERMINAL_RECOVERY_GUIDANCE = "Use `pi-web plugins safe-start set none --restart` to start PI WEB without Terminal for recovery.";

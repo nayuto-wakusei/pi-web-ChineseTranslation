@@ -1,29 +1,38 @@
+import type { Translator } from "../../shared/i18n.js";
 import type { ClientCommand } from "../types.js";
 
 export const BUILTIN_COMMANDS: ClientCommand[] = [
-  { name: "settings", description: "打开设置菜单", source: "builtin" },
-  { name: "model", description: "选择模型", source: "builtin" },
-  { name: "scoped-models", description: "启用/禁用可循环切换的模型", source: "builtin" },
-  { name: "export", description: "导出会话", source: "builtin" },
-  { name: "import", description: "从 JSONL 导入并恢复会话", source: "builtin" },
-  { name: "share", description: "将会话分享到私密 GitHub gist", source: "builtin" },
-  { name: "copy", description: "复制上一条代理消息", source: "builtin" },
-  { name: "name", description: "设置会话显示名称", argumentHint: "<会话名称>", source: "builtin" },
-  { name: "session", description: "显示会话信息和统计", source: "builtin" },
-  { name: "changelog", description: "显示更新日志条目", source: "builtin" },
-  { name: "hotkeys", description: "显示键盘快捷键", source: "builtin" },
-  { name: "fork", description: "从之前的用户消息创建新分叉", source: "builtin" },
-  { name: "clone", description: "在当前位置复制当前会话", source: "builtin" },
-  { name: "tree", description: "导航会话树", source: "builtin" },
-  { name: "login", description: "配置提供商认证", source: "builtin" },
-  { name: "logout", description: "移除提供商认证", source: "builtin" },
-  { name: "new", description: "启动新会话", source: "builtin" },
-  { name: "compact", description: "手动压缩会话上下文", argumentHint: "[说明]", source: "builtin" },
-  { name: "resume", description: "恢复另一个会话", source: "builtin" },
-  { name: "reload", description: "重新加载当前会话的 Pi 运行时资源", source: "builtin" },
-  { name: "quit", description: "退出 pi", source: "builtin" },
+  { name: "settings", description: "Open settings menu", source: "builtin" },
+  { name: "model", description: "Select model", source: "builtin" },
+  { name: "scoped-models", description: "Enable or disable models for cycling", source: "builtin" },
+  { name: "export", description: "Export session", source: "builtin" },
+  { name: "import", description: "Import and resume a JSONL session", source: "builtin" },
+  { name: "share", description: "Share session as a private GitHub gist", source: "builtin" },
+  { name: "copy", description: "Copy the last agent message", source: "builtin" },
+  { name: "name", description: "Set session display name", argumentHint: "<session name>", source: "builtin" },
+  { name: "session", description: "Show session information and statistics", source: "builtin" },
+  { name: "changelog", description: "Show changelog entries", source: "builtin" },
+  { name: "hotkeys", description: "Show keyboard shortcuts", source: "builtin" },
+  { name: "fork", description: "Fork from an earlier user message", source: "builtin" },
+  { name: "clone", description: "Clone the current session at this point", source: "builtin" },
+  { name: "tree", description: "Navigate the session tree", source: "builtin" },
+  { name: "login", description: "Configure provider authentication", source: "builtin" },
+  { name: "logout", description: "Remove provider authentication", source: "builtin" },
+  { name: "new", description: "Start a new session", source: "builtin" },
+  { name: "compact", description: "Compact session context manually", argumentHint: "[instructions]", source: "builtin" },
+  { name: "resume", description: "Resume another session", source: "builtin" },
+  { name: "reload", description: "Reload Pi runtime resources for the current session", source: "builtin" },
+  { name: "quit", description: "Quit pi", source: "builtin" },
 ];
 
 export function isBuiltinCommand(name: string): boolean {
   return BUILTIN_COMMANDS.some((command) => command.name === name);
+}
+
+export function builtinCommands(t: Translator): ClientCommand[] {
+  return BUILTIN_COMMANDS.map((command) => ({
+    ...command,
+    description: t(`builtin.${command.name}`, command.description ?? ""),
+    ...(command.argumentHint === undefined ? {} : { argumentHint: t(`builtin.argument.${command.name}`, command.argumentHint) }),
+  }));
 }

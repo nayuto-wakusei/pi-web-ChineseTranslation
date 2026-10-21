@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { LitElement } from "lit";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+vi.mock("./localizationBootstrap", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./localizationBootstrap")>();
+  return { ...original, initializeClientLocalization: vi.fn() };
+});
 import "./main";
 
 afterEach(() => {

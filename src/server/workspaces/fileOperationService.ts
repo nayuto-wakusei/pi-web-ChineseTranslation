@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { lstat, mkdir, rename, rmdir } from "node:fs/promises";
 import type { PiWebPathAccessConfig } from "../../shared/apiTypes.js";
 import { readWorkspaceFilePreview, type WorkspaceFilePreview } from "./filePreviewService.js";
@@ -22,7 +23,7 @@ export interface WorkspaceDeleteResponse {
 }
 
 export async function createWorkspaceDirectory(rootPath: string, input: WorkspacePathInput): Promise<WorkspacePathResponse> {
-  if (!isPathInput(input)) throw new Error("Directory body must include path");
+  if (!isPathInput(input)) throw new WorkspaceUserError("server.files.directoryPathRequired", "Directory body must include path");
   const { target, relativePath } = await resolveParentInsideWorkspace(rootPath, input.path);
   await mkdir(target);
   return { path: relativePath };
@@ -30,9 +31,9 @@ export async function createWorkspaceDirectory(rootPath: string, input: Workspac
 
 export async function moveWorkspaceDirectory(rootPath: string, input: WorkspaceMoveInput): Promise<WorkspacePathResponse> {
   const move = await resolveMove(rootPath, input);
-  if (move.destinationRelativePath.startsWith(`${move.sourceRelativePath}/`)) throw new Error("Directory cannot be moved inside itself");
+  if (move.destinationRelativePath.startsWith(`${move.sourceRelativePath}/`)) throw new WorkspaceUserError("server.files.recursiveMoveDenied", "Directory cannot be moved inside itself");
   const s = await lstat(move.sourceTarget);
-  if (!s.isDirectory()) throw new Error("Path is not a directory");
+  if (!s.isDirectory()) throw new WorkspaceUserError("server.files.notDirectory", "Path is not a directory");
   await rename(move.sourceTarget, move.destinationTarget);
   return { path: move.destinationRelativePath };
 }
@@ -42,9 +43,9 @@ export async function deleteWorkspaceDirectory(rootPath: string, path: string | 
   // Validate parents without dereferencing the entry that will be removed.
   const { target, relativePath } = await resolveParentInsideWorkspace(rootPath, path);
   const s = await lstat(target);
-  if (!s.isDirectory()) throw new Error("Path is not a directory");
+  if (!s.isDirectory()) throw new WorkspaceUserError("server.files.notDirectory", "Path is not a directory");
   await rmdir(target).catch((error: unknown) => {
-    if (isNodeErrorWithCode(error, "ENOTEMPTY") || isNodeErrorWithCode(error, "EEXIST")) throw new Error("Directory is not empty");
+    if (isNodeErrorWithCode(error, "ENOTEMPTY") || isNodeErrorWithCode(error, "EEXIST")) throw new WorkspaceUserError("server.files.directoryNotEmpty", "Directory is not empty");
     throw error;
   });
   return { deleted: true, path: relativePath };
@@ -58,7 +59,7 @@ async function resolveMove(rootPath: string, input: WorkspaceMoveInput) {
   if (!isMoveInput(input)) throw new Error("Move body must include fromPath and toPath");
   const source = await resolveParentInsideWorkspace(rootPath, input.fromPath);
   const destination = await resolveParentInsideWorkspace(rootPath, input.toPath);
-  if (source.relativePath === destination.relativePath) throw new Error("Destination path must be different");
+  if (source.relativePath === destination.relativePath) throw new WorkspaceUserError("server.files.sameDestination", "Destination path must be different");
   return {
     sourceTarget: source.target,
     sourceRelativePath: source.relativePath,

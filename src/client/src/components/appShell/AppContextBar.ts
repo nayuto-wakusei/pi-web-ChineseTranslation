@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
@@ -54,17 +55,17 @@ export class AppContextBar extends LitElement {
     const workspaceLabel = workspaceContextLabel(this.workspace);
     const sessionLabel = sessionContextLabel(this.session);
     return html`
-      <nav class=${this.contextBarClass()} aria-label="当前位置">
-        <span class="context-bar-label">位置</span>
+      <nav class=${this.contextBarClass()} aria-label="${t("ui.appContextBar.currentLocation", "Current location")}">
+        <span class="context-bar-label">${t("ui.appContextBar.location", "Location")}</span>
         <ol class="context-items" @scroll=${this.onContextScroll}>
           ${showMachineChip ? html`
             <li class="context-item">
               ${machineChoice ? html`
-                <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${`机器：${machineContextLabel(machine)}。打开机器选择。`} @click=${() => { this.onOpenSection?.("machines"); }}>
+                <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${t("ui.appContextBar.machineOpenMachineSelection", "Machine: {machineLabel}. Open machine selection.", { machineLabel: machineContextLabel(machine) })} @click=${() => { this.onOpenSection?.("machines"); }}>
                   ${this.renderMachineChipContent(machine, this.locationIndicator)}
                 </button>
               ` : html`
-                <!-- 未选择机器 choice: the chip is the instance identity, not a control. -->
+                <!-- No machine choice: the chip is the instance identity, not a control. -->
                 <span class="${machineChipClass} static" title=${machineContextTitle(machine)}>
                   ${this.renderMachineChipContent(machine, true)}
                 </span>
@@ -72,31 +73,31 @@ export class AppContextBar extends LitElement {
             </li>
           ` : null}
           <li class="context-item">
-            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${`项目：${projectLabel}。打开项目选择。`} @click=${() => { this.onOpenSection?.("projects"); }}>
-              <span class="context-kind">项目</span>
+            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${t("ui.appContextBar.projectOpenProjectSelection", "Project: {projectLabel}. Open project selection.", { projectLabel: projectLabel })} @click=${() => { this.onOpenSection?.("projects"); }}>
+              <span class="context-kind">${t("client.actions.project.79f326", "Project")}</span>
               <span class="context-value">${projectLabel}</span>
             </button>
           </li>
           <li class="context-item">
-            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${`工作区：${workspaceLabel}。打开工作区选择。`} @click=${() => { this.onOpenSection?.("workspaces"); }}>
-              <span class="context-kind">工作区</span>
+            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${t("ui.appContextBar.workspaceOpenWorkspaceSelection", "Workspace: {workspaceLabel}. Open workspace selection.", { workspaceLabel: workspaceLabel })} @click=${() => { this.onOpenSection?.("workspaces"); }}>
+              <span class="context-kind">${t("bundled.workspace-tasks.workspace.379798", "Workspace")}</span>
               <span class="context-value">${workspaceLabel}</span>
             </button>
           </li>
           <li class="context-item">
-            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${`会话：${sessionLabel}。打开会话选择。`} @click=${() => { this.onOpenSection?.("sessions"); }}>
-              <span class="context-kind">会话</span>
+            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${t("ui.appContextBar.sessionOpenSessionSelection", "Session: {sessionLabel}. Open session selection.", { sessionLabel: sessionLabel })} @click=${() => { this.onOpenSection?.("sessions"); }}>
+              <span class="context-kind">${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>
               <span class="context-value">${sessionLabel}</span>
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
       </nav>
     `;
   }
 
   private renderMachineChipContent(machine: Machine | undefined, locationIndicator: boolean) {
-    if (machine === undefined) return html`<span class="context-value">未选择机器</span>`;
+    if (machine === undefined) return html`<span class="context-value">${t("ui.machineList.noMachineSelected", "No machine selected")}</span>`;
     // Browser mode keeps the chip a plain machine picker; the location identity
     // (favicon and host) only shows where the browser chrome does not.
     if (!locationIndicator) return html`<span class="context-value">${machineSelectionLabel(machine)}</span>`;
@@ -115,7 +116,7 @@ export class AppContextBar extends LitElement {
   private renderActionsButton() {
     if (this.onShowActions === undefined) return null;
     return html`
-      <button type="button" class="context-action-button" title="显示操作" aria-label="显示操作" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
+      <button type="button" class="context-action-button" title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
         <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path>
         </svg>
@@ -203,12 +204,12 @@ function displayMachine(machine: Machine | undefined, machines: readonly Machine
 }
 
 function machineContextLabel(machine: Machine | undefined): string {
-  return machine?.name ?? "未选择机器";
+  return machine?.name ?? t("ui.machineList.noMachineSelected", "No machine selected");
 }
 
 /** The plain picker label used in browser mode, where the chip carries no location identity. */
 function machineSelectionLabel(machine: Machine): string {
-  return `${machine.name}${machine.kind === "remote" ? " · 远程" : ""}`;
+  return `${machine.name}${machine.kind === "remote" ? t("ui.appContextBar.remote", " · Remote") : ""}`;
 }
 
 /**
@@ -225,31 +226,31 @@ export function machineContextDetail(machine: Machine, gatewayDisplay: string): 
 }
 
 function machineContextTitle(machine: Machine | undefined): string {
-  return machine === undefined ? "未选择机器" : machine.baseUrl ?? machine.name;
+  return machine === undefined ? t("ui.machineList.noMachineSelected", "No machine selected") : machine.baseUrl ?? machine.name;
 }
 
 function projectContextLabel(project: Project | undefined): string {
-  return project?.name ?? "未选择项目";
+  return project?.name ?? t("ui.projectList.noProjectSelected", "No project selected");
 }
 
 function projectContextTitle(project: Project | undefined): string {
-  return project === undefined ? "未选择项目" : `${project.name} — ${project.path}`;
+  return project === undefined ? t("ui.projectList.noProjectSelected", "No project selected") : `${project.name} — ${project.path}`;
 }
 
 function workspaceContextLabel(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "未选择工作区" : `${workspace.label}${workspace.isMain ? " · 主工作区" : ""} · ${workspace.path}`;
+  return workspace === undefined ? t("ui.workspaceList.noWorkspaceSelected", "No workspace selected") : `${workspace.label}${workspace.isMain ? t("ui.appContextBar.mainWorkspace", " · Main workspace") : ""} · ${workspace.path}`;
 }
 
 function workspaceContextTitle(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "未选择工作区" : `${workspace.label}${workspace.isMain ? " · 主工作区" : ""} — ${workspace.path}`;
+  return workspace === undefined ? t("ui.workspaceList.noWorkspaceSelected", "No workspace selected") : `${workspace.label}${workspace.isMain ? t("ui.appContextBar.mainWorkspace", " · Main workspace") : ""} — ${workspace.path}`;
 }
 
 function sessionContextLabel(session: SessionInfo | undefined): string {
   const name = session?.name?.trim();
   const firstMessage = session?.firstMessage.trim();
-  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? "未选择会话" : shortSessionId(session.id);
+  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? t("ui.sessionList.noSessionSelected", "No session selected") : shortSessionId(session.id);
 }
 
 function sessionContextTitle(session: SessionInfo | undefined): string {
-  return session === undefined ? "未选择会话" : session.path;
+  return session === undefined ? t("ui.sessionList.noSessionSelected", "No session selected") : session.path;
 }

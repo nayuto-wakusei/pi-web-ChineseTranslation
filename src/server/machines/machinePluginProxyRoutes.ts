@@ -1,3 +1,4 @@
+import { createTranslator, UserFacingError, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { machineScopedManifestPluginId, parseMachineScopedPluginId, type MachineScopedPluginIdParts } from "../../shared/machinePluginIds.js";
 import { PI_WEB_PLUGIN_LIFECYCLE_VERSION } from "../../shared/apiTypes.js";
@@ -40,14 +41,14 @@ const SAFE_RESPONSE_HEADERS = new Set([
   "x-content-type-options",
 ]);
 
-export function registerMachinePluginProxyRoutes(app: FastifyInstance, machines: MachinePluginProxyMachines = new MachineService()): void {
+export function registerMachinePluginProxyRoutes(app: FastifyInstance, machines: MachinePluginProxyMachines = new MachineService(), t: Translator = createTranslator("en", {})): void {
   app.get<{ Params: { machineId: string } }>("/api/machines/:machineId/pi-web-plugins/manifest.json", async (request, reply) => {
     if (request.params.machineId === "local") {
       return reply.code(400).send({ error: "Local plugin manifests must use the local manifest endpoint" });
     }
 
     const client = await machines.remoteClient(request.params.machineId);
-    if (client === undefined) return reply.code(404).send({ error: "Machine not found" });
+    if (client === undefined) return reply.code(404).send({ error: t("machineError.notFound", "Machine not found") });
 
     try {
       const response = await client.requestJson("GET", "/pi-web-plugins/manifest.json", undefined, { timeoutMs: MACHINE_PLUGIN_MANIFEST_TIMEOUT_MS });
@@ -65,19 +66,19 @@ export function registerMachinePluginProxyRoutes(app: FastifyInstance, machines:
   });
 }
 
-export async function proxyMachinePluginAsset(machines: MachinePluginProxyMachines, scopedPluginId: string, assetPath: string, requestUrl: string, reply: FastifyReply): Promise<boolean> {
+export async function proxyMachinePluginAsset(machines: MachinePluginProxyMachines, scopedPluginId: string, assetPath: string, requestUrl: string, reply: FastifyReply, t: Translator = createTranslator("en", {})): Promise<boolean> {
   const remotePlugin = parseMachineScopedPluginId(scopedPluginId);
   if (remotePlugin === undefined) return false;
 
   const client = await machines.remoteClient(remotePlugin.machineId);
   if (client === undefined) {
-    await reply.code(404).send({ error: "Machine not found" });
+    await reply.code(404).send({ error: t("machineError.notFound", "Machine not found") });
     return true;
   }
 
   const requestPath = remotePluginAssetRequestPath(remotePlugin, assetPath, requestUrl);
   if (requestPath === undefined) {
-    await reply.code(400).send({ error: "Invalid remote PI WEB plugin asset path" });
+    await reply.code(400).send({ error: t("machineError.pluginAssetPathInvalid", "Invalid remote PI WEB plugin asset path") });
     return true;
   }
 
@@ -89,7 +90,7 @@ export async function proxyMachinePluginAsset(machines: MachinePluginProxyMachin
     else await reply.send(upstream.body);
     return true;
   } catch (error) {
-    sendGatewayError(reply, remotePlugin.machineId, error);
+    sendGatewayError(reply, remotePlugin.machineId, error, t);
     return true;
   }
 }
@@ -253,7 +254,7 @@ function parseRemotePairedCapabilityVersion(value: unknown): 1 | undefined {
 
 function parseRemoteMachineSpecific(value: unknown): { machineSpecific?: boolean } {
   if (value === undefined) return {};
-  if (typeof value !== "boolean") throw new Error("Invalid remote PI WEB plugin manifest entry");
+  if (typeof value !== "boolean") throw new UserFacingError("machineError.pluginManifestEntryInvalid", "Invalid remote PI WEB plugin manifest entry");
   return { machineSpecific: value };
 }
 
@@ -274,14 +275,14 @@ function sendLifecycleCompatibilityError(reply: FastifyReply, machineId: string,
   });
 }
 
-function sendGatewayError(reply: FastifyReply, machineId: string, error: unknown): FastifyReply {
+function sendGatewayError(reply: FastifyReply, machineId: string, error: unknown, t: Translator = createTranslator("en", {})): FastifyReply {
   const statusCode = error instanceof RemoteMachineRequestError ? error.statusCode : 502;
-  const label = statusCode === 504 ? "Remote machine timeout" : "Remote machine unavailable";
+  const label = statusCode === 504 ? t("machineError.timeout", "Remote machine timeout") : t("machineError.unavailable", "Remote machine unavailable");
   return reply.code(statusCode).send({
     error: label,
     machineId,
     statusCode,
-    detail: error instanceof Error ? error.message : String(error),
+    detail: userFacingErrorMessage(error, t),
   });
 }
 

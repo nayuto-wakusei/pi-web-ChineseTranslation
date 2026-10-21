@@ -4,6 +4,12 @@
 
 本指南说明可实现的功能和使用方式；实现时请查阅[公开契约与示例](#agent-development)，不要把本页作为第二份 API 声明。
 
+## 内置中文语言插件
+
+`zh-cn` 随包提供且默认启用；在机器配置设置 `plugins["zh-cn"].enabled: false` 后恢复英文，无需额外语言文件。刷新网页、下次启动 CLI、重启服务后生效，详见[配置参考](config.md#chinese-language-plugin)。浏览器使用网关的语言，远端提示保持远端语言。
+
+浏览器插件可通过激活上下文的可选 `translate(key, englishFallback, params)` 使用稳定消息键和命名参数；未提供翻译器或词条缺失时使用英文。语言插件以 `localizations` 贡献纯文本词典，不扫描 DOM 或注入 HTML。服务端激活上下文也可提供 `translate`，按所属机器配置格式化自有提示。旧插件 API 仍兼容；不要翻译用户输入、模型回复或代理转发的远端响应。Node 端只读取随包的 JSON 词典，不执行浏览器入口。
+
 <a id="what-can-be-built"></a>
 ## 可实现的功能
 

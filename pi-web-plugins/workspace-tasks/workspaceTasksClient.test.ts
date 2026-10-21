@@ -1,6 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TASKS_CONFIG_PATH } from "./config";
 import { loadWorkspaceTasksConfig, type WorkspaceTasksFileReader } from "./workspaceTasksClient";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("workspace tasks client", () => {
   it("loads the configured path through the public workspace file helper", async () => {

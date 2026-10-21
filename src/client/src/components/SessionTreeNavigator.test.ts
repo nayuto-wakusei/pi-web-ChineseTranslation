@@ -7,7 +7,7 @@ import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNodeK
 // through real DOM interaction; keyboard state and hierarchy stay covered through
 // the pure sessionTreeModel, and TemplateResult extraction is limited to pointer
 // row/footer wiring in the method-level interaction tests.
-import { templateClickHandlerForText, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
+import { templateClickHandlerForText } from "../templateInspection.testSupport";
 import { deepActiveElement, dialogSurface, pressKey, settleRenderedDialog, surfaceBackdrop } from "./modalSurfaceTestSupport";
 import { SessionTreeNavigator, sessionTreeEntryReturnsToEditor, sessionTreeKindPresentation, sessionTreeVisualDepth } from "./SessionTreeNavigator";
 
@@ -741,7 +741,7 @@ function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
 }
 
 function clickTreeNext(navigator: SessionTreeNavigator): void {
-  templateEventHandlerNearMarker(renderNavigator(navigator), ">下一步</button>")(new Event("click"));
+  templateClickHandlerForText(renderNavigator(navigator), "下一步")(new Event("click"));
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {

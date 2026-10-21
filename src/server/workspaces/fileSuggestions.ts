@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { execFile, spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -156,7 +157,7 @@ async function resolveWorkspaceSuggestionDirectory(policy: PathAccessPolicy, dir
 
 async function listAllowedPathSuggestions(cwd: string, query: string, pathAccess: PiWebPathAccessConfig | undefined, fzf: CommandRunner | undefined): Promise<ClientFileSuggestion[]> {
   const policy = await createPathAccessPolicy(cwd, pathAccess);
-  if (policy.allowedRoots.length === 0) throw new Error("Absolute paths are not allowed");
+  if (policy.allowedRoots.length === 0) throw new WorkspaceUserError("server.files.absolutePathsDenied", "Absolute paths are not allowed");
   const rootCandidates = allowedRootSuggestionCandidates(policy, query);
   const directoryCandidates = await listAllowedDirectoryEntryCandidates(policy, query);
   return (await rankPathSuggestionsWithOptionalFzf(

@@ -306,6 +306,28 @@
               </p>
             </article>
 
+            <article id="session-unread" class="faq-item">
+              <h2>When is a session marked as read?</h2>
+              <p>
+                A session becomes unread when observed work finishes. Automatic read acknowledgement requires the
+                entire unread message range to be loaded and rendered in the selected chat, with the page visible,
+                the window focused, and no dialog obscuring it. Loading only the latest page does not clear unread
+                work that spans earlier pages. Older, already-read history does not need to be loaded.
+              </p>
+              <p>
+                Multiple completions retain the earliest unread boundary. Read confirmations are tied to the
+                observed completion and history branch, so stale pages cannot clear newer work. Cached pages from
+                a different history leaf are reloaded before they count as coverage. Rendering does not require
+                scrolling every message into the viewport or a minimum reading time. The session menu and bulk
+                selection still allow explicitly marking sessions as read without loading them.
+              </p>
+              <p>
+                Existing unread records created before message-range tracking have no reliable starting boundary.
+                They require either a complete history load or explicit marking as read. Deploy matching web and
+                daemon code, restart both services, and reload the browser to enable range-aware acknowledgement.
+              </p>
+            </article>
+
             <article id="sessions-stop" class="faq-item">
               <h2>Sessions stop unexpectedly</h2>
               <p>

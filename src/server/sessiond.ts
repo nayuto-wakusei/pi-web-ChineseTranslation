@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, rm } from "node:fs/promises";
+import { loadNodeTranslator } from "../localization.js";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import Fastify from "fastify";
@@ -82,6 +83,7 @@ import { createFilePiWebConfigService } from "./configRoutes.js";
 const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config, deprecatedAgentInputs } = effectivePiWebConfig({ env: daemonEnvironment });
+const translator = loadNodeTranslator("server", config);
 // Request-time defaults must observe Settings edits without restarting sessiond.
 const configService = createFilePiWebConfigService({ env: daemonEnvironment });
 // The embedded Pi SDK and every child process use the same resolved profile.
@@ -185,6 +187,7 @@ await runSessionDaemonStartup({
     registerCleanup(() => { constructed.managementAuth?.dispose(); });
     registerCleanup(() => constructed.sessions?.dispose());
     const serverPlugins = await createServerPluginRuntime({
+      translator,
       catalog: serverPluginCatalog,
       dataDir: piWebDataDir(daemonEnvironment),
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
@@ -265,13 +268,14 @@ await runSessionDaemonStartup({
         requestTimeoutMs: config.workbenchIntegration.requestTimeoutMs ?? 10_000,
       });
       return {
+        translator,
         accessStates,
         client,
         mcp: new WorkbenchMcpClient({
           mcpUrl: config.workbenchIntegration.mcpUrl,
           timeoutMs: config.workbenchIntegration.capabilityTimeoutMs ?? 30_000,
         }),
-        skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log),
+        skills: new WorkbenchSkillSynchronizer(config.workbenchIntegration, client, piWebDataDir(daemonEnvironment), fetch, app.log, translator),
       };
     })();
     const projectsForScope = (scope = NORMAL_SESSION_EVENT_SCOPE) => {
@@ -289,6 +293,7 @@ await runSessionDaemonStartup({
     const managementAllowPrivileged = config.managementEmbed?.allowPrivileged === true;
     const projectLifecycleRef: { current?: ProjectLifecycleService } = {};
     const sessions = new PiSessionService(eventHub, {
+      translator,
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
       normalModelRuntimeForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRuntime,
@@ -445,7 +450,7 @@ await runSessionDaemonStartup({
   },
   disposeRuntime: ({ shutdown }) => shutdown(),
   registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
-    registerProjectMutationRoutes(app, projectLifecycle);
+    registerProjectMutationRoutes(app, projectLifecycle, translator);
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
     registerServerNoticeRoutes(app, serverNotices);
@@ -456,7 +461,7 @@ await runSessionDaemonStartup({
     const managementProjectRoot = config.managementEmbed?.enabled === true
       ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
       : undefined;
-    registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot });
+    registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot, translator });
     registerPluginBackendRoutes(app, { projects, backends: pluginBackends, managementProjectRoot, onWorkspacesMutated: (scope) => {
       statusAttribution.invalidate();
       machineStatus.notifyChanged(scope);

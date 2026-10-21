@@ -4,6 +4,7 @@ import type { AuthInteraction } from "@earendil-works/pi-ai";
 import type { AuthProvidersResponse, AuthType, OAuthFlowState } from "../../shared/apiTypes.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
+import { createTranslator, type Translator } from "../../shared/i18n.js";
 
 export interface AuthChange {
   modelRuntime: ModelRuntime;
@@ -13,6 +14,7 @@ export interface AuthChange {
 type AuthChangeListener = (change: AuthChange) => void | Promise<void>;
 
 export interface AuthServiceDependencies {
+  translator?: Translator;
   agentDir?: string;
   runtime?: ModelRuntime;
   modelRuntime?: ModelRuntime;
@@ -72,6 +74,7 @@ export class AuthService {
   readonly modelRuntime: ModelRuntime;
   private readonly authFlows: OAuthLoginFlowService;
   private readonly logger: AuthServiceLogger;
+  private readonly t: Translator;
   private readonly listeners = new Set<AuthChangeListener>();
 
   constructor(deps: AuthServiceDependencies & ({ runtime: ModelRuntime } | { modelRuntime: ModelRuntime })) {
@@ -80,14 +83,16 @@ export class AuthService {
     this.runtime = runtime;
     this.modelRuntime = this.runtime;
     this.logger = deps.logger ?? noopLogger;
-    this.authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger: this.logger });
+    this.t = deps.translator ?? createTranslator("en", {});
+    this.authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger: this.logger, translator: this.t });
   }
 
   static async create(deps: AuthServiceDependencies = {}): Promise<AuthService> {
     const runtime = deps.runtime ?? deps.modelRuntime ?? (deps.agentDir === undefined ? await createLocalOnlyModelRuntime() : await createModelRuntimeForAgentDir(deps.agentDir));
     const logger = deps.logger ?? noopLogger;
-    const authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger });
-    return new AuthService({ runtime, authFlows, logger });
+    const translator = deps.translator ?? createTranslator("en", {});
+    const authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger, translator });
+    return new AuthService({ runtime, authFlows, logger, translator });
   }
 
   subscribe(listener: AuthChangeListener): () => void {
@@ -109,18 +114,18 @@ export class AuthService {
   }
 
   async saveApiKey(providerId: string, key: string): Promise<{ accepted: true }> {
-    if (key.trim() === "") throw new Error("API key is required");
+    if (key.trim() === "") throw new Error(this.t("providerAuth.apiKeyRequired", "API key is required"));
     const provider = await this.requireApiKeyLoginProvider(providerId);
     let promptAttempted = false;
     const interaction: AuthInteraction = {
       prompt: (prompt) => {
         if (promptAttempted) {
-          throw new Error(`${provider.name} requires interactive setup; use Pi's generic /login flow`);
+          throw new Error(this.t("providerAuth.interactiveSetup", "{provider} requires interactive setup; use Pi's generic /login flow", { provider: provider.name }));
         }
         promptAttempted = true;
-        if (prompt.signal?.aborted === true) throw new Error("Login cancelled");
+        if (prompt.signal?.aborted === true) throw new Error(this.t("providerAuth.loginCancelled", "Login cancelled"));
         if (prompt.type !== "secret") {
-          throw new Error(`${provider.name} requires interactive setup; use Pi's generic /login flow`);
+          throw new Error(this.t("providerAuth.interactiveSetup", "{provider} requires interactive setup; use Pi's generic /login flow", { provider: provider.name }));
         }
         return Promise.resolve(key);
       },
@@ -197,15 +202,15 @@ export class AuthService {
 
     const knownProvider = this.runtime.getProviders().find((option) => option.id === providerId);
     if (knownProvider !== undefined) {
-      throw new Error(`${knownProvider.name} does not support interactive API-key setup`);
+      throw new Error(this.t("providerAuth.apiKeyUnsupported", "{provider} does not support interactive API-key setup", { provider: knownProvider.name }));
     }
-    throw new Error(`API key provider not found: ${providerId}`);
+    throw new Error(this.t("providerAuth.apiKeyProviderMissing", "API key provider not found: {provider}", { provider: providerId }));
   }
 
   private async requireOAuthLoginProvider(providerId: string) {
     await this.runtime.refresh({ allowNetwork: false });
     const provider = getLoginProviderOptions(this.runtime, "oauth").find((option) => option.id === providerId);
-    if (provider === undefined) throw new Error(`OAuth provider not found: ${providerId}`);
+    if (provider === undefined) throw new Error(this.t("providerAuth.oauthProviderMissing", "OAuth provider not found: {provider}", { provider: providerId }));
     return provider;
   }
 }

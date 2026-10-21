@@ -13,6 +13,15 @@
 
 Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 → Pi 包** 管理；PI WEB 的 `plugins` 只控制已发现的纯浏览器、纯服务端与双入口插件的期望状态，不安装、移除或更新包。
 
+<a id="chinese-language-plugin"></a>
+### 中文语言插件
+
+内置 `zh-cn` 默认启用，覆盖核心界面、内置插件、CLI 及 PI WEB 自有提示。要恢复英文，在有效机器配置中设置 `"plugins": { "zh-cn": { "enabled": false } }`。不新增语言选择器或语言配置文件，缺失词条回退英文。
+
+浏览器语言由网关机器的开关决定，不随所选远端机器切换。每台机器的 CLI 和服务端读取自身配置；远端返回的提示保留远端语言。用户内容、模型回复、第三方输出、命令、错误码及协议字段不会被翻译。
+
+修改后刷新网页；CLI 下次启动生效；服务端需重启。拆分部署时重启 `pi-web-sessiond.service` 和 Web 服务（开发安装为 `pi-web-ui-dev.service`），确保两者使用相同有效 `PI_WEB_CONFIG`。不支持运行中热切换。
+
 普通模式模型凭据和自定义模型按注册项目存放在托管目录的 `auth.json`、`models.json`。同一项目所有工作区共享项目存储；首次使用从有效全局 Pi agent 文件复制一次，之后不回退或覆盖。认证、启动与列表请求必须解析到注册项目；运行中的会话保留创建时的项目 registry，即使项目之后关闭。管理嵌入使用独立的 `management-embed/auth.json` 与 `models.json`，不混用普通项目凭据。
 
 ### 已安装服务的自定义配置路径
@@ -219,7 +228,7 @@ Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只�
 
 完整特权不改变管理身份、独立模型认证及偏好存储、审计或子会话管理上下文，也不允许普通会话连接读取管理会话。Web/API 与 daemon 的特权配置须一致。仅向受信任的签名入口发放双授权；旧管理 allow/deny 不能限制这种完整特权会话。
 
-Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。管理启动只在所属工作区同步 relay/relay-runner 模板，普通启动不覆盖项目技能。
+Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。受限管理会话只加载所属项目允许范围内的 Skills；SDK 按名称去重时，被全局同名技能遮蔽的授权项目副本仍会恢复加载。启动及 `/reload` 时同步所属工作区的 `relay`、`relay-runner`，使用当前安装包随 SDK 适配的模板。项目 `.pi/skills/relay/` 与 `.pi/skills/relay-runner/` 是平台保留目录，其中旧模板会更新；其他自定义 Skill 不覆盖。普通模式及完整特权管理模式保留普通 SDK 资源加载行为，不执行这项模板同步。
 
 `workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 retrieve_knowledge，BookStack 用 retrieve_bookstack，参数 resource_name、简洁 question、可选 resource_version=live、top_k 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页，不编辑、不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 knowledge:// 引用；truncated 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 

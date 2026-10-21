@@ -1,3 +1,4 @@
+import { createTranslator, UserFacingError, type Translator } from "../shared/i18n.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
@@ -112,7 +113,7 @@ export async function managementContextForRequest(request: ManagementEmbedReques
   const embed = readManagementEmbedRequest(request.headers, isRecord(request.query) ? request.query : undefined);
   if (embed.mode !== "management") return undefined;
   const sessionId = readCookie(request.headers["cookie"], runtime?.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE);
-  if (runtime?.enabled !== true) throw new Error("Management embed mode is not configured");
+  if (runtime?.enabled !== true) throw new UserFacingError("managementError.management.embed.mode.is.not.configured", "Management embed mode is not configured");
   const sessionContext = sessionId === undefined || runtime.readSession === undefined ? undefined : runtime.readSession(sessionId);
   if (embed.token === undefined || embed.token === "") {
     if (sessionContext !== undefined) return prepareManagementContext(runtime, sessionContext);
@@ -183,7 +184,7 @@ export function createManagementEmbedRuntime(
 }
 
 export function managementProjectRoot(runtime: ManagementEmbedRuntime | undefined): string {
-  if (runtime === undefined) throw new Error("Management embed mode is not configured");
+  if (runtime === undefined) throw new UserFacingError("managementError.management.embed.mode.is.not.configured", "Management embed mode is not configured");
   return runtime.projectRoot;
 }
 
@@ -196,9 +197,9 @@ export async function managedProjectPath(projectRoot: string, rootUserId: string
   return target;
 }
 
-export async function projectFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, projectId: string, options: ManagedProjectPathOptions = {}): Promise<Project> {
-  const entry = authorizedManagedProjects(context).find((project) => project.id === projectId);
-  if (entry === undefined) throw new Error("Project is not authorized for this management session");
+export async function projectFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, projectId: string, options: ManagedProjectPathOptions = {}, translate: Translator = createTranslator("en", {})): Promise<Project> {
+  const entry = authorizedManagedProjects(context, translate).find((project) => project.id === projectId);
+  if (entry === undefined) throw new UserFacingError("managementError.project.is.not.authorized.for.this.management.session", "Project is not authorized for this management session");
   const path = context.projects.length === 0 && entry.id === DEFAULT_MANAGED_PROJECT_ID
     ? await defaultManagedProjectPath(projectRoot, context.user.id, options)
     : await pathForManagedProjectEntry(projectRoot, context, entry, options);
@@ -206,15 +207,15 @@ export async function projectFromManagedEmbedContext(projectRoot: string, contex
   return { id: entry.id, name: entry.name !== "" ? entry.name : entry.id, path, createdAt: new Date(0).toISOString() };
 }
 
-export async function projectsFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext): Promise<Project[]> {
-  return Promise.all(authorizedManagedProjects(context).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id, { create: false })));
+export async function projectsFromManagedEmbedContext(projectRoot: string, context: ManagementEmbedContext, translate: Translator = createTranslator("en", {})): Promise<Project[]> {
+  return Promise.all(authorizedManagedProjects(context, translate).map((project) => projectFromManagedEmbedContext(projectRoot, context, project.id, { create: false }, translate)));
 }
 
 export async function managementProjectIdForCwd(projectRoot: string, context: ManagementEmbedContext, cwd: string): Promise<string> {
   const requested = await realpath(resolve(cwd));
   const projects = await projectsFromManagedEmbedContext(projectRoot, context);
   const project = projects.find((candidate) => pathsEqual(candidate.path, requested) || isInside(candidate.path, requested));
-  if (project === undefined) throw new Error("Managed workspace does not match an authorized project");
+  if (project === undefined) throw new UserFacingError("managementError.managed.workspace.does.not.match.an.authorized.project", "Managed workspace does not match an authorized project");
   return project.id;
 }
 
@@ -233,7 +234,7 @@ export async function assertManagedCwd(projectRoot: string, context: ManagementE
   const requested = await realpath(resolvedCwd);
   ensureInside(root, requested);
   if (!authorizedRoots.some((authorized) => isInside(authorized, requested))) {
-    throw new Error("Path is outside the managed project sandbox");
+    throw new UserFacingError("managementError.path.is.outside.the.managed.project.sandbox", "Path is outside the managed project sandbox");
   }
   return requested;
 }
@@ -267,7 +268,7 @@ export function managementHeaders(context: ManagementEmbedContext | undefined, r
 export function decodeManagementContext(value: string | undefined): ManagementEmbedContext | undefined {
   if (value === undefined || value === "") return undefined;
   const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-  if (!isRecord(parsed)) throw new Error("Invalid management embed context");
+  if (!isRecord(parsed)) throw new UserFacingError("managementError.invalid.management.embed.context", "Invalid management embed context");
   return parseIntrospectionPayload({ active: true, ...parsed });
 }
 
@@ -277,21 +278,21 @@ function verifyManagementEntryToken(
 ): ManagementEmbedContext {
   const [encodedPayload, signature, extra] = token.split(".");
   if (encodedPayload === undefined || encodedPayload === "" || signature === undefined || signature === "" || extra !== undefined) {
-    throw new Error("Management embed token is invalid");
+    throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
   }
   const expectedSignature = createHmac("sha256", options.secret).update(encodedPayload).digest("base64url");
-  if (!safeEqualBase64Url(signature, expectedSignature)) throw new Error("Management embed token is invalid");
+  if (!safeEqualBase64Url(signature, expectedSignature)) throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
 
   const parsed = parseJsonBase64Url(encodedPayload);
-  if (!isRecord(parsed)) throw new Error("Management embed token is invalid");
+  if (!isRecord(parsed)) throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
   if (stringField(parsed, "iss") !== options.issuer || stringField(parsed, "aud") !== options.audience) {
-    throw new Error("Management embed token is invalid");
+    throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
   }
   const nowSeconds = Math.floor(options.now().getTime() / 1000);
   const iat = numberField(parsed, "iat");
   const exp = numberField(parsed, "exp");
-  if (iat > nowSeconds + 60) throw new Error("Management embed token is invalid");
-  if (exp <= nowSeconds) throw new Error("Management embed token is expired");
+  if (iat > nowSeconds + 60) throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
+  if (exp <= nowSeconds) throw new UserFacingError("managementError.management.embed.token.is.expired", "Management embed token is expired");
   stringField(parsed, "jti");
   return parseIntrospectionPayload({ active: true, ...parsed, expiresAt: new Date(exp * 1000).toISOString() });
 }
@@ -311,7 +312,7 @@ function parseJsonBase64Url(value: string): unknown {
   try {
     return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
   } catch {
-    throw new Error("Management embed token is invalid");
+    throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
   }
 }
 
@@ -328,7 +329,7 @@ function safeEqualBase64Url(left: string, right: string): boolean {
 function parseIntrospectionPayload(payload: Record<string, unknown>): ManagementEmbedContext {
   const user = payload["user"];
   const projects = payload["projects"];
-  if (!isRecord(user) || !Array.isArray(projects)) throw new Error("Management embed introspection response is invalid");
+  if (!isRecord(user) || !Array.isArray(projects)) throw new UserFacingError("managementError.management.embed.introspection.response.is.invalid", "Management embed introspection response is invalid");
   const displayName = optionalStringField(user, "displayName");
   const context: ManagementEmbedContext = {
     user: {
@@ -494,14 +495,14 @@ function isExpiredManagementTokenError(error: unknown): boolean {
   return error instanceof Error && error.message === "Management embed token is expired";
 }
 
-function authorizedManagedProjects(context: ManagementEmbedContext): ManagementEmbedContext["projects"] {
-  return context.projects.length === 0 ? [defaultManagedProject(context)] : context.projects;
+function authorizedManagedProjects(context: ManagementEmbedContext, translate: Translator = createTranslator("en", {})): ManagementEmbedContext["projects"] {
+  return context.projects.length === 0 ? [defaultManagedProject(context, translate)] : context.projects;
 }
 
-function defaultManagedProject(context: ManagementEmbedContext): ManagementEmbedContext["projects"][number] {
+function defaultManagedProject(context: ManagementEmbedContext, t: Translator): ManagementEmbedContext["projects"][number] {
   return {
     id: DEFAULT_MANAGED_PROJECT_ID,
-    name: `${context.user.id}的项目`,
+    name: t("management.defaultProjectName", "{userId}'s project", { userId: context.user.id }),
   };
 }
 
@@ -540,7 +541,7 @@ function safePathSegment(value: string): string {
 }
 
 function ensureInside(root: string, target: string): void {
-  if (!isInside(root, target)) throw new Error("Path is outside the managed project sandbox");
+  if (!isInside(root, target)) throw new UserFacingError("managementError.path.is.outside.the.managed.project.sandbox", "Path is outside the managed project sandbox");
 }
 
 function isInside(root: string, target: string): boolean {
@@ -556,7 +557,7 @@ function pathsEqual(left: string, right: string): boolean {
 
 function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
-  if (typeof field !== "string" || field.trim() === "") throw new Error(`Management embed ${key} is required`);
+  if (typeof field !== "string" || field.trim() === "") throw new UserFacingError("managementError.management.embed.field.is.required", "Management embed {key} is required", { key });
   return field.trim();
 }
 
@@ -572,7 +573,7 @@ function optionalContentField(value: Record<string, unknown>, key: string): stri
 
 function numberField(value: Record<string, unknown>, key: string): number {
   const field = value[key];
-  if (typeof field !== "number" || !Number.isInteger(field)) throw new Error("Management embed token is invalid");
+  if (typeof field !== "number" || !Number.isInteger(field)) throw new UserFacingError("managementError.management.embed.token.is.invalid", "Management embed token is invalid");
   return field;
 }
 

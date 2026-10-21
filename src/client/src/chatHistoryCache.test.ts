@@ -6,6 +6,15 @@ function page(start: number, total: number, messages: unknown[]): RawMessagePage
 }
 
 describe("mergeChatHistory", () => {
+  it("merges pages from the same completed branch but never proves coverage using a different branch", () => {
+    const existing = { ...page(2, 4, ["c", "d"]), leafId: "leaf-1" };
+    const incoming = { ...page(0, 4, ["a", "b"]), leafId: "leaf-1" };
+    expect(mergeChatHistory(existing, incoming)).toEqual({ ...page(0, 4, ["a", "b", "c", "d"]), leafId: "leaf-1" });
+    const otherBranch = { ...incoming, leafId: "leaf-2" };
+    expect(mergeChatHistory(existing, otherBranch)).toEqual(otherBranch);
+    expect(mergeChatHistory(page(2, 4, ["stale-c", "stale-d"]), incoming)).toEqual(incoming);
+  });
+
   it("merges adjacent cached and incoming pages", () => {
     const merged = mergeChatHistory(page(2, 5, ["c", "d", "e"]), page(0, 5, ["a", "b"]));
 

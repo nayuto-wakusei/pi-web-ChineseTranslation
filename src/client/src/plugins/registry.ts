@@ -1,4 +1,5 @@
 import { html, svg } from "lit";
+import { t } from "../i18n";
 import type { ContentRenderRequest } from "../../../plugin-api";
 import { compareContentRenderers, contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
 import { createContentRenderingService, contentRenderingCapabilityToken } from "../formatting/contentRendering";
@@ -359,6 +360,7 @@ export class PluginRegistry {
           svg,
           signal,
           lifetimeSignal: lifetimeController.signal,
+          translate: t,
         })),
       );
       rollbackDispose = activationDisposeForRollback(activationValue);

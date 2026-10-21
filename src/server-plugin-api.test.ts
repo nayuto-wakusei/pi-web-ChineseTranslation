@@ -339,7 +339,7 @@ describe("public server plugin API", () => {
 
   it("keeps host inputs readonly and concrete services out of the declaration surface", async () => {
     expectTypeOf<keyof ServerPluginActivationContext>().toEqualTypeOf<
-      "apiVersion" | "pluginId" | "packageRoot" | "dataDirectory" | "logger" | "settings" | "notices" | "execFile" | "signal" | "lifetimeSignal"
+      "apiVersion" | "pluginId" | "packageRoot" | "dataDirectory" | "logger" | "settings" | "notices" | "execFile" | "signal" | "lifetimeSignal" | "translate"
     >();
     expectTypeOf<keyof ServerPluginNoticeReporterV1>().toEqualTypeOf<"version" | "record">();
     expectTypeOf<keyof ServerPluginNoticeInput>().toEqualTypeOf<"severity" | "message" | "scope" | "context">();

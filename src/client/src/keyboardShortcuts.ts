@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { AppAction } from "./actions";
 
 export const shortcutSequenceTimeoutMs = 1200;
@@ -263,7 +264,7 @@ function compareStrings(left: string, right: string): number {
 
 function parseShortcut(shortcut: string): ShortcutParseResult {
   const cleaned = shortcut.trim().toLowerCase().replace(/\s*\+\s*/gu, "+");
-  if (cleaned === "") return { ok: false, message: "请输入快捷键，选择无，或重置为默认值。" };
+  if (cleaned === "") return { ok: false, message: t("client.keyboardShortcuts.enter.a.shortcut.select.none.or.reset.to.default.481e7b", "Enter a shortcut, select None, or reset to default.") };
 
   const tokens: string[] = [];
   const chordInputs = cleaned.split(/\s+/u).filter((token) => token !== "");
@@ -282,25 +283,25 @@ type ShortcutChordParseResult =
 
 function parseShortcutChord(chord: string): ShortcutChordParseResult {
   const parts = chord.split("+").filter((part) => part !== "");
-  if (parts.length === 0) return { ok: false, message: "快捷键组合必须包含一个按键。" };
+  if (parts.length === 0) return { ok: false, message: t("client.keyboardShortcuts.a.shortcut.combination.must.contain.a.key.87dd82", "A shortcut combination must contain a key.") };
 
   const modifiers = new Set<ShortcutModifier>();
   let key: string | undefined;
   for (const part of parts) {
     const modifier = modifierAlias(part);
     if (modifier !== undefined) {
-      if (modifiers.has(modifier)) return { ok: false, message: `快捷键包含重复的 ${formatShortcutPart(modifier)} 修饰键。` };
+      if (modifiers.has(modifier)) return { ok: false, message: t("client.keyboardShortcuts.shortcut.contains.a.duplicate.modifier.8363e5", "Shortcut contains a duplicate {value1} modifier.", { value1: formatShortcutPart(modifier) }) };
       modifiers.add(modifier);
       continue;
     }
 
     const normalizedKey = normalizeShortcutKeyName(part);
-    if (normalizedKey === undefined) return { ok: false, message: `不支持的快捷键按键：${part}` };
-    if (key !== undefined) return { ok: false, message: "每个快捷键组合只能包含一个非修饰键。" };
+    if (normalizedKey === undefined) return { ok: false, message: t("client.keyboardShortcuts.unsupported.shortcut.key.b3c1ce", "Unsupported shortcut key: {value1}", { value1: part }) };
+    if (key !== undefined) return { ok: false, message: t("client.keyboardShortcuts.each.shortcut.combination.can.contain.only.one.non.modifier.key.76ffb6", "Each shortcut combination can contain only one non-modifier key.") };
     key = normalizedKey;
   }
 
-  if (key === undefined) return { ok: false, message: "快捷键组合必须包含一个按键。" };
+  if (key === undefined) return { ok: false, message: t("client.keyboardShortcuts.a.shortcut.combination.must.contain.a.key.87dd82", "A shortcut combination must contain a key.") };
 
   const orderedModifiers = modifierOrder.filter((modifier) => modifiers.has(modifier));
   return { ok: true, token: [...orderedModifiers, key].join("+") };

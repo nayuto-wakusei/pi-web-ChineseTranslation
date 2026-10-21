@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { loadNodeTranslator } from "../localization.js";
+import type { Translator } from "../shared/i18n.js";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -77,6 +79,7 @@ interface PiWebStatusDaemon {
 }
 
 export interface PiWebStatusOptions {
+  translator?: Translator;
   forceReleaseCheck?: boolean;
   activeAgentProfile?: ActiveAgentProfileDescriptor;
   hasCommand?: (command: string) => Promise<boolean>;
@@ -163,7 +166,7 @@ export async function getPiWebStatus(daemon: PiWebStatusDaemon = new SessionDaem
     activeAgentProfile: options.activeAgentProfile,
     hasCommand: options.hasCommand ?? hasCommand,
   });
-  const messages = buildMessages(components, release, commands);
+  const messages = buildMessages(components, release, commands, options.translator ?? loadNodeTranslator("server"));
   return {
     ...versionStatus,
     release,
@@ -596,18 +599,19 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function buildMessages(components: PiWebStatusResponse["components"], release: PiWebReleaseStatus, commands: PiWebStatusResponse["commands"]): PiWebStatusMessage[] {
+function buildMessages(components: PiWebStatusResponse["components"], release: PiWebReleaseStatus, commands: PiWebStatusResponse["commands"], t: Translator): PiWebStatusMessage[] {
   const messages: PiWebStatusMessage[] = [];
   const installedVersion = components.web.installedVersion ?? components.web.runtimeVersion;
 
   if (release.updateAvailable && release.latestVersion !== undefined) {
+    const installed = installedVersion === undefined ? "" : t("status.installedVersion", "; installed version is {version}", { version: installedVersion });
     messages.push({
       id: "update-available",
       severity: "info",
-      title: "PI WEB 有可用更新",
+      title: t("status.updateAvailable", "PI WEB update available"),
       body: commands.update === undefined
-        ? `PI WEB ${release.latestVersion} 已发布${installedVersion === undefined ? "" : `，当前已安装 ${installedVersion}`}。更新 PI WEB 后，请重启本次安装的服务或进程。`
-        : `PI WEB ${release.latestVersion} 已发布${installedVersion === undefined ? "" : `，当前已安装 ${installedVersion}`}。运行更新命令即可更新 PI WEB 并重启其服务。`,
+        ? t("status.updateManual", "PI WEB {latestVersion} is available{installed}. Update PI WEB, then restart this installation's services or processes.", { latestVersion: release.latestVersion, installed })
+        : t("status.updateCommand", "PI WEB {latestVersion} is available{installed}. Run the update command to update PI WEB and restart its services.", { latestVersion: release.latestVersion, installed }),
       ...optionalMessageCommand(commands.update),
     });
   }
@@ -617,10 +621,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "web-stale",
       severity: "warning",
-      title: "Web/UI 服务需要重启",
+      title: t("status.webRestart", "Web/UI service restart needed"),
       body: command === undefined
-        ? `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启 Web/UI 服务或进程即可使用已安装版本。`
-        : `Web/UI 服务正在运行 ${formatVersion(components.web.runtimeVersion)}，但已安装 ${formatVersion(components.web.installedVersion)}。重启服务即可使用已安装版本。`,
+        ? t("status.webRestartManual", "The Web/UI service is running {runtimeVersion}, but {installedVersion} is installed. Restart the Web/UI service or process to use the installed version.", { runtimeVersion: formatVersion(components.web.runtimeVersion), installedVersion: formatVersion(components.web.installedVersion) })
+        : t("status.webRestartCommand", "The Web/UI service is running {runtimeVersion}, but {installedVersion} is installed. Restart the service to use the installed version.", { runtimeVersion: formatVersion(components.web.runtimeVersion), installedVersion: formatVersion(components.web.installedVersion) }),
       ...optionalMessageCommand(command),
     });
   }
@@ -629,10 +633,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "sessiond-unavailable",
       severity: "warning",
-      title: "无法获取会话守护进程版本",
+      title: t("status.daemonUnavailable", "Session daemon version unavailable"),
       body: commands.status === undefined
-        ? `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}。`}请检查本次安装的会话守护进程服务或进程。`
-        : `PI WEB 无法检查会话守护进程版本${components.sessiond.error === undefined ? "。" : `：${components.sessiond.error}`}`,
+        ? t("server.main.ebfeec269198", "PI WEB could not check the session daemon version{arg0}. Check the session daemon service or process that runs this installation.", { arg0: components.sessiond.error === undefined ? "" : `: ${components.sessiond.error}` })
+        : t("status.daemonUnavailableCommand", "PI WEB could not check the session daemon version{detail}", { detail: components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}` }),
       ...optionalMessageCommand(commands.status),
     });
   } else if (components.sessiond.stale) {
@@ -640,10 +644,10 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
     messages.push({
       id: "sessiond-stale",
       severity: "warning",
-      title: "会话守护进程需要重启",
+      title: t("status.daemonRestart", "Session daemon restart needed"),
       body: command === undefined
-        ? `会话守护进程正在运行 ${formatVersion(components.sessiond.runtimeVersion)}，但已安装 ${formatVersion(components.sessiond.installedVersion)}。重启会话守护进程服务或进程即可使用已安装版本。`
-        : `会话守护进程正在运行 ${formatVersion(components.sessiond.runtimeVersion)}，但已安装 ${formatVersion(components.sessiond.installedVersion)}。重启守护进程即可使用已安装版本。`,
+        ? t("status.daemonRestartManual", "The session daemon is running {runtimeVersion}, but {installedVersion} is installed. Restart the session daemon service or process to use the installed version.", { runtimeVersion: formatVersion(components.sessiond.runtimeVersion), installedVersion: formatVersion(components.sessiond.installedVersion) })
+        : t("status.daemonRestartCommand", "The session daemon is running {runtimeVersion}, but {installedVersion} is installed. Restart the daemon to use the installed version.", { runtimeVersion: formatVersion(components.sessiond.runtimeVersion), installedVersion: formatVersion(components.sessiond.installedVersion) }),
       ...optionalMessageCommand(command),
     });
   }

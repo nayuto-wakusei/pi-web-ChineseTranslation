@@ -2,6 +2,8 @@ import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
+import { createTranslator } from "../../shared/i18n.js";
+import translations from "../../../pi-web-plugins/zh-cn/provider-auth.json";
 
 type LoginHandler = (providerId: string, interaction: AuthInteraction) => Promise<void>;
 
@@ -10,6 +12,30 @@ afterEach(() => {
 });
 
 describe("OAuthLoginFlowService", () => {
+  it("localizes owned notices while preserving provider messages and submitted values", async () => {
+    const service = new OAuthLoginFlowService({ translator: createTranslator("zh-CN", translations) });
+    let submitted: string | undefined;
+    try {
+      expect(() => service.get("missing")).toThrow("未找到登录流程");
+      const state = service.start({
+        providerId: "test-provider",
+        providerName: "Unchanged provider",
+        runtime: fakeRuntime(async (_providerId, interaction) => {
+          interaction.notify({ type: "progress", message: "Provider progress" });
+          submitted = await interaction.prompt({ type: "text", message: "Provider prompt" });
+        }),
+      });
+      expect(state.prompt?.message).toBe("Provider prompt");
+      if (state.prompt === undefined) throw new Error("Expected prompt");
+      service.respond(state.flowId, state.prompt.requestId, "用户 content");
+      await flushAsyncLogin();
+      expect(submitted).toBe("用户 content");
+      expect(service.get(state.flowId).progress).toEqual(["Provider progress", "登录完成"]);
+    } finally {
+      service.dispose();
+    }
+  });
+
   it("round-trips prompt responses and completes the flow", async () => {
     let promptValue: string | undefined;
     const onComplete = vi.fn();

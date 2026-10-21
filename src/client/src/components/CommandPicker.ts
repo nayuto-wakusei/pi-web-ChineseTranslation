@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { CommandOption } from "../api";
@@ -9,7 +10,7 @@ import { commandPickerStyles } from "./styles/commandPickerStyles";
 
 @customElement("command-picker")
 export class CommandPicker extends LitElement {
-  @property() override title = "选择";
+  @property() override title = t("ui.commandPicker.select", "Select");
   @property({ type: Boolean }) searchable = false;
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) selectedValue?: string;
@@ -28,13 +29,13 @@ export class CommandPicker extends LitElement {
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${this.searchable ? "input" : ".options"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.title}</strong>
-            <button aria-label="关闭" @click=${() => this.onCancel?.()}>×</button>
+            <button aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button>
           </header>
-          ${this.searchable ? html`<input placeholder="搜索" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
+          ${this.searchable ? html`<input placeholder="${t("ui.commandPicker.search", "Search")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>` : null}
           ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
           <div class="options" tabindex="0">
             ${options.map((option, index) => this.renderOption(option, index))}
-            ${options.length === 0 ? html`<div class="empty">没有匹配选项</div>` : null}
+            ${options.length === 0 ? html`<div class="empty">${t("ui.commandPicker.noMatchingOptions", "No matching options")}</div>` : null}
           </div>
       </modal-surface>
     `;

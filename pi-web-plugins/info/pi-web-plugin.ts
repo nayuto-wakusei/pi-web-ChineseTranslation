@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 // Skeleton of a PI WEB plugin: metadata plus contribution definitions.
 //
 // Everything the bundled Info panel and action actually render lives in
@@ -10,15 +11,15 @@ import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 4,
-  name: "信息插件",
-  activate: ({ html, svg }) => ({
+  name: t("bundled.info.info.plugin.b6e61e", "Info plugin"),
+  activate: ({ html, svg, translate }) => { setTranslator(translate); return ({
     contributions: {
       actions: [
         {
           id: "copy-diagnostics",
-          title: "复制 PI WEB 诊断信息",
-          description: "复制此机器的版本、安装和状态详情，以便粘贴到错误报告中",
-          group: "信息",
+          title: t("bundled.info.copy.pi.web.diagnostics.250f13", "Copy PI WEB diagnostics"),
+          description: t("bundled.info.copy.this.machine.s.version.installation.and.status.details.for.a.c01908", "Copy this machine's version, installation, and status details for a bug report"),
+          group: t("bundled.info.info.e70286", "Info"),
           run: (context) => copyDiagnostics(context),
         },
       ],
@@ -26,13 +27,13 @@ const plugin: PiWebPlugin = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? (context.workspace.isGitRepo === true ? "Git" : "文件夹"), title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? (context.workspace.isGitRepo === true ? "Git" : t("bundled.info.folder.7c7802", "Folder")), title: context.workspace.path }],
         },
       ],
       workspacePanels: [
         {
           id: "workspace.info",
-          title: "信息",
+          title: t("bundled.info.info.e70286", "Info"),
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"></circle>
@@ -45,7 +46,7 @@ const plugin: PiWebPlugin = {
         },
       ],
     },
-  }),
+  }); },
 };
 
 export default plugin;

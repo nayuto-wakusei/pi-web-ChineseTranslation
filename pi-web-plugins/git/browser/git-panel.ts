@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type {
   HtmlTemplateTag,
   JsonValue,
@@ -397,19 +398,19 @@ function createGitActions(panelId: string, controller: GitUiController): PluginA
   return [
     {
       id: "view.git",
-      title: "转到 Git",
+      title: t("client.actions.go.to.git.0d4886", "Go to Git"),
       shortcut: "mod+3",
       shortcutAliases: ["core:view.git"],
-      group: "导航",
+      group: t("client.actions.navigation.e72622", "Navigation"),
       enabled: hasGitWorkspace,
       run: (context) => { context.selectWorkspaceTool(panelId); },
     },
     {
       id: "workspace.refresh-git",
-      title: "刷新 Git",
+      title: t("client.actions.refresh.git.496f8a", "Refresh Git"),
       shortcut: "mod+shift+g",
       shortcutAliases: ["core:workspace.refresh-git"],
-      group: "工作区",
+      group: t("bundled.workspace-tasks.workspace.379798", "Workspace"),
       enabled: hasGitWorkspace,
       run: (context) => context.refreshWorkspacePanels(panelId),
     },
@@ -445,7 +446,7 @@ function createGitPanel(
 
 function requestGitBackend(context: WorkspacePanelContext, operation: string, input: JsonValue): Promise<JsonValue> {
   if (context.peer?.request === undefined) {
-    return Promise.reject(new Error("Git 工作区后端不可用。请更新并重启此机器上的 PI WEB，然后重新加载浏览器。"));
+    return Promise.reject(new Error(t("ui.main.fc3b27465765", "Git workspace backend is unavailable. Update and restart PI WEB on this machine, then reload the browser.")));
   }
   return context.peer.request(operation, input);
 }
@@ -459,15 +460,15 @@ function renderGitPanel(html: HtmlTemplateTag, controller: GitUiController, cont
       <pi-web-git-panel-activity .controller=${controller} .context=${context}></pi-web-git-panel-activity>
       <section class="git-toolbar">
         <strong>Git</strong>
-        ${state.stale ? html`<span class="git-stale">数据已过期</span>` : null}
+        ${state.stale ? html`<span class="git-stale">${t("ui.main.3468df3f1fe9", "stale")}</span>` : null}
         <div class="git-toolbar-actions">
           ${viewState.expandablePaths.length === 0 ? null : renderExpandCollapseAll(html, controller, context, state, viewState.expandablePaths)}
           ${renderViewToggle(html, controller, context)}
-          <button type="button" ?disabled=${state.statusLoading} @click=${() => { void controller.refresh(context); }}>刷新</button>
+          <button type="button" ?disabled=${state.statusLoading} @click=${() => { void controller.refresh(context); }}>${t("bundled.relays.refresh.aee887", "Refresh")}</button>
         </div>
       </section>
       ${state.error === undefined ? null : html`<div class="git-error" role="alert">${state.error}</div>`}
-      ${state.status?.truncated === true ? html`<div class="git-warning" role="status">Git 状态输出过大，文件列表已截断。</div>` : null}
+      ${state.status?.truncated === true ? html`<div class="git-warning" role="status">${t("ui.main.1634590c49b8", "Git status output was too large; the file list was truncated.")}</div>` : null}
       <section class="git-split">
         <div class="git-file-list">${renderFileList(html, controller, context, state, viewState)}</div>
         <div class="git-viewer">${renderDiffViewer(html, state)}</div>
@@ -478,9 +479,9 @@ function renderGitPanel(html: HtmlTemplateTag, controller: GitUiController, cont
 
 function renderViewToggle(html: HtmlTemplateTag, controller: GitUiController, context: WorkspacePanelContext) {
   return html`
-    <div class="git-view-toggle" role="group" aria-label="已更改文件视图">
-      ${renderViewToggleButton(html, controller, context, "list", "列表")}
-      ${renderViewToggleButton(html, controller, context, "tree", "树形")}
+    <div class="git-view-toggle" role="group" aria-label="${t("ui.main.898449210b9d", "Changed files view")}">
+      ${renderViewToggleButton(html, controller, context, "list", t("ui.workspaceGitPanel.list", "List"))}
+      ${renderViewToggleButton(html, controller, context, "tree", t("ui.main.7f32c63d2d35", "Tree"))}
     </div>
   `;
 }
@@ -498,7 +499,7 @@ function renderExpandCollapseAll(
   expandablePaths: readonly string[],
 ) {
   const allExpanded = expandablePaths.every((path) => state.expandedDirectories.has(path));
-  return html`<button type="button" @click=${() => { controller.toggleExpandAll(context, expandablePaths, allExpanded); }}>${allExpanded ? "全部折叠" : "全部展开"}</button>`;
+  return html`<button type="button" @click=${() => { controller.toggleExpandAll(context, expandablePaths, allExpanded); }}>${allExpanded ? t("ui.workspaceGitPanel.collapseAll", "Collapse all") : t("ui.workspaceGitPanel.expandAll", "Expand all")}</button>`;
 }
 
 function renderFileList(
@@ -509,10 +510,10 @@ function renderFileList(
   viewState: GitViewState,
 ) {
   const status = state.status;
-  if (status === undefined) return html`<p class="git-muted">${state.error === undefined ? "正在加载状态…" : "状态不可用。"}</p>`;
-  if (!status.isGitRepo) return html`<p class="git-muted">当前工作区不是 Git 仓库。</p>`;
+  if (status === undefined) return html`<p class="git-muted">${state.error === undefined ? t("ui.main.f2cb84a98270", "Loading status…") : t("ui.main.d2302e08b20b", "Status unavailable.")}</p>`;
+  if (!status.isGitRepo) return html`<p class="git-muted">${t("ui.main.b4b1ea928fc3", "Not a git repository.")}</p>`;
   const summary = html`<p class="git-summary">${gitSummary(status)}</p>`;
-  if (status.files.length === 0) return html`${summary}<p class="git-muted">没有更改。</p>`;
+  if (status.files.length === 0) return html`${summary}<p class="git-muted">${t("ui.workspaceGitPanel.noChanges", "No changes.")}</p>`;
   state.remainingRows = state.visibleFileLimit;
   state.hasMoreRows = status.files.length > state.visibleFileLimit;
   const body = controller.currentView() === "tree"
@@ -520,7 +521,7 @@ function renderFileList(
     : renderListBody(html, controller, context, state, viewState.listModel);
   const rendered = Math.min(state.visibleFileLimit, status.files.length);
   const more = state.hasMoreRows || rendered < status.files.length
-    ? html`<button type="button" class="git-load-more" @click=${() => { controller.showMore(context); }}>显示更多（${String(rendered)}/${String(status.files.length)}）</button>`
+    ? html`<button type="button" class="git-load-more" @click=${() => { controller.showMore(context); }}>${t("ui.main.34f2d3bdae3d", "Show more (")}${String(rendered)}/${String(status.files.length)}）</button>`
     : null;
   return html`${summary}${body}${more}`;
 }
@@ -622,12 +623,12 @@ function renderSelectableRow(
 }
 
 function renderDiffViewer(html: HtmlTemplateTag, state: GitWorkspaceUiState) {
-  if (state.selectedDiffPath === undefined) return html`<p class="git-muted">请选择一个已更改文件。</p>`;
+  if (state.selectedDiffPath === undefined) return html`<p class="git-muted">${t("ui.main.77ed4aee3792", "Select a changed file.")}</p>`;
   const unstaged = state.selectedDiff;
   const staged = state.selectedStagedDiff;
-  if (unstaged === undefined || staged === undefined) return html`<p class="git-muted">正在加载差异…</p>`;
+  if (unstaged === undefined || staged === undefined) return html`<p class="git-muted">${t("ui.workspaceGitPanel.loadingDiff", "Loading diff…")}</p>`;
   const diffs = [staged, unstaged].filter((diff) => diff.response.diff !== "");
-  if (diffs.length === 0) return html`<p class="git-muted">没有已暂存或未暂存的差异。</p>`;
+  if (diffs.length === 0) return html`<p class="git-muted">${t("ui.workspaceGitPanel.noStagedOrUnstagedDiff", "No staged or unstaged diff.")}</p>`;
   return html`<div class=${diffs.length === 1 ? "git-diffs is-single" : "git-diffs"}>${diffs.map((diff) => renderDiffSection(html, diff))}</div>`;
 }
 
@@ -642,10 +643,10 @@ function renderDiffSection(html: HtmlTemplateTag, view: GitDiffView) {
   const lines = view.lines ??= parseUnifiedDiff(diff.diff);
   return html`
     <section class="git-diff-section">
-      <div class="git-viewer-header"><strong>${diff.path ?? "差异"}</strong><small>${diff.staged ? "已暂存" : "未暂存"}${diff.truncated ? " · 已截断" : ""}</small></div>
-      ${lines.length === 0 ? html`<p class="git-muted">没有差异。</p>` : html`
+      <div class="git-viewer-header"><strong>${diff.path ?? t("ui.workspaceGitPanel.diff", "Diff")}</strong><small>${diff.staged ? t("ui.workspaceGitPanel.staged", "Staged") : t("ui.workspaceGitPanel.unstaged", "Unstaged")}${diff.truncated ? t("ui.workspaceGitPanel.truncated", " · Truncated") : ""}</small></div>
+      ${lines.length === 0 ? html`<p class="git-muted">${t("ui.unifiedDiffViewer.noDiff", "No diff.")}</p>` : html`
         <div class="git-diff-scroller">
-          <div class="git-diff-grid" role="table" aria-label="统一差异">
+          <div class="git-diff-grid" role="table" aria-label="${t("ui.unifiedDiffViewer.unifiedDiff", "Unified diff")}">
             ${lines.map((line) => renderDiffLine(html, line))}
           </div>
         </div>
@@ -762,11 +763,11 @@ function defineGitPanelActivityElement(): void {
 }
 
 function submoduleBadge(html: HtmlTemplateTag) {
-  return html`<span class="submodule-badge">子模块</span>`;
+  return html`<span class="submodule-badge">${t("ui.workspaceGitPanel.submodule", "Submodule")}</span>`;
 }
 
 function gitSummary(status: GitStatusResponse): string {
-  const branch = status.branch ?? "游离 HEAD";
+  const branch = status.branch ?? t("ui.workspaceGitPanel.detachedHead", "Detached HEAD");
   const ahead = status.ahead ?? 0;
   const behind = status.behind ?? 0;
   return ahead === 0 && behind === 0 ? branch : `${branch} · ↑${String(ahead)} ↓${String(behind)}`;

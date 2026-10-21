@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { translateChinese } from "../localization.testSupport.js";
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiWebComponentStatus, PiWebStatusResponse, PluginRuntimeState, TerminalCommandRun, TerminalCommandRunHandle, WorkspacePanelContext, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
@@ -71,6 +72,7 @@ function panelContext(state: PluginRuntimeState, terminal?: WorkspacePanelTermin
 function renderPanel(value: PiWebStatusResponse, terminal?: WorkspacePanelTerminal): HTMLElement {
   const contributions = plugin.activate({
     apiVersion: 4,
+    translate: translateChinese,
     pluginId: "updates",
     runtimePluginId: "updates",
     html,

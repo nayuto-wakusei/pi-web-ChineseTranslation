@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { Machine, MachineKind, MachineRuntime } from "../../api";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../../shared/capabilities";
 
@@ -26,11 +27,11 @@ export function pluginLifecycleSupport(target: SettingsMachineTarget, runtime: P
 
 export function settingsMachineTarget(machine: Pick<Machine, "id" | "name" | "kind"> | undefined): SettingsMachineTarget {
   if (machine !== undefined) return { id: machine.id, name: machine.name, kind: machine.kind };
-  return { id: "local", name: "本机", kind: "local" };
+  return { id: "local", name: t("ui.settingsMachineTarget.local", "Local"), kind: "local" };
 }
 
 export function settingsMachineTargetLabel(target: SettingsMachineTarget): string {
-  return target.kind === "local" ? `${target.name}（本地网关）` : `${target.name}（远程机器）`;
+  return target.kind === "local" ? t("ui.settingsMachineTarget.localGateway", "{name} (local gateway)", { name: target.name }) : t("ui.settingsMachineTarget.remoteMachine", "{name} (remote machine)", { name: target.name });
 }
 
 export function selectedMachineSettingsSupport(target: SettingsMachineTarget, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): SelectedMachineSettingsSupport {
@@ -44,7 +45,7 @@ export function agentProfileSettingsSupport(target: SettingsMachineTarget, runti
   if (runtime?.ok !== true) {
     return {
       state: "unknown",
-      message: `无法确认 ${target.name} 是否支持 Pi 兼容代理配置档案。更改配置档案前请重新加载机器状态。`,
+      message: t("ui.settingsMachineTarget.unableToConfirmWhetherSupportsPiCompatibleAgent", "Unable to confirm whether {name} supports Pi-compatible agent profiles. Reload machine status before changing the profile.", { name: target.name }),
     };
   }
   return { state: "supported" };
@@ -63,11 +64,11 @@ export function isAgentProfileSettingsSupported(support: AgentProfileSettingsSup
 }
 
 export function selectedMachineSettingsUnavailableMessage(target: SettingsMachineTarget): string {
-  return `${target.name} 不支持所选机器设置。请更新并重启该机器上的 PI WEB，然后重试。`;
+  return t("ui.settingsMachineTarget.doesNotSupportSelectedMachineSettingsUpdateAnd", "{name} does not support selected-machine settings. Update and restart PI WEB on that machine, then retry.", { name: target.name });
 }
 
 export function pluginLifecycleUnavailableMessage(target: SettingsMachineTarget): string {
-  return `${target.name} 不支持插件生命周期诊断。加载依赖服务端的插件前，请更新并重启该机器上的 PI WEB。`;
+  return t("ui.main.a5ae99c3f3cd", "{arg0} does not support plugin lifecycle diagnostics. Update and restart PI WEB on that machine before loading server-dependent plugins.", { arg0: target.name });
 }
 
 export function friendlySelectedMachineSettingsErrorMessage(message: string, target: SettingsMachineTarget): string {
@@ -77,10 +78,10 @@ export function friendlySelectedMachineSettingsErrorMessage(message: string, tar
     return selectedMachineSettingsUnavailableMessage(target);
   }
   if (normalized === "Remote machine timeout") {
-    return `联系 ${target.name} 获取所选机器设置时超时。操作可能仍在远端运行；请重新加载后再重试。`;
+    return t("ui.settingsMachineTarget.timedOutContactingForSelectedMachineSettingsThe", "Timed out contacting {name} for selected-machine settings. The operation may still be running remotely; reload before retrying.", { name: target.name });
   }
   if (normalized === "Remote machine unavailable") {
-    return `无法连接 ${target.name} 以获取所选机器设置。请检查机器连接后重试。`;
+    return t("ui.settingsMachineTarget.unableToConnectToForSelectedMachineSettings", "Unable to connect to {name} for selected-machine settings. Check the machine connection and retry.", { name: target.name });
   }
   return normalized;
 }

@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+import { UserFacingError } from "../shared/i18n.js";
 
 /**
  * Working-directory normalization boundaries.
@@ -24,8 +25,8 @@ import { isAbsolute, resolve } from "node:path";
  * (separator- and trailing-slash-normalized) absolute path otherwise.
  */
 export function normalizeRequestCwd(cwd: unknown): string {
-  if (typeof cwd !== "string" || cwd === "") throw new Error("cwd is required");
-  if (!isAbsolute(cwd)) throw new Error("cwd must be an absolute path");
+  if (typeof cwd !== "string" || cwd === "") throw new UserFacingError("projectError.cwdRequired", "cwd is required");
+  if (!isAbsolute(cwd)) throw new UserFacingError("projectError.cwdAbsolute", "cwd must be an absolute path");
   return resolve(cwd);
 }
 

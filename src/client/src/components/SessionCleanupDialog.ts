@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupRequest } from "../api";
@@ -7,7 +8,7 @@ import "./ModalSurface";
 @customElement("session-cleanup-dialog")
 export class SessionCleanupDialog extends LitElement {
   @property({ type: Boolean }) canCleanup = true;
-  @property({ type: String }) unavailableMessage = "请更新并重启此机器上的 Pi-Web 后再清理会话。";
+  @property({ type: String }) unavailableMessage = t("ui.sessionCleanupDialog.updateAndRestartPiWebOnThisMachine", "Update and restart Pi-Web on this machine before cleaning up sessions.");
   @property({ attribute: false }) preview?: SessionCleanupPreviewResponse;
   @property({ attribute: false }) previewRequest?: SessionCleanupRequest;
   @property({ attribute: false }) result?: SessionCleanupExecuteResponse;
@@ -30,27 +31,27 @@ export class SessionCleanupDialog extends LitElement {
     const validation = validateSessionCleanupDraft(this.draft);
     const selectedPreview = this.selectedPreview();
     const runEnabled = this.canCleanup && canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest, loading: this.loading, running: this.running });
-    const runTitle = runEnabled ? "运行清理" : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "至少选择一个项目才能运行清理" : "运行清理前请先预览";
+    const runTitle = runEnabled ? t("ui.sessionCleanupDialog.runCleanup", "Run cleanup") : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup2", "Select at least one project to run cleanup") : t("ui.sessionCleanupDialog.previewBeforeRunningCleanup2", "Preview before running cleanup");
     return html`
-      <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${"清理会话"}>
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${t("ui.sessionCleanupDialog.cleanUpSessions", "Clean up sessions")}>
           <header>
             <div>
-              <span class="eyebrow">会话</span>
-              <h1>清理会话</h1>
+              <span class="eyebrow">${t("ui.sessionCleanupDialog.sessions", "Sessions")}</span>
+              <h1>${t("ui.sessionCleanupDialog.cleanUpSessions", "Clean up sessions")}</h1>
             </div>
-            <button class="close-button" title="关闭清理" aria-label="关闭清理" @click=${() => { this.onClose?.(); }}>×</button>
+            <button class="close-button" title=${t("ui.sessionCleanupDialog.closeCleanup", "Close cleanup")} aria-label=${t("ui.sessionCleanupDialog.closeCleanup", "Close cleanup")} @click=${() => { this.onClose?.(); }}>×</button>
           </header>
           <div class="body">
-            <p class="intro">归档空闲会话或永久删除旧的已归档会话前，先预览此机器的手动清理结果。</p>
+            <p class="intro">${t("ui.sessionCleanupDialog.previewManualCleanupOnThisMachineBeforeArchiving", "Preview manual cleanup on this machine before archiving idle sessions or permanently deleting old archived sessions.")}</p>
             ${this.canCleanup ? this.renderForm(validation.ok ? "" : validation.error) : this.renderUnavailable()}
             ${this.renderMessage()}
             ${this.preview === undefined ? null : this.renderPreview(this.preview)}
             ${this.result === undefined ? null : this.renderResult(this.result)}
           </div>
           <footer>
-            <button @click=${() => { this.onClose?.(); }}>${this.result === undefined ? "取消" : "关闭"}</button>
-            <button ?disabled=${!this.canCleanup || this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${this.loading ? "正在预览…" : "预览"}</button>
-            <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${this.running ? "正在运行…" : "运行清理"}</button>
+            <button @click=${() => { this.onClose?.(); }}>${this.result === undefined ? t("ui.sessionCleanupDialog.cancel", "Cancel") : t("ui.sessionCleanupDialog.close", "Close")}</button>
+            <button ?disabled=${!this.canCleanup || this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${this.loading ? t("ui.sessionCleanupDialog.previewing", "Previewing…") : t("ui.sessionCleanupDialog.preview", "Preview")}</button>
+            <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${this.running ? t("ui.sessionCleanupDialog.running", "Running…") : t("ui.sessionCleanupDialog.runCleanup", "Run cleanup")}</button>
           </footer>
       </modal-surface>
     `;
@@ -64,20 +65,20 @@ export class SessionCleanupDialog extends LitElement {
       <fieldset ?disabled=${disabled}>
         <label class="toggle-row">
           <input type="checkbox" .checked=${this.draft.archiveIdleEnabled} @change=${(event: Event) => { this.updateDraft({ archiveIdleEnabled: checkedValue(event) }); }}>
-          <span>归档空闲超过</span>
+          <span>${t("ui.sessionCleanupDialog.archiveUnarchivedSessionsIdleForOver", "Archive unarchived sessions idle for over")}</span>
           <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.archiveIdleDays} ?disabled=${disabled || !this.draft.archiveIdleEnabled} @input=${(event: Event) => { this.updateDraft({ archiveIdleDays: inputValue(event) }); }}>
-          <span>天的未归档会话</span>
+          <span>${t("ui.sessionCleanupDialog.days2", "days")}</span>
         </label>
         <label class="toggle-row delete-row">
           <input type="checkbox" .checked=${this.draft.deleteArchivedEnabled} @change=${(event: Event) => { this.updateDraft({ deleteArchivedEnabled: checkedValue(event) }); }}>
-          <span>删除已归档超过</span>
+          <span>${t("ui.sessionCleanupDialog.deleteSessionsArchivedForOver", "Delete sessions archived for over")}</span>
           <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.deleteArchivedDays} ?disabled=${disabled || !this.draft.deleteArchivedEnabled} @input=${(event: Event) => { this.updateDraft({ deleteArchivedDays: inputValue(event) }); }}>
-          <span>天的已归档会话</span>
+          <span>${t("ui.sessionCleanupDialog.days", "days")}</span>
         </label>
       </fieldset>
-      <p class="warning"><strong>删除是永久操作。</strong>清理只会删除已经归档的会话。</p>
+      <p class="warning"><strong>${t("ui.sessionCleanupDialog.deletionIsPermanent", "Deletion is permanent.")}</strong>${t("ui.sessionCleanupDialog.cleanupOnlyDeletesSessionsThatAreAlreadyArchived", "Cleanup only deletes sessions that are already archived.")}</p>
       ${validationError === "" ? null : html`<div class="dialog-error" role="alert">${validationError}</div>`}
-      ${previewOutOfDate ? html`<div class="hint" role="status">阈值已更改。运行清理前请重新预览。</div>` : null}
+      ${previewOutOfDate ? html`<div class="hint" role="status">${t("ui.sessionCleanupDialog.thresholdsChangedPreviewAgainBeforeRunningCleanup", "Thresholds changed. Preview again before running cleanup.")}</div>` : null}
     `;
   }
 
@@ -95,25 +96,25 @@ export class SessionCleanupDialog extends LitElement {
     const selected = new Set(selectedCwds);
     const selectedPreview = sessionCleanupPreviewForSelectedProjects(preview, selectedCwds);
     return html`
-      <section class="preview" aria-label="清理预览">
-        <h2>预览</h2>
-        ${preview.projects.length === 0 ? html`<p class="empty">没有会话匹配这些阈值。</p>` : html`
+      <section class="preview" aria-label=${t("ui.sessionCleanupDialog.cleanupPreview", "Cleanup preview")}>
+        <h2>${t("ui.sessionCleanupDialog.preview", "Preview")}</h2>
+        ${preview.projects.length === 0 ? html`<p class="empty">${t("ui.sessionCleanupDialog.noSessionsMatchTheseThresholds", "No sessions match these thresholds.")}</p>` : html`
           ${this.renderSelectionControls(preview, selectedCwds)}
-          <div class="table-scroll" tabindex="0" aria-label="清理项目表">
+          <div class="table-scroll" tabindex="0" aria-label=${t("ui.sessionCleanupDialog.cleanupProjectsTable", "Cleanup projects table")}>
             <table>
               <thead>
-                <tr><th>清理</th><th>项目/工作区路径</th><th>归档</th><th>删除已归档</th></tr>
+                <tr><th>${t("ui.sessionCleanupDialog.cleanUp2", "Clean up")}</th><th>${t("ui.sessionCleanupDialog.projectWorkspacePath", "Project/workspace path")}</th><th>${t("ui.sessionCleanupDialog.archive", "Archive")}</th><th>${t("ui.sessionCleanupDialog.deleteArchived", "Delete archived")}</th></tr>
               </thead>
               <tbody>
                 ${preview.projects.map((project) => this.renderProjectRow(project, selected.has(project.cwd)))}
               </tbody>
               <tfoot>
-                <tr><th colspan="2">已选合计</th><td>${selectedPreview.totals.archiveCount}</td><td>${selectedPreview.totals.deleteCount}</td></tr>
+                <tr><th colspan="2">${t("ui.sessionCleanupDialog.selectedTotal", "Selected total")}</th><td>${selectedPreview.totals.archiveCount}</td><td>${selectedPreview.totals.deleteCount}</td></tr>
               </tfoot>
             </table>
           </div>
         `}
-        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">已跳过 ${preview.skippedBusySessionIds.length} 个忙碌会话。</p>`}
+        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">${t("ui.sessionCleanupDialog.skippedBusyCount", "Skipped {count} busy sessions.", { count: preview.skippedBusySessionIds.length })}</p>`}
       </section>
     `;
   }
@@ -121,19 +122,19 @@ export class SessionCleanupDialog extends LitElement {
   private renderSelectionControls(preview: SessionCleanupPreviewResponse, selectedCwds: readonly string[]): TemplateResult {
     const disabled = this.loading || this.running;
     return html`
-      <div class="selection-controls" role="group" aria-label="项目选择">
-        <span>已选择 ${selectedCwds.length} / ${preview.projects.length} 个项目</span>
-        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>全选</button>
-        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>取消全选</button>
+      <div class="selection-controls" role="group" aria-label=${t("ui.sessionCleanupDialog.projectSelection", "Project selection")}>
+        <span>${t("ui.sessionCleanupDialog.selectedProjects", "Selected {count} / {total} projects", { count: selectedCwds.length, total: preview.projects.length })}</span>
+        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>${t("ui.sessionCleanupDialog.selectAll", "Select all")}</button>
+        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>${t("ui.sessionCleanupDialog.deselectAll", "Deselect all")}</button>
       </div>
-      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">至少选择一个项目才能运行清理。</p>` : null}
+      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">${t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup", "Select at least one project to run cleanup.")}</p>` : null}
     `;
   }
 
   private renderProjectRow(project: SessionCleanupProjectSummary, selected: boolean): TemplateResult {
     return html`
       <tr class=${selected ? "" : "unselected"}>
-        <td class="select-cell"><input type="checkbox" aria-label=${`清理 ${project.cwd}`} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
+        <td class="select-cell"><input type="checkbox" aria-label=${t("ui.sessionCleanupDialog.cleanUp", "Clean up {cwd}", { cwd: project.cwd })} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
         <th title=${project.cwd} dir="auto">${project.cwd}</th>
         <td>${project.archiveCount}</td>
         <td>${project.deleteCount}</td>
@@ -143,9 +144,9 @@ export class SessionCleanupDialog extends LitElement {
 
   private renderResult(result: SessionCleanupExecuteResponse): TemplateResult {
     return html`
-      <section class="result" aria-label="清理结果">
-        <h2>清理完成</h2>
-        <p>已归档 ${result.archivedSessionIds.length} 个会话；已永久删除 ${result.deletedSessionIds.length} 个已归档会话。</p>
+      <section class="result" aria-label=${t("ui.sessionCleanupDialog.cleanupResult", "Cleanup result")}>
+        <h2>${t("ui.sessionCleanupDialog.cleanupComplete", "Cleanup complete")}</h2>
+        <p>${t("ui.sessionCleanupDialog.resultCounts", "Archived {archived} sessions; permanently deleted {deleted} archived sessions.", { archived: result.archivedSessionIds.length, deleted: result.deletedSessionIds.length })}</p>
       </section>
     `;
   }
@@ -202,7 +203,7 @@ export class SessionCleanupDialog extends LitElement {
     const selectedPreview = this.selectedPreview();
     const selectedProjectCwds = this.selectedProjectCwdsForPreview();
     if (!this.canCleanup || !canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest })) {
-      this.formError = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "至少选择一个项目才能运行清理。" : "运行清理前请先预览。";
+      this.formError = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup", "Select at least one project to run cleanup.") : t("ui.sessionCleanupDialog.previewBeforeRunningCleanup", "Preview before running cleanup.");
       return;
     }
     if (selectedPreview === undefined || !confirmSessionCleanup(selectedPreview, (message) => confirm(message))) return;

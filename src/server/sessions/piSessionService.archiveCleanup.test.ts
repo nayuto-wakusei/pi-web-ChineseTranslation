@@ -232,7 +232,7 @@ describe("PiSessionService archive and cleanup", () => {
     const result = await service.deleteArchivedMany([{ id: "arch", cwd: "/workspace" }, { id: "active", cwd: "/workspace" }]);
 
     expect(result.deletedSessionIds).toEqual(["archived"]);
-    expect(result.failures).toEqual([{ sessionId: "active", error: "Archived session not found" }]);
+    expect(result.failures).toEqual([{ sessionId: "active", error: "未找到已归档会话" }]);
 
     expect(deletedSessionIds).toEqual(["archived"]);
     expect(notificationStore.catalogSnapshot().sessions).toEqual([]);
@@ -380,8 +380,8 @@ describe("PiSessionService archive and cleanup", () => {
     expect(archiveMany.mock.calls[0]?.[0].map((input) => input.sessionId)).toEqual(["ok"]);
     expect(result.archivedSessionIds).toEqual(["ok"]);
     expect(result.failures).toEqual([
-      { sessionId: "busy", error: "Stop current session activity before archiving" },
-      { sessionId: "missing", error: "Session not found" },
+      { sessionId: "busy", error: "归档前请先停止当前会话活动" },
+      { sessionId: "missing", error: "未找到会话" },
     ]);
     await service.dispose();
   });
@@ -422,8 +422,8 @@ describe("PiSessionService archive and cleanup", () => {
     expect(deleteArchivedMany).toHaveBeenCalledWith(["idle-archived"]);
     expect(result.deletedSessionIds).toEqual(["idle-archived"]);
     expect(result.failures).toEqual([
-      { sessionId: "busy-archived", error: "Stop current session activity before deleting archived session" },
-      { sessionId: "unarchived", error: "Archived session not found" },
+      { sessionId: "busy-archived", error: "删除已归档会话前请先停止当前会话活动" },
+      { sessionId: "unarchived", error: "未找到已归档会话" },
     ]);
     await service.dispose();
   });

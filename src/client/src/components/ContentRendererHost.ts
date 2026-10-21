@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ContentRendererContribution } from "../../../plugin-api";
@@ -5,10 +6,10 @@ import type { ContentRendererChoice } from "../plugins/contentRenderers";
 import { renderIntentMemory } from "../formatting/renderIntentMemory";
 import { writeClipboardText } from "../clipboard";
 
-const COPY_SOURCE = "复制源码";
-const COPIED_SOURCE = "已复制源码";
-const COPY_FAILED = "复制源码失败";
-const PREVIEW_FAILED = "预览失败，已显示原始源码。";
+const COPY_SOURCE = t("ui.main.259e5385fc04", "Copy source");
+const COPIED_SOURCE = t("ui.main.11c75c7531b4", "Source copied");
+const COPY_FAILED = t("ui.main.0379aeb536da", "Failed to copy source");
+const PREVIEW_FAILED = t("ui.main.4e1a3a974b7d", "Preview failed. Showing the original source.");
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return value !== null && typeof value === "object" && "then" in value && typeof value.then === "function";
@@ -107,7 +108,7 @@ export class ContentRendererHost extends LitElement {
     this.controller = controller;
     const fail = (error: unknown): void => {
       if (controller.signal.aborted || this.controller !== controller) return;
-      console.warn(`内容渲染器 ${this.renderer?.id ?? "unknown"} 失败`, error);
+      console.warn(t("ui.main.a386d0e0ac40", "Content renderer {arg0} failed", { arg0: this.renderer?.id ?? "unknown" }), error);
       this.failure = PREVIEW_FAILED;
       this.cancelPreview();
     };
@@ -134,24 +135,24 @@ export class ContentRendererHost extends LitElement {
     const preview = !this.raw && active ? this.renderPreview() : undefined;
     const diagnostic = this.failure;
     const showingRaw = preview === undefined || diagnostic !== undefined;
-    const previewLabel = this.renderer?.renderMode === "automatic" ? "预览" : "渲染";
+    const previewLabel = this.renderer?.renderMode === "automatic" ? t("ui.sessionCleanupDialog.preview", "Preview") : t("ui.main.0d2759cbee0c", "Render");
     return html`
-      ${this.externalControls ? null : html`<div class="controls" role="group" aria-label="图表控件">
+      ${this.externalControls ? null : html`<div class="controls" role="group" aria-label="${t("ui.main.2997468b75f1", "Diagram controls")}">
         ${this.choices.length < 2 ? null : html`
-          <select aria-label="图表渲染器" @change=${(event: Event) => { if (event.target instanceof HTMLSelectElement) this.selectRenderer(event.target.value); }}>
+          <select aria-label="${t("ui.main.8b5bbe3ca885", "Diagram renderer")}" @change=${(event: Event) => { if (event.target instanceof HTMLSelectElement) this.selectRenderer(event.target.value); }}>
             ${this.choices.map(({ id, label }) => html`<option value=${id} .selected=${id === this.selectedId}>${label}</option>`)}
           </select>
         `}
         ${this.renderer === undefined ? null : html`
           <button type="button" aria-controls="content" aria-pressed=${!showingRaw} @click=${() => { this.setRaw(false); }}>${previewLabel}</button>
-          <button type="button" aria-controls="content" aria-pressed=${showingRaw} @click=${() => { this.setRaw(true); }}>原始</button>
+          <button type="button" aria-controls="content" aria-pressed=${showingRaw} @click=${() => { this.setRaw(true); }}>${t("ui.main.a55afe4b5fbb", "Raw")}</button>
         `}
         <button class="copy" type="button" @click=${() => { void this.copy(); }}>${this.copyStatus}</button>
         <span class="sr-only" role="status">${this.copyStatus === COPY_SOURCE ? "" : this.copyStatus}</span>
       </div>`}
       <div id="content">
         ${diagnostic === undefined ? null : html`<p role="status">${diagnostic}</p>`}
-        ${showingRaw ? html`<pre tabindex="0" aria-label="原始源码"><code>${this.text}</code></pre>` : html`<div class="preview" tabindex="0" aria-label="图表预览">${preview}</div>`}
+        ${showingRaw ? html`<pre tabindex="0" aria-label="${t("ui.main.109c3e711465", "Raw source")}"><code>${this.text}</code></pre>` : html`<div class="preview" tabindex="0" aria-label="${t("ui.main.c5dd50f3c2fe", "Diagram preview")}">${preview}</div>`}
       </div>
     `;
   }

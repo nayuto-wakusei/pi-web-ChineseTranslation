@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { requireAuthorizedL0Capability, searchAuthorizedCapabilities } from "./capabilitySearch.js";
@@ -46,6 +48,7 @@ const RetrieveBookstackParams = Type.Object({
 }, { additionalProperties: false });
 
 export interface WorkbenchToolDependencies {
+  translator?: Translator;
   getState(): WorkbenchAgentAccessState | Promise<WorkbenchAgentAccessState>;
   workbench: WorkbenchClient;
   mcp: WorkbenchMcpClient;
@@ -56,10 +59,11 @@ export interface WorkbenchToolDependencies {
 }
 
 export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) {
+  const t = deps.translator ?? loadNodeTranslator("server");
   return [
     defineTool<typeof SearchCapabilitiesParams, undefined>({
       name: "icnoc_search_capabilities",
-      label: "检索授权能力",
+      label: t("workbench.searchLabel", "Search authorized capabilities"),
       description: "仅检索当前工作台会话已授权、已发布的L0只读能力。",
       promptSnippet: "检索当前账号已授权的网络能力",
       promptGuidelines: ["调用能力前先按问题检索；只能使用返回的精确能力名和输入Schema。"],
@@ -115,7 +119,7 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
     }),
     defineTool<typeof CallCapabilityParams, undefined>({
       name: "icnoc_call_capability",
-      label: "调用授权能力",
+      label: t("workbench.callLabel", "Call authorized capability"),
       description: "调用当前工作台会话已授权的L0只读能力。",
       promptSnippet: "调用一个已授权的网络能力",
       promptGuidelines: ["只能调用icnoc_search_capabilities返回的能力；arguments必须符合其inputSchema。"],
@@ -126,8 +130,8 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
         const startedAt = Date.now();
         const state = await deps.getState();
         try {
-          const capability = requireAuthorizedL0Capability(state.resources, params.capability_name);
-          const invocation = await callWithOneTransientRetry(deps, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId);
+          const capability = requireAuthorizedL0Capability(state.resources, params.capability_name, t);
+          const invocation = await callWithOneTransientRetry(deps, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId, t);
           deps.logger?.info({
             ...deps.auditContext,
             agentSessionId: state.sessionId,
@@ -298,6 +302,7 @@ async function callWithOneTransientRetry(
   idempotencyKey: string | undefined,
   runId: string,
   traceId: string,
+  t: Translator,
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -318,7 +323,7 @@ async function callWithOneTransientRetry(
       throw error;
     }
   }
-  throw new Error("能力调用失败");
+  throw new Error(t("workbench.callFailed", "Capability call failed"));
 }
 
 async function retrieveKnowledgeOnce(

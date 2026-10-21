@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
+import { beforeEach, describe, expect, it } from "vitest";
 import { parseTasksConfigText } from "./config";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("workspace tasks config", () => {
   it("parses a minimal version 1 config", () => {

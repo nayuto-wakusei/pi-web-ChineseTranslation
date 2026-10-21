@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { html, type TemplateResult } from "lit";
 import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
 import { ref } from "lit/directives/ref.js";
@@ -11,7 +12,7 @@ import { renderIntentMemory } from "./renderIntentMemory";
 export const contentRenderingCapabilityToken: PluginCapability<ContentRenderingCapability> = {
   pluginId: "pi-web", id: "content-rendering", version: 1,
   parse: (value) => {
-    if (!isContentRenderingCapability(value)) throw new Error("内容渲染能力 v1 不可用");
+    if (!isContentRenderingCapability(value)) throw new Error(t("ui.main.632973fe1519", "Content rendering capability v1 is unavailable"));
     return value;
   },
 };

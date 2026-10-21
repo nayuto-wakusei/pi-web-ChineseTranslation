@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type { PiWebDockerMode, PiWebInstallationInfo, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
 
 export interface CommandEntry {
@@ -15,22 +16,22 @@ export interface UpdatesRuntimeHint {
 export function recommendedCommand(status: PiWebStatusResponse): CommandEntry | undefined {
   const { commands, release, components } = status;
   if (release.updateAvailable && typeof commands.update === "string" && commands.update !== "") {
-    return { label: "更新并重启全部服务", command: commands.update };
+    return { label: t("bundled.updates.update.and.restart.all.services.f469f2", "Update and restart all services"), command: commands.update };
   }
   const restartNeeded = components.web.stale || components.sessiond.stale || !components.sessiond.available;
   if (restartNeeded && typeof commands.restart === "string" && commands.restart !== "") {
-    return { label: "重启全部服务", command: commands.restart };
+    return { label: t("bundled.updates.restart.all.services.f305e3", "Restart all services"), command: commands.restart };
   }
   return undefined;
 }
 
 export function additionalCommands(status: PiWebStatusResponse, recommended: CommandEntry | undefined): CommandEntry[] {
   return [
-    ["更新", status.commands.update],
-    ["全部重启", status.commands.restart],
-    ["重启 Web/界面", status.commands.restartWeb],
-    ["重启会话守护进程", status.commands.restartSessiond],
-    ["状态", status.commands.status],
+    [t("bundled.updates.updates.3055a0", "Updates"), status.commands.update],
+    [t("bundled.updates.restart.all.9dfe69", "Restart all"), status.commands.restart],
+    [t("bundled.updates.restart.web.ui.9d6372", "Restart Web/UI"), status.commands.restartWeb],
+    [t("bundled.updates.restart.session.daemon.69f455", "Restart session daemon"), status.commands.restartSessiond],
+    [t("bundled.updates.status.6320b4", "Status"), status.commands.status],
   ]
     .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "")
     .filter(([, command]) => command !== recommended?.command)
@@ -62,7 +63,7 @@ export function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined, hi
     || isSelfManagedInstallation(status.components.sessiond.installation);
 }
 
-export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = "联邦状态不可用"): PiWebStatusResponse | undefined {
+export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = t("bundled.updates.federated.status.unavailable.ad4f0b", "Federated status unavailable")): PiWebStatusResponse | undefined {
   if (hint.dockerMode === undefined) return undefined;
   const commandPrefix = hint.dockerMode === "dev" ? "pi-web-docker --dev" : "pi-web-docker";
   const installation: PiWebInstallationInfo = { kind: "docker", dockerMode: hint.dockerMode };
@@ -70,8 +71,8 @@ export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = "�
     packageName: "@chainingintention/pi-web-cn",
     generatedAt,
     components: {
-      web: { component: "web", label: "Web/界面", stale: false, available: true, installation },
-      sessiond: { component: "sessiond", label: "会话守护进程", stale: false, available: true, installation },
+      web: { component: "web", label: t("bundled.updates.web.ui.86d6a2", "Web/UI"), stale: false, available: true, installation },
+      sessiond: { component: "sessiond", label: t("bundled.updates.session.daemon.757666", "Session daemon"), stale: false, available: true, installation },
     },
     release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false, skipped: true },
     commands: {
@@ -84,29 +85,29 @@ export function fallbackDockerStatus(hint: UpdatesRuntimeHint, generatedAt = "�
     messages: [{
       id: "docker-status-compatibility",
       severity: "info",
-      title: "Docker 更新命令可用",
-      body: "当前更新插件由 Docker PI WEB 运行时加载，但网关尚未提供 Docker 状态详情。仍可使用下方 Docker 维护命令。",
+      title: t("bundled.updates.docker.update.commands.available.7ab546", "Docker update commands available"),
+      body: t("bundled.updates.this.plugin.was.loaded.from.a.docker.pi.web.runtime.but.the.gatew.a4f10a", "This plugin was loaded from a Docker PI WEB runtime, but the gateway has not provided Docker status details yet. The Docker maintenance commands below are still available."),
     }],
   };
 }
 
 export function formatVersion(version: string | undefined): string {
-  return version === undefined || version === "" ? "未知" : version;
+  return version === undefined || version === "" ? t("bundled.updates.unknown.4d8c1c", "Unknown") : version;
 }
 
 export function installationLabel(installation: PiWebInstallationInfo | undefined): string {
-  if (installation === undefined) return "安装来源未知";
+  if (installation === undefined) return t("bundled.updates.unknown.installation.source.22c213", "Unknown installation source");
   if (installation.kind === "pi-package") {
     const scope = installation.scope === undefined ? "" : ` · ${installationScopeLabel(installation.scope)}`;
-    const source = installation.source ?? "Pi 包";
+    const source = installation.source ?? t("bundled.updates.pi.package.feed18", "Pi package");
     return `${source}${scope}`;
   }
-  if (installation.kind === "npm-global") return "全局 npm 包";
-  if (installation.kind === "local") return "本地检出";
-  if (installation.kind === "docker") return installation.dockerMode === "dev" ? "Docker 开发运行时" : "Docker 运行时";
-  return "安装来源未知";
+  if (installation.kind === "npm-global") return t("bundled.updates.global.npm.package.5e8079", "Global npm package");
+  if (installation.kind === "local") return t("bundled.updates.local.checkout.19c28f", "Local checkout");
+  if (installation.kind === "docker") return installation.dockerMode === "dev" ? t("bundled.updates.docker.development.runtime.9ba6d5", "Docker development runtime") : t("bundled.updates.docker.runtime.8ce6fc", "Docker runtime");
+  return t("bundled.updates.unknown.installation.source.22c213", "Unknown installation source");
 }
 
 function installationScopeLabel(scope: "user" | "project"): string {
-  return scope === "user" ? "用户范围" : "项目范围";
+  return scope === "user" ? t("bundled.updates.user.scope.7baed5", "User scope") : t("bundled.updates.project.scope.0d9798", "Project scope");
 }

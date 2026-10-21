@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { loadNodeTranslator } from "../../localization.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -345,9 +346,9 @@ describe("session routes", () => {
       expect(stale.statusCode).toBe(200);
       expect(stale.json()).toMatchObject({ summary: { retainedCount: 1, inboxRevision: 1 } });
       expect(mismatch.statusCode).toBe(400);
-      expect(mismatch.json()).toEqual({ error: "Session cwd mismatch" });
+      expect(mismatch.json()).toEqual({ error: "会话工作目录不匹配" });
       expect(missing.statusCode).toBe(404);
-      expect(missing.json()).toEqual({ error: "Session not found" });
+      expect(missing.json()).toEqual({ error: "未找到会话" });
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -701,6 +702,25 @@ describe("session routes", () => {
     expect(sessionManager.calls).toEqual({ create: 0, list: 0, listAll: 0, open: 0 });
   });
 
+  it.each([true, false])("uses the explicitly supplied machine translator for validation, Chinese=%s", async (enabled) => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, new SessionEventHub(), "", loadNodeTranslator("server", { plugins: { "zh-cn": { enabled } } }));
+    try {
+      const query = await routeApp.inject("/sessions/session-1/status");
+      expect(query.statusCode).toBe(400);
+      expect(query.json()).toEqual({ error: enabled ? "必须提供 cwd 查询参数" : "cwd query parameter is required" });
+      const bulk = await routeApp.inject({ method: "POST", url: "/sessions/bulk/archive", payload: { sessions: [{ id: "session-1" }] } });
+      expect(bulk.statusCode).toBe(400);
+      expect(bulk.json()).toEqual({ error: enabled ? "必须提供 cwd 字段" : "cwd field is required" });
+      expect(routeService.calls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("rejects legacy per-session HTTP routes without cwd", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -713,9 +733,9 @@ describe("session routes", () => {
       const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { text: "hello" } });
 
       expect(statusResponse.statusCode).toBe(400);
-      expect(statusResponse.json()).toEqual({ error: "cwd query parameter is required" });
+      expect(statusResponse.json()).toEqual({ error: "必须提供 cwd 查询参数" });
       expect(promptResponse.statusCode).toBe(400);
-      expect(promptResponse.json()).toEqual({ error: "cwd field is required" });
+      expect(promptResponse.json()).toEqual({ error: "必须提供 cwd 字段" });
       expect(routeService.calls).toEqual([]);
     } finally {
       await routeService.dispose();
@@ -1013,7 +1033,7 @@ describe("session routes", () => {
       const response = await routeApp.inject({ method: "POST", url: "/sessions/cleanup", payload: { archiveIdleDays: -1 } });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({ error: "archiveIdleDays field must be a non-negative integer" });
+      expect(response.json()).toEqual({ error: "archiveIdleDays 字段必须为非负整数" });
       expect(routeService.cleanupCalls).toEqual([]);
     } finally {
       await routeService.dispose();
@@ -1118,7 +1138,7 @@ describe("session routes", () => {
       expect(missingId.statusCode).toBe(400);
       expect(missingId.json()).toEqual({ error: "id field must be a string" });
       expect(missingCwd.statusCode).toBe(400);
-      expect(missingCwd.json()).toEqual({ error: "cwd field is required" });
+      expect(missingCwd.json()).toEqual({ error: "必须提供 cwd 字段" });
       expect(routeService.bulkArchiveCalls).toEqual([]);
     } finally {
       await routeService.dispose();
@@ -1586,11 +1606,11 @@ describe("session routes upstream strict contract", () => {
       const bulkResponse = await routeApp.inject({ method: "POST", url: "/sessions/bulk/archive", payload: { sessions: [{ id: "session-1" }] } });
 
       expect(statusResponse.statusCode).toBe(400);
-      expect(statusResponse.json()).toEqual({ error: "cwd query parameter is required" });
+      expect(statusResponse.json()).toEqual({ error: "必须提供 cwd 查询参数" });
       expect(promptResponse.statusCode).toBe(400);
-      expect(promptResponse.json()).toEqual({ error: "cwd field is required" });
+      expect(promptResponse.json()).toEqual({ error: "必须提供 cwd 字段" });
       expect(bulkResponse.statusCode).toBe(400);
-      expect(bulkResponse.json()).toEqual({ error: "cwd field is required" });
+      expect(bulkResponse.json()).toEqual({ error: "必须提供 cwd 字段" });
       expect(routeService.calls).toEqual([]);
       expect(routeService.bulkArchiveCalls).toEqual([]);
     } finally {
@@ -1654,7 +1674,7 @@ describe("session routes upstream strict contract", () => {
       expect(response.json()).toEqual({ models: routeService.modelCatalogResponse });
       expect(routeService.modelCatalogCalls.map(({ lookup }) => lookup)).toEqual([{ id: "session-1", cwd: requestCwd }]);
       expect(missing.statusCode).toBe(400);
-      expect(missing.json()).toEqual({ error: "cwd query parameter is required" });
+      expect(missing.json()).toEqual({ error: "必须提供 cwd 查询参数" });
     } finally {
       await routeService.dispose();
       await routeApp.close();

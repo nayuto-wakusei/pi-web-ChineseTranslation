@@ -126,6 +126,7 @@ export interface ServerPluginHostCapabilityFactory<Value = unknown> {
 }
 
 export interface CreateServerPluginRuntimeOptions {
+  translator?: import("../../shared/i18n.js").Translator;
   catalog: Pick<PiWebPluginCatalog, "snapshot">;
   dataDir: string;
   safeStart?: ServerPluginSafeStart;
@@ -243,6 +244,7 @@ export class ServerPluginRuntime {
     hostCapabilityFactories: readonly InternalHostCapabilityFactory[],
     lateHostCapabilities: readonly InternalLateHostCapability[],
     private readonly enforceRequiredTerminal: boolean,
+    private readonly translator: import("../../shared/i18n.js").Translator | undefined,
   ) {
     for (const provision of hostCapabilities) {
       this.registerHostCapability(provision);
@@ -269,6 +271,7 @@ export class ServerPluginRuntime {
       snapshotHostCapabilityFactories(options.hostCapabilityFactories),
       snapshotLateHostCapabilities(options.lateHostCapabilities),
       options.enforceRequiredTerminal !== false && options.safeStart !== "none",
+      options.translator,
     );
     try {
       await runtime.start(snapshot.plugins);
@@ -470,6 +473,7 @@ export class ServerPluginRuntime {
         execFile: this.execFile,
         signal,
         lifetimeSignal: lifetimeController.signal,
+        ...(this.translator === undefined ? {} : { translate: this.translator }),
       })));
       rollbackDispose = activationDisposeForRollback(activationValue);
       phase = "validate";

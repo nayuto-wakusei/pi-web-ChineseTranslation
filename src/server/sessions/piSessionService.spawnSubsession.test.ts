@@ -767,8 +767,8 @@ describe("PiSessionService", () => {
         await service.status(sessionRef("parent-1", "/workspace"));
 
         await expect(service.listSubsessions("parent-1", copiedParentFile)).resolves.toEqual([]);
-        await expect(service.checkSubsession("parent-1", "child-1", copiedParentFile)).rejects.toThrow("not one of your subsessions");
-        await expect(service.readSubsession("parent-1", "child-1", {}, copiedParentFile)).rejects.toThrow("not one of your subsessions");
+        await expect(service.checkSubsession("parent-1", "child-1", copiedParentFile)).rejects.toThrow("is not one of your subsessions");
+        await expect(service.readSubsession("parent-1", "child-1", {}, copiedParentFile)).rejects.toThrow("is not one of your subsessions");
 
         child.session.isStreaming = true;
         child.emit({ type: "agent_start" });
@@ -1095,8 +1095,8 @@ describe("PiSessionService", () => {
       await service.start("/workspace");
       await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
-      await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
-      await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");
+      await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("is not one of your subsessions");
+      await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("is not one of your subsessions");
       await service.dispose();
     });
 

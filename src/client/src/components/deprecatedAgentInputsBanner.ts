@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { html, type TemplateResult } from "lit";
 import type { Machine, MachineRuntime } from "../api";
 import type { PiWebDeprecatedAgentInput } from "../../../shared/apiTypes";
@@ -20,12 +21,12 @@ export function deprecatedAgentInputsWarnings(machines: readonly Machine[], mach
 
 export function deprecatedAgentInputsWarningText(warning: DeprecatedAgentInputsWarning): string {
   const inputs = warning.inputs.map((input) => {
-    const label = input.source === "config" ? `配置项 ${input.name}` : `环境变量 ${input.name}`;
+    const label = input.source === "config" ? t("ui.main.cfe35469e36d", "Config setting {arg0}", { arg0: input.name }) : t("ui.main.0d4a3f015cec", "Environment variable {arg0}", { arg0: input.name });
     return input.replacement === undefined
-      ? `${label} 已弃用；没有替代项，请手动移除（本地兼容行为暂时保留）`
-      : `${label} 已弃用；请改用 ${input.replacement}`;
+      ? t("ui.main.ccb652119f1a", "{arg0} is deprecated with no replacement; remove it manually (local compatibility remains temporarily)", { arg0: label })
+      : t("ui.main.22fa6c3b8983", "{arg0} is deprecated; use {arg1} instead", { arg0: label, arg1: input.replacement });
   }).join("；");
-  return `${warning.machineName}：${inputs}。对弃用代理配置输入的支持将在未来版本中移除。`;
+  return t("ui.main.92bd6d097e1f", "{arg0}: {arg1}. Support for deprecated agent configuration inputs will be removed in a future release.", { arg0: warning.machineName, arg1: inputs });
 }
 
 export function deprecatedAgentInputsBanner(warnings: readonly DeprecatedAgentInputsWarning[]): TemplateResult | null {

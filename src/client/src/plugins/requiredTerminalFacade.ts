@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { TerminalCommandRun, TerminalCommandRunStatus, Workspace } from "../api";
 import type { ContributionQueryValue, PluginCapability, PluginPeer, QualifiedContributionId, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput } from "./types";
 
@@ -94,8 +95,8 @@ export function snapshotRequiredTerminalBrowserFacade(value: unknown): RequiredT
 export function requiredTerminalUnavailableError(machineId: string): RequiredTerminalBrowserUnavailableError {
   return new RequiredTerminalBrowserUnavailableError(
     machineId === "local"
-      ? "必需的终端插件不可用。请打开设置查看恢复指引。"
-      : `机器 ${machineId} 的必需终端插件不可用。请打开设置查看恢复指引。`,
+      ? t("ui.main.9ff7a30a5924", "Required Terminal plugin is unavailable. Open Settings for recovery guidance.")
+      : t("ui.main.cddadc4e8321", "The required terminal plugin is unavailable on machine {arg0}. Open settings for recovery guidance.", { arg0: machineId }),
   );
 }
 

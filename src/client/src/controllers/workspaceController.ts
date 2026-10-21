@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { api as defaultApi, type Project, type Workspace } from "../api";
 import { resetWorkspaceScopedState, type AppState } from "../appState";
 import { BrowserErrorReporter, projectBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
@@ -90,8 +91,8 @@ export class WorkspaceController {
         return await this.selectWorkspace(workspace, { ...target, sessionId: target?.sessionId, updateUrl: target?.updateUrl, navigation });
       }
       if (target?.workspaceId !== undefined && target.workspaceId !== "") {
-        this.browserErrors.report(errorScope, `找不到工作区：${target.workspaceId}`);
-        return `找不到工作区：${target.workspaceId}`;
+        this.browserErrors.report(errorScope, t("ui.main.06529052d1e0", "Workspace not found: {arg0}", { arg0: target.workspaceId }));
+        return t("ui.main.06529052d1e0", "Workspace not found: {arg0}", { arg0: target.workspaceId });
       }
       if (target?.updateUrl !== false && this.navigationIsCurrent(navigation)) this.updateUrl();
     } catch (error) {
@@ -128,8 +129,8 @@ export class WorkspaceController {
       if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
       if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl, ...(navigation === undefined ? {} : { navigation }) });
       else if (target?.sessionId !== undefined && target.sessionId !== "") {
-        this.browserErrors.report(errorScope, `找不到会话：${target.sessionId}`);
-        return `找不到会话：${target.sessionId}`;
+        this.browserErrors.report(errorScope, t("ui.main.0041c3cf98cd", "Session not found: {arg0}", { arg0: target.sessionId }));
+        return t("ui.main.0041c3cf98cd", "Session not found: {arg0}", { arg0: target.sessionId });
       }
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
@@ -147,7 +148,7 @@ export class WorkspaceController {
   ): Promise<Workspace[]> {
     if (!workspaceMutationIsCurrent(options)) return [];
     const project = this.getState().projects.find((candidate) => candidate.id === projectId);
-    if (project === undefined) throw new Error("找不到项目");
+    if (project === undefined) throw new Error(t("client.workspaceController.project.not.found.3b6bf4", "Project not found"));
     const workspaces = options?.signal === undefined
       ? await this.api.workspaces(project.id, machineId)
       : await this.api.workspaces(project.id, machineId, { signal: options.signal });

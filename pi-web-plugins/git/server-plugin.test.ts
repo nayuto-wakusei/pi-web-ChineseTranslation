@@ -1,3 +1,4 @@
+import { t as translate } from "../../src/client/src/i18n";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -366,7 +367,7 @@ describe("parseGitWorktreeList", () => {
 
 async function activationFor(execFile: ServerPluginActivationContext["execFile"]): Promise<ServerPluginActivation> {
   const activation = await plugin.activate({
-    apiVersion: 3,
+    apiVersion: 3, translate,
     pluginId: "git",
     packageRoot: resolve("pi-web-plugins/git"),
     dataDirectory: "/data/plugin-data/git",

@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { createTranslator, UserFacingError, type Translator } from "../../shared/i18n.js";
 import { WebSocket } from "ws";
 import type { StoredMachine } from "./machineStore.js";
 
@@ -54,7 +55,7 @@ export class RemoteMachineRequestError extends Error {
 }
 
 export class RemoteMachineClient implements MachineClient {
-  constructor(private readonly machine: Pick<StoredMachine, "baseUrl" | "token" | "headers">, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(private readonly machine: Pick<StoredMachine, "baseUrl" | "token" | "headers">, private readonly fetchImpl: typeof fetch = fetch, private readonly translate: Translator = createTranslator("en", {})) {}
 
   async request(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineHttpResponse> {
     const response = await this.withResponse(method, path, body, options, (response) => response);
@@ -91,7 +92,7 @@ export class RemoteMachineClient implements MachineClient {
     if (options.signal?.aborted === true) abortFromParent();
     else options.signal?.addEventListener("abort", abortFromParent, { once: true });
 
-    const timeoutError = new RemoteMachineRequestError("Remote machine request timed out", 504);
+    const timeoutError = new RemoteMachineRequestError(this.translate("machineError.requestTimedOut", "Remote machine request timed out"), 504);
     const timeout = setTimeout(() => { controller.abort(timeoutError); }, options.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS);
     timeout.unref();
     try {
@@ -151,9 +152,9 @@ export function validateConfiguredMachineHeaders(headers: Record<string, string>
   if (headers === undefined) return undefined;
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => {
     const name = key.trim();
-    if (name === "") throw new Error("Machine header names must not be empty");
-    if (typeof value !== "string") throw new Error("Machine headers must be strings");
-    if (BLOCKED_CONFIGURED_HEADER_NAMES.has(name.toLowerCase())) throw new Error(`Machine header is not allowed: ${name}`);
+    if (name === "") throw new UserFacingError("machineError.headerNameRequired", "Machine header names must not be empty");
+    if (typeof value !== "string") throw new UserFacingError("machineError.headerValueString", "Machine headers must be strings");
+    if (BLOCKED_CONFIGURED_HEADER_NAMES.has(name.toLowerCase())) throw new UserFacingError("machineError.headerNotAllowed", "Machine header is not allowed: {name}", { name });
     return [name, value];
   }));
 }
@@ -204,7 +205,7 @@ function copyArrayBufferView(view: ArrayBufferView): ArrayBuffer {
 }
 
 function readableFromWebResponseBody(body: Response["body"]): NodeJS.ReadableStream {
-  if (body === null) throw new Error("Response body is not readable");
+  if (body === null) throw new UserFacingError("machineError.responseUnreadable", "Response body is not readable");
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Node fetch returns a web stream that is runtime-compatible with Readable.fromWeb, but DOM and node:stream/web types are not structurally identical in this TS config.
   return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
 }

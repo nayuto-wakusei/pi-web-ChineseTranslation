@@ -1,0 +1,17 @@
+{
+  "providerAuth.enterCode": "输入验证码：{code}",
+  "providerAuth.loginComplete": "登录完成",
+  "providerAuth.projectRequired": "必须提供 projectId 查询参数",
+  "providerAuth.apiKeyRequired": "必须填写 API key",
+  "providerAuth.interactiveSetup": "{provider} 需要交互式配置；请使用 Pi 的通用 /login 流程",
+  "providerAuth.loginCancelled": "登录已取消",
+  "providerAuth.apiKeyUnsupported": "{provider} 不支持交互式 API key 配置",
+  "providerAuth.apiKeyProviderMissing": "未找到 API key 提供商：{provider}",
+  "providerAuth.oauthProviderMissing": "未找到 OAuth 提供商：{provider}",
+  "providerAuth.flowMissing": "未找到登录流程",
+  "providerAuth.requestExpired": "登录请求已过期",
+  "providerAuth.valueRequired": "必须填写一个值",
+  "providerAuth.invalidSelection": "无效的登录选项",
+  "providerAuth.promptCancelled": "输入请求已取消",
+  "providerAuth.flowExpired": "登录流程已过期"
+}

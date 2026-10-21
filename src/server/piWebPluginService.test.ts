@@ -41,6 +41,22 @@ afterEach(async () => {
 });
 
 describe("PiWebPluginService", () => {
+  it.each([undefined, true, false])("bootstraps bundled localization without the daemon, enabled=%s", async (enabled) => {
+    await writePlugin(join(tempDir, "plugins", "zh-cn"), {
+      packageJson: { piWeb: { plugins: [{ id: "zh-cn", browserRoot: ".", module: "plugin.js" }] } },
+      files: { "plugin.js": "export default {};" },
+    });
+    const service = new RuntimePiWebPluginService({
+      roots: [{ path: join(tempDir, "plugins"), source: "bundled", scope: "bundled" }],
+      packageProvider: false,
+      configProvider: () => enabled === undefined ? {} : ({ plugins: { "zh-cn": { enabled } } }),
+      runtimeProvider: { providerRuntime: () => Promise.reject(new Error("daemon offline")) },
+    });
+    const manifest = await service.localizationManifest();
+    expect(manifest.plugins.map((entry) => entry.id)).toEqual(enabled !== false ? ["zh-cn"] : []);
+    if (enabled !== false) expect(await service.readAsset("zh-cn", "plugin.js")).toBeDefined();
+  });
+
   it("reports legacy browser manifests and never serves them through an asset fallback", async () => {
     await writePlugin(join(tempDir, "plugins", "legacy"), {
       packageJson: { piWeb: { plugins: [{ id: "legacy", module: "plugin.js" }] } },

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { paletteStyles } from "../paletteStyles";
@@ -40,24 +41,24 @@ export class NavigationDialog extends LitElement {
   override render() {
     const tabs = this.filteredTabs();
     return html`
-      <modal-surface .label=${"导航"} .initialFocus=${"input"} .onClose=${this.onClose} @keydown=${this.navigateDestinations}>
+      <modal-surface .label=${t("client.actions.navigation.e72622", "Navigation")} .initialFocus=${"input"} .onClose=${this.onClose} @keydown=${this.navigateDestinations}>
         <header>
-          <input aria-label="搜索导航目标" aria-describedby="navigation-selection" placeholder="搜索导航目标…" .value=${this.query} @input=${(event: Event) => {
+          <input aria-label="${t("ui.main.cf6ca6ffaff0", "Search navigation")}" aria-describedby="navigation-selection" placeholder="${t("ui.main.5bb0ee874a51", "Search navigation...")}" .value=${this.query} @input=${(event: Event) => {
             if (event.target instanceof HTMLInputElement) {
               this.query = event.target.value;
               this.selectedIndex = 0;
             }
           }}>
-          <button aria-label="关闭导航" title="关闭" @click=${this.onClose}>×</button>
+          <button aria-label="${t("ui.main.3b25082eac53", "Close navigation")}" title="${t("ui.common.close", "Close")}" @click=${this.onClose}>×</button>
         </header>
-        <span id="navigation-selection" class="sr-only" role="status" aria-live="polite" aria-atomic="true">${tabs.length === 0 ? "没有匹配的导航目标。" : `${tabs[this.selectedIndex]?.label ?? ""}，第 ${String(this.selectedIndex + 1)} 项，共 ${String(tabs.length)} 项`}</span>
-        <h2>导航</h2>
-        <nav class="options" aria-label="导航目标">
-          ${tabs.length === 0 ? html`<div class="empty">没有匹配的导航目标。</div>` : nothing}
+        <span id="navigation-selection" class="sr-only" role="status" aria-live="polite" aria-atomic="true">${tabs.length === 0 ? t("ui.main.317d97cf06f5", "No destinations found.") : t("ui.main.7078c1e86aa2", "{arg0}, {arg1} of {arg2}", { arg0: tabs[this.selectedIndex]?.label ?? "", arg1: String(this.selectedIndex + 1), arg2: String(tabs.length) })}</span>
+        <h2>${t("client.actions.navigation.e72622", "Navigation")}</h2>
+        <nav class="options" aria-label="${t("ui.main.c64c7bae5c4b", "Navigation destinations")}">
+          ${tabs.length === 0 ? html`<div class="empty">${t("ui.main.317d97cf06f5", "No destinations found.")}</div>` : nothing}
           ${tabs.map((tab, index) => html`
             <div class="destination">
               <button class=${`destination-button ${index === this.selectedIndex ? "selected" : ""}`} aria-current=${tab.id === this.selectedTab ? "page" : nothing} aria-pressed=${String(tab.id === this.selectedTab)} ${scrollWhenSelected(index === this.selectedIndex, tab.id)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { this.select(tab); }}>${tab.label}</button>
-              <button type="button" class="pin-button" aria-label=${isNavigationPinned(tab.id, this.preferences.pinnedIds) ? `取消固定：${tab.label}` : `固定：${tab.label}`} title=${isNavigationPinned(tab.id, this.preferences.pinnedIds) ? "取消固定" : "固定到标签栏"} aria-pressed=${String(isNavigationPinned(tab.id, this.preferences.pinnedIds))} @click=${() => {
+              <button type="button" class="pin-button" aria-label=${isNavigationPinned(tab.id, this.preferences.pinnedIds) ? t("ui.main.d6686d214b38", "Unpin: {arg0}", { arg0: tab.label }) : t("ui.main.4fe1972f5fb0", "Pin: {arg0}", { arg0: tab.label })} title=${isNavigationPinned(tab.id, this.preferences.pinnedIds) ? t("ui.main.09250f2cdb60", "Unpin") : t("ui.main.63d21f5557f8", "Pin to tab bar")} aria-pressed=${String(isNavigationPinned(tab.id, this.preferences.pinnedIds))} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, pinnedIds: toggleNavigationPin(tab.id, this.preferences.pinnedIds, this.pinUniverse ?? this.tabs.map((item) => item.id)) });
               }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill=${isNavigationPinned(tab.id, this.preferences.pinnedIds) ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -68,16 +69,16 @@ export class NavigationDialog extends LitElement {
           `)}
         </nav>
         <footer>
-          <button @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>显示全部标签</button>
-          <div class="mobile-navigation" role="group" aria-label="移动导航显示方式">
-            <span>移动导航</span>
+          <button @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>${t("ui.main.0149e3c3b606", "Show all tabs")}</button>
+          <div class="mobile-navigation" role="group" aria-label="${t("ui.main.d75ea589d840", "Mobile navigation")}">
+            <span>${t("ui.main.31a2dd2fb14a", "Mobile navigation")}</span>
             <div class="toggle-options">
               <button type="button" aria-pressed=${String(!this.preferences.mobileCollapsed)} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: false });
-              }}>展开</button>
+              }}>${t("ui.main.b0e24833f752", "Expanded")}</button>
               <button type="button" aria-pressed=${String(this.preferences.mobileCollapsed)} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: true });
-              }}>折叠</button>
+              }}>${t("ui.main.e9132e604824", "Collapsed")}</button>
             </div>
           </div>
         </footer>

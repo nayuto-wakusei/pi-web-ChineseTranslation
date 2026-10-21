@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type { ContentRendererOption, ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
@@ -92,13 +93,13 @@ export class WorkspaceFileViewer extends LitElement {
 
   override render(): TemplateResult {
     const selectedPath = this.selectedPath;
-    if (selectedPath === undefined || selectedPath === "") return this.renderStatus("请选择文件。");
-    if (this.loadError !== undefined) return this.renderStatus(`无法加载 ${selectedPath}：${this.loadError}`, true);
+    if (selectedPath === undefined || selectedPath === "") return this.renderStatus(t("ui.workspaceFilesPanel.selectAFile", "Select a file."));
+    if (this.loadError !== undefined) return this.renderStatus(t("ui.main.b2171559ba6a", "Could not load {arg0}: {arg1}", { arg0: selectedPath, arg1: this.loadError }), true);
 
     const file = this.file;
-    if (file === undefined) return this.renderStatus(`正在加载 ${selectedPath}…`);
+    if (file === undefined) return this.renderStatus(t("ui.workspaceFilesPanel.loading", "Loading {selectedFilePath}…", { selectedFilePath: selectedPath }));
     if (file.path !== selectedPath) {
-      return this.renderStatus(`无法预览 ${selectedPath}：已加载内容属于 ${file.path}。`, true);
+      return this.renderStatus(t("ui.main.372b83bb0612", "Could not preview {arg0}: the loaded content belongs to {arg1}.", { arg0: selectedPath, arg1: file.path }), true);
     }
 
     const token = this.selectionToken;
@@ -122,7 +123,7 @@ export class WorkspaceFileViewer extends LitElement {
 
   private renderLoadedFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind, token: number): TemplateResult {
     if (this.selectionHasRawAndPreviewModes() && this.mode === "raw") return this.renderRawSource(file);
-    if (file.size === 0) return this.renderStatus("文件为空。");
+    if (file.size === 0) return this.renderStatus(t("ui.main.82ec1594fc2f", "This file is empty."));
 
     switch (kind) {
       case "image": return this.renderImagePreview(file, token);
@@ -153,10 +154,10 @@ export class WorkspaceFileViewer extends LitElement {
               target="_blank"
               rel="noopener noreferrer"
               referrerpolicy="no-referrer"
-              title="在新窗口打开"
-            >打开 ↗</a>
+              title="${t("ui.main.aa2769759d32", "Open in new window")}"
+            >${t("ui.main.995aaa200d04", "Open ↗")}</a>
           ` : null}
-          <a class="viewer-action" href=${downloadUrl} download=${name} title=${`下载 ${name}`}>下载</a>
+          <a class="viewer-action" href=${downloadUrl} download=${name} title=${t("ui.workspaceFilesPanel.download", "Download {selectedPath}", { selectedPath: name })}>${t("ui.main.2b9d013177da", "Download")}</a>
         </div>
       </div>
     `;
@@ -164,7 +165,7 @@ export class WorkspaceFileViewer extends LitElement {
 
   private renderRendererChooser(token: number): TemplateResult | null {
     if (this.rendererOptions.length < 2) return null;
-    return html`<select aria-label="文件渲染器" @change=${(event: Event) => {
+    return html`<select aria-label="${t("ui.main.e48f017e0872", "File renderer")}" @change=${(event: Event) => {
       if (token !== this.selectionToken) return;
       if (!(event.target instanceof HTMLSelectElement)) return;
       this.rendererId = event.target.value;
@@ -179,25 +180,25 @@ export class WorkspaceFileViewer extends LitElement {
     const manual = this.rendererOptions.find(({ id }) => id === this.rendererId)?.renderMode === "manual";
     const showingPreview = this.mode === "preview";
     return html`
-      <div class="viewer-mode" role="group" aria-label=${`查看 ${file.path}`}>
+      <div class="viewer-mode" role="group" aria-label=${t("ui.main.e510d27cdd82", "View {arg0}", { arg0: file.path })}>
         <button
           type="button"
           aria-pressed=${showingPreview ? "true" : "false"}
           @click=${() => { this.setMode("preview", token); }}
-        >${manual ? "渲染" : "预览"}</button>
+        >${manual ? t("ui.main.0d2759cbee0c", "Render") : t("ui.sessionCleanupDialog.preview", "Preview")}</button>
         <button
           type="button"
           aria-pressed=${showingPreview ? "false" : "true"}
           @click=${() => { this.setMode("raw", token); }}
-        >源码</button>
+        >${t("ui.main.05511bbf5d16", "Raw")}</button>
       </div>
     `;
   }
 
   private renderRawSource(file: FileContentResponse): TemplateResult {
-    if (file.size === 0) return this.renderStatus("文件为空。");
+    if (file.size === 0) return this.renderStatus(t("ui.main.82ec1594fc2f", "This file is empty."));
     return html`
-      ${file.truncated ? html`<p class="preview-note" role="status">源码已截断，请下载完整文件。</p>` : null}
+      ${file.truncated ? html`<p class="preview-note" role="status">${t("ui.main.e9150513f0e0", "Raw source is truncated. Use Download for the complete file.")}</p>` : null}
       <pi-web-files-code-viewer .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
     `;
   }
@@ -210,11 +211,11 @@ export class WorkspaceFileViewer extends LitElement {
         toSafeHtml: renderWorkspaceMarkdownHtml, allowManualPreview: this.preference === "preview",
       }) ?? unsafeHTML(renderWorkspaceMarkdownHtml(file.content));
       return html`
-        ${file.truncated ? html`<p class="preview-note" role="status">预览基于截断源码生成，请下载完整文件。</p>` : null}
+        ${file.truncated ? html`<p class="preview-note" role="status">${t("ui.main.d4d154c66e37", "Preview is rendered from truncated source. Use Download for the complete file.")}</p>` : null}
         <div class="formatted markdown-preview" dir="auto">${content}</div>
       `;
     } catch {
-      return this.renderStatus("Markdown 预览失败，请查看源码或下载文件。", true);
+      return this.renderStatus(t("ui.main.156c1593192d", "Markdown preview failed. Use Raw or Download instead."), true);
     }
   }
 
@@ -226,7 +227,7 @@ export class WorkspaceFileViewer extends LitElement {
       <div class="image-preview">
         <img
           src=${src}
-          alt=${`${file.path} 的预览`}
+          alt=${t("ui.main.d92d4cab950f", "Preview of {arg0}", { arg0: file.path })}
           decoding="async"
           referrerpolicy="no-referrer"
           @error=${() => { this.recordPreviewFailure(token); }}
@@ -241,14 +242,14 @@ export class WorkspaceFileViewer extends LitElement {
     const src = this.previewUrl(file);
 
     return html`
-      ${kind === "pdf" ? html`<p class="preview-note" role="status">浏览器的内嵌 PDF 支持有所不同。若未显示，请在新窗口打开或下载。</p>` : null}
+      ${kind === "pdf" ? html`<p class="preview-note" role="status">${t("ui.main.19d5ef59f7fb", "Inline PDF support varies by browser. Use Open ↗ or Download above if the document does not appear.")}</p>` : null}
       <iframe
         class="file-frame-preview"
         src=${src}
         sandbox=${ifDefined(framePreviewSandbox(kind))}
         allow=""
         referrerpolicy="no-referrer"
-        title=${`${file.path} 的预览`}
+        title=${t("ui.main.d92d4cab950f", "Preview of {arg0}", { arg0: file.path })}
         @error=${() => { this.recordPreviewFailure(token); }}
       ></iframe>
     `;
@@ -257,9 +258,9 @@ export class WorkspaceFileViewer extends LitElement {
   private renderPreviewFailure(file: FileContentResponse, token: number): TemplateResult {
     return html`
       <div class="preview-state" role="alert">
-        <strong>${file.path} 预览失败。</strong>
-        <span>请在新窗口打开或下载文件。</span>
-        <button type="button" @click=${() => { this.retryPreview(token); }}>重试预览</button>
+        <strong>${file.path} ${t("ui.main.de32c906f4f4", ".")}</strong>
+        <span>${t("ui.main.f83532b8bc52", "Open it in a new window or use Download above.")}</span>
+        <button type="button" @click=${() => { this.retryPreview(token); }}>${t("ui.main.151114d1c344", "Retry preview")}</button>
       </div>
     `;
   }
@@ -273,14 +274,14 @@ export class WorkspaceFileViewer extends LitElement {
     });
     return html`
       <div class="preview-state">
-        <p>此文件类型不支持预览。</p>
-        <a class="download-link" href=${href} download=${name}>下载 ${name} · ${formatFileSize(file.size)}</a>
+        <p>${t("ui.main.6ed76a36e609", "Preview isn't available for this file type.")}</p>
+        <a class="download-link" href=${href} download=${name}>${t("ui.main.2b9d013177da", "Download")} ${name} · ${formatFileSize(file.size)}</a>
       </div>
     `;
   }
 
   private renderPreviewTooLarge(file: FileContentResponse): TemplateResult {
-    return this.renderStatus(`文件过大，无法预览：${formatFileSize(file.size)}，上限 ${formatFileSize(this.maxInlinePreviewBytes)}。请下载文件。`);
+    return this.renderStatus(t("ui.main.e0191f8e6698", "File too large to preview: {arg0}; limit {arg1}. Download the file instead.", { arg0: formatFileSize(file.size), arg1: formatFileSize(this.maxInlinePreviewBytes) }));
   }
 
   private renderStatus(message: string, alert = false): TemplateResult {

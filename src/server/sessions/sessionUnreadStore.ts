@@ -52,6 +52,11 @@ interface SessionUnreadIdentity {
   cwd: string;
 }
 
+interface SessionUnreadHistoryPosition {
+  messageCount: number;
+  leafId: string | null;
+}
+
 interface PendingSessionUnreadPersistence {
   generation: number;
   state: SessionUnreadPersistedState;
@@ -71,7 +76,7 @@ export class SessionUnreadStore {
   private readonly createCatalogId: () => string;
   private readonly onPersistenceError: (operation: "load" | "save", error: unknown) => void;
   private readonly unreadByIdentity = new Map<string, SessionUnreadSummary>();
-  private readonly activeByIdentity = new Map<string, SessionUnreadIdentity>();
+  private readonly activeByIdentity = new Map<string, SessionUnreadIdentity & { messageStart?: number }>();
   private readonly excludedByIdentity = new Map<string, SessionUnreadIdentity>();
   private catalogId: string;
   private catalogRevision = 0;
@@ -116,7 +121,7 @@ export class SessionUnreadStore {
   }
 
 
-  observeActivityState(sessionId: string, cwd: string, active: boolean): SessionUnreadMutation[] {
+  observeActivityState(sessionId: string, cwd: string, active: boolean, historyPosition?: () => SessionUnreadHistoryPosition): SessionUnreadMutation[] {
     this.requireLoaded();
     const identity = requireIdentity(sessionId, cwd);
     const key = sessionIdentityKey(identity);
@@ -125,7 +130,10 @@ export class SessionUnreadStore {
       return [];
     }
     if (active) {
-      this.activeByIdentity.set(key, identity);
+      if (!this.activeByIdentity.has(key)) {
+        const position = historyPosition?.();
+        this.activeByIdentity.set(key, { ...identity, ...(position === undefined ? {} : { messageStart: position.messageCount }) });
+      }
       return [];
     }
     if (!this.activeByIdentity.has(key)) return [];
@@ -135,6 +143,12 @@ export class SessionUnreadStore {
     this.assertRevisionCapacity(willExceedLimit ? 2 : 1);
     const completedAt = this.now().toISOString();
 
+    const activity = this.activeByIdentity.get(key);
+    const position = historyPosition?.();
+    const previous = this.unreadByIdentity.get(key);
+    // Preserve the earliest unread turn across completions. Legacy records have
+    // no known boundary, so only a full history load can auto-acknowledge them.
+    const messageStart = previous === undefined ? activity?.messageStart : previous.messageRange?.start ?? 0;
     this.activeByIdentity.delete(key);
     this.nextCompletionOrder = completionOrder;
     const summary: SessionUnreadSummary = {
@@ -142,6 +156,9 @@ export class SessionUnreadStore {
       cwd,
       completionOrder,
       completedAt,
+      ...(position === undefined || messageStart === undefined ? {} : {
+        messageRange: { start: Math.min(messageStart, position.messageCount), end: position.messageCount, leafId: position.leafId },
+      }),
     };
     // Reinsert existing identities so map order remains completion order.
     this.unreadByIdentity.delete(key);
@@ -564,6 +581,15 @@ function parseSummary(value: unknown): SessionUnreadSummary {
   if (!Number.isFinite(completedDate.getTime()) || completedDate.toISOString() !== completedAt) {
     throw new Error("Session unread completedAt must be a canonical ISO timestamp");
   }
+  const range = record["messageRange"] === undefined ? undefined : requireRecord(record["messageRange"], "Invalid unread message range");
+  let messageRange: SessionUnreadSummary["messageRange"];
+  if (range !== undefined) {
+    const start = requireNonNegativeSafeInteger(range["start"], "start");
+    const end = requireNonNegativeSafeInteger(range["end"], "end");
+    const leafId = range["leafId"];
+    if (end < start || (leafId !== null && typeof leafId !== "string")) throw new Error("Invalid unread message range");
+    messageRange = { start, end, leafId };
+  }
   return {
     sessionId: requireBoundedNonEmptyString(
       record["sessionId"],
@@ -573,6 +599,7 @@ function parseSummary(value: unknown): SessionUnreadSummary {
     cwd: requireBoundedNonEmptyString(record["cwd"], "cwd", SESSION_UNREAD_CWD_MAX_LENGTH),
     completionOrder: requirePositiveSafeInteger(record["completionOrder"], "completionOrder"),
     completedAt,
+    ...(messageRange === undefined ? {} : { messageRange }),
   };
 }
 

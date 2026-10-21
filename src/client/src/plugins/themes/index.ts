@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { PiWebPlugin, ThemeTokens } from "../types";
 
 const classicTokens = {
@@ -116,30 +117,30 @@ const piWebLightTokens = {
 
 export const themePackPlugin: PiWebPlugin = {
   apiVersion: 4,
-  name: "PI WEB 主题",
+  name: t("client.index.pi.web.themes.9c5a30", "PI WEB Themes"),
   activate: () => ({
     contributions: {
       themes: [
         {
           id: "pi-web-dark",
-          name: "PI WEB 深色",
-          description: "PI WEB 深色配色。",
+          name: t("client.index.pi.web.dark.91b604", "PI WEB Dark"),
+          description: t("client.index.pi.web.dark.color.scheme.9d56a4", "PI WEB dark color scheme."),
           order: 10,
           colorScheme: "dark",
           tokens: piWebDarkTokens,
         },
         {
           id: "pi-web-light",
-          name: "PI WEB 浅色",
-          description: "PI WEB 浅色配色。",
+          name: t("client.index.pi.web.light.081df9", "PI WEB Light"),
+          description: t("client.index.pi.web.light.color.scheme.b51736", "PI WEB light color scheme."),
           order: 20,
           colorScheme: "light",
           tokens: piWebLightTokens,
         },
         {
           id: "classic",
-          name: "PI WEB 经典",
-          description: "原始 PI WEB 深色配色。",
+          name: t("client.index.pi.web.classic.4793fe", "PI WEB Classic"),
+          description: t("client.index.original.pi.web.dark.color.scheme.80bcd3", "Original PI WEB dark color scheme."),
           order: 30,
           colorScheme: "dark",
           tokens: classicTokens,
@@ -149,7 +150,7 @@ export const themePackPlugin: PiWebPlugin = {
         {
           id: "pi-web",
           name: "PI WEB",
-          description: "跟随系统浅色/深色偏好使用 PI WEB 主题。",
+          description: t("client.index.follow.the.system.light.dark.preference.with.pi.web.themes.33941c", "Follow the system light/dark preference with PI WEB themes."),
           order: 10,
           light: "pi-web-light",
           dark: "pi-web-dark",

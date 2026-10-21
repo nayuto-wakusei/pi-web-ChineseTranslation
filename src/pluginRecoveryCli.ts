@@ -1,4 +1,5 @@
 import { isPiWebPluginId } from "./shared/pluginIds.js";
+import { createTranslator, type Translator } from "./shared/i18n.js";
 import {
   disableServerPlugin,
   loadServerPluginRecoveryConfig,
@@ -33,8 +34,8 @@ type PluginRecoveryCommand =
   | { kind: "safe-start-set"; safeStart: ServerPluginSafeStart; configPath?: string; restart: boolean }
   | { kind: "safe-start-clear"; configPath?: string; restart: boolean };
 
-export function pluginRecoveryHelp(): string {
-  return `PI WEB server plugin recovery
+export function pluginRecoveryHelp(t: Translator = createTranslator("en", {})): string {
+  return t("pluginRecovery.help", `PI WEB server plugin recovery
 
 Usage:
   pi-web plugins disable <plugin-id> [--config <path>] [--restart]
@@ -46,51 +47,52 @@ Safe-start levels:
   bundled-only  Load bundled server plugins, including required Terminal, only.
   none          Load no server plugins; Terminal is unavailable and the kernel folder workspace remains available.
 
-必需的 Terminal 插件不能单独禁用；离线恢复请使用 safe-start none。
+The required Terminal plugin cannot be disabled individually; use safe-start none for offline recovery.
 These commands edit config offline and never contact the session daemon or import plugins.
-Changes take effect after a manual session-daemon restart unless --restart can restart it automatically.`;
+Changes take effect after a manual session-daemon restart unless --restart can restart it automatically.`);
 }
 
 export function runPluginRecoveryCli(
   args: readonly string[],
   dependencies: PluginRecoveryCliDependencies,
+  t: Translator = createTranslator("en", {}),
 ): void {
   const command = parsePluginRecoveryCommand(args);
   const writeLine = dependencies.writeLine ?? ((line) => { console.log(line); });
   if (command.kind === "help") {
-    for (const line of pluginRecoveryHelp().split("\n")) writeLine(line);
+    for (const line of pluginRecoveryHelp(t).split("\n")) writeLine(line);
     return;
   }
 
   const configOptions = recoveryConfigOptions(command.configPath, dependencies);
   if (command.kind === "safe-start-show") {
     const recovery = loadServerPluginRecoveryConfig(configOptions);
-    writeLine(`Server plugin safe start: ${recovery.safeStart ?? "off"}`);
-    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine);
-    writeLine(`Config: ${recovery.path}${recovery.exists ? "" : " (not created)"}`);
+    writeLine(t("pluginRecovery.safeStart", "Server plugin safe start: {level}", { level: recovery.safeStart ?? "off" }));
+    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine, t);
+    writeLine(t("pluginRecovery.config", "Config: {path}{suffix}", { path: recovery.path, suffix: recovery.exists ? "" : t("pluginRecovery.notCreated", " (not created)") }));
     return;
   }
 
   if (command.kind === "disable") {
     const recovery = disableServerPlugin(command.pluginId, configOptions);
-    writeLine(`Disabled server plugin ${JSON.stringify(command.pluginId)} in ${recovery.path}.`);
-    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine);
-    reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine);
+    writeLine(t("pluginRecovery.disabled", "Disabled server plugin {pluginId} in {path}.", { pluginId: JSON.stringify(command.pluginId), path: recovery.path }));
+    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine, t);
+    reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine, t);
     return;
   }
 
   if (command.kind === "safe-start-set") {
     const recovery = setServerPluginSafeStart(command.safeStart, configOptions);
-    writeLine(`Set server plugin safe start to ${command.safeStart} in ${recovery.path}.`);
-    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine);
-    reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine);
+    writeLine(t("pluginRecovery.set", "Set server plugin safe start to {level} in {path}.", { level: command.safeStart, path: recovery.path }));
+    reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine, t);
+    reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine, t);
     return;
   }
 
   const recovery = setServerPluginSafeStart(undefined, configOptions);
-  writeLine(`Cleared server plugin safe start in ${recovery.path}.`);
-  reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine);
-  reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine);
+  writeLine(t("pluginRecovery.cleared", "Cleared server plugin safe start in {path}.", { path: recovery.path }));
+  reportRecoveryDiagnostic(recovery.safeStartDiagnostic, writeLine, t);
+  reportRestart(command.restart, restartPlanFor(recovery.path, command.configPath, dependencies), writeLine, t);
 }
 
 function parsePluginRecoveryCommand(args: readonly string[]): PluginRecoveryCommand {
@@ -200,25 +202,27 @@ function restartPlanFor(
 function reportRecoveryDiagnostic(
   diagnostic: string | undefined,
   writeLine: (line: string) => void,
+  t: Translator,
 ): void {
-  if (diagnostic !== undefined) writeLine(`Warning: ${diagnostic}`);
+  if (diagnostic !== undefined) writeLine(t("pluginRecovery.warning", "Warning: {detail}", { detail: diagnostic }));
 }
 
 function reportRestart(
   performRestart: boolean,
   plan: SessionDaemonRestartPlan,
   writeLine: (line: string) => void,
+  t: Translator,
 ): void {
   if (performRestart && plan.kind === "automatic" && plan.perform !== undefined) {
     plan.perform();
-    writeLine("Session daemon restart requested. Active sessions owned by that daemon may stop.");
+    writeLine(t("pluginRecovery.restartRequested", "Session daemon restart requested. Active sessions owned by that daemon may stop."));
     return;
   }
 
   if (performRestart && plan.kind === "manual") {
-    writeLine("The session daemon cannot be restarted automatically for this installation.");
+    writeLine(t("pluginRecovery.restartManual", "The session daemon cannot be restarted automatically for this installation."));
   }
-  writeLine("Restart the session daemon to apply this change. Active sessions owned by that daemon may stop.");
+  writeLine(t("pluginRecovery.restartNeeded", "Restart the session daemon to apply this change. Active sessions owned by that daemon may stop."));
   writeLine(plan.guidance);
   if (plan.command !== undefined) writeLine(`  ${plan.command}`);
 }

@@ -317,7 +317,7 @@ function isPluginSource(fileName) {
 }
 
 function isTestSource(fileName) {
-  return /\.(?:test|spec)\.[cm]?[jt]s$/u.test(fileName);
+  return /\.(?:test|spec|testSupport)\.[cm]?[jt]s$/u.test(fileName);
 }
 
 async function hasTypeScriptSource(javaScriptPath) {

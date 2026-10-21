@@ -1,3 +1,4 @@
+import { UserFacingError, createTranslator, userFacingErrorMessage } from "../../shared/i18n.js";
 import { realpathSync, statSync } from "node:fs";
 import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
 import { readFile } from "node:fs/promises";
@@ -17,6 +18,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   defineTool,
+  loadSkills,
   ModelRuntime,
   ProjectTrustStore,
   hasTrustRequiringProjectResources,
@@ -40,7 +42,9 @@ import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
-import { BUILTIN_COMMANDS } from "./builtinCommands.js";
+import { builtinCommands } from "./builtinCommands.js";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 import { SessionCommandService } from "./sessionCommandService.js";
 import { SessionActivityMarker } from "./sessionActivityMarker.js";
 import { projectSessionTree, type ProjectableSessionTreeNode } from "./sessionTreeProjection.js";
@@ -126,15 +130,12 @@ const DEFAULT_UNREAD_PUBLICATION_RETRY_MS = 1_000;
  * is inside: it awaits exactly one call for each, so the phase is a fact rather
  * than a guess. Deliberately free of internal symbol names and file paths.
  */
-const STARTUP_PHASE_RUNTIME = "正在启动 Pi 会话";
-const STARTUP_PHASE_EXTENSIONS = "正在加载会话扩展";
 /**
  * Appended to whichever phase is running when a background provider catalog
  * refresh happens to be in flight. It is stated as a concurrent fact, never as
  * the cause: PI WEB can verify that a refresh is running, but not that this
  * particular startup is waiting on it.
  */
-const STARTUP_CONCURRENT_CATALOG_REFRESH = "服务商模型列表正在刷新";
 const MAX_UNREAD_PUBLICATION_RETRY_MS = 30_000;
 const MAX_PENDING_UNREAD_MUTATIONS = SESSION_UNREAD_LIMIT + 1;
 const IDLE_SESSION_FILE_RESOLUTION_THROTTLE_MS = 30_000;
@@ -153,13 +154,13 @@ function noop(): void {
   // Intentionally empty default unsubscribe callback.
 }
 
-function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: false }>): Error {
-  if (decision.reason === "not-registered") return new Error("派生会话不在已注册项目中");
-  return new Error(`cwd 必须是此项目的工作区。允许的路径：${decision.allowedCwds.join(", ")}`);
+function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: false }>, t: Translator): Error {
+  if (decision.reason === "not-registered") return new Error(t("session.spawnUnregistered", "Spawned session is outside registered projects"));
+  return new Error(t("session.spawnWorkspace", "cwd must be a workspace of this project. Allowed paths: {paths}", { paths: decision.allowedCwds.join(", ") }));
 }
 
-function subsessionCwdError(spawningCwd: string, requestedCwd: string): Error {
-  return new Error(`跟踪子会话只能在父会话的工作区中运行（${spawningCwd}），不能使用 ${requestedCwd}。如需在其它工作区运行，请使用 spawn_session 创建独立会话。`);
+function subsessionCwdError(spawningCwd: string, requestedCwd: string, t: Translator = loadNodeTranslator("server")): Error {
+  return new Error(t("server.main.3122d89b6904", "A tracked subsession runs in this session's working directory ({arg0}); {arg1} was requested. Instruct the child to work elsewhere from this workspace, or use spawn_session for an independent session in another workspace.", { arg0: spawningCwd, arg1: requestedCwd }));
 }
 
 function modelSpecOf(model: { provider: string; id: string }): string {
@@ -182,8 +183,8 @@ function parseModelSpec(spec: string): { provider: string; modelId: string } | u
  * (a list would invite guesses). The agent loop turns the throw into an
  * error tool result; how to recover is the agent's call.
  */
-function unknownSpawnModelError(modelSpec: string): Error {
-  return new Error(`未找到模型“${modelSpec}”。请传入精确的“provider/model-id”。`);
+function unknownSpawnModelError(modelSpec: string, t: Translator): Error {
+  return new Error(t("model.spawnUnknown", 'Model "{model}" not found. Supply an exact "provider/model-id".', { model: modelSpec }));
 }
 
 function authLossWarningKey(sessionId: string, eventScope: string, provider: string, modelId: string): string {
@@ -253,7 +254,7 @@ type PiTreeNavigationOptions =
   | { summarize: false }
   | { summarize: true; customInstructions?: string };
 
-function sessionTreeNavigationOptions(request: ClientSessionTreeNavigateRequest): PiTreeNavigationOptions {
+function sessionTreeNavigationOptions(request: ClientSessionTreeNavigateRequest, t: Translator = loadNodeTranslator("server")): PiTreeNavigationOptions {
   switch (request.summary.mode) {
     case "none":
       return { summarize: false };
@@ -261,9 +262,9 @@ function sessionTreeNavigationOptions(request: ClientSessionTreeNavigateRequest)
       return { summarize: true };
     case "custom": {
       const customInstructions = request.summary.instructions.trim();
-      if (customInstructions === "") throw new Error("自定义分支汇总要求不能为空");
+      if (customInstructions === "") throw new Error(t("server.main.416db415bedb", "Custom branch-summary instructions are required"));
       if (customInstructions.length > SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) {
-        throw new Error(`自定义分支汇总要求不能超过 ${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)} 个字符`);
+        throw new Error(t("server.main.8e5676bb8f61", "Custom branch-summary instructions must be at most {arg0} characters", { arg0: String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) }));
       }
       return { summarize: true, customInstructions };
     }
@@ -330,15 +331,15 @@ interface InternalStartSessionOptions extends StartSessionOptions {
   creationProvenance?: SessionCreationProvenance;
 }
 
-function requirePromptText(value: unknown): string {
-  if (typeof value !== "string") throw new Error("提示文本为必填项");
+function requirePromptText(value: unknown, t: Translator): string {
+  if (typeof value !== "string") throw new Error(t("session.promptRequired", "Prompt text is required"));
   return value;
 }
 
 function parsePromptStreamingBehavior(value: unknown): QueuedPromptKind | undefined {
   if (value === undefined) return undefined;
   if (value === "steer" || value === "followUp") return value;
-  throw new Error('Prompt streamingBehavior must be "steer" or "followUp"');
+  throw new UserFacingError("routing.streamingBehaviorInvalid", "Prompt streamingBehavior must be \"steer\" or \"followUp\"");
 }
 
 type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "get" | "archive" | "restore" | "isArchived"> & {
@@ -590,32 +591,48 @@ export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, b
   };
 }
 
-export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult): SkillCollectionResult {
+export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult, agentDir = getAgentDir()): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
   const pathAllowed = (path: string) => pathInsideRealDirectory(projectRoot, path);
-  return {
-    ...base,
-    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
-    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
-  };
+  return filterManagedSkills(cwd, agentDir, base, pathAllowed);
 }
 
-export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
+export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile, agentDir = getAgentDir()): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
   const allowedDirectories = new Set([
     ...MANAGED_RELAY_SKILL_NAMES.map((name) => resolve(projectRoot, ".pi", "skills", name)),
     ...receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)),
   ]);
   const pathAllowed = (path: string) => [...allowedDirectories].some((directory) => pathInsideRealDirectory(directory, path));
-  return {
-    ...base,
-    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
-    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
-  };
+  return filterManagedSkills(cwd, agentDir, base, pathAllowed);
 }
 
-function filterManagedSkillDiagnostics(diagnostics: ResourceDiagnostic[], pathAllowed: (path: string) => boolean): ResourceDiagnostic[] {
-  return diagnostics.filter((diagnostic) => diagnostic.path === undefined || pathAllowed(diagnostic.path));
+function filterManagedSkills(cwd: string, agentDir: string, base: SkillCollectionResult, pathAllowed: (path: string) => boolean): SkillCollectionResult {
+  const skills = base.skills.filter((skill) => pathAllowed(skill.filePath));
+  const shadowedPaths = new Set<string>();
+  const diagnostics = base.diagnostics.filter((diagnostic) => {
+    const collision = diagnostic.collision;
+    if (diagnostic.type === "collision" && collision?.resourceType === "skill") {
+      const winnerAllowed = pathAllowed(collision.winnerPath);
+      const loserAllowed = pathAllowed(collision.loserPath);
+      if (!winnerAllowed && loserAllowed) shadowedPaths.add(collision.loserPath);
+      return winnerAllowed && loserAllowed;
+    }
+    return diagnostic.path === undefined || pathAllowed(diagnostic.path);
+  });
+
+  // The SDK deduplicates names before this override. Restore permitted losers
+  // instead of letting a discarded global/package winner hide them entirely.
+  if (shadowedPaths.size > 0) {
+    const recovered = loadSkills({ cwd, agentDir, skillPaths: [...shadowedPaths], includeDefaults: false });
+    skills.push(...recovered.skills.filter((skill) => pathAllowed(skill.filePath)));
+    for (const diagnostic of recovered.diagnostics) {
+      if (!diagnostics.some((existing) => existing.type === diagnostic.type && existing.path === diagnostic.path && existing.message === diagnostic.message)) {
+        diagnostics.push(diagnostic);
+      }
+    }
+  }
+  return { ...base, skills, diagnostics };
 }
 
 function pathInsideRealDirectory(directory: string, path: string): boolean {
@@ -795,7 +812,7 @@ export function dismissSessionWarning(
   dismissId: string,
 ): void {
   if (dismissId !== ANTHROPIC_EXTRA_USAGE_DISMISS_ID) {
-    throw new Error(`Unknown session warning dismiss id: ${dismissId}`);
+    throw new UserFacingError("routing.warningDismissInvalid", "Unknown session warning dismiss id: {arg0}", { arg0: dismissId });
   }
   session.settingsManager.setWarnings({ ...session.settingsManager.getWarnings(), anthropicExtraUsage: false });
 }
@@ -813,7 +830,7 @@ interface CreateAgentRuntimeOptions {
 type CreateAgentRuntime = (createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
 
 function defaultCreateAgentRuntime(createRuntime: PiCreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
-  if (!(options.sessionManager instanceof SessionManager)) throw new Error("Default runtime creation requires an SDK SessionManager");
+  if (!(options.sessionManager instanceof SessionManager)) throw new UserFacingError("routing.runtimeManagerRequired", "Default runtime creation requires an SDK SessionManager");
   const runtimeFactory = createRuntimeWithContextAndOneShotSessionOptions(
     createRuntime,
     options.managementContext,
@@ -870,6 +887,7 @@ interface ScopedSubsessionToolDeps {
 type ResolveSettingsScopeDirectory = (cwd: string, mode: SessionSettingsMode) => Promise<string>;
 
 export interface WorkbenchRuntimeDependencies {
+  translator?: Translator;
   accessStates: WorkbenchAccessStateStore;
   client: WorkbenchClient;
   mcp: WorkbenchMcpClient;
@@ -1096,7 +1114,7 @@ function createManagementRuntimeFactory(
         settingsManager,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
-          skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
+          skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base, agentDir) : filterManagedWorkbenchSkills(cwd, base, receipt, agentDir),
         },
       }), projectTrustDiagnostics: [] };
       const modelOptions = await resolveSessionModelOptions({
@@ -1127,7 +1145,10 @@ function createManagementRuntimeFactory(
       const result = await createAgentSessionFromServices(options);
       // SDK reload re-executes extensions, so it needs the same scoped environment as startup.
       const reload = result.session.reload.bind(result.session);
-      result.session.reload = (options) => withRuntimeCreationEnvironment(resourceEnvironment, () => reload(options));
+      result.session.reload = (options) => withRuntimeCreationEnvironment(resourceEnvironment, async () => {
+        if (!normalPermissions) await ensureManagedRelaySkills(cwd);
+        return reload(options);
+      });
       return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
   };
@@ -1185,6 +1206,7 @@ function createPiWebEditToolDefinition(cwd: string, options?: EditToolOptions) {
 }
 
 export interface PiSessionServiceDependencies {
+  translator?: Translator;
   sessionEvents?: PiSessionEventConnections;
   archiveStore?: SessionArchiveRepository;
   pinStore?: SessionPinStore;
@@ -1274,6 +1296,7 @@ export interface PiSessionServiceDependencies {
 }
 
 export class PiSessionService {
+  private readonly t: Translator;
   private readonly active = new Map<string, ManagedActiveSession>();
   private readonly runtimeBySession = new WeakMap<PiAgentSession, PiSessionRuntime>();
   private readonly pendingSessionOpens = new Map<string, PendingSessionOpen>();
@@ -1362,6 +1385,7 @@ export class PiSessionService {
   private unreadPublicationStopped = false;
 
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies) {
+    this.t = deps.translator ?? loadNodeTranslator("server");
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.pinStore = deps.pinStore ?? new SessionPinStore(join(deps.dataDir ?? piWebDataDir(), "session-pins.json"));
     this.agentDir = deps.agentDir ?? getAgentDir();
@@ -1439,13 +1463,13 @@ export class PiSessionService {
       events,
       {
         onCompactionStart: (session) => {
-          this.beginSessionEntryMutation(session, "压缩会话");
-          this.publishActivity(session, "正在压缩上下文", "active");
+          this.beginSessionEntryMutation(session, this.t("session.action.compact", "compact the session"));
+          this.publishActivity(session, this.t("activity.compacting", "Compacting context"), "active");
           this.publishStatus(session);
         },
         onCompactionEnd: (session, result, detail) => {
           this.endSessionEntryMutation(session);
-          this.publishActivity(session, result === "success" ? "上下文压缩完成" : "上下文压缩失败", result === "success" ? "idle" : "error", detail);
+          this.publishActivity(session, result === "success" ? this.t("activity.compacted", "Context compacted") : this.t("activity.compactionFailed", "Context compaction failed"), result === "success" ? "idle" : "error", detail);
           this.publishStatus(session);
         },
         reloadSession: (session) => this.reloadSessionRuntime(session),
@@ -1459,12 +1483,13 @@ export class PiSessionService {
           const runtime = this.activeRuntimeForSession(session);
           return this.runTreeExclusiveOperation(
             [{ sessionId: session.sessionId, session, ...(runtime === undefined ? {} : { runtime }) }],
-            "替换会话前请先停止当前会话活动",
+            this.t("session.stopBeforeReplace", "Stop current session activity before replacing the session"),
             operation,
           );
         },
       },
       { listSessionNames: (cwd) => this.listSessionNames(cwd) },
+      this.t,
     );
   }
 
@@ -1489,7 +1514,7 @@ export class PiSessionService {
   async cleanup(request: NormalizedSessionCleanupRequest, context?: ManagementEmbedContext): Promise<ClientSessionCleanupExecuteResponse> {
     const scope = eventScopeFromManagementContext(context);
     const plan = await this.cleanupPlan(request);
-    if (plan.deleteRecords.length > 0 && this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
+    if (plan.deleteRecords.length > 0 && this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error(this.t("session.archiveDeleteUnsupported", "The archive store does not support deletion"));
 
     const archiveInputs: ArchiveSessionInput[] = [];
     const readyArchiveInputs: ArchiveSessionInput[] = [];
@@ -1608,11 +1633,11 @@ export class PiSessionService {
   }
 
   async setPinned(ref: SessionRouteRef, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse> {
-    if (ref.cwd === "") throw new Error("置顶会话必须提供工作区");
+    if (ref.cwd === "") throw new Error(this.t("session.pinWorkspaceRequired", "A workspace is required to pin a session"));
     const sessions = await this.list(ref.cwd, managementContext);
     const session = sessions.find((candidate) => candidate.id === ref.id);
-    if (session === undefined) throw new Error("未找到会话");
-    if (session.archived !== true && session.persisted === false) throw new Error("只能置顶已持久化会话");
+    if (session === undefined) throw new Error(this.t("session.notFound", "Session not found"));
+    if (session.archived !== true && session.persisted === false) throw new Error(this.t("session.pinPersistedOnly", "Only persisted sessions can be pinned"));
     await this.pinStore.set(sessionPinScope(ref.cwd, managementContext), session.id, pinned);
     return { pinned };
   }
@@ -1664,7 +1689,7 @@ export class PiSessionService {
     text: unknown,
     signal: AbortSignal,
   ): Promise<{ readonly id: string; readonly completion: Promise<void> }> {
-    const promptText = requirePromptText(text);
+    const promptText = requirePromptText(text, this.t);
     return this.startManagedSession(cwd, signal, promptText);
   }
 
@@ -1695,7 +1720,7 @@ export class PiSessionService {
       } catch (cleanupError) {
         throw new AggregateError(
           [error, cleanupError],
-          `托管会话 ${session.sessionId} 启动失败后清理失败`,
+          this.t("server.main.dbc19a47e7b3", "Failed to clean up managed session {arg0} after startup failed", { arg0: session.sessionId }),
           { cause: cleanupError },
         );
       }
@@ -1748,13 +1773,13 @@ export class PiSessionService {
    * as the spawning session so the new session is visible in the web UI.
    */
   async spawnSession(input: ScopedSpawnSessionInvocation): Promise<SpawnSessionResult> {
-    if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
+    if (this.spawnTargets === undefined) throw new Error(this.t("session.spawningDisabled", "Session spawning is disabled"));
     const decision = await this.spawnTargets.resolveSpawnTarget(
       input.spawningCwd,
       input.cwd,
       eventScopeFromManagementContext(input.managementContext),
     );
-    if (!decision.allowed) throw spawnTargetError(decision);
+    if (!decision.allowed) throw spawnTargetError(decision, this.t);
     // A model spec overrides the inherited model. Only a spec triggers a
     // spawning-session lookup; the default path must not depend on it.
     let model = input.model;
@@ -1787,16 +1812,16 @@ export class PiSessionService {
 
   /** Start a tracked child in the parent's workspace so it remains visible in the same session tree. */
   async spawnSubsession(input: ScopedSpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
-    if (this.spawnTargets === undefined) throw new Error("派生会话已禁用");
+    if (this.spawnTargets === undefined) throw new Error(this.t("session.spawningDisabled", "Session spawning is disabled"));
     if (input.cwd !== undefined && input.cwd !== "" && !cwdPathsEqual(input.cwd, input.spawningCwd)) {
-      throw subsessionCwdError(input.spawningCwd, input.cwd);
+      throw subsessionCwdError(input.spawningCwd, input.cwd, this.t);
     }
     const decision = await this.spawnTargets.resolveSpawnTarget(
       input.spawningCwd,
       undefined,
       eventScopeFromManagementContext(input.managementContext),
     );
-    if (!decision.allowed) throw spawnTargetError(decision);
+    if (!decision.allowed) throw spawnTargetError(decision, this.t);
     // A model spec overrides the inherited model and is resolved against the
     // parent's model runtime; only a spec triggers that lookup.
     const model = input.modelSpec === undefined
@@ -1961,7 +1986,7 @@ export class PiSessionService {
       ? undefined
       : candidates.find((candidate) => candidate.provider === parsed.provider && candidate.id === parsed.modelId)
         ?? session.modelRuntime.getModel(parsed.provider, parsed.modelId);
-    if (model === undefined) throw unknownSpawnModelError(modelSpec);
+    if (model === undefined) throw unknownSpawnModelError(modelSpec, this.t);
     return model;
   }
 
@@ -1999,7 +2024,7 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     // Checked before the store closes the ask so a refused delivery cannot
     // discard answers the user already submitted.
-    this.assertTreeNavigationInactive(session, "回答问题");
+    this.assertTreeNavigationInactive(session, this.t("session.action.answer", "answer questions"));
     return this.closeAsk(session, this.pendingAskStore.submit(this.dialogSessionKey(session), askId, submission));
   }
 
@@ -2011,7 +2036,7 @@ export class PiSessionService {
   async cancelAsk(ref: PiSessionLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    this.assertTreeNavigationInactive(session, "关闭问题");
+    this.assertTreeNavigationInactive(session, this.t("session.action.dismiss", "dismiss questions"));
     return this.closeAsk(session, this.pendingAskStore.cancel(this.dialogSessionKey(session), askId));
   }
 
@@ -2025,7 +2050,7 @@ export class PiSessionService {
     if (result.status === "stale") return { result: "stale", sessionStatus: this.statusFromSession(session) };
     const { outcome } = result;
     this.publishAskClosed(session.sessionId, outcome, this.eventScopeForSession(session));
-    await this.runSessionEntryMutation(session, "提交问题回答", () => session.sendCustomMessage(
+    await this.runSessionEntryMutation(session, this.t("server.main.07f784061918", "deliver answers to your questions"), () => session.sendCustomMessage(
       { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
       { triggerTurn: true, deliverAs: "followUp" },
     ));
@@ -2047,7 +2072,7 @@ export class PiSessionService {
     const outcome = this.pendingAskStore.cancelOpen(this.dialogSessionKey(session));
     if (outcome === undefined) return;
     this.publishAskClosed(session.sessionId, outcome, this.eventScopeForSession(session));
-    await this.runSessionEntryMutation(session, "作废未回答问题", () => session.sendCustomMessage(
+    await this.runSessionEntryMutation(session, this.t("server.main.90b5a8ac7c7d", "void the open questions"), () => session.sendCustomMessage(
       { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
       { triggerTurn: false, deliverAs: "followUp" },
     ));
@@ -2294,10 +2319,10 @@ export class PiSessionService {
       try {
         return canonicalizeStoredCwd(this.sessionManager.open(childSessionFile).getCwd());
       } catch (error: unknown) {
-        throw new Error("Could not resolve cwd for verified tracked sub-session", { cause: error });
+        throw new Error(this.t("session.subsessionCwdMissing", "Could not resolve cwd for verified tracked sub-session"), { cause: error });
       }
     }
-    throw new Error("Could not resolve cwd for verified tracked sub-session");
+    throw new Error(this.t("session.subsessionCwdMissing", "Could not resolve cwd for verified tracked sub-session"));
   }
 
   private unregisterSubsession(childSessionId: string, scope: string): void {
@@ -2427,14 +2452,14 @@ export class PiSessionService {
     if (active !== undefined) return active.runtime.session;
 
     if (link.childSessionFile !== undefined) {
-      if (!(await sessionFileHeaderMatches(link.childSessionFile, { sessionId, parentSessionFile: link.parentSessionFile }))) throw new Error("Session not found");
+      if (!(await sessionFileHeaderMatches(link.childSessionFile, { sessionId, parentSessionFile: link.parentSessionFile }))) throw new Error(this.t("session.notFound", "Session not found"));
       const sessionManager = this.sessionManager.open(link.childSessionFile);
       return (await this.create(sessionManager, link.cwd ?? sessionManager.getCwd(), {
         ...(link.managementContext === undefined ? {} : { managementContext: link.managementContext }),
       })).runtime.session;
     }
 
-    throw new Error("Session not found");
+    throw new Error(this.t("session.notFound", "Session not found"));
   }
 
   private async subsessionSummaryFields(childSessionId: string, scope: string): Promise<{ cwd: string; status: SubsessionStatus }> {
@@ -2501,9 +2526,9 @@ export class PiSessionService {
     if (active !== undefined) return active.runtime.session;
 
     const parentSessionFile = link.parentSessionFile;
-    if (parentSessionFile === undefined) throw new Error(`Parent session ${parentSessionId} is not available for subsession notification`);
+    if (parentSessionFile === undefined) throw new Error(this.t("session.parentUnavailable", "Parent session {parentSessionId} is not available for subsession notification", { parentSessionId }));
     if ((await readSessionHeaderSummary(parentSessionFile))?.id !== parentSessionId) {
-      throw new Error(`Parent session ${parentSessionId} is not available for subsession notification`);
+      throw new Error(this.t("session.parentUnavailable", "Parent session {parentSessionId} is not available for subsession notification", { parentSessionId }));
     }
     const sessionManager = this.sessionManager.open(parentSessionFile);
     return (await this.create(sessionManager, sessionManager.getCwd(), {
@@ -2536,7 +2561,8 @@ export class PiSessionService {
 
   async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<ClientMessagePage> {
     const session = await this.getOrOpen(ref, managementContext);
-    return pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(session)), page);
+    const branch = await this.readableSessionBranch(session);
+    return { ...pageMessagesAtSafeBoundary(historyMessagesFromEntries(branch), page), leafId: session.sessionManager.getLeafId() };
   }
 
   async status(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
@@ -2596,14 +2622,14 @@ export class PiSessionService {
         await session.modelRuntime.refresh({ allowNetwork: false });
         const target = `${update.provider}/${update.modelId}`;
         const available = session.modelRuntime.getAvailableSnapshot();
-        if (!available.some((model) => modelScopeId(model) === target)) throw new Error(`未找到模型：${target}`);
+        if (!available.some((model) => modelScopeId(model) === target)) throw new Error(this.t("server.main.583c6c767d31", "Model not found: {arg0}", { arg0: target }));
         const enabledIds = await resolveEnabledModelIds({
           settingsManager: settings,
           // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           modelRuntime: session.modelRuntime as ModelRuntime,
           scopedModels: [],
         });
-        if (enabledIds !== null && !enabledIds.includes(target)) throw new Error(`模型未启用：${target}`);
+        if (enabledIds !== null && !enabledIds.includes(target)) throw new Error(this.t("server.main.c24071bdc942", "Model is not enabled: {arg0}", { arg0: target }));
         settings.setDefaultModelAndProvider(update.provider, update.modelId);
       } else if (update.thinkingLevel !== undefined) {
         settings.setDefaultThinkingLevel(update.thinkingLevel);
@@ -2631,7 +2657,7 @@ export class PiSessionService {
 
   private assertDefaultsSettingsHealthy(settings: { drainErrors(): { error: { message: string } }[] }): void {
     const errors = settings.drainErrors();
-    if (errors.length > 0) throw new Error(`会话默认值设置失败：${errors.map(({ error }) => error.message).join("; ")}`);
+    if (errors.length > 0) throw new Error(this.t("server.main.d04dfe5abc11", "Session defaults settings failed: {arg0}", { arg0: errors.map(({ error }) => error.message).join("; ") }));
   }
 
   async availableModels(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]> {
@@ -2647,45 +2673,45 @@ export class PiSessionService {
   }
 
   async setModelEnabled(ref: PiSessionLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
-    if (managementContext !== undefined) throw new Error("管理嵌入模式不允许修改已启用模型范围");
+    if (managementContext !== undefined) throw new Error(this.t("server.main.2a7cb0e35521", "Enabled model scope cannot be changed in management embed mode"));
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref);
     return this.runModelScopeMutation(async () => {
       const scope = this.modelScopeContext(session);
-      if (!scope.editable) throw new Error("模型可用范围由此工作区的 .pi/settings.json 控制");
-      this.assertTreeNavigationInactive(session, "修改已启用模型");
+      if (!scope.editable) throw new Error(this.t("server.main.c43b4e3cefe1", "Model availability is controlled by this workspace's .pi/settings.json"));
+      this.assertTreeNavigationInactive(session, this.t("server.main.fd81137332d5", "change enabled models"));
       await session.modelRuntime.refresh({ allowNetwork: false });
       const currentIds = (await this.modelScopeSnapshot(session, scope)).enabledIds;
       const available = session.modelRuntime.getAvailableSnapshot();
       const availableIds = available.map(modelScopeId);
       const targetId = `${provider}/${modelId}`;
-      if (!availableIds.includes(targetId)) throw new Error(`未找到模型：${targetId}`);
-      if (!enabled && session.model !== undefined && modelScopeId(session.model) === targetId) throw new Error("不能停用当前模型");
+      if (!availableIds.includes(targetId)) throw new Error(this.t("server.main.583c6c767d31", "Model not found: {arg0}", { arg0: targetId }));
+      if (!enabled && session.model !== undefined && modelScopeId(session.model) === targetId) throw new Error(this.t("server.main.fe143303e69e", "Current model cannot be disabled"));
       const nextIds = applyEnabledModelToggle(currentIds, availableIds, targetId, enabled);
-      this.assertTreeNavigationInactive(session, "修改已启用模型");
+      this.assertTreeNavigationInactive(session, this.t("server.main.fd81137332d5", "change enabled models"));
       if (nextIds !== currentIds) this.applyEnabledModelScope(session, available, nextIds);
       return (await this.enabledModelCatalog(session)).map((entry) => catalogEntryToClientModel(entry));
     });
   }
 
   async setModelScope(ref: PiSessionLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
-    if (managementContext !== undefined) throw new Error("管理嵌入模式不允许修改已启用模型范围");
+    if (managementContext !== undefined) throw new Error(this.t("server.main.2a7cb0e35521", "Enabled model scope cannot be changed in management embed mode"));
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref);
     return this.runModelScopeMutation(async () => {
       const scope = this.modelScopeContext(session);
-      if (!scope.editable) throw new Error("模型可用范围由此工作区的 .pi/settings.json 控制");
-      this.assertTreeNavigationInactive(session, "修改已启用模型");
+      if (!scope.editable) throw new Error(this.t("server.main.c43b4e3cefe1", "Model availability is controlled by this workspace's .pi/settings.json"));
+      this.assertTreeNavigationInactive(session, this.t("server.main.fd81137332d5", "change enabled models"));
       await session.modelRuntime.refresh({ allowNetwork: false });
       const available = session.modelRuntime.getAvailableSnapshot();
       const availableIds = available.map(modelScopeId);
       let nextIds: readonly string[] | null = null;
       if (mode === "current") {
         const current = session.model;
-        if (current === undefined || !availableIds.includes(modelScopeId(current))) throw new Error("当前模型不可用");
+        if (current === undefined || !availableIds.includes(modelScopeId(current))) throw new Error(this.t("server.main.46b71cd9c032", "The current model is unavailable"));
         nextIds = [modelScopeId(current)];
       }
-      this.assertTreeNavigationInactive(session, "修改已启用模型");
+      this.assertTreeNavigationInactive(session, this.t("server.main.fd81137332d5", "change enabled models"));
       this.applyEnabledModelScope(session, available, nextIds);
       return (await this.enabledModelCatalog(session)).map((entry) => catalogEntryToClientModel(entry));
     });
@@ -2694,14 +2720,14 @@ export class PiSessionService {
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    this.assertTreeNavigationInactive(session, "更改模型");
+    this.assertTreeNavigationInactive(session, this.t("server.main.130226a572df", "change models"));
     const candidates = await this.sessionModelCandidates(session);
-    this.assertTreeNavigationInactive(session, "更改模型");
+    this.assertTreeNavigationInactive(session, this.t("server.main.130226a572df", "change models"));
     const model = candidates.find((candidate) => candidate.provider === provider && candidate.id === modelId)
       ?? session.modelRuntime.getModel(provider, modelId);
-    if (model === undefined) throw new Error(`未找到模型：${provider}/${modelId}`);
-    await this.runSessionEntryMutation(session, "更改模型", () => session.setModel(model));
-    this.publishActivity(session, `模型：${model.id}`, "idle", model.provider);
+    if (model === undefined) throw new Error(this.t("model.notFound", "Model not found: {value0}/{value1}", { value0: provider, value1: modelId }));
+    await this.runSessionEntryMutation(session, this.t("server.main.130226a572df", "change models"), () => session.setModel(model));
+    this.publishActivity(session, this.t("activity.model", "Model: {value0}", { value0: model.id }), "idle", model.provider);
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -2712,10 +2738,10 @@ export class PiSessionService {
     const result = await this.runModelScopeMutation(async () => {
       await session.modelRuntime.refresh({ allowNetwork: false });
       await this.synchronizeSessionModelScope(session, session.modelRuntime.getAvailableSnapshot());
-      return this.runSessionEntryMutation(session, "更改模型", () => session.cycleModel(direction));
+      return this.runSessionEntryMutation(session, this.t("server.main.130226a572df", "change models"), () => session.cycleModel(direction));
     });
-    if (result === undefined) throw new Error(session.scopedModels.length > 0 ? "作用域内只有一个模型" : "只有一个可用模型");
-    this.publishActivity(session, `模型：${result.model.id}`, "idle", result.model.provider);
+    if (result === undefined) throw new Error(session.scopedModels.length > 0 ? this.t("model.oneScoped", "Only one scoped model is available") : this.t("model.oneAvailable", "Only one model is available"));
+    this.publishActivity(session, this.t("activity.model", "Model: {value0}", { value0: result.model.id }), "idle", result.model.provider);
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -2728,17 +2754,17 @@ export class PiSessionService {
   async setThinkingLevel(ref: PiSessionLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    this.assertTreeNavigationInactive(session, "更改思考级别");
+    this.assertTreeNavigationInactive(session, this.t("session.action.changeThinking", "change the thinking level"));
     // pi owns the valid set; validate against the session's live levels rather
     // than a hardcoded union so this stays correct if pi changes the set.
     const available = session.getAvailableThinkingLevels();
     const match = available.find((candidate) => candidate === level);
-    if (match === undefined) throw new Error(`无效的思考级别：${level}`);
-    await this.runSessionEntryMutation(session, "更改思考级别", () => {
+    if (match === undefined) throw new Error(this.t("model.invalidThinking", "Invalid thinking level: {value0}", { value0: level }));
+    await this.runSessionEntryMutation(session, this.t("session.action.changeThinking", "change the thinking level"), () => {
       session.setThinkingLevel(match);
       return Promise.resolve();
     });
-    this.publishActivity(session, `思考级别：${session.thinkingLevel}`, "idle");
+    this.publishActivity(session, this.t("activity.thinking", "Thinking level: {value0}", { value0: session.thinkingLevel }), "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
@@ -2746,16 +2772,16 @@ export class PiSessionService {
   async cycleThinkingLevel(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    const level = await this.runSessionEntryMutation(session, "更改思考级别", () => Promise.resolve(session.cycleThinkingLevel()));
-    if (level === undefined) throw new Error("当前模型不支持思考");
-    this.publishActivity(session, `思考级别：${level}`, "idle");
+    const level = await this.runSessionEntryMutation(session, this.t("session.action.changeThinking", "change the thinking level"), () => Promise.resolve(session.cycleThinkingLevel()));
+    if (level === undefined) throw new Error(this.t("model.thinkingUnsupported", "The current model does not support thinking"));
+    this.publishActivity(session, this.t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: level }), "idle");
     this.publishStatus(session);
     return this.statusFromSession(session);
   }
 
   async commands(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientCommand[]> {
     const session = await this.getOrOpen(ref, managementContext);
-    const commands: ClientCommand[] = [...BUILTIN_COMMANDS];
+    const commands: ClientCommand[] = builtinCommands(this.t);
     for (const command of session.extensionRunner.getRegisteredCommands()) {
       commands.push({ name: command.invocationName, ...(command.description === undefined ? {} : { description: command.description }), source: "extension" });
     }
@@ -2774,7 +2800,7 @@ export class PiSessionService {
   }
 
   async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, options?: { echoUserMessage?: boolean; managementContext?: ManagementEmbedContext | undefined }): Promise<void> {
-    const promptText = requirePromptText(text);
+    const promptText = requirePromptText(text, this.t);
     // Command-forwarded prompts (e.g. /skill:*) are expanded by the agent, which
     // streams the canonical message back. The client doesn't render the raw
     // command text, so the server must not echo it either, or it would show up
@@ -2785,12 +2811,12 @@ export class PiSessionService {
     const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, options?.managementContext);
-    this.assertTreeNavigationInactive(session, "发送消息");
+    this.assertTreeNavigationInactive(session, this.t("server.main.94306b2fc35c", "send a prompt"));
     this.maybeGenerateSessionName(session, promptText);
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
     if (isQueued && images.length === 0 && this.hasQueuedMessageText(session, promptText)) {
-      this.publishActivity(session, "已忽略重复的排队消息", "active");
+      this.publishActivity(session, this.t("activity.duplicateIgnored", "Duplicate queued message ignored"), "active");
       this.publishStatus(session);
       return;
     }
@@ -2814,14 +2840,14 @@ export class PiSessionService {
 
   private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
     this.auditUserPrompt(session, text);
-    this.publishActivity(session, behavior === "steer" ? "插队消息已排队" : behavior === "followUp" ? "消息已排队" : "消息已接收", "active");
+    this.publishActivity(session, behavior === "steer" ? this.t("activity.steerQueued", "Steering message queued") : behavior === "followUp" ? this.t("activity.messageQueued", "Message queued") : this.t("activity.messageReceived", "Message received"), "active");
     const eventScope = this.eventScopeForSession(session);
     if (behavior === undefined && echoUserMessage) this.events.publish(session.sessionId, { type: "message.append", message: userMessage(text, images) }, eventScope);
     const promptOptions = buildPromptOptions(behavior, images);
-    const promptPromise = this.runSessionEntryMutation(session, "发送消息", () => session.prompt(text, promptOptions));
+    const promptPromise = this.runSessionEntryMutation(session, this.t("server.main.94306b2fc35c", "send a prompt"), () => session.prompt(text, promptOptions));
     void promptPromise.catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      this.publishActivity(session, "发生错误", "error", message);
+      this.publishActivity(session, this.t("activity.error", "An error occurred"), "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
     });
     return promptPromise;
@@ -2840,7 +2866,7 @@ export class PiSessionService {
       }
       if (event["type"] === "auto_retry_end" && event["success"] === false && event["finalError"] === "Retry cancelled") {
         // Native Pi cancels retry sleep without an aborted assistant message.
-        failure = new DOMException("初始 PI 会话运行已中止", "AbortError");
+        failure = new DOMException(this.t("server.main.ed6dfd6b55ab", "Initial PI session run was aborted"), "AbortError");
         return;
       }
       const message = event["message"];
@@ -2857,9 +2883,9 @@ export class PiSessionService {
       // prompt promise can fulfill even when the final assistant is an error.
       const reason = message["stopReason"];
       failure = reason === "aborted"
-        ? new DOMException("初始 PI 会话运行已中止", "AbortError")
+        ? new DOMException(this.t("server.main.ed6dfd6b55ab", "Initial PI session run was aborted"), "AbortError")
         : reason === "error"
-          ? new Error(typeof message["errorMessage"] === "string" ? message["errorMessage"] : "初始 PI 会话运行失败")
+          ? new Error(typeof message["errorMessage"] === "string" ? message["errorMessage"] : this.t("server.main.e08c1380a71f", "Initial PI session run failed"))
           : undefined;
     });
     try {
@@ -2875,7 +2901,7 @@ export class PiSessionService {
     const queue = this.compactionPromptQueues.get(sessionKey) ?? [];
     queue.push({ kind, text, ...(images.length > 0 ? { images } : {}), ...(echoUserMessage ? {} : { echoUserMessage: false }) });
     this.compactionPromptQueues.set(sessionKey, queue);
-    this.publishActivity(session, "压缩期间消息已排队", "active");
+    this.publishActivity(session, this.t("activity.compactionQueued", "Message queued during compaction"), "active");
     this.publishStatus(session);
   }
 
@@ -2898,18 +2924,18 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const active = await this.getActive(ref, managementContext);
     const { session } = active.runtime;
-    this.assertTreeNavigationInactive(session, "运行 Shell 命令");
+    this.assertTreeNavigationInactive(session, this.t("session.action.shell", "run a shell command"));
     const isExcluded = text.startsWith("!!");
     const command = (isExcluded ? text.slice(2) : text.slice(1)).trim();
-    if (!command) throw new Error("用法：!<shell command>");
-    if (session.isBashRunning) throw new Error("已有 bash 命令正在运行");
+    if (!command) throw new Error(this.t("shell.usage", "Usage: !<shell command>"));
+    if (session.isBashRunning) throw new Error(this.t("shell.alreadyRunning", "A bash command is already running"));
 
     const eventScope = active.eventScope;
-    this.publishActivity(session, "正在运行命令", "active", command);
+    this.publishActivity(session, this.t("activity.commandRunning", "Running command"), "active", command);
     this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded }, eventScope);
-    void this.runSessionEntryMutation(session, "运行 Shell 命令", () => session.executeBash(command, (chunk) => {
+    void this.runSessionEntryMutation(session, this.t("session.action.shell", "run a shell command"), () => session.executeBash(command, (chunk) => {
       this.events.publish(session.sessionId, { type: "shell.chunk", chunk }, eventScope);
-      this.publishActivity(session, "正在运行命令", "active", command);
+      this.publishActivity(session, this.t("activity.commandRunning", "Running command"), "active", command);
       this.publishStatus(session);
     }, { excludeFromContext: isExcluded })).then((result) => {
       this.events.publish(session.sessionId, {
@@ -2920,13 +2946,13 @@ export class PiSessionService {
         truncated: result.truncated,
         ...(result.fullOutputPath === undefined ? {} : { fullOutputPath: result.fullOutputPath }),
       }, eventScope);
-      this.publishActivity(session, "命令执行完成", result.exitCode === 0 ? "idle" : "error", command);
+      this.publishActivity(session, this.t("activity.commandCompleted", "Command completed"), result.exitCode === 0 ? "idle" : "error", command);
       this.publishStatus(session);
     }).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = userFacingErrorMessage(error, this.t);
       this.events.publish(session.sessionId, { type: "shell.end", output: message, isError: true }, eventScope);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
-      this.publishActivity(session, "命令执行失败", "error", message);
+      this.publishActivity(session, this.t("activity.commandFailed", "Command failed"), "error", message);
       this.publishStatus(session);
     });
   }
@@ -2944,15 +2970,15 @@ export class PiSessionService {
   }
 
   async navigateTree(ref: PiSessionLookup, request: ClientSessionTreeNavigateRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeNavigateResult> {
-    if (request.targetId.trim() === "") throw new Error("会话树目标条目不能为空");
+    if (request.targetId.trim() === "") throw new Error(this.t("server.main.f39f37acdac1", "Session tree target is required"));
     if (this.isTreeExclusiveSessionIdentityActive(sessionIdFromLookup(ref))) {
-      throw new Error("切换会话树前请先停止当前会话活动");
+      throw new Error(this.t("server.main.e39e6b98e072", "Stop current session activity before navigating the session tree"));
     }
     await this.assertWritable(ref);
-    const options = sessionTreeNavigationOptions(request);
+    const options = sessionTreeNavigationOptions(request, this.t);
     const session = await this.getOrOpen(ref, managementContext);
-    if (typeof session.navigateTree !== "function") throw new Error("当前 Pi 运行时不支持会话树导航");
-    if (this.hasActiveWork(session)) throw new Error("切换会话树前请先停止当前会话活动");
+    if (typeof session.navigateTree !== "function") throw new Error(this.t("session.treeUnsupported", "Session tree navigation is not supported by this Pi runtime"));
+    if (this.hasActiveWork(session)) throw new Error(this.t("server.main.e39e6b98e072", "Stop current session activity before navigating the session tree"));
 
     // Acquire synchronously after the active-work check. No leaf-producing work
     // may enter this runtime until Pi's potentially asynchronous summary settles.
@@ -2960,11 +2986,11 @@ export class PiSessionService {
     try {
       const oldLeafId = session.sessionManager.getLeafId();
       if (oldLeafId !== request.expectedLeafId) {
-        throw new Error("打开 /tree 后会话已发生变化。请重新打开 /tree 后重试。");
+        throw new Error(this.t("session.treeStale", "The session changed since /tree was opened. Reopen /tree and try again."));
       }
 
       const activeEditableTargetParentId = activeEditableTreeTargetParentId(session.sessionManager, request.targetId, oldLeafId);
-      this.publishActivity(session, options.summarize ? "正在汇总分支" : "正在切换会话树", "active");
+      this.publishActivity(session, options.summarize ? this.t("activity.summarizing", "Summarizing branch") : this.t("activity.navigating", "Navigating session tree"), "active");
       this.publishStatus(session);
       let result = await session.navigateTree(request.targetId, options);
       if (activeEditableTargetParentId !== undefined && !result.cancelled
@@ -2981,7 +3007,7 @@ export class PiSessionService {
       }
       if (result.cancelled) {
         if (this.isCurrentActiveSession(session)) {
-          this.publishActivity(session, result.aborted === true ? "分支汇总已终止" : "会话树切换已取消", "idle");
+          this.publishActivity(session, result.aborted === true ? this.t("activity.summaryAborted", "Branch summary aborted") : this.t("activity.navigationCancelled", "Session tree navigation cancelled"), "idle");
         }
         return { cancelled: true, ...(result.aborted === undefined ? {} : { aborted: result.aborted }) };
       }
@@ -2999,12 +3025,12 @@ export class PiSessionService {
         const selectedLeafId = session.sessionManager.getLeafId();
         if (selectedLeafId !== oldLeafId) this.unpersistedTreeBranchLeaves.set(session, selectedLeafId);
       }
-      if (this.isCurrentActiveSession(session)) this.publishActivity(session, "已切换会话树", "idle");
+      if (this.isCurrentActiveSession(session)) this.publishActivity(session, this.t("activity.navigated", "Session tree changed"), "idle");
       return { cancelled: false, ...(result.editorText === undefined ? {} : { editorText: result.editorText }) };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       if (this.isCurrentActiveSession(session)) {
-        this.publishActivity(session, "会话树切换失败", "error", message);
+        this.publishActivity(session, this.t("server.main.8cae209986b4", "tree navigation failed"), "error", message);
         this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
       }
       throw error;
@@ -3021,32 +3047,32 @@ export class PiSessionService {
   }
 
   async forkFromTree(ref: PiSessionLookup, request: ClientSessionTreeForkRequest, managementContext?: ManagementEmbedContext): Promise<ClientSessionTreeForkResult> {
-    if (request.entryId.trim() === "") throw new Error("会话树条目不能为空");
+    if (request.entryId.trim() === "") throw new Error(this.t("server.main.f10a242f597a", "Session tree entry is required"));
     const requestedSessionId = sessionIdFromLookup(ref);
     if (this.isTreeExclusiveSessionIdentityActive(requestedSessionId)) {
-      throw new Error("分叉会话树前请先停止当前会话活动");
+      throw new Error(this.t("server.main.3f5b7f08e91c", "Stop current session activity before forking the session tree"));
     }
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    if (this.hasActiveWork(session)) throw new Error("分叉会话树前请先停止当前会话活动");
+    if (this.hasActiveWork(session)) throw new Error(this.t("server.main.3f5b7f08e91c", "Stop current session activity before forking the session tree"));
     if (session.sessionManager.getLeafId() !== request.expectedLeafId) {
-      throw new Error("打开 /tree 后会话已发生变化。请重新打开 /tree 后重试。");
+      throw new Error(this.t("session.treeStale", "The session changed since /tree was opened. Reopen /tree and try again."));
     }
     const sourceSessionId = session.sessionId;
     const sourceEventScope = this.eventScopeForSession(session);
     const sourceCwd = session.sessionManager.getCwd();
 
-    this.publishActivity(session, "正在从条目分叉会话", "active");
+    this.publishActivity(session, this.t("server.main.4de911d3b72a", "forking session from entry"), "active");
     this.publishStatus(session);
     try {
       const result = await this.commandService.forkEntry(session.sessionId, request.entryId, sourceEventScope, {
         expectedLeafId: request.expectedLeafId,
       });
       if (result.type === "unsupported") throw new Error(result.message);
-      if (result.type !== "done") throw new Error("会话分叉不可用");
+      if (result.type !== "done") throw new Error(this.t("server.main.0246b6af6843", "Session fork is unavailable"));
       if (result.session === undefined) {
         if (this.isCurrentActiveSession(session)) {
-          this.publishActivity(session, "分叉已取消", "idle");
+          this.publishActivity(session, this.t("server.main.1cceead5f414", "fork cancelled"), "idle");
           this.publishStatus(session);
         }
         return { cancelled: true };
@@ -3054,7 +3080,7 @@ export class PiSessionService {
 
       const forked = this.activeForLookup({ id: result.session.id, cwd: result.session.cwd }, managementContext)?.runtime.session;
       if (forked !== undefined && this.isCurrentActiveSession(forked)) {
-        this.publishActivity(forked, "会话已分叉", "idle");
+        this.publishActivity(forked, this.t("command.forked", "Session forked"), "idle");
         this.publishStatus(forked);
       }
       if (result.session.id !== sourceSessionId) this.clearSupersededSessionActivity(sourceSessionId, sourceCwd, sourceEventScope);
@@ -3066,7 +3092,7 @@ export class PiSessionService {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       if (this.isCurrentActiveSession(session)) {
-        this.publishActivity(session, "分叉失败", "error", message);
+        this.publishActivity(session, this.t("server.main.08e8f3ea9eaa", "fork failed"), "error", message);
         this.events.publish(session.sessionId, { type: "session.error", message }, sourceEventScope);
         this.publishStatus(session);
       }
@@ -3078,7 +3104,7 @@ export class PiSessionService {
     const sessionKey = activeSessionKey(sessionId, eventScope);
     if (this.activities.get(sessionKey)?.phase === "active") {
       const at = new Date().toISOString();
-      const stored = { phase: "idle" as const, label: "空闲", at };
+      const stored = { phase: "idle" as const, label: this.t("activity.idle", "Idle"), at };
       this.activities.set(sessionKey, stored);
       const activity = { sessionId, ...stored };
       this.events.publish(sessionId, { type: "activity.update", activity }, eventScope);
@@ -3093,7 +3119,7 @@ export class PiSessionService {
     const session = active.runtime.session;
     await this.runTreeExclusiveOperation(
       [{ sessionId: session.sessionId, session, runtime: active.runtime }],
-      "归档前请先停止当前会话活动",
+      this.t("session.stopBeforeArchive", "Stop current session activity before archiving"),
       async () => {
         const archiveInput = await this.archiveInputForSession(session);
         await this.closeActiveSession(active);
@@ -3127,7 +3153,7 @@ export class PiSessionService {
       const listed = findListedSessionForBulkRef(sessionContext, ref);
       const resolvedSessionId = active?.runtime.session.sessionId ?? listed?.id ?? ref.id;
       if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
-        failures.push({ sessionId: resolvedSessionId, error: "Stop current session activity before archiving" });
+        failures.push({ sessionId: resolvedSessionId, error: this.t("session.stopBeforeArchive", "Stop current session activity before archiving") });
         continue;
       }
 
@@ -3135,12 +3161,12 @@ export class PiSessionService {
         if (listed !== undefined) {
           planItems.push({ input: archiveInputFromListEntry(listed), ...(active === undefined ? {} : { active }) });
         } else if (active !== undefined) {
-          planItems.push({ input: archiveInputFromActiveSession(active.runtime.session), active });
+          planItems.push({ input: archiveInputFromActiveSession(active.runtime.session, this.t), active });
         } else {
-          failures.push({ sessionId: ref.id, error: "Session not found" });
+          failures.push({ sessionId: ref.id, error: this.t("session.notFound", "Session not found") });
         }
       } catch (error: unknown) {
-        failures.push({ sessionId: resolvedSessionId, error: errorMessage(error) });
+        failures.push({ sessionId: resolvedSessionId, error: errorMessage(error, this.t) });
       }
     }
 
@@ -3148,7 +3174,7 @@ export class PiSessionService {
     for (const item of planItems) {
       const active = item.active ?? this.activeForLookup(bulkRefToLookup({ id: item.input.sessionId, cwd: item.input.cwd }), managementContext);
       if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
-        failures.push({ sessionId: item.input.sessionId, error: "Stop current session activity before archiving" });
+        failures.push({ sessionId: item.input.sessionId, error: this.t("session.stopBeforeArchive", "Stop current session activity before archiving") });
         continue;
       }
       readyPlanItems.push(active === undefined ? item : { ...item, active });
@@ -3161,7 +3187,7 @@ export class PiSessionService {
         sessionId: input.sessionId,
         ...(active === undefined ? {} : { session: active.runtime.session, runtime: active.runtime }),
       })),
-      "Stop current session activity before archiving",
+      this.t("session.stopBeforeArchive", "Stop current session activity before archiving"),
       async () => {
         for (const item of readyPlanItems) {
           try {
@@ -3169,7 +3195,7 @@ export class PiSessionService {
             else await this.closeActiveInScope(item.input.sessionId, eventScopeFromManagementContext(managementContext));
             readyInputs.push(item.input);
           } catch (error: unknown) {
-            failures.push({ sessionId: item.input.sessionId, error: errorMessage(error) });
+            failures.push({ sessionId: item.input.sessionId, error: errorMessage(error, this.t) });
           }
         }
 
@@ -3178,7 +3204,7 @@ export class PiSessionService {
           archivedSessionIds.push(...archived.map((record) => record.sessionId));
           unreadArchivedIdentities.push(...archived);
         } catch (error: unknown) {
-          for (const input of readyInputs) failures.push({ sessionId: input.sessionId, error: errorMessage(error) });
+          for (const input of readyInputs) failures.push({ sessionId: input.sessionId, error: errorMessage(error, this.t) });
         }
       },
     );
@@ -3195,18 +3221,18 @@ export class PiSessionService {
   async archiveTree(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientArchiveSessionsResponse> {
     const session = await this.getOrOpen(ref, managementContext);
     const catalog = await this.workspaceArchiveCandidates(session.sessionManager.getCwd());
-    const root = findArchiveCandidateByIdOrPrefix(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false);
+    const root = findArchiveCandidateByIdOrPrefix(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false, this.t);
     const plan = planSessionArchiveTree(root, catalog);
     const busy = plan.targets.map((target) => target.activeSession).find((target) => target !== undefined && this.hasActiveWork(target));
-    if (busy !== undefined) throw new Error(`归档 ${sessionDisplayName(busy)} 前请先停止当前会话活动`);
+    if (busy !== undefined) throw new Error(this.t("session.stopBeforeNamedArchive", "Stop current session activity before archiving {value0}", { value0: sessionDisplayName(busy) }));
 
-    const archiveInputs = plan.unarchivedTargets.map((target) => archiveInputFromCandidate(target));
+    const archiveInputs = plan.unarchivedTargets.map((target) => archiveInputFromCandidate(target, this.t));
     await this.runTreeExclusiveOperation(
       plan.unarchivedTargets.map((target) => ({
         sessionId: target.id,
         ...(target.activeSession === undefined ? {} : { session: target.activeSession }),
       })),
-      `归档 ${sessionDisplayName(session)} 前请先停止当前会话活动`,
+      this.t("session.stopBeforeNamedArchive", "Stop current session activity before archiving {value0}", { value0: sessionDisplayName(session) }),
       async () => {
         for (const target of plan.targets) {
           if (target.archived) this.publishNotificationMutations(this.notificationsForScope(eventScopeFromManagementContext(managementContext)).clearSession(target.id, "archive"));
@@ -3227,7 +3253,7 @@ export class PiSessionService {
 
   async restore(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     const archived = await this.getArchived(ref);
-    if (archived === undefined) throw new Error("未找到会话");
+    if (archived === undefined) throw new Error(this.t("session.notFound", "Session not found"));
     await this.closeActiveInScope(archived.sessionId, eventScopeFromManagementContext(managementContext));
     await this.archiveStore.restore(archived.sessionId);
     await this.forgetUnreadSessions([archived], eventScopeFromManagementContext(managementContext));
@@ -3235,8 +3261,8 @@ export class PiSessionService {
 
   async deleteArchived(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     const record = await this.getArchived(ref);
-    if (record === undefined) throw new Error("未找到已归档会话");
-    if (this.archiveStore.deleteArchived === undefined) throw new Error("归档存储不支持删除");
+    if (record === undefined) throw new Error(this.t("session.archiveNotFound", "Archived session not found"));
+    if (this.archiveStore.deleteArchived === undefined) throw new Error(this.t("session.archiveDeleteUnsupported", "The archive store does not support deletion"));
 
     await this.closeActiveInScope(record.sessionId, eventScopeFromManagementContext(managementContext));
     await this.archiveStore.deleteArchived(record.sessionId);
@@ -3244,7 +3270,7 @@ export class PiSessionService {
   }
 
   async deleteArchivedMany(refs: readonly SessionBulkMutationRef[], managementContext?: ManagementEmbedContext): Promise<SessionBulkDeleteArchivedResponse> {
-    if (this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error("Archive store does not support deletion");
+    if (this.archiveStore.deleteArchived === undefined && this.archiveStore.deleteArchivedMany === undefined) throw new Error(this.t("session.archiveDeleteUnsupported", "The archive store does not support deletion"));
 
     const uniqueRefs = uniqueBulkSessionRefs(refs);
     const archivedRecords = await this.archiveStore.list();
@@ -3254,13 +3280,13 @@ export class PiSessionService {
     for (const ref of uniqueRefs) {
       const record = findArchivedRecordForBulkRef(archivedRecords, ref);
       if (record === undefined) {
-        failures.push({ sessionId: ref.id, error: "Archived session not found" });
+        failures.push({ sessionId: ref.id, error: this.t("session.archiveNotFound", "Archived session not found") });
         continue;
       }
 
       const active = this.activeForLookup({ id: record.sessionId, cwd: record.cwd }, managementContext);
       if (active !== undefined && this.hasActiveWork(active.runtime.session)) {
-        failures.push({ sessionId: record.sessionId, error: "Stop current session activity before deleting archived session" });
+        failures.push({ sessionId: record.sessionId, error: this.t("session.stopBeforeDeleteArchive", "Stop current session activity before deleting archived session") });
         continue;
       }
       planItems.push({ record });
@@ -3272,7 +3298,7 @@ export class PiSessionService {
         await this.closeActiveInScope(item.record.sessionId, eventScopeFromManagementContext(managementContext));
         readyRecords.push(item.record);
       } catch (error: unknown) {
-        failures.push({ sessionId: item.record.sessionId, error: errorMessage(error) });
+        failures.push({ sessionId: item.record.sessionId, error: errorMessage(error, this.t) });
       }
     }
 
@@ -3282,7 +3308,7 @@ export class PiSessionService {
     try {
       deletedSessionIds = await this.archiveStoreDeleteArchivedMany(deleteIds);
     } catch (error: unknown) {
-      for (const sessionId of deleteIds) failures.push({ sessionId, error: errorMessage(error) });
+      for (const sessionId of deleteIds) failures.push({ sessionId, error: errorMessage(error, this.t) });
     }
     const deletedIdSet = new Set(deletedSessionIds);
     await this.forgetUnreadSessions(readyRecords.filter((record) => deletedIdSet.has(record.sessionId)), eventScopeFromManagementContext(managementContext));
@@ -3299,12 +3325,12 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const active = await this.getActive(ref, managementContext);
     const session = active.runtime.session;
-    if (this.hasActiveWork(session)) throw new Error("重新加载前请先停止当前会话活动");
+    if (this.hasActiveWork(session)) throw new Error(this.t("session.stopBeforeReload", "Stop current session activity before reloading"));
     const sessionFile = session.sessionFile;
-    if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
+    if (sessionFile === undefined || sessionFile === "") throw new Error(this.t("session.notPersisted", "Session has not been persisted"));
     const reopenedSession = await this.runTreeExclusiveOperation(
       [{ sessionId: session.sessionId, session, runtime: active.runtime }],
-      "重新加载前请先停止当前会话活动",
+      this.t("session.stopBeforeReload", "Stop current session activity before reloading"),
       async () => {
         const priorGeneration = this.notificationGenerationBySession.get(session);
         const { sessionId, cwd } = notificationIdentityForSession(session);
@@ -3346,7 +3372,7 @@ export class PiSessionService {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
     const sessionFile = session.sessionFile;
-    if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
+    if (sessionFile === undefined || sessionFile === "") throw new Error(this.t("session.notPersisted", "Session has not been persisted"));
     clearSessionFileParent(sessionFile);
     this.sessionManager.invalidateSessionFile(sessionFile);
     clearParentSessionHeader(session.sessionManager);
@@ -3362,10 +3388,10 @@ export class PiSessionService {
     this.abortRunScopedExtensionDialogs(active.runtime.session);
     try {
       await this.abortSessionOperations(active.runtime.session);
-      this.publishActivity(active.runtime.session, "已停止", "idle");
+      this.publishActivity(active.runtime.session, this.t("activity.stopped", "Stopped"), "idle");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.publishActivity(active.runtime.session, "停止失败", "error", message);
+      const message = userFacingErrorMessage(error, this.t);
+      this.publishActivity(active.runtime.session, this.t("activity.stopFailed", "Stop failed"), "error", message);
       throw error;
     } finally {
       this.publishStatus(active.runtime.session);
@@ -3414,7 +3440,7 @@ export class PiSessionService {
   private async archiveStoreDeleteArchivedMany(sessionIds: readonly string[]): Promise<string[]> {
     if (sessionIds.length === 0) return [];
     if (this.archiveStore.deleteArchivedMany !== undefined) return this.archiveStore.deleteArchivedMany(sessionIds);
-    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+    if (this.archiveStore.deleteArchived === undefined) throw new Error(this.t("session.archiveDeleteUnsupported", "The archive store does not support deletion"));
     for (const sessionId of sessionIds) await this.archiveStore.deleteArchived(sessionId);
     return [...sessionIds];
   }
@@ -3469,10 +3495,10 @@ export class PiSessionService {
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
     const cwd = session.sessionManager.getCwd();
     const sessionFile = session.sessionFile;
-    if (sessionFile === undefined || sessionFile === "") throw new Error("会话尚未持久化");
+    if (sessionFile === undefined || sessionFile === "") throw new Error(this.t("session.notPersisted", "Session has not been persisted"));
     const listed = (await this.sessionManager.list(cwd)).find((candidate) => candidate.id === session.sessionId);
     if (listed !== undefined) return archiveInputFromListEntry(listed);
-    return archiveInputFromActiveSession(session);
+    return archiveInputFromActiveSession(session, this.t);
   }
 
   private async workspaceArchiveCandidates(cwd: string): Promise<WorkspaceArchiveCandidate[]> {
@@ -3503,7 +3529,7 @@ export class PiSessionService {
       const session = active.runtime.session;
       if (session.sessionManager.getCwd() !== cwd || archivedById.has(session.sessionId)) continue;
       const existing = candidates.get(session.sessionId);
-      candidates.set(session.sessionId, { ...(existing ?? archiveCandidateFromActiveSession(session, false)), activeSession: session });
+      candidates.set(session.sessionId, { ...(existing ?? archiveCandidateFromActiveSession(session, false, this.t)), activeSession: session });
     }
 
     return [...candidates.values()];
@@ -3596,7 +3622,7 @@ export class PiSessionService {
   }
 
   private async assertWritable(ref: PiSessionLookup): Promise<void> {
-    if (await this.getArchived(ref) !== undefined) throw new Error("已归档会话为只读。请恢复会话后继续。");
+    if (await this.getArchived(ref) !== undefined) throw new Error(this.t("session.archiveReadOnly", "Archived sessions are read-only. Restore the session to continue."));
   }
 
   private async getOrOpen(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<PiAgentSession> {
@@ -3683,7 +3709,7 @@ export class PiSessionService {
     const match = isPiSessionRef(ref)
       ? await this.sessionManager.resolveSessionFile(ref.cwd, ref.id)
       : findSessionByIdOrPrefix(await this.sessionManager.listAll(), ref);
-    if (!match) throw new Error("未找到会话");
+    if (!match) throw new Error(this.t("routing.sessionNotFound", "Session not found"));
     return this.openPending(match.id, match.cwd, managementContext, () => this.sessionManager.open(match.path));
   }
 
@@ -3754,13 +3780,13 @@ export class PiSessionService {
 
   private getActiveForCommand(sessionId: string, eventScope: string | undefined): Promise<ManagedActiveSession> {
     const active = eventScope === undefined ? this.activeForSessionId(sessionId) : this.activeForSessionIdAndScope(sessionId, eventScope);
-    if (active === undefined) throw new Error(`Session not active: ${sessionId}`);
+    if (active === undefined) throw new Error(this.t("session.notActive", "Session not active: {sessionId}", { sessionId }));
     return Promise.resolve(active);
   }
 
   private submitCommandPrompt(sessionId: string, text: string, eventScope: string | undefined): Promise<void> {
     const active = this.activeForSessionIdAndScope(sessionId, eventScope);
-    if (active === undefined) throw new Error(`Session not active: ${sessionId}`);
+    if (active === undefined) throw new Error(this.t("session.notActive", "Session not active: {sessionId}", { sessionId }));
     return this.submitPrompt(active.runtime.session, text, undefined, [], false);
   }
 
@@ -3834,7 +3860,7 @@ export class PiSessionService {
         mode: "rpc",
         onError: (error) => {
           const message = `${error.extensionPath}: ${error.error}`;
-          this.publishActivity(session, "扩展错误", "error", message);
+          this.publishActivity(session, this.t("activity.extensionError", "Extension error"), "error", message);
           this.events.publish(session.sessionId, { type: "session.error", message }, owner.eventScope);
         },
       });
@@ -3868,7 +3894,7 @@ export class PiSessionService {
       if (eventType === "message_start" && isRecord(event) && getString(event["message"], "role") === "user") {
         void this.voidOpenAskForUserMessage(session).catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          this.publishActivity(session, "扩展错误", "error", message);
+          this.publishActivity(session, this.t("activity.extensionError", "Extension error"), "error", message);
           this.events.publish(session.sessionId, { type: "session.error", message }, active.eventScope);
         });
       }
@@ -4005,7 +4031,7 @@ export class PiSessionService {
     this.events.publish(session.sessionId, {
       type: "command.output",
       level: "error",
-      message: `Authentication for ${model.provider}/${model.id} was removed. Use /model to select another model.`,
+      message: this.t("session.authRemoved", "Authentication for {provider}/{model} was removed. Use /model to select another model.", { provider: model.provider, model: model.id }),
     }, eventScope);
   }
 
@@ -4044,13 +4070,13 @@ export class PiSessionService {
   }
 
   private activityLabelFromStatus(session: PiAgentSession): string {
-    if (this.treeNavigations.has(session)) return "正在切换会话树";
-    if (this.isSessionEntryMutationActive(session)) return "正在更新会话";
-    if (session.isCompacting) return "正在压缩上下文";
-    if (session.isBashRunning) return "正在运行命令";
-    if (session.isStreaming) return "代理正在运行";
-    if (this.pendingMessageCount(session) > 0) return "正在排队";
-    return "正在处理";
+    if (this.treeNavigations.has(session)) return this.t("activity.navigating", "Navigating session tree");
+    if (this.isSessionEntryMutationActive(session)) return this.t("activity.updating", "Updating session");
+    if (session.isCompacting) return this.t("activity.compacting", "Compacting context");
+    if (session.isBashRunning) return this.t("activity.commandRunning", "Running command");
+    if (session.isStreaming) return this.t("activity.agentRunning", "Agent running");
+    if (this.pendingMessageCount(session) > 0) return this.t("activity.queued", "Queued");
+    return this.t("activity.working", "Working");
   }
 
   private hasActiveWork(session: PiAgentSession): boolean {
@@ -4116,7 +4142,7 @@ export class PiSessionService {
   }
 
   private assertTreeNavigationInactive(session: PiAgentSession, action: string): void {
-    if (this.treeNavigations.has(session)) throw new Error(`会话树导航期间无法${action}`);
+    if (this.treeNavigations.has(session)) throw new Error(this.t("server.main.0c70757b6815", "Cannot {arg0} while session tree navigation is active", { arg0: action }));
   }
 
   private async runSessionEntryMutation<T>(session: PiAgentSession, action: string, operation: () => Promise<T>): Promise<T> {
@@ -4148,31 +4174,31 @@ export class PiSessionService {
   private publishActivityForEvent(session: PiAgentSession, event: unknown): void {
     const eventType = getString(event, "type");
     if (eventType === undefined) return;
-    if (eventType === "agent_start") { this.publishActivity(session, "代理正在运行", "active"); return; }
+    if (eventType === "agent_start") { this.publishActivity(session, this.t("activity.agentRunning", "Agent running"), "active"); return; }
     if (eventType === "agent_end") {
-      this.publishActivity(session, "空闲", "idle");
+      this.publishActivity(session, this.t("activity.idle", "Idle"), "idle");
       const eventScope = this.eventScopeForSession(session);
       const sessionKey = activeSessionKey(session.sessionId, eventScope);
       this.activities.scheduleSettledRefresh(sessionKey, () => {
         if (this.active.get(sessionKey)?.runtime.session !== session) return;
-        this.publishActivity(session, "空闲", "idle");
+        this.publishActivity(session, this.t("activity.idle", "Idle"), "idle");
         this.publishStatus(session);
       }, 250);
       return;
     }
-    if (eventType === "turn_end") { this.publishActivity(session, "本轮已完成", "idle"); return; }
-    if (eventType === "message_start") { this.publishActivity(session, "消息开始处理", "active"); return; }
-    if (eventType === "message_end") { this.publishActivity(session, "消息处理完成", "idle"); return; }
-    if (eventType === "message_update") { this.publishActivity(session, "正在接收回复", "active"); return; }
-    if (eventType === "tool_execution_start") { this.publishActivity(session, "正在运行工具", "active", getString(event, "toolName")); return; }
+    if (eventType === "turn_end") { this.publishActivity(session, this.t("activity.turnCompleted", "Turn completed"), "idle"); return; }
+    if (eventType === "message_start") { this.publishActivity(session, this.t("activity.messageStarted", "Message started"), "active"); return; }
+    if (eventType === "message_end") { this.publishActivity(session, this.t("activity.messageCompleted", "Message completed"), "idle"); return; }
+    if (eventType === "message_update") { this.publishActivity(session, this.t("activity.receiving", "Receiving reply"), "active"); return; }
+    if (eventType === "tool_execution_start") { this.publishActivity(session, this.t("activity.toolRunning", "Running tool"), "active", getString(event, "toolName")); return; }
     if (eventType === "tool_execution_end") {
       const isError = getBoolean(event, "isError") === true;
-      this.publishActivity(session, isError ? "工具执行失败" : "工具执行完成", isError ? "error" : "idle", getString(event, "toolName"));
+      this.publishActivity(session, isError ? this.t("activity.toolFailed", "Tool failed") : this.t("activity.toolCompleted", "Tool completed"), isError ? "error" : "idle", getString(event, "toolName"));
       return;
     }
-    if (eventType === "bash_execution_start") { this.publishActivity(session, "正在运行命令", "active"); return; }
-    if (eventType === "bash_execution_end") { this.publishActivity(session, "命令执行完成", "idle"); return; }
-    if (this.hasActiveWork(session)) this.publishActivity(session, "正在处理", "active");
+    if (eventType === "bash_execution_start") { this.publishActivity(session, this.t("activity.commandRunning", "Running command"), "active"); return; }
+    if (eventType === "bash_execution_end") { this.publishActivity(session, this.t("activity.commandCompleted", "Command completed"), "idle"); return; }
+    if (this.hasActiveWork(session)) this.publishActivity(session, this.t("activity.working", "Working"), "active");
   }
 
   private auditToolExecutionEvent(active: ManagedActiveSession, event: unknown): void {
@@ -4273,21 +4299,21 @@ export class PiSessionService {
   ): SessionStartupProgressReporter {
     const sessionId = sessionManager.getSessionId();
     if (sessionId === "") return { report: noop, end: noop };
-    const label = intent === "create" ? "正在创建会话" : "正在打开会话";
+    const label = intent === "create" ? this.t("activity.creating", "Creating session") : this.t("activity.opening", "Opening session");
     return {
       report: (phase) => { this.publishStartupProgress(sessionId, startupToken, label, "active", this.startupDetail(phase), eventScope); },
       end: () => {
         // A real activity published during the window (an extension error, say)
         // is the truth about this session and must survive the clear.
         if (this.activities.get(activeSessionKey(sessionId, eventScope)) !== undefined) return;
-        this.publishStartupProgress(sessionId, startupToken, "空闲", "idle", undefined, eventScope);
+        this.publishStartupProgress(sessionId, startupToken, this.t("activity.idle", "Idle"), "idle", undefined, eventScope);
       },
     };
   }
 
   private startupDetail(phase: string): string {
     return this.catalogRefreshStatus?.isRefreshInFlight() === true
-      ? `${phase} · ${STARTUP_CONCURRENT_CATALOG_REFRESH}`
+      ? `${phase} · ${this.t("startup.catalogRefresh", "Provider model catalog is refreshing")}`
       : phase;
   }
 
@@ -4360,7 +4386,7 @@ export class PiSessionService {
     const current = this.activities.get(activeSessionKey(session.sessionId, eventScope));
     if (current?.phase !== "active" || this.hasActiveWork(session)) return;
     const at = new Date().toISOString();
-    const stored = { phase: "idle" as const, label: "空闲", at };
+    const stored = { phase: "idle" as const, label: this.t("activity.idle", "Idle"), at };
     this.activities.set(activeSessionKey(session.sessionId, eventScope), stored);
     const activity = { sessionId: session.sessionId, ...stored };
     this.events.publish(session.sessionId, { type: "activity.update", activity }, eventScope);
@@ -4439,7 +4465,7 @@ export class PiSessionService {
       && this.activityMarker.isActiveElsewhere(session.sessionFile)) {
       warnings.push({
         severity: "info",
-        message: "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
+        message: this.t("server.main.b80808e6ef11", "Recently active in another PI-WEB instance. Avoid working on this session in both instances at once."),
         source: "PI-WEB",
       });
     }
@@ -4550,7 +4576,7 @@ dismissAllNotifications(
   }
 
 private async deliverSubsessionNotification(session: PiAgentSession, notification: DeferredSubsessionNotification): Promise<void> {
-    await this.runSessionEntryMutation(session, "发送子会话通知", () => session.sendCustomMessage(
+    await this.runSessionEntryMutation(session, this.t("session.action.notify", "deliver a subsession notification"), () => session.sendCustomMessage(
       { customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, content: notification.text, display: true, details: { sessionId: notification.childId } },
       { triggerTurn: true, deliverAs: "followUp" },
     ));
@@ -4565,12 +4591,12 @@ private logSubsessionNotificationFailure(parentId: string, childId: string, erro
   }
 
 private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
-    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before reloading");
+    if (this.hasActiveWork(session)) throw new Error(this.t("session.stopBeforeReload", "Stop current session activity before reloading"));
     await this.runTreeExclusiveOperation(
       [{ sessionId: session.sessionId, session }],
-      "Stop current session activity before reloading",
+      this.t("session.stopBeforeReload", "Stop current session activity before reloading"),
       async () => {
-        this.publishActivity(session, "正在重新加载资源", "active");
+        this.publishActivity(session, this.t("activity.reloading", "Reloading resources"), "active");
         const priorGeneration = this.notificationGenerationBySession.get(session);
         let candidateGeneration: SessionNotificationGeneration | undefined;
         try {
@@ -4585,7 +4611,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
           if (candidateGeneration !== undefined) {
             this.publishNotificationMutations(this.notificationsForSession(session).commitReplacement(candidateGeneration));
           }
-          this.publishActivity(session, "资源已重新加载", "idle");
+          this.publishActivity(session, this.t("activity.reloaded", "Resources reloaded"), "idle");
           this.publishStatus(session);
         } catch (error: unknown) {
           if (candidateGeneration !== undefined) {
@@ -4593,7 +4619,7 @@ private async reloadSessionRuntime(session: PiAgentSession): Promise<void> {
             this.notificationGenerationBySession.set(session, candidateGeneration);
           }
           const message = error instanceof Error ? error.message : String(error);
-          this.publishActivity(session, "重新加载失败", "error", message);
+          this.publishActivity(session, this.t("activity.reloadFailed", "Reload failed"), "error", message);
           this.events.publish(session.sessionId, { type: "session.error", message }, this.eventScopeForSession(session));
           this.publishStatus(session);
           throw error;
@@ -4628,7 +4654,7 @@ private async createSessionRuntime(
     options: CreateSessionRuntimeOptions,
     startup: SessionStartupProgressReporter,
   ): Promise<ManagedActiveSession> {
-    startup.report(STARTUP_PHASE_RUNTIME);
+    startup.report(this.t("startup.runtime", "Loading session runtime"));
     options.startupSignal?.throwIfAborted();
     // Ordinary local sessions (undefined provenance) keep the current rule.
     // Only an explicit host one-shot forces delegation off; do not treat every
@@ -4702,7 +4728,7 @@ private async createSessionRuntime(
         await this.recoverSubsessionTrackingForOpenedSession(runtime.session);
       }
       startupSignal?.throwIfAborted();
-      startup.report(STARTUP_PHASE_EXTENSIONS);
+      startup.report(this.t("startup.extensions", "Starting session extensions"));
       // Startup hooks emit through the same scoped stream as hosted turns.
       this.bindRuntime(active);
       await this.bindSessionExtensions(runtime.session, notificationGeneration, active, startupSignal);
@@ -4872,6 +4898,7 @@ private observeUnreadActivityState(session: PiAgentSession): void {
       session.sessionId,
       canonicalizeStoredCwd(session.sessionManager.getCwd()),
       this.hasActiveWork(session),
+      () => ({ messageCount: historyMessages(session).length, leafId: session.sessionManager.getLeafId() }),
     );
     if (mutations.length === 0) return;
     void this.publishUnreadMutations(mutations).catch(() => undefined);
@@ -5043,8 +5070,8 @@ function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(error: unknown, t: Translator = createTranslator("en", {})): string {
+  return userFacingErrorMessage(error, t);
 }
 
 function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel {

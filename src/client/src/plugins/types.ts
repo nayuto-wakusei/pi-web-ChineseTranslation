@@ -1,4 +1,5 @@
 import type { TemplateResult } from "lit";
+import type { LocalizationContribution, Translator } from "../../../shared/i18n";
 import type { AppAction } from "../actions";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { AppState } from "../appState";
@@ -47,6 +48,7 @@ export interface PiWebPlugin {
 }
 
 export interface PluginActivationContext {
+  readonly translate?: Translator;
   readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
@@ -77,6 +79,7 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  localizations?: LocalizationContribution[];
   contentRenderers?: ContentRendererContribution[];
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];

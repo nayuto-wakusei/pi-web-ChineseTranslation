@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { getAgentDir, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { piWebDataDir } from "../../config.js";
+import { loadNodeTranslator } from "../../localization.js";
+import type { Translator } from "../../shared/i18n.js";
 import type { Project } from "../types.js";
 import { AuthService, createModelRuntimeForAgentDir, type AuthChange } from "./authService.js";
 import { bootstrapAndFreezeGlobalExtensionProviders, type GlobalProviderBootstrapLogger } from "./globalProviderPolicy.js";
@@ -18,6 +20,7 @@ interface WorkspaceLister {
 }
 
 export interface ProjectAuthServiceDependencies {
+  translator?: Translator;
   projects: ProjectLister;
   workspaces: WorkspaceLister;
   dataDir?: string;
@@ -44,6 +47,7 @@ const noopLogger: GlobalProviderBootstrapLogger = { error() { /* no-op */ }, inf
  * service because it has a different security boundary.
  */
 export class ProjectAuthService {
+  private readonly t: Translator;
   private readonly services = new Map<string, AuthService>();
   private readonly initializations = new Map<string, Promise<AuthService>>();
   private readonly subscriptions = new Map<string, () => void>();
@@ -54,6 +58,7 @@ export class ProjectAuthService {
   private disposed = false;
 
   constructor(private readonly deps: ProjectAuthServiceDependencies) {
+    this.t = deps.translator ?? loadNodeTranslator("server");
     this.dataDir = deps.dataDir ?? piWebDataDir();
     this.globalAgentDir = deps.globalAgentDir ?? getAgentDir();
   }
@@ -68,7 +73,7 @@ export class ProjectAuthService {
   async forProject(projectId: string): Promise<AuthService> {
     if (this.disposed) throw new Error("Project auth service is disposed");
     const project = (await this.deps.projects.list()).find((candidate) => candidate.id === projectId);
-    if (project === undefined) throw new Error("Project not found");
+    if (project === undefined) throw new Error(this.t("project.notFound", "Project not found"));
     return this.forProjectRecord(project);
   }
 
@@ -85,9 +90,9 @@ export class ProjectAuthService {
       const workspaces = await this.deps.workspaces.list(project);
       if (workspaces.some((workspace) => normalizeProjectPath(workspace.path) === normalizedCwd)) matches.push(project);
     }
-    if (matches.length > 1) throw new Error("cwd 同时属于多个已注册项目，无法确定认证配置");
+    if (matches.length > 1) throw new Error(this.t("project.authAmbiguous", "cwd belongs to multiple registered projects; cannot select authentication settings"));
     const [project] = matches;
-    if (project === undefined) throw new Error("cwd 必须属于一个已注册项目");
+    if (project === undefined) throw new Error(this.t("project.cwdUnregistered", "cwd must belong to a registered project"));
     return project;
   }
 

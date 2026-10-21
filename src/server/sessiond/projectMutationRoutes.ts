@@ -1,16 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { ProjectService } from "../projects/projectService.js";
+import { createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 
-export function registerProjectMutationRoutes(app: FastifyInstance, projects: Pick<ProjectService, "add" | "close">): void {
+export function registerProjectMutationRoutes(app: FastifyInstance, projects: Pick<ProjectService, "add" | "close">, t: Translator = createTranslator("en", {})): void {
   app.post<{ Body: unknown }>("/projects", async (request, reply) => {
     const input = request.body;
     if (!isProjectInput(input)) {
-      return reply.code(400).send({ error: "Invalid project input: path is required; name must be a string and create must be a boolean" });
+      return reply.code(400).send({ error: t("projectError.invalidInput", "Invalid project input: path is required; name must be a string and create must be a boolean") });
     }
     try {
       return await projects.add(input);
     } catch (error) {
-      return reply.code(isInvalidProjectPath(error) ? 400 : 500).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(isInvalidProjectPath(error) ? 400 : 500).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 
@@ -20,7 +21,7 @@ export function registerProjectMutationRoutes(app: FastifyInstance, projects: Pi
       return { closed: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return reply.code(message === "Project not found" ? 404 : 500).send({ error: message });
+      return reply.code(message === "Project not found" ? 404 : 500).send({ error: userFacingErrorMessage(error, t) });
     }
   });
 }

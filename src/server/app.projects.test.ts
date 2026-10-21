@@ -86,6 +86,7 @@ describe("buildApp project routes", () => {
 
     const closeResponse = await appTestContext.app.inject({ method: "DELETE", url: "/api/projects/does-not-exist" });
     expect(closeResponse.statusCode).toBe(404);
+    // Daemon-owned responses retain the daemon language.
     expect(closeResponse.json()).toEqual({ error: "Project not found" });
   });
 

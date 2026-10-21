@@ -1,0 +1,6 @@
+{
+  "projectError.pathMustBeDirectory": "项目路径必须是文件夹",
+  "projectError.notFound": "找不到项目",
+  "projectError.cwdRequired": "必须提供 cwd",
+  "projectError.cwdAbsolute": "cwd 必须是绝对路径"
+}

@@ -1,3 +1,5 @@
+import type { Translator } from "../../shared/i18n.js";
+import { loadNodeTranslator } from "../../localization.js";
 import type { StableCapabilityResult } from "./types.js";
 import { isRecord, record, stringField } from "./workbenchClient.js";
 
@@ -53,7 +55,7 @@ export class WorkbenchMcpClient {
     return parseStableCapabilityResult(response.value);
   }
 
-  private async rpc(token: string, sessionId: string | undefined, body: unknown, expectBody = true): Promise<{ headers: Headers; value: unknown }> {
+  private async rpc(token: string, sessionId: string | undefined, body: unknown, expectBody = true, t: Translator = loadNodeTranslator("server")): Promise<{ headers: Headers; value: unknown }> {
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       accept: "application/json, text/event-stream",
@@ -72,7 +74,7 @@ export class WorkbenchMcpClient {
       text = await response.text();
     } catch (error) {
       const code = transportErrorCode(error);
-      throw new McpTransportError(code, transportErrorMessage(code), { cause: error });
+      throw new McpTransportError(code, transportErrorMessage(code, t), { cause: error });
     }
     if (!response.ok) throw new McpHttpError(response.status, mcpErrorMessage(text, response.status));
     return { headers: response.headers, value: expectBody ? parseMcpPayload(text, response.headers.get("content-type")) : undefined };
@@ -177,7 +179,7 @@ function transportErrorCode(error: unknown): string {
   return "transport_error";
 }
 
-function transportErrorMessage(code: string): string {
-  if (code === "timeout") return "MCP 通道请求超时";
-  return code === "transport_error" ? "MCP 通道连接失败" : `MCP 通道连接失败（${code}）`;
+function transportErrorMessage(code: string, t: Translator = loadNodeTranslator("server")): string {
+  if (code === "timeout") return t("server.main.89d8fb1a8854", "MCP channel request timed out");
+  return code === "transport_error" ? t("server.main.348148161f56", "MCP channel connection failed") : t("server.main.5ca91c430286", "MCP channel connection failed ({arg0})", { arg0: code });
 }

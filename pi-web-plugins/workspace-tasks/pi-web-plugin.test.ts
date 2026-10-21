@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("workspace tasks plugin Chinese display text", () => {
   it("exposes Chinese action and panel labels", async () => {
@@ -8,7 +13,7 @@ describe("workspace tasks plugin Chinese display text", () => {
 
     const { default: plugin } = await import("./pi-web-plugin");
     const signal = new AbortController().signal;
-    const activation = await plugin.activate({ apiVersion: 4, pluginId: "workspace-tasks", runtimePluginId: "workspace-tasks", html, svg, signal, lifetimeSignal: signal });
+    const activation = await plugin.activate({ apiVersion: 4, translate: translateChinese, pluginId: "workspace-tasks", runtimePluginId: "workspace-tasks", html, svg, signal, lifetimeSignal: signal });
 
     expect(plugin.name).toBe("工作区任务");
     expect(activation.contributions.actions?.[0]).toMatchObject({

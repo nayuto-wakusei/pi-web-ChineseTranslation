@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type { ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
@@ -6,7 +7,7 @@ let enginePromise: Promise<string> | undefined;
 export function loadMermaidEngine(): Promise<string> {
   // The package build emits this self-contained script beside the browser entry.
   enginePromise ??= fetch(new URL(/* @vite-ignore */ "./mermaid-engine.js", import.meta.url), { signal: AbortSignal.timeout(30_000) }).then(async (response) => {
-    if (!response.ok) throw new Error(`图表引擎不可用（${String(response.status)}）`);
+    if (!response.ok) throw new Error(t("ui.main.47f00878a76b", "Diagram engine unavailable ({arg0})", { arg0: String(response.status) }));
     return response.text();
   }).catch((error: unknown) => {
     enginePromise = undefined;
@@ -62,7 +63,7 @@ export class MermaidPreview extends LitElement {
       if (data.type === "mermaid-ready") {
         frame.contentWindow?.postMessage({ type: "mermaid-render", text: input.text }, "*");
       } else if (data.type === "mermaid-error") {
-        input.fail(new Error("无法渲染此图表源码"));
+        input.fail(new Error(t("ui.main.71d2d7a799b5", "Mermaid could not render this source")));
         window.clearTimeout(timeout);
       } else if (data.type === "mermaid-rendered" && "height" in data && typeof data.height === "number" && Number.isFinite(data.height)) {
         window.clearTimeout(timeout);
@@ -77,7 +78,7 @@ export class MermaidPreview extends LitElement {
       if (current()) {
         this.generation += 1;
         this.document = undefined;
-        input.fail(new Error("图表预览超时"));
+        input.fail(new Error(t("ui.main.2b61a115b16d", "Mermaid preview timed out")));
       }
       cleanup();
     }, 30_000);
@@ -100,8 +101,8 @@ export class MermaidPreview extends LitElement {
 
   override render() {
     return this.document === undefined
-      ? html`<p role="status">正在渲染图表…</p>`
-      : html`<iframe title="图表" sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
+      ? html`<p role="status">${t("ui.main.e1a26333e1cf", "Rendering diagram…")}</p>`
+      : html`<iframe title="${t("ui.main.a66b71e29e45", "Mermaid diagram")}" sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
   }
 
   static override styles = css`

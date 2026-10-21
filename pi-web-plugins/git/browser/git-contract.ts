@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 export const GIT_STATUS_OPERATION = "status";
 export const GIT_DIFF_OPERATION = "diff";
 
@@ -33,7 +34,7 @@ export interface GitDiffResponse {
 }
 
 export function parseGitStatusResponse(value: unknown): GitStatusResponse {
-  const record = requireRecord(value, "Git 状态响应");
+  const record = requireRecord(value, t("ui.main.7486c17f15ba", "Git status response"));
   const branch = optionalString(record, "branch");
   const upstream = optionalString(record, "upstream");
   const ahead = optionalNumber(record, "ahead");
@@ -53,7 +54,7 @@ export function parseGitStatusResponse(value: unknown): GitStatusResponse {
 }
 
 export function parseGitDiffResponse(value: unknown): GitDiffResponse {
-  const record = requireRecord(value, "Git 差异响应");
+  const record = requireRecord(value, t("ui.main.f5c4a5928162", "Git diff response"));
   const path = optionalString(record, "path");
   return {
     ...(path === undefined ? {} : { path }),
@@ -65,7 +66,7 @@ export function parseGitDiffResponse(value: unknown): GitDiffResponse {
 }
 
 function parseGitStatusFile(value: unknown): GitStatusFile {
-  const record = requireRecord(value, "Git 状态文件");
+  const record = requireRecord(value, t("ui.main.c15d1c2fb1e7", "Git status file"));
   const oldPath = optionalString(record, "oldPath");
   const submoduleFromCommit = optionalString(record, "submoduleFromCommit");
   const submoduleToCommit = optionalString(record, "submoduleToCommit");
@@ -92,56 +93,56 @@ function parseGitFileState(value: unknown): GitFileState {
     case "conflicted":
       return value;
     default:
-      throw new Error("无效的 Git 文件状态");
+      throw new Error(t("ui.main.b9c6b8997acf", "Invalid Git file state"));
   }
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${label}必须是对象`);
+  if (!isRecord(value)) throw new Error(t("ui.main.0068cdba7cb2", "{arg0} must be an object", { arg0: label }));
   return value;
 }
 
 function requireArray(record: Record<string, unknown>, key: string): unknown[] {
   const value = record[key];
-  if (!Array.isArray(value)) throw new Error(`字段必须是数组：${key}`);
+  if (!Array.isArray(value)) throw new Error(t("ui.main.7f27405e930e", "Field must be an array: {arg0}", { arg0: key }));
   return value;
 }
 
 function requireString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
-  if (typeof value !== "string") throw new Error(`字段必须是字符串：${key}`);
+  if (typeof value !== "string") throw new Error(t("ui.main.f6d0b37d664f", "Field must be a string: {arg0}", { arg0: key }));
   return value;
 }
 
 function requireBoolean(record: Record<string, unknown>, key: string): boolean {
   const value = record[key];
-  if (typeof value !== "boolean") throw new Error(`字段必须是布尔值：${key}`);
+  if (typeof value !== "boolean") throw new Error(t("ui.main.7517a00e15b7", "Field must be a boolean: {arg0}", { arg0: key }));
   return value;
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`字段必须是字符串：${key}`);
+  if (typeof value !== "string") throw new Error(t("ui.main.f6d0b37d664f", "Field must be a string: {arg0}", { arg0: key }));
   return value;
 }
 
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`字段必须是有限数字：${key}`);
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(t("ui.main.d40fe7108098", "Field must be a finite number: {arg0}", { arg0: key }));
   return value;
 }
 
 function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
   const value = record[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw new Error(`字段必须是布尔值：${key}`);
+  if (typeof value !== "boolean") throw new Error(t("ui.main.7517a00e15b7", "Field must be a boolean: {arg0}", { arg0: key }));
   return value;
 }
 
 function requireStringArray(value: unknown, key: string): string[] {
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`字段必须是字符串数组：${key}`);
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(t("ui.main.141ce9c90033", "Field must be a string array: {arg0}", { arg0: key }));
   return value;
 }
 

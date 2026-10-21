@@ -1,3 +1,5 @@
+import { createTranslator, userFacingErrorMessage, UserFacingError } from "../shared/i18n.js";
+import managementMessages from "../../pi-web-plugins/zh-cn/management-errors.json";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
@@ -36,6 +38,19 @@ afterEach(async () => {
 });
 
 describe("management embed sandbox policy", () => {
+  it("retains English authorization errors internally and localizes only the user boundary", async () => {
+    const translate = createTranslator("zh-CN", managementMessages);
+    try {
+      await managementContextForRequest({ headers: { "x-pi-web-embed-mode": "management" } }, undefined);
+      expect.fail("Expected disabled management mode to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(UserFacingError);
+      expect(error).toMatchObject({ message: "Management embed mode is not configured" });
+      expect(userFacingErrorMessage(error, translate)).toBe("未配置管理嵌入模式");
+    }
+    expect(userFacingErrorMessage(new Error("upstream authorization failure"), translate)).toBe("upstream authorization failure");
+  });
+
   it("derives project roots as safe children of the configured project root", async () => {
     const path = await managedProjectPath(root, "user/../1", "project:alpha");
 
@@ -213,7 +228,7 @@ describe("management embed sandbox policy", () => {
     expect(projects).toEqual([
       expect.objectContaining({
         id: "default-project",
-        name: "account-1的项目",
+        name: "account-1's project",
         path: join(root, "account-1"),
       }),
     ]);
@@ -224,6 +239,22 @@ describe("management embed sandbox policy", () => {
 
     expect(projects).toEqual([expect.objectContaining({ path: join(root, "root-user", "p1") })]);
     await expect(pathExists(join(root, "root-user", "p1"))).resolves.toBe(false);
+  });
+
+  it.each(["zh-CN", "en"])("localizes only synthesized project names in %s", async (locale) => {
+    const translate = createTranslator(locale, managementMessages);
+    const context = contextFor([]);
+    context.user.id = "用户 <id>";
+    const [project] = await projectsFromManagedEmbedContext(root, context, translate);
+    expect(project?.name).toBe(locale === "zh-CN" ? "用户 <id>的项目" : "用户 <id>'s project");
+    expect(project?.id).toBe("default-project");
+    expect(project?.path).toBe(join(root, "id"));
+    expect(context.projects).toEqual([]);
+
+    const named = contextFor([{ id: "p1", name: "用户指定的项目 <b>name</b>" }]);
+    const [provided] = await projectsFromManagedEmbedContext(root, named, translate);
+    expect(provided?.name).toBe(named.projects[0]?.name);
+    expect(provided?.id).toBe("p1");
   });
 
   it("lists default managed projects without creating their directories", async () => {

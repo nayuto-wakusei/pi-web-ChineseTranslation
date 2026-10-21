@@ -10,6 +10,8 @@ Pi 包提供扩展、技能和提示词；PI WEB 插件提供浏览器贡献与 
 
 内置浏览器插件位于 `pi-web-plugins/<id>/`，构建到 `dist/pi-web-plugins/`，与 Pi packages 不同。优先使用文档中的 context helper，而不是直接请求私有 `/api/...`；远端插件贡献、注册及资产加载都必须保留机器作用域。
 
+中文词典集中在 `pi-web-plugins/zh-cn/`。浏览器在首屏及其他插件激活前，使用只依赖网关配置的语言清单初始化翻译；该清单不能依赖 sessiond 或必需终端插件就绪。Node 只加载 JSON 数据。展示调用保留英文回退和命名参数；不得猜测翻译远端响应、用户内容或协议值。公开声明由 `npm run build:plugin-api` 生成。
+
 ## 加载与调用链
 
 ```text

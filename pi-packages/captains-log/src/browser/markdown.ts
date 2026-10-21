@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { Lexer, type MarkedToken, type Token } from "marked";
 
@@ -53,7 +54,7 @@ export function renderCaptainMarkdown(html: Html, markdown: string): unknown {
         ? html`<ol start=${token.start}>${renderTokens(token.items)}</ol>`
         : html`<ul>${renderTokens(token.items)}</ul>`;
       case "list_item": return html`<li>${renderTokens(token.tokens)}</li>`;
-      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label="任务完成状态">`;
+      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label="${t("ui.main.109177cfd281", "Task completion status")}">`;
       case "link": {
         const href = safeLink(token.href);
         const label = renderTokens(token.tokens);

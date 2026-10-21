@@ -1,4 +1,5 @@
-import type { TemplateResult } from "lit";
+// @vitest-environment happy-dom
+import { type TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus, SessionWarning } from "../api";
 import { parseSessionStatus } from "../api/parsers";
@@ -22,7 +23,7 @@ import {
   chatQueuedSectionShowsClearAction,
   chatSessionWarningRows,
 } from "./ChatView";
-import { templateEventHandlerAfterMarker, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
+import { templateEventHandlerAfterMarker, templateClickHandlerForText } from "../templateInspection.testSupport";
 
 describe("chatMessageRoleLabel", () => {
   it("localizes every protocol-level chat role for display", () => {
@@ -96,11 +97,6 @@ describe("chatQueuedSectionShowsClearAction", () => {
 });
 
 describe("ChatView queued-message clear wiring", () => {
-  // Escape hatch: this case verifies the Clear queue button's Lit event wiring,
-  // whose only observable effect is invoking the injected callback. Vitest runs
-  // with no DOM environment here, so a shadow-DOM click harness would add
-  // disproportionate setup; handler extraction anchored to the user-facing
-  // "Clear queue" button text is proportionate.
   it("invokes onClearServerQueue when the server-queue action is activated", () => {
     const view = new ChatView();
     const onClearServerQueue = vi.fn();
@@ -108,7 +104,7 @@ describe("ChatView queued-message clear wiring", () => {
     view.canClearServerQueue = true;
     view.onClearServerQueue = onClearServerQueue;
 
-    templateEventHandlerNearMarker(renderQueuedMessages(view), "清除队列")(new Event("click"));
+    templateClickHandlerForText(renderQueuedMessages(view), "清除队列")(new Event("click"));
 
     expect(onClearServerQueue).toHaveBeenCalledOnce();
   });

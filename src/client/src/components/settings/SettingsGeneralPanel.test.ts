@@ -11,14 +11,14 @@ describe("settings-general-panel copy", () => {
     panel.machineConfigResponse = configResponse({ pathAccess: { allowedPaths: ["/mnt/share"] }, uploads: { defaultFolder: "manual/uploads" } });
 
     const template = panel.render();
-    const strings = collectTemplateStrings(template).join("");
+    const strings = collectTemplateStrings(template).join("") + collectTemplateValues(template).filter((value) => typeof value === "string").join("");
     const values = collectTemplateValues(template);
 
     expect(strings).toContain("<settings-panel-frame");
     expect(strings).toContain("网关服务器字段用于编辑当前本地网关；文件访问和上传默认值用于编辑 ");
     expect(strings).toContain("主机地址、端口和允许的主机名会保存到网关配置中。");
     expect(strings).toContain("外部文件系统根目录和上传默认值会保存到 ");
-    expect(values.filter((value) => value === "Lab Mac (remote machine)")).toHaveLength(5);
+    expect(values.filter((value) => typeof value === "string").join("").match(/Lab Mac \(remote machine\)/g)).toHaveLength(5);
   });
 
   it("shows reload copy when selected-machine access config is unavailable", () => {

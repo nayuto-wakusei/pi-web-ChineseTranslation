@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { translateChinese } from "../localization.testSupport.js";
 
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -450,7 +451,7 @@ describe("bundled Git browser plugin", () => {
 
 function activate(pluginId: string, runtimePluginId = pluginId) {
   return plugin.activate({
-    apiVersion: 4,
+    apiVersion: 4, translate: translateChinese,
     pluginId,
     runtimePluginId,
     html,

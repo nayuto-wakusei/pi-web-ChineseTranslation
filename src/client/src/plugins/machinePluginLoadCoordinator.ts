@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { pluginsApi, type Machine } from "../api";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { loadExternalPlugins, type ExternalPluginLoadResult, type PluginManifestEntry } from "./external";
@@ -16,7 +17,7 @@ export class MachinePluginLoadCoordinator {
   ) {}
 
   ensureGatewayLoaded(): Promise<boolean> {
-    this.gatewayLoad ??= this.registerPlugins("PI WEB 插件", async () => {
+    this.gatewayLoad ??= this.registerPlugins(t("client.machinePluginLoadCoordinator.pi.web.plugins.54b78f", "PI WEB plugins"), async () => {
       const manifest = await managementPluginManifest();
       return loadExternalPlugins("pi-web-plugins/manifest.json", {
         ...(manifest === undefined ? {} : { manifest }),
@@ -40,7 +41,7 @@ export class MachinePluginLoadCoordinator {
     if (existing !== undefined) return existing;
 
     const load = this.registerPlugins(
-      `来自 ${machine.name} 的 PI WEB 插件`,
+      t("client.machinePluginLoadCoordinator.pi.web.plugins.from.cf3236", "PI WEB plugins from {value1}", { value1: machine.name }),
       () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
         machineId: machine.id,
         shouldLoadPlugin: (entry) => this.shouldLoadRemotePlugin(entry.id, entry.machineSpecific),
@@ -57,7 +58,7 @@ export class MachinePluginLoadCoordinator {
 async function managementPluginManifest(): Promise<{ lifecycleVersion: number; terminalMode: "required" | "recovery-disabled"; plugins: readonly PluginManifestEntry[] } | undefined> {
   if (!isManagementEmbedMode()) return undefined;
   const response = await pluginsApi.plugins();
-  if (response.serverRuntime.status !== "available") throw new Error(response.serverRuntime.message ?? "PI WEB 插件运行时不可用");
+  if (response.serverRuntime.status !== "available") throw new Error(response.serverRuntime.message ?? t("ui.main.78c257936052", "PI WEB plugin runtime unavailable"));
   const plugins = response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined
     || (plugin.server !== undefined && (plugin.server.state !== "active" || plugin.server.staleRevision || plugin.server.health?.status === "unhealthy")) ? [] : [{
     id: plugin.id,

@@ -1,3 +1,5 @@
+import type { Translator } from "../../shared/i18n.js";
+import { loadNodeTranslator } from "../../localization.js";
 import type { SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../shared/apiTypes.js";
 
 const SUMMARY_MAX_LENGTH = 360;
@@ -30,7 +32,7 @@ interface EntryProjection {
  */
 export function projectSessionTree(
   roots: readonly ProjectableSessionTreeNode[],
-  activeLeafId: string | null,
+  activeLeafId: string | null, t: Translator = loadNodeTranslator("server")
 ): SessionTreeSnapshot {
   const nodes: SessionTreeNode[] = [];
   const projectedIds = new Set<string>();
@@ -40,17 +42,17 @@ export function projectSessionTree(
   while (stack.length > 0) {
     const candidate = stack.pop();
     if (candidate === undefined) continue;
-    if (!isProjectableSessionTreeNode(candidate)) throw new Error("Pi 返回的会话树节点格式无效");
+    if (!isProjectableSessionTreeNode(candidate)) throw new Error(t("server.main.4b60afa8c1ba", "Pi returned a malformed session-tree node"));
     const node = candidate;
     if (visitedNodes.has(node)) continue;
     visitedNodes.add(node);
 
     if (!isProjectableSessionEntry(node.entry)) {
-      throw new Error("Pi 返回的会话树条目格式无效");
+      throw new Error(t("server.main.e6b6a590f7ed", "Pi returned a malformed session-tree entry"));
     }
-    if (projectedIds.has(node.entry.id)) throw new Error("Pi 返回了重复的会话树条目 ID");
+    if (projectedIds.has(node.entry.id)) throw new Error(t("server.main.3857869ba727", "Pi returned duplicate session-tree entry IDs"));
     projectedIds.add(node.entry.id);
-    nodes.push(projectNode(node, node.entry));
+    nodes.push(projectNode(node, node.entry, t));
 
     for (let index = node.children.length - 1; index >= 0; index -= 1) {
       const child = node.children[index];
@@ -59,7 +61,7 @@ export function projectSessionTree(
   }
 
   if (activeLeafId !== null && (activeLeafId.trim() === "" || !projectedIds.has(activeLeafId))) {
-    throw new Error("Pi 返回的当前会话树叶节点无效");
+    throw new Error(t("server.main.7a5bc8620ac0", "Pi returned an invalid active session-tree leaf"));
   }
 
   return {
@@ -69,8 +71,8 @@ export function projectSessionTree(
   };
 }
 
-function projectNode(node: ProjectableSessionTreeNode, entry: ProjectableSessionEntry): SessionTreeNode {
-  const projection = projectEntry(entry);
+function projectNode(node: ProjectableSessionTreeNode, entry: ProjectableSessionEntry, t: Translator = loadNodeTranslator("server")): SessionTreeNode {
+  const projection = projectEntry(entry, t);
   const timestamp = optionalPlainText(entry["timestamp"], TIMESTAMP_MAX_LENGTH);
   const label = optionalPlainText(node.label, LABEL_MAX_LENGTH);
   return {
@@ -83,70 +85,70 @@ function projectNode(node: ProjectableSessionTreeNode, entry: ProjectableSession
   };
 }
 
-function projectEntry(entry: ProjectableSessionEntry): EntryProjection {
+function projectEntry(entry: ProjectableSessionEntry, t: Translator = loadNodeTranslator("server")): EntryProjection {
   switch (entry.type) {
     case "message":
-      return projectMessage(entry["message"]);
+      return projectMessage(entry["message"], t);
     case "custom_message":
-      return projectCustomMessage(entry);
+      return projectCustomMessage(entry, t);
     case "compaction":
-      return { kind: "compaction", summary: summary(entry["summary"], "上下文压缩摘要") };
+      return { kind: "compaction", summary: summary(entry["summary"], t("server.main.d765f83522b3", "Compaction summary")) };
     case "branch_summary":
-      return { kind: "branch-summary", summary: summary(entry["summary"], "分支摘要") };
+      return { kind: "branch-summary", summary: summary(entry["summary"], t("ui.sessionTreeNavigator.branchSummary", "Branch summary")) };
     case "model_change":
-      return { kind: "model-change", summary: modelChangeSummary(entry) };
+      return { kind: "model-change", summary: modelChangeSummary(entry, t) };
     case "thinking_level_change":
-      return { kind: "thinking-level-change", summary: namedSummary("思考级别", entry["thinkingLevel"], "思考级别已改变") };
+      return { kind: "thinking-level-change", summary: namedSummary(t("ui.sessionTreeNavigator.thinkingLevel", "Thinking level"), entry["thinkingLevel"], t("server.main.bd3089eabef7", "Thinking level changed")) };
     case "session_info":
-      return { kind: "session-info", summary: namedSummary("会话名称", entry["name"], "会话信息已更新") };
+      return { kind: "session-info", summary: namedSummary(t("server.main.864aff361dc2", "Session name"), entry["name"], t("server.main.fa649632e3e0", "Session info changed")) };
     case "label":
-      return { kind: "label", summary: namedSummary("标签", entry["label"], "标签已移除") };
+      return { kind: "label", summary: namedSummary(t("ui.sessionTreeNavigator.label", "Label"), entry["label"], t("server.main.7fcc85f15076", "Label removed")) };
     case "custom":
-      return { kind: "custom", summary: namedSummary("自定义条目", entry["customType"], "自定义条目") };
+      return { kind: "custom", summary: namedSummary(t("server.main.5f0cbfe15886", "Custom entry"), entry["customType"], t("server.main.5f0cbfe15886", "Custom entry")) };
     default:
-      return { kind: "other", summary: namedSummary("条目", entry.type, "其他会话条目") };
+      return { kind: "other", summary: namedSummary(t("server.main.4e5f90ffebb5", "Entry"), entry.type, t("server.main.6723d8968dbb", "Other session entry")) };
   }
 }
 
-function projectMessage(value: unknown): EntryProjection {
-  if (!isRecord(value)) return { kind: "other", summary: "消息" };
+function projectMessage(value: unknown, t: Translator = loadNodeTranslator("server")): EntryProjection {
+  if (!isRecord(value)) return { kind: "other", summary: t("server.main.dc6de3fa868f", " message") };
   switch (value["role"]) {
     case "user":
-      return { kind: "user", summary: summary(contentPreview(value["content"], true), "用户消息") };
+      return { kind: "user", summary: summary(contentPreview(value["content"], true, t), t("server.main.146671b0a192", "User message")) };
     case "assistant":
-      return { kind: "assistant", summary: assistantSummary(value) };
+      return { kind: "assistant", summary: assistantSummary(value, t) };
     case "toolResult":
-      return { kind: "tool-result", summary: toolResultSummary(value) };
+      return { kind: "tool-result", summary: toolResultSummary(value, t) };
     case "bashExecution":
-      return { kind: "bash", summary: namedSummary("命令", value["command"], "Shell 命令") };
+      return { kind: "bash", summary: namedSummary(t("ui.toolExecutionView.command", "Command"), value["command"], t("server.main.616f0f69fb0c", "Shell command")) };
     case "custom":
-      return projectCustomMessage(value);
+      return projectCustomMessage(value, t);
     case "compactionSummary":
-      return { kind: "compaction", summary: summary(value["summary"], "上下文压缩摘要") };
+      return { kind: "compaction", summary: summary(value["summary"], t("server.main.d765f83522b3", "Compaction summary")) };
     case "branchSummary":
-      return { kind: "branch-summary", summary: summary(value["summary"], "分支摘要") };
+      return { kind: "branch-summary", summary: summary(value["summary"], t("ui.sessionTreeNavigator.branchSummary", "Branch summary")) };
     default:
-      return { kind: "other", summary: "消息" };
+      return { kind: "other", summary: t("server.main.dc6de3fa868f", " message") };
   }
 }
 
-function projectCustomMessage(value: Record<string, unknown>): EntryProjection {
-  if (value["display"] !== true) return { kind: "custom-message", summary: "隐藏的自定义消息" };
+function projectCustomMessage(value: Record<string, unknown>, t: Translator = loadNodeTranslator("server")): EntryProjection {
+  if (value["display"] !== true) return { kind: "custom-message", summary: t("server.main.be56e839ddf1", "Hidden custom message") };
   const customType = optionalPlainText(value["customType"], NAMED_FIELD_MAX_LENGTH);
-  const content = contentPreview(value["content"], true);
-  const prefix = customType === undefined ? "自定义消息" : `自定义消息 (${customType})`;
+  const content = contentPreview(value["content"], true, t);
+  const prefix = customType === undefined ? t("ui.sessionTreeNavigator.customMessage", "Custom message") : t("server.main.fa01b7e998e3", "Custom message ({arg0})", { arg0: customType });
   return { kind: "custom-message", summary: summary(content === "" ? prefix : `${prefix}: ${content}`, prefix) };
 }
 
-function assistantSummary(message: Record<string, unknown>): string {
-  const text = contentPreview(message["content"], false);
-  if (text !== "") return summary(text, "助手回复");
+function assistantSummary(message: Record<string, unknown>, t: Translator = loadNodeTranslator("server")): string {
+  const text = contentPreview(message["content"], false, t);
+  if (text !== "") return summary(text, t("server.main.5c94fc594b12", "Assistant response"));
 
   const toolNames = assistantToolNames(message["content"]);
-  if (toolNames.length > 0) return summary(`工具调用: ${toolNames.join(", ")}`, "助手工具调用");
-  if (message["stopReason"] === "error") return "助手错误";
-  if (message["stopReason"] === "aborted") return "助手回复已终止";
-  return "助手回复";
+  if (toolNames.length > 0) return summary(t("server.main.1bd15151d237", "Tool call: {arg0}", { arg0: toolNames.join(", ") }), t("server.main.794d91c7d8b2", "Assistant tool call"));
+  if (message["stopReason"] === "error") return t("server.main.303ddde0151b", "Assistant error");
+  if (message["stopReason"] === "aborted") return t("server.main.7f2288f6a14d", "Assistant response aborted");
+  return t("server.main.5c94fc594b12", "Assistant response");
 }
 
 function assistantToolNames(content: unknown): string[] {
@@ -161,24 +163,24 @@ function assistantToolNames(content: unknown): string[] {
   return names;
 }
 
-function toolResultSummary(message: Record<string, unknown>): string {
+function toolResultSummary(message: Record<string, unknown>, t: Translator = loadNodeTranslator("server")): string {
   const isError = message["isError"] === true;
   const toolName = optionalPlainText(message["toolName"], NAMED_FIELD_MAX_LENGTH);
   const prefix = toolName === undefined
-    ? isError ? "工具错误" : "工具结果"
-    : `${isError ? "工具错误" : "工具结果"} (${toolName})`;
-  const content = contentPreview(message["content"], true);
+    ? isError ? t("server.main.544b5247f8ed", "Tool error") : t("ui.sessionTreeNavigator.toolResult", "Tool result")
+    : `${isError ? t("server.main.544b5247f8ed", "Tool error") : t("ui.sessionTreeNavigator.toolResult", "Tool result")} (${toolName})`;
+  const content = contentPreview(message["content"], true, t);
   return summary(content === "" ? prefix : `${prefix}: ${content}`, prefix);
 }
 
-function modelChangeSummary(entry: Record<string, unknown>): string {
+function modelChangeSummary(entry: Record<string, unknown>, t: Translator = loadNodeTranslator("server")): string {
   const provider = optionalPlainText(entry["provider"], NAMED_FIELD_MAX_LENGTH);
   const modelId = optionalPlainText(entry["modelId"], NAMED_FIELD_MAX_LENGTH);
-  if (provider !== undefined && modelId !== undefined) return summary(`模型: ${provider}/${modelId}`, "模型已改变");
-  return namedSummary("模型", modelId ?? provider, "模型已改变");
+  if (provider !== undefined && modelId !== undefined) return summary(t("server.main.113718afc707", "Model: {arg0}/{arg1}", { arg0: provider, arg1: modelId }), t("server.main.58ae2359bc5c", "Model changed"));
+  return namedSummary(t("ui.sessionTreeNavigator.model", "Model"), modelId ?? provider, t("server.main.58ae2359bc5c", "Model changed"));
 }
 
-function contentPreview(content: unknown, includeImageMarkers: boolean): string {
+function contentPreview(content: unknown, includeImageMarkers: boolean, t: Translator = loadNodeTranslator("server")): string {
   const fragments: string[] = [];
   let remaining = SUMMARY_SOURCE_MAX_LENGTH;
   const append = (text: string): void => {
@@ -194,7 +196,7 @@ function contentPreview(content: unknown, includeImageMarkers: boolean): string 
     for (const part of content) {
       if (!isRecord(part)) continue;
       if (part["type"] === "text" && typeof part["text"] === "string") append(part["text"]);
-      else if (includeImageMarkers && part["type"] === "image") append("[图片]");
+      else if (includeImageMarkers && part["type"] === "image") append(t("server.main.4f622a639dae", "[image]"));
       if (remaining <= 0) break;
     }
   }

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { t as translate } from "./i18n";
 import { html, render, svg } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import plugin from "../../../pi-packages/captains-log/src/browser/index.js";
@@ -14,7 +15,7 @@ const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve()
 async function setup(requestHandler: (operation: string) => Promise<JsonValue> = (operation) => Promise.resolve(operation === "list" ? [] : { ...entry })) {
   const container = document.createElement("div"); document.body.append(container);
   const lifetime = new AbortController();
-  const activation = await plugin.activate({ apiVersion: 4, pluginId: "captains-log", runtimePluginId: "captains-log", html, svg, signal: new AbortController().signal, lifetimeSignal: lifetime.signal });
+  const activation = await plugin.activate({ apiVersion: 4, translate, pluginId: "captains-log", runtimePluginId: "captains-log", html, svg, signal: new AbortController().signal, lifetimeSignal: lifetime.signal });
   const panel = required(activation.contributions.workspacePanels?.[0]);
   const channels: { options: PluginPeerChannelOptions; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; finish: (close: PluginPeerChannelClose) => void }[] = [];
   const request = vi.fn(requestHandler);

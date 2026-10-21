@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
+import { translateChinese } from "../../pi-web-plugins/localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { isMarkdownDocumentPath, renderRelayDocumentHtml } from "./markdownDocument";
+
+beforeEach(() => { setTranslator(translateChinese); });
 
 describe("isMarkdownDocumentPath", () => {
   it("matches .md documents case-insensitively", () => {

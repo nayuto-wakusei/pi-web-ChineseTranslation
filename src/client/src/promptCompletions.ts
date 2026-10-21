@@ -1,7 +1,8 @@
+import { t } from "./i18n";
 import type { SessionModel, SlashCommand } from "../../shared/apiTypes";
 
 export function slashCommandSourceLabel(source: SlashCommand["source"]): string {
-  return { builtin: "内置", extension: "扩展", prompt: "提示词", skill: "技能" }[source];
+  return { builtin: t("ui.settingsPluginsPanel.bundled", "Bundled"), extension: t("ui.main.17d13aa49d71", "Extension"), prompt: t("ui.main.2f0bb1238738", "Prompt"), skill: t("ui.chatView.skill", "Skill") }[source];
 }
 
 export type PromptCompletionTrigger =

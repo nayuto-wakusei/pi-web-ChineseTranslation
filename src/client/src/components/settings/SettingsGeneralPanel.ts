@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER, DEFAULT_WORKSPACE_UPLOADS_FOLDER, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues } from "../../api";
@@ -15,7 +16,7 @@ import {
 } from "./settingsConfigDraft";
 
 function generalDescription(targetLabel: string): TemplateResult {
-  return html`网关服务器字段用于编辑当前本地网关；文件访问和上传默认值用于编辑 ${targetLabel}。`;
+  return html`${t("ui.settingsGeneralPanel.settingsScope", "Gateway server fields edit the current local gateway; file access and upload defaults edit {machine}.", { machine: targetLabel })}`;
 }
 
 @customElement("settings-general-panel")
@@ -52,9 +53,9 @@ export class SettingsGeneralPanel extends LitElement {
   override render(): TemplateResult {
     return html`
       <settings-panel-frame
-        heading="通用配置"
+        heading=${t("ui.settingsGeneralPanel.generalConfiguration", "General configuration")}
         .description=${generalDescription(this.targetLabel)}
-        actionLabel="重新加载"
+        actionLabel=${t("ui.settingsGeneralPanel.reload", "Reload")}
         .actionDisabled=${this.loading || this.machineLoading}
         .notices=${this.panelNotices()}
         .onAction=${() => { this.reloadAll(); }}
@@ -70,53 +71,53 @@ export class SettingsGeneralPanel extends LitElement {
   private renderGatewayServerSettings(): TemplateResult {
     const config = this.configResponse;
     return html`
-      <section class="settings-card" aria-label="网关服务器设置">
+      <section class="settings-card" aria-label=${t("ui.settingsGeneralPanel.gatewayServerSettings", "Gateway server settings")}>
         <div class="card-heading">
-          <h3>网关服务器</h3>
-          <p>主机地址、端口和允许的主机名会保存到网关配置中。地址变更后必须重启 Web 服务，运行中的服务器才会绑定到新地址。</p>
+          <h3>${t("ui.settingsGeneralPanel.gatewayServer", "Gateway server")}</h3>
+          <p>${t("ui.settingsGeneralPanel.hostPortAndAllowedHostsAreSavedTo", "Host, port, and allowed hosts are saved to gateway configuration. Restart the web service after address changes for the running server to bind to the new address.")}</p>
         </div>
-        ${config === undefined && this.loading ? html`<div class="loading-card">正在加载网关配置…</div>` : html`
+        ${config === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsGeneralPanel.loadingGatewayConfiguration", "Loading gateway configuration…")}</div>` : html`
           <div class="config-path-card">
-            <span>网关配置文件</span>
-            <code>${config?.path ?? "未知"}</code>
-            <small>${config?.exists === true ? "已有文件" : "保存时会创建此文件"}</small>
+            <span>${t("ui.settingsGeneralPanel.gatewayConfigurationFile", "Gateway configuration file")}</span>
+            <code>${config?.path ?? t("ui.settingsGeneralPanel.unknown", "Unknown")}</code>
+            <small>${config?.exists === true ? t("ui.settingsGeneralPanel.existingFile", "Existing file") : t("ui.settingsGeneralPanel.fileWillBeCreatedOnSave", "File will be created on save")}</small>
           </div>
           <form class="config-form" @submit=${(event: Event) => { void this.saveGatewayConfig(event); }}>
             <label class="field">
               <span class="field-heading">
-                <span>主机地址</span>
+                <span>${t("ui.settingsGeneralPanel.hostAddress", "Host address")}</span>
                 ${this.renderOverrideBadge("host")}
               </span>
               <input .value=${this.gatewayDraft.host} placeholder="127.0.0.1" autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ host: inputValue(event) }); }}>
-              <small>Web 服务器应绑定的地址。留空则使用 PI WEB 默认值。</small>
+              <small>${t("ui.settingsGeneralPanel.addressTheWebServerBindsToLeaveBlank", "Address the web server binds to. Leave blank for the PI WEB default.")}</small>
             </label>
 
             <label class="field">
               <span class="field-heading">
-                <span>端口</span>
+                <span>${t("ui.settingsGeneralPanel.port", "Port")}</span>
                 ${this.renderOverrideBadge("port")}
               </span>
               <input .value=${this.gatewayDraft.port} inputmode="numeric" pattern="[0-9]*" placeholder="8504" autocomplete="off" @input=${(event: Event) => { this.updateGatewayDraft({ port: inputValue(event) }); }}>
-              <small>TCP 端口，范围 1 到 65535。留空则使用 PI WEB 默认值。</small>
+              <small>${t("ui.settingsGeneralPanel.tcpPortFrom1To65535LeaveBlank", "TCP port from 1 to 65535. Leave blank for the PI WEB default.")}</small>
             </label>
 
             <div class="field">
               <span class="field-heading">
-                <span>允许的主机名</span>
+                <span>${t("ui.settingsGeneralPanel.allowedHosts", "Allowed hosts")}</span>
                 ${this.renderOverrideBadge("allowedHosts")}
               </span>
               <select .value=${this.gatewayDraft.allowedHostsMode} @change=${(event: Event) => { this.updateGatewayDraft({ allowedHostsMode: selectValue(event) === "all" ? "all" : "list" }); }}>
-                <option value="list">仅允许列出的主机名</option>
-                <option value="all">允许所有主机名</option>
+                <option value="list">${t("ui.settingsGeneralPanel.allowListedHostsOnly", "Allow listed hosts only")}</option>
+                <option value="all">${t("ui.settingsGeneralPanel.allowAllHosts", "Allow all hosts")}</option>
               </select>
               <textarea .value=${this.gatewayDraft.allowedHostsText} ?disabled=${this.gatewayDraft.allowedHostsMode === "all"} rows="4" placeholder="example.local&#10;192.168.1.20" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ allowedHostsText: textAreaValue(event) }); }}></textarea>
-              <small>每行输入一个主机名，或选择“允许所有主机名”写入 <code>true</code>。</small>
+              <small>${t("ui.settingsGeneralPanel.allowedHostsHint", "Enter one host per line, or select \"Allow all hosts\" to write true.")}</small>
             </div>
 
             ${this.renderGatewayEffectiveConfig()}
 
             <footer class="form-actions">
-              <button class="primary" ?disabled=${this.loading || this.saving}>${this.saving ? "正在保存…" : "保存网关服务器配置"}</button>
+              <button class="primary" ?disabled=${this.loading || this.saving}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsGeneralPanel.saveGatewayServerConfiguration", "Save gateway server configuration")}</button>
             </footer>
           </form>
         `}
@@ -127,47 +128,47 @@ export class SettingsGeneralPanel extends LitElement {
   private renderSelectedMachineAccessSettings(): TemplateResult {
     const config = this.machineConfigResponse;
     return html`
-      <section class="settings-card" aria-label="所选机器的文件访问和上传设置">
+      <section class="settings-card" aria-label=${t("ui.settingsGeneralPanel.selectedMachineFileAccessAndUploadSettings", "Selected machine file access and upload settings")}>
         <div class="card-heading">
-          <h3>所选机器的文件访问和上传</h3>
-          <p>外部文件系统根目录和上传默认值会保存到 ${this.targetLabel}。</p>
+          <h3>${t("ui.settingsGeneralPanel.selectedMachineFileAccessAndUploads", "Selected machine file access and uploads")}</h3>
+          <p>${t("ui.settingsGeneralPanel.fileSettingsScope", "External filesystem roots and upload defaults are saved to {machine}.", { machine: this.targetLabel })}</p>
         </div>
         ${this.renderMachineMessages()}
-        ${config === undefined ? html`<div class="loading-card">${this.machineLoading ? "正在加载所选机器的文件访问配置…" : "所选机器的文件访问配置不可用。保存文件/上传设置前请重新加载。"}</div>` : html`
+        ${config === undefined ? html`<div class="loading-card">${this.machineLoading ? t("ui.settingsGeneralPanel.loadingSelectedMachineFileAccessConfiguration", "Loading selected machine file access configuration…") : t("ui.settingsGeneralPanel.selectedMachineFileAccessConfigurationIsUnavailableReload", "Selected machine file access configuration is unavailable. Reload before saving file/upload settings.")}</div>` : html`
           <div class="config-path-card">
-            <span>所选机器配置文件</span>
+            <span>${t("ui.settingsGeneralPanel.selectedMachineConfigurationFile", "Selected machine configuration file")}</span>
             <code>${config.path}</code>
-            <small>${config.exists ? "已有文件" : "保存时会创建此文件"}</small>
+            <small>${config.exists ? t("ui.settingsGeneralPanel.existingFile", "Existing file") : t("ui.settingsGeneralPanel.fileWillBeCreatedOnSave", "File will be created on save")}</small>
           </div>
           <form class="config-form" @submit=${(event: Event) => { void this.saveMachineAccessConfig(event); }}>
             <label class="field">
               <span class="field-heading">
-                <span>外部文件系统根目录</span>
+                <span>${t("ui.settingsGeneralPanel.externalFilesystemRoots", "External filesystem roots")}</span>
               </span>
               <textarea .value=${this.machineDraft.allowedPathsText} rows="4" placeholder="~/SDKs&#10;/opt/reference" spellcheck="false" @input=${(event: Event) => { this.updateMachineDraft({ allowedPathsText: textAreaValue(event) }); }}></textarea>
-              <small>${this.targetLabel} 上允许用于绝对路径 <code>@</code> 补全和工作区外文件读取的目录。每行输入一个绝对路径、Windows 绝对路径或以 <code>~</code> 开头的路径。留空则默认禁止外部路径。</small>
+              <small>${t("ui.settingsGeneralPanel.allowedPathsHint", "Directories on {machine} allowed for absolute-path @ completion and file reads outside the workspace. Enter one absolute path, Windows absolute path, or ~ path per line. Leave blank to deny external paths by default.", { machine: this.targetLabel })}</small>
             </label>
 
             <label class="field">
               <span class="field-heading">
-                <span>默认上传文件夹</span>
+                <span>${t("ui.settingsGeneralPanel.defaultUploadFolder", "Default upload folder")}</span>
               </span>
               <input .value=${this.machineDraft.uploadDefaultFolder} placeholder=${DEFAULT_WORKSPACE_UPLOADS_FOLDER} autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateMachineDraft({ uploadDefaultFolder: inputValue(event) }); }}>
-              <small>${this.targetLabel} 上手动上传文件使用的工作区相对目录。留空则使用 PI WEB 默认值 <code>${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</code>。</small>
+              <small>${this.targetLabel} ${t("ui.main.6c59b22a428d", ". Leave empty to use PI WEB's default")} <code>${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</code>。</small>
             </label>
 
             <label class="field">
               <span class="field-heading">
-                <span>默认附件文件夹</span>
+                <span>${t("ui.main.43cec1f44f0e", "Default attachments folder")}</span>
               </span>
               <input .value=${this.machineDraft.attachmentDefaultFolder} placeholder=${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER} autocomplete="off" spellcheck="false" @input=${(event: Event) => { this.updateMachineDraft({ attachmentDefaultFolder: inputValue(event) }); }}>
-              <small>${this.targetLabel} 上保存提示附件使用的工作区相对目录。留空则使用 PI WEB 默认值 <code>${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</code>。</small>
+              <small>${this.targetLabel} ${t("ui.main.8d63c65c6988", ". Leave empty to use PI WEB's default")} <code>${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</code>。</small>
             </label>
 
             ${this.renderMachineEffectiveConfig()}
 
             <footer class="form-actions">
-              <button class="primary" ?disabled=${this.machineLoading || this.saving}>${this.saving ? "正在保存…" : "保存文件/上传配置"}</button>
+              <button class="primary" ?disabled=${this.machineLoading || this.saving}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsGeneralPanel.saveFileUploadConfiguration", "Save file/upload configuration")}</button>
             </footer>
           </form>
         `}
@@ -178,7 +179,7 @@ export class SettingsGeneralPanel extends LitElement {
   private panelNotices(): readonly SettingsNotice[] {
     const notices: SettingsNotice[] = [];
     const gatewayError = this.gatewayLocalError || this.error;
-    if (gatewayError !== "") notices.push({ type: "error", title: "网关服务器", content: gatewayError });
+    if (gatewayError !== "") notices.push({ type: "error", title: t("ui.settingsGeneralPanel.gatewayServer", "Gateway server"), content: gatewayError });
     if (this.savedMessage !== "") notices.push({ type: "success", content: this.savedMessage });
     return notices;
   }
@@ -191,18 +192,18 @@ export class SettingsGeneralPanel extends LitElement {
 
   private renderOverrideBadge(key: keyof PiWebConfigEnvOverrides): TemplateResult | null {
     if (this.configResponse?.envOverrides[key] !== true) return null;
-    return html`<span class="override-badge">环境变量覆盖</span>`;
+    return html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>`;
   }
 
   private renderGatewayEffectiveConfig(): TemplateResult {
     const effective = this.configResponse?.effectiveConfig ?? {};
     return html`
-      <section class="effective-card" aria-label="最终生效配置摘要">
-        <h3>环境变量覆盖后的网关生效配置</h3>
+      <section class="effective-card" aria-label=${t("ui.settingsGeneralPanel.effectiveConfigurationSummary", "Effective configuration summary")}>
+        <h3>${t("ui.settingsGeneralPanel.effectiveGatewayConfigurationAfterEnvironmentOverrides", "Effective gateway configuration after environment overrides")}</h3>
         <dl>
-          <div><dt>主机地址</dt><dd>${effective.host ?? html`<span class="muted">默认 127.0.0.1</span>`}</dd></div>
-          <div><dt>端口</dt><dd>${effective.port ?? html`<span class="muted">默认 8504</span>`}</dd></div>
-          <div><dt>允许的主机名</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
+          <div><dt>${t("ui.settingsGeneralPanel.hostAddress", "Host address")}</dt><dd>${effective.host ?? html`<span class="muted">${t("ui.settingsGeneralPanel.default127001", "Default 127.0.0.1")}</span>`}</dd></div>
+          <div><dt>${t("ui.settingsGeneralPanel.port", "Port")}</dt><dd>${effective.port ?? html`<span class="muted">${t("ui.settingsGeneralPanel.default8504", "Default 8504")}</span>`}</dd></div>
+          <div><dt>${t("ui.settingsGeneralPanel.allowedHosts", "Allowed hosts")}</dt><dd>${formatAllowedHosts(effective.allowedHosts)}</dd></div>
         </dl>
       </section>
     `;
@@ -211,12 +212,12 @@ export class SettingsGeneralPanel extends LitElement {
   private renderMachineEffectiveConfig(): TemplateResult {
     const effective = this.machineConfigResponse?.effectiveConfig ?? {};
     return html`
-      <section class="effective-card" aria-label="所选机器最终生效的文件访问和上传摘要">
-        <h3>所选机器的生效配置</h3>
+      <section class="effective-card" aria-label=${t("ui.settingsGeneralPanel.selectedMachineEffectiveFileAccessAndUploadSummary", "Selected machine effective file access and upload summary")}>
+        <h3>${t("ui.settingsGeneralPanel.selectedMachineEffectiveConfiguration", "Selected machine effective configuration")}</h3>
         <dl>
-          <div><dt>外部根目录</dt><dd>${formatAllowedPaths(effective.pathAccess?.allowedPaths)}</dd></div>
-          <div><dt>上传文件夹</dt><dd>${effective.uploads?.defaultFolder ?? html`<span class="muted">默认 ${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</span>`}</dd></div>
-          <div><dt>附件文件夹</dt><dd>${effective.attachments?.defaultFolder ?? html`<span class="muted">默认 ${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</span>`}</dd></div>
+          <div><dt>${t("ui.settingsGeneralPanel.externalRoots", "External roots")}</dt><dd>${formatAllowedPaths(effective.pathAccess?.allowedPaths)}</dd></div>
+          <div><dt>${t("ui.settingsGeneralPanel.uploadFolder", "Upload folder")}</dt><dd>${effective.uploads?.defaultFolder ?? html`<span class="muted">${t("ui.settingsShortcutsPanel.default", "Default")} ${DEFAULT_WORKSPACE_UPLOADS_FOLDER}</span>`}</dd></div>
+          <div><dt>${t("ui.main.c7057e130dae", "Attachments folder")}</dt><dd>${effective.attachments?.defaultFolder ?? html`<span class="muted">${t("ui.settingsShortcutsPanel.default", "Default")} ${DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER}</span>`}</dd></div>
         </dl>
       </section>
     `;
@@ -300,13 +301,13 @@ export class SettingsGeneralPanel extends LitElement {
 }
 
 function formatAllowedHosts(value: PiWebConfigValues["allowedHosts"]): string | TemplateResult {
-  if (value === true) return "任意 host";
-  if (Array.isArray(value)) return value.length === 0 ? html`<span class="muted">未列出</span>` : value.join(", ");
-  return html`<span class="muted">未设置</span>`;
+  if (value === true) return t("ui.settingsGeneralPanel.anyHost", "Any host");
+  if (Array.isArray(value)) return value.length === 0 ? html`<span class="muted">${t("ui.settingsGeneralPanel.noneListed", "None listed")}</span>` : value.join(", ");
+  return html`<span class="muted">${t("ui.settingsGeneralPanel.notSet", "Not set")}</span>`;
 }
 
 function formatAllowedPaths(value: string[] | undefined): string | TemplateResult {
-  if (value === undefined || value.length === 0) return html`<span class="muted">已禁止外部路径</span>`;
+  if (value === undefined || value.length === 0) return html`<span class="muted">${t("ui.settingsGeneralPanel.externalPathsDenied", "External paths denied")}</span>`;
   return value.join(", ");
 }
 

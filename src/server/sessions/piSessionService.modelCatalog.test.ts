@@ -327,7 +327,7 @@ describe("PiSessionService upstream model catalog contract in project scope", ()
       const before = await readFile(path, "utf8");
       await expect(service.setSessionDefaults(ref, { provider: PROVIDER, modelId: FIRST_MODEL })).rejects.toThrow("模型未启用");
       await expect(service.setSessionDefaults(ref, { provider: PROVIDER, modelId: "missing" })).rejects.toThrow("未找到模型");
-      await expect(service.setSessionDefaults(ref, { provider: PROVIDER })).rejects.toThrow("都必须");
+      await expect(service.setSessionDefaults(ref, { provider: PROVIDER })).rejects.toThrow("provider and modelId must both be non-empty strings");
       expect(await readFile(path, "utf8")).toBe(before);
       await writeFile(path, "{malformed");
       await expect(service.getSessionDefaults(ref)).rejects.toThrow("默认值设置失败");

@@ -1,3 +1,4 @@
+import { translateChinese } from "../localization.testSupport.js";
 import { afterEach, expect, it, vi } from "vitest";
 
 afterEach(() => {
@@ -8,6 +9,7 @@ afterEach(() => {
 it("loads a module-relative engine once for concurrent previews", async () => {
   const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(new Response("bundled engine")));
   vi.stubGlobal("fetch", fetchMock);
+  (await import("./i18n.js")).setTranslator(translateChinese);
   const { loadMermaidEngine } = await import("./MermaidPreview.js");
   const first = loadMermaidEngine();
   expect(loadMermaidEngine()).toBe(first);
@@ -24,6 +26,7 @@ it("retries failed asset loads rather than caching a rejected promise", async ()
     .mockResolvedValueOnce(new Response("missing", { status: 404 }))
     .mockResolvedValueOnce(new Response("recovered engine"));
   vi.stubGlobal("fetch", fetchMock);
+  (await import("./i18n.js")).setTranslator(translateChinese);
   const { loadMermaidEngine } = await import("./MermaidPreview.js");
   await expect(loadMermaidEngine()).rejects.toThrow("图表引擎不可用");
   expect(await loadMermaidEngine()).toBe("recovered engine");

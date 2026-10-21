@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { marked } from "marked";
 
 const renderer = new marked.Renderer();
@@ -5,7 +6,7 @@ const renderer = new marked.Renderer();
 // Workspace file bytes are untrusted. Raw HTML must remain visible as text,
 // never become nodes that the application can execute or load resources from.
 renderer.html = ({ text }) => escapeHtml(text);
-renderer.image = ({ text }) => escapeHtml(text === "" ? "[已省略图片]" : `[已省略图片：${text}]`);
+renderer.image = ({ text }) => escapeHtml(text === "" ? t("ui.main.de5e1ce8a9ba", "[Image omitted]") : t("ui.main.f9b103ce9c26", "[Image omitted: {arg0}]", { arg0: text }));
 renderer.checkbox = ({ checked }) => checked ? "[x] " : "[ ] ";
 
 const NO_ATTRIBUTES = new Set<string>();
@@ -129,7 +130,7 @@ function wrapTablesInScrollRegions(root: DocumentFragment): void {
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", "表格");
+    wrapper.setAttribute("aria-label", t("bundled.relays.table.22d9e7", "Table"));
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

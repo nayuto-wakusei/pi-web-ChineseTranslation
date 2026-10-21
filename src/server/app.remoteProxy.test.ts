@@ -243,7 +243,7 @@ describe("buildApp remote machine proxy routes", () => {
 
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({
-      error: "Remote machine unavailable",
+      error: "远程机器不可用",
       machineId: remote.id,
       statusCode: 502,
       detail: `Remote machine response exceeded the ${String(PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES)} byte limit`,
@@ -505,7 +505,7 @@ describe("buildApp remote machine proxy routes", () => {
 
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({
-      error: "Remote machine unavailable",
+      error: "远程机器不可用",
       machineId: remote.id,
       detail: `Remote machine response exceeded the ${String(WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES)} byte limit`,
     });
@@ -538,7 +538,7 @@ describe("buildApp remote machine proxy routes", () => {
 
       expect(response.statusCode).toBe(504);
       expect(response.json()).toMatchObject({
-        error: "Remote machine timeout",
+        error: "远程机器请求超时",
         detail: "Remote machine response body timed out",
       });
       expect(upstream.destroyed).toBe(true);
@@ -768,7 +768,7 @@ describe("buildApp remote machine proxy routes", () => {
     const response = await appTestContext.app.inject({ method: "POST", url: `/api/machines/${remote.id}/sessions/s1/prompt`, payload: { text: "hello" } });
 
     expect(response.statusCode).toBe(504);
-    expect(response.json()).toMatchObject({ error: "Remote machine timeout", machineId: remote.id, statusCode: 504 });
+    expect(response.json()).toMatchObject({ error: "远程机器请求超时", machineId: remote.id, statusCode: 504 });
     expect(request).toHaveBeenCalledWith("POST", "/api/sessions/s1/prompt", { text: "hello" });
   });
 });

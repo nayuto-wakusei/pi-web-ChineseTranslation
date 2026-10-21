@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Workspace } from "../api";
@@ -55,14 +56,14 @@ export class WorkspacePanel extends LitElement {
 
   override render() {
     const workspace = this.workspace;
-    if (workspace === undefined) return this.renderEmptyState(this.error !== "" ? { title: "导航目标不可用", body: this.error } : this.emptyState ?? {
-      title: "选择工作区",
-      body: "选择工作区来使用其工具。",
+    if (workspace === undefined) return this.renderEmptyState(this.error !== "" ? { title: t("ui.main.110fc6609529", "Navigation destination unavailable"), body: this.error } : this.emptyState ?? {
+      title: t("ui.workspacePanel.selectWorkspace", "Select workspace"),
+      body: t("ui.main.272d152c38f6", "Choose a workspace to use its tools."),
     }, true);
     const context = this.panelContext;
     if (context === undefined) return this.renderEmptyState({
-      title: "工作区工具不可用",
-      body: "请尝试重新选择工作区。",
+      title: t("ui.workspacePanel.workspaceToolsUnavailable", "Workspace tools unavailable"),
+      body: t("ui.workspacePanel.trySelectingTheWorkspaceAgain", "Try selecting the workspace again."),
     }, true);
     const visiblePanels = this.panels;
     // An unresolved route may leave a valid remembered tool, but its content is not displayed.
@@ -91,8 +92,8 @@ export class WorkspacePanel extends LitElement {
           ${this.renderNavigationButton(this.hiddenActiveDestination || (selectedPanel !== undefined && !pinnedPanels.some((panel) => panel.id === selectedPanel.id)))}
         </header>
       `}
-      ${this.error !== "" ? this.renderEmptyState({ title: "导航目标不可用", body: this.error }) : selectedPanel === undefined ? this.renderEmptyState({
-        title: this.tool === undefined ? "没有可用的工作区工具" : `工作区面板不可用： ${this.tool}`,
+      ${this.error !== "" ? this.renderEmptyState({ title: t("ui.main.110fc6609529", "Navigation destination unavailable"), body: this.error }) : selectedPanel === undefined ? this.renderEmptyState({
+        title: this.tool === undefined ? t("ui.workspacePanel.noWorkspaceToolsAvailable", "No workspace tools available") : t("ui.main.8e931a1bb102", "Workspace panel unavailable: {arg0}", { arg0: this.tool }),
       }) : html`
         <div class="panel-content">
           ${selectedPanel.render(context)}
@@ -127,7 +128,7 @@ export class WorkspacePanel extends LitElement {
   }
 
   private renderNavigationButton(hiddenActiveDestination = false) {
-    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} title="打开导航" aria-label="打开导航" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
+    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
   }
 
   private renderEmptyState(state: WorkspacePanelEmptyState, showNavigation = false): TemplateResult {

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { AppAction } from "../actions";
@@ -27,7 +28,7 @@ export class ActionPalette extends LitElement {
         <header>
           <input
             .value=${this.queryText}
-            placeholder="搜索操作..."
+            placeholder="${t("ui.actionPalette.searchActions", "Search actions...")}"
             @input=${(event: Event) => {
               if (event.target instanceof HTMLInputElement) {
                 this.queryText = event.target.value;
@@ -35,10 +36,10 @@ export class ActionPalette extends LitElement {
               }
             }}
           >
-          <button title="关闭" aria-label="关闭" @click=${() => this.onCancel?.()}>×</button>
+          <button title="${t("ui.common.close", "Close")}" aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button>
         </header>
         <div class="options">
-          ${actions.length === 0 ? html`<div class="empty">未找到操作。</div>` : actions.map((action, index) => html`
+          ${actions.length === 0 ? html`<div class="empty">${t("ui.actionPalette.noActionsFound", "No actions found.")}</div>` : actions.map((action, index) => html`
             <button
               class=${`${index === this.selectedIndex ? "selected" : ""} ${action.enabled === false ? "disabled" : ""}`}
               ?disabled=${action.enabled === false}

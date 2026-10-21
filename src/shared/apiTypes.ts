@@ -517,6 +517,8 @@ export interface SessionUnreadSummary {
   /** Monotonic within a catalog and never greater than its containing revision. */
   completionOrder: number;
   completedAt: string;
+  /** Raw history offsets [start, end) on the completed branch. Absent in legacy catalogs. */
+  messageRange?: { start: number; end: number; leafId: string | null };
 }
 
 export interface SessionUnreadCatalogSnapshot {
@@ -1342,6 +1344,8 @@ export interface MessagePage {
   messages: unknown[];
   start: number;
   total: number;
+  /** Branch identity captured with this page, not with a separate status request. */
+  leafId?: string | null;
 }
 
 /**

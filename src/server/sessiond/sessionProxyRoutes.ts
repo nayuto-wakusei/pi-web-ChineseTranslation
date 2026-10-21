@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import { WebSocket, type RawData } from "ws";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
@@ -15,7 +16,7 @@ export interface SessionProxyDaemon {
 export type ManagementProjectCwdResolver = (projectId: string, context: ManagementEmbedContext) => Promise<readonly string[]>;
 export type NormalProjectCwdResolver = (requestedCwds?: readonly string[]) => Promise<readonly string[]>;
 
-export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver): void {
+export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver, t: Translator = createTranslator("en", {})): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       return await withRequestCancellation(request, reply, async (signal) => {
@@ -45,7 +46,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
         return sendDaemonBody(reply, await daemon.request(request.method, path, request.body, undefined, signal));
       });
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   };
@@ -56,7 +57,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
         sendDaemonBody(reply, await daemon.request("GET", "/health", undefined, undefined, signal))
       ));
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   });
@@ -67,7 +68,7 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
         sendDaemonBody(reply, await daemon.request("GET", "/runtime", undefined, undefined, signal))
       ));
     } catch (error) {
-      requestFailed(reply, error);
+      requestFailed(reply, error, t);
       return undefined;
     }
   });
@@ -143,13 +144,15 @@ function parseJson(text: string): unknown {
   return value;
 }
 
-function requestFailed(reply: FastifyReply, error: unknown): void {
+function requestFailed(reply: FastifyReply, error: unknown, t: Translator = createTranslator("en", {})): void {
   if (error instanceof SessionScopeError) {
     reply.code(error.statusCode).send({ error: error.message });
     return;
   }
   const failure = sessionDaemonProxyFailure(error);
-  reply.code(failure.statusCode).send({ error: failure.error });
+  reply.code(failure.statusCode).send({ error: failure.statusCode === 502
+    ? t("routing.daemonUnavailable", "Session daemon unavailable: {error}", { error: error instanceof Error ? error.message : String(error) })
+    : failure.error });
 }
 
 class SessionScopeError extends Error {
@@ -278,8 +281,8 @@ function sendIfOpen(socket: WebSocket, data: RawData): void {
   }
 }
 
-function closeSocketWithError(socket: WebSocket, error: unknown): void {
-  socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : String(error) }));
+function closeSocketWithError(socket: WebSocket, error: unknown, t: Translator = createTranslator("en", {})): void {
+  socket.send(JSON.stringify({ type: "error", message: userFacingErrorMessage(error, t) }));
   socket.close();
 }
 

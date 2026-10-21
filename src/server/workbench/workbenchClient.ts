@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../shared/i18n.js";
 import type {
   AuthorizedResource,
   BookstackRetrievalPage,
@@ -48,7 +49,7 @@ export class WorkbenchClient {
       expectedStatus: 200,
     }), "resource snapshot");
     if (stringField(snapshot, "sessionId") !== sessionId || integerField(snapshot, "authorizationRevision") !== authorizationRevision) {
-      throw new Error("Workbench resource snapshot does not match the Agent Session");
+      throw new UserFacingError("managementError.workbench.snapshotMismatch", "Workbench resource snapshot does not match the Agent Session");
     }
     return { sessionId, bearerToken, expiresAt, authorizationRevision, resources: parseAuthorizedResources(snapshot["resources"]) };
   }
@@ -136,13 +137,13 @@ export class WorkbenchClient {
       const value: unknown = JSON.parse(text);
       return value;
     } catch {
-      throw new Error(`Workbench returned invalid JSON for ${path}`);
+      throw new UserFacingError("managementError.workbench.invalidJson", "Workbench returned invalid JSON for {path}", { path });
     }
   }
 }
 
 export function parseAuthorizedResources(value: unknown): AuthorizedResource[] {
-  if (!Array.isArray(value)) throw new Error("Workbench resources must be an array");
+  if (!Array.isArray(value)) throw new UserFacingError("managementError.workbench.resourcesArray", "Workbench resources must be an array");
   return value.map((item) => {
     const resource = record(item, "authorized resource");
     const dependencies = resource["dependencies"];
@@ -245,19 +246,19 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function record(value: unknown, label: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${label} must be an object`);
+  if (!isRecord(value)) throw new UserFacingError("managementError.workbench.objectRequired", "{label} must be an object", { label });
   return value;
 }
 
 export function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
-  if (typeof field !== "string" || field.trim() === "") throw new Error(`${key} must be a non-empty string`);
+  if (typeof field !== "string" || field.trim() === "") throw new UserFacingError("managementError.workbench.stringRequired", "{key} must be a non-empty string", { key });
   return field.trim();
 }
 
 function integerField(value: Record<string, unknown>, key: string): number {
   const field = value[key];
-  if (typeof field !== "number" || !Number.isInteger(field)) throw new Error(`${key} must be an integer`);
+  if (typeof field !== "number" || !Number.isInteger(field)) throw new UserFacingError("managementError.workbench.integerRequired", "{key} must be an integer", { key });
   return field;
 }
 
@@ -275,6 +276,6 @@ function stringValueField(value: Record<string, unknown>, key: string): string {
 
 function enumField<const T extends readonly string[]>(value: Record<string, unknown>, key: string, allowed: T): T[number] {
   const field = value[key];
-  if (typeof field !== "string" || !allowed.includes(field)) throw new Error(`${key} is invalid`);
+  if (typeof field !== "string" || !allowed.includes(field)) throw new UserFacingError("managementError.workbench.invalidField", "{key} is invalid", { key });
   return field;
 }

@@ -1,3 +1,4 @@
+import { WorkspaceUserError } from "./workspaceUserError.js";
 import { realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
@@ -6,7 +7,7 @@ export async function resolveInsideWorkspace(rootPath: string, relativePath: str
   const root = await realpath(rootPath);
   const joined = join(root, requested);
   const target = await realpath(joined).catch((error: unknown) => {
-    if (isNodeErrorWithCode(error, "ENOENT")) throw new Error("Path does not exist");
+    if (isNodeErrorWithCode(error, "ENOENT")) throw new WorkspaceUserError("server.files.pathMissing", "Path does not exist");
     throw error;
   });
   ensureInside(root, target);
@@ -39,9 +40,9 @@ async function realpathNearestExistingParent(target: string, root: string): Prom
 export function normalizeRelativePath(input: string | undefined): string {
   const value = input ?? "";
   if (value === "" || value === ".") return "";
-  if (isAbsolute(value)) throw new Error("Absolute paths are not allowed");
+  if (isAbsolute(value)) throw new WorkspaceUserError("server.files.absolutePathsDenied", "Absolute paths are not allowed");
   const parts = value.split(/[\\/]+/).filter((part) => part !== "" && part !== ".");
-  if (parts.some((part) => part === "..")) throw new Error("Path traversal is not allowed");
+  if (parts.some((part) => part === "..")) throw new WorkspaceUserError("server.files.pathTraversalDenied", "Path traversal is not allowed");
   return parts.join("/");
 }
 
@@ -52,6 +53,6 @@ export function isNodeErrorWithCode(error: unknown, code: string): error is Node
 export function ensureInside(root: string, target: string): void {
   const rel = relative(root, target);
   if (rel === "") return;
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("Path escapes workspace");
-  if (sep !== "/" && rel.split(sep).includes("..")) throw new Error("Path escapes workspace");
+  if (rel.startsWith("..") || isAbsolute(rel)) throw new WorkspaceUserError("server.files.pathOutsideWorkspace", "Path escapes workspace");
+  if (sep !== "/" && rel.split(sep).includes("..")) throw new WorkspaceUserError("server.files.pathOutsideWorkspace", "Path escapes workspace");
 }

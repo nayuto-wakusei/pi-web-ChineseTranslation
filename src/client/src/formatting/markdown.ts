@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { marked } from "marked";
 import { workspaceFilePreviewUrl } from "../api/urls";
 import { resolveAppUrl } from "../appUrl";
@@ -70,7 +71,7 @@ function wrapTablesInScrollRegions(root: DocumentFragment): void {
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", "表格");
+    wrapper.setAttribute("aria-label", t("bundled.relays.table.22d9e7", "Table"));
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

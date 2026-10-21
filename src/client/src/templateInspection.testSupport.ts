@@ -113,45 +113,6 @@ export function templateValueAfterMarker(template: TemplateResult, marker: strin
 }
 
 /**
- * Find an event handler whose adjacent static markup (the chunk immediately
- * before or after the handler value) includes `marker`.
- *
- * Use for attribute-anchored wiring such as `@click=`, `@load=`, `@toggle=`, or
- * a marker in the text right after the handler (e.g. `>Clear queue</button>`).
- */
-export function templateEventHandlerNearMarker<E extends Event = Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> {
-  const handler = findOptionalTemplateEventHandlerNearMarker<E>(template, marker);
-  if (handler === undefined) throw new Error(`Expected template event handler near ${marker}`);
-  return handler;
-}
-
-/** Optional variant of {@link templateEventHandlerNearMarker}. */
-export function findOptionalTemplateEventHandlerNearMarker<E extends Event = Event>(template: TemplateResult, marker: string): TemplateEventHandler<E> | undefined {
-  return visit(template);
-
-  function visit(value: unknown): TemplateEventHandler<E> | undefined {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = visit(item);
-        if (found !== undefined) return found;
-      }
-      return undefined;
-    }
-    if (!isTemplateResult(value)) return undefined;
-    const strings = templateStrings(value);
-    const values = templateValues(value);
-    for (let index = 0; index < values.length; index += 1) {
-      const candidate = values[index];
-      const isNearMarker = strings[index]?.includes(marker) === true || strings[index + 1]?.includes(marker) === true;
-      if (isNearMarker && isTemplateEventHandler<E>(candidate)) return candidate;
-      const nested = visit(candidate);
-      if (nested !== undefined) return nested;
-    }
-    return undefined;
-  }
-}
-
-/**
  * Find the first event handler that appears at or after the static chunk
  * containing `marker`.
  *
@@ -270,7 +231,12 @@ export function findOptionalTemplateClickHandlerForText<E extends Event = Event>
   const values = templateValues(value);
   for (let index = 0; index < values.length; index += 1) {
     const candidate = values[index];
-    if (strings[index]?.includes(clickMarker) === true && isTemplateEventHandler<E>(candidate)) return candidate;
+    if (strings[index]?.includes(clickMarker) !== true || !isTemplateEventHandler<E>(candidate)) continue;
+    let following = strings[index + 1] ?? "";
+    for (let next = index + 1; next < values.length && !following.includes("</button>"); next += 1) {
+      following += templateText(values[next]) + (strings[next + 1] ?? "");
+    }
+    if (following.split("</button>")[0]?.includes(text) === true) return candidate;
   }
   return undefined;
 }

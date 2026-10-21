@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../shared/i18n.js";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -137,9 +138,9 @@ export class ManagementCommandRunService {
   }
 
   cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun {
-    if (this.commandRunScopes.get(runId) !== eventScopeFromManagementContext(managementContext)) throw new Error("Terminal command run not found");
+    if (this.commandRunScopes.get(runId) !== eventScopeFromManagementContext(managementContext)) throw new UserFacingError("routing.commandRunMissing", "Terminal command run not found");
     const run = this.commandRuns.get(runId);
-    if (run === undefined) throw new Error("Terminal command run not found");
+    if (run === undefined) throw new UserFacingError("routing.commandRunMissing", "Terminal command run not found");
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
     if (terminal === undefined) throw new Error("Terminal not found");
@@ -269,7 +270,7 @@ export class ManagementCommandRunService {
 
   private require(id: string): TerminalRecord {
     const terminal = this.terminals.get(id);
-    if (terminal === undefined) throw new Error("Terminal not found");
+    if (terminal === undefined) throw new UserFacingError("routing.terminalMissing", "Terminal not found");
     return terminal;
   }
 
@@ -304,21 +305,21 @@ function shellQuote(value: string): string {
 }
 
 function validateCommandRunOptions(options: RunTerminalCommandOptions): void {
-  if (options.origin.trim() === "") throw new Error("origin is required");
-  if (options.projectId.trim() === "") throw new Error("projectId is required");
-  if (options.workspaceId.trim() === "") throw new Error("workspaceId is required");
-  if (options.cwd.trim() === "") throw new Error("cwd is required");
-  if (options.title.trim() === "") throw new Error("title is required");
-  if (options.command.trim() === "") throw new Error("command is required");
+  if (options.origin.trim() === "") throw new UserFacingError("routing.originRequired", "origin is required");
+  if (options.projectId.trim() === "") throw new UserFacingError("routing.projectIdRequired", "projectId is required");
+  if (options.workspaceId.trim() === "") throw new UserFacingError("routing.workspaceIdRequired", "workspaceId is required");
+  if (options.cwd.trim() === "") throw new UserFacingError("routing.terminalCwdRequired", "cwd is required");
+  if (options.title.trim() === "") throw new UserFacingError("routing.titleRequired", "title is required");
+  if (options.command.trim() === "") throw new UserFacingError("routing.commandRequired", "command is required");
   parseMetadata(options.metadata);
 }
 
 function parseMetadata(value: unknown): Record<string, string> {
   if (value === undefined || value === null) return {};
-  if (!isRecord(value) || Array.isArray(value)) throw new Error("metadata must be an object");
+  if (!isRecord(value) || Array.isArray(value)) throw new UserFacingError("routing.metadataObject", "metadata must be an object");
   return Object.fromEntries(Object.entries(value).map(([key, metadataValue]) => {
-    if (key.trim() === "") throw new Error("metadata keys must not be empty");
-    if (typeof metadataValue !== "string") throw new Error("metadata values must be strings");
+    if (key.trim() === "") throw new UserFacingError("routing.metadataKeyEmpty", "metadata keys must not be empty");
+    if (typeof metadataValue !== "string") throw new UserFacingError("routing.metadataValueString", "metadata values must be strings");
     return [key, metadataValue];
   }));
 }

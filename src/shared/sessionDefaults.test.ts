@@ -11,9 +11,9 @@ describe("session default pins", () => {
   });
 
   it("rejects a mixed or incomplete pin", () => {
-    expect(() => parseSessionDefaultsUpdate({ provider: "anthropic", modelId: "claude-opus", thinkingLevel: "low" })).toThrow(/只能指定模型或思考等级/);
-    expect(() => parseSessionDefaultsUpdate({ provider: "anthropic" })).toThrow(/provider 和 modelId/);
-    expect(() => parseSessionDefaultsUpdate({ thinkingLevel: "extra" })).toThrow(/无效的思考等级/);
+    expect(() => parseSessionDefaultsUpdate({ provider: "anthropic", modelId: "claude-opus", thinkingLevel: "low" })).toThrow("Specify either provider/modelId or thinkingLevel");
+    expect(() => parseSessionDefaultsUpdate({ provider: "anthropic" })).toThrow(/provider and modelId/);
+    expect(() => parseSessionDefaultsUpdate({ thinkingLevel: "extra" })).toThrow(/Invalid thinking level/);
   });
 
   it("reads only pin fields from scoped global settings", () => {

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { translateChinese } from "../localization.testSupport.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
 import { mermaidFrameDocument } from "./MermaidPreview";
@@ -14,6 +15,7 @@ afterEach(() => {
 
 async function preview(input: ContentRendererInput, loadEngine?: () => Promise<string>) {
   vi.resetModules();
+  (await import("./i18n.js")).setTranslator(translateChinese);
   const { MermaidPreview } = await import("./MermaidPreview");
   customElements.define(`mermaid-test-${String(++tag)}`, MermaidPreview);
   const element = new MermaidPreview();

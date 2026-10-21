@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues } from "../../api";
@@ -14,7 +15,7 @@ export class SettingsSessiondPanel extends LitElement {
   @property({ type: Boolean }) saving = false;
   @property() error = "";
   @property() savedMessage = "";
-  @property() targetLabel = "本机（本地网关）";
+  @property() targetLabel = t("ui.settingsSessiondPanel.localLocalGateway", "Local (local gateway)");
   @property({ attribute: false }) activeAgentProfile: ActiveAgentProfileDescriptor | undefined;
   @property({ attribute: false }) agentProfileSupport: AgentProfileSettingsSupport = { state: "supported" };
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
@@ -61,24 +62,24 @@ export class SettingsSessiondPanel extends LitElement {
     const profileActivation = agentProfileActivationState(config, this.activeAgentProfile);
     return html`
       <settings-panel-frame
-        heading="会话守护进程"
+        heading="${t("bundled.updates.session.daemon.757666", "Session daemon")}"
         .description=${sessiondDescription(this.targetLabel)}
-        actionLabel="重新加载"
+        actionLabel="${t("ui.settingsPackagesPanel.reload", "Reload")}"
         .actionDisabled=${this.loading}
         .notices=${this.panelNotices(config)}
         .onAction=${this.onReload}
       >
         ${config === undefined ? this.renderUnavailableConfigState() : html`
           <div class="config-path-card">
-            <span>配置文件</span>
+            <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
             <code>${config.path}</code>
           </div>
-          <form class="profile-form" aria-label="Pi 兼容代理配置档案" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
-            ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? "此机器不支持编辑 Pi 兼容代理配置档案。"}</div>`}
+          <form class="profile-form" aria-label="${t("ui.settingsSessiondPanel.piCompatibleAgentProfile", "Pi-compatible agent profile")}" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
+            ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? t("ui.settingsSessiondPanel.thisMachineDoesNotSupportEditingPiCompatible", "This machine does not support editing Pi-compatible agent profiles.")}</div>`}
             <label class="field">
               <span class="field-heading">
-                <span>配套 CLI 命令</span>
-                ${agentCommandOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+                <span>${t("ui.settingsSessiondPanel.companionCliCommand", "Companion CLI command")}</span>
+                ${agentCommandOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
               </span>
               <input
                 class="text-input"
@@ -90,12 +91,12 @@ export class SettingsSessiondPanel extends LitElement {
                 ?disabled=${this.loading || this.saving || !profileEditingSupported || agentCommandOverridden}
                 @input=${(event: Event) => { this.updateAgentDraft({ command: inputValue(event) }); }}
               >
-              <small>设置诊断和更新检查所用的 Pi 兼容配套 CLI。内嵌会话运行时仍使用 PI WEB 捆绑的 Pi SDK。</small>
+              <small>${t("ui.settingsSessiondPanel.setThePiCompatibleCompanionCliUsedFor", "Set the Pi-compatible companion CLI used for diagnostics and update checks. Embedded sessions still use the Pi SDK bundled with PI WEB.")}</small>
             </label>
             <label class="field">
               <span class="field-heading">
-                <span>配置档案状态目录</span>
-                ${effectiveAgentDirOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+                <span>${t("ui.settingsSessiondPanel.profileStateDirectory", "Profile state directory")}</span>
+                ${effectiveAgentDirOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
               </span>
               <input
                 class="text-input"
@@ -103,20 +104,20 @@ export class SettingsSessiondPanel extends LitElement {
                 autocomplete="off"
                 spellcheck="false"
                 .value=${this.agentDraft.dir}
-                placeholder="~/.pi/agent 或 ~/agent-profiles/work"
+                placeholder="${t("ui.settingsSessiondPanel.piAgentOrAgentProfilesWork", "~/.pi/agent or ~/agent-profiles/work")}"
                 ?disabled=${this.loading || this.saving || !profileEditingSupported || agentDirLocked}
                 @input=${(event: Event) => { this.updateAgentDraft({ dir: inputValue(event) }); }}
               >
-              <small>选择 PI WEB 读取的 Pi 兼容认证、模型、设置和会话目录。备用命令会与其所需状态目录一并保存。</small>
+              <small>${t("ui.settingsSessiondPanel.chooseThePiCompatibleAuthenticationModelSettingsAnd", "Choose the Pi-compatible authentication, model, settings, and session directory PI WEB reads. Alternate commands are saved with their required state directory.")}</small>
             </label>
             <footer class="form-actions">
-              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? "正在保存…" : "保存代理配置档案"}</button>
+              <button class="primary" type="submit" ?disabled=${this.loading || this.saving || !profileEditingSupported || (agentCommandOverridden && agentDirLocked)}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsSessiondPanel.saveAgentProfile", "Save agent profile")}</button>
             </footer>
           </form>
           <div class="field">
             <span class="field-heading">
-              <span>允许代理启动会话</span>
-              ${spawnOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+              <span>${t("ui.settingsSessiondPanel.allowAgentsToStartSessions", "Allow agents to start sessions")}</span>
+              ${spawnOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
             <label class="toggle">
               <input
@@ -125,14 +126,14 @@ export class SettingsSessiondPanel extends LitElement {
                 ?disabled=${this.loading || this.saving || spawnOverridden}
                 @change=${(event: Event) => { void this.toggleSpawnSessions(event); }}
               >
-              <span>启用 <code>spawn_session</code> 工具</span>
+              <span>${t("ui.settingsSessiondPanel.enable", "Enable")} <code>spawn_session</code> ${t("ui.chatView.tool", "Tool")}</span>
             </label>
-            <small>启用后，LLM 可以启动新会话，但会被限制在同一个已注册项目的工作区（包括任意 worktree）内，因此每个派生会话都会显示在这里。默认启用。</small>
+            <small>${t("ui.settingsSessiondPanel.whenEnabledTheLlmCanStartSessionsWithin", "When enabled, the LLM can start sessions within workspaces of the same registered project, including any worktree, so every spawned session appears here. Enabled by default.")}</small>
           </div>
           <div class="field">
             <span class="field-heading">
-              <span>允许代理启动受跟踪的子会话</span>
-              ${subsessionsOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+              <span>${t("ui.settingsSessiondPanel.allowAgentsToStartTrackedSubsessions", "Allow agents to start tracked subsessions")}</span>
+              ${subsessionsOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
             <label class="toggle">
               <input
@@ -141,39 +142,39 @@ export class SettingsSessiondPanel extends LitElement {
                 ?disabled=${this.loading || this.saving || subsessionsOverridden || !effectiveSpawn}
                 @change=${(event: Event) => { void this.toggleSubsessions(event); }}
               >
-              <span>启用 <code>spawn_subsession</code> 工具</span>
+              <span>${t("ui.settingsSessiondPanel.enable", "Enable")} <code>spawn_subsession</code> ${t("ui.chatView.tool", "Tool")}</span>
             </label>
-            <small>代理可以启动自己持续关联的子会话（<code>spawn_subsession</code>、<code>list_subsessions</code>、<code>check_subsession</code>、<code>read_subsession</code>），并在子会话完成时收到通知。需要先启用“允许代理启动会话”。默认启用。</small>
+            <small>${t("ui.main.ff88ab94196f", "Agents can start child sessions they stay attached to (")}<code>spawn_subsession</code>${t("bundled.info.list.separator", ", ")}<code>list_subsessions</code>${t("bundled.info.list.separator", ", ")}<code>check_subsession</code>${t("bundled.info.list.separator", ", ")}<code>read_subsession</code>${t("ui.main.c36dc9dce940", ") and are notified when a child finishes. Requires \"Allow agents to start sessions\". On by default.")}</small>
           </div>
           <div class="field">
             <span class="field-heading">
-              <span>允许代理提问</span>
-              ${askUserOverridden ? html`<span class="override-badge">环境变量覆盖</span>` : null}
+              <span>${t("ui.settingsSessiondPanel.allowAgentsToAskQuestions", "Allow agents to ask questions")}</span>
+              ${askUserOverridden ? html`<span class="override-badge">${t("ui.settingsGeneralPanel.environmentOverrides", "Environment overrides")}</span>` : null}
             </span>
             <label class="toggle">
               <input
                 type="checkbox"
-                aria-label="启用代理提问"
+                aria-label="${t("ui.settingsSessiondPanel.enableAgentQuestions", "Enable agent questions")}"
                 .checked=${effectiveAskUser}
                 ?disabled=${this.loading || this.saving || askUserOverridden || !askUserSupported}
                 @change=${(event: Event) => { void this.toggleAskUser(event); }}
               >
-              <span>启用 <code>ask_user</code> 工具</span>
+              <span>${t("ui.settingsSessiondPanel.enable", "Enable")} <code>ask_user</code> ${t("ui.chatView.tool", "Tool")}</span>
             </label>
             <small>${askUserSupported
-              ? html`代理可以发出结构化问题表单，并暂停等待用户回答。默认启用。`
-              : html`当前机器未提供代理提问设置。请更新并重启该机器上的 PI WEB。`}</small>
+              ? html`${t("ui.settingsSessiondPanel.agentsCanPresentStructuredQuestionFormsAndPause", "Agents can present structured question forms and pause for answers. Enabled by default.")}`
+              : html`${t("ui.settingsSessiondPanel.thisMachineDoesNotProvideAgentQuestionSettings", "This machine does not provide agent question settings. Update and restart PI WEB on that machine.")}`}</small>
           </div>
-          <section class="effective-card" aria-label="最终生效配置摘要">
-            <h3>环境变量覆盖后的生效配置</h3>
+          <section class="effective-card" aria-label="${t("ui.settingsGeneralPanel.effectiveConfigurationSummary", "Effective configuration summary")}">
+            <h3>${t("ui.settingsSessiondPanel.effectiveConfigurationAfterEnvironmentOverrides", "Effective configuration after environment overrides")}</h3>
             <dl>
-              <div><dt>期望命令</dt><dd>${effectiveAgent?.command ?? html`<span class="muted">不可用</span>`}</dd></div>
-              <div><dt>期望状态目录</dt><dd>${effectiveAgent?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
-              <div><dt>当前状态目录</dt><dd>${this.activeAgentProfile?.dir ?? html`<span class="muted">不可用</span>`}</dd></div>
-              <div><dt>配置档案状态</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
-              <div><dt>派生会话</dt><dd>${effectiveSpawn ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
-              <div><dt>子会话</dt><dd>${effectiveSubsessions ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
-              <div><dt>代理提问</dt><dd>${!askUserSupported ? html`<span class="muted">不可用</span>` : effectiveAskUser ? "已启用" : html`<span class="muted">已禁用</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.desiredCommand", "Desired command")}</dt><dd>${effectiveAgent?.command ?? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.desiredStateDirectory", "Desired state directory")}</dt><dd>${effectiveAgent?.dir ?? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.currentStateDirectory", "Current state directory")}</dt><dd>${this.activeAgentProfile?.dir ?? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.profileStatus", "Profile status")}</dt><dd>${profileActivationLabel(profileActivation)}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.spawnedSessions", "Spawned sessions")}</dt><dd>${effectiveSpawn ? t("ui.settingsSessiondPanel.enabled", "Enabled") : html`<span class="muted">${t("ui.settingsShortcutsPanel.disabled", "Disabled")}</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.subsessions", "Subsessions")}</dt><dd>${effectiveSubsessions ? t("ui.settingsSessiondPanel.enabled", "Enabled") : html`<span class="muted">${t("ui.settingsShortcutsPanel.disabled", "Disabled")}</span>`}</dd></div>
+              <div><dt>${t("ui.settingsSessiondPanel.agentQuestions", "Agent questions")}</dt><dd>${!askUserSupported ? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>` : effectiveAskUser ? t("ui.settingsSessiondPanel.enabled", "Enabled") : html`<span class="muted">${t("ui.settingsShortcutsPanel.disabled", "Disabled")}</span>`}</dd></div>
             </dl>
           </section>
         `}
@@ -192,7 +193,7 @@ export class SettingsSessiondPanel extends LitElement {
   }
 
   private renderUnavailableConfigState(): TemplateResult {
-    return html`<div class="loading-card">${this.loading ? "正在加载配置…" : "配置不可用，请重新加载。"}</div>`;
+    return html`<div class="loading-card">${this.loading ? t("ui.settingsSessiondPanel.loadingConfiguration", "Loading configuration…") : t("ui.settingsSessiondPanel.configurationUnavailableReload", "Configuration unavailable. Reload.")}</div>`;
   }
 
   private async saveAgentProfile(event: Event): Promise<void> {
@@ -275,9 +276,9 @@ export class SettingsSessiondPanel extends LitElement {
 }
 
 function profileActivationLabel(state: ReturnType<typeof agentProfileActivationState>): string | TemplateResult {
-  if (state === "active") return "已生效";
-  if (state === "restart-required") return "需要重启";
-  return html`<span class="muted">不可用</span>`;
+  if (state === "active") return t("ui.settingsSessiondPanel.applied", "Applied");
+  if (state === "restart-required") return t("bundled.info.restart.needed.1ffd00", "Restart needed");
+  return html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>`;
 }
 
 function inputValue(event: Event): string {
@@ -289,7 +290,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function sessiondDescription(targetLabel: string): string {
-  return `这些设置会影响 ${targetLabel} 上长生命周期的会话运行时。更改会立即保存，但只有在该机器的会话守护进程重启后才会生效。`;
+  return t("ui.settingsSessiondPanel.theseSettingsAffectLongLivedSessionRuntimesOn", "These settings affect long-lived session runtimes on {targetLabel}. Changes are saved immediately but take effect only after restarting that machine's session daemon.", { targetLabel: targetLabel });
 }
 
 export interface SessiondPanelNoticeContext {
@@ -317,14 +318,14 @@ export function sessiondPanelNotices(
   if (activation === "restart-required") {
     notices.push({
       type: "warning",
-      title: `${context.targetLabel} 上的 Pi 兼容代理配置档案需要重启`,
-      content: html`期望状态目录与当前会话守护进程的状态目录不同。请在该机器上运行 <code>pi-web restart</code>（或重启其会话守护进程服务），以应用状态目录。`,
+      title: t("ui.settingsSessiondPanel.piCompatibleAgentProfileOnRequiresARestart", "Pi-compatible agent profile on {targetLabel} requires a restart", { targetLabel: context.targetLabel }),
+      content: html`${t("ui.main.cbc1edd666c2", "The desired state directory differs from the running session daemon. On that machine, run ")} <code>pi-web restart</code>${t("ui.main.44de61cea1d8", " (or restart its session daemon service) to apply the state directory.")}`,
     });
   } else if (config !== undefined && activation === "unavailable" && context.profileEditingSupported) {
     notices.push({
       type: "info",
-      title: `无法获取 ${context.targetLabel} 上当前生效的 Pi 兼容代理配置档案`,
-      content: "PI WEB 无法比较期望配置档案与正在运行的会话守护进程配置档案。请在守护进程可用后重新加载。",
+      title: t("ui.settingsSessiondPanel.unableToGetTheActivePiCompatibleAgent", "Unable to get the active Pi-compatible agent profile on {targetLabel}", { targetLabel: context.targetLabel }),
+      content: t("ui.settingsSessiondPanel.piWebCannotCompareTheDesiredProfileWith", "PI WEB cannot compare the desired profile with the running session daemon profile. Reload when the daemon is available."),
     });
   }
   return notices;

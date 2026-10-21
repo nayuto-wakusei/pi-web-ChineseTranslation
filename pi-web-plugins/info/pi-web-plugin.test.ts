@@ -1,3 +1,4 @@
+import { translateChinese } from "../localization.testSupport.js";
 import { html, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
@@ -45,7 +46,7 @@ describe("Info plugin copy-diagnostics action", () => {
 
 async function findCopyDiagnosticsAction() {
   const signal = new AbortController().signal;
-  const activation = await plugin.activate({ apiVersion: 4, pluginId: "info", runtimePluginId: "info", html, svg, signal, lifetimeSignal: signal });
+  const activation = await plugin.activate({ apiVersion: 4, translate: translateChinese, pluginId: "info", runtimePluginId: "info", html, svg, signal, lifetimeSignal: signal });
   const action = activation.contributions.actions?.find((candidate) => candidate.id === "copy-diagnostics");
   if (action === undefined) throw new Error("Expected copy-diagnostics action");
   return action;

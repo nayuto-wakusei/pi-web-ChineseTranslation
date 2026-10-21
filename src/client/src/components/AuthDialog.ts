@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, query, state as litState } from "lit/decorators.js";
 import type { AuthDialogState } from "../appState";
@@ -41,7 +42,7 @@ export class AuthDialog extends LitElement {
       <modal-surface .onClose=${() => { this.cancel(); }} .onBusyEscape=${state.step === "oauth" ? () => this.onOAuthCancel?.() : undefined} .busy=${busy} .initialFocus=${this.initialFocus(state)} .label=${this.dialogTitle(state)} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
           <header>
             <strong>${this.dialogTitle(state)}</strong>
-            <button aria-label="关闭" title="关闭" @click=${() => { this.cancel(); }}>×</button>
+            <button aria-label="${t("ui.common.close", "Close")}" title="${t("ui.common.close", "Close")}" @click=${() => { this.cancel(); }}>×</button>
           </header>
           ${this.renderBody(state)}
       </modal-surface>
@@ -79,26 +80,26 @@ export class AuthDialog extends LitElement {
   private dialogTitle(state: AuthDialogState): string {
     const scope = state.target.projectName === undefined ? "" : ` · ${state.target.projectName}`;
     switch (state.step) {
-      case "method": return `配置提供商认证${scope}`;
-      case "providers": return `${state.authType === undefined ? "选择提供商认证" : state.authType === "oauth" ? "选择订阅提供商" : "选择 API key 提供商"}${scope}`;
-      case "apiKey": return `${state.provider.name} 的 API key${scope}`;
-      case "oauth": return `登录 ${state.flow.providerName}${scope}`;
-      case "logout": return `移除已保存的提供商认证${scope}`;
+      case "method": return t("ui.authDialog.configureProviderAuthentication", "Configure provider authentication{scope}", { scope: scope });
+      case "providers": return `${state.authType === undefined ? t("ui.authDialog.selectProviderAuthentication", "Select provider authentication") : state.authType === "oauth" ? t("ui.authDialog.selectSubscriptionProvider", "Select subscription provider") : t("ui.authDialog.selectApiKeyProvider", "Select API key provider")}${scope}`;
+      case "apiKey": return t("ui.authDialog.apiKeyFor", "API key for {name}{scope}", { name: state.provider.name, scope: scope });
+      case "oauth": return t("ui.authDialog.logInTo", "Log in to {providerName}{scope}", { providerName: state.flow.providerName, scope: scope });
+      case "logout": return t("ui.authDialog.removeSavedProviderAuthentication", "Remove saved provider authentication{scope}", { scope: scope });
     }
   }
 
   private renderBody(state: AuthDialogState) {
-    const credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目";
+    const credentialScope = state.target.projectName === undefined ? t("ui.authDialog.currentMode", "current mode") : t("ui.authDialog.currentProject", "current project");
     switch (state.step) {
       case "method":
       case "providers":
       case "logout": return this.renderOptionList(state, credentialScope);
       case "apiKey": return html`
         <div class="form">
-          <p>输入 <strong>${state.provider.name}</strong> 的 API key。它会保存到${credentialScope}的凭据文件。</p>
+          <p>${t("ui.toolExecutionView.input", "Input")} <strong>${state.provider.name}</strong> ${t("ui.main.cc6c809fa44c", " API key. It will be stored in ")}${credentialScope}${t("ui.main.1ddab1c2493b", " credentials file.")}</p>
           <input type="password" autocomplete="off" placeholder="API key" .value=${state.value} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onApiKeyInput?.(event.target.value); }}>
           ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
-          <div class="actions"><button @click=${() => { this.cancel(); }}>取消</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? "正在保存…" : "保存 API key"}</button></div>
+          <div class="actions"><button @click=${() => { this.cancel(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button><button class="primary" ?disabled=${state.saving === true} @click=${() => { this.onSaveApiKey?.(); }}>${state.saving === true ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.authDialog.saveApiKey", "Save API key")}</button></div>
         </div>
       `;
       case "oauth": return this.renderOAuth(state);
@@ -108,14 +109,14 @@ export class AuthDialog extends LitElement {
   private renderOptionList(state: Exclude<AuthDialogState, { step: "apiKey" | "oauth" }>, credentialScope: string): TemplateResult {
     const options = this.optionsFor(state, credentialScope) ?? [];
     const visible = this.filteredOptions(options);
-    const empty = state.step === "logout" ? "没有已保存的凭据。环境变量和 models.json 设置不会变化。" : "没有可用提供商。";
+    const empty = state.step === "logout" ? t("ui.authDialog.noSavedCredentialsEnvironmentVariablesAndModelsJson", "No saved credentials. Environment variables and models.json settings will not change.") : t("ui.authDialog.noProvidersAvailable", "No providers available.");
     return html`
       ${this.stepHasSearch(state) && options.length > 0 ? html`
-        <input aria-label="搜索提供商" placeholder="搜索提供商" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
+        <input aria-label="${t("ui.main.74e04909526d", "Search providers")}" placeholder="${t("ui.main.74e04909526d", "Search providers")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
       ` : null}
       <div class="options">
         ${options.length === 0 ? html`<div class="empty">${empty}</div>`
-        : visible.length === 0 ? html`<div class="empty">没有匹配的提供商</div>`
+        : visible.length === 0 ? html`<div class="empty">${t("ui.main.b3c77c2d4d90", "No matching providers")}</div>`
         : visible.map((option, index) => html`
           <button class=${index === this.selectedIndex ? "selected" : ""} aria-current=${index === this.selectedIndex ? "true" : nothing} ${scrollWhenSelected(index === this.selectedIndex, option.key)} @focus=${() => { this.selectedIndex = index; }} @click=${() => { option.run(); }}>
             <span>${option.title}</span>
@@ -126,11 +127,11 @@ export class AuthDialog extends LitElement {
     `;
   }
 
-  private optionsFor(state: AuthDialogState, credentialScope = state.target.projectName === undefined ? "当前模式" : "当前项目"): AuthDialogOption[] | undefined {
+  private optionsFor(state: AuthDialogState, credentialScope = state.target.projectName === undefined ? t("ui.authDialog.currentMode", "current mode") : t("ui.authDialog.currentProject", "current project")): AuthDialogOption[] | undefined {
     switch (state.step) {
       case "method": return [
-        { key: "oauth", title: "使用订阅", detail: "ChatGPT Plus/Pro、Claude Pro/Max 或 GitHub Copilot", searchText: "使用订阅", run: () => { this.onChooseMethod?.("oauth"); } },
-        { key: "api_key", title: "使用 API key", detail: `将 API key 存入${credentialScope}的 auth.json`, searchText: "使用 API key", run: () => { this.onChooseMethod?.("api_key"); } },
+        { key: "oauth", title: t("ui.authDialog.useSubscription", "Use subscription"), detail: t("ui.authDialog.chatgptPlusProClaudeProMaxOrGithub", "ChatGPT Plus/Pro, Claude Pro/Max, or GitHub Copilot"), searchText: t("ui.authDialog.useSubscription", "Use subscription"), run: () => { this.onChooseMethod?.("oauth"); } },
+        { key: "api_key", title: t("ui.authDialog.useApiKey", "Use API key"), detail: t("ui.authDialog.credentialDestination", "Save the API key in auth.json for the {scope}", { scope: credentialScope }), searchText: t("ui.authDialog.useApiKey", "Use API key"), run: () => { this.onChooseMethod?.("api_key"); } },
       ];
       case "providers": return state.providers.map((provider) => ({
         key: `${provider.id}:${provider.authType}`,
@@ -180,23 +181,23 @@ export class AuthDialog extends LitElement {
     return html`
       <div class="form">
           ${flow.auth !== undefined ? html`
-            <p>打开此授权链接：</p>
+            <p>${t("ui.authDialog.openThisAuthorizationLink", "Open this authorization link:")}</p>
             <p><a href=${flow.auth.url} target="_blank" rel="noreferrer">${flow.auth.url}</a></p>
             ${flow.auth.deviceCode !== undefined ? html`
-              <p class="warning">输入代码：<code>${flow.auth.deviceCode.userCode}</code></p>
+              <p class="warning">${t("ui.authDialog.enterCode", "Enter code: ")}<code>${flow.auth.deviceCode.userCode}</code></p>
             ` : flow.auth.instructions !== undefined ? html`<p class="warning">${flow.auth.instructions}</p>` : null}
-        ` : html`<p>正在启动登录流程…</p>`}
-        ${showPasteNote ? html`<p class="warning">授权完成后，重定向页面可能无法打开，这是正常现象。请复制浏览器地址栏中的完整 URL，并粘贴到下方输入框。</p>` : null}
+        ` : html`<p>${t("ui.authDialog.startingLogin", "Starting login…")}</p>`}
+        ${showPasteNote ? html`<p class="warning">${t("ui.main.1b884d0f9ef1", "After you approve, the redirect page will probably fail to load — that is expected. Copy the full URL from your browser's address bar and paste it below.")}</p>` : null}
         ${flow.progress.length > 0 ? html`<ul class="progress">${flow.progress.map((line) => html`<li>${line}</li>`)}</ul>` : null}
         ${flow.info?.map((item) => item.links === undefined || item.links.length === 0 ? null : html`
-          <div class="info-links" aria-label="相关信息">
+          <div class="info-links" aria-label="${t("ui.authDialog.relatedInformation", "Related information")}">
             ${item.links.map((link) => html`<a href=${link.url} target="_blank" rel="noreferrer" title=${item.message}>${link.label ?? link.url}</a>`)}
           </div>
         `) ?? null}
         ${prompt !== undefined ? html`
           <label>${prompt.message}</label>
           <input type=${promptInputType} autocomplete=${promptInputType === "password" ? "off" : "on"} .value=${state.inputValue ?? ""} placeholder=${prompt.placeholder ?? ""} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.onOAuthInput?.(event.target.value); }}>
-          <div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>取消</button><button class="primary" ?disabled=${state.responding === true} @click=${() => { this.onOAuthRespond?.(); }}>提交</button></div>
+          <div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button><button class="primary" ?disabled=${state.responding === true} @click=${() => { this.onOAuthRespond?.(); }}>${t("ui.authDialog.submit", "Submit")}</button></div>
         ` : null}
         ${select !== undefined ? html`
           <p>${select.message}</p>
@@ -208,8 +209,8 @@ export class AuthDialog extends LitElement {
           `)}</div>
         ` : null}
         ${state.error !== undefined && state.error !== "" ? html`<div class="error-text">${state.error}</div>` : null}
-        ${flow.status === "error" || flow.status === "cancelled" ? html`<div class="error-text">${flow.error ?? flowStatusLabel(flow.status)}</div><div class="actions"><button @click=${() => { this.cancel(); }}>关闭</button></div>` : null}
-        ${prompt === undefined && select === undefined && flow.status === "running" ? html`<div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>取消</button></div>` : null}
+        ${flow.status === "error" || flow.status === "cancelled" ? html`<div class="error-text">${flow.error ?? flowStatusLabel(flow.status)}</div><div class="actions"><button @click=${() => { this.cancel(); }}>${t("ui.common.close", "Close")}</button></div>` : null}
+        ${prompt === undefined && select === undefined && flow.status === "running" ? html`<div class="actions"><button @click=${() => { this.onOAuthCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button></div>` : null}
       </div>
     `;
   }
@@ -297,7 +298,7 @@ export function shouldShowRemoteOAuthPasteNote(state: Extract<AuthDialogState, {
 }
 
 function authTypeLabel(authType: "oauth" | "api_key"): string {
-  return authType === "oauth" ? "订阅" : "API key";
+  return authType === "oauth" ? t("ui.authDialog.subscription", "Subscription") : "API key";
 }
 
 function oauthInteractionKey(value: unknown): string | undefined {
@@ -339,10 +340,10 @@ function authDialogStateStep(value: unknown): AuthDialogState["step"] | undefine
 function statusLabel(provider: AuthProviderOption): string {
   if (provider.status.source === undefined) return "";
   switch (provider.status.source) {
-    case "stored": return "✓ 已配置";
-    case "environment": return `✓ 环境变量${provider.status.label === undefined ? "" : `: ${provider.status.label}`}`;
-    case "runtime": return "✓ 运行时";
-    case "fallback": return "✓ 自定义 key";
+    case "stored": return t("ui.authDialog.configured", "✓ Configured");
+    case "environment": return t("ui.authDialog.environment", "✓ Environment{label}", { label: provider.status.label === undefined ? "" : `: ${provider.status.label}` });
+    case "runtime": return t("ui.authDialog.runtime", "✓ Runtime");
+    case "fallback": return t("ui.authDialog.customKey", "✓ Custom key");
     case "models_json_key": return "✓ models.json key";
     case "models_json_command": return "✓ models.json command";
     default: return "";
@@ -350,7 +351,7 @@ function statusLabel(provider: AuthProviderOption): string {
 }
 
 function flowStatusLabel(status: string): string {
-  if (status === "cancelled") return "已取消";
-  if (status === "error") return "错误";
+  if (status === "cancelled") return t("client.shellMessages.cancelled.a37778", "Cancelled");
+  if (status === "error") return t("client.sessionNotifications.error.0bc1fb", "Error");
   return status;
 }

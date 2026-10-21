@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { html, type TemplateResult } from "lit";
 import type { ServerNoticeSeverity } from "../../../shared/apiTypes";
 
@@ -8,15 +9,15 @@ import type { ServerNoticeSeverity } from "../../../shared/apiTypes";
  */
 export function errorBanner(error: string, onDismiss: () => void, severity: ServerNoticeSeverity = "error"): TemplateResult | null {
   if (error === "") return null;
-  const dismissLabel = `关闭${bannerSeverityLabel(severity)}`;
+  const dismissLabel = t("ui.main.dcf2e3223649", "Dismiss {arg0}", { arg0: bannerSeverityLabel(severity) });
   return html`<div class=${`error ${severity}`} role="alert">
     <span class="error-text">${error}</span>
     <button type="button" class="error-dismiss" aria-label=${dismissLabel} title=${dismissLabel} @click=${() => { onDismiss(); }}>✕</button>
   </div>`;
 }
 
-function bannerSeverityLabel(severity: ServerNoticeSeverity): "信息" | "警告" | "错误" {
-  if (severity === "error") return "错误";
-  if (severity === "warning") return "警告";
-  return "信息";
+function bannerSeverityLabel(severity: ServerNoticeSeverity): string {
+  if (severity === "error") return t("client.sessionNotifications.error.0bc1fb", "Error");
+  if (severity === "warning") return t("client.sessionNotifications.warning.a8b7a4", "Warning");
+  return t("bundled.info.info.e70286", "Info");
 }

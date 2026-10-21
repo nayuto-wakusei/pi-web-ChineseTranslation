@@ -20,7 +20,7 @@ describe("Files plugin activation", () => {
     const actions = result.contributions.actions ?? [];
 
     expect(panel?.fileOpenQuery?.(createWorkspaceContext(), "reports/a #1.txt")).toEqual({ file: "reports/a #1.txt" });
-    expect(plugin).toMatchObject({ apiVersion: 4, name: "文件" });
+    expect(plugin).toMatchObject({ apiVersion: 4, name: "Files" });
     expect(panel).toMatchObject({
       id: "workspace.files",
       title: "文件",

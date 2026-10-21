@@ -7,6 +7,8 @@ import { VERSION as PI_CODING_AGENT_VERSION } from "@earendil-works/pi-coding-ag
 import { comparePackageVersions, getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus, systemdNpmGlobalUpdateCommand, updateCommandFor } from "./piWebStatus.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import type { PiWebRuntimeComponent } from "../shared/apiTypes.js";
+import { loadNodeTranslator } from "../localization.js";
+import { createTranslator } from "../shared/i18n.js";
 
 const webCapabilities = [
   "sessions.deleteArchived", "sessions.bulkMutations", "sessions.cleanup", "sessions.reload",
@@ -297,12 +299,14 @@ describe("PI WEB status", () => {
     expect(message?.command).toBe(status.commands.update);
   });
 
-  it("keeps both Web/UI restart hints in Chinese", async () => {
-    const source = await readFile(new URL("./piWebStatus.ts", import.meta.url), "utf8");
-    expect(source).toContain('title: "Web/UI 服务需要重启"');
-    expect(source).toContain("重启 Web/UI 服务或进程即可使用已安装版本");
-    expect(source).toContain("重启服务即可使用已安装版本");
-    expect(source).not.toContain("Web/UI service restart needed");
+  it.each(["en", "zh-CN"])("localizes restart hints without changing versions in %s", async (locale) => {
+    const status = await getPiWebStatus(daemonWithRuntime(runningSessiondRuntime()), {
+      translator: locale === "en" ? createTranslator("en", {}) : loadNodeTranslator("server", {}),
+    });
+    const message = status.messages.find((entry) => entry.id === "sessiond-stale");
+    expect(message?.title).toBe(locale === "en" ? "Session daemon restart needed" : "会话守护进程需要重启");
+    expect(message?.body).toContain("1.202605.7");
+    if (locale === "en") expect(message?.body).not.toMatch(/\p{Script=Han}/u);
   });
 
   it("marks the session daemon unavailable without falling back to the legacy health payload", async () => {

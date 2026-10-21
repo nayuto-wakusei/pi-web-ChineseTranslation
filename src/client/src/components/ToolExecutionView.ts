@@ -1,3 +1,4 @@
+import { t } from "../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ToolExecutionPart } from "../chatTypes";
@@ -6,7 +7,7 @@ import { writeClipboardText } from "../clipboard";
 const MAX_COLLAPSED_DIFF_LINES = 180;
 
 interface ToolTarget {
-  label: "命令" | "文件" | "输入";
+  label: string;
   text: string;
 }
 
@@ -46,16 +47,16 @@ export class ToolExecutionView extends LitElement {
           </div>
         </div>
 
-        ${previewMismatch ? html`<p class="notice">实际应用的 diff 与预览不同。</p>` : null}
+        ${previewMismatch ? html`<p class="notice">${t("ui.toolExecutionView.theAppliedDiffDiffersFromThePreview", "The applied diff differs from the preview.")}</p>` : null}
         ${errorText === undefined || errorText === "" ? null : html`<pre class="error-text">${errorText}</pre>`}
-        ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error", target) : this.renderDiffBody(visibleDiff, actualDiff === undefined ? "预览 diff" : "已应用 diff", target)}
+        ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error", target) : this.renderDiffBody(visibleDiff, actualDiff === undefined ? t("ui.toolExecutionView.previewDiff", "Preview diff") : t("ui.toolExecutionView.appliedDiff", "Applied diff"), target)}
       </section>
     `;
   }
 
   private renderHeaderTarget(target: ToolTarget | undefined) {
     if (target === undefined) return null;
-    const className = target.label === "文件" ? "path" : "summary";
+    const className = target.label === t("ui.toolExecutionView.file", "File") ? "path" : "summary";
     return html`<span class=${className} title=${target.text} aria-label=${`${target.label}: ${target.text}`}>${target.text}</span>`;
   }
 
@@ -73,11 +74,11 @@ export class ToolExecutionView extends LitElement {
     if ((text === undefined || text === "") && target === undefined) return null;
     return html`
       <details class="text-body" ?open=${open}>
-        <summary>详情</summary>
+        <summary>${t("ui.toolExecutionView.details", "Details")}</summary>
         ${this.renderExpandedTarget(target)}
         ${text === undefined || text === "" ? null : html`
           <div class="detail-result">
-            <span class="detail-label">结果</span>
+            <span class="detail-label">${t("ui.toolExecutionView.result", "Result")}</span>
             <pre>${text}</pre>
           </div>
         `}
@@ -93,17 +94,17 @@ export class ToolExecutionView extends LitElement {
       <details class="diff-details" ?open=${this.diffOpen} @toggle=${(event: Event) => { this.onDiffToggle(event); }}>
         <summary>
           <span>${label}</span>
-          <small>${String(lines.length)} 行</small>
+          <small>${t("ui.toolExecutionView.lineCount", "{count} lines", { count: lines.length })}</small>
         </summary>
         ${this.renderExpandedTarget(target)}
         <div class="diff-toolbar">
-          <span>${truncated ? `显示 ${String(visibleLines.length)} / ${String(lines.length)} 行` : "完整 diff"}</span>
-          <button type="button" @click=${() => { void this.copyDiff(diff); }}>${this.copied ? "已复制" : "复制 diff"}</button>
+          <span>${truncated ? t("ui.toolExecutionView.showingLines", "Showing {length} / {value2} lines", { length: String(visibleLines.length), value2: String(lines.length) }) : t("ui.toolExecutionView.fullDiff", "Full diff")}</span>
+          <button type="button" @click=${() => { void this.copyDiff(diff); }}>${this.copied ? t("ui.toolExecutionView.copied", "Copied") : t("ui.toolExecutionView.copyDiff", "Copy diff")}</button>
         </div>
         <pre class="diff" aria-label=${label}><code class="diff-content">${visibleLines.map((line) => html`<span class=${diffLineClass(line)}>${line}</span>`)}</code></pre>
         ${truncated ? html`
           <button class="show-more" type="button" @click=${() => { this.showFullDiff = true; }}>
-            显示全部 ${String(lines.length)} 行 diff
+            ${t("ui.toolExecutionView.showAllDiffLines", "Show all {count} diff lines", { count: lines.length })}
           </button>
         ` : null}
       </details>
@@ -173,10 +174,10 @@ export class ToolExecutionView extends LitElement {
 }
 
 function toolTarget(execution: ToolExecutionPart, path: string | undefined): ToolTarget | undefined {
-  if (path !== undefined && path !== "") return { label: "文件", text: path };
+  if (path !== undefined && path !== "") return { label: t("ui.toolExecutionView.file", "File"), text: path };
   const command = getString(execution.args, "command");
-  if (command !== undefined && command !== "") return { label: "命令", text: command };
-  if (execution.summary !== "") return { label: "输入", text: execution.summary };
+  if (command !== undefined && command !== "") return { label: t("ui.toolExecutionView.command", "Command"), text: command };
+  if (execution.summary !== "") return { label: t("ui.toolExecutionView.input", "Input"), text: execution.summary };
   return undefined;
 }
 
@@ -187,8 +188,8 @@ function pathFromArgs(args: unknown): string | undefined {
 function editCountLabel(execution: ToolExecutionPart): string | undefined {
   if (execution.toolName !== "edit") return undefined;
   const edits = getProperty(execution.args, "edits");
-  if (Array.isArray(edits)) return `${String(edits.length)} 处编辑`;
-  if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return "1 处编辑";
+  if (Array.isArray(edits)) return t("ui.toolExecutionView.edits", "{length} edits", { length: String(edits.length) });
+  if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return t("ui.toolExecutionView.1Edit", "1 edit");
   return undefined;
 }
 
@@ -231,10 +232,10 @@ function statusIcon(status: ToolExecutionPart["status"]): string {
 }
 
 function statusLabel(status: ToolExecutionPart["status"]): string {
-  if (status === "success") return "完成";
-  if (status === "error") return "失败";
-  if (status === "running") return "运行中";
-  return "等待中";
+  if (status === "success") return t("ui.toolExecutionView.done", "Done");
+  if (status === "error") return t("ui.toolExecutionView.failed", "Failed");
+  if (status === "running") return t("ui.toolExecutionView.running", "Running");
+  return t("ui.toolExecutionView.pending", "Pending");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

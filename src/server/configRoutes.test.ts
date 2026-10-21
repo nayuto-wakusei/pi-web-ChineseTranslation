@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePiWebConfigResponseBody, parseSelectedMachineConfigRequest, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import { createTranslator } from "../shared/i18n.js";
+import configMessages from "../../pi-web-plugins/zh-cn/config-errors.json";
 
 let app: FastifyInstance;
 let savedConfig: PiWebConfigValues;
@@ -27,6 +29,27 @@ afterEach(async () => {
 });
 
 describe("config routes", () => {
+  it("localizes owned validation while preserving response status, field names and raw failures", async () => {
+    const localized = Fastify({ logger: false });
+    const translate = createTranslator("zh-CN", configMessages);
+    registerConfigRoutes(localized, service, translate);
+    registerLocalMachineConfigRoutes(localized, service, translate);
+    try {
+      const invalidPort = await localized.inject({ method: "PUT", url: "/api/config", payload: { config: { port: "invalid" } } });
+      expect(invalidPort.statusCode).toBe(400);
+      expect(invalidPort.json()).toEqual({ error: "PI WEB 配置 port 必须是数字" });
+      const invalidPlugin = await localized.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { plugins: [] } } });
+      expect(invalidPlugin.statusCode).toBe(400);
+      expect(invalidPlugin.json()).toEqual({ error: "PI WEB 所选机器配置 plugins 必须是对象" });
+      vi.mocked(service.read).mockRejectedValue(new Error("filesystem: preserve original"));
+      const failure = await localized.inject({ method: "GET", url: "/api/config" });
+      expect(failure.statusCode).toBe(500);
+      expect(failure.json()).toEqual({ error: "filesystem: preserve original" });
+    } finally {
+      await localized.close();
+    }
+  });
+
   it("returns the PI WEB config contract", async () => {
     const response = await app.inject({ method: "GET", url: "/api/config" });
 

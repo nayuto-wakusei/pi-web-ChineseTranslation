@@ -1,3 +1,4 @@
+import { createTranslator, type Translator } from "./shared/i18n.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -259,12 +260,12 @@ function isAuthenticationRequired(error: unknown): boolean {
   return error instanceof HttpResponseError && (error.status === 401 || error.status === 403);
 }
 
-function printInstalledPackageVersions(): void {
+function printInstalledPackageVersions(t: Translator = createTranslator("en", {})): void {
   const info = readPackageInfo();
-  console.log("Installed packages:");
+  console.log(t("version.installed", "Installed packages:"));
   if (info === undefined) {
-    console.log(`? ${PI_WEB_PACKAGE_NAME}: unknown`);
-    console.log(`  missing package metadata: ${packageJsonPath()}`);
+    console.log(t("version.packageUnknown", "? {arg0}: unknown", { arg0: PI_WEB_PACKAGE_NAME }));
+    console.log(t("version.metadataMissing", "  missing package metadata: {arg0}", { arg0: packageJsonPath() }));
     return;
   }
   console.log(`✓ ${info.name}: ${info.version}`);
@@ -282,12 +283,12 @@ function printRunningVersionInfo(info: RunningVersionInfo): void {
   if (info.generatedAt !== undefined) console.log(`  reported by web/API at ${info.generatedAt}`);
 }
 
-function printComponentVersion(component: PiWebComponentStatus): void {
+function printComponentVersion(component: PiWebComponentStatus, t: Translator = createTranslator("en", {})): void {
   const icon = component.available ? component.stale ? "!" : "✓" : "?";
-  const status = !component.available ? "unavailable" : component.stale ? "restart needed" : "current";
+  const status = !component.available ? t("version.unavailable", "unavailable") : component.stale ? t("version.restartNeeded", "restart needed") : t("version.current", "current");
   console.log(`${icon} ${component.label}: ${status}`);
   if (component.available || component.runtimeVersion !== undefined || component.installedVersion !== undefined) {
-    console.log(`  running: ${formatVersion(component.runtimeVersion)}; installed: ${formatVersion(component.installedVersion)}`);
+    console.log(t("version.runningInstalled", "  running: {arg0}; installed: {arg1}", { arg0: formatVersion(component.runtimeVersion, t), arg1: formatVersion(component.installedVersion, t) }));
   }
   if (component.piVersion !== undefined) console.log(`  pi: ${component.piVersion}`);
   const installation = installationLabel(component.installation);
@@ -295,12 +296,12 @@ function printComponentVersion(component: PiWebComponentStatus): void {
   if (component.error !== undefined) console.log(`  ${component.error}`);
 }
 
-function printUnavailableComponent(label: string, error: string | undefined): void {
-  console.log(`? ${label}: unavailable`);
+function printUnavailableComponent(label: string, error: string | undefined, t: Translator = createTranslator("en", {})): void {
+  console.log(t("version.componentUnavailable", "? {arg0}: unavailable", { arg0: label }));
   if (error !== undefined && error !== "") console.log(`  ${error}`);
 }
 
-function installationLabel(installation: PiWebInstallationInfo | undefined): string | undefined {
+function installationLabel(installation: PiWebInstallationInfo | undefined, t: Translator = createTranslator("en", {})): string | undefined {
   if (installation === undefined) return undefined;
   if (installation.kind === "pi-package") {
     const source = installation.source ?? "Pi package";
@@ -311,18 +312,18 @@ function installationLabel(installation: PiWebInstallationInfo | undefined): str
   if (installation.kind === "npm-global") {
     const npmRoot = installation.npmRoot === undefined ? "" : ` · ${installation.npmRoot}`;
     const path = installation.path === undefined ? "" : ` · ${installation.path}`;
-    return `global npm package${npmRoot}${path}`;
+    return t("version.globalNpm", "global npm package{arg0}{arg1}", { arg0: npmRoot, arg1: path });
   }
-  if (installation.kind === "local") return installation.path === undefined ? "local checkout" : `local checkout · ${installation.path}`;
+  if (installation.kind === "local") return installation.path === undefined ? t("version.checkout", "local checkout") : t("version.checkoutPath", "local checkout · {arg0}", { arg0: installation.path });
   if (installation.kind === "docker") {
-    const mode = installation.dockerMode === "dev" ? "Docker development runtime" : "Docker runtime";
+    const mode = installation.dockerMode === "dev" ? t("version.dockerDev", "Docker development runtime") : t("version.docker", "Docker runtime");
     return installation.path === undefined ? mode : `${mode} · ${installation.path}`;
   }
-  return installation.path === undefined ? "installation unknown" : `installation unknown · ${installation.path}`;
+  return installation.path === undefined ? t("version.installationUnknown", "installation unknown") : t("version.unknownPath", "installation unknown · {arg0}", { arg0: installation.path });
 }
 
-function formatVersion(version: string | undefined): string {
-  return version === undefined || version === "" ? "unknown" : version;
+function formatVersion(version: string | undefined, t: Translator = createTranslator("en", {})): string {
+  return version === undefined || version === "" ? t("version.unknown", "unknown") : version;
 }
 
 function errorMessage(error: unknown): string {

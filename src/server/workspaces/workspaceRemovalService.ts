@@ -1,3 +1,5 @@
+import type { Translator } from "../../shared/i18n.js";
+import { loadNodeTranslator } from "../../localization.js";
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 import type { TerminalCommandRun, WorkspaceListing } from "../../shared/apiTypes.js";
 import { workspaceDeleteOperation, workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
@@ -144,7 +146,7 @@ export class WorkspaceRemovalService {
     workspaceId: string,
     precondition: string,
     flightSignal: AbortSignal,
-    managementContext?: ManagementEmbedContext,
+    managementContext?: ManagementEmbedContext, t: Translator = loadNodeTranslator("server")
   ): Promise<TerminalCommandRun> {
     try {
       return await runBoundedRemoval(this.timeoutMs, flightSignal, async (signal) => {
@@ -193,7 +195,7 @@ export class WorkspaceRemovalService {
             command,
             metadata: workspaceDeletionMetadata(target),
             failureNotice: {
-              message: "工作区移除失败，请查看终端输出。",
+              message: t("server.main.8e9133b0ce4a", "Workspace removal failed. See terminal output."),
               context: { targetWorkspaceId: target.id },
             },
             ...(managementContext === undefined ? {} : { managementContext }),
@@ -212,7 +214,7 @@ export class WorkspaceRemovalService {
         : error;
       if (!isAbortError(failure) && managementContext === undefined) this.notices?.record({
         severity: "error",
-        message: `工作区移除失败：${errorMessage(failure)}`,
+        message: t("server.main.f658c452e075", "Workspace removal failed: {arg0}", { arg0: errorMessage(failure) }),
         source: workspaceDeleteOperation,
         scope: { projectId: project.id },
         context: { targetWorkspaceId: workspaceId, projectId: project.id, workspaceId },

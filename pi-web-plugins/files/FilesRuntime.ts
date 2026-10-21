@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import type {
   FileContentResponse,
   FileTreeEntry,
@@ -262,7 +263,7 @@ export class FilesRuntime {
 
   async createDirectory(context: WorkspacePanelContext, path: string): Promise<void> {
     await this.mutate(context, (files) => {
-      if (files.createDirectory === undefined) throw new Error("当前宿主不支持创建文件夹");
+      if (files.createDirectory === undefined) throw new Error(t("ui.main.824e9505656f", "The current host does not support creating folders"));
       return files.createDirectory(path);
     }, () => { this.selectDirectory(context, path); });
   }
@@ -274,7 +275,7 @@ export class FilesRuntime {
     const directory = scope.selectedDirectoryPath !== undefined;
     await this.mutate(context, (files) => {
       if (!directory) return files.moveFile(fromPath, toPath, { overwrite: false });
-      if (files.moveDirectory === undefined) throw new Error("当前宿主不支持移动文件夹");
+      if (files.moveDirectory === undefined) throw new Error(t("ui.main.edac88843cde", "The current host does not support moving folders"));
       return files.moveDirectory(fromPath, toPath);
     }, async () => {
       if (directory) this.selectDirectory(context, toPath);
@@ -289,7 +290,7 @@ export class FilesRuntime {
     const directory = scope.selectedDirectoryPath !== undefined;
     await this.mutate(context, (files) => {
       if (!directory) return files.deleteFile(path);
-      if (files.deleteDirectory === undefined) throw new Error("当前宿主不支持删除空文件夹");
+      if (files.deleteDirectory === undefined) throw new Error(t("ui.main.5e12c72deb80", "The current host does not support deleting empty folders"));
       return files.deleteDirectory(path);
     }, () => { this.clearSelection(context); }, path);
   }
@@ -444,7 +445,7 @@ export class FilesRuntime {
 
   private requireFiles(scope: ScopeRecord): WorkspaceFilesCapabilityV1 | undefined {
     if (scope.files !== undefined && scope.capabilityError === undefined) return scope.files;
-    scope.capabilityError ??= "文件面板需要工作区文件能力 v1 和贡献导航 v1，请更新 PI WEB 宿主。";
+    scope.capabilityError ??= t("ui.main.2fd685fde7cb", "Files requires workspace-files capability v1 and contribution navigation v1. Update the PI WEB host.");
     this.notify(scope);
     return undefined;
   }
@@ -627,10 +628,10 @@ export class FilesRuntime {
       batch.status = failed.length === 0 ? "completed" : "error";
       batch.completedAt = this.now();
       if (failed.length === 0) delete batch.error;
-      else batch.error = failed.length === 1 ? failed[0]?.error ?? "工作区上传失败" : `${String(failed.length)} 个文件上传失败`;
+      else batch.error = failed.length === 1 ? failed[0]?.error ?? t("client.workspaceUploads.workspace.upload.failed.a87e6b", "Workspace upload failed") : t("client.workspaceUploads.file.uploads.failed.fa7a1e", "{value1} file uploads failed", { value1: String(failed.length) });
       for (const pending of batch.files.filter((file) => file.status === "pending" || file.status === "uploading")) {
         pending.status = "cancelled";
-        pending.error = "未上传。";
+        pending.error = t("ui.main.f9bc2a6d1dcd", "Not uploaded.");
       }
       this.recalculateUploadProgress(batch, true);
       this.notify(scope);
@@ -720,14 +721,14 @@ export function workspaceFilesCapabilityV1(files: WorkspaceFilesContextValue): W
 }
 
 export function workspaceUploadPath(destinationFolder: string, fileName: string): string {
-  const folder = normalizeWorkspaceUploadPath(destinationFolder, "上传目标", { allowEmpty: true });
-  const name = normalizeWorkspaceUploadPath(fileName, "上传文件名", { allowEmpty: false });
+  const folder = normalizeWorkspaceUploadPath(destinationFolder, t("client.workspaceUploads.upload.destination.874cbb", "Upload destination"), { allowEmpty: true });
+  const name = normalizeWorkspaceUploadPath(fileName, t("client.workspaceUploads.upload.filename.9252dd", "Upload filename"), { allowEmpty: false });
   return folder === "" ? name : `${folder}/${name}`;
 }
 
 function filesCapabilityError(files: WorkspaceFilesContextValue, navigation: WorkspacePanelNavigationV1 | undefined): string | undefined {
-  if (files.capabilityVersion !== 1) return "文件面板需要工作区文件能力 v1，请更新 PI WEB 宿主。";
-  if (navigation?.version !== 1) return "文件面板需要贡献导航 v1，请更新 PI WEB 宿主。";
+  if (files.capabilityVersion !== 1) return t("ui.main.490aad534c26", "Files requires workspace-files capability v1. Update the PI WEB host.");
+  if (navigation?.version !== 1) return t("ui.main.ee50f621146e", "Files requires contribution navigation v1. Update the PI WEB host.");
   return undefined;
 }
 
@@ -777,11 +778,11 @@ function createUploadBatch(
 function cancelUploadBatch(batch: WorkspaceUploadBatchState, completedAt: string): void {
   batch.status = "cancelled";
   batch.completedAt = completedAt;
-  batch.error = "上传已取消";
+  batch.error = t("client.workspaceUploadState.upload.cancelled.2e6b43", "Upload cancelled");
   for (const file of batch.files) {
     if (file.status === "completed" || file.status === "error") continue;
     file.status = "cancelled";
-    file.error = "上传已取消";
+    file.error = t("client.workspaceUploadState.upload.cancelled.2e6b43", "Upload cancelled");
   }
   batch.loaded = batch.total;
   batch.percent = 1;
@@ -791,16 +792,16 @@ function normalizeWorkspaceUploadPath(value: string, label: string, options: { a
   const trimmed = value.trim();
   if (trimmed === "") {
     if (options.allowEmpty) return "";
-    throw new Error(`${label}不能为空`);
+    throw new Error(t("client.workspaceUploads.must.not.be.empty.b22cd8", "{value1} must not be empty", { value1: label }));
   }
   const withForwardSlashes = trimmed.replace(/\\/gu, "/");
-  if (withForwardSlashes.startsWith("/") || /^[A-Za-z]:\//u.test(withForwardSlashes)) throw new Error(`${label}必须是工作区相对路径`);
+  if (withForwardSlashes.startsWith("/") || /^[A-Za-z]:\//u.test(withForwardSlashes)) throw new Error(t("client.workspaceUploads.must.be.a.workspace.relative.path.79fcd6", "{value1} must be a workspace-relative path", { value1: label }));
   const parts = withForwardSlashes.split("/").filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) {
     if (options.allowEmpty) return "";
-    throw new Error(`${label}不能为空`);
+    throw new Error(t("client.workspaceUploads.must.not.be.empty.b22cd8", "{value1} must not be empty", { value1: label }));
   }
-  if (parts.some((part) => part === "..")) throw new Error(`${label}不能包含上级目录跳转`);
+  if (parts.some((part) => part === "..")) throw new Error(t("ui.main.644f95b6e7c6", "{arg0} must not contain parent-directory traversal", { arg0: label }));
   return parts.join("/");
 }
 

@@ -1,3 +1,4 @@
+import { t, setTranslator } from "./i18n.js";
 import type { PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginRuntimeContext, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
 import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
@@ -16,8 +17,8 @@ const terminalCustomElementOwnersKey = Symbol.for("pi-web.terminal.custom-elemen
 
 const plugin = {
   apiVersion: 4,
-  name: "终端",
-  activate: (context) => activateTerminalPlugin(context),
+  name: t("client.panels.terminal.e2a76e", "Terminal"),
+  activate: (context) => { setTranslator(context.translate); return activateTerminalPlugin(context); },
 } satisfies PiWebPlugin;
 
 export default plugin;
@@ -62,7 +63,7 @@ export function activateTerminalPlugin(
     contributions: {
       workspacePanels: [{
         id: "workspace.terminal",
-        title: "终端",
+        title: t("client.panels.terminal.e2a76e", "Terminal"),
         icon,
         order: 30,
         routeAliases: [...TERMINAL_PANEL_ROUTE_ALIASES, ...(context.runtimePluginId === TERMINAL_PLUGIN_ID ? [] : [legacyPanelId])],
@@ -73,10 +74,10 @@ export function activateTerminalPlugin(
       }],
       actions: [{
         id: "view.terminal",
-        title: "转到终端",
+        title: t("client.actions.go.to.terminal.8fbef1", "Go to terminal"),
         shortcut: "mod+4",
         shortcutAliases: ["core:view.terminal"],
-        group: "导航",
+        group: t("client.actions.navigation.e72622", "Navigation"),
         enabled: (runtimeContext: PluginRuntimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
         run: (runtimeContext: PluginRuntimeContext) => { runtimeContext.openTerminal(); },
       }],

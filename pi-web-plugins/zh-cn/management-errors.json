@@ -1,0 +1,23 @@
+{
+  "management.defaultProjectName": "{userId}的项目",
+  "managementError.workbench.snapshotMismatch": "工作台资源快照与 Agent Session 不匹配",
+  "managementError.workbench.invalidJson": "工作台为 {path} 返回了无效的 JSON",
+  "managementError.workbench.resourcesArray": "工作台 resources 必须是数组",
+  "managementError.workbench.objectRequired": "{label} 必须是对象",
+  "managementError.workbench.stringRequired": "{key} 必须是非空字符串",
+  "managementError.workbench.integerRequired": "{key} 必须是整数",
+  "managementError.workbench.invalidField": "{key} 无效",
+  "managementError.workbench.stateRejected": "会话守护进程拒绝了工作台资源状态",
+  "managementError.management.embed.mode.is.not.configured": "未配置管理嵌入模式",
+  "managementError.management.embed.session.is.invalid.or.expired": "管理嵌入会话无效或已过期",
+  "managementError.management.embed.token.is.required": "必须提供管理嵌入令牌",
+  "managementError.project.is.not.authorized.for.this.management.session": "此管理会话未获授权访问该项目",
+  "managementError.managed.workspace.does.not.match.an.authorized.project": "管理工作区与获授权的项目不匹配",
+  "managementError.path.is.outside.the.managed.project.sandbox": "路径位于管理项目沙箱之外",
+  "managementError.invalid.management.embed.context": "管理嵌入上下文无效",
+  "managementError.management.embed.token.is.invalid": "管理嵌入令牌无效",
+  "managementError.management.embed.token.is.expired": "管理嵌入令牌已过期",
+  "managementError.management.embed.introspection.response.is.invalid": "管理嵌入验证响应无效",
+  "managementError.management.embed.project.entry.is.invalid": "管理嵌入项目条目无效",
+  "managementError.management.embed.field.is.required": "必须提供管理嵌入字段 {key}"
+}

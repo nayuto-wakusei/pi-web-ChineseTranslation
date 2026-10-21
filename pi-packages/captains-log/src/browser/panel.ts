@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import type { PluginActivationContext, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import type { LogEntry } from "./protocol.js";
 import { renderCaptainMarkdown } from "./markdown.js";
@@ -8,7 +9,7 @@ export function selectedSourceSession(context: WorkspacePanelContext): SourceSes
   if (context.state?.selectedMachine && context.state.selectedMachine.id !== context.machine.id) return;
   const selected = context.state?.selectedSession;
   if (!selected || selected.archived || selected.pending || selected.cwd !== context.workspace.path) return;
-  return { id: selected.id, name: selected.name !== undefined && selected.name.trim() !== "" ? selected.name : `会话 ${selected.id.slice(0, 8)}` };
+  return { id: selected.id, name: selected.name !== undefined && selected.name.trim() !== "" ? selected.name : t("ui.main.19976e58bf31", "Session {arg0}", { arg0: selected.id.slice(0, 8) }) };
 }
 export interface CaptainPanelView {
   entries: LogEntry[]; selected?: LogEntry; status: string;
@@ -22,46 +23,46 @@ export interface CaptainPanelView {
   onOpenSource(id: string): void;
 }
 export function captainStatusLabel(status: LogEntry["status"]): string {
-  return { running: "处理中", completed: "已完成", failed: "失败", interrupted: "已中断" }[status];
+  return { running: t("ui.main.fcb979ef0b91", "Working"), completed: t("ui.main.e99b48a29bdf", "Done"), failed: t("ui.toolExecutionView.failed", "Failed"), interrupted: t("ui.main.8dd5ad764e4b", "Interrupted") }[status];
 }
 
 const stageLabels: Readonly<Record<string, string>> = {
-  "Backend admitted translation": "后端已接收转述请求",
-  "Backend sent request to native companion": "后端已向原生伴随扩展发送请求",
-  "Native companion received request": "原生伴随扩展已收到请求",
-  "Native Pi agent running": "原生 Pi 代理正在运行",
-  "Backend received correlated final reply": "后端已收到匹配请求的最终回复",
-  "Source reply read without changing source": "已读取源回复，未改动源会话",
-  "Pirate conversation selected": "已选择船长会话",
-  "Backend recorded failure (not success)": "后端已记录失败，不是成功结果",
-  "Backend saved completed roundtrip": "后端已保存完成结果",
+  "Backend admitted translation": t("ui.main.21e0dc881126", "Backend accepted the relay request"),
+  "Backend sent request to native companion": t("ui.main.269ce066984c", "Backend sent the request to the native companion extension"),
+  "Native companion received request": t("ui.main.2666275c64be", "Native companion extension received the request"),
+  "Native Pi agent running": t("ui.main.880fe7bb6b95", "Native Pi agent is running"),
+  "Backend received correlated final reply": t("ui.main.a7da535ace12", "Backend received the final reply matching the request"),
+  "Source reply read without changing source": t("ui.main.0883bfa9c8ef", "Source reply read; source session unchanged"),
+  "Pirate conversation selected": t("ui.main.9def3f08ac2e", "Captain session selected"),
+  "Backend recorded failure (not success)": t("ui.main.157309c7e4ca", "Backend recorded a failure, not a successful result"),
+  "Backend saved completed roundtrip": t("ui.main.f33a027a96b7", "Backend saved the completed result"),
 };
 const errorLabels: Readonly<Record<string, string>> = {
-  "Captain is already working.": "船长正在处理，请等待当前转述完成。",
-  "Select a source session other than the pirate conversation.": "请选择其他源会话，不能转述船长会话本身。",
-  "Selected session is not hosted in this workspace on this machine": "所选会话不在当前机器的这个工作区中运行。",
-  "Source session must be idle with no pending messages. Wait for it to finish, then translate again.": "源会话必须空闲且没有待处理消息。请等待它完成后再转述。",
-  "Source session has no completed assistant text reply on its active branch.": "源会话当前分支没有已完成的助手文本回复。",
-  "Source reply exceeds the translation limit (48000 characters).": "源回复超过转述长度上限（48000 个字符）。",
-  "Companion not ready or session busy; open Captain's Log in Sessions, wait for idle, then retry": "伴随扩展尚未就绪或会话忙碌；请在会话列表中打开船长会话，等待空闲后重试。",
-  "Captain request interrupted by session shutdown or reload": "会话关闭或重新加载中断了船长请求。",
-  "Another prompt interfered with this Captain request; translation was not saved": "其他提示干扰了本次船长请求，转述结果未保存。",
-  "Another user message interfered with this Captain request": "其他用户消息干扰了本次船长请求。",
-  "Captain request error": "船长请求出错。",
-  "Captain request aborted": "船长请求已中止。",
-  "Captain request failed": "船长请求失败。",
-  "Captain request ended without a successful final text response": "船长请求结束时没有成功的最终文本回复。",
-  "Captain reply exceeded the storage limit": "船长回复超过存储长度上限。",
-  "Invalid translation text": "转述文本无效。",
-  "Invalid companion reply": "伴随扩展回复无效。",
-  "Captain connection interrupted; agent work may continue in Sessions": "船长连接已中断，代理可能仍在会话中继续处理。",
-  "No companion receipt within 5 seconds. Check package enablement/trust; inspect Sessions before retrying.": "5 秒内未收到伴随扩展确认。请检查包是否已启用并获得信任，重试前先查看会话。",
-  "Captain request exceeded 10 minutes; agent work may continue in Sessions. No translation saved.": "船长请求已超过 10 分钟，代理可能仍在会话中继续处理；转述结果未保存。",
-  "Captain's Log stopped before recording completion. Inspect the previous session before retrying. Nothing was resent automatically.": "船长日志在记录完成结果前已停止。请先检查之前的会话再重试，没有自动重发任何请求。",
+  "Captain is already working.": t("ui.main.09d17019ed2e", "Captain is working; wait for the current relay to complete."),
+  "Select a source session other than the pirate conversation.": t("ui.main.e4e81b805cf5", "Choose another source session; the Captain session cannot relay itself."),
+  "Selected session is not hosted in this workspace on this machine": t("ui.main.17dbe57aba6b", "The selected session is not running in this workspace on the current machine."),
+  "Source session must be idle with no pending messages. Wait for it to finish, then translate again.": t("ui.main.977c98d1294e", "The source session must be idle with no pending messages. Wait for it to finish before relaying."),
+  "Source session has no completed assistant text reply on its active branch.": t("ui.main.14ddd1ef21f6", "The current source branch has no completed assistant text reply."),
+  "Source reply exceeds the translation limit (48000 characters).": t("ui.main.eed449c7ce8e", "The source reply exceeds the relay limit of 48000 characters."),
+  "Companion not ready or session busy; open Captain's Log in Sessions, wait for idle, then retry": t("ui.main.c562cb9f79cb", "The companion extension is not ready or the session is busy. Open the Captain session and wait until idle before retrying."),
+  "Captain request interrupted by session shutdown or reload": t("ui.main.08ad1fcd5abc", "Closing or reloading the session interrupted the Captain request."),
+  "Another prompt interfered with this Captain request; translation was not saved": t("ui.main.ba11baa65750", "Another prompt interfered with the Captain request; the relay result was not saved."),
+  "Another user message interfered with this Captain request": t("ui.main.da152c51dbd7", "Another user message interfered with the Captain request."),
+  "Captain request error": t("ui.main.09896d6c5119", "The Captain request encountered an error."),
+  "Captain request aborted": t("ui.main.cf3f914e3924", "The Captain request was aborted."),
+  "Captain request failed": t("ui.main.b34409c59ab5", "The Captain request failed."),
+  "Captain request ended without a successful final text response": t("ui.main.e5b2393b01a1", "The Captain request ended without a successful final text reply."),
+  "Captain reply exceeded the storage limit": t("ui.main.3ea3beebb303", "The Captain reply exceeds the storage length limit."),
+  "Invalid translation text": t("ui.main.6f70b118900c", "Invalid relay text."),
+  "Invalid companion reply": t("ui.main.af43aa465d0a", "Invalid companion extension reply."),
+  "Captain connection interrupted; agent work may continue in Sessions": t("ui.main.dc807ddd54fa", "The Captain connection was interrupted; the agent may still be working in the session."),
+  "No companion receipt within 5 seconds. Check package enablement/trust; inspect Sessions before retrying.": t("ui.main.afdcdd4b929c", "No companion acknowledgement arrived within 5 seconds. Check that the package is enabled and trusted, and inspect the session before retrying."),
+  "Captain request exceeded 10 minutes; agent work may continue in Sessions. No translation saved.": t("ui.main.d2cd15752866", "The Captain request exceeded 10 minutes. The agent may still be working; the relay result was not saved."),
+  "Captain's Log stopped before recording completion. Inspect the previous session before retrying. Nothing was resent automatically.": t("ui.main.b8e0a313e94a", "Captain's Log stopped before recording a completed result. Inspect the previous session before retrying; no request was resent automatically."),
 };
 function displayCaptainError(text: string): string {
   const prefix = "Captain could not finish this request. Inspect the session before retrying; nothing was resent automatically.\n";
-  if (text.startsWith(prefix)) return `船长未能完成本次请求。重试前请检查会话，没有自动重发任何请求。\n${displayCaptainError(text.slice(prefix.length))}`;
+  if (text.startsWith(prefix)) return t("ui.main.250d9fb3b162", "Captain could not complete the request. Inspect the session before retrying; no request was resent automatically.\n{arg0}", { arg0: displayCaptainError(text.slice(prefix.length)) });
   const message = text.startsWith("Error: ") ? text.slice(7) : text;
   return errorLabels[message] ?? text;
 }
@@ -75,38 +76,38 @@ export function renderCaptainPanel(html: Html, view: CaptainPanelView) {
   const disabled = !view.connected || view.connecting || view.pending || working || !view.source || pirateSelected;
   const selected = view.selected;
   const sourceSessionId = selected?.sourceSessionId;
-  const status = view.connecting ? "连接中…" : !view.connected ? "连接已断开" : view.pending ? "正在读取最后一条回复…"
-    : working ? "船长正在转述…" : !view.source ? "请先选择当前工作区中的会话。" : pirateSelected ? "请选择其他会话，当前会话是船长会话。"
-      : "可以开始转述";
+  const status = view.connecting ? t("ui.main.9d02d121573c", "Connecting…") : !view.connected ? t("ui.main.570f6d331cce", "Connection lost") : view.pending ? t("ui.main.482617a8c265", "Fetching the last reply…")
+    : working ? t("ui.main.c13e5f4963ff", "The captain is translating…") : !view.source ? t("ui.main.3c86e23d60ea", "Select a session in this workspace first.") : pirateSelected ? t("ui.main.80a96f7d125e", "Select a different session — this one is the pirate.")
+      : t("ui.main.12fc65d7525d", "Ready to translate");
   return html`<style>${styles}</style>
-    <section class="captains-log" aria-label="船长日志">
-      <div class="captain-heading"><h2>⚓ 船长日志</h2><p class="muted">让戏剧化的海盗船长转述最后一条回复。</p></div>
-      <div class="captain-source"><span class="muted">选中会话</span><strong>${view.source?.name ?? "未选择会话"}</strong></div>
-      <button class="captain-primary" ?disabled=${disabled} @click=${view.onTranslate}>让船长转述</button>
+    <section class="captains-log" aria-label="${t("ui.main.40c450439267", "Captain's Log")}">
+      <div class="captain-heading"><h2>${t("ui.main.e841f99d77f0", "Captain's Log")}</h2><p class="muted">${t("ui.main.1c3532df737d", "Have a dramatic pirate captain relay the last reply.")}</p></div>
+      <div class="captain-source"><span class="muted">${t("ui.main.84521ab1f774", "Selected session")}</span><strong>${view.source?.name ?? t("ui.sessionList.noSessionSelected", "No session selected")}</strong></div>
+      <button class="captain-primary" ?disabled=${disabled} @click=${view.onTranslate}>${t("ui.main.09ee4046866f", "Let the Captain tell it")}</button>
       <p class="captain-status" role="status" aria-live="polite">${status}
-        ${!view.connected && !view.connecting ? html`<button @click=${view.onReconnect}>重新连接</button>` : null}
+        ${!view.connected && !view.connecting ? html`<button @click=${view.onReconnect}>${t("ui.main.bac95e1e52fe", "Reconnect")}</button>` : null}
       </p>
-      ${!view.connected && !view.connecting ? html`<p class="captain-notice">重新连接以查看结果。船长可能仍在处理，不会再次发送你的请求。</p>` : null}
+      ${!view.connected && !view.connecting ? html`<p class="captain-notice">${t("ui.main.3c3a8d4bb0ab", "Reconnect to see the result. The captain may still be working; your request will not be sent again.")}</p>` : null}
       ${view.notice !== undefined && view.notice !== "" ? html`<p class="captain-notice" role="alert">${displayCaptainError(view.notice)}</p>` : null}
-      ${selected ? html`<article class="captain-reply" aria-label="船长转述">
-        <div class="captain-reply-heading"><strong>${selected.status === "running" ? "转述中…" : selected.id === view.entries[0]?.id ? "最近转述" : "历史转述"}</strong><time datetime=${selected.createdAt}>${dateLabel(selected.createdAt)}</time></div>
-        ${selected.status === "completed" ? html`<div class="captain-answer">${selected.text ? renderCaptainMarkdown(html, selected.text) : "正在接收船长回复…"}</div>`
-          : selected.status === "running" ? html`<p class="muted">正在读取源回复并改写为海盗风格，不向源会话发送消息。</p>`
-            : html`<div class="captain-notice" role="alert"><strong>${selected.status === "interrupted" ? "转述已中断" : "无法转述该回复"}</strong><p>${displayCaptainError(selected.text) || "请查看诊断详情，待会话就绪后重试。"}</p></div>`}
-        ${sourceSessionId !== undefined && sourceSessionId !== "" ? html`<button @click=${() => { view.onOpenSource(sourceSessionId); }}>打开源会话</button>` : null}
-      </article>` : html`<p class="captain-empty muted">选择会话后转述其最新已完成的助手回复，原会话保持不变。</p>`}
+      ${selected ? html`<article class="captain-reply" aria-label="${t("ui.main.e572c45a01a6", "Pirate translation")}">
+        <div class="captain-reply-heading"><strong>${selected.status === "running" ? t("ui.main.a3e678a94720", "Translating…") : selected.id === view.entries[0]?.id ? t("ui.main.aa1bf7a5ddbe", "Last translation") : t("ui.main.91515d50cc9e", "Earlier translation")}</strong><time datetime=${selected.createdAt}>${dateLabel(selected.createdAt)}</time></div>
+        ${selected.status === "completed" ? html`<div class="captain-answer">${selected.text ? renderCaptainMarkdown(html, selected.text) : t("ui.main.648d8128e3c7", "Receiving the captain's reply…")}</div>`
+          : selected.status === "running" ? html`<p class="muted">${t("ui.main.c61214cbad46", "Reading the source reply and turning it into pirate. No message is sent to the source conversation.")}</p>`
+            : html`<div class="captain-notice" role="alert"><strong>${selected.status === "interrupted" ? t("ui.main.8ac60a0f0b8e", "Translation interrupted") : t("ui.main.fe0e672c27d4", "Couldn't translate that reply")}</strong><p>${displayCaptainError(selected.text) || t("ui.main.72a4ca9f0124", "Check Diagnostics for details, then try again when the session is ready.")}</p></div>`}
+        ${sourceSessionId !== undefined && sourceSessionId !== "" ? html`<button @click=${() => { view.onOpenSource(sourceSessionId); }}>${t("ui.main.58ea40f79134", "Open source session")}</button>` : null}
+      </article>` : html`<p class="captain-empty muted">${t("ui.main.34a6d480c665", "Pick a conversation, then translate its latest finished assistant reply. The original stays untouched.")}</p>`}
       <div class="captain-secondary">
-        ${view.entries.length > 1 ? html`<details><summary>历史转述 <span class="muted">(${view.entries.length})</span></summary>
+        ${view.entries.length > 1 ? html`<details><summary>${t("ui.main.91515d50cc9e", "Earlier translation")} <span class="muted">(${view.entries.length})</span></summary>
           <div class="captain-history">${view.entries.map((entry) => html`<button class=${entry.id === selected?.id ? "selected" : ""} ?disabled=${!view.connected} @click=${() => { view.onRead(entry.id); }}>
-            <span>${dateLabel(entry.createdAt)} · ${entry.status === "completed" ? "已转述" : entry.status === "running" ? "处理中" : "未完成"}</span>
+            <span>${dateLabel(entry.createdAt)} · ${entry.status === "completed" ? t("ui.main.9f66d2a4d6f7", "Translated") : entry.status === "running" ? t("ui.main.fcb979ef0b91", "Working") : t("ui.main.b61b08aec3a9", "Not completed")}</span>
           </button>`)}</div>
         </details>` : null}
-        <details class="captain-diagnostics"><summary>诊断</summary>
+        <details class="captain-diagnostics"><summary>${t("ui.main.e0b478941707", "Diagnostics")}</summary>
           <p>${displayCaptainError(view.status)}</p>
-          ${selected ? html`<dl><dt>机器</dt><dd>${view.machineName}</dd><dt>源会话</dt><dd>${selected.sourceSessionId ?? "未知"}</dd><dt>船长会话</dt><dd>${selected.sessionId || "尚未创建"}</dd><dt>请求</dt><dd>${selected.id}</dd></dl>
-            <p>${selected.question === "Translate last reply" ? "转述最后一条回复" : selected.question}</p><ol>${selected.stages.map((stage) => html`<li>${stageLabels[stage] ?? stage}</li>`)}</ol>` : null}
+          ${selected ? html`<dl><dt>${t("bundled.info.machine.ece969", "Machine")}</dt><dd>${view.machineName}</dd><dt>${t("ui.main.b92dc0c2297a", "Source session")}</dt><dd>${selected.sourceSessionId ?? t("bundled.updates.unknown.4d8c1c", "Unknown")}</dd><dt>${t("ui.main.62b811ff4549", "Pirate session")}</dt><dd>${selected.sessionId || t("ui.main.db03d9974969", "Not created")}</dd><dt>${t("ui.main.926f6b6b6a93", "Request")}</dt><dd>${selected.id}</dd></dl>
+            <p>${selected.question === "Translate last reply" ? t("ui.main.fc69d95b95b3", "Relay the last reply") : selected.question}</p><ol>${selected.stages.map((stage) => html`<li>${stageLabels[stage] ?? stage}</li>`)}</ol>` : null}
         </details>
-        <p class="captain-footnote muted">使用你配置的模型，可能产生费用。可用时复用船长会话，否则自动创建。</p>
+        <p class="captain-footnote muted">${t("ui.main.8dbbd44d148a", "Uses your configured model. Reuses the pirate while it's available; otherwise starts one automatically.")}</p>
       </div>
     </section>`;
 }

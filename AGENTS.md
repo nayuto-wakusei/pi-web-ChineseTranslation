@@ -1,6 +1,6 @@
 # Agent Notes
 
-This is the Chinese-localized PI WEB fork. Preserve upstream functionality and Chinese core/bundled-plugin UI copy; do not translate protocol identifiers, API fields, commands, paths, or runtime payloads unless explicitly mapped for display. Use the GitHub username as commit author, with no email address.
+This is the Chinese-localized PI WEB fork. Preserve upstream functionality and the default Chinese experience through the bundled zh-cn language plugin. Keep English fallback text at display call sites and Chinese translations in its catalogs. Do not translate protocol identifiers, API fields, commands, paths, user/model content, or remote-owned runtime payloads. Use the GitHub username as commit author, with no email address.
 
 ## Read before changing code
 

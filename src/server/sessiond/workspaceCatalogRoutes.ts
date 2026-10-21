@@ -4,6 +4,7 @@ import type { WorkspaceProviderAuthorityResolution } from "../workspaces/workspa
 import type { WorkspaceProviderRuntimeSnapshot } from "../workspaces/workspaceCatalog.js";
 import { sendWorkspaceRequestError } from "../workspaces/workspaceRouteErrors.js";
 import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
+import { createTranslator, type Translator } from "../../shared/i18n.js";
 
 export interface WorkspaceCatalogResolver {
   resolve(project: Project): Promise<WorkspaceProviderAuthorityResolution>;
@@ -14,6 +15,7 @@ export interface WorkspaceCatalogRouteDependencies {
   workspaces: WorkspaceCatalogResolver;
   providerRuntime: WorkspaceProviderRuntimeSnapshot;
   managementProjectRoot?: string | undefined;
+  translator?: Translator;
 }
 
 /** Internal sessiond protocol; browser-facing routes consume it through a typed client. */
@@ -22,6 +24,7 @@ export function registerWorkspaceCatalogRoutes(
   dependencies: WorkspaceCatalogRouteDependencies,
   prefix = "/workspace-catalog",
 ): void {
+  const t = dependencies.translator ?? createTranslator("en", {});
   app.get(`${prefix}/provider-runtime`, () => dependencies.providerRuntime);
 
   app.get<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId/workspaces`, async (request, reply) => {
@@ -29,7 +32,7 @@ export function registerWorkspaceCatalogRoutes(
       const project = await resolveSessiondProject(request.headers, request.params.projectId, dependencies);
       return await dependencies.workspaces.resolve(project);
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, projectErrorStatus(error));
+      return sendWorkspaceRequestError(reply, error, projectErrorStatus(error), t);
     }
   });
 
@@ -38,10 +41,10 @@ export function registerWorkspaceCatalogRoutes(
       const project = await resolveSessiondProject(request.headers, request.params.projectId, dependencies);
       const resolution = await dependencies.workspaces.resolve(project);
       const workspace = resolution.workspaces.find((candidate) => candidate.id === request.params.workspaceId);
-      if (workspace === undefined) return await reply.code(404).send({ error: "Workspace not found" });
+      if (workspace === undefined) return await reply.code(404).send({ error: t("server.files.workspaceNotFound", "Workspace not found") });
       return workspace;
     } catch (error) {
-      return sendWorkspaceRequestError(reply, error, projectErrorStatus(error));
+      return sendWorkspaceRequestError(reply, error, projectErrorStatus(error), t);
     }
   });
 }

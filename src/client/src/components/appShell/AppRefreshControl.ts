@@ -1,3 +1,4 @@
+import { t } from "../../i18n.js";
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
@@ -6,7 +7,7 @@ export class AppRefreshControl extends LitElement {
   @property({ attribute: false }) onReload?: () => void;
 
   override render() {
-    const label = "完整重载页面";
+    const label = t("ui.appRefreshControl.reloadEntirePage", "Reload entire page");
     return html`
       <button
         class="app-refresh-button"

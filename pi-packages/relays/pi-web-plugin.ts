@@ -1,11 +1,13 @@
+import { t, setTranslator } from "./i18n.js";
 import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { RELAYS_ROOT } from "./relayDiscovery.js";
 import { defineRelaysPanelElement } from "./relaysPanelElement.js";
 
 const plugin: PiWebPlugin = {
   apiVersion: 4,
-  name: "中继",
-  activate: ({ runtimePluginId, html, svg }) => {
+  name: t("bundled.relays.relays.715ce8", "Relays"),
+  activate: ({ runtimePluginId, html, svg, translate }) => {
+    setTranslator(translate);
     defineRelaysPanelElement();
 
     return {
@@ -13,9 +15,9 @@ const plugin: PiWebPlugin = {
         actions: [
           {
             id: "workspace.open-relays",
-            title: "打开工作区中继",
-            description: `打开工作区的中继标签页。中继存放在 ${RELAYS_ROOT}。`,
-            group: "工作区",
+            title: t("bundled.relays.open.workspace.relays.ead958", "Open workspace relays"),
+            description: t("bundled.relays.open.the.workspace.relays.tab.relays.are.stored.in.3d8901", "Open the workspace relays tab. Relays are stored in {value1}.", { value1: RELAYS_ROOT }),
+            group: t("bundled.workspace-tasks.workspace.379798", "Workspace"),
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
@@ -26,7 +28,7 @@ const plugin: PiWebPlugin = {
         workspacePanels: [
           {
             id: "workspace.relays",
-            title: "中继",
+            title: t("bundled.relays.relays.715ce8", "Relays"),
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 17H7A5 5 0 0 1 7 7h2"></path>

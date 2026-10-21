@@ -1,13 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { translateChinese } from "../localization.testSupport.js";
+import { setTranslator } from "./i18n.js";
+import { render } from "lit";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
 import type { PiWebStatusResponse, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
 import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
 import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
 
+beforeEach(() => { setTranslator(translateChinese); });
+
 describe("updates plugin Chinese display text", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    document.body.replaceChildren();
   });
 
   it("exposes a Chinese panel title", async () => {
@@ -92,9 +99,12 @@ describe("updates plugin Chinese display text", () => {
     const panelContext = createWorkspacePanelContext({ state: { piWebStatus: statusWithCommands() } });
     Reflect.set(panelContext, "terminal", undefined);
     const rendered = panel?.render(panelContext);
-    const handler = copyButtonHandler(rendered);
-
-    expect(() => { handler(); }).not.toThrow();
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(rendered, container);
+    const button = [...container.querySelectorAll("button")].find((candidate) => candidate.textContent === "复制");
+    expect(button).toBeDefined();
+    expect(() => { button?.click(); }).not.toThrow();
   });
 });
 
@@ -124,46 +134,7 @@ describe("updates plugin actions", () => {
 
 function activatePlugin(): Promise<PluginActivationResult> {
   const signal = new AbortController().signal;
-  return Promise.resolve(plugin.activate({ apiVersion: 4, pluginId: "updates", runtimePluginId: "updates", html, svg, signal, lifetimeSignal: signal }));
-}
-
-type CopyButtonHandler = (event?: Event) => void;
-
-// This node-only plugin test would need a full plugin-host DOM harness just to verify one click binding.
-// Anchor the narrow escape hatch to the stable visible "复制" label instead of invoking every template function.
-function copyButtonHandler(value: unknown): CopyButtonHandler {
-  const handler = findCopyButtonHandler(value);
-  if (handler === undefined) throw new Error("Expected a 复制 button handler");
-  return handler;
-}
-function findCopyButtonHandler(value: unknown): CopyButtonHandler | undefined {
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const handler = findCopyButtonHandler(entry);
-      if (handler !== undefined) return handler;
-    }
-    return undefined;
-  }
-  if (typeof value !== "object" || value === null) return undefined;
-
-  const strings: unknown = Reflect.get(value, "strings");
-  const values: unknown = Reflect.get(value, "values");
-  if (!isUnknownArray(strings) || !isUnknownArray(values)) return undefined;
-  for (let index = 0; index < values.length; index += 1) {
-    const candidate = values[index];
-    const before: unknown = strings[index];
-    const after: unknown = strings[index + 1];
-    if (typeof candidate === "function" && typeof before === "string" && before.includes("@click=") && typeof after === "string" && after.includes(">复制</button>")) {
-      return (event?: Event) => { Reflect.apply(candidate, undefined, [event]); };
-    }
-    const nested = findCopyButtonHandler(candidate);
-    if (nested !== undefined) return nested;
-  }
-  return undefined;
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
+  return Promise.resolve(plugin.activate({ apiVersion: 4, translate: translateChinese, pluginId: "updates", runtimePluginId: "updates", html, svg, signal, lifetimeSignal: signal }));
 }
 
 function statusWithCommands(): PiWebStatusResponse {

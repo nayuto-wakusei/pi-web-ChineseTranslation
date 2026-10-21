@@ -3,6 +3,7 @@ import { pipeline, Readable, Transform } from "node:stream";
 import type { FileContentMediaType, PiWebPathAccessConfig } from "../../shared/apiTypes.js";
 import { classifyWorkspaceFile, MAX_INLINE_PREVIEW_BYTES, MAX_INLINE_PREVIEW_LABEL, workspaceFileName } from "../../shared/workspaceFiles.js";
 import { resolveWorkspacePathAccessTarget } from "./pathAccessPolicy.js";
+import { WorkspaceUserError } from "./workspaceUserError.js";
 
 export interface WorkspaceFilePreview {
   path: string;
@@ -28,7 +29,7 @@ export async function readWorkspaceFilePreview(
   pathAccess?: PiWebPathAccessConfig,
   options: ReadWorkspaceFilePreviewOptions = {},
 ): Promise<WorkspaceFilePreview> {
-  if (path === undefined || path === "") throw new Error("path query parameter is required");
+  if (path === undefined || path === "") throw new WorkspaceUserError("server.files.pathRequired", "path query parameter is required");
   const { target, displayPath } = await resolveWorkspacePathAccessTarget(rootPath, path, pathAccess);
 
   // Serve only from this descriptor. Path resolution is a snapshot: a rename,
@@ -39,7 +40,7 @@ export async function readWorkspaceFilePreview(
   let streamOwnsHandle = false;
   try {
     const stats = await handle.stat();
-    if (!stats.isFile()) throw new Error("Path is not a file");
+    if (!stats.isFile()) throw new WorkspaceUserError("server.files.notFile", "Path is not a file");
     const metadata = { path: displayPath, filename: workspaceFileName(displayPath), modifiedAt: stats.mtime.toISOString() };
 
     // Download mode serves any file as an opaque octet-stream attachment. No
@@ -52,8 +53,8 @@ export async function readWorkspaceFilePreview(
     }
 
     const classification = classifyWorkspaceFile(displayPath);
-    if (classification === undefined || !("previewMimeType" in classification)) throw new Error("Inline preview is not supported for this file type");
-    if (stats.size > MAX_INLINE_PREVIEW_BYTES) throw new Error(`File is too large to preview (limit ${MAX_INLINE_PREVIEW_LABEL})`);
+    if (classification === undefined || !("previewMimeType" in classification)) throw new WorkspaceUserError("server.files.inlinePreviewUnsupported", "Inline preview is not supported for this file type");
+    if (stats.size > MAX_INLINE_PREVIEW_BYTES) throw new WorkspaceUserError("server.files.previewTooLarge", "File is too large to preview (limit {limit})", { limit: MAX_INLINE_PREVIEW_LABEL });
     const body = await readValidatedSnapshot(handle, stats.size);
     return { ...metadata, mediaType: classification.mediaType, size: body.byteLength, body };
   } finally {

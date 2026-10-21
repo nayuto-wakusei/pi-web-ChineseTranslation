@@ -47,11 +47,11 @@ describe("buildApp workspace file routes", () => {
 
     const rejectedResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("note.txt")}` });
     expect(rejectedResponse.statusCode).toBe(400);
-    expect(rejectedResponse.json()).toEqual({ error: "Inline preview is not supported for this file type" });
+    expect(rejectedResponse.json()).toEqual({ error: "此文件类型不支持内联预览" });
 
     const tooLargeResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent("huge.png")}` });
     expect(tooLargeResponse.statusCode).toBe(400);
-    expect(tooLargeResponse.json()).toEqual({ error: "File is too large to preview (limit 10 MB)" });
+    expect(tooLargeResponse.json()).toEqual({ error: "文件过大，无法预览（上限 10 MB）" });
   });
 
   it("hardens failed local previews with the same error policy the remote proxy enforces", async () => {
@@ -71,9 +71,9 @@ describe("buildApp workspace file routes", () => {
 
     const previewPath = (path: string): string => `/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent(path)}`;
     const failures: { path: string; error: string }[] = [
-      { path: "note.txt", error: "Inline preview is not supported for this file type" },
-      { path: "huge.png", error: "File is too large to preview (limit 10 MB)" },
-      { path: "../escape<script>.png", error: "Path traversal is not allowed" },
+      { path: "note.txt", error: "此文件类型不支持内联预览" },
+      { path: "huge.png", error: "文件过大，无法预览（上限 10 MB）" },
+      { path: "../escape<script>.png", error: "不允许路径穿越" },
     ];
     const policy = workspaceFilePreviewErrorResponsePolicy();
 
@@ -298,7 +298,7 @@ describe("buildApp workspace file routes", () => {
     expect(localSuggestionResponse.statusCode).toBe(200);
     expect(localSuggestionResponse.json()).toEqual([]);
     expect(deniedResponse.statusCode).toBe(400);
-    expect(deniedResponse.json()).toEqual({ error: "Path is outside allowed paths" });
+    expect(deniedResponse.json()).toEqual({ error: "路径不在允许访问的范围内" });
   });
 
   it("writes workspace files through the HTTP contract", async () => {
@@ -360,7 +360,7 @@ describe("buildApp workspace file routes", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noOverwriteResponse.statusCode).toBe(400);
-    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("文件已存在");
 
     const traversalResponse = await appTestContext.app.inject({
       method: "PUT",
@@ -369,7 +369,7 @@ describe("buildApp workspace file routes", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(traversalResponse.statusCode).toBe(400);
-    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+    expect(traversalResponse.json<{ error: string }>().error).toContain("不允许路径穿越");
 
     const noPathResponse = await appTestContext.app.inject({
       method: "PUT",
@@ -378,7 +378,7 @@ describe("buildApp workspace file routes", () => {
       headers: { "content-type": "text/plain" },
     });
     expect(noPathResponse.statusCode).toBe(400);
-    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+    expect(noPathResponse.json<{ error: string }>().error).toContain("必须提供 path 查询参数");
 
     const noDirsResponse = await appTestContext.app.inject({
       method: "PUT",
@@ -435,14 +435,14 @@ describe("buildApp workspace file routes", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
     });
     expect(traversalResponse.statusCode).toBe(400);
-    expect(traversalResponse.json<{ error: string }>().error).toContain("Path traversal");
+    expect(traversalResponse.json<{ error: string }>().error).toContain("不允许路径穿越");
 
     const noPathResponse = await appTestContext.app.inject({
       method: "DELETE",
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file`,
     });
     expect(noPathResponse.statusCode).toBe(400);
-    expect(noPathResponse.json<{ error: string }>().error).toContain("path query parameter is required");
+    expect(noPathResponse.json<{ error: string }>().error).toContain("必须提供 path 查询参数");
   });
 
   it("moves workspace files through the HTTP contract", async () => {
@@ -514,7 +514,7 @@ describe("buildApp workspace file routes", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move?fromPath=${encodeURIComponent("source3.txt")}&toPath=${encodeURIComponent("target3.txt")}`,
     });
     expect(noOverwriteResponse.statusCode).toBe(400);
-    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("File already exists");
+    expect(noOverwriteResponse.json<{ error: string }>().error).toContain("文件已存在");
 
     const traversalFromResponse = await appTestContext.app.inject({
       method: "POST",
@@ -527,7 +527,7 @@ describe("buildApp workspace file routes", () => {
       url: `/api/projects/${project.id}/workspaces/${workspace.id}/file/move`,
     });
     expect(noParamsResponse.statusCode).toBe(400);
-    expect(noParamsResponse.json<{ error: string }>().error).toContain("fromPath query parameter is required");
+    expect(noParamsResponse.json<{ error: string }>().error).toContain("必须提供 fromPath 查询参数");
   });
 
   it("rejects stale workspace ids absent from the authoritative catalog", async () => {
