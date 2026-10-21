@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH, PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES } from "../../shared/pluginBackendProtocol.js";
+import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS, pairedPluginBackendPath, pluginBackendScopeFromRoute, PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES } from "../../shared/pluginBackendProtocol.js";
 import { markPluginBackendChannelUpgradeRequest } from "../webSocketBridge.js";
 import { managementContextForRequest, managementHeaders, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import {
@@ -14,8 +14,8 @@ import {
 
 interface PluginBackendChannelProxyParams {
   pluginId: string;
-  projectId: string;
-  workspaceId: string;
+  projectId?: string;
+  workspaceId?: string;
   operation: string;
 }
 
@@ -37,8 +37,8 @@ export function registerPluginBackendChannelProxyRoutes(
   const admissionPool = managementEmbedOrAdmissions instanceof PluginBackendChannelProxyAdmissionPool
     ? managementEmbedOrAdmissions
     : admissions ?? pluginBackendChannelProxyAdmissionPool(app);
-  app.get<{ Params: PluginBackendChannelProxyParams }>(
-    `${prefix}${PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH}`,
+  for (const path of PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS) app.get<{ Params: PluginBackendChannelProxyParams }>(
+    `${prefix}${path}`,
     {
       websocket: true,
       onRequest(request, _reply, done) {
@@ -53,6 +53,7 @@ export function registerPluginBackendChannelProxyRoutes(
         admissions: admissionPool,
         scope: {
           authorityId: "local",
+          scope: pluginBackendScopeFromRoute(request.params),
           pluginId: request.params.pluginId,
           projectId: request.params.projectId,
           workspaceId: request.params.workspaceId,
@@ -60,6 +61,9 @@ export function registerPluginBackendChannelProxyRoutes(
         async connectUpstream(signal) {
           try {
             const managementContext = await managementContextForRequest(request, managementEmbed);
+            if (managementContext !== undefined && request.params.workspaceId === undefined) {
+              throw new PluginBackendChannelProxyConnectionError(1008, "Management plugin backends require workspace scope");
+            }
             signal.throwIfAborted();
             const headers = managementHeaders(managementContext, managementEmbed);
             return daemon.connectWebSocket(upstreamPath, {
@@ -67,6 +71,7 @@ export function registerPluginBackendChannelProxyRoutes(
               maxPayload: PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
             });
           } catch (error) {
+            if (error instanceof PluginBackendChannelProxyConnectionError) throw error;
             throw new PluginBackendChannelProxyConnectionError(
               1011,
               `Session daemon unavailable: ${errorMessage(error)}`,
@@ -80,16 +85,7 @@ export function registerPluginBackendChannelProxyRoutes(
 }
 
 function daemonPluginBackendChannelPath(params: PluginBackendChannelProxyParams): string {
-  return [
-    "/paired-plugin-backends",
-    encodeURIComponent(params.pluginId),
-    "projects",
-    encodeURIComponent(params.projectId),
-    "workspaces",
-    encodeURIComponent(params.workspaceId),
-    "channels",
-    encodeURIComponent(params.operation),
-  ].join("/");
+  return pairedPluginBackendPath(params, true);
 }
 
 function errorMessage(error: unknown): string {

@@ -552,9 +552,11 @@ describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (
     const query = "?embed=management&token=entry-token";
     const added = await app.inject({ method: "POST", url: `${prefix}/projects${query}`, payload: { path: "/repo" } });
     const closed = await app.inject({ method: "DELETE", url: `${prefix}/projects/p1${query}` });
+    const catalog = await app.inject({ method: "GET", url: `${prefix}/plugin-catalog/projects${query}` });
 
     expect(added.statusCode).toBe(403);
     expect(closed.statusCode).toBe(403);
+    expect(catalog.statusCode).toBe(403);
     expect(daemon.requests).toEqual([]);
   });
 });

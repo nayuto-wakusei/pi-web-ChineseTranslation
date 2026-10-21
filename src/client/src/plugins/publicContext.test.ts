@@ -1,14 +1,29 @@
 import { html, svg } from "lit";
 import { expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
-import { adaptPublicPlugin, publicPluginState } from "./publicContext";
-import type { WorkspacePanelContext } from "./types";
+import { adaptPublicPlugin, publicPluginState, publicPluginSession } from "./publicContext";
+import type { SessionLabelContext, WorkspacePanelContext } from "./types";
 
 const session = {
   id: "session", cwd: "/workspace", name: "Conversation", path: "/private/session.jsonl",
   created: "2026-01-01", modified: "2026-01-01", messageCount: 1, firstMessage: "Private message",
   clientPendingStart: true,
 };
+
+it("retains published workspace flags while excluding host-only selection state", () => {
+  const workspace = {
+    id: "workspace", projectId: "project", path: "/workspace", label: "branch", isMain: false,
+    branch: "feature", isGitRepo: true, isGitWorktree: true, effectiveConfig: {},
+    provider: { pluginId: "provider", capabilities: { remove: false }, metadata: { public: true } },
+    removal: { actionLabel: "Remove", confirmation: "Remove?", precondition: "private-token" },
+  };
+  const projected = publicPluginState({ ...initialAppState(), selectedWorkspace: workspace });
+  expect(projected.selectedWorkspace).toMatchObject({ branch: "feature", isGitRepo: true, isGitWorktree: true });
+  expect(projected.selectedWorkspace).not.toHaveProperty("effectiveConfig");
+  expect(projected.selectedWorkspace).not.toBe(workspace);
+  expect(projected.selectedWorkspace?.removal).toEqual({ actionLabel: "Remove", confirmation: "Remove?" });
+  expect(projected.selectedWorkspace?.provider).not.toBe(workspace.provider);
+});
 
 it("projects only documented session fields and does not share the internal session object", () => {
   const state = { ...initialAppState(), selectedSession: session };
@@ -42,18 +57,19 @@ it("preserves lifecycle callback receivers while adapting contributions", async 
   expect(source.started).toBe(false);
 });
 
-it("projects state for every external workspace callback without changing the host context", async () => {
+it.each([4, 5] as const)("projects state for API v%s external workspace callbacks without changing the host context", async (apiVersion) => {
   const visible = vi.fn(() => true);
   const badge = vi.fn(() => "badge");
   const onInvalidate = vi.fn();
   const render = vi.fn(() => html`panel`);
   const fileOpenQuery = vi.fn(() => ({ file: "example.txt" }));
   const items = vi.fn(() => []);
-  const plugin = adaptPublicPlugin({ apiVersion: 4, name: "External", activate: () => ({ contributions: {
+  const plugin = adaptPublicPlugin({ apiVersion, name: "External", activate: () => ({ contributions: {
     workspacePanels: [{ id: "panel", title: "Panel", visible, badge, onInvalidate, fileOpenQuery, render }],
     workspaceLabels: [{ id: "label", visible, items }],
+    sessionLabels: [{ id: "session-label", visible, items }],
   } }) });
-  const activation = await plugin.activate({ apiVersion: 4, pluginId: "external", runtimePluginId: "external", html, svg,
+  const activation = await plugin.activate({ apiVersion, pluginId: "external", runtimePluginId: "external", html, svg,
     signal: new AbortController().signal, lifetimeSignal: new AbortController().signal });
   const unused = () => { throw new Error("Unexpected host call"); };
   const context: WorkspacePanelContext = {
@@ -74,6 +90,10 @@ it("projects state for every external workspace callback without changing the ho
   panel?.fileOpenQuery?.(context, "example.txt");
   label?.visible?.(context);
   label?.items(context);
+  const rowContext: SessionLabelContext = { ...context, session: publicPluginSession({ ...session, id: "row" }) };
+  activation.contributions.sessionLabels?.[0]?.visible?.(rowContext);
+  activation.contributions.sessionLabels?.[0]?.items(rowContext);
+  expect(items).toHaveBeenLastCalledWith(expect.objectContaining({ session: { id: "row", cwd: "/workspace", name: "Conversation", archived: false, pending: true } }));
   for (const callback of [visible, badge, onInvalidate, fileOpenQuery, render, items]) {
     expect(callback).toHaveBeenCalled();
     for (const call of callback.mock.calls) {

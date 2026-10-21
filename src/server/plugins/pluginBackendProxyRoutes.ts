@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
-  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
+  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS,
+  pairedPluginBackendPath,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
   utf8ByteLength,
@@ -12,8 +13,8 @@ import { withRequestCancellation } from "../requestCancellation.js";
 
 interface PluginBackendProxyParams {
   pluginId: string;
-  projectId: string;
-  workspaceId: string;
+  projectId?: string;
+  workspaceId?: string;
   operation: string;
 }
 
@@ -28,12 +29,15 @@ export function registerPluginBackendProxyRoutes(
   prefix = "/api",
   managementEmbed?: ManagementEmbedRuntime,
 ): void {
-  app.post<{ Params: PluginBackendProxyParams; Body: unknown }>(
-    `${prefix}${PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH}`,
+  for (const path of PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS) app.post<{ Params: PluginBackendProxyParams; Body: unknown }>(
+    `${prefix}${path}`,
     { bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES },
     async (request, reply) => {
       const path = daemonPluginBackendPath(request.params);
       const managementContext = await managementContextForRequest(request, managementEmbed, reply);
+      if (managementContext !== undefined && request.params.workspaceId === undefined) {
+        return reply.code(403).send({ error: "Management plugin backends require workspace scope", code: "invalid-scope", pluginId: request.params.pluginId, operation: request.params.operation });
+      }
       let upstream: Awaited<ReturnType<SessionDaemonRequestClient["request"]>>;
       try {
         upstream = await withRequestCancellation(request, reply, (signal) => (
@@ -76,15 +80,7 @@ export function registerPluginBackendProxyRoutes(
 }
 
 function daemonPluginBackendPath(params: PluginBackendProxyParams): string {
-  return [
-    "/paired-plugin-backends",
-    encodeURIComponent(params.pluginId),
-    "projects",
-    encodeURIComponent(params.projectId),
-    "workspaces",
-    encodeURIComponent(params.workspaceId),
-    encodeURIComponent(params.operation),
-  ].join("/");
+  return pairedPluginBackendPath(params);
 }
 
 function daemonProtocolError(reply: FastifyReply, params: PluginBackendProxyParams, message: string): FastifyReply {

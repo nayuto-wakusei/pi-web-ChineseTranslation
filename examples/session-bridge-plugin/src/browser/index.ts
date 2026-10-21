@@ -5,7 +5,7 @@ interface PanelState { reviews: Review[]; selected?: Review; busy: boolean; stat
 function reviewStatusLabel(status: Review["status"]): string {
   return { running: "处理中", completed: "已完成", failed: "失败", interrupted: "已中断" }[status];
 }
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: "工作区审查",
   activate({ html }) {

@@ -23,10 +23,13 @@ import type { SessionUiEvent } from "../sessionSocket";
 import { RealtimeSocket, SessionSocket } from "../sessionSocket";
 import { loadExternalPlugins, type PluginManifestEntry } from "../plugins/external";
 import { PluginRegistry } from "../plugins/registry";
-import type { PiWebPlugin, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration, PluginCapability, PluginRuntimeContext, WorkspaceInvalidation, WorkspacePanelContext, WorkspacePanelNavigationV1 } from "../plugins/types";
+import { adaptPublicPlugin } from "../plugins/publicContext";
+import type { PiWebPlugin, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration, PluginCapability, PluginRuntimeContext, SessionLabelContext, WorkspaceInvalidation, WorkspacePanelContext, WorkspacePanelNavigationV1 } from "../plugins/types";
 import { PiWebApp } from "./PiWebApp";
 import { html, render } from "lit";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { AppNavigationPanel } from "./appShell/AppNavigationPanel";
+import { SessionList } from "./SessionList";
 
 async function expectWorkspaceContentError(app: PiWebApp, message: string): Promise<void> {
   const host = document.createElement("div");
@@ -68,7 +71,14 @@ beforeEach(() => {
   vi.spyOn(RealtimeSocket.prototype, "connect").mockImplementation(() => undefined);
 });
 
-afterEach(() => {
+const detachedApps = new Set<PiWebApp>();
+
+afterEach(async () => {
+  for (const app of detachedApps) {
+    app.disconnectedCallback();
+    await appPluginRegistry(app).dispose();
+  }
+  detachedApps.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -84,8 +94,7 @@ describe("PiWebApp plugin host", () => {
     const substitute = vi.fn(() => html`<p>Wrong panel</p>`);
     const panel = new WorkspacePanel();
     panel.workspace = workspace;
-    panel.panelContext = workspacePanelContextFromApp(app);
-    panel.panels = [{ id: "test:other", localId: "other", pluginId: "test", title: "Other", render: substitute }];
+    panel.panels = [{ id: "test:other", title: "Other", render: substitute }];
     panel.tool = "missing:panel";
     panel.error = error;
     const select = vi.fn((tool: typeof panel.tool) => {
@@ -1655,7 +1664,128 @@ describe("PiWebApp plugin host", () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it.each([null, [], "project", { projectId: 12 }, { machineId: null }, { workspaceId: false }, { sessionId: {} }, { tool: 1 }, { view: "plugin:panel" }])("rejects malformed plugin destinations without navigation or UI: %j", async (destination) => {
+  it("supplies detached unselected row contexts through the navigation panel and preserves their machine target", async () => {
+    installBrowserWindow("http://localhost/app?machine=remote-1&project=project-1&workspace=workspace-1");
+    const app = createDetachedApp();
+    await markPluginLoadingReady(app, [remoteMachine.id]);
+    const row = { ...runtimeRecoverySession(workspace), id: "workflow-row", metadata: { workflow: { leg: 2 } } };
+    setAppState(app, { ...initialAppState(), selectedMachine: remoteMachine, selectedProject: project, selectedWorkspace: workspace,
+      selectedSession: { ...row, id: "selected-other" }, sessions: [row] });
+    const contexts: SessionLabelContext[] = [];
+    await appPluginRegistry(app).register({ id: "workflow", plugin: adaptPublicPlugin({ apiVersion: 4, name: "Workflow", activate: () => ({ contributions: {
+      sessionLabels: [{ id: "membership", items: (context) => {
+        contexts.push(context);
+        const leg = context.session.metadata?.["workflow"]?.["leg"];
+        return [{ type: "text", text: typeof leg === "number" ? `Leg ${String(leg)}` : "Unknown leg" }];
+      } }],
+    } }) }) });
+    const host = document.createElement("div");
+    document.body.append(host);
+    render(callAppMethod(app, "renderNavigationPanel"), host);
+    const panel = host.querySelector("app-navigation-panel");
+    if (!(panel instanceof AppNavigationPanel)) throw new Error("Navigation panel not rendered");
+    panel.sessionsCollapsed = false;
+    await panel.updateComplete;
+    const list = panel.shadowRoot?.querySelector("session-list");
+    if (!(list instanceof SessionList)) throw new Error("Session list not rendered");
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".session-labels")?.textContent).toContain("Leg 2");
+    const context = contexts.at(-1);
+    if (context === undefined) throw new Error("Row callback not invoked");
+    expect(context.session).toEqual({ id: row.id, cwd: row.cwd, metadata: row.metadata, archived: false, pending: false });
+    expect(context.state.selectedSession?.id).toBe("selected-other");
+    expect(context.state).not.toHaveProperty("sessions");
+    expect(context.session).not.toHaveProperty("path");
+    expect(context.session).not.toHaveProperty("firstMessage");
+    expect(context.session.metadata).not.toBe(row.metadata);
+    Reflect.set(context.session.metadata?.["workflow"] ?? {}, "leg", 99);
+    expect(row.metadata.workflow.leg).toBe(2);
+    expect(context.projects?.machineId).toBe(remoteMachine.id);
+
+    const navigate = vi.fn(() => Promise.resolve());
+    Reflect.set(app, "navigate", navigate);
+    setAppState(app, initialAppState());
+    await context.navigate({ projectId: workspace.projectId, workspaceId: workspace.id, tool: "workflow:panel", query: { item: "exact" } }, { mode: "patch" });
+    expect(navigate).toHaveBeenCalledWith({ projectId: workspace.projectId, workspaceId: workspace.id,
+      tool: "workflow:panel", query: { item: "exact" } }, { mode: "patch" }, remoteMachine.id);
+    render(null, host);
+  });
+
+  it.each([
+    { kind: "action", toolRoute: "workflow:panel" },
+    { kind: "panel", toolRoute: "workflow:panel" },
+    { kind: "application", toolRoute: "workflow:panel" },
+  ])("patches a query from a $kind context with independent history replacement (tool: $toolRoute)", async ({ kind, toolRoute }) => {
+    const browser = installBrowserWindow(`http://localhost/app?project=project-1&workspace=workspace-1&session=session-next&tool=${encodeURIComponent(toolRoute)}&view=workspace&workflow.panel--item=old&legacy.panel--item=stale&files.workspace.files--file=keep.ts`);
+    const app = createDetachedApp();
+    const session = runtimeRecoverySession(workspace);
+    const sessions = await installRuntimeRecoveryBoundaries(app, () => Promise.resolve([workspace]), session);
+    await appPluginRegistry(app).register({ id: "workflow", plugin: { apiVersion: 4, name: "Workflow", activate: () => ({ contributions: {
+      workspacePanels: [{ id: "panel", title: "Workflow", render: () => html`Workflow` }],
+    } }) } });
+    setAppState(app, { ...initialAppState(), projects: [project], selectedProject: project, workspaces: [workspace],
+      selectedWorkspace: workspace, sessions: [session], selectedSession: session, workspaceTool: "workflow:panel", mainView: "workspace" });
+    const selectSession = vi.spyOn(sessions, "selectSession");
+    let navigate = createPluginRuntimeContext(app).navigate;
+    if (kind === "panel") navigate = workspacePanelContextFromApp(app).navigate;
+    if (kind === "application") {
+      const context: unknown = callAppMethod(app, "createApplicationPanelContext");
+      if (typeof context !== "object" || context === null || !("navigate" in context) || typeof context.navigate !== "function") {
+        throw new Error("Application context unavailable");
+      }
+      const callback = context.navigate;
+      navigate = async (destination, options) => { await Reflect.apply(callback, context, [destination, options]); };
+    }
+    await navigate({ query: { item: "new" } }, { mode: "patch", history: "replace" });
+    expect(browser.pushed).toEqual([]);
+    expect(browser.replaced).toHaveLength(1);
+    expect(browser.url.searchParams.get("tool")).toBe(toolRoute);
+    expect(browser.url.searchParams.get("workflow.panel--item")).toBe("new");
+    expect(browser.url.searchParams.get("legacy.panel--item")).toBe("stale");
+    expect(browser.url.searchParams.get("files.workspace.files--file")).toBe("keep.ts");
+    expect(selectSession).not.toHaveBeenCalled();
+
+    await navigate({ query: { item: "newer" } }, { mode: "patch" });
+    expect(browser.pushed).toHaveLength(1);
+    expect(historyUrl(browser.pushed, 0).searchParams.get("workflow.panel--item")).toBe("newer");
+    window.history.back();
+    await vi.waitFor(() => { expect(browser.url.searchParams.get("workflow.panel--item")).toBe("new"); });
+    await callAsyncAppMethod(app, "restoreRoute", false);
+    expect(appState(app).selectedSession).toBe(session);
+    expect(selectSession).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("patches a session destination without relisting unchanged ancestors (another workspace: %s)", async (otherWorkspace) => {
+    const previous = { ...runtimeRecoverySession(workspace), id: "previous-session" };
+    const targetWorkspace = otherWorkspace ? { ...workspace, id: "workspace-2", path: "/repo/tree" } : workspace;
+    const next = runtimeRecoverySession(targetWorkspace);
+    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=previous-session&view=chat&files.workspace.files--file=keep.ts");
+    const app = createDetachedApp();
+    const sessions = await installRuntimeRecoveryBoundaries(app, () => Promise.resolve([workspace, targetWorkspace]), next);
+    setAppState(app, { ...initialAppState(), projects: [project], selectedProject: project, workspaces: [workspace, targetWorkspace],
+      selectedWorkspace: workspace, sessions: otherWorkspace ? [previous] : [previous, next], selectedSession: previous });
+    const selectSession = vi.spyOn(sessions, "selectSession");
+    await createPluginRuntimeContext(app).navigate({ sessionId: next.id, ...(otherWorkspace ? { workspaceId: targetWorkspace.id } : {}) }, { mode: "patch" });
+    expect(browser.url.searchParams.get("project")).toBe(project.id);
+    expect(browser.url.searchParams.get("workspace")).toBe(targetWorkspace.id);
+    expect(browser.url.searchParams.get("session")).toBe(next.id);
+    expect(browser.url.searchParams.get("files.workspace.files--file")).toBe(otherWorkspace ? null : "keep.ts");
+    expect(appState(app).selectedSession?.id).toBe(next.id);
+    expect(appState(app).selectedWorkspace?.id).toBe(targetWorkspace.id);
+    expect(selectSession).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    null, [], "project", { projectId: 12 }, { machineId: null }, { workspaceId: false }, { sessionId: {} }, { tool: 1 }, { view: "plugin:panel" },
+    { query: null }, { query: [] }, { query: "raw query" }, { query: {} },
+    { tool: "example:panel", query: {} },
+    { tool: "example:panel", projectId: project.id, query: {} },
+    { tool: "example:panel", workspaceId: workspace.id, query: {} },
+    { tool: "malformed", projectId: project.id, workspaceId: workspace.id, query: {} },
+    { tool: "example:panel", projectId: project.id, workspaceId: workspace.id, query: { "Bad key": "value" } },
+    { tool: "example:panel", projectId: project.id, workspaceId: workspace.id, query: { item: {} } },
+    { tool: "example:panel", projectId: project.id, workspaceId: workspace.id, query: { item: "x".repeat(4097) } },
+  ])("rejects malformed plugin destinations without navigation or UI: %j", async (destination) => {
     const browser = installBrowserWindow("http://localhost/app?project=before");
     const app = new PiWebApp();
     const before = appState(app);
@@ -1663,6 +1793,87 @@ describe("PiWebApp plugin host", () => {
     expect(appState(app)).toBe(before);
     expect(browser.pushed).toEqual([]);
     expect(browser.replaced).toEqual([]);
+  });
+
+  describe("scoped plugin navigation validation", () => {
+    async function captureNavigate(app: PiWebApp, kind: "label" | "message" | "displayed-message"): Promise<PluginRuntimeContext["navigate"]> {
+      setVerifiedPluginMode(app, remoteMachine.id, "recovery-disabled");
+      const session = runtimeRecoverySession(workspace);
+      setAppState(app, { ...initialAppState(), selectedMachine: remoteMachine, selectedProject: project, selectedWorkspace: workspace,
+        selectedSession: session, messages: [{ role: "user", entryId: "entry-1", parts: [{ type: "text", text: "Hello" }] }] });
+      let navigate: PluginRuntimeContext["navigate"] | undefined;
+      await appPluginRegistry(app).register({ id: "scoped-navigation", plugin: adaptPublicPlugin({ apiVersion: 4, name: "Scoped navigation", activate: () => ({ contributions: {
+        sessionLabels: [{ id: "label", items: (context) => { navigate = context.navigate; return []; } }],
+        messageActions: [
+          { id: "entry", title: "Entry navigation", run: (context) => { navigate = context.navigate; } },
+          { target: "display", id: "display", title: "Display navigation", run: (context) => { navigate = context.navigate; } },
+        ],
+      } }) }) });
+      if (kind === "label") {
+        callAppMethod(app, "sessionLabelItems", session);
+      } else {
+        await callAsyncAppMethod(app, kind === "message" ? "handleMessageAction" : "handleDisplayedMessageAction", {
+          machine: remoteMachine, session, message: { entryId: "entry-1", role: "user", text: "Hello" },
+        }, kind === "message" ? "scoped-navigation:entry" : "scoped-navigation:display");
+      }
+      if (navigate === undefined) throw new Error(`Missing ${kind} navigation callback`);
+      return navigate;
+    }
+
+    it.each(["label", "message", "displayed-message"] as const)("rejects raw malformed %s destinations/options with a promise and no effects", async (kind) => {
+      const browser = installBrowserWindow("http://localhost/nested/pi/?machine=remote-1&project=project-1&workspace=workspace-1&session=session-next&view=chat&files.workspace.files--file=keep.ts#anchor");
+      const app = createDetachedApp();
+      const navigate = await captureNavigate(app, kind);
+      const before = appState(app);
+      const beforeUrl = browser.url.href;
+      const invalidValues: unknown[] = [null, [], ["project"], "project", "", 42, false, 42n, Symbol("invalid")];
+      const malformedInputs = [
+        ...[undefined, ...invalidValues].flatMap((destination) => [
+          { destination, options: undefined }, { destination, options: { mode: "patch" } },
+        ]),
+        ...invalidValues.map((options) => ({ destination: {}, options })),
+      ];
+      for (const { destination, options } of malformedInputs) {
+        // Direct invocation also catches synchronous throws before a promise is returned.
+        const result: unknown = Reflect.apply(navigate, undefined, [destination, options]);
+        expect(result).toBeInstanceOf(Promise);
+        await expect(result).rejects.toBeInstanceOf(TypeError);
+        expect(appState(app)).toBe(before);
+        expect(browser.url.href).toBe(beforeUrl);
+        expect(browser.pushed).toEqual([]);
+        expect(browser.replaced).toEqual([]);
+      }
+    });
+
+    it.each(["label", "message", "displayed-message"] as const)("preserves captured %s machine defaults and explicit patch null after selection changes", async (kind) => {
+      const originalUrl = "http://localhost/nested/pi/?machine=remote-1&project=project-1&workspace=workspace-1&session=session-next&view=chat&files.workspace.files--file=keep.ts#anchor";
+      const browser = installBrowserWindow(originalUrl);
+      const app = createDetachedApp();
+      const navigate = await captureNavigate(app, kind);
+      setAppState(app, initialAppState());
+      // This boundary owns publication, not the independent route-loading pipeline.
+      Reflect.set(app, "restoreCommittedNavigation", () => Promise.resolve(false));
+
+      await navigate({ view: "workspace" }, { mode: "patch" });
+      expect(Object.fromEntries(browser.url.searchParams)).toEqual({ machine: remoteMachine.id, project: project.id, workspace: workspace.id,
+        session: "session-next", view: "workspace", "files.workspace.files--file": "keep.ts" });
+
+      browser.navigate(originalUrl.replace("machine=remote-1&", ""));
+      await navigate({}, { mode: "patch" });
+      expect(Object.fromEntries(browser.url.searchParams)).toEqual({ machine: remoteMachine.id, view: "chat" });
+
+      browser.navigate(originalUrl);
+      await navigate({ machineId: null }, { mode: "patch" });
+      expect(Object.fromEntries(browser.url.searchParams)).toEqual({ view: "chat" });
+
+      browser.navigate(originalUrl);
+      await navigate({ projectId: project.id });
+      expect(Object.fromEntries(browser.url.searchParams)).toEqual({ machine: remoteMachine.id, project: project.id });
+      expect(browser.url.pathname).toBe("/nested/pi/");
+      expect(browser.url.hash).toBe("#anchor");
+      expect(browser.pushed).toHaveLength(4);
+      expect(browser.replaced).toEqual([]);
+    });
   });
 
   it.each(["action", "panel"])("publishes a complete plugin destination from a %s context and accepts supersession", async (kind) => {
@@ -1683,6 +1894,50 @@ describe("PiWebApp plugin host", () => {
     restored.resolve(false);
     await expect(navigating).resolves.toBeUndefined();
     expect(Object.values(appState(app).browserErrors)).toEqual([]);
+  });
+
+  it("publishes an exact tool query as part of a complete destination under nested paths", async () => {
+    const browser = installBrowserWindow("http://localhost/nested/pi/?project=old&workspace=old&tool=old%3Apanel&old.panel--item=previous&unrelated=value#anchor");
+    const app = createDetachedApp();
+    Reflect.set(app, "restoreCommittedNavigation", () => Promise.resolve(false));
+    await createPluginRuntimeContext(app).navigate({ machineId: remoteMachine.id, projectId: project.id, workspaceId: workspace.id,
+      tool: "workflow:panel", view: "workspace", query: { item: "exact / packet & name", legs: [2, 3], archived: false } });
+    expect(browser.url.pathname).toBe("/nested/pi/");
+    expect(browser.url.hash).toBe("#anchor");
+    expect(browser.url.searchParams.get("unrelated")).toBe("value");
+    expect(browser.url.searchParams.has("old.panel--item")).toBe(false);
+    expect(browser.url.searchParams.get("machine")).toBe(remoteMachine.id);
+    expect(browser.url.searchParams.get("tool")).toBe("workflow:panel");
+    expect(browser.url.searchParams.get("workflow.panel--item")).toBe("exact / packet & name");
+    expect(browser.url.searchParams.getAll("workflow.panel--legs")).toEqual(["2", "3"]);
+    expect(browser.url.searchParams.get("workflow.panel--archived")).toBe("false");
+    expect(browser.pushed).toHaveLength(1);
+    expect(machineNavigationSnapshot(app, remoteMachine.id)?.surface.contributionQuery).toEqual({
+      "workflow.panel--item": "exact / packet & name", "workflow.panel--legs": ["2", "3"], "workflow.panel--archived": "false",
+    });
+  });
+
+  it("restores the exact query into the target panel's scoped context", async () => {
+    installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1");
+    const app = createDetachedApp();
+    await markPluginLoadingReady(app);
+    let received: WorkspacePanelContext | undefined;
+    await appPluginRegistry(app).register({ id: "workflow", plugin: { apiVersion: 4, name: "Workflow", activate: () => ({ contributions: {
+      workspacePanels: [{ id: "panel", title: "Workflow", render: (context) => { received = context; return html`<p>Workflow</p>`; } }],
+    } }) } });
+    setAppState(app, { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace, projects: [project], workspaces: [workspace] });
+    await createPluginRuntimeContext(app).navigate({ projectId: project.id, workspaceId: workspace.id, tool: "workflow:panel", view: "workspace",
+      query: { item: "packet-name" } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    render(callAppMethod(app, "renderWorkspacePanel"), host);
+    const panel = host.querySelector("workspace-panel");
+    if (!(panel instanceof WorkspacePanel)) throw new Error("Workspace panel not rendered");
+    await panel.updateComplete;
+    expect(received?.navigation?.query).toEqual({ item: "packet-name" });
+    expect(received?.workspace.id).toBe(workspace.id);
+    expect(appState(app).workspaceTool).toBe("workflow:panel");
+    render(null, host);
   });
 
   it("restores a plugin session destination without starting a session", async () => {
@@ -2320,11 +2575,12 @@ describe("PiWebApp plugin host", () => {
     expect(browser.url.searchParams.get("core.workspace.files--mode")).toBe("raw");
     expect(browser.url.searchParams.has("files.workspace.files--file")).toBe(false);
     expect(browser.pushed).toHaveLength(2);
-    expect(browser.replaced).toHaveLength(2);
-    expect(historyUrl(browser.replaced, 0).searchParams.get("files.workspace.files--file")).toBe("b.ts");
-    expect(historyUrl(browser.replaced, 0).searchParams.has("core.workspace.files--file")).toBe(false);
-    expect(historyUrl(browser.replaced, 1).searchParams.get("core.workspace.files--file")).toBe("a.ts");
-    expect(historyUrl(browser.replaced, 1).searchParams.has("files.workspace.files--file")).toBe(false);
+    // Each destination and its contribution query are published atomically.
+    expect(browser.replaced).toEqual([]);
+    expect(historyUrl(browser.pushed, 0).searchParams.get("files.workspace.files--file")).toBe("b.ts");
+    expect(historyUrl(browser.pushed, 0).searchParams.has("core.workspace.files--file")).toBe(false);
+    expect(historyUrl(browser.pushed, 1).searchParams.get("core.workspace.files--file")).toBe("a.ts");
+    expect(historyUrl(browser.pushed, 1).searchParams.has("files.workspace.files--file")).toBe(false);
   });
 
   it("preserves the origin history entry when remembered Files is unavailable", async () => {
@@ -2382,7 +2638,8 @@ describe("PiWebApp plugin host", () => {
     });
     expect(window.history.length).toBe(historyLength + 1);
     expect(browser.pushed).toHaveLength(1);
-    expect(browser.replaced).toHaveLength(1);
+    expect(browser.replaced).toEqual([]);
+    expect(historyUrl(browser.pushed, 0).searchParams.get("files.workspace.files--file")).toBe("b.ts");
     await expectWorkspaceContentError(app, "工作区面板不可用：files:workspace.files");
     expect([...browser.pushed, ...browser.replaced].every((href) => new URL(href).searchParams.get("machine") === machineB.id)).toBe(true);
     expect(browser.url.searchParams.get("files.workspace.files--file")).toBe("b.ts");
@@ -2507,7 +2764,8 @@ describe("PiWebApp plugin host", () => {
     await callAsyncAppMethod(app, "selectMachineWithMemory", machineB);
 
     expect(browser.pushed).toHaveLength(1);
-    expect(browser.replaced.length).toBeGreaterThanOrEqual(1);
+    expect(browser.replaced).toEqual([]);
+    expect(historyUrl(browser.pushed, 0).searchParams.get("files.workspace.files--file")).toBe("missing.ts");
     expect(browser.url.searchParams.get("project")).toBe("project-missing");
     expect(browser.url.searchParams.get("workspace")).toBe("workspace-missing");
     expect(browser.url.searchParams.get("files.workspace.files--file")).toBe("missing.ts");
@@ -3812,6 +4070,13 @@ describe("PiWebApp plugin host", () => {
 function createApp(): PiWebApp {
   installBrowserWindow("http://localhost/app");
   const app = new PiWebApp();
+  Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
+  return app;
+}
+
+function createDetachedApp(): PiWebApp {
+  const app = new PiWebApp();
+  detachedApps.add(app);
   Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
   return app;
 }

@@ -73,11 +73,23 @@ const plugin: PiWebPlugin = {
     start: ({ capabilities, signal }) => {
       if (signal.aborted || context.lifetimeSignal.aborted) return;
       capabilities.resolve(identityCapability);
+      context.selection?.getSnapshot();
+      context.selection?.subscribe((selection) => { void selection.selectedProject?.path; });
     },
     dispose: (signal) => {
       if (signal.aborted) return;
     },
     contributions: {
+      applicationPanels: [{
+        id: "application",
+        title: "Application fixture",
+        render: (panel) => context.html`<button @click=${async () => {
+          await panel.projects?.listProjects();
+          await panel.projects?.suggestDirectories("/repo");
+          panel.prompt.setChip?.({ id: "context", label: "Context", text: "Fixture", onRemove: (reason) => { void reason; } });
+          panel.prompt.removeChip?.("context");
+        }}>${panel.machine.id}</button>`,
+      }],
       actions: [{
         id: "identity",
         title: context.pluginId,
@@ -139,3 +151,31 @@ export type {
   ImplementedWorkspacePanelFiles,
 };
 type BrowserWorkspace = Workspace;
+
+/** The current entry keeps contextual callback typing without manual annotations. */
+export const pluginV5: PiWebPlugin = {
+  apiVersion: 5,
+  name: "V5 consumer",
+  activate({ apiVersion, html }) {
+    const version: 5 = apiVersion;
+    return {
+      contributions: {
+        actions: [{
+          id: "discover",
+          title: "Discover",
+          async run(context) {
+            const projects = await context.catalog.projects.list();
+            const project = projects[0];
+            if (project === undefined) return;
+            const workspaces = await context.catalog.workspaces.list(project.id);
+            const workspace = workspaces[0];
+            if (workspace === undefined) return;
+            await context.catalog.sessions.list({ projectId: project.id, workspaceId: workspace.id });
+            await context.backend?.forScope({ kind: "machine" }).request?.("fixture.summary", null);
+          },
+        }],
+        applicationPanels: [{ id: "catalog", title: "Catalog", render: (context) => html`${version}: ${context.catalog.machineId}` }],
+      },
+    };
+  },
+};

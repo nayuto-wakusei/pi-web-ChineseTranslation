@@ -3,7 +3,7 @@ import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { RELAYS_ROOT } from "./relayDiscovery.js";
 import { defineRelaysPanelElement } from "./relaysPanelElement.js";
 
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("bundled.relays.relays.715ce8", "Relays"),
   activate: ({ runtimePluginId, html, svg, translate }) => {

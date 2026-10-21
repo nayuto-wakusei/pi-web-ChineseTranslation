@@ -10,7 +10,7 @@ interface PanelState {
   connecting: boolean; channel?: PluginPeerChannel; controller?: AbortController;
   pending?: string; revision: number; readRevision: number; updates: Map<string, LogEntry>;
 }
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("ui.main.40c450439267", "Captain's Log"),
   activate({ html, runtimePluginId, lifetimeSignal, translate: translator }) {

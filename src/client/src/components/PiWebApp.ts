@@ -1,10 +1,12 @@
+import type { MessageActionAvailabilityContext, MessageActionContext, DisplayedMessageActionAvailabilityContext, MessageActionResult } from "../../../plugin-api";
+import { messageActionMessage } from "../plugins/messageActions";
 import { t } from "../i18n";
 import type { RenderedChatTranscript } from "./ChatView";
 import { LitElement, html, type TemplateResult } from "lit";
 import { deprecatedAgentInputsBanner, deprecatedAgentInputsWarnings } from "./deprecatedAgentInputsBanner";
 import { customElement, query, state } from "lit/decorators.js";
 import { guard } from "lit/directives/guard.js";
-import { configApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, projectsApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState, type ModelDialogOrigin } from "../appState";
 import { browserErrorContext, browserErrorScopeKey, BrowserErrorReporter, clearBrowserError, machineBrowserErrorScope, visibleBrowserErrors, workspaceBrowserErrorScope, type BrowserError, type BrowserErrorScope } from "../browserErrors";
@@ -30,6 +32,7 @@ import { selectedMachineId, type NavigationDestinationOptions, type NavigationFr
 import { markdownWorkspaceContext, type WorkspaceFileOpenRequest } from "../formatting/workspaceLinks";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey, sessionCleanupUnavailableMessage } from "../sessionCleanupUi";
+import { appendPromptChipText, samePromptChipTarget, type StagedPromptChip } from "../promptChips";
 import { selectedNotificationView } from "../sessionNotifications";
 import { SessionUnreadController } from "../sessionUnread";
 import { deriveUnreadPresence, EMPTY_UNREAD_PRESENCE, sameUnreadPresence, type UnreadPresence } from "../unreadPresence";
@@ -40,12 +43,15 @@ import type { ServerNotice } from "../../../shared/apiTypes";
 import { HttpRequestError } from "../api/http";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
-import type { PluginMachine, PluginNavigationDestination, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFilesCapabilityV1, ContributionQueryValue, WorkspacePanelNavigationV1, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput, PiWebPluginRegistration } from "../plugins/types";
+import type { ApplicationPanelContext, PluginMachine, PluginNavigationPatchDestination, PluginNavigationOptions, SessionLabelContext, SessionLabelItem, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFilesCapabilityV1, ContributionQueryValue, WorkspacePanelNavigationV1, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput, PiWebPluginRegistration } from "../plugins/types";
 import type { ExternalPluginLoadResult } from "../plugins/external";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
+import { resolvePluginNavigation } from "../pluginNavigation";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
-import { PluginRegistry, installPluginRuntimeScope, installWorkspaceLabelScope, installWorkspacePanelScope, type BrowserPluginLifecyclePhase, type PluginRegistrationFailure } from "../plugins/registry";
+import { publicPluginSelection, publicPluginSession } from "../plugins/publicContext";
+import { createPluginProjects } from "../plugins/projects";
+import { PluginRegistry, installApplicationPanelScope, installPluginRuntimeScope, installSessionLabelScope, installWorkspaceLabelScope, installWorkspacePanelScope, type BrowserPluginLifecyclePhase, type PluginRegistrationFailure } from "../plugins/registry";
 import { createPluginPeer } from "../plugins/pluginPeer";
 import { createWorkspaceFiles as createPluginWorkspaceFiles } from "../plugins/workspaceFiles";
 import { parseTerminalCommandRun } from "../api/parsers";
@@ -92,7 +98,7 @@ import type { MachineDialogSubmit } from "./MachineDialog";
 import { deepActiveElement, focusElement, hasRenderedModal } from "./modalLayerRegistry";
 import "./SettingsDialog";
 import "./WorkspacePanel";
-import type { WorkspacePanelEmptyState } from "./WorkspacePanel";
+import type { WorkspacePanelEmptyState, WorkspaceToolPanel } from "./WorkspacePanel";
 import "./appShell/AppContextBar";
 import "./appShell/AppMobileMainTabs";
 import type { AppMobileMainTab } from "./appShell/AppMobileMainTabs";
@@ -427,7 +433,7 @@ export class PiWebApp extends LitElement {
   private readonly verifiedPluginModeByMachine = new Map<string, TerminalPluginMode>();
   private readonly requiredPluginFailureByMachine = new Map<string, string>();
   private readonly dismissedRequiredPluginFailureByMachine = new Map<string, string>();
-  private readonly plugins = new PluginRegistry({ isContributionEnabled: (pluginId, machineId) => this.pluginContributionAvailable(pluginId, machineId) });
+  private readonly plugins = new PluginRegistry({ onPromptChipsChanged: () => { this.requestUpdate(); }, isContributionEnabled: (pluginId, machineId) => this.pluginContributionAvailable(pluginId, machineId), getSelection: () => publicPluginSelection(this.state) });
   private readonly resetKeyboardSequence = () => { this.keyboard.reset(); };
   private readonly builtInPluginsReady = this.plugins.registerBatch([
     { id: "core", plugin: corePlugin },
@@ -503,6 +509,7 @@ export class PiWebApp extends LitElement {
   protected override updated(): void {
     this.committedChatIdentity = selectedChatIdentity(this.state);
     this.syncSelectedSessionReadState();
+    this.plugins.notifySelectionChanged();
   }
 
   private syncSessionWarningVisibility(): void {
@@ -904,29 +911,28 @@ export class PiWebApp extends LitElement {
     return true;
   }
 
-  private async navigate(destination: PluginNavigationDestination | null): Promise<void> {
-    if (destination === null || typeof destination !== "object" || Array.isArray(destination)) {
-      throw new TypeError("Navigation destination must be an object");
-    }
-    for (const key of ["machineId", "projectId", "workspaceId", "sessionId", "tool"] as const) {
-      if (destination[key] !== undefined && typeof destination[key] !== "string") {
-        throw new TypeError(`Navigation ${key} must be a string`);
-      }
-    }
-    if (destination.view !== undefined && !["navigation", "chat", "workspace"].includes(destination.view)) {
-      throw new TypeError("Navigation view must be navigation, chat, or workspace");
-    }
+  private async navigate(destination: PluginNavigationPatchDestination | null, options?: PluginNavigationOptions, capturedMachineId?: string): Promise<void> {
+    const { route, contributionQuery } = resolvePluginNavigation(
+      destination, options, readRoute(), readContributionQueryRecord(), selectedMachineId(this.state),
+      (tool, machineId) => {
+        const contributionId = this.plugins.resolveWorkspacePanelRouteId(tool, machineId);
+        if (contributionId === undefined) return undefined;
+        const sourceContributionId = this.plugins.getWorkspacePanels().find((panel) => panel.id === contributionId)?.sourceContributionId;
+        return { contributionId, sourceContributionId };
+      },
+      capturedMachineId,
+    );
     await this.commitAndRestoreNavigation({
-      machineId: destination.machineId ?? selectedMachineId(this.state),
-      projectId: destination.projectId,
-      workspaceId: destination.workspaceId,
-      sessionId: destination.sessionId,
-      view: destination.view,
-      // Public IDs are strings; route restoration owns unavailable/malformed ID UI.
+      ...route,
+      machineId: route.machineId ?? "local",
+      // Retain omitted raw URL values in patch mode, including unavailable IDs/views.
+      // Restoration resolves or explains them, rather than silently dropping them.
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      tool: destination.tool as QualifiedContributionId | undefined,
-      surface: {},
-    });
+      tool: route.tool as QualifiedContributionId | undefined,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      view: route.view as AppState["mainView"] | undefined,
+      surface: { contributionQuery },
+    }, { replace: options?.history === "replace" });
   }
 
   private async restoreRouteFor(
@@ -1461,6 +1467,7 @@ export class PiWebApp extends LitElement {
     if (selectionChanged) this.retireRouteRestoreForSynchronousNavigation();
     else this.routeRestoreSeq += 1;
     if (selectionChanged) this.setState({ workspaceTool: availableTool, mainView: "workspace" });
+    else this.requestUpdate();
     this.refreshSelectedWorkspaceTool(availableTool);
   }
 
@@ -1802,14 +1809,12 @@ export class PiWebApp extends LitElement {
 
   private renderWorkspacePanel() {
     const workspace = this.state.selectedWorkspace;
-    const panelContext = workspace === undefined ? undefined : this.createWorkspacePanelContext(workspace);
     const emptyState = workspace === undefined ? this.workspacePanelEmptyState() : undefined;
     const panels = this.visibleWorkspacePanels();
     return html`
       <workspace-panel
         id="workspace-panel"
         .workspace=${workspace}
-        .panelContext=${panelContext}
         .emptyState=${emptyState}
         .error=${this.workspaceContentError()}
         .tool=${this.effectiveWorkspaceTool(panels)}
@@ -2121,6 +2126,7 @@ export class PiWebApp extends LitElement {
         .workspacesCollapsed=${this.navigationSections.isCollapsed("workspaces")}
         .sessionsCollapsed=${this.navigationSections.isCollapsed("sessions")}
         .workspaceLabelItems=${guard(this.workspaceSurfaceInputs(), () => (workspace: Workspace) => this.workspaceLabelItems(workspace))}
+        .sessionLabelItems=${guard(this.workspaceSurfaceInputs(), () => (session: SessionInfo) => this.sessionLabelItems(session))}
         .refreshControl=${this.appShell.shouldShowAppRefreshInHeader() ? this.renderAppRefresh() : undefined}
         .onShowActions=${this.apiScope === "management" ? undefined : this.navigationActions.showActions}
         .onToggleProjects=${this.navigationActions.toggleProjects}
@@ -2281,11 +2287,25 @@ export class PiWebApp extends LitElement {
     `;
   }
 
-  private visibleWorkspacePanels(): QualifiedWorkspacePanelContribution[] {
+  private visibleWorkspacePanels(): WorkspaceToolPanel[] {
+    const applicationContext = this.createApplicationPanelContext();
+    const panels: WorkspaceToolPanel[] = this.plugins.getApplicationPanels()
+      .filter((panel) => panel.visible?.(applicationContext) ?? true)
+      .map((panel) => ({
+        ...panel,
+        badge: () => panel.badge?.(applicationContext),
+        render: () => panel.render(applicationContext),
+      }));
     const workspace = this.state.selectedWorkspace;
-    if (workspace === undefined) return [];
-    const context = this.createWorkspacePanelContext(workspace);
-    return this.plugins.getWorkspacePanels().filter((panel) => panel.visible?.(context) ?? true);
+    if (workspace !== undefined) {
+      const context = this.createWorkspacePanelContext(workspace);
+      panels.push(...this.plugins.getWorkspacePanels().filter((panel) => panel.visible?.(context) ?? true).map((panel) => ({
+        ...panel,
+        badge: () => panel.badge?.(context),
+        render: () => panel.render(context),
+      })));
+    }
+    return panels.sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.title.localeCompare(right.title));
   }
 
   private workspacePanelEmptyState(): WorkspacePanelEmptyState {
@@ -2334,13 +2354,6 @@ export class PiWebApp extends LitElement {
     return t("ui.piWebApp.selectAProjectAndWorkspaceToStartA", "Select a project and workspace to start a session.");
   }
 
-  private mobilePanelBadge(panel: QualifiedWorkspacePanelContribution): unknown {
-    const workspace = this.state.selectedWorkspace;
-    if (workspace === undefined) return undefined;
-    return panel.badge?.(this.createWorkspacePanelContext(workspace));
-  }
-
-
   private workspaceLabelItems(workspace: Workspace): WorkspaceLabelItem[] {
     return this.plugins.getWorkspaceLabelItems(this.createWorkspaceLabelContext(workspace));
   }
@@ -2354,11 +2367,33 @@ export class PiWebApp extends LitElement {
         workspace,
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machine),
+        projects: createPluginProjects(projectsApi, machine.id),
         ...(peer === undefined ? {} : { peer }),
         host: this.createWorkspaceHost(),
       }, createContext);
     };
     return createContext(coreWorkspacePluginBinding());
+  }
+
+  private sessionLabelItems(session: SessionInfo): SessionLabelItem[] {
+    const workspace = this.state.selectedWorkspace;
+    if (workspace === undefined) return [];
+    const machine = pluginMachineFromState(this.state);
+    const createContext = (binding: WorkspacePluginBinding): SessionLabelContext => {
+      const peer = createPluginPeer(binding, workspace, machine.id);
+      return installSessionLabelScope({
+        machine,
+        workspace,
+        session: publicPluginSession(session),
+        state: this.state,
+        files: this.createWorkspaceFiles(workspace, machine),
+        projects: createPluginProjects(projectsApi, machine.id),
+        ...(peer === undefined ? {} : { peer }),
+        navigate: (destination, options) => this.navigate(destination, options, machine.id),
+        host: this.createWorkspaceHost(),
+      }, createContext);
+    };
+    return this.plugins.getSessionLabelItems(createContext(coreWorkspacePluginBinding()));
   }
 
   private createWorkspaceFiles(workspace: Workspace, machine: PluginMachine): WorkspaceFilesCapabilityV1 {
@@ -2372,6 +2407,27 @@ export class PiWebApp extends LitElement {
     return {
       requestRender: () => { this.invalidateWorkspaceSurface(); },
     };
+  }
+
+  private createApplicationPanelContext(): ApplicationPanelContext {
+    const machine = pluginMachineFromState(this.state);
+    const workspace = this.state.selectedWorkspace;
+    const createContext = (pluginId: string): ApplicationPanelContext => {
+      const navigation = this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE);
+      return installApplicationPanelScope({
+        machine,
+        state: this.state,
+        projects: createPluginProjects(projectsApi, machine.id),
+        ...(workspace === undefined ? {} : { workspace }),
+        ...(workspace === undefined || !this.terminalAvailableForMachine(machine.id) ? {} : {
+          terminal: this.workspaceTerminal(pluginId, workspace, machine.id, navigation),
+        }),
+        navigate: (destination, options) => this.navigate(destination, options),
+        prompt: this.createPromptEditor(pluginId, machine.id),
+        host: this.createWorkspaceHost(),
+      }, createContext);
+    };
+    return createContext("core");
   }
 
   private createWorkspacePanelContext(
@@ -2395,13 +2451,14 @@ export class PiWebApp extends LitElement {
       };
       const peer = createPluginPeer(binding, workspace, machineId);
       return installWorkspacePanelScope({
-        navigate: (destination) => this.workspacePanelContextIsCurrent(workspace, machine, navigation) ? this.navigate(destination) : Promise.resolve(),
+        navigate: (destination, options) => this.workspacePanelContextIsCurrent(workspace, machine, navigation) ? this.navigate(destination, options, machine.id) : Promise.resolve(),
         machine,
         workspace,
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machine),
+        projects: createPluginProjects(projectsApi, machineId),
         ...(peer === undefined ? {} : { peer }),
-        prompt: this.createPromptEditor(),
+        prompt: this.createPromptEditor(binding.registrationPluginId, machineId),
         terminal: this.workspaceTerminal(binding.registrationPluginId, workspace, machineId, navigation),
         ...(contributionId === undefined ? {} : {
           navigation: this.createWorkspacePanelNavigation(workspace, machine, contributionId, navigationAliases, contributionQueryRestore, navigation),
@@ -2769,8 +2826,12 @@ export class PiWebApp extends LitElement {
     return mode === "recovery-disabled" || (mode === "required" && this.terminalAvailableForMachine(machineId));
   }
 
-  private createPromptEditor(): PluginPromptEditor {
+  private createPromptEditor(pluginId = "core", machineId = selectedMachineId(this.state)): PluginPromptEditor {
+    const session = this.state.selectedSession;
+    const target = session !== undefined && session.archived !== true && !isCreatingSessionId(session.id) && machineId === selectedMachineId(this.state)
+      ? { machineId, sessionId: session.id, cwd: session.cwd } : undefined;
     return {
+      ...this.plugins.promptChipMethods(pluginId, target),
       insertText: (text: string) => {
         const editor = this.promptEditor?.view;
         if (!editor) return;
@@ -2797,7 +2858,8 @@ export class PiWebApp extends LitElement {
   private createPluginRuntimeContext(): PluginRuntimeContext {
     const createContext = (origin: string): PluginRuntimeContext => installPluginRuntimeScope({
       state: this.state,
-      prompt: this.createPromptEditor(),
+      projects: createPluginProjects(projectsApi, selectedMachineId(this.state)),
+      prompt: this.createPromptEditor(origin),
       piWebUnstable: {
         terminalCommandRuns: this.terminalCommandRunsForOrigin(origin),
         openSettings: (section) => { this.openSettings(section); },
@@ -2817,7 +2879,7 @@ export class PiWebApp extends LitElement {
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
       selectMainView: (view) => { this.selectMainView(view); },
-      navigate: (destination) => this.navigate(destination),
+      navigate: (destination, options) => this.navigate(destination, options),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
       openTerminal: (options) => { this.openTerminal(options); },
       // eslint-disable-next-line @typescript-eslint/no-deprecated -- Implement the supported legacy callback without encouraging new callers.
@@ -3329,21 +3391,45 @@ export class PiWebApp extends LitElement {
     if (value !== "") await this.sessions.setThinkingLevel(value);
   }
 
-  private sendPrompt(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string): void {
+  private async sendPrompt(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string, chips: readonly StagedPromptChip[] = []): Promise<boolean> {
     const hasAttachments = attachments !== undefined && attachments.length > 0;
-    if (!hasAttachments && streamingBehavior === undefined && this.auth.handleSlashCommand(text)) return;
-    if (!hasAttachments && streamingBehavior === undefined && (text.trim() === "/model" || text.trim() === "/scoped-models")) {
-      void this.openModelDialog();
-      return;
+    if (chips.length === 0) {
+      if (!hasAttachments && streamingBehavior === undefined && this.auth.handleSlashCommand(text)) return false;
+      if (!hasAttachments && streamingBehavior === undefined && (text.trim() === "/model" || text.trim() === "/scoped-models")) {
+        void this.openModelDialog();
+        return false;
+      }
+      return this.sessions.send(text, streamingBehavior, attachments, delivery, folder);
     }
-    void this.sessions.send(text, streamingBehavior, attachments, delivery, folder);
+    const target = chips[0]?.target;
+    if (target === undefined || chips.some((chip) => !samePromptChipTarget(chip.target, target) || !this.plugins.promptChipOwnerAvailable(chip.pluginId, target.machineId))) return false;
+    const accepted = await this.sessions.send(appendPromptChipText(text, chips), streamingBehavior, attachments, delivery, folder, target);
+    if (accepted) this.plugins.promptChips.consume(chips);
+    return accepted;
   }
 
   // Stable handler identities for child components. Inlined arrow closures
   // would be a fresh reference on every render, forcing Lit to re-commit the
   // bindings each time the app re-renders; bound class fields keep them constant.
-  private readonly handleSendPrompt = (text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string): void => {
-    this.sendPrompt(text, streamingBehavior, attachments, delivery, folder);
+  private readonly handleSendPrompt = (text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string, chips?: readonly StagedPromptChip[]): Promise<boolean> => {
+    return this.sendPrompt(text, streamingBehavior, attachments, delivery, folder, chips);
+  };
+
+  private visiblePromptChips: readonly StagedPromptChip[] = [];
+
+  private selectedPromptChips(): readonly StagedPromptChip[] {
+    const machineId = selectedMachineId(this.state);
+    const session = this.state.selectedSession;
+    const chips = session === undefined ? [] : this.plugins.promptChips.list({ machineId, sessionId: session.id, cwd: session.cwd })
+      .filter((chip) => this.plugins.promptChipOwnerAvailable(chip.pluginId, machineId));
+    // Keep the property stable during per-token status updates; otherwise an
+    // empty chip list would undo the composer's render-churn protection.
+    if (chips.length !== this.visiblePromptChips.length || chips.some((chip, index) => chip !== this.visiblePromptChips[index])) this.visiblePromptChips = chips;
+    return this.visiblePromptChips;
+  }
+
+  private readonly handleRemovePromptChip = (chip: StagedPromptChip): void => {
+    this.plugins.promptChips.removeByUser(chip);
   };
 
   private readonly handleStopActiveWork = (): void => {
@@ -3354,7 +3440,29 @@ export class PiWebApp extends LitElement {
     void this.sessions.clearServerQueue();
   };
 
-  private readonly handleMessageAction = (entryId: string, action: "fork" | "back") => this.sessions.actOnMessage(entryId, action);
+  private readonly handleMessageAction = async (target: MessageActionAvailabilityContext, actionId: string): Promise<MessageActionResult> => {
+    const state = this.state;
+    const context = this.messageActionContext(state);
+    if (context?.machine.id !== target.machine.id || context.session.id !== target.session.id || context.session.cwd !== target.session.cwd) return;
+    const message = state.messages.find((item) => item.entryId === target.message.entryId);
+    const snapshot = message === undefined ? undefined : messageActionMessage(message, target.message.role);
+    if (snapshot === undefined) return;
+    const input = { ...context, message: snapshot };
+    return this.plugins.runMessageAction(actionId, input, (binding): MessageActionContext => {
+      const isCurrent = () => selectedMachineId(this.state) === input.machine.id && this.state.selectedSession?.id === input.session.id && this.state.selectedSession.cwd === input.session.cwd;
+      const actOnHistory = async (action: "fork" | "back"): Promise<void> => {
+        if (!isCurrent() || !this.plugins.promptChipOwnerAvailable(binding.registrationPluginId, input.machine.id)) {
+          throw new Error("This message's conversation is no longer available.");
+        }
+        return this.sessions.actOnMessage(input.message.entryId, action);
+      };
+      return {
+        ...input,
+        ...this.messageActionHelpers(binding, input),
+        history: { fork: () => actOnHistory("fork"), goBack: () => actOnHistory("back") },
+      };
+    });
+  };
 
   private readonly handleDismissWarning = (dismissId: string): void => {
     void this.sessions.dismissWarning(dismissId);
@@ -3450,7 +3558,7 @@ export class PiWebApp extends LitElement {
       this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
     }
     return html`
-      <chat-view .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .messageActionsDisabled=${session.archived === true || state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity)} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -3541,7 +3649,7 @@ export class PiWebApp extends LitElement {
           id: panel.id,
           label: panel.title,
           ...(icon === undefined ? {} : { icon }),
-          badge: this.mobilePanelBadge(panel),
+          badge: panel.badge?.(),
         };
       }),
     ];
@@ -3644,7 +3752,7 @@ export class PiWebApp extends LitElement {
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && this.contentError() === "" ? html`
             ${this.renderChatView(state, state.selectedSession)}
-            <prompt-editor .shortcuts=${this.shortcutConfig} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
+            <prompt-editor .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
             ${this.renderStatusBar(state)}
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog === undefined ? null : state.modelDialog.catalog === undefined
@@ -3770,8 +3878,7 @@ export class PiWebApp extends LitElement {
   private commitMachineNavigationSnapshot(snapshot: MachineNavigationSnapshot, options?: { replace?: boolean | undefined }): void {
     this.syncNavigationFreshness();
     this.machineNavigation.remember(snapshot);
-    writeRoute(routeFromMachineNavigationSnapshot(snapshot), options);
-    this.writeWorkspaceRouteSurfaceToUrl(snapshot.surface);
+    writeRoute(routeFromMachineNavigationSnapshot(snapshot), { ...options, contributionQuery: snapshot.surface.contributionQuery ?? {} });
     this.syncNavigationFreshness();
   }
 
@@ -4044,6 +4151,65 @@ export class PiWebApp extends LitElement {
     const legacyPanel = route.view !== undefined && ["files", "git", "terminal", "core:workspace.files", "core:workspace.git", "core:workspace.terminal"].includes(route.view) ? resolvePanel(route.view) : undefined;
     return resolveAppRoute(legacyPanel === undefined ? route : { ...route, view: "workspace", tool: route.tool ?? legacyPanel }, resolvePanel);
   }
+  private messageActionInputs = "";
+  private messageActionSnapshot: Omit<MessageActionAvailabilityContext, "message"> | undefined;
+
+  private messageActionContext(state: AppState): Omit<MessageActionAvailabilityContext, "message"> | undefined {
+    const session = publicPluginSelection(state).selectedSession;
+    if (session === undefined) return undefined;
+    const context = {
+      machine: Object.freeze(pluginMachineFromState(state)),
+      session: Object.freeze({ ...session, busy: state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity) }),
+    };
+    const inputs = JSON.stringify(context);
+    if (inputs !== this.messageActionInputs) {
+      this.messageActionInputs = inputs;
+      this.messageActionSnapshot = context;
+    }
+    return this.messageActionSnapshot;
+  }
+
+  private readonly handleDisplayedMessageAction = async (target: DisplayedMessageActionAvailabilityContext, actionId: string): Promise<MessageActionResult> => {
+    const context = this.messageActionContext(this.state);
+    if (context?.machine.id !== target.machine.id || context.session.id !== target.session.id || context.session.cwd !== target.session.cwd) return;
+    // Display workflows operate on the clicked slice, even before it has an
+    // entry ID or when several normalized lines share the same durable ID.
+    const input = { ...context, message: target.message };
+    return this.plugins.runDisplayedMessageAction(actionId, input, (binding) => ({
+      ...input,
+      ...this.messageActionHelpers(binding, input),
+    }));
+  };
+
+  private messageActionHelpers(
+    binding: WorkspacePluginBinding,
+    input: Omit<MessageActionAvailabilityContext, "message">,
+  ): Omit<MessageActionContext, "machine" | "session" | "message" | "history"> {
+    const state = this.state;
+    const machineId = input.machine.id;
+    const workspace = state.selectedWorkspace;
+    const workspaceSnapshot = publicPluginSelection(state).selectedWorkspace;
+    const peer = workspace === undefined ? undefined : createPluginPeer(binding, workspace, machineId);
+    const isCurrent = () => selectedMachineId(this.state) === machineId && this.state.selectedSession?.id === input.session.id && this.state.selectedSession.cwd === input.session.cwd;
+    const prompt = this.createPromptEditor(binding.registrationPluginId, machineId);
+    return {
+      prompt: {
+        ...prompt,
+        insertText: (text) => { if (isCurrent()) prompt.insertText(text); },
+        getText: () => isCurrent() ? prompt.getText() : "",
+        getSelection: () => isCurrent() ? prompt.getSelection() : null,
+      },
+      navigate: (destination, options) => this.navigate(destination, options, machineId),
+      projects: createPluginProjects(projectsApi, machineId),
+      ...(workspace === undefined || workspaceSnapshot === undefined ? {} : {
+        workspace: workspaceSnapshot,
+        files: this.createWorkspaceFiles(workspace, input.machine),
+        ...(this.terminalAvailableForMachine(machineId) ? { terminal: this.workspaceTerminal(binding.registrationPluginId, workspace, machineId) } : {}),
+      }),
+      ...(peer === undefined ? {} : { peer }),
+    };
+  }
+
 
 
 }

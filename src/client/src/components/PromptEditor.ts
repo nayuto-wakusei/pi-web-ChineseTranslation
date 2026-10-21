@@ -13,6 +13,7 @@ import { capturePromptAttachments, effectivePromptAttachmentDelivery, isInlinePr
 import { inputModeForDraft, inputModesEqual, type InputMode } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
 import { detectPromptCompletionTrigger, fileCompletionInsertText, modelCompletionChoices, slashCommandSourceLabel, type PromptCompletionTrigger } from "../promptCompletions";
+import type { StagedPromptChip } from "../promptChips";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
 import { clearStagedAttachments, loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
 import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
@@ -24,6 +25,11 @@ import { promptEditorStyles } from "./shared";
 import { renderAttachIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
 import { thinkingGauge, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import "./AutocompleteMenu";
+
+type PromptSendArgs = [text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery?: PromptAttachmentDelivery, folder?: string, chips?: readonly StagedPromptChip[]];
+// Existing composer consumers may still send fire-and-forget; only a boolean
+// promise confirms the new chip-bearing submission path.
+type PromptSendHandler = ((...args: PromptSendArgs) => void | Promise<void>) | ((...args: PromptSendArgs) => Promise<boolean>);
 
 @customElement("prompt-editor")
 export class PromptEditor extends LitElement {
@@ -43,7 +49,9 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) sending = false;
   @property({ attribute: false }) shortcutConfig: Record<string, string | null> = {};
   @property({ attribute: false }) shortcuts: ShortcutPreferenceConfig | undefined;
-  @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery?: PromptAttachmentDelivery, folder?: string) => void | Promise<void>;
+  @property({ attribute: false }) promptChips: readonly StagedPromptChip[] = [];
+  @property({ attribute: false }) onRemoveChip?: (chip: StagedPromptChip) => void;
+  @property({ attribute: false }) onSend?: PromptSendHandler;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
   @property({ attribute: false }) onSelectThinking?: () => void;
@@ -63,6 +71,8 @@ export class PromptEditor extends LitElement {
   @state() private attachments: readonly PendingAttachment[] = [];
   @state() private attachmentDelivery: PromptAttachmentDelivery = loadAttachmentDelivery();
   @state() private attachmentError: string | undefined = undefined;
+  @state() private chipSendingKey: string | undefined = undefined;
+  @state() private chipError: string | undefined = undefined;
   private attachmentSeq = 0;
   private requestVersion = 0;
   private fileCompletionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -84,6 +94,7 @@ export class PromptEditor extends LitElement {
     this.draft = currentKey !== undefined ? loadDraft(currentKey) : "";
     this.attachments = currentKey !== undefined ? loadStagedAttachments(currentKey) : [];
     this.attachmentError = undefined;
+    this.chipError = undefined;
     this.currentInputMode = inputModeForDraft(this.draft);
     this.completions = [];
     this.selectedIndex = 0;
@@ -117,10 +128,10 @@ export class PromptEditor extends LitElement {
   }
 
   override render() {
-    const shellInputMode = this.currentInputMode.kind === "shell" ? this.currentInputMode : undefined;
+    const shellInputMode = this.promptChips.length === 0 && this.currentInputMode.kind === "shell" ? this.currentInputMode : undefined;
     const shellMode = shellInputMode !== undefined;
     const queuesInput = this.canSteer || this.isCompacting;
-    const busy = this.disabled || this.sending;
+    const busy = this.disabled || this.sending || this.chipSendingKey === this.composerKey();
     return html`
       <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
@@ -129,6 +140,7 @@ export class PromptEditor extends LitElement {
           <button class="editor-attach icon-button" ?disabled=${busy} title="${t("ui.promptEditor.attachFiles", "Attach files")}" aria-label="${t("ui.promptEditor.attachFiles", "Attach files")}" @click=${() => { this.attachmentInput?.click(); }}>${renderAttachIcon()}</button>
           ${shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.shellCommand", "Shell command")}${shellInputMode.excludeFromContext ? t("ui.promptEditor.excludedFromContext", " · Excluded from context") : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.compactingHistoryMessagesWillQueue", "Compacting history · Messages will queue")}</div>` : null}
+          ${this.renderPromptChips()}
           ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
@@ -182,6 +194,21 @@ export class PromptEditor extends LitElement {
       <div class="compact-status" aria-label="${t("ui.promptEditor.sessionStatus", "Session status")}">
         <button class="select-model" title="${t("client.actions.choose.model.1afed6", "Choose model")}" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
         <button class="select-thinking icon-button" title=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} aria-label=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+      </div>
+    `;
+  }
+
+  private renderPromptChips() {
+    if (this.promptChips.length === 0 && this.chipError === undefined) return null;
+    return html`
+      <div class="prompt-chips" aria-label=${t("ui.promptEditor.pendingPluginContext", "Pending plugin context")}>
+        ${this.promptChips.map((chip) => html`
+          <div class="prompt-chip" title=${chip.text}>
+            <span>${chip.label}</span>
+            <button type="button" aria-label=${t("ui.promptEditor.remove", "Remove {name}", { name: chip.label })} ?disabled=${this.disabled} @click=${() => this.onRemoveChip?.(chip)}>×</button>
+          </div>
+        `)}
+        ${this.chipError === undefined ? null : html`<div class="chip-error" role="alert">${this.chipError}</div>`}
       </div>
     `;
   }
@@ -514,19 +541,50 @@ export class PromptEditor extends LitElement {
   }
 
   private send(streamingBehavior?: "steer" | "followUp") {
-    if (this.disabled || this.sending) return;
+    if (this.disabled || this.sending || this.chipSendingKey === this.composerKey()) return;
     const text = this.draft.trim();
     const pending = this.attachments;
-    if (text === "" && pending.length === 0) return;
+    const chips = this.promptChips;
+    if (text === "" && pending.length === 0 && chips.length === 0) return;
     const behavior = this.canSteer || this.isCompacting ? streamingBehavior : undefined;
     const attachments = pending.length > 0 ? this.currentAttachments() : undefined;
     const delivery = this.effectiveAttachmentDelivery();
     const folder = attachments !== undefined && delivery === "folder" ? this.attachmentsFolder : undefined;
+    if (chips.length > 0) {
+      void this.sendWithChips(text, behavior, attachments, attachments === undefined ? undefined : delivery, folder, chips);
+      return;
+    }
     this.resetComposer();
     // Sending is owned by the controller (it drives the chat activity dock and,
     // for folder mode, orchestrates the upload + reference rewrite), so this is
     // fire-and-forget here.
     void this.onSend?.(text, behavior, attachments, attachments === undefined ? undefined : delivery, folder);
+  }
+
+  private composerKey(): string {
+    return JSON.stringify([this.machineId, this.cwd, this.sessionId]);
+  }
+
+  private async sendWithChips(text: string, behavior: "steer" | "followUp" | undefined, attachments: PromptAttachment[] | undefined, delivery: PromptAttachmentDelivery | undefined, folder: string | undefined, chips: readonly StagedPromptChip[]): Promise<void> {
+    const key = this.composerKey();
+    const draft = this.draft;
+    const pending = this.attachments;
+    this.chipSendingKey = key;
+    this.chipError = undefined;
+    try {
+      const accepted = await this.onSend?.(text, behavior, attachments, delivery, folder, chips);
+      if (key !== this.composerKey() || !this.isConnected) return;
+      if (accepted === true) {
+        // Do not erase edits made during delivery, or the next conversation.
+        if (draft === this.draft && pending === this.attachments) this.resetComposer();
+      } else {
+        this.chipError = t("ui.promptEditor.contextKeptForRetry", "Message not submitted. Context kept for retry.");
+      }
+    } catch (error) {
+      if (key === this.composerKey()) this.chipError = t("ui.promptEditor.messageNotSubmitted", "Message not submitted: {error}", { error: String(error) });
+    } finally {
+      if (this.chipSendingKey === key) this.chipSendingKey = undefined;
+    }
   }
 
   private resetComposer() {

@@ -41,6 +41,11 @@ afterEach(async () => {
 });
 
 describe("plugin backend proxy management context", () => {
+  it.each(["/paired-plugin-backends/git/list", "/paired-plugin-backends/git/projects/managed/list"])("rejects management requests outside workspace scope: %s", async (path) => {
+    const response = await app.inject({ method: "POST", url: `/api${path}?embed=management&token=entry-token`, payload: { revision: "v1", input: {} } });
+    expect(response.statusCode).toBe(403);
+    expect(requestHeaders).toBeUndefined();
+  });
   it("forwards the management context and opaque Workbench handle", async () => {
     const response = await app.inject({
       method: "POST",
@@ -63,6 +68,15 @@ describe("local paired plugin backend proxy route", () => {
       statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ counts: { open: 2 } }),
     }));
     registerPairedPluginBackendProxyRoutes(app, { request });
+  });
+  it("forwards machine and project scoped envelopes without inventing workspace authority", async () => {
+    for (const scope of ["machine", "project"] as const) {
+      const path = scope === "machine" ? "/paired-plugin-backends/board/cards.summary" : "/paired-plugin-backends/board/projects/project%2Fone/cards.summary";
+      const payload = { scope, revision: "r1", input: null };
+      const response = await app.inject({ method: "POST", url: `/api${path}`, payload });
+      expect(response.statusCode).toBe(200);
+      expect(request.mock.calls.at(-1)?.slice(0, 3)).toEqual(["POST", path, payload]);
+    }
   });
   it("encodes every daemon path segment and forwards the JSON envelope once", async () => {
     const payload = { revision: "server-r1", input: { cards: ["alpha", "beta"] } };

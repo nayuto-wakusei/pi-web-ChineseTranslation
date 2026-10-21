@@ -1,21 +1,46 @@
-import type { PluginRuntimeState } from "../../../plugin-api";
+import type { PluginRuntimeState, PluginSelectedSession, PluginSelectionSnapshot } from "../../../plugin-api";
 import type { AppState } from "../appState";
+import type { SessionInfo } from "../api";
 import type { PiWebPlugin } from "./types";
 
-/** Copy only documented state; plugins never receive the selected SessionInfo object. */
-export function publicPluginState(state: AppState): PluginRuntimeState {
+/** The public row/selection projection never exposes private session paths or message text. */
+export function publicPluginSession(session: SessionInfo): PluginSelectedSession {
+  return {
+    id: session.id,
+    cwd: session.cwd,
+    ...(session.name === undefined ? {} : { name: session.name }),
+    ...(session.metadata === undefined ? {} : { metadata: structuredClone(session.metadata) }),
+    archived: session.archived === true,
+    pending: "clientPendingStart" in session && session.clientPendingStart === true,
+  };
+}
+
+/** Copy only documented selection; plugins never receive the selected SessionInfo object. */
+export function publicPluginSelection(state: AppState): PluginSelectionSnapshot {
   const session = state.selectedSession;
   const machine = state.selectedMachine;
+  const project = state.selectedProject;
+  const workspace = state.selectedWorkspace;
   return {
     ...(machine === undefined ? {} : { selectedMachine: { id: machine.id, name: machine.name, kind: machine.kind } }),
-    ...(state.selectedWorkspace === undefined ? {} : { selectedWorkspace: state.selectedWorkspace }),
-    ...(session === undefined ? {} : { selectedSession: {
-      id: session.id,
-      cwd: session.cwd,
-      ...(session.name === undefined ? {} : { name: session.name }),
-      archived: session.archived === true,
-      pending: "clientPendingStart" in session && session.clientPendingStart === true,
+    ...(project === undefined ? {} : { selectedProject: { id: project.id, name: project.name, path: project.path } }),
+    ...(workspace === undefined ? {} : { selectedWorkspace: {
+      id: workspace.id, projectId: workspace.projectId, path: workspace.path, label: workspace.label, isMain: workspace.isMain,
+      ...(workspace.branch === undefined ? {} : { branch: workspace.branch }),
+      ...(workspace.isGitRepo === undefined ? {} : { isGitRepo: workspace.isGitRepo }),
+      ...(workspace.isGitWorktree === undefined ? {} : { isGitWorktree: workspace.isGitWorktree }),
+      ...(workspace.provider === undefined ? {} : { provider: structuredClone(workspace.provider) }),
+      ...(workspace.removal === undefined ? {} : { removal: {
+        actionLabel: workspace.removal.actionLabel, confirmation: workspace.removal.confirmation,
+      } }),
     } }),
+    ...(session === undefined ? {} : { selectedSession: publicPluginSession(session) }),
+  };
+}
+
+export function publicPluginState(state: AppState): PluginRuntimeState {
+  return {
+    ...publicPluginSelection(state),
     ...(state.workspaceTool === undefined ? {} : { workspaceTool: state.workspaceTool }),
     mainView: state.mainView === "navigation" || state.mainView === "chat" ? state.mainView : "workspace",
     ...(state.piWebStatus === undefined ? {} : { piWebStatus: state.piWebStatus }),
@@ -34,7 +59,7 @@ export function adaptPublicPlugin(plugin: PiWebPlugin): PiWebPlugin {
     ...plugin,
     async activate(context) {
       const activation = await plugin.activate(context);
-      const { actions, workspacePanels, workspaceLabels } = activation.contributions;
+      const { actions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels } = activation.contributions;
       return {
         ...activation,
         ...(activation.start === undefined ? {} : { start: activation.start.bind(activation) }),
@@ -47,6 +72,12 @@ export function adaptPublicPlugin(plugin: PiWebPlugin): PiWebPlugin {
             ...(disabledReason === undefined ? {} : { disabledReason: (context) => disabledReason(publicContext(context)) }),
             run: (context) => run(publicContext(context)),
           })) }),
+          ...(applicationPanels === undefined ? {} : { applicationPanels: applicationPanels.map(({ visible, badge, render, ...panel }) => ({
+            ...panel,
+            ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
+            ...(badge === undefined ? {} : { badge: (context) => badge(publicContext(context)) }),
+            render: (context) => render(publicContext(context)),
+          })) }),
           ...(workspacePanels === undefined ? {} : { workspacePanels: workspacePanels.map(({ visible, fileOpenQuery, badge, onInvalidate, render, ...panel }) => ({
             ...panel,
             ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
@@ -56,6 +87,11 @@ export function adaptPublicPlugin(plugin: PiWebPlugin): PiWebPlugin {
             render: (context) => render(publicContext(context)),
           })) }),
           ...(workspaceLabels === undefined ? {} : { workspaceLabels: workspaceLabels.map(({ visible, items, ...label }) => ({
+            ...label,
+            ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
+            items: (context) => items(publicContext(context)),
+          })) }),
+          ...(sessionLabels === undefined ? {} : { sessionLabels: sessionLabels.map(({ visible, items, ...label }) => ({
             ...label,
             ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
             items: (context) => items(publicContext(context)),

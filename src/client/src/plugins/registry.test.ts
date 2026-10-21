@@ -80,6 +80,65 @@ function createContext(statePatch: Partial<AppState> = {}) {
   return { context, calls };
 }
 
+describe("PluginRegistry v5 host services", () => {
+  it("activates matching versions and warns once per legacy source plugin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const activate = vi.fn((context: import("./types").PluginActivationContext) => {
+      expect(context.signal).toBeInstanceOf(AbortSignal);
+      return { contributions: {} };
+    });
+    const registry = new PluginRegistry();
+    try {
+      await registry.register({ id: "old-local", sourcePluginId: "old", plugin: { apiVersion: 4, name: "Old", activate } });
+      await registry.register({ id: "old-remote", sourcePluginId: "old", machineId: "remote", plugin: { apiVersion: 4, name: "Old", activate } });
+      await registry.register({ id: "modern", plugin: { apiVersion: 5, name: "Modern", activate } });
+      expect(activate.mock.calls.map(([context]) => context.apiVersion)).toEqual([4, 4, 5]);
+      expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("deprecated API v4"));
+      expect(activate.mock.calls[2]?.[0]).not.toHaveProperty("catalog");
+    } finally {
+      await registry.dispose();
+      warn.mockRestore();
+    }
+  });
+
+  it("captures portable action catalogs per invocation across selection changes without a backend", async () => {
+    const registry = new PluginRegistry();
+    const captured: PluginRuntimeContext[] = [];
+    await registry.register({ id: "portable", backendRevision: "revision", pairedRequestVersion: 1, plugin: {
+      apiVersion: 5, name: "Portable", activate: () => ({ contributions: {
+        actions: [{ id: "run", title: "Run", run: (context) => { captured.push(context); } }],
+      } }),
+    } });
+    const context = createContext().context;
+    await registry.getActions(context)[0]?.run();
+    context.state = { ...context.state, selectedMachine: { id: "remote", name: "Remote", kind: "remote", baseUrl: "https://remote.test", createdAt: "now", updatedAt: "now" } };
+    await registry.getActions(context)[0]?.run();
+    expect(captured.map((value) => value.catalog?.machineId)).toEqual(["local", "remote"]);
+    expect(captured.every((value) => value.backend === undefined)).toBe(true);
+    expect(context).not.toHaveProperty("catalog");
+    await registry.dispose();
+  });
+
+  it("uses the scoped callback machine rather than selected machine and binds backend ownership", async () => {
+    const registry = new PluginRegistry();
+    const render = vi.fn((context: WorkspacePanelContext) => html`${context.machine.id}`);
+    for (const [id, machineId, machineSpecific] of [["portable", undefined, false], ["local", undefined, true], ["remote", "remote", false]] as const) {
+      await registry.register({ id, ...(machineId === undefined ? {} : { machineId }), machineSpecific,
+        backendRevision: "revision", pairedRequestVersion: 1,
+        plugin: { apiVersion: 5, name: id, activate: () => ({ contributions: { workspacePanels: [{ id: "panel", title: "Panel", render }] } }) },
+      });
+    }
+    const context = createWorkspacePanelContext("remote");
+    // The local machine-specific panel stays hidden; portable and remote panels receive remote context.
+    for (const panel of registry.getWorkspacePanels()) panel.render(context);
+    const received = render.mock.calls.map(([value]) => value);
+    expect(received.map((value) => value.catalog?.machineId)).toEqual(["remote", "remote"]);
+    expect(received.map((value) => value.backend?.machineId)).toEqual([undefined, "remote"]);
+    expect(context).not.toHaveProperty("catalog");
+    await registry.dispose();
+  });
+});
+
 describe("PluginRegistry", () => {
   it("projects selected-session state for external action checks and execution", async () => {
     const registry = new PluginRegistry();
@@ -236,7 +295,7 @@ describe("PluginRegistry", () => {
     Reflect.set(legacyPlugin, "apiVersion", 3);
 
     await expect(registry.register({ id: "legacy", plugin: legacyPlugin })).rejects.toThrow(
-      "Unsupported browser plugin API version for legacy: 3 (expected 4)",
+      "Unsupported browser plugin API version for legacy: 3 (expected 4 or 5)",
     );
     expect(registry.hasPlugin("legacy")).toBe(false);
   });
@@ -1978,6 +2037,7 @@ it("isolates a failing invalidation callback from other contributions", async ()
       { id: "bad", title: "Bad", onInvalidate: () => Promise.reject(new Error("failed")), render: () => html`` },
       { id: "good", title: "Good", onInvalidate: good, render: () => html`` },
     ] } }) } });
+    warn.mockClear();
     await registry.invalidateWorkspacePanels(createWorkspacePanelContext("local"));
     expect(good).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledOnce();
@@ -2006,6 +2066,7 @@ it("resolves a files panel fileOpenQuery for the selected machine", async () => 
 
     expect(registry.resolveWorkspaceFileOpen(createWorkspacePanelContext("local"), "docs/readme.md")).toEqual({
       contributionId: "files:workspace.files",
+      sourceContributionId: "files:workspace.files",
       navigationAliases: [],
       query: { file: "docs/readme.md" },
     });

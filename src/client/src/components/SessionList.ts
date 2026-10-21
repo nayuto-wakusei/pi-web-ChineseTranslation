@@ -6,6 +6,8 @@ import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { shortSessionId } from "../sessionLabels";
 import { isArchivableSessionInfo, isTransientNewSessionInfo, sessionPersistenceState } from "../sessionPersistence";
+import type { SessionLabelItem } from "../plugins/types";
+import { renderSessionLabelItems } from "./sessionLabel";
 import { normalizeSessionPath } from "../sessionPaths";
 import { isSessionActive } from "../../../shared/activity";
 import { actionMenuPanelStyle } from "./actionMenu";
@@ -48,6 +50,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) sending: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) selected?: SessionInfo;
+  @property({ attribute: false }) sessionLabelItems: (session: SessionInfo) => SessionLabelItem[] = () => [];
   @property({ type: Number }) startingCount = 0;
   @property({ type: Boolean }) canStart = false;
   @property({ type: Boolean }) canDeleteArchived = false;
@@ -363,6 +366,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const pinned = this.pinnedSessionIds.includes(session.id);
     const canPin = session.persisted !== false;
     const descendantCount = this.openMenuSessionId === session.id ? (this.sessionTree().descendantCounts?.get(session.id) ?? 0) : 0;
+    const labelItems = this.sessionLabelItems(session);
     return html`
       <div
         class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${pinned ? "pinned" : ""} ${this.openMenuSessionId === session.id ? "menu-open" : ""}"
@@ -374,7 +378,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       >
         <div class="action-main ${selectionActive ? "selecting" : ""}">
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${t("ui.sessionList.select", "Select {sessionLabelsession}", { sessionLabelsession: sessionLabel(session) })} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
-          <span class="action-name-line"><span class="action-name" dir="auto">${this.renderRowMarker(row)}${pinned ? html`<span class="pin-indicator" title="${t("ui.sessionList.pinned", "Pinned")}" aria-label="${t("ui.sessionList.pinned", "Pinned")}">★</span>` : null}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} ${t("ui.sessionList.messages", "messages")}</small>
+          <span class="action-name-line"><span class="action-name" dir="auto" title=${sessionLabel(session)}>${this.renderRowMarker(row)}${pinned ? html`<span class="pin-indicator" title="${t("ui.sessionList.pinned", "Pinned")}" aria-label="${t("ui.sessionList.pinned", "Pinned")}">★</span>` : null}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span>
+          <small class="session-secondary"><span class="session-meta">${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} ${t("ui.sessionList.messages", "messages")}</span>${labelItems.length === 0 ? null : html`<span class="session-label-separator" aria-hidden="true">·</span><span class="session-labels">${renderSessionLabelItems(labelItems)}</span>`}</small>
           ${this.renderActivity(indicatorKind, unread)}
         </div>
         <div class="action-menu">
@@ -633,6 +638,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .bulk-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; }
     .bulk-row small { display: inline; min-width: 0; color: var(--pi-muted); }
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
+    .action-name { display: block; max-height: none; line-height: normal; white-space: nowrap; text-overflow: ellipsis; }
     .action-row.unread .action-name { color: var(--pi-text-bright); font-weight: 650; }
     .action-row { content-visibility: auto; contain-intrinsic-size: auto 58px; }
     .action-row.menu-open { content-visibility: visible; }
@@ -642,6 +648,13 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
      .session-search { box-sizing: border-box; width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 0; font: 19px/1 system-ui, sans-serif; text-transform: none; }
      .session-search:focus-visible { border-color: var(--pi-accent); outline: 2px solid var(--pi-accent); outline-offset: 1px; }
      .pin-indicator { margin-right: 5px; color: var(--pi-accent); font-size: 11px; }
+    .session-secondary { display: flex; align-items: baseline; gap: 5px; min-width: 0; margin-top: 3px; }
+    .session-meta, .session-label-separator { flex: 0 0 auto; }
+    .session-labels { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; }
+    .session-label-item, .session-label-render { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    a.session-label-item { color: var(--pi-accent); text-decoration: none; }
+    a.session-label-item:hover, a.session-label-item:focus { text-decoration: underline; }
+    .session-label-render > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .action-name-line { min-width: 0; display: flex; align-items: flex-start; gap: 6px; }
     .action-name-line .action-name { flex: 1 1 auto; min-width: 0; }
     /* Badges must not sit inside the line-clamped title, or a long name hides them entirely. */

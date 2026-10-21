@@ -92,6 +92,21 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   });
 
   app.all(`${prefix}/activity`, (request, reply) => proxy(request, reply));
+  // Catalog reads can include provider I/O; forward browser cancellation.
+  app.get(`${prefix}/plugin-catalog/*`, async (request, reply) => {
+    try {
+      return await withRequestCancellation(request, reply, async (signal) => {
+        const context = await managementContextForRequest(request, managementEmbed, reply);
+        if (context !== undefined) return reply.code(403).send({ error: "Plugin catalog is unavailable in management mode" });
+        reply.header("cache-control", "no-store");
+        return sendDaemonBody(reply, await daemon.request("GET", stripPrefix(request.url, prefix), undefined, undefined, signal));
+      });
+    } catch (error) {
+      requestFailed(reply, error, t);
+      return undefined;
+    }
+  });
+
   app.all(`${prefix}/status`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/notices`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/notices/dismiss`, (request, reply) => proxy(request, reply));

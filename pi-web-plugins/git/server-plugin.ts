@@ -32,7 +32,7 @@ interface GitWorktreeInfo {
   prunable?: boolean;
 }
 
-const plugin: PiWebServerPlugin = {
+const plugin: Extract<PiWebServerPlugin, { apiVersion: 3 }> = {
   apiVersion: 3,
   name: "Git",
   activate(context) {

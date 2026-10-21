@@ -7,6 +7,7 @@ import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInf
 import { textMessage } from "../chatMessages";
 import { machineSessionKey } from "../machineKeys";
 import { isCreatingSessionId, type SessionCreationRouteIdentity } from "../route";
+import { samePromptChipTarget, type PromptChipTarget } from "../promptChips";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
 import { clearStagedAttachments, moveStagedAttachments } from "../promptAttachmentStaging";
 import { clearAskDraft } from "../askDrafts";
@@ -144,6 +145,9 @@ export class SessionController {
   private readonly beginNavigationOperation: SessionControllerDependencies["beginNavigationOperation"];
   private readonly browserErrors: BrowserErrorReporter;
   private selectionSeq = 0;
+  // A pending join still owns its URL-derived token. Once it settles while
+  // current, its loaded state/socket can outlive changes to the URL spelling.
+  private selectedSessionJoinNavigation: NavigationFreshness | undefined;
   private disposed = false;
   private streamWatermark: { sessionId: string; seq: number } | undefined;
   private lastAppliedSelectedRefresh: { selectionSeq: number; partialJson: string } | undefined;
@@ -200,6 +204,7 @@ export class SessionController {
     this.stopPolling();
     if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
     this.searchTimer = undefined;
+    this.selectedSessionJoinNavigation = undefined;
     this.socket.close();
     this.clearPendingUpdates();
   }
@@ -218,6 +223,7 @@ export class SessionController {
 
   clearActiveSession() {
     this.selectionSeq += 1;
+    this.selectedSessionJoinNavigation = undefined;
     this.socket.close();
     this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;
@@ -360,6 +366,11 @@ export class SessionController {
     return selectPreferredSession(sessions, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
   }
 
+  /** Reusing a selected row must not abandon a join retired by a newer URL. */
+  canReuseSelectedSession(): boolean {
+    return !this.disposed && navigationIsCurrent(this.selectedSessionJoinNavigation);
+  }
+
   async selectSession(session: SessionInfo, options?: SessionSelectionOptions) {
     if (this.disposed || !navigationIsCurrent(options?.navigation)) return;
     if (isClientPendingStartSessionInfo(session)) {
@@ -370,6 +381,7 @@ export class SessionController {
     const errorOwner = this.captureSessionErrorOwner(session);
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     const seq = ++this.selectionSeq;
+    this.selectedSessionJoinNavigation = options?.navigation;
     this.socket.close();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
@@ -440,6 +452,8 @@ export class SessionController {
       this.reportSessionError(session, machineId, error, errorOwner);
       if (options?.propagateRefreshError === true) throw error;
     } finally {
+      const navigationCurrent = navigationIsCurrent(options?.navigation);
+      if (seq === this.selectionSeq && navigationCurrent) this.selectedSessionJoinNavigation = undefined;
       if (buffered !== undefined && !navigationIsCurrent(options?.navigation) && this.isCurrentSessionSelection(session.id, machineId, seq)) {
         buffered.length = 0;
         this.socket.close();
@@ -478,27 +492,38 @@ export class SessionController {
     }
   }
 
-  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: PromptAttachmentDelivery = "inline", folder?: string) {
-    const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: PromptAttachmentDelivery = "inline", folder?: string, promptTarget?: PromptChipTarget): Promise<boolean> {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (!session || session.archived === true) return false;
+    // Chip-bearing sends are ordinary prompts addressed to their captured
+    // conversation. A local pending queue is not server acceptance.
+    if (promptTarget !== undefined && (!samePromptChipTarget(promptTarget, { machineId: selectedMachineId(state), sessionId: session.id, cwd: session.cwd }) || isClientPendingStartSessionInfo(session))) return false;
 
     const trimmed = text.trim();
     const hasAttachments = attachments !== undefined && attachments.length > 0;
+    const promptOnly = promptTarget !== undefined;
     if (isClientPendingStartSessionInfo(session)) {
       if (!hasAttachments && trimmed.startsWith("/")) this.enqueuePendingSessionSend(session, { type: "command", text });
       else if (!hasAttachments && isShellInput(text)) this.enqueuePendingSessionSend(session, { type: "shell", text });
       else this.enqueuePendingSessionSend(session, { type: "prompt", text, streamingBehavior, attachments, delivery, folder });
-      return;
+      return false;
     }
-    if (!hasAttachments && trimmed.startsWith("/")) return this.runCommand(text);
-    if (!hasAttachments && isShellInput(text)) return this.runShell(text);
+    if (!promptOnly && !hasAttachments && trimmed.startsWith("/")) {
+      await this.runCommand(text);
+      return false;
+    }
+    if (!promptOnly && !hasAttachments && isShellInput(text)) {
+      await this.runShell(text);
+      return false;
+    }
 
     // Capture the originating session/machine before any await so the request
     // and its sending indicator stay bound to the right session even if the
     // user navigates elsewhere mid-upload.
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
-    await this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, folder, machineId, { markSending: hasAttachments }, errorOwner);
+    return this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, folder, machineId, { markSending: hasAttachments || promptOnly }, errorOwner);
   }
 
   private markSendingPrompt(sessionId: string, sending: boolean): void {
@@ -1566,6 +1591,7 @@ export class SessionController {
   private selectClientPendingStartSession(session: ClientPendingStartSessionInfo, options?: { updateUrl?: boolean | undefined; activity?: SessionActivity | undefined; sessions?: SessionInfo[] | undefined }): void {
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;
+    this.selectedSessionJoinNavigation = undefined;
     this.socket.close();
     this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;

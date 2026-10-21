@@ -5,6 +5,7 @@ import type { ArchivedSessionRecord, ArchiveSessionInput } from "./sessionArchiv
 import type { SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
 import { loadNodeTranslator } from "../../localization.js";
 import type { Translator } from "../../shared/i18n.js";
+import { readSessionUiMetadata, requireSessionUiMetadata } from "./sessionMetadata.js";
 
 export interface WorkspaceArchiveCandidate extends SessionArchiveTreeCandidate {
   cwd: string;
@@ -21,6 +22,7 @@ export function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveS
     modified: session.modified.toISOString(),
     messageCount: session.messageCount,
     firstMessage: session.firstMessage,
+    ...(session.metadata === undefined ? {} : { metadata: session.metadata }),
     ...(session.name === undefined ? {} : { name: session.name }),
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
   };
@@ -29,6 +31,7 @@ export function archiveInputFromActiveSession(session: PiAgentSession, t: Transl
   const sessionFile = session.sessionFile;
   if (sessionFile === undefined || sessionFile === "") throw new Error(t("session.notPersisted", "Session has not been persisted"));
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
+  const metadata = readSessionUiMetadata(session.sessionManager.getEntries?.() ?? session.sessionManager.getBranch());
   return {
     sessionId: session.sessionId,
     cwd: session.sessionManager.getCwd(),
@@ -37,6 +40,7 @@ export function archiveInputFromActiveSession(session: PiAgentSession, t: Transl
     modified: new Date().toISOString(),
     messageCount: session.messages.length,
     firstMessage: "",
+    ...(metadata === undefined ? {} : { metadata }),
     ...(session.sessionName === undefined ? {} : { name: session.sessionName }),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
   };
@@ -95,11 +99,13 @@ export function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, f
   const firstMessage = record.firstMessage ?? fallback?.firstMessage;
   if (path === undefined || created === undefined || modified === undefined || messageCount === undefined || firstMessage === undefined) return undefined;
   const name = record.name ?? fallback?.name;
+  const metadata = record.metadata ?? fallback?.metadata;
   const parentSessionPath = record.parentSessionPath ?? fallback?.parentSessionPath;
   return {
     id: record.sessionId,
     path,
     cwd: record.cwd,
+    ...(metadata === undefined ? {} : { metadata: requireSessionUiMetadata(metadata) }),
     ...(name === undefined ? {} : { name }),
     created,
     modified,

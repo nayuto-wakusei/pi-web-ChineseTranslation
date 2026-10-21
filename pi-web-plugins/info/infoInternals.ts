@@ -7,7 +7,7 @@ import { t } from "./i18n.js";
 // lives in pi-web-plugin.ts.
 
 import type { TemplateResult } from "lit";
-import type { HtmlTemplateTag, MachineKind, PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebStatusResponse, PluginMachine, PluginRuntimeContext, Workspace, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { ApplicationPanelContext, HtmlTemplateTag, MachineKind, PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebStatusResponse, PluginMachine, PluginRuntimeContext, Workspace } from "@chainingintention/pi-web-cn/plugin-api";
 
 export type ComponentHealth = "current" | "restart needed" | "unavailable";
 
@@ -227,8 +227,8 @@ function renderWorkspaceSection(html: HtmlTemplateTag, workspace: Workspace): Te
   `;
 }
 
-/** Panel body: render the Info tab for the current workspace panel context. */
-export function renderInfoPanel(html: HtmlTemplateTag, context: WorkspacePanelContext): TemplateResult {
+/** Panel body: machine status is useful even without a selected workspace. */
+export function renderInfoPanel(html: HtmlTemplateTag, context: ApplicationPanelContext): TemplateResult {
   return html`
     <style>
       .viewer.info-status { flex: 1 1 auto; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 12px; overflow-y: auto; overflow-x: hidden; }
@@ -243,9 +243,9 @@ export function renderInfoPanel(html: HtmlTemplateTag, context: WorkspacePanelCo
     </style>
     <section class="toolbar"><strong>${t("bundled.info.info.e70286", "Info")}</strong></section>
     <section class="viewer info-status">
-      ${renderStatusSection(html, context.state?.piWebStatus)}
+      ${renderStatusSection(html, context.state.piWebStatus)}
       ${renderMachineSection(html, context.machine)}
-      ${renderWorkspaceSection(html, context.workspace)}
+      ${context.workspace === undefined ? null : renderWorkspaceSection(html, context.workspace)}
     </section>
   `;
 }

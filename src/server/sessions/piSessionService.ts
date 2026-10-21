@@ -1,3 +1,4 @@
+import { readSessionUiMetadata, requireSessionUiMetadata } from "./sessionMetadata.js";
 import { UserFacingError, createTranslator, userFacingErrorMessage } from "../../shared/i18n.js";
 import { realpathSync, statSync } from "node:fs";
 import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
@@ -53,6 +54,7 @@ import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInp
 import { findArchiveCandidateByIdOrPrefix, planSessionArchiveTree } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import { deterministicSessionName, fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
+import type { PluginSessionSnapshot } from "../../shared/pluginCatalogTypes.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
 import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWebConfig.js";
@@ -353,6 +355,7 @@ export type PiSessionRef = SessionRouteRef;
 type PiSessionLookup = string | PiSessionRef;
 
 export interface PiSessionListEntry {
+  metadata?: import("../../shared/pluginApiTypes.js").SessionUiMetadata;
   id: string;
   path: string;
   cwd: string;
@@ -1674,6 +1677,48 @@ export class PiSessionService {
       entriesById: new Map(sessions.map((session) => [session.id, session])),
       archivedById,
     };
+  }
+
+  /** Read-only plugin catalog: do not open runtimes or reconcile unread/activity state. */
+  async listCatalogSessions(cwd: string, signal?: AbortSignal): Promise<readonly PluginSessionSnapshot[]> {
+    signal?.throwIfAborted();
+    const [entries, archives] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
+    signal?.throwIfAborted();
+    const managementFiles = [...new Set(this.active.values())]
+      .filter((active) => active.eventScope !== NORMAL_SESSION_EVENT_SCOPE)
+      .map((active) => active.runtime.session.sessionFile)
+      .filter((path) => path !== undefined);
+    const archived = archives.filter((record) => cwdPathsEqual(record.cwd, cwd));
+    const archivedIds = new Set(archived.map((record) => record.sessionId));
+    const rows = new Map(entries.filter((entry) => !archivedIds.has(entry.id)
+      && !managementFiles.some((path) => sessionPathsEqual(path, entry.path))).map((entry) => [entry.id, clientSessionFromListEntry(entry)]));
+    const runtimes = new Map<string, PiAgentSession>();
+    for (const active of new Set(this.active.values())) {
+      if (active.eventScope !== NORMAL_SESSION_EVENT_SCOPE) continue;
+      const session = active.runtime.session;
+      if (!cwdPathsEqual(session.sessionManager.getCwd(), cwd) || archivedIds.has(session.sessionId)) continue;
+      const row = rows.get(session.sessionId);
+      // A disk clone with the same id must not inherit another file's runtime.
+      if (row !== undefined && (session.sessionFile === undefined || !sessionPathsEqual(row.path, session.sessionFile))) continue;
+      runtimes.set(session.sessionId, session);
+      rows.set(session.sessionId, clientSessionFromActiveSession(session));
+    }
+    const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+    for (const record of archived) {
+      const row = clientSessionFromArchivedRecord(record, entriesById.get(record.sessionId));
+      if (row !== undefined) rows.set(row.id, row);
+    }
+    return [...rows.values()].sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified)).map((row) => {
+      const runtime = runtimes.get(row.id);
+      return Object.freeze({
+        id: row.id,
+        cwd: row.cwd,
+        ...(row.name === undefined ? {} : { name: row.name }),
+        ...(row.metadata === undefined ? {} : { metadata: structuredClone(row.metadata) }),
+        archived: row.archived === true,
+        runtime: runtime === undefined ? "not-hosted" : this.hasActiveWork(runtime) ? "busy" : "idle",
+      } satisfies PluginSessionSnapshot);
+    });
   }
 
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
@@ -5109,12 +5154,25 @@ function notificationIdentityForSession(session: PiAgentSession): { sessionId: s
   };
 }
 
+function clientSessionFromActiveSession(session: PiAgentSession): ClientSession {
+  const created = new Date().toISOString();
+  const metadata = readSessionUiMetadata(session.sessionManager.getEntries?.() ?? session.sessionManager.getBranch());
+  return {
+    id: session.sessionId, path: session.sessionFile ?? "", cwd: session.sessionManager.getCwd(),
+    persisted: sessionFileExists(session.sessionFile), created, modified: created,
+    messageCount: session.messages.length, firstMessage: "",
+    ...(metadata === undefined ? {} : { metadata }),
+    ...(session.sessionName === undefined ? {} : { name: session.sessionName }),
+  };
+}
+
 function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession {
   return {
     id: session.id,
     path: session.path,
     cwd: session.cwd,
     persisted: true,
+    ...(session.metadata === undefined ? {} : { metadata: requireSessionUiMetadata(session.metadata) }),
     ...(session.name === undefined ? {} : { name: session.name }),
     created: session.created.toISOString(),
     modified: session.modified.toISOString(),

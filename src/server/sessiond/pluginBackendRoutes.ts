@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
 import {
-  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH,
+  PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS,
+  pluginBackendScopeFromRoute,
   parsePluginBackendRequestEnvelope,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_JSON_MAX_BYTES,
@@ -17,8 +18,8 @@ import { managementContextFromSessiondHeaders, resolveSessiondProject, type Sess
 
 interface PluginBackendRouteParams {
   pluginId: string;
-  projectId: string;
-  workspaceId: string;
+  projectId?: string;
+  workspaceId?: string;
   operation: string;
 }
 
@@ -43,8 +44,8 @@ export function registerPluginBackendRoutes(
   dependencies: PluginBackendRouteDependencies,
   prefix = "",
 ): void {
-  app.post<{ Params: PluginBackendRouteParams; Body: unknown }>(
-    `${prefix}${PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH}`,
+  for (const path of PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS) app.post<{ Params: PluginBackendRouteParams; Body: unknown }>(
+    `${prefix}${path}`,
     { bodyLimit: PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES },
     async (request, reply) => {
       const { pluginId, projectId, workspaceId } = request.params;
@@ -56,13 +57,17 @@ export function registerPluginBackendRoutes(
         if (projectId === "") throw new Error("Project id is required");
         if (workspaceId === "") throw new Error("Workspace id is required");
         envelope = parsePluginBackendRequestEnvelope(request.body);
+        pluginBackendScopeFromRoute(request.params, envelope);
       } catch (error) {
         return attributedError(reply, 400, boundedErrorMessage(error), "invalid-request", pluginId, operation);
       }
 
-      let project: Project;
+      let project: Project | undefined;
       try {
-        project = await resolveSessiondProject(request.headers, projectId, dependencies);
+        if (managementContextFromSessiondHeaders(request.headers) !== undefined && workspaceId === undefined) {
+          return await attributedError(reply, 403, "Management plugin backends require workspace scope", "invalid-scope", pluginId, operation);
+        }
+        if (projectId !== undefined) project = await resolveSessiondProject(request.headers, projectId, dependencies);
       } catch (error) {
         const message = boundedErrorMessage(error);
         return attributedError(
@@ -81,6 +86,7 @@ export function registerPluginBackendRoutes(
         const result = await dependencies.backends.request({
           pluginId,
           moduleRevision: envelope.revision,
+          scope: pluginBackendScopeFromRoute(request.params, envelope),
           project,
           workspaceId,
           operation,

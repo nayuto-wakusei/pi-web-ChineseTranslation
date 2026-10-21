@@ -7,7 +7,7 @@ import plugin from "../../../examples/session-bridge-plugin/src/server.js";
 import { collectReview } from "../../../examples/session-bridge-plugin/src/reviewRun.js";
 import { REVIEW_REPLY, REVIEW_REQUEST, isReview, type Review } from "../../../examples/session-bridge-plugin/src/browser/protocol.js";
 import { ReviewStore, reviewScope } from "../../../examples/session-bridge-plugin/src/store.js";
-import type { ServerPluginPeerRequestContext } from "../../server-plugin-api.js";
+import type { LegacyServerPluginPeerRequestContext as ServerPluginPeerRequestContext } from "../../server-plugin-api.js";
 
 const directories: string[] = [];
 afterEach(async () => { vi.useRealTimers(); await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });

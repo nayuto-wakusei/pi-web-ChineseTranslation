@@ -3,7 +3,7 @@ import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { TASKS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("bundled.workspace-tasks.workspace.tasks.b4ef49", "Workspace tasks"),
   activate: ({ runtimePluginId, html, svg, translate }) => {

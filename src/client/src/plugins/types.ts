@@ -1,11 +1,11 @@
 import type { TemplateResult } from "lit";
 import type { LocalizationContribution, Translator } from "../../../shared/i18n";
+import type { PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
 import type { AppAction } from "../actions";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, RunTerminalCommandInput, TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { AppState } from "../appState";
 import type { SettingsSection } from "../settingsRoute";
 import type { LocalContributionId, PluginId, QualifiedContributionId } from "./ids";
-import type { ContentRendererContribution } from "../../../plugin-api";
 import type { WorkspaceFilesCapabilityV1 } from "../../../plugin-api";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
 
@@ -41,15 +41,15 @@ export interface WorkspacePluginBinding {
 }
 
 export interface PiWebPlugin {
-  apiVersion: 4;
+  apiVersion: 4 | 5;
   name: string;
   requires?: readonly PluginCapability[];
-  activate: (context: PluginActivationContext) => MaybePromise<PluginActivationResult>;
+  activate(context: PluginActivationContext): MaybePromise<PluginActivationResult>;
 }
 
 export interface PluginActivationContext {
   readonly translate?: Translator;
-  readonly apiVersion: 4;
+  readonly apiVersion: 4 | 5;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
   /** Host-unique identity for qualified contribution references in this runtime. */
@@ -60,6 +60,7 @@ export interface PluginActivationContext {
   readonly signal: AbortSignal;
   /** Aborted before failed-start rollback or browser-host shutdown disposal. */
   readonly lifetimeSignal: AbortSignal;
+  readonly selection?: PluginSelectionService;
 }
 
 export interface PluginCapabilityResolver {
@@ -80,17 +81,16 @@ export interface PluginActivationResult {
 
 export interface PluginContributions {
   localizations?: LocalizationContribution[];
-  contentRenderers?: ContentRendererContribution[];
+  contentRenderers?: import("../../../plugin-api").ContentRendererContribution[];
+  messageActions?: import("../../../plugin-api").MessageActionContribution[];
   actions?: PluginAction[];
+  applicationPanels?: ApplicationPanelContribution[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
+  sessionLabels?: SessionLabelContribution[];
   themes?: ThemeContribution[];
   themePairs?: ThemePairContribution[];
 }
-
-export type {
-  ContentRendererContribution,
-} from "../../../plugin-api";
 
 export interface PluginMachine {
   id: string;
@@ -107,10 +107,6 @@ export interface WorkspaceFiles {
   writeFile(path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions): Promise<WriteWorkspaceFileResponse>;
   deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
   moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
-}
-
-export interface WorkspaceBackend {
-  request(operation: string, input: JsonValue): Promise<JsonValue>;
 }
 
 export interface LegacyWorkspaceFiles extends WorkspaceFiles {
@@ -156,11 +152,13 @@ export interface WorkspaceHost {
 }
 
 export interface WorkspaceContext {
+  catalog?: PluginCatalog;
+  backend?: PluginBackend;
   machine: PluginMachine;
   workspace: Workspace;
   state: AppState;
   files: WorkspaceFilesContextValue;
-  backend?: WorkspaceBackend;
+  projects?: PluginProjects;
   peer?: PluginPeer;
   host: WorkspaceHost;
 }
@@ -189,17 +187,16 @@ export interface TerminalCommandRunsInternalRuntime {
   open(options?: { terminalId?: string | undefined }): void;
 }
 
-export interface PluginPromptEditor {
-  insertText(text: string): void;
-  getText(): string;
-  getSelection(): { start: number; end: number; text: string } | null;
-}
+export type { PluginPromptEditor } from "../../../plugin-api";
 
-export type { PluginNavigationDestination } from "../../../plugin-api";
+export type { PluginNavigate, PluginNavigationPatchDestination, PluginNavigationOptions } from "../../../plugin-api";
 
 export interface PluginRuntimeContext {
-  navigate: (destination: import("../../../plugin-api").PluginNavigationDestination) => Promise<void>;
+  catalog?: PluginCatalog;
+  backend?: PluginBackend;
+  navigate: PluginNavigate;
   state: AppState;
+  projects?: PluginProjects;
   prompt: PluginPromptEditor;
   piWebUnstable?: PiWebUnstableRuntimeContext;
   openActionPalette: () => void;
@@ -264,7 +261,7 @@ export interface WorkspacePanelNavigationV1 {
 }
 
 export interface WorkspacePanelContext extends WorkspaceContext {
-  navigate: (destination: import("../../../plugin-api").PluginNavigationDestination) => Promise<void>;
+  navigate: PluginNavigate;
   prompt: PluginPromptEditor;
   terminal: WorkspacePanelTerminal;
   /** Contribution-scoped address-bar state for deep links and browser history. */
@@ -272,6 +269,40 @@ export interface WorkspacePanelContext extends WorkspaceContext {
   /** Internal rolling-compatibility aliases; never ordinary core Terminal fallbacks. */
   openTerminal?: (options?: { terminalId?: string | undefined }) => void;
   piWebUnstable?: Pick<PiWebUnstableRuntimeContext, "terminalCommandRuns">;
+}
+
+export interface ApplicationPanelContext {
+  catalog?: PluginCatalog;
+  backend?: PluginBackend;
+  machine: PluginMachine;
+  state: AppState;
+  projects?: PluginProjects;
+  workspace?: Workspace;
+  terminal?: WorkspacePanelTerminal;
+  navigate: PluginNavigate;
+  prompt: PluginPromptEditor;
+  host: WorkspaceHost;
+}
+
+export interface ApplicationPanelContribution {
+  id: LocalContributionId;
+  routeAliases?: string[];
+  title: string;
+  icon?: TemplateResult;
+  order?: number;
+  visible?: (context: ApplicationPanelContext) => boolean;
+  badge?: (context: ApplicationPanelContext) => string | number | TemplateResult | undefined;
+  render: (context: ApplicationPanelContext) => TemplateResult;
+}
+
+export interface QualifiedApplicationPanelContribution extends ApplicationPanelContribution {
+  id: QualifiedContributionId;
+  /** Host-generated portable identity; never an author-defined migration alias. */
+  sourceContributionId: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
+  machineId?: string;
+  sourcePluginId?: PluginId;
 }
 
 export type WorkspacePanelIcon = TemplateResult;
@@ -284,14 +315,12 @@ export interface WorkspaceInvalidation {
 }
 
 export interface WorkspacePanelContribution {
+  routeAliases?: string[];
+  navigationAliases?: string[];
   id: LocalContributionId;
   title: string;
   icon?: WorkspacePanelIcon;
   order?: number;
-  /** Former URL tool/view values that should resolve to this panel. */
-  routeAliases?: string[];
-  /** Former qualified contribution ids whose namespaced query keys remain readable. */
-  navigationAliases?: QualifiedContributionId[];
   visible?: (context: WorkspacePanelContext) => boolean;
   /** Return a deep-link query to open a workspace-relative file, or undefined if unsupported. */
   fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, ContributionQueryValue>> | undefined;
@@ -302,7 +331,10 @@ export interface WorkspacePanelContribution {
 }
 
 export interface QualifiedWorkspacePanelContribution extends WorkspacePanelContribution {
+  navigationAliases?: QualifiedContributionId[];
   id: QualifiedContributionId;
+  /** Host-generated portable identity; never an author-defined migration alias. */
+  sourceContributionId: QualifiedContributionId;
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
@@ -343,6 +375,27 @@ export interface WorkspaceLabelContribution {
   order?: number;
   visible?: (context: WorkspaceLabelContext) => boolean;
   items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
+}
+
+export interface SessionLabelContext extends WorkspaceContext {
+  session: Readonly<PluginSelectedSession>;
+  navigate: PluginNavigate;
+}
+
+export type { SessionLabelItem } from "../../../plugin-api";
+
+export interface SessionLabelContribution {
+  id: LocalContributionId;
+  order?: number;
+  visible?: (context: SessionLabelContext) => boolean;
+  items: (context: SessionLabelContext) => import("../../../plugin-api").SessionLabelItem[];
+}
+
+export interface QualifiedSessionLabelContribution extends SessionLabelContribution {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
+  machineId?: string;
 }
 
 export type ThemeColorScheme = "dark" | "light";

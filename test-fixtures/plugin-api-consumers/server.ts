@@ -1,5 +1,6 @@
 import {
   PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
+  PI_WEB_HOST_CATALOG_CAPABILITY,
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
 } from "@chainingintention/pi-web-cn/server-plugin-api";
 import type {
@@ -76,3 +77,26 @@ const plugin: PiWebServerPlugin = {
 
 export { channelOnlyPeer };
 export default plugin;
+
+export const pluginV5: PiWebServerPlugin = {
+  apiVersion: 5,
+  name: "V5 server consumer",
+  requires: [PI_WEB_HOST_CATALOG_CAPABILITY],
+  activate(context) {
+    const version: 5 = context.apiVersion;
+    return {
+      async start({ capabilities, signal }) {
+        const catalog = capabilities.resolve(PI_WEB_HOST_CATALOG_CAPABILITY);
+        context.logger.info(`Catalog v${String(version)}`, { count: (await catalog.projects.list({ signal })).length });
+      },
+      peer: {
+        request({ scope, operation, input }) {
+          return { operation, input, scope: scope.kind,
+            ...(scope.kind === "machine" ? {} : { projectId: scope.project.id }),
+            ...(scope.kind === "workspace" ? { workspaceId: scope.workspace.id } : {}),
+          };
+        },
+      },
+    };
+  },
+};

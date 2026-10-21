@@ -11,6 +11,61 @@ export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export interface JsonObject {
     readonly [key: string]: JsonValue;
 }
+export type PluginBackendScope = {
+    readonly kind: "machine";
+} | {
+    readonly kind: "project";
+    readonly projectId: string;
+} | {
+    readonly kind: "workspace";
+    readonly projectId: string;
+    readonly workspaceId: string;
+};
+/** Exact package-paired backend on the captured machine. */
+export interface PluginBackend {
+    readonly machineId: string;
+    forScope(scope: PluginBackendScope): PluginPeer;
+}
+export interface PluginPeerRequestOptions {
+    /** Cancels this bounded request through local or federated host transport. */
+    readonly signal?: AbortSignal;
+}
+/** Callbacks and cancellation for one bounded package-peer channel. */
+export interface PluginPeerChannelOptions {
+    /** Cancels the channel open or closes the live channel through every host hop. */
+    readonly signal?: AbortSignal;
+    /** Receives one plugin-authored JSON frame after the channel is ready. */
+    readonly onData: (data: JsonValue) => void;
+}
+export interface PluginPeerChannelClose {
+    readonly code: number;
+    readonly reason: string;
+    readonly wasClean: boolean;
+    /** Attributed host or server-plugin failure when one preceded the close. */
+    readonly error?: Readonly<{
+        code: string;
+        message: string;
+    }>;
+}
+export interface PluginPeerChannel {
+    readonly closed: Promise<PluginPeerChannelClose>;
+    /** Queue one bounded JSON frame or throw. Success means queue acceptance, not remote receipt. */
+    send(data: JsonValue): void;
+    close(reason?: string): void;
+}
+/**
+ * Exact revision-paired path to this package's active server entry.
+ * A peer supplies a request handler, a channel handler, or both, but never neither.
+ */
+export type PluginPeer = {
+    request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+    openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+} | {
+    request?: undefined;
+    openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+};
+/** Explicitly browser-public session data, keyed by owning package/plugin namespace. */
+export type SessionUiMetadata = Readonly<Record<string, JsonObject>>;
 /**
  * Typed token for one exact host/plugin capability version. The provider id
  * and package-local id together with the version form the stable capability

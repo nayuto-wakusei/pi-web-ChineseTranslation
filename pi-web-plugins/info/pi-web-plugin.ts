@@ -9,7 +9,7 @@ import { t, setTranslator } from "./i18n.js";
 import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
 
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("bundled.info.info.plugin.b6e61e", "Info plugin"),
   activate: ({ html, svg, translate }) => { setTranslator(translate); return ({
@@ -30,7 +30,7 @@ const plugin: PiWebPlugin = {
           items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? (context.workspace.isGitRepo === true ? "Git" : t("bundled.info.folder.7c7802", "Folder")), title: context.workspace.path }],
         },
       ],
-      workspacePanels: [
+      applicationPanels: [
         {
           id: "workspace.info",
           title: t("bundled.info.info.e70286", "Info"),

@@ -2,7 +2,7 @@ import { t, setTranslator } from "./i18n.js";
 import type { ContentRendererInput, PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
 import { loadMermaidEngine, MermaidPreview } from "./MermaidPreview.js";
 
-const plugin: PiWebPlugin = {
+const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: t("ui.main.a66b71e29e45", "Mermaid diagram"),
   requires: [{ pluginId: "pi-web", id: "content-rendering", version: 1, parse: () => undefined }],

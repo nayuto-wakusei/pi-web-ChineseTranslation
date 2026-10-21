@@ -185,7 +185,7 @@ describe("external plugin manifests", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]?.entry.id).toBe("legacy");
     expect(result.failures[0]?.error).toEqual(expect.objectContaining({
-      message: "Unsupported browser plugin API version for https://pi.example.test/pi-web-plugins/legacy/plugin.js: 3 (expected 4)",
+      message: "Unsupported browser plugin API version for https://pi.example.test/pi-web-plugins/legacy/plugin.js: 3 (expected 4 or 5)",
     }));
   });
 

@@ -3,6 +3,7 @@ import { html, render } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
 import type { Workspace } from "../api";
+import type { WorkspacePanelContext } from "../plugins/types";
 import { PluginRegistry } from "../plugins/registry";
 import { PiWebApp } from "./PiWebApp";
 import { AppNavigationPanel } from "./appShell/AppNavigationPanel";
@@ -19,9 +20,9 @@ afterEach(() => {
 });
 
 it("keeps panel contexts and navigation callbacks stable across transcript deltas, but honors explicit invalidation", async () => {
-  const { app, container, panel, navigation, getState, setState } = await harness();
-  const context = panel.panelContext;
-  if (context === undefined) throw new Error("Missing panel context");
+  const { app, container, panel, navigation, getState, getContext, setState } = await harness();
+  const context = panel.panels;
+  if (context.length === 0) throw new Error("Missing panel context");
   const labelItems = navigation.workspaceLabelItems;
   const selectWorkspace = navigation.onSelectWorkspace;
   const renameSession = navigation.onRenameSession;
@@ -29,14 +30,14 @@ it("keeps panel contexts and navigation callbacks stable across transcript delta
   render(app.render(), container);
   await panel.updateComplete;
   await navigation.updateComplete;
-  expect(panel.panelContext).toBe(context);
+  expect(panel.panels).toBe(context);
   expect(navigation.workspaceLabelItems).toBe(labelItems);
   expect(navigation.onSelectWorkspace).toBe(selectWorkspace);
   expect(navigation.onRenameSession).toBe(renameSession);
-  context.host.requestRender();
+  getContext().host.requestRender();
   render(app.render(), container);
   await panel.updateComplete;
-  expect(panel.panelContext).not.toBe(context);
+  expect(panel.panels).not.toBe(context);
   expect(navigation.workspaceLabelItems).not.toBe(labelItems);
   expect(navigation.onSelectWorkspace).toBe(selectWorkspace);
 });
@@ -44,24 +45,24 @@ it("keeps panel contexts and navigation callbacks stable across transcript delta
 it("refreshes contexts for config, selected-session and query without coupling to retired core file state", async () => {
   const { app, container, panel, setState } = await harness();
   const update = async (patch: Partial<AppState>) => {
-    const previous = panel.panelContext;
+    const previous = panel.panels;
     setState(patch);
     render(app.render(), container);
     await panel.updateComplete;
-    expect(panel.panelContext).not.toBe(previous);
+    expect(panel.panels).not.toBe(previous);
   };
   await update({ selectedWorkspace: { ...workspace, label: "new branch" } });
   await update({ selectedSession: { id: "session", cwd: workspace.path, path: "/private/session", created: "now", modified: "now", messageCount: 0, firstMessage: "" } });
-  const beforeFileState = panel.panelContext;
+  const beforeFileState = panel.panels;
   expect(initialAppState()).not.toHaveProperty("selectedFilePath");
   render(app.render(), container);
   await panel.updateComplete;
-  expect(panel.panelContext).toBe(beforeFileState);
-  const previous = panel.panelContext;
+  expect(panel.panels).toBe(beforeFileState);
+  const previous = panel.panels;
   window.history.replaceState({}, "", `${window.location.href}&example.panel--file=next.txt`);
   render(app.render(), container);
   await panel.updateComplete;
-  expect(panel.panelContext).not.toBe(previous);
+  expect(panel.panels).not.toBe(previous);
 });
 
 it("keeps management action controls hidden with stable callbacks", async () => {
@@ -84,7 +85,8 @@ async function harness(management = false) {
   setState({});
   const registry: unknown = Reflect.get(app, "plugins");
   if (!(registry instanceof PluginRegistry)) throw new Error("Missing registry");
-  await registry.register({ id: "example", plugin: { apiVersion: 4, name: "Example", activate: () => ({ contributions: { workspacePanels: [{ id: "panel", title: "Panel", render: () => html`<p>Plugin panel</p>` }] } }) } });
+  let context: WorkspacePanelContext | undefined;
+  await registry.register({ id: "example", plugin: { apiVersion: 4, name: "Example", activate: () => ({ contributions: { workspacePanels: [{ id: "panel", title: "Panel", render: (value) => { context = value; return html`<p>Plugin panel</p>`; } }] } }) } });
   const container = document.createElement("div");
   document.body.append(container);
   render(app.render(), container);
@@ -93,5 +95,5 @@ async function harness(management = false) {
   if (!(panel instanceof WorkspacePanel) || !(navigation instanceof AppNavigationPanel)) throw new Error("Missing rendered surfaces");
   await panel.updateComplete;
   await navigation.updateComplete;
-  return { app, container, panel, navigation, getState: () => state, setState };
+  return { app, container, panel, navigation, getState: () => state, getContext: () => { if (context === undefined) throw new Error("Missing panel context"); return context; }, setState };
 }

@@ -3,7 +3,8 @@ import { createTranslator, userFacingErrorMessage, type Translator } from "../..
 import type { WebSocket } from "ws";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../shared/federatedRoutes.js";
 import {
-  PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH,
+  PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS,
+  pluginBackendScopeFromRoute,
   PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
 } from "../../shared/pluginBackendProtocol.js";
 import { mergeSelectedMachineConfig, parsePiWebConfigResponseBody, parseSelectedMachineConfigRequest, selectedMachineConfigResponse } from "../configRoutes.js";
@@ -42,8 +43,8 @@ type MachineProxyService = Pick<MachineService, "remoteClient">;
 interface MachineProxyWebSocketParams {
   machineId: string;
   pluginId: string;
-  projectId: string;
-  workspaceId: string;
+  projectId?: string;
+  workspaceId?: string;
 }
 
 export function registerMachineProxyRoutes(
@@ -82,7 +83,7 @@ export function registerMachineProxyRoutes(
   }
 
   for (const path of REMOTE_WEBSOCKET_ROUTES) {
-    const isPluginBackendChannel = path === PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH;
+    const isPluginBackendChannel = PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS.includes(path);
     app.get<{ Params: MachineProxyWebSocketParams }>(
       `/api/machines/:machineId${path}`,
       {
@@ -108,6 +109,7 @@ export function registerMachineProxyRoutes(
                 scope: {
                   authorityId: request.params.machineId,
                   pluginId: request.params.pluginId,
+                  scope: pluginBackendScopeFromRoute(request.params),
                   projectId: request.params.projectId,
                   workspaceId: request.params.workspaceId,
                 },

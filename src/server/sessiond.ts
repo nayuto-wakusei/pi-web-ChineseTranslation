@@ -71,6 +71,11 @@ import { createServerPluginPiSessionsCapabilityFactory } from "./plugins/serverP
 import { createServerPluginWorkspacesCapabilityFactory } from "./plugins/serverPluginWorkspacesCapability.js";
 import { eligibleWorkspaceProviderContributions, WorkspaceProviderRegistry } from "./workspaces/workspaceProviderRegistry.js";
 import { eligiblePluginBackendContributions, PluginBackendRegistry } from "./plugins/pluginBackendRegistry.js";
+import { createServerPluginCatalogCapabilityFactory } from "./plugins/serverPluginCatalogCapability.js";
+import { PI_WEB_HOST_CATALOG_CAPABILITY } from "../shared/pluginCatalogTypes.js";
+import { registerPluginCatalogRoutes } from "./sessiond/pluginCatalogRoutes.js";
+import { PiSessionEventConnections } from "./sessions/piSessionEventConnections.js";
+import { bindCompanionBackend, type CompanionBackendBindingOptions } from "./sessions/companionBackend.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
@@ -198,6 +203,7 @@ await runSessionDaemonStartup({
         PI_WEB_HOST_WORKSPACES_CAPABILITY,
         PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
         PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
+        PI_WEB_HOST_CATALOG_CAPABILITY,
       ],
     });
     registerCleanup(() => serverPlugins.stop());
@@ -291,8 +297,14 @@ await runSessionDaemonStartup({
       ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders })
       : undefined;
     const managementAllowPrivileged = config.managementEmbed?.allowPrivileged === true;
+    const companionOptions: { current?: CompanionBackendBindingOptions } = {};
+    const sessionEvents = new PiSessionEventConnections((bus) => bindCompanionBackend(bus, () => {
+      if (companionOptions.current === undefined) throw new Error("PI WEB companion backends are not ready during daemon startup");
+      return companionOptions.current;
+    }));
     const projectLifecycleRef: { current?: ProjectLifecycleService } = {};
     const sessions = new PiSessionService(eventHub, {
+      sessionEvents,
       translator,
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
@@ -356,6 +368,7 @@ await runSessionDaemonStartup({
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
     await serverPlugins.resumeWithHostCapabilityFactories([
       createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
+      createServerPluginCatalogCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
       createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
       createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
     ]);
@@ -402,6 +415,7 @@ await runSessionDaemonStartup({
       workspaces: workspaceProviders,
       logger: app.log,
     });
+    companionOptions.current = { backends: pluginBackends, contributions: eligiblePluginBackendContributions(serverPlugins.pairedBackendContributions(), pluginHealth), projects };
     const workspaceRemovals = new WorkspaceRemovalService(workspaceProviders, {
       closeForCwd(cwd, managementContext) {
         if (managementContext === undefined) terminals.closeForCwd(cwd);
@@ -451,6 +465,7 @@ await runSessionDaemonStartup({
   disposeRuntime: ({ shutdown }) => shutdown(),
   registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
     registerProjectMutationRoutes(app, projectLifecycle, translator);
+    registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions });
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
     registerServerNoticeRoutes(app, serverNotices);

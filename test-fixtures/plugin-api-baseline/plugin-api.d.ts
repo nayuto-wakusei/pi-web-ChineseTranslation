@@ -1,14 +1,84 @@
 import type { TemplateResult } from "lit";
 import type { LocalizationContribution, Translator } from "./shared/pluginApiTypes.js";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
-export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator, FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, MachineKind, PiWebComponentStatus, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
+export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator, FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
+export type { PluginCatalogV1, PluginCatalogProject, PluginCatalogWorkspace, PluginSessionSnapshot, PluginWorkspaceSelection, PluginSessionSelection, PluginCatalogReadOptions } from "./shared/pluginCatalogTypes.js";
+import type { PluginCatalogV1 } from "./shared/pluginCatalogTypes.js";
+export type PiWebPlugin = LegacyPiWebPlugin | PiWebPluginV5;
+/** Current browser entrypoint. Existing contribution kinds and lifecycle behavior are unchanged. */
+export interface PiWebPluginV5 {
+    apiVersion: 5;
+    name: string;
+    requires?: readonly PluginCapability[];
+    activate(context: PluginActivationContextV5): MaybePromise<PluginActivationResultV5>;
+}
+export type PluginActivationContextV5 = Omit<PluginActivationContext, "apiVersion"> & {
+    readonly apiVersion: 5;
+};
+export type PluginActivationResultV5 = Omit<PluginActivationResult, "contributions"> & {
+    contributions: PluginContributionsV5;
+};
+/** Captured machine target; changing selection never retargets this catalog. */
+export interface PluginCatalog extends PluginCatalogV1 {
+    readonly machineId: string;
+}
+export interface PluginDiscoveryContext {
+    readonly catalog: PluginCatalog;
+    readonly backend?: PluginBackend;
+}
+export type PluginRuntimeContextV5 = PluginRuntimeContext & PluginDiscoveryContext;
+export type ApplicationPanelContextV5 = ApplicationPanelContext & PluginDiscoveryContext;
+export type WorkspacePanelContextV5 = Omit<WorkspacePanelContext, "backend"> & PluginDiscoveryContext;
+export type WorkspaceLabelContextV5 = Omit<WorkspaceLabelContext, "backend"> & PluginDiscoveryContext;
+export type SessionLabelContextV5 = SessionLabelContext & PluginDiscoveryContext;
+export type MessageActionContextV5 = MessageActionContext & PluginDiscoveryContext;
+export type DisplayedMessageActionContextV5 = DisplayedMessageActionContext & PluginDiscoveryContext;
+export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions"> {
+    actions?: PluginActionV5[];
+    applicationPanels?: ApplicationPanelContributionV5[];
+    workspacePanels?: WorkspacePanelContributionV5[];
+    workspaceLabels?: WorkspaceLabelContributionV5[];
+    sessionLabels?: SessionLabelContributionV5[];
+    messageActions?: MessageActionContributionV5[];
+}
+export type PluginActionV5 = Omit<PluginAction, "enabled" | "disabledReason" | "run"> & {
+    enabled?: (context: PluginRuntimeContextV5) => boolean;
+    disabledReason?: (context: PluginRuntimeContextV5) => string | undefined;
+    run: (context: PluginRuntimeContextV5) => MaybePromise<void>;
+};
+export type ApplicationPanelContributionV5 = Omit<ApplicationPanelContribution, "visible" | "badge" | "render"> & {
+    visible?: (context: ApplicationPanelContextV5) => boolean;
+    badge?: (context: ApplicationPanelContextV5) => string | number | TemplateResult | undefined;
+    render: (context: ApplicationPanelContextV5) => TemplateResult;
+};
+export type WorkspacePanelContributionV5 = Omit<WorkspacePanelContribution, "visible" | "badge" | "render" | "fileOpenQuery" | "onInvalidate"> & {
+    visible?: (context: WorkspacePanelContextV5) => boolean;
+    badge?: (context: WorkspacePanelContextV5) => string | number | TemplateResult | undefined;
+    render: (context: WorkspacePanelContextV5) => TemplateResult;
+    fileOpenQuery?: (context: WorkspacePanelContextV5, path: string) => Readonly<Record<string, ContributionQueryValue>> | undefined;
+    onInvalidate?: (context: WorkspacePanelContextV5, invalidation?: WorkspaceInvalidation) => MaybePromise<void>;
+};
+export type WorkspaceLabelContributionV5 = Omit<WorkspaceLabelContribution, "visible" | "items"> & {
+    visible?: (context: WorkspaceLabelContextV5) => boolean;
+    items: (context: WorkspaceLabelContextV5) => WorkspaceLabelItem[];
+};
+export type SessionLabelContributionV5 = Omit<SessionLabelContribution, "visible" | "items"> & {
+    visible?: (context: SessionLabelContextV5) => boolean;
+    items: (context: SessionLabelContextV5) => SessionLabelItem[];
+};
+export type MessageActionContributionV5 = (Omit<EntryMessageActionContribution, "run"> & {
+    run: (context: MessageActionContextV5) => MaybePromise<MessageActionResult>;
+}) | (Omit<DisplayedMessageActionContribution, "run"> & {
+    run: (context: DisplayedMessageActionContextV5) => MaybePromise<MessageActionResult>;
+});
 export type PluginId = string;
 export type LocalContributionId = string;
 export type QualifiedContributionId = string;
 export type HtmlTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
 export type SvgTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
 type MaybePromise<T> = T | Promise<T>;
-export interface PiWebPlugin {
+/** @deprecated Browser API v4 remains supported; use PiWebPluginV5 for catalog and scoped backend access. */
+export interface LegacyPiWebPlugin {
     apiVersion: 4;
     name: string;
     /** Exact capability versions that must be active before this plugin starts. */
@@ -29,6 +99,8 @@ export interface PluginActivationContext {
     readonly signal: AbortSignal;
     /** Aborted before failed-start rollback or browser-host shutdown disposal. */
     readonly lifetimeSignal: AbortSignal;
+    /** Current browser selection, independent of panel mounting. Omitted by older hosts. */
+    readonly selection?: PluginSelectionService;
 }
 /** Resolver containing only the exact capability requirements declared by a plugin. */
 export interface PluginCapabilityResolver {
@@ -117,9 +189,12 @@ export interface ContentRenderingCapability {
 export interface PluginContributions {
     localizations?: LocalizationContribution[];
     contentRenderers?: ContentRendererContribution[];
+    messageActions?: MessageActionContribution[];
     actions?: PluginAction[];
+    applicationPanels?: ApplicationPanelContribution[];
     workspacePanels?: WorkspacePanelContribution[];
     workspaceLabels?: WorkspaceLabelContribution[];
+    sessionLabels?: SessionLabelContribution[];
     themes?: ThemeContribution[];
     themePairs?: ThemePairContribution[];
 }
@@ -128,24 +203,73 @@ export interface PluginMachine {
     name: string;
     kind: MachineKind;
 }
+/** Basic registered project information on a host-bound machine. */
+export interface PluginProject {
+    readonly id: string;
+    readonly name: string;
+    readonly path: string;
+}
+/** A directory suggested by the target machine's project directory search. */
+export interface PluginProjectDirectorySuggestion {
+    readonly path: string;
+}
+/** Read-only project discovery with a fixed machine target, independent of later selection. */
+export interface PluginProjects {
+    readonly machineId: string;
+    /** List registered projects, not every directory on the machine. */
+    listProjects(): Promise<readonly PluginProject[]>;
+    /** Suggest directories matching a path query using the host's project picker rules. */
+    suggestDirectories(query: string): Promise<readonly PluginProjectDirectorySuggestion[]>;
+}
 /** Selected conversation snapshot, scoped to PluginRuntimeState.selectedMachine. */
 export interface PluginSelectedSession {
     id: string;
     /** Workspace working directory. */
     cwd: string;
     name?: string;
+    /** Detached, explicitly UI-safe data by package/plugin namespace. Absent on older hosts. */
+    metadata?: import("./shared/pluginApiTypes.js").SessionUiMetadata;
     archived: boolean;
     /** True while the browser is waiting for session creation to finish. */
     pending: boolean;
 }
+/** Basic selection only; no transcript, route query, or status data. */
+export interface PluginSelectionSnapshot {
+    /** Undefined before machines load. */
+    readonly selectedMachine?: Readonly<PluginMachine>;
+    readonly selectedProject?: PluginProject;
+    readonly selectedWorkspace?: Readonly<Workspace>;
+    readonly selectedSession?: Readonly<PluginSelectedSession>;
+}
+export interface PluginSelectionService {
+    /** Read a fresh, detached snapshot synchronously. */
+    getSnapshot(): PluginSelectionSnapshot;
+    /**
+     * Notify after host UI commits that change basic selection; does not call immediately.
+     * Multiple changes within one commit may be coalesced.
+     * Works while panels are closed. Ends at plugin lifetime abort, or earlier via
+     * the returned idempotent unsubscribe. Subscriber failures are logged in isolation.
+     */
+    subscribe(listener: (snapshot: PluginSelectionSnapshot) => void | Promise<void>): () => void;
+}
 export interface PluginRuntimeState {
     /** Identity of the currently selected machine. Undefined only on older hosts or before machines load. */
     selectedMachine?: PluginMachine;
+    selectedProject?: PluginProject;
     selectedWorkspace?: Workspace;
     selectedSession?: PluginSelectedSession;
     workspaceTool?: string;
     mainView?: "navigation" | "chat" | "workspace";
     piWebStatus?: PiWebStatusResponse;
+}
+export interface PluginPromptChip {
+    /** Plugin-local identity; setting the same id replaces its data and callback. */
+    readonly id: string;
+    readonly label: string;
+    /** Non-empty text appended verbatim to the message, separated by blank lines. */
+    readonly text: string;
+    /** User removal or server-accepted submission; programmatic withdrawal is silent. */
+    readonly onRemove?: (reason: "user" | "submitted") => void | Promise<void>;
 }
 export interface PluginPromptEditor {
     /** Insert text at the current cursor position. Replaces any selection.
@@ -160,20 +284,64 @@ export interface PluginPromptEditor {
         end: number;
         text: string;
     } | null;
+    /**
+     * Stage or replace this plugin's chip in the machine/conversation captured by
+     * this context. Requires a ready, non-archived selected conversation when the
+     * context is created. Throws when that target or plugin is unavailable.
+     * Browser memory only; survives panel closure/navigation, not page reload.
+     * Omitted by older hosts. Call from event handlers, not render callbacks.
+     */
+    setChip?(chip: PluginPromptChip): void;
+    /** Withdraw this plugin's chip from the captured conversation without notification. */
+    removeChip?(id: string): void;
 }
-/** A complete navigation destination, not a patch of the current route. */
+/** A non-null destination: complete by default, or a current-URL patch with mode: "patch". */
 export interface PluginNavigationDestination {
     machineId?: string;
     projectId?: string;
     workspaceId?: string;
+    /** Full, exact session ID in the target workspace; prefixes are not resolved. */
     sessionId?: string;
     view?: "navigation" | "chat" | "workspace";
     tool?: QualifiedContributionId;
+    /** Local query keys for tool. Requires a tool/project/workspace
+     *  (explicit in replace mode, optionally inherited in patch mode).
+     *  Replace mode replaces all contribution query state; patch mode merges only these keys. */
+    query?: Readonly<Record<string, ContributionQueryValue>>;
+}
+/** Current-URL patch, accepted only with mode: "patch". Undefined fields are preserved. */
+export interface PluginNavigationPatchDestination {
+    /** Null resets the machine to local; other null route fields remove that URL field. */
+    machineId?: string | null;
+    projectId?: string | null;
+    workspaceId?: string | null;
+    /** Full, exact session ID in the target workspace; prefixes are not resolved. */
+    sessionId?: string | null;
+    view?: "navigation" | "chat" | "workspace" | null;
+    tool?: QualifiedContributionId | null;
+    /** Merge local keys into the effective tool/project/workspace query; null values remove keys. */
+    query?: Readonly<Record<string, ContributionQueryValue | null>>;
+}
+export interface PluginNavigationOptions {
+    /** Defaults to replace. Patch preserves omitted fields and clears inherited descendants
+     *  when their machine/project/workspace changes. Null route fields are valid only in patch mode. */
+    mode?: "replace" | "patch";
+    /** Browser history behavior, independent of mode. Defaults to push. */
+    history?: "push" | "replace";
+}
+/** Shared navigation callable; nullable destinations require explicit patch options. */
+export interface PluginNavigate {
+    (destination: PluginNavigationDestination, options?: PluginNavigationOptions): Promise<void>;
+    (destination: PluginNavigationPatchDestination, options: PluginNavigationOptions & {
+        mode: "patch";
+    }): Promise<void>;
 }
 export interface PluginRuntimeContext {
     /** Navigate using host restoration defaults. Route failures appear in the host UI. */
-    navigate: (destination: PluginNavigationDestination) => Promise<void>;
+    navigate: PluginNavigate;
     state: PluginRuntimeState;
+    /** Read-only discovery on this context's machine. Omitted by older hosts. */
+    projects?: PluginProjects;
     prompt: PluginPromptEditor;
     openActionPalette: () => void;
     focusPrompt: () => void;
@@ -200,6 +368,77 @@ export interface PluginRuntimeContext {
     archiveSession: () => void | Promise<void>;
     stopActiveWork: () => void | Promise<void>;
 }
+/** A durable message displayed in the transcript; text excludes thinking and tool payloads. */
+export interface MessageActionMessage {
+    readonly entryId: string;
+    readonly role: "user" | "assistant" | "tool" | "system" | "bash" | "skill";
+    readonly text: string;
+}
+/** Small, detached inputs for synchronous, side-effect-free availability checks. */
+export interface MessageActionAvailabilityContext {
+    readonly machine: Readonly<PluginMachine>;
+    readonly session: Readonly<PluginSelectedSession & {
+        busy: boolean;
+    }>;
+    readonly message: MessageActionMessage;
+}
+/** Created on invocation, with helpers scoped to the initiating machine/conversation. */
+export interface MessageActionContext extends MessageActionAvailabilityContext {
+    readonly prompt: PluginPromptEditor;
+    readonly navigate: PluginNavigate;
+    readonly projects: PluginProjects;
+    readonly workspace?: Workspace;
+    readonly files?: WorkspaceFilesContextValue;
+    readonly peer?: PluginPeer;
+    readonly terminal?: WorkspacePanelTerminal;
+    /** Guarded, fresh-history operations on this message; confirmation is the plugin's choice. */
+    readonly history: {
+        readonly fork: () => Promise<void>;
+        readonly goBack: () => Promise<void>;
+    };
+}
+/** Optional successful-action presentation, shown by the host for 1.2 seconds. */
+export interface MessageActionFeedback {
+    readonly title: string;
+    readonly ariaLabel?: string;
+    readonly icon?: TemplateResult;
+}
+export type MessageActionResult = void | MessageActionFeedback;
+interface MessageActionDefinition<AvailabilityContext, Context> {
+    id: LocalContributionId;
+    title: string;
+    icon?: TemplateResult;
+    /** Defaults to title. Synchronous and side-effect-free, like availability checks. */
+    ariaLabel?: (context: AvailabilityContext) => string;
+    /** Checks run only when their message/session inputs or active contributions change. No I/O. */
+    visible?: (context: AvailabilityContext) => boolean;
+    enabled?: (context: AvailabilityContext) => boolean;
+    /** Plugin-defined workflow; the host does not add a confirmation. */
+    run: (context: Context) => MaybePromise<MessageActionResult>;
+}
+/** Default action target: an identified transcript entry with guarded history helpers. */
+export interface EntryMessageActionContribution extends MessageActionDefinition<MessageActionAvailabilityContext, MessageActionContext> {
+    target?: "entry";
+}
+/** The ordinary original text in one displayed header's slice, excluding thinking/tool payloads. */
+export interface DisplayedMessageActionMessage {
+    /** Absent for optimistic or streaming messages. */
+    readonly entryId?: string;
+    readonly role: MessageActionMessage["role"];
+    /** Nonempty original text parts, trimmed individually and joined with blank lines. */
+    readonly text: string;
+}
+export interface DisplayedMessageActionAvailabilityContext extends Omit<MessageActionAvailabilityContext, "message"> {
+    readonly message: DisplayedMessageActionMessage;
+}
+/** Display-only workflows have no history helpers and can run alongside entry actions. */
+export interface DisplayedMessageActionContext extends Omit<MessageActionContext, "message" | "history"> {
+    readonly message: DisplayedMessageActionMessage;
+}
+export interface DisplayedMessageActionContribution extends MessageActionDefinition<DisplayedMessageActionAvailabilityContext, DisplayedMessageActionContext> {
+    target: "display";
+}
+export type MessageActionContribution = EntryMessageActionContribution | DisplayedMessageActionContribution;
 export interface PluginAction {
     id: LocalContributionId;
     title: string;
@@ -307,44 +546,6 @@ export type WorkspacePanelFiles = WorkspaceFiles;
 export interface WorkspaceBackend {
     request(operation: string, input: JsonValue): Promise<JsonValue>;
 }
-export interface PluginPeerRequestOptions {
-    /** Cancels this bounded request through local or federated host transport. */
-    readonly signal?: AbortSignal;
-}
-/** Callbacks and cancellation for one bounded package-peer channel. */
-export interface PluginPeerChannelOptions {
-    /** Cancels the channel open or closes the live channel through every host hop. */
-    readonly signal?: AbortSignal;
-    /** Receives one plugin-authored JSON frame after the channel is ready. */
-    readonly onData: (data: JsonValue) => void;
-}
-export interface PluginPeerChannelClose {
-    readonly code: number;
-    readonly reason: string;
-    readonly wasClean: boolean;
-    /** Attributed host or server-plugin failure when one preceded the close. */
-    readonly error?: Readonly<{
-        code: string;
-        message: string;
-    }>;
-}
-export interface PluginPeerChannel {
-    readonly closed: Promise<PluginPeerChannelClose>;
-    /** Queue one bounded JSON frame or throw. Success means queue acceptance, not remote receipt. */
-    send(data: JsonValue): void;
-    close(reason?: string): void;
-}
-/**
- * Exact revision-paired path to this browser package's active server entry.
- * A peer supplies a request handler, a channel handler, or both, but never neither.
- */
-export type PluginPeer = {
-    request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
-    openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
-} | {
-    request?: undefined;
-    openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
-};
 export interface WorkspaceHost {
     requestRender(): void;
 }
@@ -356,6 +557,8 @@ export interface WorkspaceContext {
     files: WorkspaceFilesContextValue;
     /** Legacy request path to the server module that owns this workspace. */
     backend?: WorkspaceBackend;
+    /** Read-only discovery on this context's machine. Omitted by older hosts. */
+    projects?: PluginProjects;
     /** Exact package-paired request/channel capabilities, independent of workspace ownership. */
     peer?: PluginPeer;
     host: WorkspaceHost;
@@ -383,11 +586,36 @@ export interface WorkspacePanelNavigationV1 {
 }
 export interface WorkspacePanelContext extends WorkspaceContext {
     /** Navigate using host restoration defaults. Route failures appear in the host UI. */
-    navigate: (destination: PluginNavigationDestination) => Promise<void>;
+    navigate: PluginNavigate;
     prompt: PluginPromptEditor;
     terminal: WorkspacePanelTerminal;
     /** Contribution-scoped address-bar state for deep links and browser history. */
     navigation?: WorkspacePanelNavigationV1;
+}
+/** Fresh selection context; available even when no project, workspace, or session is selected. */
+export interface ApplicationPanelContext {
+    machine: PluginMachine;
+    state: PluginRuntimeState;
+    /** Read-only discovery on this context's machine. Omitted by older hosts. */
+    projects?: PluginProjects;
+    /** Present only when a workspace is selected on this machine. */
+    workspace?: Workspace;
+    /** Workspace-bound terminal; present only with a selected workspace and an available Terminal provider. */
+    terminal?: WorkspacePanelTerminal;
+    navigate: PluginNavigate;
+    prompt: PluginPromptEditor;
+    host: WorkspaceHost;
+}
+/** A third-column tool tab that does not require a workspace. */
+export interface ApplicationPanelContribution {
+    id: LocalContributionId;
+    title: string;
+    icon?: TemplateResult;
+    order?: number;
+    routeAliases?: string[];
+    visible?: (context: ApplicationPanelContext) => boolean;
+    badge?: (context: ApplicationPanelContext) => string | number | TemplateResult | undefined;
+    render: (context: ApplicationPanelContext) => TemplateResult;
 }
 export type WorkspacePanelIcon = TemplateResult;
 export type WorkspaceResource = "workspace.files";
@@ -397,14 +625,12 @@ export interface WorkspaceInvalidation {
     readonly resources: readonly WorkspaceResource[];
 }
 export interface WorkspacePanelContribution {
+    routeAliases?: string[];
+    navigationAliases?: string[];
     id: LocalContributionId;
     title: string;
     icon?: WorkspacePanelIcon;
     order?: number;
-    /** Former URL tool/view values that should resolve to this panel. */
-    routeAliases?: string[];
-    /** Former qualified contribution ids whose namespaced query keys remain readable. */
-    navigationAliases?: QualifiedContributionId[];
     visible?: (context: WorkspacePanelContext) => boolean;
     /** Return a deep-link query to open a workspace-relative file, or undefined if unsupported. */
     fileOpenQuery?: (context: WorkspacePanelContext, path: string) => Readonly<Record<string, ContributionQueryValue>> | undefined;
@@ -444,6 +670,36 @@ export interface WorkspaceLabelContribution {
     order?: number;
     visible?: (context: WorkspaceLabelContext) => boolean;
     items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
+}
+/** Context for one session-list row, including unselected and archived sessions. */
+export interface SessionLabelContext extends WorkspaceContext {
+    /** Basic detached row snapshot, not necessarily state.selectedSession. */
+    session: Readonly<PluginSelectedSession>;
+    navigate: PluginNavigate;
+}
+export type SessionLabelItem = SessionLabelTextItem | SessionLabelLinkItem | SessionLabelRenderItem;
+export interface SessionLabelTextItem {
+    type: "text";
+    text: string;
+    title?: string;
+}
+export interface SessionLabelLinkItem {
+    type: "link";
+    text: string;
+    href: string;
+    title?: string;
+    target?: "_blank" | "_self";
+}
+export interface SessionLabelRenderItem {
+    type: "render";
+    render: () => TemplateResult;
+}
+/** Indicators on session-list rows only. Callbacks are synchronous and side-effect-free. */
+export interface SessionLabelContribution {
+    id: LocalContributionId;
+    order?: number;
+    visible?: (context: SessionLabelContext) => boolean;
+    items: (context: SessionLabelContext) => SessionLabelItem[];
 }
 export type ThemeColorScheme = "dark" | "light";
 export type ThemeTokens = Record<string, string>;

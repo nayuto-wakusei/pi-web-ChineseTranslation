@@ -18,6 +18,7 @@ afterEach(() => {
   history.replaceState({}, "", "/");
   setApiScope("normal");
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 
@@ -60,13 +61,18 @@ describe("PiWebApp model dialog", () => {
     expect(readAppState(app).thinkingDialog?.defaultValue).toBe("previous");
   });
 
-  it("consumes message-action failures already reported by the controller", async () => {
+  it("propagates controller failures to the transcript action feedback boundary", async () => {
+    vi.stubGlobal("confirm", () => true);
     const app = new PiWebApp();
+    await Reflect.get(app, "builtInPluginsReady");
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, messages: [{ role: "user", entryId: "entry-1", parts: [{ type: "text", text: "Hello" }] }] });
     const action = vi.spyOn(SessionController.prototype, "actOnMessage").mockRejectedValue(new Error("reported"));
     const handler: unknown = Reflect.get(app, "handleMessageAction");
     if (typeof handler !== "function") throw new Error("Message action boundary was unavailable");
-    Reflect.apply(handler, app, ["entry-1", "fork"]);
-    await vi.waitFor(() => { expect(action).toHaveBeenCalledWith("entry-1", "fork"); });
+    const target = { machine: { id: "local", name: "Local", kind: "local" }, session: { id: selectedSession.id, cwd: selectedSession.cwd, archived: false, pending: false, busy: false }, message: { entryId: "entry-1", role: "user", text: "Hello" } };
+    await expect(Reflect.apply(handler, app, [target, "core:message.fork"])).rejects.toThrow("reported");
+    expect(action).toHaveBeenCalledWith("entry-1", "fork");
   });
 
   it.each(["/model", "/scoped-models"])("opens the existing model dialog for %s", async (command) => {
@@ -76,7 +82,7 @@ describe("PiWebApp model dialog", () => {
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
     const catalog = [{ provider: "openai", id: "gpt-5", enabled: true }];
     vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue(catalog);
-    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(false);
 
     callSendPrompt(app, ` ${command} `);
 
@@ -91,7 +97,7 @@ describe("PiWebApp model dialog", () => {
     setAppState(app, { selectedSession, sessions: [selectedSession] });
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
     const catalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue([]);
-    vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+    vi.spyOn(SessionController.prototype, "send").mockResolvedValue(false);
 
     callSendPrompt(app, command);
 
@@ -102,7 +108,7 @@ describe("PiWebApp model dialog", () => {
 
   it("preserves delivery of model-like prompts and queued input", () => {
     const app = new PiWebApp();
-    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(false);
     callSendPrompt(app, "/model other");
     callSendPrompt(app, "/model", "followUp");
     const attachments: PromptAttachment[] = [{ kind: "image", mimeType: "image/png", data: "AA==" }];

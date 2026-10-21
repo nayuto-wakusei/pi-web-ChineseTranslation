@@ -1,3 +1,5 @@
+import type { DisplayedMessageActionAvailabilityContext, MessageActionAvailabilityContext, MessageActionFeedback, MessageActionResult } from "../../../plugin-api";
+import { displayedMessageActionMessage, messageActionMessage, MessageActionAvailabilityCache, type RegisteredMessageAction } from "../plugins/messageActions";
 import { clientLocale, t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -5,7 +7,6 @@ import { repeat } from "lit/directives/repeat.js";
 import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ChatDisclosureController } from "../chatDisclosure";
 import { groupChatMessages, summarizeChatGroup, type ChatGroup } from "../chatGroups";
-import { writeClipboardText } from "../clipboard";
 import { capturePrependScrollAnchor, PREPEND_RESTORE_SETTLE_FRAMES, restorePrependScrollAnchor, type PrependScrollAnchor } from "../chatScrollAnchoring";
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
@@ -251,10 +252,9 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
   @property({ type: Boolean }) canClearServerQueue = false;
   @property({ attribute: false }) onClearServerQueue?: () => void;
-  @property({ attribute: false }) onMessageAction?: (entryId: string, action: "fork" | "back") => void | Promise<void>;
-  @property({ type: Boolean }) messageActionsDisabled = false;
+  @property({ attribute: false }) onMessageAction?: (input: MessageActionAvailabilityContext, actionId: string) => Promise<MessageActionResult>;
   @state() private messageActionPending = false;
-  @state() private messageActionError: { identity: string; entryId: string; message: string } | undefined;
+  @state() private messageActionError: { machineId: string; sessionId: string; key: string; message: string } | undefined;
   private messageActionGeneration = 0;
   private messageActionIdentity = "";
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
@@ -270,7 +270,6 @@ export class ChatView extends LitElement {
   @state() private zoomedImage: { src: string; alt: string } | undefined = undefined;
   private imageZoomModalRegistration: RenderedModalRegistration | undefined;
   @state() private expandedMetaKey: string | undefined;
-  @state() private copiedMessageKey: string | undefined;
   @state() private currentConversationIndex: number | undefined;
   @state() private collapsedNotificationTargetKeys: ReadonlySet<string> = new Set();
   @state() private retainedEmptyNotificationTrayTargetKey: string | undefined;
@@ -294,7 +293,6 @@ export class ChatView extends LitElement {
   private scrollMarkerElements: HTMLElement[] = [];
   private scrollMarkerElementById = new Map<string, HTMLElement>();
   private readonly messageMetaCache = new WeakMap<ChatLine, string>();
-  private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
   private lastScrollTop = 0;
   private lastClientHeight = 0;
   private touchStartY: number | undefined;
@@ -910,7 +908,7 @@ export class ChatView extends LitElement {
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
       <article class=${toolOnly || askUserRecordOnly ? shellClass : `msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
-        ${toolOnly || askUserRecordOnly ? null : this.renderMessageHeader(message, String(index))}
+        ${toolOnly || askUserRecordOnly ? null : this.renderMessageHeader(message, String(index), index)}
         ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
       </article>
     `;
@@ -921,7 +919,7 @@ export class ChatView extends LitElement {
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
       <article class="msg tool-image-output" data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
-        ${this.renderMessageHeader(message, String(index), label)}
+        ${this.renderMessageHeader(message, String(index), index, label)}
         ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
       </article>
     `;
@@ -957,7 +955,7 @@ export class ChatView extends LitElement {
           const toolOnly = this.isToolExecutionOnlyMessage(message);
           return html`
             <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${startIndex + offset} data-scroll-anchor-id=${this.eventAnchorKey(startIndex + offset)}>
-              ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
+              ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`, startIndex + offset)}
               ${message.parts.map((part, partIndex) => this.renderPart(part, message, startIndex + offset, partIndex))}
             </section>
           `;
@@ -970,67 +968,37 @@ export class ChatView extends LitElement {
     return html`<span class="scroll-marker" data-marker-id=${markerId} aria-hidden="true"></span>`;
   }
 
-  private renderMessageHeader(message: ChatLine, key: string, label: string = chatMessageRoleLabel(message.role)) {
+  private renderMessageHeader(message: ChatLine, key: string, index: number, label: string = chatMessageRoleLabel(message.role)) {
     const meta = this.messageMetaLabel(message);
     const expanded = this.expandedMetaKey === key;
     return html`
       <div class="msg-header">
         <b class="label">${label}</b>
         <div class="msg-header-trailing">
-          ${this.renderMessageActions(message, key)}
+          ${this.renderMessageActions(message, key, this.messages[index - this.messageStart] ?? message)}
           <span class=${expanded ? "msg-meta expanded" : "msg-meta"} role="button" tabindex="0" title=${meta} aria-label=${meta} aria-expanded=${String(expanded)} @click=${() => { this.expandedMetaKey = expanded ? undefined : key; }} @keydown=${(event: KeyboardEvent) => { this.onMetaKeydown(event, key, expanded); }}>${meta}</span>
         </div>
       </div>
     `;
   }
 
-  private renderMessageActions(message: ChatLine, key: string) {
-    const copyable = this.isCopyableMessage(message);
-    const historyEntryId = this.historyActionEntryId(message);
-    if (!copyable && historyEntryId === undefined) return null;
-    const copied = this.copiedMessageKey === key;
+  private renderMessageActions(message: ChatLine, key: string, source: ChatLine) {
+    const actions = this.messageActionContext === undefined ? []
+      : this.messageActionAvailability.get(source, this.messageActions, this.messageActionContext, message)
+        .filter(({ action }) => action.target === "display" ? this.onDisplayedMessageAction !== undefined : this.onMessageAction !== undefined);
+    if (actions.length === 0) return null;
+    const feedback = this.messageActionFeedback;
     return html`
-      <div class="msg-actions" aria-label="${t("ui.chatView.messageActions", "Message actions")}">
-        ${historyEntryId === undefined ? null : html`
-          <button type="button" class="msg-action" title="${t("ui.main.4e737b072caa", "Clone session from this message")}" aria-label="${t("session.fork", "Fork")}" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "fork", event); }}><span class="msg-fork-icon" aria-hidden="true">⑂</span></button>
-          <button type="button" class="msg-action" title="${t("ui.main.c99fd586dc20", "Go back to this message")}" aria-label="${t("ui.main.dedece75f412", "Go back to this message")}" ?disabled=${this.messageActionsDisabled || this.messageActionPending} @click=${(event: MouseEvent) => { void this.confirmMessageAction(historyEntryId, "back", event); }}><svg aria-hidden="true" width="16" height="16" viewBox="-3 -3 30 30" fill="none" stroke="currentColor" stroke-width="0.85" stroke-linecap="round" stroke-linejoin="round"><path vector-effect="non-scaling-stroke" d="M4 5h11a6 6 0 0 1 0 12H4m5-5-5 5 5 5" /></svg></button>
-        `}
-        ${copyable ? html`
-          <button type="button" class="msg-action" title=${copied ? t("ui.toolExecutionView.copied", "Copied") : t("ui.chatView.copyMessage", "Copy message")} aria-label=${t("ui.chatView.message", "{copied} {role} message", { copied: copied ? t("ui.toolExecutionView.copied", "Copied") : t("bundled.updates.copy.63d90d", "Copy"), role: chatMessageRoleLabel(message.role) })} @click=${(event: MouseEvent) => { void this.copyMessage(message, key, event); }}>
-            <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
-          </button>
-        ` : null}
-        ${this.messageActionError?.identity === this.currentMessageActionIdentity() && this.messageActionError.entryId === historyEntryId ? html`<span role="alert">${this.messageActionError.message}</span>` : null}
+      <div class="msg-actions" aria-label=${t("ui.chatView.messageActions", "Message actions")}>
+        ${actions.map(({ action, enabled, ariaLabel }) => {
+          const presentation = feedback?.machineId === this.machineId && feedback.sessionId === this.sessionId && feedback.key === key && feedback.actionId === action.id
+            ? feedback.presentation : undefined;
+          const pending = action.target === "display" ? this.displayedMessageActionsPending.has(this.messageActionKey(key, action.id)) : this.messageActionPending;
+          return html`<button type="button" class="msg-action" title=${presentation?.title ?? action.title} aria-label=${presentation?.ariaLabel ?? presentation?.title ?? ariaLabel} ?disabled=${!enabled || pending} @click=${(event: MouseEvent) => { void this.actOnMessage(source, message, key, action, event); }}>${presentation?.icon ?? action.icon ?? action.title}</button>`;
+        })}
+        ${this.messageActionError?.machineId === this.machineId && this.messageActionError.sessionId === this.sessionId && this.messageActionError.key === key ? html`<span role="alert">${this.messageActionError.message}</span>` : null}
       </div>
     `;
-  }
-
-  private historyActionEntryId(message: ChatLine): string | undefined {
-    if (this.onMessageAction === undefined) return undefined;
-    if (message.role !== "user" && message.role !== "assistant") return undefined;
-    return message.entryId;
-  }
-
-  private async confirmMessageAction(entryId: string, action: "fork" | "back", event: MouseEvent): Promise<void> {
-    event.stopPropagation();
-    if (this.messageActionsDisabled || this.messageActionPending || this.onMessageAction === undefined) return;
-    const prompt = action === "fork"
-      ? t("ui.main.5b7be2382217", "Are you sure you want to fork this session?")
-      : t("ui.main.92fa96db248a", "Are you sure you want to go back to this message?");
-    if (!window.confirm(prompt)) return;
-    const identity = this.currentMessageActionIdentity();
-    const generation = ++this.messageActionGeneration;
-    this.messageActionPending = true;
-    this.messageActionError = undefined;
-    try {
-      await this.onMessageAction(entryId, action);
-    } catch (error) {
-      if (this.isConnected && generation === this.messageActionGeneration && identity === this.currentMessageActionIdentity()) {
-        this.messageActionError = { identity, entryId, message: error instanceof Error ? error.message : String(error) };
-      }
-    } finally {
-      if (generation === this.messageActionGeneration) this.messageActionPending = false;
-    }
   }
 
   private currentMessageActionIdentity(): string {
@@ -1042,38 +1010,14 @@ export class ChatView extends LitElement {
     this.messageActionGeneration += 1;
     this.messageActionPending = false;
     this.messageActionError = undefined;
+    this.displayedMessageActionsPending = new Set();
+    this.clearMessageActionFeedback();
   }
 
   private onMetaKeydown(event: KeyboardEvent, key: string, expanded: boolean) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     this.expandedMetaKey = expanded ? undefined : key;
-  }
-
-  private isCopyableMessage(message: ChatLine): boolean {
-    return (message.role === "user" || message.role === "assistant") && this.messageCopyText(message) !== "";
-  }
-
-  private messageCopyText(message: ChatLine): string {
-    const cached = this.messageCopyTextCache.get(message);
-    if (cached !== undefined) return cached;
-    const text = message.parts
-      .filter((part): part is Extract<ChatPart, { type: "text" }> => part.type === "text")
-      .map((part) => part.text.trim())
-      .filter((partText) => partText !== "")
-      .join("\n\n");
-    this.messageCopyTextCache.set(message, text);
-    return text;
-  }
-
-  private async copyMessage(message: ChatLine, key: string, event: MouseEvent): Promise<void> {
-    event.stopPropagation();
-    const copied = await writeClipboardText(this.messageCopyText(message));
-    if (!copied) return;
-    this.copiedMessageKey = key;
-    window.setTimeout(() => {
-      if (this.copiedMessageKey === key) this.copiedMessageKey = undefined;
-    }, 1200);
   }
 
 
@@ -1541,6 +1485,58 @@ export class ChatView extends LitElement {
   }
 
   static override styles = chatStyles;
+  @property({ attribute: false }) messageActions: readonly RegisteredMessageAction[] = [];
+  @property({ attribute: false }) messageActionContext?: Omit<MessageActionAvailabilityContext, "message">;
+  @property({ attribute: false }) onDisplayedMessageAction?: (input: DisplayedMessageActionAvailabilityContext, actionId: string) => Promise<MessageActionResult>;
+  private readonly messageActionAvailability = new MessageActionAvailabilityCache();
+  @state() private displayedMessageActionsPending: ReadonlySet<string> = new Set();
+  @state() private messageActionFeedback: { machineId: string; sessionId: string; key: string; actionId: string; presentation: MessageActionFeedback } | undefined;
+  private messageActionFeedbackTimer: number | undefined;
+
+  private messageActionKey(key: string, actionId: string): string {
+    return JSON.stringify([this.machineId, this.sessionId, this.messageActionGeneration, key, actionId]);
+  }
+
+  private async actOnMessage(source: ChatLine, displayed: ChatLine, key: string, action: RegisteredMessageAction, event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    const context = this.messageActionContext;
+    if (context === undefined) return;
+    const pendingKey = this.messageActionKey(key, action.id);
+    if (action.target === "display" ? this.displayedMessageActionsPending.has(pendingKey) : this.messageActionPending) return;
+    const entry = messageActionMessage(source, displayed.role);
+    const onEntry = this.onMessageAction;
+    const onDisplay = this.onDisplayedMessageAction;
+    const run = action.target === "display"
+      ? onDisplay === undefined ? undefined : () => onDisplay({ ...context, message: displayedMessageActionMessage(displayed) }, action.id)
+      : entry === undefined || onEntry === undefined ? undefined : () => onEntry({ ...context, message: entry }, action.id);
+    if (run === undefined) return;
+    const sessionId = this.sessionId;
+    const machineId = this.machineId;
+    const generation = this.messageActionGeneration;
+    if (action.target === "display") this.displayedMessageActionsPending = new Set([...this.displayedMessageActionsPending, pendingKey]);
+    else this.messageActionPending = true;
+    this.messageActionError = undefined;
+    try {
+      const presentation = await run();
+      if (presentation !== undefined && this.isConnected && this.messageActionGeneration === generation && this.sessionId === sessionId && this.machineId === machineId) {
+        this.clearMessageActionFeedback();
+        this.messageActionFeedback = { machineId, sessionId, key, actionId: action.id, presentation };
+        this.messageActionFeedbackTimer = window.setTimeout(() => { this.clearMessageActionFeedback(); }, 1200);
+      }
+    } catch (error) {
+      if (this.isConnected && this.messageActionGeneration === generation && this.sessionId === sessionId && this.machineId === machineId) this.messageActionError = { machineId, sessionId, key, message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (action.target === "display" && generation === this.messageActionGeneration) this.displayedMessageActionsPending = new Set([...this.displayedMessageActionsPending].filter((item) => item !== pendingKey));
+      else if (generation === this.messageActionGeneration) this.messageActionPending = false;
+    }
+  }
+
+  private clearMessageActionFeedback(): void {
+    if (this.messageActionFeedbackTimer !== undefined) window.clearTimeout(this.messageActionFeedbackTimer);
+    this.messageActionFeedbackTimer = undefined;
+    this.messageActionFeedback = undefined;
+  }
+
 }
 
 export function chatActivityText(state: string, activity?: SessionActivity): string {

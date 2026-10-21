@@ -29,30 +29,54 @@ describe("ordinary package-backed route contracts", () => {
     await app.close();
   });
 
-  describe("session daemon paired plugin backend routes", () => {
-    it("routes a package peer against host-resolved workspace authority with an operation-scoped signal", async () => {
-      let observedSignal: AbortSignal | undefined;
-      const backends = registryFor(({ operation, input, signal }) => {
-        observedSignal = signal;
-        return { operation, input };
-      });
-      const workspaceId = await folderWorkspaceId();
-      const onWorkspacesMutated = vi.fn();
-      registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends, onWorkspacesMutated });
-
-      const response = await app.inject({
-        method: "POST",
-        url: `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/workspaces/${workspaceId}/cards.summary`,
-        payload: { revision: "server-r1", input: { cards: 2 } },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(response.headers["content-type"]).toContain("application/json");
-      expect(response.json()).toEqual({ operation: "cards.summary", input: { cards: 2 } });
-      expect(observedSignal).toBeInstanceOf(AbortSignal);
-      expect(observedSignal?.aborted).toBe(true);
-      expect(onWorkspacesMutated).toHaveBeenCalledOnce();
+describe("session daemon paired plugin backend routes", () => {
+  it.each(["/paired-plugin-backends/board/read", "/paired-plugin-backends/board/projects/managed/read"])("rejects management scopes before resolving authority: %s", async (url) => {
+    const request = vi.fn<PluginBackendRegistry["request"]>();
+    const projects = { requireProject: vi.fn(() => Promise.resolve(project)) };
+    registerPairedPluginBackendRoutes(app, { projects, backends: { request } });
+    const managementContext: ManagementEmbedContext = { user: { id: "user", rootUserId: "root", roles: [], permissions: [] }, projects: [{ id: "managed", name: "Managed" }] };
+    const response = await app.inject({ method: "POST", url, headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(managementContext) }, payload: { scope: url.includes("/projects/") ? "project" : "machine", revision: "r1", input: null } });
+    expect(response.statusCode).toBe(403);
+    expect(projects.requireProject).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+  it("routes machine/project calls from current authority and rejects wire authority mismatches", async () => {
+    const request = vi.fn<PluginBackendRegistry["request"]>(() => Promise.resolve(null));
+    const projects = { requireProject: vi.fn(() => Promise.resolve(project)) };
+    registerPairedPluginBackendRoutes(app, { projects, backends: { request }, onWorkspacesMutated: vi.fn() });
+    const machine = await app.inject({ method: "POST", url: "/paired-plugin-backends/board/read", payload: { scope: "machine", revision: "r1", input: null } });
+    expect(machine.statusCode).toBe(200);
+    expect(request.mock.calls[0]?.[0]).toMatchObject({ scope: "machine", project: undefined, workspaceId: undefined });
+    expect(projects.requireProject).not.toHaveBeenCalled();
+    const url = `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/read`;
+    const selectedProject = await app.inject({ method: "POST", url, payload: { scope: "project", projectId: project.id, revision: "r1", input: null } });
+    expect(selectedProject.statusCode).toBe(200);
+    expect(request.mock.calls[1]?.[0]).toMatchObject({ scope: "project", project });
+    const mismatch = await app.inject({ method: "POST", url, payload: { scope: "project", projectId: "spoof", revision: "r1", input: null } });
+    expect(mismatch.statusCode).toBe(400);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+  it("routes a package peer against host-resolved workspace authority with an operation-scoped signal", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const backends = registryFor(({ operation, input, signal }) => {
+      observedSignal = signal;
+      return { operation, input };
     });
+    const workspaceId = await folderWorkspaceId();
+    const onWorkspacesMutated = vi.fn();
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends, onWorkspacesMutated });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/workspaces/${workspaceId}/cards.summary`,
+      payload: { revision: "server-r1", input: { cards: 2 } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ operation: "cards.summary", input: { cards: 2 } });
+    expect(observedSignal?.aborted).toBe(true);
+    expect(onWorkspacesMutated).toHaveBeenCalledOnce();
+  });
 
     it("does not dispatch a request admitted before quiesce after backend shutdown", async () => {
       let quiescing = false;

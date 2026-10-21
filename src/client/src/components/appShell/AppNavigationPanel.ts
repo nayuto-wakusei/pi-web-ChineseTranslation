@@ -3,7 +3,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
-import type { WorkspaceLabelItem } from "../../plugins/types";
+import type { SessionLabelItem, WorkspaceLabelItem } from "../../plugins/types";
 import { selectedMachineId } from "../../controllers/types";
 import type { NavigationSection } from "../../appShell/navigationState";
 import { NAVIGATION_SECTION_ORDER } from "../../appShell/navigationState";
@@ -42,6 +42,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) workspacesByProjectId: Record<string, Workspace[]> = {};
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
+  @property({ attribute: false }) sessionLabelItems: (session: SessionInfo) => SessionLabelItem[] = () => [];
   @property({ attribute: false }) refreshControl: unknown;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) compact = false;
@@ -235,6 +236,7 @@ export class AppNavigationPanel extends LitElement {
         .sending=${this.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
         .selected=${this.selectedSession}
+        .sessionLabelItems=${this.sessionLabelItems}
         .startingCount=${this.startingSessionCount}
         .canStart=${this.canStartSession}
         .canDeleteArchived=${this.canDeleteArchivedSessions}

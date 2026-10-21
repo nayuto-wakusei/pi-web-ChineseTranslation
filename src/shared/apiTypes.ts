@@ -636,6 +636,7 @@ export interface SessionNotificationSummaryEvent {
 }
 
 export interface SessionInfo extends SessionRef {
+  metadata?: import("./pluginApiTypes.js").SessionUiMetadata;
   path: string;
   /** True when the server has verified a backing session file exists; false when known transient. */
   persisted?: boolean;
