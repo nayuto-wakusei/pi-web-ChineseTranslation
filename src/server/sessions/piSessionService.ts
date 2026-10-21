@@ -1,6 +1,7 @@
 import { UserFacingError, createTranslator, userFacingErrorMessage } from "../../shared/i18n.js";
-import { constants, realpathSync, statSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -17,6 +18,8 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   defineTool,
+  loadSkills,
+  withFileMutationQueue,
   ModelRuntime,
   readStoredCredential,
   SessionManager,
@@ -525,14 +528,10 @@ export function filterManagedGlobalContextFiles(cwd: string, agentDir: string, b
   };
 }
 
-export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult): SkillCollectionResult {
+export function filterManagedProjectSkills(cwd: string, base: SkillCollectionResult, agentDir = getAgentDir()): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
   const pathAllowed = (path: string) => pathInsideRealDirectory(projectRoot, path);
-  return {
-    ...base,
-    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
-    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
-  };
+  return filterManagedSkills(cwd, agentDir, base, pathAllowed);
 }
 
 export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BUNDLED_RELAY_SKILL_PATH): Promise<string> {
@@ -545,31 +544,67 @@ export async function ensureManagedRelaySkill(cwd: string, bundledSkillPath = BU
     await ensureManagedSkillDirectory(projectRoot, directory);
   }
 
-  try {
-    await copyFile(bundledSkillPath, skillPath, constants.COPYFILE_EXCL);
-  } catch (error) {
-    if (!isNodeError(error, "EEXIST")) throw error;
-  }
-  assertManagedSkillPath(projectRoot, skillPath, "file");
-  return skillPath;
+  // Use the stable directory as the queue key so Windows never holds the
+  // destination file open while another start is atomically replacing it.
+  return withFileMutationQueue(skillDirectory, async () => {
+    try {
+      assertManagedSkillPath(projectRoot, skillPath, "file");
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+    }
+    const bundled = await readFile(bundledSkillPath);
+    try {
+      if ((await readFile(skillPath)).equals(bundled)) return skillPath;
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+    }
+    const temporaryPath = join(skillDirectory, `.relay-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporaryPath, bundled, { flag: "wx" });
+      await rename(temporaryPath, skillPath);
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
+    return skillPath;
+  });
 }
 
-export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile): SkillCollectionResult {
+export function filterManagedWorkbenchSkills(cwd: string, base: SkillCollectionResult, receipt: WorkbenchSkillReceiptFile, agentDir = getAgentDir()): SkillCollectionResult {
   const projectRoot = realpathSync(cwd);
   const allowedDirectories = new Set([
     resolve(projectRoot, MANAGED_RELAY_SKILL_DIRECTORY),
     ...receipt.skills.map((skill) => resolve(projectRoot, ".pi", "skills", skill.directory)),
   ]);
   const pathAllowed = (path: string) => [...allowedDirectories].some((directory) => pathInsideRealDirectory(directory, path));
-  return {
-    ...base,
-    skills: base.skills.filter((skill) => pathAllowed(skill.filePath)),
-    diagnostics: filterManagedSkillDiagnostics(base.diagnostics, pathAllowed),
-  };
+  return filterManagedSkills(cwd, agentDir, base, pathAllowed);
 }
 
-function filterManagedSkillDiagnostics(diagnostics: ResourceDiagnostic[], pathAllowed: (path: string) => boolean): ResourceDiagnostic[] {
-  return diagnostics.filter((diagnostic) => diagnostic.path === undefined || pathAllowed(diagnostic.path));
+function filterManagedSkills(cwd: string, agentDir: string, base: SkillCollectionResult, pathAllowed: (path: string) => boolean): SkillCollectionResult {
+  const skills = base.skills.filter((skill) => pathAllowed(skill.filePath));
+  const shadowedPaths = new Set<string>();
+  const diagnostics = base.diagnostics.filter((diagnostic) => {
+    const collision = diagnostic.collision;
+    if (diagnostic.type === "collision" && collision?.resourceType === "skill") {
+      const winnerAllowed = pathAllowed(collision.winnerPath);
+      const loserAllowed = pathAllowed(collision.loserPath);
+      if (!winnerAllowed && loserAllowed) shadowedPaths.add(collision.loserPath);
+      return winnerAllowed && loserAllowed;
+    }
+    return diagnostic.path === undefined || pathAllowed(diagnostic.path);
+  });
+
+  // The SDK deduplicates names before this override. Restore permitted losers
+  // instead of letting a discarded global/package winner hide them entirely.
+  if (shadowedPaths.size > 0) {
+    const recovered = loadSkills({ cwd, agentDir, skillPaths: [...shadowedPaths], includeDefaults: false });
+    skills.push(...recovered.skills.filter((skill) => pathAllowed(skill.filePath)));
+    for (const diagnostic of recovered.diagnostics) {
+      if (!diagnostics.some((existing) => existing.type === diagnostic.type && existing.path === diagnostic.path && existing.message === diagnostic.message)) {
+        diagnostics.push(diagnostic);
+      }
+    }
+  }
+  return { ...base, skills, diagnostics };
 }
 
 function pathInsideRealDirectory(directory: string, path: string): boolean {
@@ -963,7 +998,7 @@ function createManagementRuntimeFactory(
         settingsManager,
         resourceLoaderOptions: {
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
-          skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base) : filterManagedWorkbenchSkills(cwd, base, receipt),
+          skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base, agentDir) : filterManagedWorkbenchSkills(cwd, base, receipt, agentDir),
         },
       });
       const managedToolOptions = createManagedAgentToolOptions(cwd);
@@ -982,6 +1017,11 @@ function createManagementRuntimeFactory(
         ...(initialThinkingLevel === undefined ? {} : { thinkingLevel: initialThinkingLevel }),
       };
       const result = await createAgentSessionFromServices(options);
+      const reload = result.session.reload.bind(result.session);
+      result.session.reload = async (reloadOptions) => {
+        await ensureManagedRelaySkill(cwd);
+        return reload(reloadOptions);
+      };
       return { ...result, services, diagnostics: services.diagnostics };
     });
   };

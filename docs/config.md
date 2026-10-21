@@ -219,6 +219,10 @@ Elasticsearch failures are reported through Pino and do not stop management sess
 
 ### Workbench and MCP integration
 
+嵌入模式默认只加载当前项目内的 Skill，不加载全局、父目录或项目外安装包中的 Skill；接入工作台时，进一步限制为已授权的固定版本 Skill 和内置 Relay 副本。安装包中的同名 Skill 不会抢占合法的项目副本，授权范围内的真实重名冲突仍会告警。
+
+启动会话和执行 `/reload` 前，自动下发的 `.pi/skills/relay/SKILL.md` 会原子同步为当前 PI WEB 随包模板，已有旧内容或手工修改会被覆盖，不应直接定制这份托管副本；其他项目 Skill 不会被覆盖。SDK 本身不内置 Relay 模板，版本以 PI WEB 随包资源为准。普通模式不执行这项同步，资源加载行为保持不变。升级后需手动重启 `pi-web-sessiond.service` 并重新打开会话；只刷新浏览器不会更新守护进程的加载逻辑。
+
 `workbenchIntegration` enables the controlled management-embed adapter for the network model workbench. These resource, tool, and Skill restrictions apply only to management-embed sessions; normal-mode sessions keep PI WEB's existing behavior. `baseUrl` is the server-reachable workbench backend origin, while `mcpUrl` is the MCP Streamable HTTP endpoint. Both are required; the environment variables override the corresponding JSON URLs.
 
 The adapter exchanges the one-time management token for a private Agent Session, loads only the resulting fixed resource snapshot, and exposes `icnoc_search_capabilities` and `icnoc_call_capability` alongside the managed file tools and sandboxed `python` tool. When their global feature switches are enabled, management sessions also receive `spawn_session`, the tracked-subsessions tool set headed by `spawn_subsession`, and `ask_user`; spawned sessions inherit the same management context. Python runs without network access in an isolated Bubblewrap environment that binds only the managed workspace. Generic MCP, HTTP, web search, shell, and terminal tools remain denied in management mode. Skill bundles are downloaded only from the MCP origin, checked against the authorized fixed version and manifest, and stored under the managed project's `.pi/skills/` directory. Tokens and tickets remain server-side.

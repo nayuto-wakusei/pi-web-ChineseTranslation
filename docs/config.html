@@ -613,6 +613,8 @@ pi-web audit vacuum</code></pre>
 
             <section id="workbench-integration">
               <h2>Workbench and MCP integration</h2>
+              <p>嵌入模式默认只加载当前项目内的 Skill，不加载全局、父目录或项目外安装包的 Skill；接入工作台后进一步限制为已授权固定版本和内置 Relay 副本。包中的同名 Skill 不会抢占项目副本，授权范围内的真实重名冲突仍会告警。</p>
+              <p>启动和 <code>/reload</code> 前，托管的 <code>.pi/skills/relay/SKILL.md</code> 会原子同步为当前 PI WEB 随包模板，旧内容及手工修改会被覆盖，其他项目 Skill 不变。SDK 不内置 Relay 模板，版本以 PI WEB 随包资源为准；普通模式不执行此同步。升级后需手动重启 <code>pi-web-sessiond.service</code> 并重新打开会话，仅刷新浏览器不生效。</p>
               <p>
                 <code>workbenchIntegration</code> enables the controlled management-embed adapter. Set
                 <code>baseUrl</code> to the server-reachable workbench backend origin and <code>mcpUrl</code> to the MCP

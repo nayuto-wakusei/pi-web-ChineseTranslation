@@ -296,7 +296,7 @@ describe("ensureManagedRelaySkill", () => {
     }
   });
 
-  it("preserves an existing project relay skill", async () => {
+  it("refreshes an existing project relay skill to the bundled version", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-relay-"));
     const cwd = join(root, "project");
     const bundledSkillPath = join(root, "bundled-relay", "SKILL.md");
@@ -311,7 +311,7 @@ describe("ensureManagedRelaySkill", () => {
 
       await ensureManagedRelaySkill(cwd, bundledSkillPath);
 
-      await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("project relay");
+      await expect(readFile(projectSkillPath, "utf8")).resolves.toBe("bundled relay");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
