@@ -38,7 +38,7 @@
             <a href="machines">机器</a>
             <a href="install">安装</a>
             <a href="config">配置</a>
-            <a href="plugins" aria-current="page">插件</a>
+            <a href="community-plugins">社区插件</a>
             <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
@@ -156,6 +156,23 @@
 <li><strong>能力</strong>声明所需的宿主或插件功能。启动前必须满足指定版本的依赖。</li>
 </ul>
 <p>在 <code>activate()</code> 中声明贡献，在 <code>start()</code> 中初始化依赖支持的工作，在 <code>dispose()</code> 中释放资源。长时间工作遵循 <code>lifetimeSignal</code>。简单浏览器插件仅需返回贡献。</p>
+<p><a id="scoped-discovery-and-backend"></a></p>
+<h3>作用域发现与后端</h3>
+<p>浏览器 API v5 的 <code>catalog</code> 固定到创建上下文时的机器，只读查询公开项目、工作区和会话投影，不返回 transcript 或内部会话路径。切换选择不会改变已保留 catalog 的目标；会话使用完整、区分大小写的精确 ID，不接受缩写。</p>
+<p>可选 <code>backend</code> 指向同包配对的实际服务端入口：<code>backend.forScope({ kind: &quot;machine&quot; })</code>、<code>{ kind: &quot;project&quot;, projectId }</code> 或 <code>{ kind: &quot;workspace&quot;, projectId, workspaceId }</code> 返回请求/通道 peer。没有 session backend scope。宿主重新解析 authority，插件不传可信 cwd；机器与后端 revision 不匹配时拒绝，不静默使用网关同名后端。操作是否支持取决于实际 peer/capability，不由 API 版本单独保证。旧浏览器 v4 与服务端 v3 继续使用其原契约。</p>
+<p>服务端可声明 <code>PI_WEB_HOST_CATALOG_CAPABILITY</code> 获取目标宿主的公开 catalog；Pi 配套扩展通过公开服务端入口的 <code>createCompanionBackend(pi.events, pluginId)</code> 发现本地配对 backend，要求在 PI WEB 已托管事件总线上运行。普通宿主会话连接不开放管理会话，完整特权也不取消该边界。普通 catalog 排除当前配置的管理 root；它不替历史文件补写耐久 scope，曾更换管理 root 的遗留文件需人工隔离。</p>
+<p><a id="styles-highlighting-and-display"></a></p>
+<h3>样式、高亮与显示文本</h3>
+<p>v5 <code>stylesheets</code> 贡献包含 <code>id</code>、HTTP(S) <code>url</code> 和可选 <code>order</code>（默认 <code>1000</code>，较小先加载，同序按限定贡献 ID）。使用模块相对 URL 生成 CSS 文件地址，文件内资产相对 CSS 地址解析；不支持内联 CSS 或运行时 <code>@import</code>。v5 主题使用样式表；需要共享样式的组件使用公开 <code>StylesheetIntegrationCapabilityV1</code> 注册 shadow root 或创建 Lit lifecycle controller，并在断开时释放。主题属于网关应用，浏览器设备偏好优先于网关默认值。</p>
+<p>v5 <code>syntaxHighlighters</code> 返回有序、不重叠的 UTF-16 范围 token，不返回 HTML；宿主负责安全显示，插件遵守输入 <code>signal</code>。v5 内容渲染器还可提供 <code>title</code>、同步 <code>supports(request)</code>，并接收机器、语言和文件路径提示；正文仍是不可信输入，净化与清理要求不变。精确签名以公开声明为准。</p>
+<p>宿主 Markdown 变换只对完成文本产生浏览器 <code>displayText</code>，部分流式文本完成后才应用。不修改 canonical 消息、持久化历史、模型输入、审计原文或消息实际 <code>thinkingLevel</code>；复制和消息操作不能把派生显示误当原文。</p>
+<h3 id="application-panels-and-selection">应用级面板与选择</h3>
+<p><code>applicationPanels</code> 与 <code>workspacePanels</code> 由同一个浏览器工具区域装配。前者依附当前机器，无需先选项目、工作区或会话；后者需要已选工作区。应用级面板获得当前机器与公开选择快照，<code>workspace</code> 和工作区终端按可用性提供。内置 Info 使用应用级面板；无工作区时仍可显示机器和 PI WEB 状态。</p>
+<p>激活上下文的可选 <code>selection</code> 服务由宿主持有。<code>getSnapshot()</code> 返回独立的基本选择快照；<code>subscribe()</code> 在选择改变后通知，不做首次回调，面板关闭后仍可订阅。返回的取消函数可提前结束订阅，插件生命周期结束时统一清理。快照不包含内部会话文件路径、消息正文或整份应用状态。</p>
+<p>操作、应用级面板和工作区上下文的可选 <code>projects</code> 服务只读查询创建上下文时的机器：<code>listProjects()</code> 返回注册项目，<code>suggestDirectories(query)</code> 返回目录建议。保留的服务不会随之后的机器选择漂移；远端错误不会改查网关本机。旧宿主可能不提供这些可选服务。</p>
+<h3 id="prompt-context-chips">提示上下文 chip</h3>
+<p><code>prompt.setChip({ id, label, text, onRemove? })</code> 将插件上下文暂存在该上下文捕获的机器和会话，作用域同时包含会话工作目录，不同工作区的同名会话不共享 chip；要求创建上下文时已有可用、非归档的会话。相同插件内的相同 <code>id</code> 替换内容与回调；<code>prompt.removeChip(id)</code> 可静默撤回。方法在旧宿主上可能不存在，不应从渲染回调中修改 chip。</p>
+<p>chip 由浏览器宿主持有，不是持久化会话数据；关闭面板、切换会话后仍保留各自内容，刷新页面后清除。发送时正文以空行分隔附加到消息，带 chip 的输入作为普通提示词而非斜杠或 shell 命令提交。只有服务端接受后才消费本次提交的版本，失败时保留以便重试，不删除发送期间的替换内容。用户移除和成功提交分别通知 <code>onRemove("user")</code> 与 <code>onRemove("submitted")</code>；程序撤回不通知。</p>
 <h3 id="opening-workspace-files-from-chat">从聊天打开工作区文件</h3>
 <p>聊天 Markdown 中的相对文件链接（包括 <code>./file</code>）和会话工作区内的绝对路径会在内置文件面板中打开。修饰键、新标签页点击或没有面板接受链接时仍使用下载 URL。文件访问仍经过服务端工作区包含检查。</p>
 <p>工作区面板通过同步 <code>fileOpenQuery(context, path)</code> 选择是否接受链接。上下文属于该贡献，路径是解码后的工作区相对路径；返回如 <code>{ file: path }</code> 的导航查询，或返回 <code>undefined</code> 拒绝。钩子不能产生副作用。宿主按面板 <code>order</code>、标题顺序打开当前机器上第一个可见、启用且接受链接的面板，通过普通导航设置命名空间查询。面板从 <code>context.navigation.query</code> 读取选择，不需要依赖文件插件。</p>
@@ -196,6 +213,7 @@
 <p><a id="install-and-manage"></a><span id="manage-plugins"></span></p>
 <h2>安装与管理</h2>
 <p>在 <strong>设置 → Pi 包</strong> 安装、更新、移除 npm、git/URL 或本地来源的包；在 <strong>设置 → PI WEB 插件</strong> 启用/禁用集成，查看是否激活、是否需要重启。</p>
+<p>可在<a href="community-plugins">社区插件目录</a>搜索 npm 上的包，再复制 <code>npm:package-name</code> 到目标机器安装。目录由静态网页直接查询 npm，不是 PI WEB 服务端 catalog，也不会自动安装。社区包未经审查或背书，只安装可信作者的包；更多发布约定见目录的<a href="community-plugins#publish">分享插件</a>。</p>
 <div class="table-scroll" role="region" tabindex="0" aria-label="参考表"><table class="reference-table">
 <thead>
 <tr>
@@ -240,7 +258,7 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <li><strong>文件</strong>提供文件浏览、预览、上传；禁用面板不移除其他插件的文件帮助方法。</li>
 <li><strong>Git</strong>发现工作区并显示状态/差异；禁用后保留项目目录工作区，除非其他提供器认领。</li>
 <li><strong>Mermaid</strong>默认手动模式，点击“渲染”预览 <code>mermaid</code> 围栏和 <code>.mmd</code>/<code>.mermaid</code> 文件。内置引擎在不透明来源、网络受阻的沙箱中本地运行，不发送源码给图表服务。交互链接和外部资源不可用。禁用后保持代码显示；纯浏览器插件只需刷新页面。</li>
-<li><strong>信息</strong>显示 PI WEB 状态与可复制诊断。</li>
+<li><strong>信息</strong>作为应用级面板显示 PI WEB 状态与可复制诊断，无需先选择工作区。</li>
 <li><strong>更新</strong>在需要时显示更新/重启建议，并提供手动检查。</li>
 <li><strong>工作区任务</strong>将项目命令显示为可运行操作。</li>
 </ul>
@@ -257,6 +275,10 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <h3 id="relays">中继</h3>
 <p>随包分发的 Relay 提供跨会话工作提示词和技能，并在只读“中继”标签展示 <code>.pi-web/relays/</code> 计划与进度，不从标签启动或编辑中继。</p>
 <p>普通模式在当前 agent 配置未安装时自动安装 Relay；从 <strong>设置 → Pi 包</strong> 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用中继插件只隐藏标签，不移除代理资源。管理嵌入的 <code>relay</code> 与 <code>relay-runner</code> 模板同步继续限定在授权工作区，不改变普通启动的技能文件。</p>
+<p><a id="workflows"></a></p>
+<h3>工作流（Workflows）</h3>
+<p>Workflows 随包提供 Pi 工作流提示词和工作树操作。普通 profile 缺少默认包时自动安装，用户移除会被记忆，可从“可用包”恢复；禁用浏览器插件不移除已安装的 Pi 提示词资源。</p>
+<p>工作树操作选择 base 与用途后，由目标机器重验项目、工作区和 Git base 再派发；仅在普通模式及所需能力可用时提供。创建工作树、发布会话与打开页面是独立结果，派发结果不确定或导航失败时不自动重试，先查看目标机器已有结果，避免重复工作树。实现示例见 <a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/workflows">Workflows 包</a>。</p>
 <h3 id="try-captains-log">试用 Captain's Log</h3>
 <p>Captain's Log 是可选示例，将会话最近的助手回复改写为海盗风格简报，演示浏览器面板、后端和 Pi 配套扩展协作。</p>
 <ol>
@@ -324,7 +346,7 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <td><a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server/piWebPluginCatalog.ts">插件目录</a></td>
 </tr>
 </tbody></table></div>
-<p>当前浏览器契约是 <strong>API v4</strong>，服务端契约是 <strong>API v3</strong>。旧入口必须迁移，没有兼容 shim。公开源码契约和测试是签名、验证、限制与生命周期的依据。</p>
+<p>当前浏览器与服务端契约均为 <strong>API v5</strong>；宿主继续支持浏览器 <strong>API v4</strong> 和服务端 <strong>API v3</strong>，旧类型名兼容保留。catalog、作用域 backend 及 v5 贡献需使用对应 v5 入口，不将新功能直接塞进旧版本贡献。公开源码契约和已安装声明是签名、验证、限制与生命周期的依据。</p>
 <ul>
 <li>在 <code>package.json</code> 的 <code>piWeb.plugins</code> 声明入口，参考独立示例的打包方式；同一包可含多个入口。</li>
 <li>仅使用公开包入口，内部路由、服务及 <code>dist/**</code> 导入不是受支持 API。</li>

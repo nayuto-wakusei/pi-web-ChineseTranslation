@@ -4,7 +4,7 @@ This is the Chinese-localized PI WEB fork. Preserve upstream functionality and t
 
 ## Read before changing code
 
-Start at [maintenance docs](docs/maintenance.md). The relevant documents below are mandatory implementation constraints, not optional background. Read the matching module and its linked contracts before editing; read all affected modules for cross-cutting work.
+Start at the [documentation index](docs/README.md) and [maintenance guide](docs/maintenance.md). The relevant documents below are mandatory implementation constraints, not optional background. Read the matching module and its linked contracts before editing; read all affected modules for cross-cutting work.
 
 | Work area | Required reading |
 | --- | --- |
@@ -47,7 +47,7 @@ Never report failed, incomplete, or skipped verification as passing. State unrun
 
 ## Documentation and releases
 
-编写或修改代码时，如果功能行为发生变化，必须在同一次改动中同步更新对应模块文档或权威参考，并删除或替换已失效的旧表述，不保留矛盾说明；Markdown/HTML 双版本同步更新受影响内容。
+编写或修改代码时，如果功能行为发生变化，必须在同一次改动中同步更新对应模块文档或权威参考，并删除或替换已失效的旧表述；Markdown/HTML 双版本同步。代码实现子代理不得修改 `docs/**`，只向主代理提出文档建议；主代理审批内容与路径后，再交文档角色写入。文档描述现存架构与公开契约，不复制实现或追加更新流水账；总导航维护在 `docs/README.md`。遵守 [文档角色约束](docs/AGENTS.md)，运行时路径权限必须另外核实，不能把指令当作硬隔离。
 
 Keep README concise and details in their canonical `docs/` page; use [.agents/skills/documentation-guide/SKILL.md](.agents/skills/documentation-guide/SKILL.md) for documentation work. Keep this file as global constraints and required-reading navigation, not a growing list of module details.
 

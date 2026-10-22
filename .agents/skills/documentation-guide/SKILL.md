@@ -11,9 +11,19 @@ Use this guide to decide where documentation belongs and how much detail each su
 
 Treat `README.md` as the project landing page and quick start, not the complete manual.
 
+Use `docs/README.md` as the documentation index, including a short purpose for each documentation directory. Keep it synchronized when documents move or new sections are added.
+
+Architecture documentation describes the current responsibilities, state ownership, relationships, trust boundaries, and lifecycle contracts. It should help readers find the implementation in the codebase, not reproduce private functions, algorithms, call-by-call traces, or test inventories. Public references may retain the fields, limits, and examples consumers need. Keep changes and merge progress in Git, release notes, or task records rather than appending a running history to architecture pages.
+
 A reader should be able to understand what PI WEB is, decide whether it is relevant, satisfy the basic prerequisites, complete the shortest supported installation, and find the detailed documentation. Once that path is clear, additional explanation belongs under `docs/`.
 
 Do not add every new feature, caveat, implementation detail, troubleshooting case, or behavioral guarantee to the README. Update the canonical detailed page and link to it when discovery from the README materially helps a new user.
+
+## Documentation ownership
+
+Code implementation subagents may read documentation and propose changes to the main agent, but must not write `docs/**`. The main agent decides what belongs in the documentation and explicitly delegates approved paths to a documentation role. Read `docs/AGENTS.md` before that role edits. Keep behavior and documentation changes in the same delivery without letting code subagents bypass this review.
+
+These instructions do not enforce filesystem permissions. Check the actual plugin, agent, and execution-environment controls; use read-only documentation access for code roles and approved write scope for documentation roles where supported. Report missing enforcement rather than claiming that a prompt or role name creates a sandbox.
 
 ## README contract
 
@@ -70,13 +80,14 @@ If the content needs multiple sentences of caveats, explains how an internal mec
 
 ## Documentation workflow
 
-1. Identify the user task and audience before choosing a file.
+1. Identify the user task and audience, confirm the main agent's approval and the documentation role's allowed paths before editing.
 2. Find the canonical existing page and update it rather than creating a competing explanation.
 3. Keep the README unchanged unless its quick-start path or high-level product story must change.
 4. If discovery is important, add a short link from the README or relevant docs index instead of duplicating the detail.
 5. Check nearby pages for stale or contradictory claims.
 6. Keep commands, names, defaults, and platform statements consistent with the implementation and tests.
 7. Review the final diff specifically for README growth and duplicated prose.
+8. Keep `docs/README.md` and directory descriptions current; check that architecture pages describe the present system rather than an implementation diary.
 
 ## Writing principles
 

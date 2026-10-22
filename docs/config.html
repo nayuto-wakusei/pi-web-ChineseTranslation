@@ -38,7 +38,7 @@
             <a href="machines">机器</a>
             <a href="install">安装</a>
             <a href="config" aria-current="page">配置</a>
-            <a href="plugins">插件</a>
+            <a href="community-plugins">社区插件</a>
             <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
@@ -69,6 +69,9 @@
 <strong>本页目录</strong>
 <a href="#files">配置文件</a>
 <a href="#ui-settings">界面与默认值</a>
+<a href="#default-theme-and-streaming">主题与发送</a>
+<a href="#session-naming-and-archives">命名与归档</a>
+<a href="#mcp-settings-and-authentication">MCP 认证</a>
 <a href="#file-settings">文件与上传</a>
 <a href="#session-tools">会话守护进程</a>
 <a href="#plugin-config">插件</a>
@@ -232,7 +235,7 @@
 <th scope="row">触屏 / 窄屏发送键<br><code>shortcuts.composer.send.mobile</code></th>
 <td>网关</td>
 <td><code>Shift+Enter</code></td>
-<td>粗主指针或宽度 ≤760px 时的发送键。</td>
+<td>宽度 ≤760px 时的发送键；宽屏触控仍用桌面规则。</td>
 <td>保存设置 / 刷新配置</td>
 </tr>
 </tbody></table></div>
@@ -264,6 +267,52 @@
 </tr>
 </tbody></table></div>
 <p id="completion-tools"><strong>可选：</strong> 在服务器 PATH 安装 <code>fzf</code> ，改善文件补全排序；不安装也能补全。</p>
+</section>
+<section>
+<p><a id="default-theme-and-streaming"></a></p>
+<h2>应用主题与发送默认值</h2>
+<p><code>defaultTheme</code> 是网关配置，形如 <code>{ &quot;themeId&quot;: &quot;plugin-id:theme-id&quot;, &quot;auto&quot;: true }</code>：<code>themeId</code> 必须为限定贡献 ID，<code>auto</code> 必须为布尔值。<code>auto: true</code> 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。</p>
+<p>网关 <code>defaultStreamingBehavior</code> 为 <code>&quot;steer&quot;</code>（默认）或 <code>&quot;followUp&quot;</code>，决定流式工作期间编辑器的默认发送方式，不改变已在 daemon 中排队的消息。浏览器分区尺寸、编辑器偏好与普通导航顺序不是新的项目配置文件；导航顺序是按机器管理的托管状态，管理模式不共用普通存储。</p>
+<p><a id="session-naming-and-archives"></a></p>
+<h2>会话命名与归档</h2>
+<p>机器配置 <code>sessionNaming</code> 仅接受以下可选字段，不提供项目覆盖。设置保存后用于后续命名请求，无需重启；每次请求固定自己的有效设置，不覆盖用户已命名会话，也不切换聊天模型。</p>
+<div class="table-scroll" role="region" aria-label="会话命名配置" tabindex="0">
+<table class="reference-table settings-table">
+<caption>会话命名配置</caption>
+<thead>
+<tr>
+<th>字段</th>
+<th>默认值</th>
+<th>约束</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>model</code></td>
+<td>当前会话模型</td>
+<td>精确 <code>provider/model-id</code>；使用原会话普通项目或管理 registry</td>
+</tr>
+<tr>
+<td><code>maxTokens</code></td>
+<td><code>24</code></td>
+<td>正安全整数</td>
+</tr>
+<tr>
+<td><code>thinkingLevel</code></td>
+<td><code>minimal</code></td>
+<td>已知思考等级；<code>off</code> 不发送 reasoning 参数</td>
+</tr>
+<tr>
+<td><code>timeoutMs</code></td>
+<td><code>10000</code></td>
+<td>总耗时，整数 <code>1..2147483647</code> 毫秒</td>
+</tr>
+</tbody></table></div>
+<p>模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。</p>
+<p><code>sessionArchive.directory</code> 选择新归档内容目的地，非空环境变量 <code>PI_WEB_SESSION_ARCHIVE_DIR</code> 优先；默认 <code>$PI_WEB_DATA_DIR/archived-sessions</code>。配置路径或环境路径相对进程 cwd 解析为绝对路径，daemon 启动后固定，修改需重启 daemon。归档索引仍是 <code>$PI_WEB_DATA_DIR/archived-sessions.json</code>，已有记录继续指向原归档文件，不自动迁移。备份时覆盖索引、旧目录与新目的地，不只复制默认目录。</p>
+<p><a id="mcp-settings-and-authentication"></a></p>
+<h2>MCP 设置与认证</h2>
+<p><strong>设置 → MCP</strong> 管理所选机器当前非归档会话中已启用、支持 OAuth 的 MCP 服务器认证；先选择可写、空闲且可信的会话。服务器配置由 Pi 的全局/项目设置和信任规则决定，这里不新增 <code>pi-web</code> MCP 服务器配置键，也不替代管理模式的 Workbench 受控 MCP 集成。</p>
+<p>专用认证仅支持所选 <strong>Pi 1.3.0</strong> 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-%E8%AE%A4%E8%AF%81">认证与模型</a>。</p>
 </section>
 <section id="file-settings"><h2>文件与上传</h2>
 <p>机器默认值在 <strong>设置 → 通用</strong>中编辑，项目配置保存仓库专属目录和访问根。</p>
@@ -585,7 +634,7 @@
 <td>重启 daemon</td>
 </tr>
 </tbody></table></div>
-<details class="config-details"><summary>切换目录或运行第二实例</summary><ul><li><strong>迁移：</strong> 新数据目录没有原注册表或归档。复制前停服务；归档同时复制 <code>archived-sessions.json</code> 和 <code>archived-sessions/</code>。</li><li><strong>第二实例：</strong> 使用独立数据目录、daemon endpoint 和 Web 端口，一个目录仅由一个活跃 daemon 所有。</li><li><strong>agent 状态：</strong> 使用所选 SDK 数据布局，不转换 profile 或移动托管归档。</li><li><strong>有效路径：</strong> daemon 启动时固定 agent 目录，Web-only 重启不改变。</li></ul></details>
+<details class="config-details"><summary>切换目录或运行第二实例</summary><ul><li><strong>迁移：</strong> 新数据目录没有原注册表或归档。复制前停服务；归档须覆盖 <code>archived-sessions.json</code> 和每条记录指向的归档内容，包括自定义目的地；仅复制默认目录不保证完整。</li><li><strong>第二实例：</strong> 使用独立数据目录、daemon endpoint 和 Web 端口，一个目录仅由一个活跃 daemon 所有。</li><li><strong>agent 状态：</strong> 使用所选 SDK 数据布局，不转换 profile 或移动托管归档。</li><li><strong>有效路径：</strong> daemon 启动时固定 agent 与归档目录，Web-only 重启不改变。</li></ul></details>
 <details class="config-details"><summary>代理进程继承环境</summary><ul><li>普通代理 shell、终端、子会话继承 daemon 环境及解析的 Pi 路径；模型凭据仍遵循项目 registry。</li><li><code>NODE_ENV</code> 和 <code>PORT</code> 从代理进程环境移除。</li><li><code>PI_WEB_SESSION=1</code> 标记嵌套进程，继承的 <code>PI_WEB_*</code> 仍指向活跃宿主实例。</li><li>不要从需要保留的活跃会话内重启宿主 daemon。</li></ul></details>
 <p>普通模式模型、认证及默认值按模式 × 项目托管，不写回全局 agent 设置；管理嵌入独立。虚拟模型 router 捕获会话上下文，不能放入同项目共享 registry，因此 bootstrap 前及后续运行均拒绝 <code>registerVirtualModel</code>/<code>unregisterVirtualModel</code>，请使用物理模型；诊断不包含模型定义或 ID。详见 <a href="config.md#config-files">项目认证存储</a>、<a href="config.md#ordinary-mode-tool-audit">普通审计</a>、<a href="config.md#management-mode-elasticsearch-audit">管理审计</a>及 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p><p>本地保留旧 agent.command/agent.dir、PI_WEB_AGENT_COMMAND/PI_WEB_AGENT_DIR/PI_WEB_AGENT_SESSION_DIR 与 Windows companion 输入，公开 v2 profile 不扩展；废弃输入通过诊断提示，不自动重写配置。详见 <a href="config.md#agent-runtime">兼容输入</a>。</p></section>
 <section id="management-permissions"><h2>管理工具与特权</h2>

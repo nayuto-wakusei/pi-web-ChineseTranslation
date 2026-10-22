@@ -51,7 +51,7 @@
             <a href="machines">机器</a>
             <a href="install">Install</a>
             <a href="config">配置</a>
-            <a href="plugins">插件</a>
+            <a href="community-plugins">社区插件</a>
             <a href="faq" aria-current="page">常见问题</a>
           </div>
           <div class="nav-actions">
@@ -294,16 +294,18 @@
                 worktrees you create or delete with <code>git worktree</code>, a terminal, or another tool are picked up
                 without any adopt or import step. This works the same way on remote machines.
               </p>
-              <p>
-                The workspace list is re-read when the PI WEB tab regains focus or becomes visible again, not
-                continuously. If a worktree appeared while you were already looking at PI WEB, switch to another window
-                or tab and back, and the list updates. Your selected workspace, session, and scroll position are kept.
-              </p>
+              <p>工作区列表会在页面重新可见/聚焦时刷新；Git 插件的命名 hook 也可向对应 daemon 提示变化，宿主仍重新查询提供器，不根据通知直接注册工作树。列表未更新时切到其他窗口再回来，并检查目标机器 daemon 与 Git 插件。刷新应保留有效工作区、会话和正在阅读的位置。</p>
               <p>
                 Worktrees whose checkout directory no longer exists are hidden, so a directory you removed with
                 <code>rm -rf</code> instead of <code>git worktree remove</code> stops appearing as a selectable
                 workspace. Git still tracks it until you run <code>git worktree prune</code>.
               </p>
+            </article>
+
+            <article id="network-recovery" class="faq-item">
+              <h2>断网恢复后需要重新发送吗？</h2>
+              <p>先查看会话、队列和活动状态。浏览器 resume、socket reconnect 或显式 Retry 可对选定读取做有界网络恢复；发送、删除、清空和队列修改不自动重试，避免不确定成功后重复执行。结束旧恢复不保证底层 HTTP 已中止，但迟到结果不能覆盖新选择。</p>
+              <p>成功只清除该次恢复捕获的错误，不隐藏后来发生的其他错误。升级问题先用 <code>pi-web version</code> 检查本实例；只有 <code>--check</code> 才查询 npm。更新交接日志只证明派发，仍须检查安装与两项服务，详见<a href="install#update">更新安装</a>。</p>
             </article>
 
             <article id="session-unread" class="faq-item">

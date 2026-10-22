@@ -51,7 +51,7 @@
             <a href="machines">机器</a>
             <a href="install" aria-current="page">Install</a>
             <a href="config">配置</a>
-            <a href="plugins">插件</a>
+            <a href="community-plugins">社区插件</a>
             <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
@@ -98,6 +98,7 @@
             <a href="#reverse-proxy-prefix">Reverse proxy prefixes</a>
             <a href="#federated-machines">Federated machines</a>
             <a href="#manage-services">Manage services</a>
+            <a href="#update">更新安装</a>
             <a href="#configure">Configure</a>
             <a href="#uninstall">Uninstall</a>
           </aside>
@@ -326,7 +327,7 @@ server {
 
             <section id="manage-services">
               <h2>Manage services</h2>
-              <p><code>pi-web version</code> compares the installed package version with the versions reported by the running Web/UI and session daemon services.</p>
+              <p><code>pi-web version</code> 对照本地安装与本实例 Web/daemon 运行版本，可能请求本实例 HTTP，但不查询 npm；<code>pi-web version --check</code> 才增加 registry 检查。启动 banner 显示实际监听端口与网卡地址，不证明其他设备可达。</p>
               <div class="code-card">
                 <div class="copy-row">
                   <strong>Useful commands</strong>
@@ -353,6 +354,14 @@ server {
                 仅重启 Web/UI 不会中断活跃会话，重启 daemon 会中断。旧开发服务文件需重新生成以移除 UI 对 daemon 的旧依赖；
                 更新服务文件与重启 daemon 应安排在允许中断会话的时候。
               </p>
+            </section>
+
+            <section id="update">
+              <h2>更新安装</h2>
+              <p>使用 <code>pi-web update [--yes] [--force]</code>，先检查显示的实际安装、Pi profile 和重启目标。更新可能中断会话与终端，应在允许中断的维护窗口执行；非交互环境必须显式 <code>--yes</code>，它不绕过安全检查。</p>
+              <p>npm-global 更新针对当前安装的 <code>@chainingintention/pi-web-cn</code> 和 npm root，确认前查询精确版本，执行时固定该版本。<code>--force</code> 允许已是当前版本时重新安装。Pi 包仅自动更新用户范围的受支持远程来源。</p>
+              <p>本地 checkout 必须干净并可 fast-forward；不自动合并或删除修改。任一拉取、安装或构建步骤失败，不继续重启。自动原生服务更新仅支持 Linux/macOS 的已识别服务；Windows、未知安装或不支持的嵌套执行使用原安装工具或 PI WEB 外的宿主终端处理。</p>
+              <p>嵌套更新的独立 systemd 用户单元或 launchd 用户 agent 交接只说明已派发，不证明升级完成。macOS 子进程重新核对 canonical profile 和安装摘要，不传管理秘密。查看交接日志后，分别运行 <code>pi-web version</code>、<code>pi-web status</code> 检查安装与 Web/daemon，不能把交接成功当作服务已更新。</p>
             </section>
 
             <section id="configure">

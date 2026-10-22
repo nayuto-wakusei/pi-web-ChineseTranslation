@@ -37,8 +37,9 @@ export class ProjectLifecycleService {
 
   add(input: Parameters<ProjectService["add"]>[0]): Promise<Project> {
     return this.serialized(async () => {
-      // Admission is the one synchronous cleanup boundary: do not make an old
-      // orphan cwd valid again before its historical unread has been removed.
+      // Clean before admission when discovery is authoritative so re-adding an
+      // orphan cwd does not revive historical unread. Provider outages defer
+      // cleanup; durable reconciliation failures still block admission.
       this.clearCleanupTimer();
       try {
         await this.cleanupUnread();
@@ -72,12 +73,23 @@ export class ProjectLifecycleService {
     // A failed flush remains pending even if the in-memory catalog is empty.
     if (!this.cleanupPending && !this.dependencies.hasUnread()) return;
     const projects = await this.dependencies.projects.list();
-    const resolutions = await Promise.all(projects.map((project) => this.dependencies.workspaces.resolve(project)));
-    // A failed lookup is not an authoritative empty workspace list.
-    for (const resolution of resolutions) {
-      if (resolution.status === "degraded" || resolution.diagnostics.length > 0) {
-        throw new Error(`Cannot clean up unread state: workspace resolution incomplete for ${resolution.projectId}`);
+    let resolutions: WorkspaceProviderAuthorityResolution[];
+    try {
+      resolutions = await Promise.all(projects.map((project) => this.dependencies.workspaces.resolve(project)));
+      for (const resolution of resolutions) {
+        if (resolution.status === "degraded" || resolution.diagnostics.length > 0) {
+          throw new Error(`Cannot clean up unread state: workspace resolution incomplete for ${resolution.projectId}`);
+        }
       }
+    } catch (error: unknown) {
+      // An incomplete snapshot cannot prove any cwd is orphaned. Defer the
+      // whole pass, not admission; keep durable reconciliation outside this catch.
+      this.dependencies.logger.warn(
+        { err: error, projectIds: projects.map((project) => project.id) },
+        "orphan unread cleanup deferred: workspace discovery incomplete; will retry",
+      );
+      this.scheduleCleanup();
+      return;
     }
     await this.dependencies.reconcileUnreadWorkspaces(
       resolutions.flatMap((resolution) => resolution.workspaces.map((workspace) => workspace.path)),

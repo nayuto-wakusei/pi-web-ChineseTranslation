@@ -127,6 +127,57 @@ describe("eventual project unread cleanup", () => {
     expect(fixture.unread.hasUnread()).toBe(false);
   });
 
+  it.each(["provider", "degraded", "diagnostics"])("admits a healthy project despite unrelated %s discovery failure and retries cleanup", async (failure) => {
+    const ownedPath = "/external/owned";
+    const healthyPath = "/srv/healthy";
+    const fixture = lifecycle([root, kept], new Map([[root.id, [root.path, ownedPath]]]));
+    complete(fixture.unread, ownedPath);
+    complete(fixture.unread, removed.path);
+    complete(fixture.unread, kept.path);
+    const before = fixture.unread.catalogSnapshot();
+    if (failure === "provider") fixture.workspaces.resolve.mockRejectedValueOnce(new Error("lookup failed"));
+    if (failure === "degraded") fixture.workspaces.resolve.mockResolvedValueOnce({ ...resolution(root, [root.path]), status: "degraded" });
+    if (failure === "diagnostics") fixture.workspaces.resolve.mockResolvedValueOnce({
+      ...resolution(root, [root.path]),
+      diagnostics: [{ code: "probe-failed", message: "provider unavailable", tier: "primary", pluginId: "unavailable" }],
+    });
+    fixture.service.scheduleCleanup();
+
+    await expect(fixture.service.add({ path: healthyPath })).resolves.toMatchObject({ path: healthyPath });
+    expect(fixture.projects.add).toHaveBeenCalledOnce();
+    expect(fixture.onProjectsChanged).toHaveBeenCalledOnce();
+    expect(fixture.unread.catalogSnapshot()).toEqual(before);
+    expect(fixture.reconcile).not.toHaveBeenCalled();
+    expect(fixture.mutations).toEqual([]);
+    expect(fixture.logger.warn).toHaveBeenCalledOnce();
+    expect(fixture.logger.warn.mock.calls[0]?.[1]).toMatch(/workspace discovery incomplete; will retry/);
+
+    // Retry from a complete snapshot, including the newly admitted project.
+    complete(fixture.unread, healthyPath);
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(fixture.reconcile).toHaveBeenCalledOnce();
+    expect(fixture.unread.catalogSnapshot().sessions.map((entry) => entry.cwd)).toEqual([healthyPath, kept.path, ownedPath]);
+    expect(fixture.mutations).toHaveLength(1);
+    expect(fixture.mutations[0]?.event).toMatchObject({ cwd: removed.path, unread: null });
+    expect(fixture.logger.warn).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    expect(fixture.reconcile).toHaveBeenCalledOnce();
+  });
+
+  it("does not register a project if the project catalog cannot be read", async () => {
+    const fixture = lifecycle([root]);
+    complete(fixture.unread, removed.path);
+    const error = new Error("catalog unreadable");
+    fixture.projects.list.mockRejectedValueOnce(error);
+    await expect(fixture.service.add({ path: kept.path })).rejects.toBe(error);
+    expect(fixture.projects.add).not.toHaveBeenCalled();
+    expect(fixture.onProjectsChanged).not.toHaveBeenCalled();
+    expect(fixture.reconcile).not.toHaveBeenCalled();
+    expect(fixture.unread.hasUnread()).toBe(true);
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(fixture.unread.hasUnread()).toBe(false);
+  });
+
   it("does not register a project if pre-add durable cleanup fails", async () => {
     const fixture = lifecycle([root]);
     complete(fixture.unread, removed.path);
@@ -297,11 +348,12 @@ function lifecycle(initial: Project[], paths = new Map<string, string[]>()) {
     await unread.flush();
   });
   const logger = { warn: vi.fn() };
+  const onProjectsChanged = vi.fn();
   const service = new ProjectLifecycleService({
     projects, workspaces, reconcileUnreadWorkspaces: reconcile,
-    hasUnread: () => unread.hasUnread(), onProjectsChanged: vi.fn(), logger,
+    hasUnread: () => unread.hasUnread(), onProjectsChanged, logger,
   });
-  return { service, projects, workspaces, unread, mutations, reconcile, logger };
+  return { service, projects, workspaces, unread, mutations, reconcile, logger, onProjectsChanged };
 }
 
 function resolution(owner: Project, paths = [owner.path]): WorkspaceProviderAuthorityResolution {

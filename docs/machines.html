@@ -51,7 +51,7 @@
             <a href="machines" aria-current="page">机器</a>
             <a href="install">Install</a>
             <a href="config">配置</a>
-            <a href="plugins">插件</a>
+            <a href="community-plugins">社区插件</a>
             <a href="faq">常见问题</a>
           </div>
           <div class="nav-actions">
@@ -246,6 +246,7 @@ PI WEB gateway you opened
               <h2>插件跟随所选机器</h2>
               <p>机器专属插件来自所选机器并操作其工作区。远端不可用/不兼容时不替换为网关后端；便携纯浏览器插件可复用网关副本，详见<a href="plugins#remote-machines">插件指南</a>。</p>
               <p>“设置 → PI WEB 插件”保存目标设置并提示重启。纯浏览器修改刷新网关页面；服务端修改重启目标 daemon 后刷新，仅重启网关 Web/API 不足。</p>
+              <p>功能根据目标机器实际 capability 提供，不从网关版本推断。旧机器没有 <code>sessions.queueMessageActions</code> 时隐藏逐条编辑/移除/类型切换，发送与清空不变。v5 catalog/backend 固定原机器，backend 的 machine/project/workspace scope 由目标宿主解析并核对 revision。</p>
               <p>网关和目标一起升级，不支持任一顺序的混合版本。远端插件（包括 Git）可能不可用或 404；重启更新的 Web/API 和目标 daemon 后刷新网关。参见<a href="config#plugin-config">配置与恢复</a>。</p>
               <div class="callout warning">离线 disable/safe-start 直接在故障目标机器执行。手动重启 <code>pi-web-sessiond.service</code> 可能中断会话与运行时所有权，先检查活跃工作，再用 <code>systemctl --user restart pi-web-sessiond</code>。</div>
               <p>浏览器和服务端插件是可信代码，不是隔离扩展。服务端使用 daemon 用户权限，可阻塞或使会话/终端崩溃；只联邦你信任其插件包的机器。</p>

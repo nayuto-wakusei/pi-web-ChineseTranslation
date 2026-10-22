@@ -49,6 +49,8 @@
 
 远端不支持某项能力时应该报错，不会静默改网关设置。插件后端在远端执行，浏览器入口经网关提供；机器专属插件不能用网关同名插件冒充。版本不匹配时先对齐网关与目标运行时。
 
+逐条队列控件等新增功能依据目标机器公布的 capability 显示，不从网关版本推测远端支持。插件 v5 的 catalog 和 backend 捕获原机器，backend 的 machine/project/workspace scope 由目标宿主解析，并核对实际后端 revision；切换选择不重定向已保留的服务。具体公共契约见[插件指南](../plugins.md#scoped-discovery-and-backend)。
+
 ## HTTP 与 WebSocket 边界
 
 下表是**服务端路由模式**，不是浏览器应直接拼接的根路径：
@@ -79,6 +81,12 @@ Web 与 daemon 使用相同的 WebSocket 错误处理：接收器因协议错误
 审查生产客户端时，用 rg 查找原始 `fetch`、`WebSocket`、`XMLHttpRequest`、携带 URL 的 DOM 属性，以及前导 `/api`、`/pi-web-plugins` 字面量；每个应用自有结果必须符合上述边界，不能仅修被报告的一条地址。
 
 新增机器能力时，应同时核对联邦路由、本机注册、客户端调用与路由契约测试，否则本机成功可能掩盖远端缺失。
+
+## 网络恢复
+
+浏览器恢复、socket 重连和显式 Retry 可对选定读取启用有界网络恢复。只有网络错误参与重试，权限/业务错误原样返回；发送、清空、队列修改、删除等 mutation 不自动重试，避免不确定成功后重复执行。普通非恢复读取的迟到失败仍保留原请求错误，不因选择已变化而一概吞掉。
+
+旧恢复结束时释放计时器、缓冲与协调器，不承诺物理中止底层 HTTP；迟到成功和失败继续按 generation、机器及会话作用域检查。恢复成功只清捕获的同一个恢复错误，不清随后产生的其他错误。恢复入口见 [networkReadRecovery.ts](../../src/client/src/controllers/networkReadRecovery.ts) 和[浏览器生命周期](../development/architecture.md#生命周期与异步工作)。
 
 ## 反向代理与故障排查
 

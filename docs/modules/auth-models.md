@@ -46,6 +46,12 @@
 
 注销移除对应认证，不删除聊天记录。环境凭据或可信扩展也可能参与提供器基线，因此“删除存储中的 key”不应被视为撤销所有外部服务授权。
 
+## MCP 认证
+
+MCP 的专用设置/认证流程与模型提供商 OAuth 分开，使用当前会话的 Pi 内置 `/mcp` 命令，不向聊天队列发送认证交互。它仅支持所选 **Pi 1.3.0** 安装的同一 SDK 内部凭据适配，不承诺其他版本内部类兼容。会话须可写、空闲且工作区可信；受限管理不可用，完整特权仍保留管理身份及独立凭据。
+
+认证捕获机器、精确会话、cwd、项目与普通/管理作用域；列表、开始、轮询、回答和取消都重新检查归属，不随浏览器选择改变目标。普通项目使用自己的 MCP 凭据，管理使用独立存储，不回退共享 agent 的 MCP OAuth 凭据。凭据是私有托管状态，不写入 checkout；MCP 服务器配置仍遵循 Pi 的全局/项目设置与信任，不是 Workbench 受控 MCP 授权。配置入口见[配置参考](../config.md#mcp-settings-and-authentication)，流程与凭据边界见 [mcpAuthFlowService.ts](../../src/server/sessions/mcpAuthFlowService.ts) 和 [mcpOAuthCredentialAdapter.ts](../../src/server/sessions/mcpOAuthCredentialAdapter.ts)。
+
 ## 项目隔离与首次初始化
 
 普通项目存储位于：

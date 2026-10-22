@@ -32,6 +32,8 @@ entry token 交换为私有 Agent Session 后，access/capability tickets 必须
 
 模型认证和默认偏好独立于普通模式。即使完整特权开启，管理会话也仍是管理身份，不能由普通会话或普通宿主插件连接读取。
 
+专用 MCP OAuth 仅在 Pi 1.3.0 普通或完整特权会话中可用；完整特权仍使用管理独立凭据，不借用普通项目或共享 agent 的 MCP OAuth 存储。媒体读取同样保持管理 scope，管理端仅读取已托管会话；普通媒体及插件 catalog 排除当前配置的管理 root。历史文件无耐久 scope、旧管理 root 需人工隔离的限制见[会话媒体](../modules/files-terminals.md#会话媒体)，不能扩展为全部历史 API 已自动隔离的承诺。
+
 ## 三种权限状态
 
 | 状态 | 成立条件 | 代理实际能力 |
@@ -89,6 +91,8 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 受限和完整特权管理会话都保留 user、root-user、project、session、Workbench Agent Session 身份，以及 `content` 中的用户文本、排除 `thinking` 的可见 assistant 消息和工具参数/结果。管理服务日志保持 metadata-only；专门的 Workbench capability、knowledge、Skill 审计事件也只记元数据。不得把认证状态中的 tokens、credentials、cookies、tickets 额外加入审计字段。
 
 审计失败记录错误但不停止工具/会话，因此“任务成功”不证明审计已送达；ES 有界队列、重试和优雅关闭刷写也不构成无丢失保证。存储位置、保留期、索引规则与 CLI 示例分别见[普通审计](../config.md#ordinary-mode-tool-audit)和[管理审计](../config.md#management-mode-elasticsearch-audit)。
+
+队列 Recall/切换等重建操作不把已接收的保留消息重复记为新输入；浏览器 Markdown 派生显示也不替换审计原文。普通服务日志仍只记录运维元数据，不能将认证交互或聊天正文作为恢复诊断字段。
 
 ## 集成验收清单
 

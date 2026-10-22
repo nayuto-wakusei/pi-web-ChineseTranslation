@@ -29,7 +29,7 @@ Pi 包/本地插件目录
 
 Pi SDK 开发基线为 `1.3.0`，安装兼容范围以根 `package.json` 的 peer 声明为准。伴随扩展处理 `before_agent_start` 时须先判断事件是否包含 `prompt`；自定义消息触发的启动不能冒充当前请求的用户提示。
 
-SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；独立 MCP 设置与认证界面不属于此运行时接线。
+SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；专用 MCP 认证的版本与凭据边界见[认证与模型](auth-models.md#mcp-认证)。
 
 | 所有者 | 不变量 |
 | --- | --- |
@@ -38,6 +38,24 @@ SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所�
 | 浏览器 registry | 注册/注销、重复渲染、机器身份 |
 | backend/channel | 请求/响应预算、取消传播、scope、连接终止 |
 | browserRoot | 内容公开可读，不能放凭据 |
+
+## 浏览器贡献与状态归属
+
+当前公共入口是浏览器 API v5 与服务端 API v5，宿主仍支持浏览器 v4 和服务端 v3。旧类型名兼容保留，不代表旧入口自动获得 v5 的 catalog、作用域 backend、样式或高亮贡献。能力依赖按精确版本解析，浏览器/daemon 的配对状态依据真实 capability 与 revision，不从安装清单猜测已激活后端。
+
+v5 catalog 固定到创建时的机器，只提供脱离内部引用的公开项目、工作区与会话投影。backend 按 machine/project/workspace 选择目标，由宿主重新解析 authority，不信任插件传入的 cwd。普通 catalog 的当前管理 root 排除不代表历史文件已有耐久 scope；媒体与历史限制见[文件与终端](files-terminals.md#会话媒体)。Pi companion 使用公开 backend 桥接，不导入宿主私有服务。
+
+浏览器宿主统一装配应用级面板与工作区面板。应用级面板依附当前机器，即使尚未选择项目、工作区或会话也可存在；工作区面板依附已选工作区。Info 属于应用级面板，文件与终端等工作区资源仍通过所属机器和工作区的上下文访问，不能借用网关或另一机器的资源。
+
+选择由浏览器宿主持有，插件获得不含内部会话路径或消息正文的公开快照。生命周期绑定的 selection 服务在面板关闭时仍可通知基本选择变化；订阅随插件生命周期结束。项目发现服务与 selection 不同：它固定到创建上下文时的机器，只读查询注册项目和目录建议，后续切换机器不改变已保留服务的目标。
+
+提示上下文 chip 由浏览器插件宿主持有，以插件、机器、会话标识及其工作目录隔离，仅存在于当前浏览器内存。面板关闭和导航不清除它，页面重载清除它。提交时将 chip 正文附加到普通提示词；只有服务端接受后才消费该次提交版本，失败保留，发送中的替换版本不被旧响应删除。它不是服务端任务状态，也不赋予插件跨会话发送权限。
+
+公开上下文与贡献契约见 [plugin-api.ts](../../src/plugin-api.ts)；装配与生命周期见[浏览器插件宿主目录](../../src/client/src/plugins/)，发送归属见[会话控制器](../../src/client/src/controllers/sessionController.ts)。
+
+主题/CSS 与语法高亮是浏览器贡献，样式注册和清理由宿主持有，异步高亮应遵守来源、可见性与生命周期。Markdown transformers 仅对完成后的文本派生浏览器 `displayText`，不修改 canonical 消息、store、模型输入或审计，也不变更实际 `thinkingLevel`。部分流式文本在完成前不应用变换；用户/模型正文不是中文翻译目标。
+
+Workflows 同时包含 Pi 提示词资源和浏览器/服务端插件。profile 默认安装保留用户的移除记忆，禁用浏览器集成不等于移除提示词；派发使用当前机器的项目/工作区 authority 与能力，不通过私有路由绕过。详见[公开指南](../plugins.md#workflows)。
 
 ## 公开 API 修改步骤
 
@@ -59,7 +77,7 @@ SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所�
 | 终端 | [TerminalFacade](../../pi-web-plugins/terminal/TerminalFacade.ts) | 必需能力、PTY、复制、断线和重复绑定 |
 | 任务 | [taskRunner](../../pi-web-plugins/workspace-tasks/taskRunner.ts) | 严格配置、确认、命令目标 |
 | Mermaid | [mermaid-engine](../../pi-web-plugins/mermaid/mermaid-engine.ts) | 手动模式、隔离、禁止网络、失败保留源码 |
-| 信息 | [pi-web-plugin](../../pi-web-plugins/info/pi-web-plugin.ts) | 诊断字段、目标工作区 |
+| 信息 | [pi-web-plugin](../../pi-web-plugins/info/pi-web-plugin.ts) | 无工作区状态、目标机器、可选工作区 |
 | 更新 | [updatesLogic](../../pi-web-plugins/updates/updatesLogic.ts) | 有效 profile、实际版本、正确重启建议 |
 | Relay | [package.json](../../pi-packages/relays/package.json) | 普通自动安装/移除记忆与管理 Skill 同步分离 |
 | Captain's Log | [行为说明](../../pi-packages/captains-log/docs/usage.md) | 可选安装、独立派生会话、源会话不变、模型费用 |

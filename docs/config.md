@@ -47,6 +47,36 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 默认值无需重启，适用于新会话。项目 Pi 设置、显式启动选择及每模型思考设置仍有既定优先级。默认模型必须启用，否则选择首个启用模型。恢复会话保留原模型与思考等级。其他共享 agent 设置（包、扩展、代理等）继续读真实 agent 目录的 `settings.json`。
 
+<a id="default-theme-and-streaming"></a>
+## 应用主题与发送默认值
+
+`defaultTheme` 是网关配置，形如 `{ "themeId": "plugin-id:theme-id", "auto": true }`：`themeId` 必须为限定贡献 ID，`auto` 必须为布尔值。`auto: true` 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。
+
+网关 `defaultStreamingBehavior` 为 `"steer"`（默认）或 `"followUp"`，决定流式工作期间编辑器的默认发送方式，不改变已在 daemon 中排队的消息。浏览器分区尺寸、编辑器偏好与普通导航顺序不是新的项目配置文件；导航顺序是按机器管理的托管状态，管理模式不共用普通存储。
+
+<a id="session-naming-and-archives"></a>
+## 会话命名与归档
+
+机器配置 `sessionNaming` 仅接受以下可选字段，不提供项目覆盖。设置保存后用于后续命名请求，无需重启；每次请求固定自己的有效设置，不覆盖用户已命名会话，也不切换聊天模型。
+
+| 字段 | 默认值 | 约束 |
+| --- | --- | --- |
+| `model` | 当前会话模型 | 精确 `provider/model-id`；使用原会话普通项目或管理 registry |
+| `maxTokens` | `24` | 正安全整数 |
+| `thinkingLevel` | `minimal` | 已知思考等级；`off` 不发送 reasoning 参数 |
+| `timeoutMs` | `10000` | 总耗时，整数 `1..2147483647` 毫秒 |
+
+模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。
+
+`sessionArchive.directory` 选择新归档内容目的地，非空环境变量 `PI_WEB_SESSION_ARCHIVE_DIR` 优先；默认 `$PI_WEB_DATA_DIR/archived-sessions`。配置路径或环境路径相对进程 cwd 解析为绝对路径，daemon 启动后固定，修改需重启 daemon。归档索引仍是 `$PI_WEB_DATA_DIR/archived-sessions.json`，已有记录继续指向原归档文件，不自动迁移。备份时覆盖索引、旧目录与新目的地，不只复制默认目录。
+
+<a id="mcp-settings-and-authentication"></a>
+## MCP 设置与认证
+
+**设置 → MCP** 管理所选机器当前非归档会话中已启用、支持 OAuth 的 MCP 服务器认证；先选择可写、空闲且可信的会话。服务器配置由 Pi 的全局/项目设置和信任规则决定，这里不新增 `pi-web` MCP 服务器配置键，也不替代管理模式的 Workbench 受控 MCP 集成。
+
+专用认证仅支持所选 **Pi 1.3.0** 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见[认证与模型](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-认证)。
+
 <a id="reverse-proxy-deployment-paths"></a>
 ## 反向代理部署前缀
 
@@ -164,6 +194,10 @@ worktree_path="$1"
 | 插件期望状态 | `plugins.<id>.enabled/settings` | — | 机器 | 浏览器刷新；服务端重启后刷新 |
 | 插件恢复 | `serverPlugins.safeStart` | — | 机器离线恢复 | 下次 daemon 启动前应用 |
 | 快捷键 | `shortcuts.<actionId>` | — | 网关 | 保存/刷新配置 |
+| 默认主题 | `defaultTheme.themeId/auto` | — | 网关 | 浏览器覆盖优先；保存/刷新配置 |
+| 流式发送默认方式 | `defaultStreamingBehavior` | — | 网关 | `steer` 或 `followUp`；默认 `steer` |
+| 会话命名 | `sessionNaming.model/maxTokens/thinkingLevel/timeoutMs` | — | 机器 | 后续命名请求生效；无项目覆盖 |
+| 归档目的地 | `sessionArchive.directory` | `PI_WEB_SESSION_ARCHIVE_DIR` | daemon | 重启；不迁移既有归档或索引 |
 | 项目版本 | `version` | — | 项目 | 存在时必须为 `1` |
 | 配置文件 | — | `PI_WEB_CONFIG`、`XDG_CONFIG_HOME` | 进程 | 改环境后重启；不是项目配置 |
 | 托管数据 | — | `PI_WEB_DATA_DIR` | Web/API + daemon | 两进程对齐重启；不自动迁移数据 |
@@ -239,7 +273,7 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 <a id="managed-data-directory"></a>
 ### 托管数据目录
 
-默认 `~/.pi-web` 保存项目/机器注册表、本地插件、默认 daemon socket、归档及项目认证/偏好。新目录是独立实例，没有原注册表和归档，不自动迁移。需要迁移时先停服务，复制 `archived-sessions.json` 和 `archived-sessions/` 后再启动。
+默认 `~/.pi-web` 保存项目/机器注册表、本地插件、默认 daemon socket、归档索引及项目认证/偏好。新目录是独立实例，没有原注册表和归档，不自动迁移。需要迁移时先停服务，复制 `archived-sessions.json` 和每条记录指向的归档内容，包括自定义目的地；仅复制默认 `archived-sessions/` 不保证完整。
 
 一个目录只能有一个活跃 daemon。第二实例需要独立数据目录、daemon endpoint 和 Web 端口。过期所有权通常自动恢复；启动仍拒绝时，必须先确认所报进程已退出，再按错误提示处理 `sessiond-owner.json`。不要删除活跃所有权文件。
 
@@ -407,7 +441,7 @@ pi-web plugins safe-start clear --restart
 
 从 **设置 → 键盘** 编辑、录制、禁用或重置。`mod` 为 Ctrl/⌘，浏览器/系统可占用组合。应用支持单键和序列；无修饰键及仅 Shift 的绑定不在 input/textarea/select/contenteditable 内开始。序列 1.2 秒到期，Escape/焦点变化取消；自定义优先，同优先级按 action ID；短绑定遮蔽同前缀长序列。
 
-编辑器发送绑定只接受一个组合。桌面默认 Enter；粗主指针（常见触屏）或 ≤760px 默认 Shift+Enter，键仍为 `composer.send.mobile`。未分配 Enter/Shift+Enter 插入换行；普通 Enter 优先接受选中补全。编辑器内发送绑定优先于应用快捷键，空草稿或不可发送时也如此。`null` 禁用键盘提交，不禁用按钮。
+编辑器发送绑定只接受一个组合。宽度 >760px 默认 Enter；宽度 ≤760px 默认 Shift+Enter，键仍为 `composer.send.mobile`，不因宽屏触控或粗指针改用窄屏规则。未分配 Enter/Shift+Enter 插入换行；普通 Enter 优先接受选中补全。编辑器内发送绑定优先于应用快捷键，空草稿或不可发送时也如此。`null` 禁用键盘提交，不禁用按钮。
 
 对应绑定未配置前保留浏览器旧 Enter 偏好，重置回该回退；不把旧偏好自动复制到共享配置。触屏键盘自动首字母大写不视为 Shift。
 

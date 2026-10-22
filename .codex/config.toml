@@ -1,0 +1,24 @@
+# New restricted code sessions default to documentation read-only.
+# Select pi_web_docs explicitly for an approved independent documentation run.
+# This file does not change the permissions of an already-running parent turn.
+# Custom agents inherit their parent's permissions, not a role-specific sandbox.
+# An explicit legacy sandbox_mode (including user-level full access) takes precedence.
+
+default_permissions = "pi_web_code"
+
+[permissions.pi_web_code]
+description = "Code changes with documentation read-only."
+extends = ":workspace"
+
+[permissions.pi_web_code.filesystem.":workspace_roots"]
+"docs" = "read"
+"README.md" = "read"
+"AGENTS.md" = "read"
+"CHANGELOG.md" = "read"
+
+[permissions.pi_web_docs]
+description = "Read the project and write only the documentation library."
+extends = ":read-only"
+
+[permissions.pi_web_docs.filesystem.":workspace_roots"]
+"docs" = "write"

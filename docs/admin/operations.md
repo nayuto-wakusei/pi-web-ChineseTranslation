@@ -38,6 +38,8 @@ pi-web logs
 
 `logs` 可能持续跟随输出，用 Ctrl+C 退出。UI 的“信息”插件提供状态与可复制诊断，“更新”插件提供检查和适用的更新/重启建议；它们不替代真实部署验收。分享诊断前删去敏感路径、用户信息和服务地址。
 
+`pi-web version` 读取本地安装及本实例 Web/daemon 的运行状态，可能请求本实例 HTTP，但不查询 npm registry；`pi-web version --check` 才增加 registry 版本检查。启动 banner 使用实际监听端口及网卡地址，只描述本机监听，不证明防火墙、代理或远端网络可达。
+
 排查顺序：浏览器错误/网络 → Web 状态 → daemon 状态 → 目标工作区 → 模型/插件后端。未认证 `/api/pi-web/status` 的 401 应先处理认证，不直接判定服务损坏。
 
 ## 活动、未读与通知
@@ -90,6 +92,16 @@ npm run dev:client
 这是三个独立常驻进程，不是同一 shell 顺序等待执行完毕的脚本。端口以终端输出为准；标准 Vite 通常为 8505。Docker 控制方式使用 [Docker 指南](../../docker/README.md)，不要把宿主 systemd 命令套进容器。
 
 ## 插件与包的恢复
+
+### 安装更新
+
+`pi-web update [--yes] [--force]` 按当前中文包 `@chainingintention/pi-web-cn` 的实际安装方式、有效 Pi profile 与安装 root 确定目标，不更新 PATH 上另一份同名安装。非交互环境必须显式 `--yes`；npm 更新先确定精确版本，确认后的执行固定该版本，`--force` 仅用于已是当前版本时重新安装 npm-global 包。
+
+本地 checkout 必须干净且可 fast-forward，不自动合并或清理用户修改；任一更新/安装/构建步骤失败，不继续重启。自动原生服务更新仅支持 Linux/macOS 的已识别服务；Windows、未知安装及不支持的嵌套执行应在原安装工具或宿主终端处理，不绕过拒绝。
+
+从 PI WEB 托管的会话发起时，可通过独立 systemd 用户单元或 launchd 用户 agent 交接，避免更新过程被自身 daemon 重启中断。交接返回只证明已派发，不证明实机升级完成；macOS 子进程重新核对 canonical profile 与安装摘要，不传递管理秘密。应查看交接日志，再分别核对安装、Web/daemon 版本及服务状态。入口见 [piWebUpdate.ts](../../src/piWebUpdate.ts)；安装操作见[安装页](../install.html#update)。
+
+### 插件恢复
 
 Pi 包负责安装资源，PI WEB 插件负责启用集成；“包已安装”不保证插件已激活。多数插件默认启用，服务端状态变更要重启，重启前期望状态与实际状态可能不同。
 
