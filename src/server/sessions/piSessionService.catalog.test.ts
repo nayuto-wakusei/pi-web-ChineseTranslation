@@ -6,7 +6,7 @@ describe("read-only session catalog", () => {
   it.each([false, true])("excludes management runtimes even with full privileges: %s", async (fullPrivileges) => {
     const fake = fakeRuntime("managed");
     const record = { ...sessionRecord("managed"), path: fake.session.sessionFile ?? "" };
-    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", modelRuntime: testModelRuntime, sessionManager: sessionGateway([record]), archiveStore: emptyArchiveStore(), createAgentRuntime: runtimeCreator(fake.runtime) });
+    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", projectPathForCwd: (cwd) => Promise.resolve(cwd === "/workspace" ? cwd : undefined), modelRuntime: testModelRuntime, sessionManager: sessionGateway([record]), archiveStore: emptyArchiveStore(), createAgentRuntime: runtimeCreator(fake.runtime) });
     try {
       const managementContext = { ...testManagementContext(), ...(fullPrivileges ? { privileged: { bash: true, network: true } } : {}) };
       await service.start("/workspace", { managementContext });
@@ -19,7 +19,7 @@ describe("read-only session catalog", () => {
     const open = vi.spyOn(gateway, "open");
     const createRuntime = vi.fn(runtimeCreator(fakeRuntime().runtime));
     const events = new CapturingSessionEventHub();
-    const service = new PiSessionService(events, { agentDir: "/tmp/pi-web-test-agent", modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore(), createAgentRuntime: createRuntime });
+    const service = new PiSessionService(events, { agentDir: "/tmp/pi-web-test-agent", projectPathForCwd: (cwd) => Promise.resolve(cwd === "/workspace" ? cwd : undefined), modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore(), createAgentRuntime: createRuntime });
     try {
       expect(await service.listCatalogSessions("/workspace")).toEqual([
         { id: "cold", cwd: "/workspace", archived: false, runtime: "not-hosted" },
@@ -35,7 +35,7 @@ describe("read-only session catalog", () => {
   it("reports already-hosted idle/busy sessions, without assigning runtime state to a cloned file", async () => {
     const fake = fakeRuntime("live");
     const gateway = sessionGateway([]);
-    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore(), createAgentRuntime: runtimeCreator(fake.runtime) });
+    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", projectPathForCwd: (cwd) => Promise.resolve(cwd === "/workspace" ? cwd : undefined), modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore(), createAgentRuntime: runtimeCreator(fake.runtime) });
     try {
       await service.start("/workspace");
       expect((await service.listCatalogSessions("/workspace"))[0]?.runtime).toBe("idle");
@@ -52,7 +52,7 @@ describe("read-only session catalog", () => {
   it("rejects cancelled reads before touching storage", async () => {
     const gateway = sessionGateway([]);
     const list = vi.spyOn(gateway, "list");
-    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore() });
+    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", projectPathForCwd: (cwd) => Promise.resolve(cwd === "/workspace" ? cwd : undefined), modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: emptyArchiveStore() });
     try {
       await expect(service.listCatalogSessions("/workspace", AbortSignal.abort())).rejects.toThrow();
       expect(list).not.toHaveBeenCalled();

@@ -439,6 +439,8 @@ export class ChatView extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.pendingNotificationFocus = undefined;
+    this.retainedEmptyNotificationTrayTargetKey = undefined;
     this.scrollFlows.dispose();
     this.messageActionController.reset();
     this.queuedCopyGeneration += 1;

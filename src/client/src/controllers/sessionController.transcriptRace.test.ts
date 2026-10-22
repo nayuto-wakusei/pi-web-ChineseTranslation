@@ -135,13 +135,17 @@ describe("SessionController snapshot reconciliation", () => {
       await h.controller.selectSession(oldSession, { updateUrl: false });
       const first = deferred<SessionTranscriptSnapshot>();
       const trailing = deferred<SessionTranscriptSnapshot>();
+      const firstStarted = deferred<undefined>();
       const trailingStarted = deferred<undefined>();
-      h.transcriptSnapshot.mockImplementationOnce(() => first.promise).mockImplementationOnce(() => {
+      h.transcriptSnapshot.mockImplementationOnce(() => {
+        firstStarted.resolve(undefined);
+        return first.promise;
+      }).mockImplementationOnce(() => {
         trailingStarted.resolve(undefined);
         return trailing.promise;
       });
       const firstRefresh = h.controller.refreshSelectedSession();
-      await Promise.resolve();
+      await firstStarted.promise;
       h.socket.emit(secondUserEvent());
       h.socket.emit({ type: "assistant.delta", text: "new", seq: 13 });
       const trailingRefresh = h.controller.refreshSelectedSession();

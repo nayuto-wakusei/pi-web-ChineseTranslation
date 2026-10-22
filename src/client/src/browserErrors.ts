@@ -9,9 +9,12 @@ export type BrowserErrorScope =
   | { kind: "workspace"; machineId: string; projectId: string; workspaceId: string }
   | { kind: "session"; machineId: string; sessionId: string; cwd?: string; projectId?: string; workspaceId?: string };
 
+export type BrowserErrorRecovery = "session-refresh" | "workspace-sessions-refresh";
+
 export interface BrowserError {
   scope: BrowserErrorScope;
   message: string;
+  recovery?: BrowserErrorRecovery;
 }
 
 export type BrowserErrorMap = Record<string, BrowserError>;
@@ -64,8 +67,8 @@ export function browserErrorScopeKey(scope: BrowserErrorScope): string {
   }
 }
 
-export function reportBrowserError(errors: BrowserErrorMap, scope: BrowserErrorScope, message: string): BrowserErrorMap {
-  return { ...errors, [browserErrorScopeKey(scope)]: { scope, message } };
+export function reportBrowserError(errors: BrowserErrorMap, scope: BrowserErrorScope, message: string, recovery?: BrowserErrorRecovery): BrowserErrorMap {
+  return { ...errors, [browserErrorScopeKey(scope)]: { scope, message, ...(recovery === undefined ? {} : { recovery }) } };
 }
 
 export function clearBrowserError(errors: BrowserErrorMap, scope: BrowserErrorScope, message?: string): BrowserErrorMap {
@@ -100,8 +103,19 @@ export function visibleBrowserErrors(errors: BrowserErrorMap, context: BrowserEr
 export class BrowserErrorReporter {
   constructor(private readonly getState: GetState, private readonly setState: SetState) {}
 
-  report(scope: BrowserErrorScope, message: string): void {
-    this.setState({ browserErrors: reportBrowserError(this.getState().browserErrors, scope, message) });
+  report(scope: BrowserErrorScope, message: string, recovery?: BrowserErrorRecovery): void {
+    this.setState({ browserErrors: reportBrowserError(this.getState().browserErrors, scope, message, recovery) });
+  }
+
+  captureRecovery(scope: BrowserErrorScope, recovery: BrowserErrorRecovery): BrowserError | undefined {
+    const error = this.getState().browserErrors[browserErrorScopeKey(scope)];
+    return error?.recovery === recovery ? error : undefined;
+  }
+
+  /** Identical text does not make a newer failure owned by an older read. */
+  clearRecovered(error: BrowserError | undefined): void {
+    if (error?.recovery === undefined || this.getState().browserErrors[browserErrorScopeKey(error.scope)] !== error) return;
+    this.clear(error.scope);
   }
 
   clear(scope: BrowserErrorScope, message?: string): void {

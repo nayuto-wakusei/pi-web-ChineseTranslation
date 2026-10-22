@@ -243,7 +243,7 @@ export class AppNavigationPanel extends LitElement {
     const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions || this.onTogglePanel !== undefined;
     return html`
       ${showHeader ? html`<header>
-        ${this.onTogglePanel === undefined ? null : html`<button class="panel-toggle" title=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-label=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} @click=${() => { this.onTogglePanel?.(); }}>‹</button>`}
+        ${this.onTogglePanel === undefined ? null : html`<button type="button" class="panel-toggle" title=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-label=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-controls="navigation-panel" aria-expanded="true" @click=${() => { this.onTogglePanel?.(); }}>‹</button>`}
         ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
         ${showMachineSwitcher ? html`
           <machine-switcher

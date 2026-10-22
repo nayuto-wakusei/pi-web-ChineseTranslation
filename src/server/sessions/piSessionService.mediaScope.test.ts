@@ -36,6 +36,7 @@ function fixture(options: { normalFile?: string; normalCwd?: string } = {}) {
     readEntries,
   };
   const service = new PiSessionService(hub, {
+    projectPathForCwd: (cwd) => Promise.resolve(cwd === (options.normalCwd ?? "/workspace") ? cwd : undefined),
     translator: createTranslator("en", {}), modelRuntime: testModelRuntime, managementModelRuntime: testModelRuntime,
     archiveStore, createAgentRuntime: create, sessionManager: gateway, heartbeatIntervalMs: 60_000,
   });

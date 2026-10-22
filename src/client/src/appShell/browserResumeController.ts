@@ -22,15 +22,16 @@ export interface BrowserResumeControllerOptions {
   scheduleFrame?: ((callback: () => void) => ScheduledFrame) | undefined;
 }
 
-/** Owns browser resume listeners and batches focus/visibility refreshes per frame. */
+/** Owns browser resume listeners and batches refreshes within one connection. */
 export class BrowserResumeController {
   private readonly windowTarget: BrowserEventTarget | undefined;
   private readonly documentTarget: BrowserEventTarget | undefined;
   private readonly isDocumentVisible: () => boolean;
   private readonly scheduleFrame: (callback: () => void) => ScheduledFrame;
-  private readonly refreshes = new TrailingRefreshCoordinator<"browser-resume">();
+  private refreshes = new TrailingRefreshCoordinator<"browser-resume">();
   private scheduledRefresh: ScheduledFrame | undefined;
   private connected = false;
+  private connectionEpoch = 0;
 
   constructor(private readonly callbacks: BrowserResumeCallbacks, options: BrowserResumeControllerOptions = {}) {
     this.windowTarget = options.windowTarget ?? browserWindowTarget();
@@ -42,36 +43,39 @@ export class BrowserResumeController {
   connect(): void {
     if (this.connected) return;
     this.connected = true;
-    this.windowTarget?.addEventListener("focus", this.onFocus);
-    this.documentTarget?.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.connectionEpoch += 1;
+    this.refreshes = new TrailingRefreshCoordinator<"browser-resume">();
+    for (const type of ["focus", "pageshow", "online"]) this.windowTarget?.addEventListener(type, this.onResume);
+    this.documentTarget?.addEventListener("visibilitychange", this.onResume);
   }
 
   disconnect(): void {
     if (!this.connected) return;
     this.connected = false;
-    this.windowTarget?.removeEventListener("focus", this.onFocus);
-    this.documentTarget?.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.connectionEpoch += 1;
+    for (const type of ["focus", "pageshow", "online"]) this.windowTarget?.removeEventListener(type, this.onResume);
+    this.documentTarget?.removeEventListener("visibilitychange", this.onResume);
     this.scheduledRefresh?.cancel();
     this.scheduledRefresh = undefined;
   }
 
-  private readonly onFocus: EventListener = () => {
+  private readonly onResume: EventListener = () => {
     this.handleResumeSignal();
   };
 
-  private readonly onVisibilityChange: EventListener = () => {
-    if (this.isDocumentVisible()) this.handleResumeSignal();
-  };
-
   private handleResumeSignal(): void {
+    if (!this.connected || !this.isDocumentVisible()) return;
     this.callbacks.onResumeSignal();
     if (this.scheduledRefresh !== undefined) return;
+    const epoch = this.connectionEpoch;
+    const refreshes = this.refreshes;
+    const isCurrent = () => this.connected && epoch === this.connectionEpoch;
     this.scheduledRefresh = this.scheduleFrame(() => {
+      if (!isCurrent()) return;
       this.scheduledRefresh = undefined;
-      if (!this.connected) return;
-      void this.refreshes.request("browser-resume", async () => {
-        if (this.connected) await this.callbacks.refreshAfterResume();
-      }).catch((error: unknown) => { this.callbacks.onRefreshError(error); });
+      void refreshes.request("browser-resume", async () => {
+        if (isCurrent() && this.isDocumentVisible()) await this.callbacks.refreshAfterResume();
+      }).catch((error: unknown) => { if (isCurrent()) this.callbacks.onRefreshError(error); });
     });
   }
 }

@@ -110,11 +110,11 @@ describe("PiWebApp realtime session-list recovery", () => {
     if (onOpen === undefined) throw new Error("Realtime onOpen callback was unavailable");
 
     onOpen();
-    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local");
+    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local", { recoverNetwork: true });
 
     refreshSessions.mockClear();
     onOpen();
-    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local");
+    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith("local", { recoverNetwork: true });
   });
 });
 

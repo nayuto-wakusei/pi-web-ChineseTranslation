@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { api as defaultApi, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
 import { isManagementEmbedMode } from "../api/managementEmbed";
+import { NetworkRequestError } from "../api/http";
 import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -23,6 +24,7 @@ import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchiv
 import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationFreshness, type NavigationScope, type NavigationSelection, type SetState, type UpdateUrl } from "./types";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { isTransientSessionDaemonRequestError, sessionDaemonErrorText } from "../sessionDaemonError";
+import { readWithNetworkRecovery } from "./networkReadRecovery";
 
 const MESSAGE_PAGE_SIZE = 100;
 const SEARCH_JUMP_PAGE_SIZE = 500;
@@ -131,6 +133,7 @@ interface SelectedSessionRefreshTarget {
   machineId: string;
   selectionSeq: number;
   errorOwner: SessionBrowserErrorOwner;
+  recoverNetwork?: boolean;
   navigation?: NavigationFreshness | undefined;
 }
 
@@ -172,6 +175,11 @@ export class SessionController {
   private lastAppliedSelectedRefresh: { selectionSeq: number; partialJson: string } | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
   private refreshEventBuffer: SelectedSessionRefreshBuffer | undefined;
+  private selectedSessionRecoveryTarget: SelectedSessionRefreshTarget | undefined;
+  private selectedReadGeneration = 0;
+  private workspaceReadGeneration = 0;
+  private readonly selectedReadRecoveries = new Set<AbortController>();
+  private readonly workspaceReadRecoveries = new Set<AbortController>();
   private initialSnapshotReady: { selectionSeq: number; complete: () => void } | undefined;
   private pendingStatusBySession = new Map<string, SessionStatus>();
   private pendingActivityBySession = new Map<string, SessionActivity>();
@@ -185,6 +193,7 @@ export class SessionController {
   private readonly pendingSessionStarts = new Map<string, PendingSessionStart>();
   private readonly suppressedCreatedSessions = new Map<string, SuppressedCreatedSession>();
   private readonly selectedSessionRefreshes = new TrailingRefreshCoordinator<string>();
+  private readonly workspaceSessionRefreshes = new TrailingRefreshCoordinator<string>();
 
   constructor(
     private readonly getState: GetState,
@@ -224,6 +233,7 @@ export class SessionController {
 
   dispose() {
     this.disposed = true;
+    this.retireReadRecoveries(["machine"]);
     this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.searchSeq += 1;
@@ -248,6 +258,7 @@ export class SessionController {
   }
 
   clearActiveSession() {
+    this.retireReadRecoveries(["session"]);
     this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;
@@ -411,6 +422,7 @@ export class SessionController {
 
   async selectSession(session: SessionInfo, options?: SessionSelectionOptions) {
     if (this.disposed || !navigationIsCurrent(options?.navigation)) return;
+    this.retireReadRecoveries(["session"]);
     if (isClientPendingStartSessionInfo(session)) {
       this.selectClientPendingStartSession(session, options);
       return;
@@ -450,11 +462,13 @@ export class SessionController {
     let socketConnected = false;
     try {
       if (session.archived === true) {
+        const recoveryError = this.browserErrors.captureRecovery(sessionBrowserErrorScope(machineId, session.id, errorOwner), "session-refresh");
         const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, machineId);
         const selected = this.getState().selectedSession;
         if (seq !== this.selectionSeq || selectedMachineId(this.getState()) !== machineId
           || selected?.id !== session.id || selected.cwd !== session.cwd || selected.path !== session.path
           || selected.archived !== session.archived || !navigationIsCurrent(options?.navigation)) return;
+        this.browserErrors.clearRecovered(recoveryError);
         const history = this.transcripts.mergeHistory(transcriptKey, page);
         this.setState({ ...history, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [] });
         this.onSelectedSessionReady?.({ machineId, session });
@@ -466,7 +480,11 @@ export class SessionController {
         (event) => {
           if (this.isCurrentSessionSelection(session.id, machineId, seq)) this.applyEvent(event);
         },
-        () => { void this.refreshSelectedSession(session.id, { silent: true }); },
+        () => {
+          if (this.isCurrentSessionSelection(session.id, machineId, seq) && this.isSelectedSessionScope(session, machineId)) {
+            void this.refreshSelectedSession(session.id, { recoverNetwork: true });
+          }
+        },
         machineId,
         () => {
           const selected = this.getState().selectedSession;
@@ -1119,31 +1137,74 @@ export class SessionController {
     await this.refreshCurrentWorkspaceSessions(machineId);
   }
 
-  async refreshCurrentWorkspaceSessions(machineId = selectedMachineId(this.getState())): Promise<void> {
+  /** Retire reads, not mutations; session-only navigation keeps the workspace list alive. */
+  retireReadRecoveries(scope: readonly NavigationScope[]): void {
+    const workspace = scope.some((field) => field === "machine" || field === "project" || field === "workspace");
+    if (workspace || scope.includes("session")) {
+      this.selectedReadGeneration += 1;
+      for (const controller of this.selectedReadRecoveries) controller.abort();
+      this.selectedReadRecoveries.clear();
+      this.refreshEventBuffer = undefined;
+    }
+    if (workspace) {
+      this.workspaceReadGeneration += 1;
+      for (const controller of this.workspaceReadRecoveries) controller.abort();
+      this.workspaceReadRecoveries.clear();
+    }
+  }
+
+  async refreshCurrentWorkspaceSessions(machineId = selectedMachineId(this.getState()), options?: { recoverNetwork?: boolean }): Promise<void> {
     const workspace = this.getState().selectedWorkspace;
     if (workspace === undefined) return;
+    const generation = this.workspaceReadGeneration;
+    const navigation = this.beginNavigationOperation?.(["machine", "project", "workspace"]);
+    const isCurrent = () => !this.disposed && generation === this.workspaceReadGeneration
+      && navigationIsCurrent(navigation) && selectedMachineId(this.getState()) === machineId
+      && this.getState().selectedWorkspace?.id === workspace.id
+      && this.getState().selectedWorkspace?.projectId === workspace.projectId
+      && this.getState().selectedWorkspace?.path === workspace.path;
+    const scope = workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id);
     try {
-      const listedSessions = mergeCachedNewSessions(workspace.path, await this.api.sessions(workspace.path, machineId), machineId)
-        .filter((session) => !this.isSuppressedCreatedSession(session, machineId));
-      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedWorkspace?.id !== workspace.id) return;
-      const sessions = this.mergePendingStartSessions(workspace.path, listedSessions, machineId);
-      const selectedSession = this.getState().selectedSession;
-      this.setState({ sessions });
-      void this.refreshPinnedSessions(workspace.path, machineId);
-      const expected = this.navigationSelection();
-      if (selectedSession === undefined) return;
-      const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
-      if (refreshedSelected !== undefined) {
-        if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
+      await this.workspaceSessionRefreshes.request(JSON.stringify([machineId, workspace.projectId, workspace.id, workspace.path]), async () => {
+        if (!isCurrent()) return;
+        const recoveryError = this.browserErrors.captureRecovery(scope, "workspace-sessions-refresh");
+        const read = () => this.api.sessions(workspace.path, machineId);
+        const controller = new AbortController();
+        this.workspaceReadRecoveries.add(controller);
+        let loaded: SessionInfo[] | undefined;
+        try {
+          loaded = await readWithNetworkRecovery(read, isCurrent, controller.signal, options?.recoverNetwork === true);
+        } finally {
+          this.workspaceReadRecoveries.delete(controller);
+        }
+        if (loaded === undefined || !isCurrent()) return;
+        this.browserErrors.clearRecovered(recoveryError);
+        const listedSessions = mergeCachedNewSessions(workspace.path, loaded, machineId)
+          .filter((session) => !this.isSuppressedCreatedSession(session, machineId));
+        const sessions = this.mergePendingStartSessions(workspace.path, listedSessions, machineId);
+        const selectedSession = this.getState().selectedSession;
+        this.setState({ sessions });
+        void this.refreshPinnedSessions(workspace.path, machineId);
+        const expected = this.navigationSelection();
+        if (selectedSession === undefined) return;
+        const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
+        if (refreshedSelected !== undefined) {
+          if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
+          return;
+        }
+        const candidates = this.automaticSessionCandidates(sessions);
+        const next = candidates.find((session) => session.archived !== true) ?? candidates[0];
+        if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
+        else await this.clearSessionAfterNavigation(expected);
+      });
+    } catch (error) {
+      if (this.disposed || generation !== this.workspaceReadGeneration || (options?.recoverNetwork === true && !isCurrent())) return;
+      if (error instanceof NetworkRequestError) {
+        this.browserErrors.report(scope, t("client.sessionController.sessionListRefreshUnavailable", "The session list could not be refreshed. Check your connection and retry."), "workspace-sessions-refresh");
         return;
       }
-      const candidates = this.automaticSessionCandidates(sessions);
-      const next = candidates.find((session) => session.archived !== true) ?? candidates[0];
-      if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
-      else await this.clearSessionAfterNavigation(expected);
-    } catch (error) {
       if (isTransientSessionDaemonRequestError(error)) {
-        console.warn("Workspace session list refresh timed out", error);
+        console.warn("Workspace session list refresh timed out", { machineId, workspaceId: workspace.id, errorCategory: "session-list-refresh" });
         return;
       }
       this.reportWorkspaceError(workspace, machineId, error);
@@ -1564,7 +1625,7 @@ export class SessionController {
     }
   }
 
-  refreshSelectedSession(sessionId = this.getState().selectedSession?.id, options?: { silent?: boolean }): Promise<void> {
+  refreshSelectedSession(sessionId = this.getState().selectedSession?.id, options?: { silent?: boolean; recoverNetwork?: boolean }): Promise<void> {
     const session = this.getState().selectedSession;
     if (sessionId === undefined || session?.id !== sessionId || this.selectedSessionLoadDeferred || session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
     const machineId = selectedMachineId(this.getState());
@@ -1573,10 +1634,17 @@ export class SessionController {
       machineId,
       selectionSeq: this.selectionSeq,
       errorOwner: this.captureSessionErrorOwner(session),
+      ...(options?.recoverNetwork === true ? { recoverNetwork: true } : {}),
     };
+    const generation = this.selectedReadGeneration;
     return this.requestSelectedSessionRefresh(target).catch((error: unknown) => {
+      if (this.disposed || generation !== this.selectedReadGeneration || (options?.recoverNetwork === true && !this.isCurrentRefreshTarget(target))) return;
       if (options?.silent === true) {
-        console.warn("Selected session background refresh failed", error);
+        console.warn("Selected session background refresh failed", { machineId, sessionId: session.id, errorCategory: "session-refresh" });
+        return;
+      }
+      if (error instanceof NetworkRequestError) {
+        this.browserErrors.report(sessionBrowserErrorScope(machineId, session.id, target.errorOwner), t("client.sessionController.conversationRefreshUnavailable", "The conversation could not be refreshed. Check your connection and retry."), "session-refresh");
         return;
       }
       this.reportSessionError(target.session, target.machineId, error, target.errorOwner);
@@ -1619,25 +1687,53 @@ export class SessionController {
   private requestSelectedSessionRefresh(target: SelectedSessionRefreshTarget): Promise<void> {
     if (!this.isCurrentRefreshTarget(target)) return Promise.resolve();
     const key = machineSessionKey(target.machineId, target.session.id);
-    this.bufferRefreshEvents(target);
+    const generation = this.selectedReadGeneration;
+    const isCurrent = () => generation === this.selectedReadGeneration && this.isCurrentRefreshTarget(target);
+    if (this.selectedSessionRecoveryTarget === undefined || !this.isCurrentRefreshTarget(this.selectedSessionRecoveryTarget)) {
+      this.bufferRefreshEvents(target);
+    }
     // Inbox completion and errors do not own transcript readiness.
     void Promise.resolve().then(() => {
-      if (this.isCurrentRefreshTarget(target)) return this.refreshSessionNotifications(target.session, target.machineId);
+      if (isCurrent()) return this.refreshSessionNotifications(target.session, target.machineId);
       return undefined;
     });
     return this.selectedSessionRefreshes.request(key, async () => {
-      if (this.isCurrentRefreshTarget(target)) await this.readSelectedSessionSnapshot(target, key);
+      if (!isCurrent()) return;
+      const controller = new AbortController();
+      this.selectedReadRecoveries.add(controller);
+      if (target.recoverNetwork === true) this.selectedSessionRecoveryTarget = target;
+      try {
+        await readWithNetworkRecovery(() => this.readSelectedSessionSnapshot(target, key, () => isCurrent() && !controller.signal.aborted, controller.signal), isCurrent, controller.signal, target.recoverNetwork === true);
+      } finally {
+        this.selectedReadRecoveries.delete(controller);
+        if (this.selectedSessionRecoveryTarget === target) this.selectedSessionRecoveryTarget = undefined;
+      }
     });
   }
 
-  private async readSelectedSessionSnapshot(target: SelectedSessionRefreshTarget, key: string): Promise<void> {
+  private async readSelectedSessionSnapshot(target: SelectedSessionRefreshTarget, key: string, isCurrent: () => boolean, signal?: AbortSignal): Promise<void> {
     const buffer = this.bufferRefreshEvents(target);
     const historyRevision = this.transcripts.historyRevision(key);
     const observeRuntime = this.observeSessionSnapshot?.(target.machineId, target.session.id);
     let appliedHistoryRevision: number;
+    const recoveryError = this.browserErrors.captureRecovery(sessionBrowserErrorScope(target.machineId, target.session.id, target.errorOwner), "session-refresh");
+    let released = false;
+    const releaseBuffer = () => {
+      if (released) return;
+      released = true;
+      if (this.refreshEventBuffer === buffer) this.refreshEventBuffer = undefined;
+      if (isCurrent()) {
+        for (const event of buffer.events) {
+          if (!isCurrent()) break;
+          this.applyEvent(event);
+        }
+      }
+    };
+    signal?.addEventListener("abort", releaseBuffer, { once: true });
     try {
       const snapshot = await this.transcriptSnapshot(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId);
-      if (!this.isCurrentRefreshTarget(target) || this.transcripts.historyRevision(key) !== historyRevision) return;
+      if (!isCurrent() || this.transcripts.historyRevision(key) !== historyRevision) return;
+      this.browserErrors.clearRecovered(recoveryError);
       const { page, status } = snapshot;
       this.preserveBufferedDialogOutcomes(buffer, snapshot.seq);
       if (!this.isUnchangedSelectedRefresh(target, key, page, status, snapshot)) {
@@ -1659,20 +1755,15 @@ export class SessionController {
       appliedHistoryRevision = this.transcripts.historyRevision(key);
       observeRuntime?.(status);
     } finally {
-      if (this.refreshEventBuffer === buffer) this.refreshEventBuffer = undefined;
       // A failed fetch leaves the previous baseline/watermark intact. Replay
       // its events there too, so failure never strands or loses live output.
       // A retired selection must not replay into the newly selected session.
-      if (this.isCurrentRefreshTarget(target)) {
-        for (const event of buffer.events) {
-          if (!this.isCurrentRefreshTarget(target)) break;
-          this.applyEvent(event);
-        }
-      }
+      signal?.removeEventListener("abort", releaseBuffer);
+      releaseBuffer();
     }
 
     if (this.transcripts.historyRevision(key) === appliedHistoryRevision
-      && this.isCurrentRefreshTarget(target)
+      && isCurrent()
       && this.initialSnapshotReady?.selectionSeq === target.selectionSeq) {
       this.initialSnapshotReady.complete();
     }
@@ -1852,6 +1943,7 @@ export class SessionController {
   }
 
   private selectClientPendingStartSession(session: ClientPendingStartSessionInfo, options?: { updateUrl?: boolean | undefined; activity?: SessionActivity | undefined; sessions?: SessionInfo[] | undefined }): void {
+    this.retireReadRecoveries(["session"]);
     this.selectedSessionLoadDeferred = false;
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;

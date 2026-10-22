@@ -35,6 +35,8 @@ export function historyMessagesFromEntries(entries: readonly unknown[]): unknown
 export function annotateAssistantThinkingLevel(message: unknown, thinkingLevel: string | undefined): unknown {
   if (thinkingLevel === undefined || thinkingLevel === "" || thinkingLevel === "off") return message;
   if (!isRecord(message) || message["role"] !== "assistant") return message;
+  // Pi records the physical model's level; the selected level is only a fallback.
+  if (typeof message["thinkingLevel"] === "string" && message["thinkingLevel"] !== "") return message;
   return { ...message, thinkingLevel };
 }
 

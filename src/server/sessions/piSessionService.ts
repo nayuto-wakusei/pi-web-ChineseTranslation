@@ -43,6 +43,7 @@ import {
   type ExtensionCommandContextActions,
   type ExtensionUIDialogOptions,
   type ExtensionUIContext,
+  type MarkdownTransformer,
   type ResourceDiagnostic,
   type Skill,
   type ToolDefinition,
@@ -50,7 +51,9 @@ import {
 } from "../../piSdk.js";
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionModelCatalogEntry, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot, SessionTranscriptSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
+import { projectTranscriptMarkdown } from "./transcriptMarkdown.js";
 import { messageHistoryTargetId } from "./messageHistoryTarget.js";
+import { normalSessionReadAllowed } from "./sessionReadAccess.js";
 import { isSessionMediaId } from "../../shared/sessionMedia.js";
 import type { SessionMedia } from "./sessionMediaIndex.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
@@ -501,6 +504,7 @@ export interface PiAgentSession {
   isBashRunning: boolean;
   pendingMessageCount: number;
   extensionRunner: {
+    getMarkdownTransformers?(): readonly MarkdownTransformer[];
     getRegisteredCommands(): readonly ({ invocationName: string; description?: string; sourceInfo?: { path: string } } & Pick<RegisteredCommand, "getArgumentCompletions">)[];
     getUIContext(): ExtensionUIContext;
     setUIContext(uiContext?: ExtensionUIContext, mode?: "rpc"): void;
@@ -1256,12 +1260,13 @@ export interface PiSessionServiceDependencies {
    */
   dataDir?: string;
   /**
-   * Resolve the registered project path for a session cwd. Used to isolate
-   * preference overrides between projects (and between normal vs management
-   * modes). Return `undefined` when no unique project applies (management
-   * orphan scopes).
+   * Resolve the registered project path without initializing credentials. Used
+   * to authorize ordinary media/catalog reads and isolate preference overrides.
+   * Return `undefined` when no unique project applies (management orphan scopes).
    */
   projectPathForCwd?: (cwd: string) => Promise<string | undefined>;
+  /** Current reserved management root, retained even when management is disabled. */
+  managementProjectRoot?: string;
   sessionManager?: PiSessionManagerGateway;
   createRuntime?: PiCreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
@@ -1397,6 +1402,7 @@ export class PiSessionService {
   private readonly agentDir: string;
   private readonly dataDir: string;
   private readonly projectPathForCwd: ((cwd: string) => Promise<string | undefined>) | undefined;
+  private readonly managementProjectRoot: string | undefined;
   private readonly sessionManager: PiSessionManagerGateway;
   private readonly createRuntime: PiCreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
@@ -1449,6 +1455,7 @@ export class PiSessionService {
     this.agentDir = deps.agentDir ?? getAgentDir();
     this.dataDir = deps.dataDir ?? piWebDataDir();
     this.projectPathForCwd = deps.projectPathForCwd;
+    this.managementProjectRoot = deps.managementProjectRoot;
     this.sessionManager = deps.sessionManager ?? createPiSessionManagerGateway({
       agentDir: this.agentDir,
       env: process.env,
@@ -1758,6 +1765,8 @@ export class PiSessionService {
 
   /** Read-only plugin catalog: do not open runtimes or reconcile unread/activity state. */
   async listCatalogSessions(cwd: string, signal?: AbortSignal): Promise<readonly PluginSessionSnapshot[]> {
+    signal?.throwIfAborted();
+    await this.assertNormalSessionReadAccess(cwd);
     signal?.throwIfAborted();
     const [entries, archives] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     signal?.throwIfAborted();
@@ -2664,6 +2673,12 @@ export class PiSessionService {
     })).runtime.session;
   }
 
+  private browserTranscriptMessage(session: PiAgentSession, message: unknown): unknown {
+    return projectTranscriptMarkdown(message, session.extensionRunner.getMarkdownTransformers?.() ?? [], (_error, transformerIndex) => {
+      this.logger.info({ sessionId: session.sessionId, transformerIndex, category: "markdown-transformer-failed" }, "Transcript Markdown transformer failed");
+    });
+  }
+
   async transcriptSnapshot(ref: PiSessionLookup, page?: { limit?: number }, managementContext?: ManagementEmbedContext): Promise<SessionTranscriptSnapshot> {
     const session = await this.getOrOpen(ref, managementContext);
     const seqBeforeRead = this.events.currentSeq(session.sessionId, this.eventScopeForSession(session));
@@ -2678,8 +2693,9 @@ export class PiSessionService {
     const userCount = messages.filter((message) => isRecord(message) && message["role"] === "user").length;
     const echoes = (this.pendingPromptEchoes.get(session) ?? []).filter((echo) => echo.userIndex >= userCount);
     messages.push(...echoes.map((echo) => echo.message));
+    const messagePage = pageMessagesAtSafeBoundary(messages, page);
     return {
-      page: { ...pageMessagesAtSafeBoundary(messages, page), leafId: session.sessionManager.getLeafId() },
+      page: { ...messagePage, messages: messagePage.messages.map((message) => this.browserTranscriptMessage(session, message)), leafId: session.sessionManager.getLeafId() },
       status: this.statusFromSession(session, transcriptMessageCount(branch) + echoes.length),
       seq: this.events.currentSeq(session.sessionId, this.eventScopeForSession(session)),
       partial: this.publishedAssistantPartials.get(session) ?? null,
@@ -2689,11 +2705,13 @@ export class PiSessionService {
   async messages(ref: PiSessionLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<ClientMessagePage> {
     const session = await this.getOrOpen(ref, managementContext);
     const branch = await this.readableSessionBranch(session);
-    return { ...pageMessagesAtSafeBoundary(historyMessagesFromEntries(branch), page), leafId: session.sessionManager.getLeafId() };
+    const messagePage = pageMessagesAtSafeBoundary(historyMessagesFromEntries(branch), page);
+    return { ...messagePage, messages: messagePage.messages.map((message) => this.browserTranscriptMessage(session, message)), leafId: session.sessionManager.getLeafId() };
   }
 
   async media(ref: PiSessionRef, mediaId: string, managementContext?: ManagementEmbedContext): Promise<SessionMedia | undefined> {
     if (!isSessionMediaId(mediaId)) throw new Error(this.t("session.media.invalidId", "Invalid media id"));
+    if (managementContext === undefined) await this.assertNormalSessionReadAccess(ref.cwd);
     const index = this.events.mediaIndex;
     const session = this.activeForLookup(ref, managementContext)?.runtime.session ?? this.startupSessionForLookup(ref, managementContext);
     const eventScope = eventScopeFromManagementContext(managementContext);
@@ -2752,6 +2770,12 @@ export class PiSessionService {
     if (this.hasActiveWork(session)) return this.statusFromSession(session);
     const branch = await this.readableSessionBranch(session);
     return this.statusFromSession(session, this.snapshotMessageCount(branch));
+  }
+
+  private async assertNormalSessionReadAccess(cwd: string): Promise<void> {
+    if (!await normalSessionReadAllowed(cwd, this.projectPathForCwd, this.managementProjectRoot)) {
+      throw new Error(this.t("routing.sessionNotFound", "Session not found"));
+    }
   }
 
   private async searchCandidates(cwd: string, normalizedQuery: string, managementContext?: ManagementEmbedContext): Promise<{ listing: WorkspaceSessionListing; sessions: ClientSession[] }> {
@@ -3029,7 +3053,7 @@ export class PiSessionService {
       // SDK input hooks may await before appending the user message. Keep the
       // already-published echo visible in snapshots until that append occurs.
       this.pendingPromptEchoes.set(session, [...echoes, echo]);
-      this.events.publish(session.sessionId, { type: "message.append", message: echo.message }, eventScope, { id: session.sessionId, cwd: session.sessionManager.getCwd(), eventScope });
+      this.events.publish(session.sessionId, { type: "message.append", message: this.browserTranscriptMessage(session, echo.message) }, eventScope, { id: session.sessionId, cwd: session.sessionManager.getCwd(), eventScope });
     }
     const promptOptions = options.expandPromptTemplates === false
       ? { ...buildPromptOptions(behavior, images), expandPromptTemplates: false }
@@ -4339,7 +4363,11 @@ export class PiSessionService {
       } else if ((eventType === "message_end" && role === "assistant") || eventType === "agent_end") {
         this.publishedAssistantPartials.delete(session);
       }
-      this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel, streamId), active.eventScope, { id: session.sessionId, cwd: session.sessionManager.getCwd() });
+      const clientEvent = toClientEvent(event, session.thinkingLevel, streamId);
+      if ((clientEvent.type === "message.end" || clientEvent.type === "message.append") && clientEvent.message !== undefined) {
+        clientEvent.message = this.browserTranscriptMessage(session, clientEvent.message);
+      }
+      this.events.publish(session.sessionId, clientEvent, active.eventScope, { id: session.sessionId, cwd: session.sessionManager.getCwd() });
       if ((eventType === "message_end" && role === "assistant") || eventType === "agent_end") this.assistantStreamIds.delete(session);
       this.auditToolExecutionEvent(active, event);
       this.auditAssistantResponseEvent(active, event);

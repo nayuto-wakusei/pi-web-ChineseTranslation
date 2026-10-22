@@ -53,9 +53,9 @@ function factsFor(env: NodeJS.ProcessEnv): string {
 
 describe("parseContainerMounts", () => {
   it("reads mount target, filesystem type, and read-only state", () => {
-    expect(mounts()).toContainEqual({ target: "/host", fsType: "btrfs", readOnly: true });
-    expect(mounts()).toContainEqual({ target: "/data", fsType: "ext4", readOnly: false });
-    expect(mounts()).toContainEqual({ target: "/proc", fsType: "proc", readOnly: false });
+    expect(mounts()).toContainEqual({ target: "/host", fsType: "btrfs", readOnly: true, device: "0:5", root: "/", source: "/dev/sda9" });
+    expect(mounts()).toContainEqual({ target: "/data", fsType: "ext4", readOnly: false, device: "8:9", root: "/data", source: "/dev/sda9" });
+    expect(mounts()).toContainEqual({ target: "/proc", fsType: "proc", readOnly: false, device: "0:2", root: "/", source: "proc" });
   });
 
   it("unescapes octal sequences in mount targets and skips unparsable lines", () => {
@@ -65,7 +65,7 @@ describe("parseContainerMounts", () => {
       "",
     ].join("\n"));
 
-    expect(parsed).toEqual([{ target: "/host paths", fsType: "ext4", readOnly: false }]);
+    expect(parsed).toEqual([{ target: "/host paths", fsType: "ext4", readOnly: false, device: "8:9", root: "/", source: "/dev/sda9" }]);
   });
 });
 

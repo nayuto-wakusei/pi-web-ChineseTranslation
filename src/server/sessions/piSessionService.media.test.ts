@@ -1,3 +1,4 @@
+import { cwdPathsEqual } from "../workingDirectory.js";
 import { createTranslator } from "../../shared/i18n.js";
 import { createHash } from "node:crypto";
 import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -22,6 +23,10 @@ const idOf = (data: string) => createHash("sha256").update(`image/png\0${data}`)
 let temp: string;
 const services: PiSessionService[] = [];
 
+function ordinaryProjectPathForCwd(cwd: string): Promise<string | undefined> {
+  return Promise.resolve(["/workspace", join(temp, "workspace"), join(temp, "workspace-a"), join(temp, "workspace-b")].find((path) => cwdPathsEqual(path, cwd)));
+}
+
 beforeEach(async () => { temp = await mkdtemp(join(tmpdir(), "pi-web-media-")); });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -39,7 +44,7 @@ describe("PiSessionService media", () => {
     const original = structuredClone(entries);
     const fake = fakeRuntime("session-1", { sessionManager: fakeSessionManager("/workspace", { getBranch: () => branch, getEntries: () => entries }) });
     const hub = new SessionEventHub(new SessionMediaIndex({ maxMediaEntries: 1 }));
-    const service = new PiSessionService(hub, {
+    const service = new PiSessionService(hub, { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime,
       archiveStore: new SessionArchiveStore(join(temp, "archives.json")),
       createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: sessionGateway([sessionRecord("session-1")]), heartbeatIntervalMs: 60_000,
@@ -63,7 +68,7 @@ describe("PiSessionService media", () => {
     const state: { streamingMessage?: unknown } = {};
     const fake = fakeRuntime("session-1", { state });
     const hub = new SessionEventHub();
-    const service = new PiSessionService(hub, {
+    const service = new PiSessionService(hub, { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime,
       archiveStore: new SessionArchiveStore(join(temp, "archives.json")),
       createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: sessionGateway([sessionRecord("session-1")]), heartbeatIntervalMs: 60_000,
@@ -115,7 +120,7 @@ describe("PiSessionService media", () => {
     const createAgentRuntime = vi.fn(() => { throw new Error("Media must not open runtimes"); });
     const decode = vi.fn((source: string) => Buffer.from(source, "base64"));
     const hub = new SessionEventHub(new SessionMediaIndex({ decode }));
-    const service = new PiSessionService(hub, {
+    const service = new PiSessionService(hub, { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime, sessionManager: gateway, createAgentRuntime,
       archiveStore: new SessionArchiveStore(join(temp, "archives.json")), heartbeatIntervalMs: 60_000,
     });
@@ -156,7 +161,7 @@ describe("PiSessionService media", () => {
     const decode = vi.fn((source: string) => Buffer.from(source, "base64"));
     const hub = new SessionEventHub(new SessionMediaIndex({ maxMediaEntries: 1, maxMemoEntries: 1, decode }));
     const fake = fakeRuntime("session-1");
-    const service = new PiSessionService(hub, {
+    const service = new PiSessionService(hub, { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime,
       archiveStore: new SessionArchiveStore(join(temp, "archives.json")),
       createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: sessionGateway([sessionRecord("session-1")]), heartbeatIntervalMs: 60_000,
@@ -201,7 +206,7 @@ describe("PiSessionService media", () => {
       const gateway = createPiSessionManagerGateway({ agentDir: temp, env: { PI_CODING_AGENT_SESSION_DIR: store } });
       const open = vi.spyOn(gateway, "open");
       const hub = new SessionEventHub(new SessionMediaIndex({ maxMediaEntries: 1 }));
-      const service = new PiSessionService(hub, { translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime, archiveStore: new SessionArchiveStore(join(temp, "archives.json")), createAgentRuntime, sessionManager: gateway, heartbeatIntervalMs: 60_000 });
+      const service = new PiSessionService(hub, { projectPathForCwd: ordinaryProjectPathForCwd, translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime, archiveStore: new SessionArchiveStore(join(temp, "archives.json")), createAgentRuntime, sessionManager: gateway, heartbeatIntervalMs: 60_000 });
       services.push(service);
       return { service, createAgentRuntime, open };
     };
@@ -216,7 +221,7 @@ describe("PiSessionService media", () => {
 
     const gateway = createPiSessionManagerGateway({ agentDir: temp, env: { PI_CODING_AGENT_SESSION_DIR: store } });
     const fake = fakeRuntime("session-1", { sessionFile: path, sessionManager: fakeSessionManager(cwd, { getSessionFile: () => path }) });
-    const idle = new PiSessionService(new SessionEventHub(new SessionMediaIndex({ maxMediaEntries: 1 })), {
+    const idle = new PiSessionService(new SessionEventHub(new SessionMediaIndex({ maxMediaEntries: 1 })), { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime, archiveStore: new SessionArchiveStore(join(temp, "archives.json")), createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: gateway, heartbeatIntervalMs: 60_000,
     });
     services.push(idle);
@@ -234,7 +239,7 @@ describe("PiSessionService media", () => {
     const readEntries = vi.fn<(path: string) => Promise<readonly unknown[] | undefined>>()
       .mockRejectedValueOnce(new Error("disk failure"))
       .mockResolvedValue([{ type: "message", message: { content: [image()] } }]);
-    const service = new PiSessionService(new SessionEventHub(), {
+    const service = new PiSessionService(new SessionEventHub(), { projectPathForCwd: ordinaryProjectPathForCwd,
       translator: createTranslator("en", {}), agentDir: temp, modelRuntime: testModelRuntime, archiveStore: new SessionArchiveStore(join(temp, "archives.json")),
       sessionManager: { ...sessionGateway([sessionRecord("session-1")]), readEntries }, heartbeatIntervalMs: 60_000,
     });

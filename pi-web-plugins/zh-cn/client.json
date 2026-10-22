@@ -1,4 +1,6 @@
 {
+  "client.sessionController.conversationRefreshUnavailable": "无法刷新对话，请检查连接后重试。",
+  "client.sessionController.sessionListRefreshUnavailable": "无法刷新会话列表，请检查连接后重试。",
   "thinking.label.off": "关闭",
   "thinking.label.minimal": "最低",
   "thinking.label.low": "低",

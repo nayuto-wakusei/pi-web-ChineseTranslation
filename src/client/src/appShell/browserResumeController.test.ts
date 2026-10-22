@@ -73,6 +73,10 @@ describe("BrowserResumeController", () => {
     refreshGate.resolve(undefined);
     await refreshCompleted.promise;
     windowTarget.dispatchEvent(new Event("focus"));
+    expect(onResumeSignal).toHaveBeenCalledTimes(3);
+    expect(frames.pendingCount()).toBe(0);
+    visible = true;
+    windowTarget.dispatchEvent(new Event("focus"));
     expect(frames.pendingCount()).toBe(1);
     controller.disconnect();
     frames.runNext();

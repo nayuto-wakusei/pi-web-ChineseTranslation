@@ -29,6 +29,9 @@ export interface ContainerMount {
   readonly target: string;
   readonly fsType: string;
   readonly readOnly: boolean;
+  readonly device?: string;
+  readonly root?: string;
+  readonly source?: string;
 }
 
 export interface DockerEnvironmentFactsInput {
@@ -121,12 +124,17 @@ export function parseContainerMounts(mountInfo: string): ContainerMount[] {
     const head = line.slice(0, separator).split(" ");
     const target = head[4];
     const options = head[5];
-    const fsType = line.slice(separator + 3).split(" ")[0];
+    const [fsType, source] = line.slice(separator + 3).split(" ");
+    const device = head[2];
+    const root = head[3];
     if (target === undefined || options === undefined || fsType === undefined || fsType === "") continue;
     mounts.push({
       target: unescapeMountField(target),
       fsType,
       readOnly: options.split(",").includes("ro"),
+      ...(device === undefined ? {} : { device }),
+      ...(root === undefined ? {} : { root: unescapeMountField(root) }),
+      ...(source === undefined ? {} : { source: unescapeMountField(source) }),
     });
   }
   return mounts;
@@ -257,11 +265,21 @@ function devWorkspaceFacts(mounts: readonly ContainerMount[], devRepoRoot: strin
   const nested = mounts
     .filter((mount) => mount.target !== DEV_WORKSPACE_MOUNT && isWithin(mount.target, DEV_WORKSPACE_MOUNT))
     .map((mount) => `\`${mount.target}\``);
+  const hostDependencies = devRepoRoot === undefined ? undefined : `${devRepoRoot}/node_modules`;
+  const dependencies = mounts.find((mount) => mount.target === `${DEV_WORKSPACE_MOUNT}/node_modules`);
+  const alias = mounts.find((mount) => mount.target === hostDependencies);
+  const sharedDependencies = dependencies !== undefined && alias !== undefined && alias !== dependencies
+    && dependencies.device !== undefined && dependencies.root !== undefined && dependencies.source !== undefined
+    && dependencies.device === alias.device && dependencies.root === alias.root
+    && dependencies.source === alias.source && dependencies.fsType === alias.fsType;
   return [
     `The PI WEB checkout this deployment runs is bind-mounted at \`${DEV_WORKSPACE_MOUNT}\`.${hostPath}`,
     ...(nested.length === 0
       ? []
       : [`Inside it, ${nested.join(", ")} ${nested.length === 1 ? "is a separate container-managed mount" : "are separate container-managed mounts"}, not the host directory of the same path.`]),
+    ...(sharedDependencies && hostDependencies !== undefined
+      ? [`Inside this container, \`${hostDependencies}\` resolves to the same dependency mount as \`${DEV_WORKSPACE_MOUNT}/node_modules\`. Changes under either container path are visible at the other.`]
+      : []),
   ];
 }
 

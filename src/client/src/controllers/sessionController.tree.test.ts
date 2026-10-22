@@ -106,6 +106,7 @@ describe("SessionController session tree navigation", () => {
     const initialPage = page("initial", 1);
     const stalePage = deferred<MessagePage>();
     const staleStatus = deferred<SessionStatus>();
+    const staleReadStarted = deferred<undefined>();
     const freshPage = page("fresh branch", 2);
     const cacheKey = machineSessionKey("local", oldSession.id);
     const cachedPages = new Map<string, MessagePage>();
@@ -125,7 +126,10 @@ describe("SessionController session tree navigation", () => {
       messages: () => {
         messageCalls += 1;
         if (messageCalls === 1) return Promise.resolve(initialPage);
-        if (messageCalls === 2) return stalePage.promise;
+        if (messageCalls === 2) {
+          staleReadStarted.resolve(undefined);
+          return stalePage.promise;
+        }
         return Promise.resolve(freshPage);
       },
       status: () => {
@@ -154,7 +158,7 @@ describe("SessionController session tree navigation", () => {
     socket.emit({ type: "message.append", message: { role: "assistant", content: "stale live event" }, seq: 1 });
 
     const oldRefresh = controller.refreshSelectedSession();
-    await Promise.resolve();
+    await staleReadStarted.promise;
     expect(messageCalls).toBe(2);
 
     const navigation = controller.navigateTree("root", { mode: "custom", instructions: "focus on the prompt" });

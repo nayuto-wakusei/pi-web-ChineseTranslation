@@ -93,6 +93,9 @@ import { createFilePiWebConfigService } from "./configRoutes.js";
 const daemonEnvironment: NodeJS.ProcessEnv = { ...process.env };
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config, deprecatedAgentInputs } = effectivePiWebConfig({ env: daemonEnvironment });
+const configuredManagementProjectRoot = config.managementEmbed === undefined
+  ? undefined
+  : config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb");
 const translator = loadNodeTranslator("server", config);
 // Request-time defaults must observe Settings edits without restarting sessiond.
 const configService = createFilePiWebConfigService({ env: daemonEnvironment });
@@ -323,6 +326,7 @@ await runSessionDaemonStartup({
       translator,
       modelRuntime: managementAuth.modelRuntime,
       managementModelRuntime: managementAuth.modelRuntime,
+      ...(configuredManagementProjectRoot === undefined ? {} : { managementProjectRoot: configuredManagementProjectRoot }),
       normalModelRuntimeForCwd: async (cwd) => (await projectAuth.forCwd(cwd)).modelRuntime,
       projectPathForCwd: async (cwd) => {
         try {
@@ -495,7 +499,7 @@ await runSessionDaemonStartup({
     registerManagementTerminalRoutes(app, managementTerminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
     const managementProjectRoot = config.managementEmbed?.enabled === true
-      ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
+      ? configuredManagementProjectRoot
       : undefined;
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot, translator });
     registerWorkspaceNotificationRoutes(app, { projects, workspaces: workspaceProviders, changes: workspaceChanges, translator });

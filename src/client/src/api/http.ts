@@ -10,6 +10,15 @@ export class HttpRequestError extends Error {
   }
 }
 
+/** Browser transport failure, not an HTTP, cancellation, or parsing failure. */
+export class NetworkRequestError extends Error {
+  override name = "NetworkRequestError";
+
+  constructor(message: string, options: ErrorOptions = {}) {
+    super(message, options);
+  }
+}
+
 let apiScope = currentApiScope();
 
 export function setApiScope(scope: ApiScope): void {
@@ -22,20 +31,25 @@ export function scopedApiUrl(url: string): string {
 export async function request<T>(url: string, parse: (value: unknown) => T, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
-  const response = await fetch(scopedApiUrl(url), { ...init, headers });
+  const scope = apiScope;
+  const requestUrl = scopedApiUrl(url);
+  const response = await transportRead(() => fetch(requestUrl, { ...init, headers }), init?.signal);
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));
     throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
   }
-  removeManagementEntryToken(apiScope);
-  const body: unknown = await response.json();
+  removeManagementEntryToken(scope);
+  const body: unknown = await transportRead(() => response.json(), init?.signal);
+  // Parser errors must never be mistaken for retryable transport failures.
   return parse(body);
 }
 
 export async function requestOptional<T>(url: string, parse: (value: unknown) => T): Promise<T | undefined> {
-  const response = await fetch(scopedApiUrl(url));
+  const scope = apiScope;
+  const requestUrl = scopedApiUrl(url);
+  const response = await transportRead(() => fetch(requestUrl));
   if (response.status === 204) {
-    removeManagementEntryToken(apiScope);
+    removeManagementEntryToken(scope);
     return undefined;
   }
   if (response.status === 404) return undefined;
@@ -43,8 +57,20 @@ export async function requestOptional<T>(url: string, parse: (value: unknown) =>
     const body: unknown = await response.json().catch((): unknown => ({}));
     throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
   }
-  removeManagementEntryToken(apiScope);
-  return parse(await response.json());
+  removeManagementEntryToken(scope);
+  const body: unknown = await transportRead(() => response.json());
+  return parse(body);
+}
+
+async function transportRead<T>(read: () => Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof TypeError && error.name !== "AbortError" && signal?.aborted !== true) {
+      throw new NetworkRequestError(error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 function errorMessage(value: unknown): string | undefined {

@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { describe, expect, it, vi } from "vitest";
@@ -27,6 +27,7 @@ describe("browser-facing session media delivery", () => {
     const hub = new SessionEventHub();
     const service = new PiSessionService(hub, {
       agentDir: directory,
+      projectPathForCwd: (cwd) => Promise.resolve(resolve(cwd) === resolve("/workspace") ? cwd : undefined),
       modelRuntime: testModelRuntime,
       archiveStore: new SessionArchiveStore(join(directory, "archives.json")),
       sessionManager: sessionGateway([sessionRecord("session-1")]),
