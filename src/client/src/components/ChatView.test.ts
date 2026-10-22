@@ -111,7 +111,7 @@ describe("ChatView queued-message clear wiring", () => {
 });
 
 describe("chatSessionWarningRows", () => {
-  it("projects cross-instance advisory presence from validated API status without a dismiss or lock", () => {
+  it("moves legacy cross-instance activity into composer status instead of warning rows", () => {
     const warning = {
       severity: "info" as const,
       message: "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
@@ -119,7 +119,8 @@ describe("chatSessionWarningRows", () => {
     };
     const wireStatus = warningStatus([warning]);
     const status = parseSessionStatus(wireStatus);
-    expect(chatSessionWarningRows(status)).toEqual([{ ...warning, severityClass: "session-warning info" }]);
+    expect(chatSessionWarningRows(status)).toEqual([]);
+    expect(status.recentlyActiveElsewhere).toBe(true);
     expect(status.isStreaming).toBe(wireStatus.isStreaming);
     expect(status.isBashRunning).toBe(false);
     expect(status.pendingMessageCount).toBe(0);

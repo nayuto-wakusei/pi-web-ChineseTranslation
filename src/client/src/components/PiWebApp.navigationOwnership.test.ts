@@ -17,9 +17,11 @@ afterEach(() => {
 const project: Project = { id: "p", name: "Project", path: "/project", createdAt: "2026-10-10" };
 
 describe("PiWebApp navigation ownership", () => {
-  it("accepts the URL abbreviation of the captured full session but never a different creation token", () => {
+  it("requires the exact captured session ID and rejects a different creation token", () => {
     const app = createApp();
     writeRoute({ ...readRoute(), sessionId: "abc" });
+    expect(invoke(app, "navigationSelectionMatchesUrl", { ...capture(app), sessionId: "abcdef" })).toBe(false);
+    writeRoute({ ...readRoute(), sessionId: "abcdef" });
     expect(invoke(app, "navigationSelectionMatchesUrl", { ...capture(app), sessionId: "abcdef" })).toBe(true);
     writeRoute({ ...readRoute(), sessionId: "creating:abc" });
     expect(invoke(app, "navigationSelectionMatchesUrl", { ...capture(app), sessionId: "creating:abcdef" })).toBe(false);

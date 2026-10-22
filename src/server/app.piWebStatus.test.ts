@@ -8,7 +8,7 @@ describe("PI WEB status routes", () => {
   it("reports web readiness without contacting the session daemon", async () => {
     const request = vi.fn(() => Promise.reject(new Error("sessiond is offline")));
     const app = await buildApp({
-      sessionDaemon: { request, connectWebSocket: () => { throw new Error("sessiond is offline"); } },
+      sessionDaemon: { request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("sessiond is offline"); } },
       clientDist: false,
       logger: false,
     });

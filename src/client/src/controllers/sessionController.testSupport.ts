@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, vi } from "vitest";
-import { api as defaultApi } from "../api";
-import type { MessagePage, SessionInfo, SessionRef, SessionStatus, Workspace } from "../api";
+import { api as realApi } from "../api";
+import type { MessagePage, SessionInfo, SessionRef, SessionStatus, SessionStreamSnapshot, SessionTranscriptSnapshot, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { machineSessionKey } from "../machineKeys";
 import type { SessionUiEvent } from "../sessionSocket";
 import { SessionController, type SessionControllerDependencies, type SessionEventSocket } from "./sessionController";
 
-export { defaultApi };
-export type { MessagePage, PromptAttachment, SessionActivity, SessionInfo, SessionRef, SessionStatus, SessionStreamSnapshot, Workspace } from "../api";
+// Older fixtures express the three read responses separately. Keep that
+// composition in tests; production always requests one atomic snapshot.
+export const defaultApi: typeof realApi = {
+  ...realApi,
+  transcriptSnapshot(session, options, machineId) {
+    return transcriptSnapshotFixture(this.messages(session, options, machineId), this.status(session, machineId), this.streamSnapshot(session, machineId));
+  },
+};
+export type { MessagePage, PromptAttachment, SessionActivity, SessionInfo, SessionRef, SessionStatus, SessionStreamSnapshot, SessionTranscriptSnapshot, Workspace } from "../api";
 export type { AppState };
 
 export interface SessionControllerTestFixtureOptions {
@@ -74,17 +81,19 @@ export class EmitSocket implements SessionEventSocket {
   readonly connectedSessionIds: string[] = [];
   private handler: ((event: SessionUiEvent) => void) | undefined;
   private onInitialOpen: (() => void) | undefined;
+  private onReconnect: (() => void) | undefined;
 
   connect(
     session: SessionRef,
     onEvent: (event: SessionUiEvent) => void,
-    _onReconnect?: () => void,
+    onReconnect?: () => void,
     _machineId?: string,
     onInitialOpen?: () => void,
   ): void {
     this.connectedSessionIds.push(session.id);
     this.handler = onEvent;
     this.onInitialOpen = onInitialOpen;
+    this.onReconnect = onReconnect;
   }
 
   setHandler(onEvent: (event: SessionUiEvent) => void): void {
@@ -99,9 +108,14 @@ export class EmitSocket implements SessionEventSocket {
     this.onInitialOpen?.();
   }
 
+  reconnect(): void {
+    this.onReconnect?.();
+  }
+
   close(): void {
     this.handler = undefined;
     this.onInitialOpen = undefined;
+    this.onReconnect = undefined;
   }
 }
 
@@ -131,6 +145,16 @@ export const replacementSession: SessionInfo = {
 };
 
 export const emptyPage: MessagePage = { messages: [], start: 0, total: 0 };
+
+/** Assemble explicit fixture responses; never fall back to the real API. */
+export async function transcriptSnapshotFixture(
+  page: MessagePage | Promise<MessagePage>,
+  sessionStatus: SessionStatus | Promise<SessionStatus>,
+  stream: SessionStreamSnapshot | Promise<SessionStreamSnapshot> = { seq: 0, partial: null },
+): Promise<SessionTranscriptSnapshot> {
+  const [resolvedPage, resolvedStatus, resolvedStream] = await Promise.all([page, sessionStatus, stream]);
+  return { page: resolvedPage, status: resolvedStatus, ...resolvedStream };
+}
 
 export interface Deferred<T> {
   promise: Promise<T>;

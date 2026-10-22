@@ -24,3 +24,4 @@ export {
   requestPairedPluginBackend,
 } from "./api/pluginBackends";
 export type { JsonObject, JsonPrimitive, PiWebDeprecatedAgentInput, WorkspaceProviderCapabilities, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderMetadata, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier, WorkspaceRemovalPresentation, WorkspaceRemovalRequest } from "../../shared/apiTypes";
+export type { SessionTranscriptSnapshot } from "../../shared/apiTypes";

@@ -54,6 +54,7 @@ import {
   parseSessionPinnedIdsResponse,
   parseSessionStatus,
   parseSessionStreamSnapshot,
+  parseSessionTranscriptSnapshot,
   parseSessionTreeForkResult,
   parseSessionTreeNavigateResult,
   parseSessionUnreadCatalogSnapshot,
@@ -107,6 +108,10 @@ function sessionQueryPath(session: SessionRef, endpoint: string, machineId = "lo
 
 function sessionBaseQueryPath(session: SessionRef, machineId = "local", scopeProjectId?: string): string {
   return `${sessionBasePath(session, machineId)}${sessionQuery(session, scopeProjectId === undefined ? {} : { scopeProjectId })}`;
+}
+
+function transcriptSnapshotPath(session: SessionLookup, options?: { limit?: number }, machineId = "local"): string {
+  return `${sessionPath(session, "transcript-snapshot", machineId)}${sessionQuery(session, options?.limit === undefined ? {} : { limit: String(options.limit) })}`;
 }
 
 function sessionQuery(session: SessionRef, fields: Record<string, string> = {}): string {
@@ -303,6 +308,7 @@ export const sessionsApi = {
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messagePath(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
   streamSnapshot: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "stream-snapshot", machineId), parseSessionStreamSnapshot),
+  transcriptSnapshot: (session: SessionLookup, options?: { limit?: number }, machineId = "local") => request(transcriptSnapshotPath(session, options, machineId), parseSessionTranscriptSnapshot),
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
   modelCatalog: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models/catalog", machineId), parseSessionModelCatalogResponse),
   setModelEnabled: (session: SessionLookup, provider: string, modelId: string, enabled: boolean, machineId = "local") => request(sessionPath(session, "models/enabled", machineId), parseSessionModelCatalogResponse, { method: "POST", body: sessionBody(session, { provider, modelId, enabled }) }),
@@ -322,7 +328,7 @@ export const sessionsApi = {
   respondToCommand: (session: SessionLookup, requestId: string, value: string, machineId = "local") => request(sessionPath(session, "commands/respond", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { requestId, value }) }),
   navigateTree: (session: SessionLookup, navigation: SessionTreeNavigateRequest, machineId = "local") => request(sessionPath(session, "tree/navigate", machineId), parseSessionTreeNavigateResult, {
     method: "POST",
-    body: sessionBody(session, { targetId: navigation.targetId, expectedLeafId: navigation.expectedLeafId, summary: navigation.summary }),
+    body: sessionBody(session, { targetId: navigation.targetId, expectedLeafId: navigation.expectedLeafId, summary: navigation.summary, ...(navigation.retainCheckpoint === undefined ? {} : { retainCheckpoint: navigation.retainCheckpoint }) }),
   }),
   forkTree: (session: SessionLookup, fork: SessionTreeForkRequest, machineId = "local") => requestSessionTreeFork(session, fork, machineId),
   abort: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "abort", machineId), parseAborted, { method: "POST", body: sessionBody(session) }),
@@ -382,7 +388,7 @@ async function requestSessionTreeFork(session: SessionRef, fork: SessionTreeFork
   const response = await fetch(scopedApiUrl(sessionPath(session, "tree/fork", machineId)), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: sessionBody(session, { entryId: fork.entryId, expectedLeafId: fork.expectedLeafId }),
+    body: sessionBody(session, { entryId: fork.entryId, expectedLeafId: fork.expectedLeafId, ...(fork.retainCheckpoint === undefined ? {} : { retainCheckpoint: fork.retainCheckpoint }) }),
   });
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));

@@ -173,7 +173,7 @@ describe("PiSessionService lifecycle, listing, and reload", () => {
 
     const messagesPromise = service.messages(sessionRef(sessionId));
     await createStarted.promise;
-    const statusPromise = service.status(sessionRef("single-flight"));
+    const statusPromise = service.status(sessionRef(sessionId));
     await new Promise<void>((resolve) => setImmediate(resolve));
     const callsWhileOpening = createCalls;
     releaseCreate.resolve();
@@ -571,8 +571,6 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
    * its whole workspace: `getActive` routes prompt/shell/runCommand, so a
    * `list` call here would let an in-flight listing serialize unrelated sends.
    * The rejecting `list` fake fails loudly if that coupling ever comes back.
-   * Requested with an id prefix so the resolved full id, not the caller's
-   * prefix, is what the session is opened under.
    */
   it("opens an inactive session by direct id resolution without listing its workspace", async () => {
     const sessionId = "direct-resolve-session";
@@ -584,7 +582,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
     });
     const list = vi.fn(() => Promise.reject(new Error("opening one session must not list its workspace")));
     const resolveSessionFile = vi.fn((refCwd: string, refId: string) => Promise.resolve(
-      sessionId.startsWith(refId) ? { id: sessionId, cwd: refCwd, path: `/sessions/${sessionId}.jsonl` } : undefined,
+      sessionId === refId ? { id: sessionId, cwd: refCwd, path: `/sessions/${sessionId}.jsonl` } : undefined,
     ));
     const open = vi.fn(() => fakeSessionManager());
     const gateway: SessionGateway = {
@@ -604,11 +602,11 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
       heartbeatIntervalMs: 60_000,
     });
 
-    const page = await service.messages(sessionRef(sessionId.slice(0, 6)));
+    const page = await service.messages(sessionRef(sessionId));
     if (Array.isArray(page)) throw new Error("Expected a paginated transcript response");
 
     expect(page.messages).toEqual([{ role: "user", content: "resolved directly" }]);
-    expect(resolveSessionFile).toHaveBeenCalledWith("/workspace", sessionId.slice(0, 6));
+    expect(resolveSessionFile).toHaveBeenCalledWith("/workspace", sessionId);
     expect(open).toHaveBeenCalledWith(`/sessions/${sessionId}.jsonl`);
     expect(list).not.toHaveBeenCalled();
     await service.dispose();
@@ -725,7 +723,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
 
     const messagesPromise = service.messages(sessionRef(sessionId));
     await bindStarted.promise;
-    const statusPromise = service.status(sessionRef("retry-open"));
+    const statusPromise = service.status(sessionRef(sessionId));
     await new Promise<void>((resolve) => setImmediate(resolve));
     const callsWhileOpening = createCalls;
     const failedLookups = Promise.allSettled([messagesPromise, statusPromise]);
@@ -1563,7 +1561,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
       modelRuntime: testModelRuntime,
       archiveStore: {
         list: () => Promise.resolve([]),
-        get: (sessionId) => Promise.resolve(sessionId === "archived" || "archived".startsWith(sessionId)
+        get: (sessionId) => Promise.resolve(sessionId === "archived"
           ? { sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z", archivePath: "/archive/archived.jsonl" }
           : undefined),
         archive: () => Promise.resolve({ sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z" }),

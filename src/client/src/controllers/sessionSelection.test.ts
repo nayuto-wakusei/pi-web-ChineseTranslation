@@ -10,10 +10,10 @@ describe("selectPreferredSession", () => {
     expect(selectPreferredSession(sessions, { targetSessionId: "s2", latestSessionId: "s1" })?.id).toBe("s2");
   });
 
-  it("matches explicit target sessions by id prefix", () => {
+  it("does not match an explicit target session by id prefix", () => {
     const session = testSession("abcdef");
 
-    expect(selectPreferredSession([session], { targetSessionId: "abc" })).toBe(session);
+    expect(selectPreferredSession([session], { targetSessionId: "abc" })).toBeUndefined();
   });
 
   it("remembers the latest selected session when no explicit target is provided", () => {

@@ -102,6 +102,7 @@ describe("buildApp active profile composition", () => {
       agentProfileProvider: { getActiveAgentProfile: () => Promise.resolve({ status: "unavailable", error: "sessiond is offline" }) },
       config: configService,
       sessionDaemon: {
+        requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")),
         request: () => Promise.reject(new Error("connect ECONNREFUSED")),
         connectWebSocket: () => { throw new Error("sessiond is offline"); },
       },
@@ -170,6 +171,7 @@ describe("buildApp active profile composition", () => {
 
 function unavailableSessionDaemon(): SessionProxyDaemon {
   return {
+    requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")),
     request: () => Promise.resolve({ statusCode: 503, headers: {}, body: "Test daemon is unavailable" }),
     connectWebSocket: () => { throw new Error("WebSocket is not configured for this test"); },
   };

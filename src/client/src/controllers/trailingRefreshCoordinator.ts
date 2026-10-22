@@ -56,6 +56,9 @@ export class TrailingRefreshCoordinator<Key> {
             latestFailed = true;
           }
         } while (this.hasTrailingRequest(pending));
+        // The loop is finished before its promise's finally callback runs.
+        // New requests in that gap must start fresh, not join completed work.
+        if (this.pendingByKey.get(key) === pending) this.pendingByKey.delete(key);
         if (latestFailed) throw latestError;
       })
       .finally(() => {

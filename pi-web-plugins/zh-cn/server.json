@@ -170,5 +170,17 @@
   "session.action.changeThinking": "更改思考级别",
   "session.action.prompt": "发送提示",
   "session.action.shell": "运行 Shell 命令",
-  "session.action.notify": "发送子会话通知"
+  "session.action.notify": "发送子会话通知",
+  "session.compaction.autoCancelled": "自动压缩已取消。",
+  "session.compaction.cancelled": "压缩已取消。",
+  "session.compaction.failed": "无法压缩历史，请重试。",
+  "activity.compactionCancelled": "压缩已取消",
+  "session.extensionUnavailable": "此扩展命令所属的会话运行时已不可用",
+  "session.extensionNewUnsupported": "PI WEB 不支持 ctx.newSession()，请从网页界面新建会话。",
+  "session.extensionSwitchUnsupported": "PI WEB 不支持 ctx.switchSession()，请从网页界面选择会话。",
+  "session.checkpointSummary": "保留自定义消息检查点时，不能同时生成分支摘要",
+  "session.media.invalidId": "媒体 ID 无效",
+  "session.checkpointParent": "此检查点没有有效的历史父节点",
+  "session.forkRuntimeChanged": "分叉前会话运行时发生了变化，请从当前会话重试。",
+  "session.checkpointUnavailable": "此消息已不在当前会话分支中。"
 }

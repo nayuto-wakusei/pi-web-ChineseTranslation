@@ -38,8 +38,10 @@ import type {
   SessionPinnedIdsResponse,
   ClientThinkingLevel,
   SessionStreamSnapshot,
+  SessionTranscriptSnapshot,
 } from "../types.js";
 import type { NormalizedSessionCleanupRequest } from "./sessionCleanup.js";
+import type { SessionMedia } from "./sessionMediaIndex.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export type SessionRouteRef = ClientSessionRef;
@@ -60,8 +62,10 @@ export interface SessionRouteService {
   setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
   start(cwd: string, options?: { startupToken?: string; managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<ClientMessagePage>;
+  media(ref: SessionRouteLookup, mediaId: string, managementContext?: ManagementEmbedContext): Promise<SessionMedia | undefined>;
   status(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   streamSnapshot(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionStreamSnapshot>;
+  transcriptSnapshot(ref: SessionRouteLookup, page?: { limit?: number }, managementContext?: ManagementEmbedContext): Promise<SessionTranscriptSnapshot>;
   notificationCatalog(context?: ManagementEmbedContext): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;
   unreadCatalog(context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
   acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;

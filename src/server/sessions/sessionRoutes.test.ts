@@ -1,4 +1,7 @@
 import { resolve } from "node:path";
+import { once } from "node:events";
+import type { SessionMedia } from "./sessionMediaIndex.js";
+import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { loadNodeTranslator } from "../../localization.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
@@ -1353,6 +1356,20 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve(this.streamSnapshotResponse);
   }
 
+  mediaResponse: SessionMedia | undefined;
+  mediaError: Error | undefined;
+  readonly mediaCalls: { lookup: SessionRouteLookup; mediaId: string; managementContext?: ManagementEmbedContext }[] = [];
+  media(lookup: SessionRouteLookup, mediaId: string, managementContext?: ManagementEmbedContext): Promise<SessionMedia | undefined> {
+    this.mediaCalls.push({ lookup, mediaId, ...(managementContext === undefined ? {} : { managementContext }) });
+    return this.mediaError === undefined ? Promise.resolve(this.mediaResponse) : Promise.reject(this.mediaError);
+  }
+
+  readonly transcriptSnapshotCalls: { lookup: SessionRouteLookup; page?: { limit?: number }; managementContext?: ManagementEmbedContext }[] = [];
+  async transcriptSnapshot(lookup: SessionRouteLookup, page?: { limit?: number }, managementContext?: ManagementEmbedContext) {
+    this.transcriptSnapshotCalls.push({ lookup, ...(page === undefined ? {} : { page }), ...(managementContext === undefined ? {} : { managementContext }) });
+    return { page: this.messagesResponse, status: await this.status(lookup), ...this.streamSnapshotResponse };
+  }
+
   getSessionDefaults(lookup: SessionRouteLookup, managementContext?: ManagementEmbedContext) {
     this.sessionDefaultCalls.push({ lookup, managementContext });
     return Promise.resolve(this.sessionDefaultsResponse ?? { defaultProvider: "anthropic", defaultModel: "claude-opus", defaultThinkingLevel: "medium" as const });
@@ -1831,6 +1848,160 @@ describe("session routes upstream strict contract", () => {
       expect(unknown.json()).toEqual({ error: "Model not found: anthropic/nope" });
     } finally {
       await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+});
+describe("upstream group 4 route contracts", () => {
+  it("keeps management snapshot and media lookups and projections in their owning scope", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const hub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    const cwd = resolve("/repo");
+    const context: ManagementEmbedContext = { user: { id: "managed", rootUserId: "root", roles: [], permissions: [] }, projects: [] };
+    const headers = { [MANAGEMENT_EMBED_CONTEXT_HEADER]: encodeManagementContext(context) };
+    const image = { type: "image", data: "AQID", mimeType: "image/png" };
+    routeService.messagesResponse = { messages: [{ role: "assistant", content: [image] }], start: 0, total: 1, leafId: "leaf" };
+    routeService.mediaResponse = { data: Buffer.from([1, 2, 3]), mimeType: "image/png" };
+    registerSessionRoutes(routeApp, routeService, hub);
+    try {
+      const snapshot = await routeApp.inject({ method: "GET", url: `/sessions/session-1/transcript-snapshot?cwd=${encodeURIComponent(cwd)}&media=reference`, headers });
+      expect(snapshot.statusCode).toBe(200);
+      expect(snapshot.json()).toMatchObject({ page: { leafId: "leaf" } });
+      expect(routeService.transcriptSnapshotCalls).toEqual([{ lookup: { id: "session-1", cwd }, page: {}, managementContext: context }]);
+      const reference = hub.mediaIndex.reference(undefined, image);
+      if (reference === undefined) throw new Error("Expected reference");
+      expect(hub.mediaIndex.get({ id: "session-1", cwd }, reference.mediaId)).toBeUndefined();
+      expect(hub.mediaIndex.get({ id: "session-1", cwd, eventScope: eventScopeFromManagementContext(context) }, reference.mediaId)).toBeDefined();
+      const media = await routeApp.inject({ method: "GET", url: `/sessions/session-1/media/${reference.mediaId}?cwd=${encodeURIComponent(cwd)}`, headers });
+      expect(media.statusCode).toBe(200);
+      expect(routeService.mediaCalls).toEqual([{ lookup: { id: "session-1", cwd }, mediaId: reference.mediaId, managementContext: context }]);
+    } finally { await routeApp.close(); }
+  });
+
+  it("forwards only boolean checkpoint requests and rejects malformed values", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, new SessionEventHub());
+    try {
+      for (const retainCheckpoint of [true, false]) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/navigate", payload: { cwd: "/repo", targetId: "entry", expectedLeafId: "leaf", summary: { mode: "none" }, retainCheckpoint } });
+        expect(response.statusCode).toBe(200);
+        expect(routeService.navigateTreeCalls.at(-1)?.request).toMatchObject({ retainCheckpoint });
+      }
+      for (const route of ["navigate", "fork"]) {
+        const response = await routeApp.inject({ method: "POST", url: `/sessions/session-1/tree/${route}`, payload: { cwd: "/repo", targetId: "entry", entryId: "entry", expectedLeafId: "leaf", summary: { mode: "none" }, retainCheckpoint: "true" } });
+        expect(response.statusCode).toBe(400);
+      }
+    } finally { await routeApp.close(); }
+  });
+it("returns a transcript snapshot with workspace and limit forwarding", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, new SessionEventHub());
+    try {
+      const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/transcript-snapshot?cwd=${encodeURIComponent(resolve("/repo"))}&limit=25` });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ page: routeService.messagesResponse, status: { sessionId: "session-1" }, seq: 0, partial: null });
+      expect(routeService.transcriptSnapshotCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, page: { limit: 25 } }]);
+      routeService.transcriptSnapshot = () => Promise.reject(new Error("Session not found"));
+      expect((await routeApp.inject({ method: "GET", url: "/sessions/missing/transcript-snapshot?cwd=/repo" })).statusCode).toBe(404);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+it("projects images only on explicit reference opt-in for messages and both snapshots", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const hub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    const image = { type: "image", data: "AQID", mimeType: "image/png" };
+    const message = { role: "assistant", content: [image, { type: "thinking", thinking: "working", thinkingSignature: "secret" }] };
+    routeService.messagesResponse = { messages: [message], start: 0, total: 1 };
+    routeService.streamSnapshotResponse = { seq: 7, partial: message };
+    registerSessionRoutes(routeApp, routeService, hub);
+    try {
+      for (const route of ["messages", "transcript-snapshot", "stream-snapshot"]) {
+        for (const mode of ["", "&media=inline", "&media=unknown", "&media=reference"]) {
+          const response = await routeApp.inject({ method: "GET", url: `/sessions/session-1/${route}?cwd=/repo${mode}` });
+          expect(response.statusCode).toBe(200);
+          expect(response.body).not.toContain("secret");
+          if (mode === "&media=reference") {
+            expect(response.body).not.toContain(image.data);
+            expect(response.body).toContain('"mediaId"');
+            expect(response.body).toContain('"byteSize":3');
+            const reference = hub.mediaIndex.reference(undefined, image);
+            if (reference === undefined) throw new Error("Expected image reference");
+            expect(hub.mediaIndex.get({ id: "session-1", cwd: resolve("/repo") }, reference.mediaId)).toBeDefined();
+            expect(hub.mediaIndex.get({ id: "session-1", cwd: "/other" }, reference.mediaId)).toBeUndefined();
+          } else {
+            expect(response.body).toContain(image.data);
+            expect(response.body).not.toContain('"mediaId"');
+          }
+        }
+      }
+      expect(message.content).toEqual([image, { type: "thinking", thinking: "working", thinkingSignature: "secret" }]);
+    } finally { await routeApp.close(); }
+  });
+
+it("serves private immutable binary media and distinguishes invalid ids, misses, and failures", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const routeService = new CapturingRouteSessionService();
+    const hub = new SessionEventHub();
+    const data = Buffer.from([1, 2, 3]);
+    const projected = hub.mediaIndex.reference({ id: "session-1", cwd: "/repo" }, { type: "image", data: data.toString("base64"), mimeType: "image/png" });
+    if (projected === undefined) throw new Error("Expected image reference");
+    const mediaId = projected.mediaId;
+    routeService.mediaResponse = { data, mimeType: "image/png" };
+    registerSessionRoutes(routeApp, routeService, hub);
+    const url = `/sessions/session-1/media/${mediaId}?cwd=${encodeURIComponent(resolve("/repo"))}`;
+    try {
+      const response = await routeApp.inject({ method: "GET", url });
+      expect(response.statusCode).toBe(200);
+      expect(response.rawPayload).toEqual(data);
+      expect(response.headers).toMatchObject({ "content-type": "image/png", "content-length": "3", "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
+      expect(routeService.mediaCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, mediaId }]);
+      for (const invalid of ["bad", mediaId.toUpperCase(), "0".repeat(63), "0".repeat(65)]) {
+        expect((await routeApp.inject({ method: "GET", url: `/sessions/session-1/media/${invalid}?cwd=/repo` })).statusCode).toBe(400);
+      }
+      expect((await routeApp.inject({ method: "GET", url: `/sessions/session-1/media/${mediaId}` })).statusCode).toBe(400);
+      expect(routeService.mediaCalls).toHaveLength(1);
+      routeService.mediaResponse = undefined;
+      expect((await routeApp.inject({ method: "GET", url })).statusCode).toBe(404);
+      routeService.mediaError = new Error("Session not found");
+      expect((await routeApp.inject({ method: "GET", url })).statusCode).toBe(404);
+      routeService.mediaError = new Error("disk failed");
+      expect((await routeApp.inject({ method: "GET", url })).statusCode).toBe(500);
+    } finally { await routeApp.close(); }
+  });
+
+it("negotiates websocket projection from each subscriber's media query", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const hub = new SessionEventHub();
+    registerSessionRoutes(routeApp, new CapturingRouteSessionService(), hub);
+    await routeApp.ready();
+    const inline = await routeApp.injectWS("/sessions/session-1/events?media=unknown");
+    const reference = await routeApp.injectWS("/sessions/session-1/events?media=reference&cwd=ignored");
+    try {
+      const inlineFrame: Promise<unknown[]> = once(inline, "message");
+      const referenceFrame: Promise<unknown[]> = once(reference, "message");
+      const image = { type: "image", data: "AQID", mimeType: "image/png" };
+      hub.publish("session-1", { type: "tool.end", toolName: "read", toolCallId: "call", text: "[image]", content: [image], isError: false }, "normal", { id: "session-1", cwd: "/repo" });
+      const [legacyPayload] = await inlineFrame;
+      const [referencePayload] = await referenceFrame;
+      expect(JSON.parse(String(legacyPayload))).toMatchObject({ content: [image], seq: 1 });
+      expect(JSON.parse(String(referencePayload))).toMatchObject({ content: [hub.mediaIndex.reference({ id: "session-1", cwd: "/repo" }, image)], seq: 1 });
+      expect(String(referencePayload)).not.toContain(image.data);
+    } finally {
+      inline.terminate();
+      reference.terminate();
       await routeApp.close();
     }
   });

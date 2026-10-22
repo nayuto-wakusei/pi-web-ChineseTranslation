@@ -1018,5 +1018,12 @@
   "ui.settingsThemePanel.current": "当前：{theme}",
   "ui.settingsThemePanel.defaultName": "默认：{theme}",
   "ui.settingsThemePanel.unavailable": "{theme}（不可用）",
-  "ui.settingsThemePanel.saveFailed": "无法保存默认主题：{message}"
+  "ui.settingsThemePanel.saveFailed": "无法保存默认主题：{message}",
+  "ui.sessionActivity.title": "最近在另一个实例中活动",
+  "ui.sessionActivity.message": "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
+  "ui.sessionActivity.dismiss": "关闭提示并继续",
+  "ui.chatView.suggestedInput": "建议输入",
+  "ui.chatView.emptyInput": "空输入",
+  "ui.chatView.suggestedInputHint": "替换当前草稿，不会发送。",
+  "ui.chatView.useSuggestedInput": "使用建议输入"
 }

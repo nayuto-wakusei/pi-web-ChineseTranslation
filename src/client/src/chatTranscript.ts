@@ -1,4 +1,4 @@
-import { appendText, appendThinking, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage } from "./chatMessages";
+import { appendText, appendThinking, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage, withMessageMeta } from "./chatMessages";
 import type { ChatLine, ToolExecutionPart } from "./components/shared";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
 import type { SessionUiEvent } from "./sessionSocket";
@@ -37,13 +37,23 @@ export function seedStreamingPartial(messages: ChatLine[], partial: unknown): Ch
   // call into a `toolExecution` line) so the seeded partial renders identically
   // to its finalized form and live `tool.*` events can target it by call id.
   const lines = normalizeMessages([partial]);
-  return lines.length === 0 ? messages : [...messages, ...lines];
+  // An empty start (or tool-call-only snapshot) still owns subsequent deltas.
+  // Keep its identity even before there is visible assistant content.
+  if (getString(partial, "streamId") !== undefined && !lines.some((line) => line.role === "assistant")) {
+    lines.unshift(withMessageMeta({ role: "assistant", parts: [] }, partial));
+  }
+  return [...messages, ...lines];
 }
 
 export function applyTranscriptEvent(messages: ChatLine[], event: SessionUiEvent): ChatLine[] | undefined {
   if (event.type === "message.append") return appendNewMessage(messages, event.message);
-  if (event.type === "assistant.delta") return appendText(messages, "assistant", event.text);
-  if (event.type === "assistant.thinking.delta") return appendThinking(messages, event.text);
+  if (event.type === "assistant.start") return seedStreamingPartial(messages, event.message);
+  if (event.type === "assistant.delta" || event.type === "assistant.thinking.delta") {
+    const append = event.type === "assistant.delta"
+      ? (lines: ChatLine[]) => appendText(lines, "assistant", event.text)
+      : (lines: ChatLine[]) => appendThinking(lines, event.text);
+    return appendAssistantStream(messages, event.streamId, append);
+  }
   if (event.type === "tool.start") return appendToolExecutionStart(messages, event);
   if (event.type === "tool.update") return updateToolExecution(messages, event.toolCallId, (part) => mergeToolExecutionUpdate(part, event));
   if (event.type === "tool.end") {
@@ -66,20 +76,51 @@ export function applyTranscriptEvent(messages: ChatLine[], event: SessionUiEvent
   return undefined;
 }
 
+function appendAssistantStream(messages: ChatLine[], streamId: string | undefined, append: (lines: ChatLine[]) => ChatLine[]): ChatLine[] {
+  // Older daemons do not send identities; retain their existing behavior.
+  if (streamId === undefined) return append(messages);
+  let index = messages.length - 1;
+  while (index >= 0 && !(messages[index]?.role === "assistant" && messages[index]?.streamId === streamId)) index--;
+  const line = index < 0 ? { role: "assistant" as const, parts: [], streamId } : messages[index];
+  if (line === undefined) return messages;
+  const updated = append([line]);
+  return index < 0 ? [...messages, ...updated]
+    : [...messages.slice(0, index), ...updated, ...messages.slice(index + 1)];
+}
+
 function applyFinalMessage(messages: ChatLine[], rawMessage: unknown): ChatLine[] | undefined {
   const rawToolResult = toolResultFromRawMessage(rawMessage);
   if (rawToolResult !== undefined) return finalizeToolExecution(messages, rawToolResult);
 
   const ended = normalizeMessage(rawMessage);
-  if (ended.length === 0) return undefined;
+  const streamId = getString(rawMessage, "streamId");
+  if (ended.length === 0) {
+    if (streamId !== undefined) {
+      const remaining = messages.filter((line) => line.role !== "assistant" || line.streamId !== streamId);
+      return remaining;
+    }
+    return undefined;
+  }
   const displayEnded = ended
     .map((line) => line.role === "assistant" ? withoutToolCalls(line) : line)
     .filter((line) => line.parts.length > 0);
+  if (streamId !== undefined && !displayEnded.some((line) => line.role === "assistant" || line.role === "skill")) {
+    messages = messages.filter((line) => line.role !== "assistant" || line.streamId !== streamId);
+  }
   if (displayEnded.length === 0) return messages;
   return displayEnded.reduce((next, line) => applyFinalLine(next, line), messages);
 }
 
 function applyFinalLine(messages: ChatLine[], displayEnded: ChatLine): ChatLine[] {
+  if ((displayEnded.role === "assistant" || displayEnded.role === "skill") && displayEnded.streamId !== undefined) {
+    const indexes = messages.flatMap((line, index) =>
+      (line.role === "assistant" || line.role === "skill") && line.streamId === displayEnded.streamId ? [index] : []);
+    // Skill reads have their own provisional tool-call identity. Reconcile
+    // those too, without consuming an adjacent, unrelated assistant message.
+    indexes.push(...findMatchingSkillReadIndexes(messages, displayEnded));
+    if (indexes.length === 0) return [...messages, displayEnded];
+    return replaceTranscriptLines(messages, indexes, displayEnded);
+  }
   const skillReadIndexes = findMatchingSkillReadIndexes(messages, displayEnded);
   if (skillReadIndexes.length > 0) return replaceSkillReadLines(messages, skillReadIndexes, displayEnded);
   const askUserRecord = displayEnded.parts.find((part) => part.type === "askUserRecord");
@@ -280,10 +321,12 @@ function findMatchingSkillReadIndexes(messages: ChatLine[], ended: ChatLine): nu
 }
 
 function replaceSkillReadLines(messages: ChatLine[], indexes: number[], replacement: ChatLine): ChatLine[] {
-  const replacementIndexes = indexesWithAdjacentAssistantFragment(messages, indexes, replacement);
-  const insertIndex = replacementIndexes[0];
-  if (insertIndex === undefined) return messages;
-  const replaced = new Set(replacementIndexes);
+  return replaceTranscriptLines(messages, indexesWithAdjacentAssistantFragment(messages, indexes, replacement), replacement);
+}
+
+function replaceTranscriptLines(messages: ChatLine[], indexes: number[], replacement: ChatLine): ChatLine[] {
+  const insertIndex = Math.min(...indexes);
+  const replaced = new Set(indexes);
   const next: ChatLine[] = [];
   for (let index = 0; index < messages.length; index++) {
     if (index === insertIndex) next.push(replacement);

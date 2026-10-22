@@ -62,7 +62,7 @@ describe("SessionController message history actions", () => {
     await expect(controller.actOnMessage("missing", "fork")).rejects.toThrow(/不在当前会话历史/);
 
     expect(forkTree).toHaveBeenCalledTimes(1);
-    expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1" }, "local");
+    expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1", retainCheckpoint: true }, "local");
     expect(state.selectedSession?.id).toBe(replacementSession.id);
   });
 });
@@ -177,7 +177,7 @@ describe("SessionController session tree navigation", () => {
     expect(state.treeDialog).toBeUndefined();
     expect(loadDraft(cacheKey)).toBe("edit original prompt");
     expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "edit original prompt" });
-    expect(socket.connectedSessionIds).toEqual([oldSession.id, oldSession.id]);
+    expect(socket.connectedSessionIds).toEqual([oldSession.id]);
   });
 
   it("keeps the busy tree mounted until authoritative history and editor replacement finish", async () => {
@@ -518,13 +518,15 @@ describe("SessionController session tree navigation", () => {
 
     const navigation = controller.navigateTree("root", { mode: "none" });
     await controller.selectSession(replacementSession, { updateUrl: false });
+    expect(removedKeys).toEqual([replacementCacheKey]);
+    const selectionRemovalCount = removedKeys.length;
     navigationResult.resolve({ cancelled: false, editorText: "originating draft" });
     await navigation;
 
     expect(state.selectedSession?.id).toBe(replacementSession.id);
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "replacement authoritative" }], transcriptIndex: 0 }]);
     expect(requestedMessages).toEqual([replacementSession.id]);
-    expect(removedKeys).toEqual([oldCacheKey]);
+    expect(removedKeys.slice(selectionRemovalCount)).toEqual([oldCacheKey]);
     expect(cachedPages.get(replacementCacheKey)).toEqual(page("replacement authoritative", 1));
     expect(loadDraft(oldCacheKey)).toBe("originating draft");
     expect(replacePromptEditorText).not.toHaveBeenCalled();
@@ -660,10 +662,10 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(runCommand).toHaveBeenCalledWith(oldSession, "/tree", "local");
     expect(state.treeDialog).toBeUndefined();
     if (action === "fork") {
-      expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1" }, "local");
+      expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1", retainCheckpoint: true }, "local");
       expect(navigateTree).not.toHaveBeenCalled();
     } else {
-      expect(navigateTree).toHaveBeenCalledWith(oldSession, { targetId: "root", expectedLeafId: "leaf-1", summary: { mode: "none" } }, "local");
+      expect(navigateTree).toHaveBeenCalledWith(oldSession, { targetId: "root", expectedLeafId: "leaf-1", summary: { mode: "none" }, retainCheckpoint: true }, "local");
       expect(forkTree).not.toHaveBeenCalled();
     }
     await expect(controller.actOnMessage("missing", action)).rejects.toThrow("不在当前会话历史");

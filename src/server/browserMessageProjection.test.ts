@@ -46,7 +46,7 @@ describe("browser message projection", () => {
     expect(page.messages[0]).toBe(message);
   });
 
-  it("projects final-message events but leaves other event shapes untouched", () => {
+  it("projects final and appended messages without mutating runtime events", () => {
     const message = signedAssistantMessage();
     const finalEvent = { type: "message.end" as const, message };
     const appendEvent = { type: "message.append" as const, message };
@@ -55,7 +55,11 @@ describe("browser message projection", () => {
       type: "message.end",
       message: { ...message, content: [{ type: "thinking", thinking: "private chain", redacted: true }, ...message.content.slice(1)] },
     });
-    expect(projectBrowserSessionEvent(appendEvent)).toBe(appendEvent);
+    expect(projectBrowserSessionEvent(appendEvent)).toEqual({
+      type: "message.append",
+      message: { ...message, content: [{ type: "thinking", thinking: "private chain", redacted: true }, ...message.content.slice(1)] },
+    });
     expect(finalEvent.message).toBe(message);
+    expect(appendEvent.message).toBe(message);
   });
 });

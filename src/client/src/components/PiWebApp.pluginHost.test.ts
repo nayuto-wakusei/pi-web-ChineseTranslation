@@ -20,6 +20,7 @@ import { browserErrorScopeKey, machineBrowserErrorScope, workspaceBrowserErrorSc
 import type { MachineNavigationSnapshot } from "../controllers/machineNavigationMemory";
 import type { NavigationFreshness, NavigationScope } from "../controllers/types";
 import { SessionController, type SessionEventSocket } from "../controllers/sessionController";
+import { WorkspaceController } from "../controllers/workspaceController";
 import type { SessionUiEvent } from "../sessionSocket";
 import { RealtimeSocket, SessionSocket } from "../sessionSocket";
 import { loadExternalPlugins, type PluginManifestEntry } from "../plugins/external";
@@ -604,11 +605,11 @@ describe("PiWebApp plugin host", () => {
     await selection;
   });
 
-  it.each([false, true])("archives a session opened through an abbreviated route (fallback: %s)", async (hasFallback) => {
+  it.each([false, true])("archives a session opened through its exact route (fallback: %s)", async (hasFallback) => {
     const selected: SessionInfo = { id: "abcdef-full", persisted: true, cwd: workspace.path, path: "/repo/selected.jsonl", created: "now", modified: "now", messageCount: 2, firstMessage: "Hello" };
     const fallback: SessionInfo = { ...selected, id: "next-session", path: "/repo/next.jsonl" };
-    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=abcdef");
-    const app = new PiWebApp();
+    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=abcdef-full");
+    const app = createDetachedApp();
     setAppState(app, {
       ...initialAppState(), selectedProject: project, selectedWorkspace: workspace,
       workspaces: [workspace], selectedSession: selected, sessions: hasFallback ? [selected, fallback] : [selected],
@@ -630,15 +631,17 @@ describe("PiWebApp plugin host", () => {
   it.each([
     { change: undefined, accepted: true },
     { change: ["session", "different-session"], accepted: false },
+    { change: ["session", "abcdef"], accepted: false },
+    { change: ["session", "abcdef-full-extra"], accepted: false },
     { change: ["session", "abcdef-other-full"], accepted: false },
     { change: ["machine", "remote-1"], accepted: false },
     { change: ["project", "project-2"], accepted: false },
     { change: ["workspace", "workspace-2"], accepted: false },
-  ] as const)("guards a tree fork from an abbreviated route against $change", async ({ change, accepted }) => {
+  ] as const)("guards a tree fork from an exact route against $change", async ({ change, accepted }) => {
     const selected: SessionInfo = { id: "abcdef-full", persisted: true, cwd: workspace.path, path: "/repo/selected.jsonl", created: "now", modified: "now", messageCount: 2, firstMessage: "Hello" };
     const forked: SessionInfo = { ...selected, id: "forked-session", path: "/repo/forked.jsonl" };
-    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=abcdef");
-    const app = new PiWebApp();
+    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=abcdef-full");
+    const app = createDetachedApp();
     setAppState(app, {
       ...initialAppState(), selectedProject: project, selectedWorkspace: workspace,
       workspaces: [workspace], selectedSession: selected, sessions: [selected],
@@ -779,10 +782,12 @@ describe("PiWebApp plugin host", () => {
       || !Reflect.set(sessions, "api", {
         ...defaultApi,
         startSession,
-        messages: (session: Parameters<typeof defaultApi.messages>[0]) => session.id === cached.id
-          ? Promise.reject(new Error("Session not found")) : Promise.resolve({ messages: [], start: 0, total: 0 }),
-        status: () => Promise.resolve({ sessionId: replacement.id, isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 }),
-        streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+        transcriptSnapshot: (session: Parameters<typeof defaultApi.transcriptSnapshot>[0]) => session.id === cached.id
+          ? Promise.reject(new Error("Session not found")) : Promise.resolve({
+            page: { messages: [], start: 0, total: 0 },
+            status: { sessionId: replacement.id, isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
+            seq: 0, partial: null,
+          }),
         thinkingLevels: () => Promise.resolve({ levels: [] }),
       })) throw new Error("Could not stub session boundaries");
     // Keep the real publication/ownership guard; isolate only destination loading
@@ -1134,6 +1139,52 @@ describe("PiWebApp plugin host", () => {
     if (appState(app).selectedWorkspace === undefined) await expectWorkspaceContentError(app, message);
   });
 
+  it.each([
+    { source: "initial", archived: false },
+    { source: "initial", archived: true },
+    { source: "history", archived: false },
+    { source: "history", archived: true },
+    { source: "plugin", archived: false },
+    { source: "plugin", archived: true },
+  ])("reports a partial session ID as missing without selecting its full-ID match ($source, archived: $archived)", async ({ source, archived }) => {
+    const exact = { ...runtimeRecoverySession(workspace), id: "conversation-full", archived };
+    const baseUrl = "http://localhost/nested/pi/?project=project-1&workspace=workspace-1&view=chat&files.workspace.files--file=keep.ts";
+    const partialUrl = `${baseUrl}&session=conversation#anchor`;
+    const browser = installBrowserWindow(source === "initial" ? partialUrl : `${baseUrl}&session=${exact.id}#anchor`);
+    const app = createDetachedApp();
+    const sessions = await installRuntimeRecoveryBoundaries(app, () => Promise.resolve([workspace]), exact);
+    setAppState(app, source === "initial" ? { ...initialAppState(), projects: [project] } : {
+      ...initialAppState(), projects: [project], selectedProject: project, workspaces: [workspace], selectedWorkspace: workspace,
+      sessions: [exact], selectedSession: exact, messages: [{ role: "assistant", parts: [{ type: "text", text: "Old transcript" }] }],
+    });
+    const selectSession = vi.spyOn(sessions, "selectSession");
+
+    if (source === "plugin") {
+      await createPluginRuntimeContext(app).navigate({ sessionId: "conversation" }, { mode: "patch" });
+    } else {
+      if (source === "history") browser.navigate(partialUrl);
+      await callAsyncAppMethod(app, "restoreRoute", false);
+    }
+
+    expect(browser.url.searchParams.get("session")).toBe("conversation");
+    expect(browser.url.searchParams.get("files.workspace.files--file")).toBe("keep.ts");
+    expect(browser.url.pathname).toBe("/nested/pi/");
+    expect(browser.url.hash).toBe("#anchor");
+    expect(browser.replaced).toEqual([]);
+    expect(appState(app).selectedSession).toBeUndefined();
+    expect(appState(app).messages).toEqual([]);
+    expect(selectSession).not.toHaveBeenCalled();
+    expect(callAppMethod(app, "sessionEmptyMessage")).toBe("找不到会话：conversation");
+    expect(callAppMethod(app, "visibleBrowserErrorsForCurrentRoute", appState(app))).toEqual([
+      expect.objectContaining({ message: "找不到会话：conversation" }),
+    ]);
+
+    // A full ID still opens the intended active or archived conversation.
+    await createPluginRuntimeContext(app).navigate({ sessionId: exact.id }, { mode: "patch" });
+    expect(appState(app).selectedSession?.id).toBe(exact.id);
+    expect(selectSession).toHaveBeenCalledOnce();
+  });
+
   it("does not reuse retained notifications after leaving a missing session or requesting a different destination", async () => {
     installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&session=missing-session&view=chat");
     const app = new PiWebApp();
@@ -1302,9 +1353,10 @@ describe("PiWebApp plugin host", () => {
     if (!Reflect.set(sessions, "socket", socket)
       || !Reflect.set(sessions, "notifications", undefined)
       || !Reflect.set(sessions, "api", {
-        messages: async () => { await waitAt("refresh"); return { messages: [], start: 0, total: 0 }; },
-        status: () => Promise.resolve(status),
-        streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+        transcriptSnapshot: async () => {
+          await waitAt("refresh");
+          return { page: { messages: [], start: 0, total: 0 }, status, seq: 0, partial: null };
+        },
         thinkingLevels: () => Promise.resolve({ levels: [] }),
       })) throw new Error("Could not stub session boundaries");
     const restoring = callAsyncAppMethod(app, "restoreRouteFor", {
@@ -1344,7 +1396,9 @@ describe("PiWebApp plugin host", () => {
     expect(appState(app).selectedSession?.id).toBe(session.id);
     expect(appState(app).mainView).toBe("workspace");
     expect(browser.url.href).toBe(destination);
-    expect(setHandler).toHaveBeenCalledOnce();
+    // The shared join keeps its original socket handler rather than swapping
+    // handlers after the fetch; buffered and subsequent events still reach it.
+    expect(handler).toBeTypeOf("function");
     sessions.flushPendingUpdates();
     expect(appState(app).status?.cost).toBe(phase === "refresh" ? 2 : 0);
     const liveEvent: SessionUiEvent = { type: "status.update", status: { ...status, cost: 1 } };
@@ -1352,6 +1406,90 @@ describe("PiWebApp plugin host", () => {
     sessions.flushPendingUpdates();
     expect(appState(app).status?.cost).toBe(1);
     sessions.dispose();
+  });
+
+  it.each([
+    { transition: "clear", initialId: "conversation-full", nextId: null, needsNewJoin: true, delayedRestore: false, validDestination: true },
+    { transition: "set explicit ID", initialId: undefined, nextId: "conversation-full", needsNewJoin: true, delayedRestore: false, validDestination: true },
+    { transition: "surface only", initialId: "conversation-full", nextId: "conversation-full", needsNewJoin: false, delayedRestore: false, validDestination: true },
+    { transition: "clear before restoration starts", initialId: "conversation-full", nextId: null, needsNewJoin: true, delayedRestore: true, validDestination: true },
+    { transition: "reject partial ID", initialId: "conversation-full", nextId: "conversation", needsNewJoin: false, delayedRestore: false, validDestination: false },
+  ])("resolves a $transition URL patch during chat loading", async ({ initialId, nextId, needsNewJoin, delayedRestore, validDestination }) => {
+    const browser = installBrowserWindow(`http://localhost/app?project=project-1&workspace=workspace-1${initialId === undefined ? "" : `&session=${initialId}`}&view=chat`);
+    const app = createDetachedApp();
+    const session: SessionInfo = { ...runtimeRecoverySession(workspace), id: "conversation-full" };
+    const sessions = await installRuntimeRecoveryBoundaries(app, () => Promise.resolve([workspace]), session);
+    setAppState(app, { ...initialAppState(), projects: [project] });
+    const workspaces: unknown = Reflect.get(app, "workspaces");
+    if (!(workspaces instanceof WorkspaceController)) throw new Error("Workspace controller unavailable");
+    const selectWorkspace = vi.spyOn(workspaces, "selectWorkspace");
+    const firstSnapshot = deferred<Awaited<ReturnType<typeof defaultApi.transcriptSnapshot>>>();
+    const status = { sessionId: session.id, isStreaming: false, isCompacting: false, isBashRunning: false,
+      pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 };
+    const snapshot = (text: string, seq: number): Awaited<ReturnType<typeof defaultApi.transcriptSnapshot>> => ({
+      page: { messages: [{ role: "assistant", content: [{ type: "text", text }] }], start: 0, total: 1 },
+      status, seq, partial: null,
+    });
+    const transcriptSnapshot = vi.fn<typeof defaultApi.transcriptSnapshot>()
+      .mockReturnValueOnce(firstSnapshot.promise)
+      .mockResolvedValue(snapshot("Replacement transcript", 2));
+    const api: unknown = Reflect.get(sessions, "api");
+    if (typeof api !== "object" || api === null) throw new Error("Session API unavailable");
+    Reflect.set(api, "transcriptSnapshot", transcriptSnapshot);
+    let handler: ((event: SessionUiEvent) => void) | undefined;
+    const connect = vi.fn<SessionEventSocket["connect"]>((_session, onEvent) => { handler = onEvent; });
+    const close = vi.fn(() => { handler = undefined; });
+    const socket: SessionEventSocket = { connect, close, setHandler: (onEvent) => { handler = onEvent; } };
+    Reflect.set(sessions, "socket", socket);
+    const restoring = callAsyncAppMethod(app, "restoreRoute", false);
+    await vi.waitFor(() => { expect(transcriptSnapshot).toHaveBeenCalledOnce(); });
+    expect(appState(app).selectedSession?.id).toBe(session.id);
+
+    if (delayedRestore) {
+      // A browser destination can retire the load before its restoration starts.
+      // The selected row must still be marked non-reusable after that load exits.
+      const destination = new URL(browser.url);
+      destination.searchParams.delete("session");
+      destination.searchParams.set("view", "workspace");
+      browser.navigate(destination.href);
+      firstSnapshot.resolve(snapshot("Initial transcript", 1));
+      await restoring;
+      await callAsyncAppMethod(app, "restoreRoute", false);
+    } else {
+      const patching = createPluginRuntimeContext(app).navigate({ sessionId: nextId, view: "workspace" }, { mode: "patch" });
+      // Both joins, if needed, share the pending read's refresh coordinator. Release
+      // the old response before awaiting navigation; a fresh read must replace it.
+      firstSnapshot.resolve(snapshot("Initial transcript", 1));
+      await Promise.all([restoring, patching]);
+      expect(selectWorkspace).toHaveBeenCalledTimes(validDestination ? 1 : 2);
+    }
+
+    expect(browser.url.searchParams.get("session")).toBe(nextId);
+    if (!validDestination) {
+      expect(appState(app).selectedSession).toBeUndefined();
+      expect(appState(app).messages).toEqual([]);
+      expect(callAppMethod(app, "sessionEmptyMessage")).toBe(`找不到会话：${String(nextId)}`);
+      expect(transcriptSnapshot).toHaveBeenCalledOnce();
+      expect(connect).toHaveBeenCalledOnce();
+      expect(handler).toBeUndefined();
+      return;
+    }
+    expect(appState(app).selectedSession?.id).toBe(session.id);
+    expect(connect).toHaveBeenCalledTimes(needsNewJoin ? 2 : 1);
+    expect(transcriptSnapshot).toHaveBeenCalledTimes(needsNewJoin ? 2 : 1);
+    expect(appState(app).messages).toMatchObject([{ role: "assistant", parts: [{ type: "text", text: needsNewJoin ? "Replacement transcript" : "Initial transcript" }] }]);
+    expect(handler).toBeTypeOf("function");
+    // A retired join must not close the replacement connection when it settles.
+    const closesAfterNavigation = close.mock.calls.length;
+    handler?.({ type: "status.update", seq: 3, status: { ...status, cost: 3 } });
+    sessions.flushPendingUpdates();
+    expect(appState(app).status?.cost).toBe(3);
+    expect(close).toHaveBeenCalledTimes(closesAfterNavigation);
+
+    // Once loaded, explicitly naming the same conversation can reuse its join.
+    await createPluginRuntimeContext(app).navigate({ sessionId: session.id }, { mode: "patch" });
+    expect(transcriptSnapshot).toHaveBeenCalledTimes(needsNewJoin ? 2 : 1);
+    expect(connect).toHaveBeenCalledTimes(needsNewJoin ? 2 : 1);
   });
 
   it("does not let an older route restore apply its workspace response after a newer route request", async () => {
@@ -4291,9 +4429,11 @@ async function installRuntimeRecoveryBoundaries(
   if (!Reflect.set(sessions, "socket", socket)
     || !Reflect.set(sessions, "notifications", undefined)
     || !Reflect.set(sessions, "api", {
-      messages: () => Promise.resolve({ messages: [], start: 0, total: 0 }),
-      status: () => Promise.resolve({ sessionId: session.id, isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 }),
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => Promise.resolve({
+        page: { messages: [], start: 0, total: 0 },
+        status: { sessionId: session.id, isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
+        seq: 0, partial: null,
+      }),
       thinkingLevels: () => Promise.resolve({ levels: [] }),
     })) throw new Error("Could not stub session boundaries");
   return sessions;

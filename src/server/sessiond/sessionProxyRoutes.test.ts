@@ -663,6 +663,10 @@ interface FakeSessionDaemonResponse {
 }
 
 class FakeSessionDaemon {
+  requestStream(): Promise<never> {
+    return Promise.reject(new Error("Media requests are not configured for this test"));
+  }
+
   readonly requests: { method: string; path: string; body: unknown }[] = [];
   readonly requestHeaders: (Record<string, string> | undefined)[] = [];
   readonly requestSignals: (AbortSignal | undefined)[] = [];

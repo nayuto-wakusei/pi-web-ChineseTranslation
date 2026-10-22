@@ -2,14 +2,15 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createTranslator, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import { WebSocket, type RawData } from "ws";
 import { normalizeRequestCwd } from "../workingDirectory.js";
-import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
+import { SessionDaemonClient, type SessionDaemonRequestOptions, type SessionDaemonStreamResponse } from "../../sessiond/sessionDaemonClient.js";
 import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
-import { withRequestCancellation } from "../requestCancellation.js";
+import { requestCancellation, withRequestCancellation } from "../requestCancellation.js";
 import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import { REALTIME_SOCKET_HIGH_WATER_MARK } from "../realtime/sessionEventHub.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
+  requestStream(path: string, options?: SessionDaemonRequestOptions): Promise<SessionDaemonStreamResponse>;
   connectWebSocket(path: string, headers?: Record<string, string>): WebSocket;
 }
 
@@ -50,6 +51,29 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
       return undefined;
     }
   };
+
+  // Binary media follows the same management authorization as JSON session reads.
+  app.get(`${prefix}/sessions/:sessionId/media/:mediaId`, async (request, reply) => {
+    const cancellation = requestCancellation(request, reply);
+    try {
+      const context = await managementContextForRequest(request, managementEmbed, reply);
+      const path = stripPrefix(request.url, prefix);
+      await managementBody(path, undefined, context, managementEmbed);
+      const headers = managementHeaders(context, managementEmbed);
+      const upstream = await daemon.requestStream(path, { signal: cancellation.signal, ...(headers === undefined ? {} : { headers }) });
+      reply.code(upstream.statusCode);
+      for (const name of ["content-type", "content-length", "cache-control", "x-content-type-options"]) {
+        const value = upstream.headers[name];
+        if (value !== undefined && value !== "") reply.header(name, value);
+      }
+      return await reply.send(upstream.body);
+    } catch (error) {
+      requestFailed(reply, error, t);
+      return await reply;
+    } finally {
+      cancellation.dispose();
+    }
+  });
 
   app.get(`${prefix}/sessiond/health`, async (request, reply) => {
     try {

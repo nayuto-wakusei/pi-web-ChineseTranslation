@@ -1188,6 +1188,12 @@ export interface SessionStatus {
   sessionId: string;
   /** True when the server has verified a backing session file exists; false when known transient. */
   persisted?: boolean;
+  /**
+   * Best-effort observation of recent activity on this session in another PI WEB
+   * instance, not an ownership lock. Current daemons report both true and false;
+   * optional for older producers. Browsers own acknowledgement and presentation.
+   */
+  recentlyActiveElsewhere?: boolean;
   model?: SessionModel;
   thinkingLevel?: string;
   isStreaming: boolean;
@@ -1217,6 +1223,8 @@ export interface SessionStatus {
    * restarts. Several may be open at once; the UI presents them as a queue.
    */
   pendingDialogs?: PendingExtensionDialog[];
+  /** Latest tree-generated input, retained while hosted by this daemon. Applying it is a client choice. */
+  suggestedInput?: string;
 }
 
 export interface SlashCommand {
@@ -1319,6 +1327,8 @@ export interface SessionTreeNavigateRequest {
   /** Leaf shown when the navigator opened; null is valid for an empty/root position. */
   expectedLeafId: string | null;
   summary: SessionTreeSummaryChoice;
+  /** Message shortcuts retain a complete non-user checkpoint and its intervening history. */
+  retainCheckpoint?: boolean;
 }
 
 export type SessionTreeNavigateResult =
@@ -1329,6 +1339,8 @@ export interface SessionTreeForkRequest {
   entryId: string;
   /** Leaf shown when the navigator opened; null is valid for an empty/root position. */
   expectedLeafId: string | null;
+  /** Message shortcuts retain a complete non-user checkpoint and its intervening history. */
+  retainCheckpoint?: boolean;
 }
 
 /**
@@ -1370,6 +1382,12 @@ export interface SessionStreamSnapshot {
   partial: unknown;
 }
 
+/** History, status, and partial captured at one event watermark for refresh/replay. */
+export interface SessionTranscriptSnapshot extends SessionStreamSnapshot {
+  page: MessagePage;
+  status: SessionStatus;
+}
+
 export type CommandResult =
   | { type: "done"; message?: string; session?: SessionInfo; promptDraft?: string }
   | { type: "select"; requestId: string; title: string; options: CommandOption[] }
@@ -1386,8 +1404,9 @@ export type SessionUiEvent = SessionUiEventBody & { seq?: number };
 
 type SessionUiEventBody =
   | { type: "message.append"; message: unknown }
-  | { type: "assistant.delta"; text: string }
-  | { type: "assistant.thinking.delta"; text: string }
+  | { type: "assistant.start"; message: unknown }
+  | { type: "assistant.delta"; text: string; streamId?: string }
+  | { type: "assistant.thinking.delta"; text: string; streamId?: string }
   | { type: "tool.start"; toolName: string; toolCallId: string; summary: string; args?: unknown }
   | { type: "tool.update"; toolName: string; toolCallId: string; text: string; content?: unknown; details?: unknown }
   | { type: "tool.end"; toolName: string; toolCallId: string; text: string; isError: boolean; content?: unknown; details?: unknown }
@@ -1402,12 +1421,16 @@ type SessionUiEventBody =
   | { type: "command.output"; level: "info" | "success" | "error"; message: string; notificationId?: string }
   | SessionNotificationInboxEvent
   | { type: "session.error"; message: string }
+  /** Technical details for the browser console, never transcript or notification content. */
+  | { type: "session.diagnostic"; message: string }
   | { type: "ask.opened"; ask: PendingAskUser }
   | { type: "ask.closed"; askId: string; reason: AskUserCloseReason }
   | { type: "dialog.opened"; dialog: PendingExtensionDialog }
   | { type: "dialog.closed"; dialogId: string; reason: ExtensionDialogCloseReason; answer?: ExtensionDialogAnswer }
   | { type: "session.name"; sessionId: string; name?: string }
   | { type: "session.created"; session: SessionInfo }
+  /** The selected branch/runtime changed; clients refresh reads without changing local selection or drafts. */
+  | { type: "session.tree.changed" }
   | { type: "pi.event"; eventType: string };
 
 /** Global invalidation for the daemon-owned enabled-model scope. */

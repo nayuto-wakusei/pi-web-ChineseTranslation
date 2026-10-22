@@ -457,6 +457,7 @@ describe("API parsers", () => {
     const expected = {
       sessionId: "s1",
       persisted: true,
+      recentlyActiveElsewhere: false,
       isStreaming: false,
       isCompacting: true,
       isBashRunning: false,
@@ -889,6 +890,7 @@ describe("API parsers", () => {
 function statusWire() {
   return {
     sessionId: "s1",
+    recentlyActiveElsewhere: false,
     isStreaming: false,
     isCompacting: false,
     isBashRunning: false,

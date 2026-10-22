@@ -739,6 +739,7 @@ function fakePiPackageService(): PiPackageService {
 
 function fakeSessionDaemon(projects: ProjectService, managementProjectRoot?: string): SessionProxyDaemon {
   return {
+    requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")),
     request: async (method, path, body, headers) => {
       const catalogMatch = /^\/workspace-catalog\/projects\/([^/]+)\/workspaces(?:\/([^/]+))?$/u.exec(path);
       if (method === "GET" && catalogMatch?.[1] !== undefined) {

@@ -3,7 +3,9 @@ import { loadNodeTranslator } from "../../localization.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionModelScopeMode, type SessionTreeForkRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
-import { projectBrowserMessageResponse } from "../browserMessageProjection.js";
+import { projectBrowserMessageResponse, projectBrowserStreamSnapshot, projectBrowserTranscriptSnapshot, type BrowserImageProjector } from "../browserMessageProjection.js";
+import { isSessionMediaId, SESSION_MEDIA_MODE } from "../../shared/sessionMedia.js";
+import { isSessionImageMimeType } from "./sessionMediaIndex.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { SessionRouteLookup, SessionRouteService } from "./sessionService.js";
@@ -15,6 +17,7 @@ type SessionLookup = SessionRouteLookup;
 
 interface SessionQuery {
   cwd?: string;
+  media?: string;
 }
 
 interface SearchQuery extends SessionQuery {
@@ -217,9 +220,29 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const page = { ...optionalField("before", optionalNumber(request.query.before)), ...optionalField("limit", optionalNumber(request.query.limit)) };
       const messages = await sessions.messages(ref, page, managementContextFromHeaders(request.headers));
-      return projectBrowserMessageResponse(messages);
+      return projectBrowserMessageResponse(messages, imageProjector(request.query, eventHub, ref, eventScopeFromHeaders(request.headers)));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error, t) });
+    }
+  });
+
+  app.get<{ Params: { sessionId: string; mediaId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/media/:mediaId`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply, t);
+    if (ref === undefined) return reply;
+    if (!isSessionMediaId(request.params.mediaId)) return reply.code(400).send({ error: "Invalid media id" });
+    try {
+      const media = await sessions.media(ref, request.params.mediaId, managementContextFromHeaders(request.headers));
+      if (media === undefined) return await reply.code(404).send({ error: "Session media not found" });
+      if (!isSessionImageMimeType(media.mimeType)) throw new Error("Unsupported session image MIME type");
+      return await reply
+        .type(media.mimeType)
+        .header("Cache-Control", "private, max-age=31536000, immutable")
+        .header("Content-Length", media.data.byteLength)
+        .header("X-Content-Type-Options", "nosniff")
+        .send(media.data);
+    } catch (error) {
+      if (isSessionNotFoundError(error)) return reply.code(404).send({ error: errorMessage(error, t) });
+      throw error; // Fastify logs unexpected failures and returns 500, not a false miss.
     }
   });
 
@@ -243,11 +266,22 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     }
   });
 
+  app.get<{ Params: { sessionId: string }; Querystring: MessageQuery }>(`${prefix}/sessions/:sessionId/transcript-snapshot`, async (request, reply) => {
+    const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply, t);
+    if (ref === undefined) return reply;
+    try {
+      const snapshot = await sessions.transcriptSnapshot(ref, { ...optionalField("limit", optionalNumber(request.query.limit)) }, managementContextFromHeaders(request.headers));
+      return projectBrowserTranscriptSnapshot(snapshot, imageProjector(request.query, eventHub, ref, eventScopeFromHeaders(request.headers)));
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error, t) });
+    }
+  });
+
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/stream-snapshot`, async (request, reply) => {
     const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply, t);
     if (ref === undefined) return reply;
     try {
-      return await sessions.streamSnapshot(ref, managementContextFromHeaders(request.headers));
+      return projectBrowserStreamSnapshot(await sessions.streamSnapshot(ref, managementContextFromHeaders(request.headers)), imageProjector(request.query, eventHub, ref, eventScopeFromHeaders(request.headers)));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error, t) });
     }
@@ -611,7 +645,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.get<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/events`, { websocket: true }, (socket, request) => {
     // Only the id matters for event subscription; cwd is intentionally ignored
     // so a malformed value cannot throw inside the websocket handler.
-    eventHub.add(request.params.sessionId, socket, eventScopeFromHeaders(request.headers));
+    eventHub.add(request.params.sessionId, socket, eventScopeFromHeaders(request.headers), request.query.media === SESSION_MEDIA_MODE ? SESSION_MEDIA_MODE : undefined);
   });
 
   app.get(`${prefix}/sessions/events`, { websocket: true }, (socket, request) => {
@@ -621,6 +655,10 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.get(`${prefix}/events`, { websocket: true }, (socket, request) => {
     eventHub.addGlobal(socket, eventScopeFromHeaders(request.headers));
   });
+}
+
+function imageProjector(query: SessionQuery, hub: SessionEventHub, ref: SessionLookup, eventScope: ReturnType<typeof eventScopeFromHeaders>): BrowserImageProjector | undefined {
+  return query.media === SESSION_MEDIA_MODE ? (image) => hub.mediaIndex.reference({ ...ref, eventScope }, image) : undefined;
 }
 
 function bulkMutationRefsFromBody(body: SessionBulkMutationRequest | undefined): SessionBulkMutationRef[] {
@@ -694,7 +732,7 @@ function sessionLookupFromRequiredCwd(id: string, value: Record<string, unknown>
 function sessionTreeNavigateRequestFromBody(body: Record<string, unknown>): SessionTreeNavigateRequest {
   const targetId = requireNonEmptyString(body, "targetId");
   const expectedLeafId = requireNullableString(body, "expectedLeafId");
-  return { targetId, expectedLeafId, summary: sessionTreeSummaryChoice(body["summary"]) };
+  return { targetId, expectedLeafId, summary: sessionTreeSummaryChoice(body["summary"]), ...optionalField("retainCheckpoint", optionalBoolean(body, "retainCheckpoint")) };
 }
 
 function sessionTreeSummaryChoice(value: unknown): SessionTreeSummaryChoice {
@@ -757,7 +795,7 @@ function requireBoundedId(value: unknown, field: string): string {
 function sessionTreeForkRequestFromBody(body: Record<string, unknown>): SessionTreeForkRequest {
   const entryId = requireNonEmptyString(body, "entryId");
   const expectedLeafId = requireNullableString(body, "expectedLeafId");
-  return { entryId, expectedLeafId };
+  return { entryId, expectedLeafId, ...optionalField("retainCheckpoint", optionalBoolean(body, "retainCheckpoint")) };
 }
 
 function extensionDialogAnswerFromBody(body: Record<string, unknown>): ExtensionDialogAnswerRequest {
@@ -795,6 +833,10 @@ function requireBoolean(record: Record<string, unknown>, field: string): boolean
   const value = record[field];
   if (typeof value !== "boolean") throw new Error(`${field} field must be a boolean`);
   return value;
+}
+
+function optionalBoolean(record: Record<string, unknown>, field: string): boolean | undefined {
+  return record[field] === undefined ? undefined : requireBoolean(record, field);
 }
 
 function requireNonEmptyString(record: Record<string, unknown>, field: string): string {

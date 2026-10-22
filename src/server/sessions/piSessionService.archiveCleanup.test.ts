@@ -229,7 +229,7 @@ describe("PiSessionService archive and cleanup", () => {
       heartbeatIntervalMs: 60_000,
     });
 
-    const result = await service.deleteArchivedMany([{ id: "arch", cwd: "/workspace" }, { id: "active", cwd: "/workspace" }]);
+    const result = await service.deleteArchivedMany([{ id: "archived", cwd: "/workspace" }, { id: "active", cwd: "/workspace" }]);
 
     expect(result.deletedSessionIds).toEqual(["archived"]);
     expect(result.failures).toEqual([{ sessionId: "active", error: "未找到已归档会话" }]);

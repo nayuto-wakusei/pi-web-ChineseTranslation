@@ -6,7 +6,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { ModelRuntime } from "../../piSdk.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
-import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, fakeRuntime, runtimeCreator, seedCredential, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
+import { testModelRuntime, CapturingSessionEventHub, createTestModelRuntime, fakeRuntime, fakeSessionManager, runtimeCreator, seedCredential, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, TEST_MODEL_ID, TEST_MODEL_PROVIDER, testModel, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -127,8 +127,12 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
   });
 
   it("includes queued message details in session status", async () => {
+    const messages = [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }];
     const fake = fakeRuntime("status-session", {
-      messages: [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }],
+      messages,
+      sessionManager: fakeSessionManager("/workspace", {
+        getBranch: () => messages.map((message) => ({ type: "message", message })),
+      }),
       pendingMessageCount: 2,
       getSteeringMessages: () => ["adjust this turn"],
       getFollowUpMessages: () => ["then do this"],
@@ -255,6 +259,9 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime("clear-queue-session", {
       messages: transcript,
+      sessionManager: fakeSessionManager("/workspace", {
+        getBranch: () => transcript.map((message) => ({ type: "message", message })),
+      }),
       isStreaming: true,
       isCompacting: true,
       pendingMessageCount: 2,

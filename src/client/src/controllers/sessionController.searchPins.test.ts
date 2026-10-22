@@ -47,14 +47,16 @@ describe("SessionController session search and pins", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace };
     const session = workspaceSession("session-1");
     const rawMessages = Array.from({ length: 10 }, (_, index) => ({ role: index % 2 === 0 ? "user" : "assistant", content: `message ${String(index)}` }));
-    const messages = vi.fn()
-      .mockResolvedValueOnce({ messages: rawMessages.slice(8), start: 8, total: 10 })
+    const transcriptSnapshot = vi.fn<typeof defaultApi.transcriptSnapshot>().mockResolvedValue({
+      page: { messages: rawMessages.slice(8), start: 8, total: 10 },
+      status: status("session-1"), seq: 0, partial: null,
+    });
+    const messages = vi.fn<typeof defaultApi.messages>()
       .mockResolvedValueOnce({ messages: rawMessages.slice(0, 8), start: 0, total: 10 });
     const api = {
       ...defaultApi,
       messages,
-      status: vi.fn().mockResolvedValue(status("session-1")),
-      streamSnapshot: vi.fn().mockResolvedValue({ seq: 0, partial: null }),
+      transcriptSnapshot,
     };
     const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined, { api, socket: new FakeSocket() });
 
@@ -65,8 +67,12 @@ describe("SessionController session search and pins", () => {
       excerpts: [{ text: "message 1", matchRanges: [{ start: 0, length: 7 }] }],
     }, "message");
 
-    expect(messages).toHaveBeenNthCalledWith(2, session, { before: 8, limit: 500 }, "local");
+    expect(transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(session, { limit: 100 }, "local");
+    expect(messages).toHaveBeenCalledExactlyOnceWith(session, { before: 8, limit: 500 }, "local");
     expect(state.messagePageStart).toBe(0);
+    expect(state.messagePageEnd).toBe(10);
+    expect(state.messagePageTotal).toBe(10);
+    expect(state.messages.map((message) => message.transcriptIndex)).toEqual(Array.from({ length: 10 }, (_, index) => index));
     expect(state.messages.find((message) => message.transcriptIndex === 1)?.parts).toEqual([{ type: "text", text: "message 1" }]);
     expect(state.sessionSearchTarget).toEqual({ sessionId: "session-1", messageIndex: 1, query: "message", requestId: 1 });
     controller.dispose();

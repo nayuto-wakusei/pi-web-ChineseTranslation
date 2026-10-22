@@ -1,3 +1,4 @@
+import { createTranslator, type Translator } from "../../shared/i18n.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { PendingExtensionDialog, SessionUiEvent } from "../../shared/apiTypes.js";
@@ -14,7 +15,7 @@ const ACTIVE_SESSION_ID = "session-1";
  * timeout is `0` (wait forever) unless a test says otherwise, so parked waits
  * arm no real timers.
  */
-function dialogService(options: { extensionDialogsTimeoutMs?: number } = {}) {
+function dialogService(options: { extensionDialogsTimeoutMs?: number; translator?: Translator } = {}) {
   const store = new PendingExtensionDialogStore({
     now: () => new Date("2026-02-01T10:00:00.000Z"),
     createDialogId: (() => {
@@ -26,6 +27,7 @@ function dialogService(options: { extensionDialogsTimeoutMs?: number } = {}) {
   const events = new CapturingSessionEventHub();
   const service = new PiSessionService(events, {
     agentDir: TEST_AGENT_DIR,
+    ...(options.translator === undefined ? {} : { translator: options.translator }),
     modelRuntime: testModelRuntime,
     sessionManager: sessionGateway([sessionRecord(ACTIVE_SESSION_ID)]),
     archiveStore: emptyArchiveStore(),
@@ -529,8 +531,8 @@ describe("PiSessionService session_start dialog startup reachability", () => {
    * statusable and answerable — in that window, or startup could never be
    * unblocked from the browser.
    */
-  function startupDialogService() {
-    const harness = dialogService();
+  function startupDialogService(options: Parameters<typeof dialogService>[0] = {}) {
+    const harness = dialogService(options);
     const confirmAnswers: (boolean | string | undefined)[] = [];
     harness.fake.session.bindExtensions = (bindings) => {
       harness.fake.calls.bindExtensions.push(bindings);
@@ -548,19 +550,34 @@ describe("PiSessionService session_start dialog startup reachability", () => {
     });
   }
 
-  it("serves status for a session still parked on a session_start dialog", async () => {
-    const { service, store } = startupDialogService();
+  it("requires the full session id for status and dialog actions while startup is parked", async () => {
+    const { service, store, confirmAnswers, fake } = startupDialogService({ translator: createTranslator("en", {}) });
     const started = service.start("/workspace");
-    await parkOnStartupDialog(store);
+    try {
+      await parkOnStartupDialog(store);
+      const exact = sessionRef(ACTIVE_SESSION_ID);
+      const abbreviated = sessionRef("session");
+      const status = await service.status(exact);
 
-    const status = await service.status(sessionRef(ACTIVE_SESSION_ID));
-
-    expect(status.pendingDialogs).toEqual([
-      expect.objectContaining({ dialogId: "dialog-1", kind: "confirm", title: "Proceed at startup?", runScoped: false }),
-    ]);
-    await service.answerDialog(sessionRef(ACTIVE_SESSION_ID), "dialog-1", true);
-    await started;
-    await service.dispose();
+      expect(status.pendingDialogs).toEqual([
+        expect.objectContaining({ dialogId: "dialog-1", kind: "confirm", title: "Proceed at startup?", runScoped: false }),
+      ]);
+      await expect(service.status(abbreviated)).rejects.toThrow("Session not found");
+      await expect(service.messages(abbreviated)).rejects.toThrow("Session not found");
+      await expect(service.answerDialog(abbreviated, "dialog-1", true)).rejects.toThrow("Session not found");
+      await expect(service.cancelDialog(abbreviated, "dialog-1")).rejects.toThrow("Session not found");
+      await expect(service.status(sessionRef(ACTIVE_SESSION_ID, "/other"))).rejects.toThrow("Session not found");
+      await service.stop(abbreviated);
+      expect(confirmAnswers).toEqual([]);
+      expect(fake.calls.dispose).toBe(0);
+      expect(store.pendingDialogs(ACTIVE_SESSION_ID)).toHaveLength(1);
+      await service.answerDialog(exact, "dialog-1", true);
+      await started;
+      expect(confirmAnswers).toEqual([true]);
+    } finally {
+      await service.dispose();
+      await Promise.allSettled([started]);
+    }
   });
 
   it("answers a session_start dialog mid-startup so creation can finish", async () => {

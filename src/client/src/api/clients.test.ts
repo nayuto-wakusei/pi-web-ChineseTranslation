@@ -387,6 +387,7 @@ describe("session API compatibility", () => {
 
     await expect(sessionsApi.clearQueue({ id: "s /?", cwd: "/repo with spaces" }, "remote /?")).resolves.toEqual({
       sessionId: "s /?",
+      recentlyActiveElsewhere: false,
       isStreaming: true,
       isCompacting: false,
       isBashRunning: false,
@@ -762,7 +763,7 @@ function dialogStatusWire() {
 }
 
 function parsedDialogStatus() {
-  return { ...dialogStatusWire(), queuedMessages: [] };
+  return { ...dialogStatusWire(), queuedMessages: [], recentlyActiveElsewhere: false };
 }
 
 function piWebConfigResponse(config: PiWebConfigValues) {

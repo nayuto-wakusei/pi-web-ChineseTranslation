@@ -19,7 +19,7 @@ beforeEach(async () => {
   context = { user: { id: "user", rootUserId: "owner", roles: [], permissions: [] }, projects: [{ id: "managed", name: "Managed" }], tools: { allow: ["terminal-command-runs"] } };
   response = { id: "run", projectId: "managed", status: "running" };
   daemonRequest = vi.fn<SessionProxyDaemon["request"]>(() => Promise.resolve({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(response) }));
-  const daemon: SessionProxyDaemon = { request: daemonRequest, connectWebSocket: () => { throw new Error("Interactive terminal must not be opened"); } };
+  const daemon: SessionProxyDaemon = { request: daemonRequest, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("Interactive terminal must not be opened"); } };
   const runtime: ManagementEmbedRuntime = { enabled: true, projectRoot: root, authenticate: () => Promise.resolve(context), resourceHandle: () => "private-handle" };
   const workspaces = { list: (project: { id: string; path: string }) => Promise.resolve([{ id: "workspace", projectId: project.id, path: project.path, label: "Main", isMain: true }]) };
   registerManagementTerminalProxyRoutes(app, workspaces, daemon, "/api", runtime);

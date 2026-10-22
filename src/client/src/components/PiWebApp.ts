@@ -185,18 +185,12 @@ function currentBrowserUrl(): string {
   return window.location.href;
 }
 
-function sessionMatchesRouteTarget(selectedSessionId: string | undefined, requestedSessionId: string): boolean {
-  return selectedSessionId === requestedSessionId || selectedSessionId?.startsWith(requestedSessionId) === true;
-}
-
 function browserErrorContextForRoute(
   state: Pick<AppState, "selectedSession">,
   route: Pick<ParsedAppRoute, "machineId" | "projectId" | "workspaceId" | "sessionId">,
 ): ReturnType<typeof browserErrorContext> {
   const selectedSession = state.selectedSession;
-  const sessionId = route.sessionId !== undefined && sessionMatchesRouteTarget(selectedSession?.id, route.sessionId)
-    ? selectedSession?.id
-    : route.sessionId;
+  const sessionId = route.sessionId;
   return {
     machineId: route.machineId ?? "local",
     ...(route.projectId === undefined ? {} : { projectId: route.projectId }),
@@ -474,6 +468,8 @@ export class PiWebApp extends LitElement {
   private sessionWarningVisibility = initialSessionWarningVisibilityState();
   private authenticatedAppRunning = false;
   private normalAuthInitSeq = 0;
+  /** Browser-local acknowledgement, retained per machine/session until activity elsewhere clears. */
+  private readonly dismissedActivityNotices = new Set<string>();
   private readonly onPopState = () => {
     this.invalidateNavigationSelection();
     this.workspaceNavigationGeneration += 1;
@@ -513,6 +509,7 @@ export class PiWebApp extends LitElement {
   protected override willUpdate(): void {
     this.toggleAttribute("pwa-display-mode", this.appShell.isPwaDisplayMode);
     this.syncSessionWarningVisibility();
+    this.syncSessionActivityAcknowledgement();
   }
 
   protected override updated(): void {
@@ -527,8 +524,60 @@ export class PiWebApp extends LitElement {
     this.sessionWarningVisibility = reconcileSessionWarningVisibility(
       this.sessionWarningVisibility,
       session === undefined ? undefined : machineSessionKey(selectedMachineId(this.state), session.id),
-      this.state.status === undefined ? undefined : this.state.status.warnings ?? [],
+      this.state.status?.sessionId === session?.id ? this.state.status?.warnings ?? [] : undefined,
     );
+  }
+
+  private syncSessionActivityAcknowledgement(): void {
+    if (this.dismissedActivityNotices.size === 0) return;
+    const session = this.state.selectedSession;
+    const status = this.state.status;
+    const machineId = selectedMachineId(this.state);
+    // The cache belongs to the selected machine and receives global updates for
+    // unselected sessions too. Their activity may clear while another chat is open.
+    for (const cachedStatus of Object.values(this.state.sessionStatuses)) {
+      if (cachedStatus.sessionId !== session?.id && cachedStatus.recentlyActiveElsewhere === false) {
+        this.dismissedActivityNotices.delete(machineSessionKey(machineId, cachedStatus.sessionId));
+      }
+    }
+    if (session !== undefined && status?.sessionId === session.id && status.recentlyActiveElsewhere === false) {
+      this.dismissedActivityNotices.delete(machineSessionKey(machineId, session.id));
+    }
+  }
+
+  private unacknowledgedActivitySessionKey(state = this.state): string | undefined {
+    const session = state.selectedSession;
+    if (session === undefined || state.status?.sessionId !== session.id || state.status.recentlyActiveElsewhere !== true) return undefined;
+    const sessionKey = machineSessionKey(selectedMachineId(state), session.id);
+    return this.dismissedActivityNotices.has(sessionKey) ? undefined : sessionKey;
+  }
+
+  private readonly handleDismissActivityNotice = async (): Promise<void> => {
+    const sessionKey = this.unacknowledgedActivitySessionKey();
+    if (sessionKey === undefined) return;
+    this.dismissedActivityNotices.add(sessionKey);
+    this.requestUpdate();
+    await this.updateComplete;
+    await this.promptEditor?.updateComplete;
+    const session = this.state.selectedSession;
+    if (session !== undefined
+      && machineSessionKey(selectedMachineId(this.state), session.id) === sessionKey
+      && this.unacknowledgedActivitySessionKey() === undefined
+      && this.effectiveMainView() === "chat"
+      && this.promptEditor?.disabled === false
+      && !this.isRenderedModalOpen()) this.promptEditor.focusInput();
+  };
+
+  private renderSessionActivityNotice(): TemplateResult | null {
+    if (this.unacknowledgedActivitySessionKey() === undefined) return null;
+    return html`
+      <section class="composer-activity-notice" role="alert" aria-label=${t("ui.sessionActivity.title", "Recent activity in another instance")}>
+        <div class="composer-activity-notice-text">
+          <p>${t("ui.sessionActivity.message", "Recently active in another PI-WEB instance. Avoid working on this session in both instances at once.")}</p>
+        </div>
+        <button type="button" class="ui-button ui-button--action" @click=${this.handleDismissActivityNotice}>${t("ui.sessionActivity.dismiss", "Dismiss and continue")}</button>
+      </section>
+    `;
   }
 
   private syncSelectedSessionReadState(): void {
@@ -1048,7 +1097,6 @@ export class PiWebApp extends LitElement {
       const loadedSession = loadedWorkspace !== undefined
         && this.state.selectedWorkspace?.projectId === loadedWorkspace.projectId
         && this.state.selectedWorkspace.id === loadedWorkspace.id
-        && route.sessionId !== undefined
         ? this.sessions.preferredSession(loadedWorkspace.path, this.state.sessions, route.sessionId)
         : undefined;
       // In-app navigation published this known destination before reconciliation.
@@ -1282,13 +1330,17 @@ export class PiWebApp extends LitElement {
   }
 
   private routeMatchesCurrentSelection(route: Pick<AppRoute, "machineId" | "projectId" | "workspaceId" | "sessionId">): boolean {
-    return (route.machineId ?? "local") === (this.state.selectedMachine?.id ?? "local")
-      && route.workspaceId !== undefined
-      && route.workspaceId !== ""
-      && this.state.selectedProject?.id === route.projectId
-      && this.state.selectedWorkspace?.id === route.workspaceId
-      && this.state.selectedSession?.archived !== true
-      && this.state.selectedSession?.id === route.sessionId;
+    const workspace = this.state.selectedWorkspace;
+    if ((route.machineId ?? "local") !== selectedMachineId(this.state)
+      || route.workspaceId === undefined || route.workspaceId === ""
+      || this.state.selectedProject?.id !== route.projectId
+      || workspace?.id !== route.workspaceId
+      || this.state.selectedSession?.archived === true
+      || !this.sessions.canReuseSelectedSession()) return false;
+    // An omitted session can still name the already-joined workspace default.
+    return route.sessionId === undefined
+      ? this.state.selectedSession?.id === this.sessions.preferredSession(workspace.path, this.state.sessions, undefined)?.id
+      : this.state.selectedSession?.id === route.sessionId;
   }
 
   private async refreshRestoredWorkspaceTool(
@@ -1372,13 +1424,7 @@ export class PiWebApp extends LitElement {
     return (current.machineId ?? "local") === expected.machineId
       && current.projectId === expected.projectId
       && current.workspaceId === expected.workspaceId
-      // Restoration accepts abbreviated session IDs; guarded handoffs must
-      // recognize the same resolved identity without relaxing hierarchy checks.
-      && (isCreatingSessionId(expected.sessionId)
-        ? current.sessionId === expected.sessionId
-        : current.sessionId === undefined
-          ? expected.sessionId === undefined
-          : sessionMatchesRouteTarget(expected.sessionId, current.sessionId))
+      && current.sessionId === expected.sessionId
       && (selectionOnly || (current.tool === expected.tool && current.view === expected.view));
   }
 
@@ -2264,6 +2310,10 @@ export class PiWebApp extends LitElement {
     if (!isCurrent()) return;
     await nextFrame();
     if (!isCurrent() || this.isRenderedModalOpen()) return;
+    if (this.unacknowledgedActivitySessionKey() !== undefined) {
+      this.renderRoot.querySelector<HTMLButtonElement>(".composer-activity-notice button")?.focus();
+      return;
+    }
     this.promptEditor?.focusInput();
   }
 
@@ -3364,6 +3414,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async sendPrompt(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string, chips: readonly StagedPromptChip[] = []): Promise<boolean> {
+    if (this.unacknowledgedActivitySessionKey() !== undefined) return false;
     const hasAttachments = attachments !== undefined && attachments.length > 0;
     if (chips.length === 0) {
       if (!hasAttachments && streamingBehavior === undefined && this.auth.handleSlashCommand(text)) return false;
@@ -3530,7 +3581,7 @@ export class PiWebApp extends LitElement {
       this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
     }
     return html`
-      <chat-view .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view .onUseSuggestedInput=${session.archived === true ? undefined : this.handleUseSuggestedInput} .sessionCwd=${session.cwd} .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.chatContentRendering} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -3709,6 +3760,7 @@ export class PiWebApp extends LitElement {
     if (this.apiScope === "normal" && (gateMode !== undefined || this.normalAuthStatus === undefined)) {
       return this.renderNormalAuthDialog(gateMode ?? "login");
     }
+    const activityNoticeVisible = this.unacknowledgedActivitySessionKey(state) !== undefined;
     return html`
       <div class=${this.panelCollapse.shellClass(mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
@@ -3724,7 +3776,10 @@ export class PiWebApp extends LitElement {
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && this.contentError() === "" ? html`
             ${this.renderChatView(state, state.selectedSession)}
-            <prompt-editor .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
+            <div class="composer-area">
+            <prompt-editor ?inert=${activityNoticeVisible} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true || activityNoticeVisible} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
+              ${this.renderSessionActivityNotice()}
+            </div>
             ${this.renderStatusBar(state)}
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog === undefined ? null : state.modelDialog.catalog === undefined
@@ -3797,7 +3852,7 @@ export class PiWebApp extends LitElement {
       && (this.state.selectedProject?.id !== options.requestedRoute.projectId
         || this.state.selectedWorkspace?.id !== options.requestedRoute.workspaceId);
     const requestedSessionUnavailable = options.requestedRoute?.sessionId !== undefined
-      && !sessionMatchesRouteTarget(this.state.selectedSession?.id, options.requestedRoute.sessionId);
+      && this.state.selectedSession?.id !== options.requestedRoute.sessionId;
     const unavailablePanel = options.unavailableToolRoute || options.unavailablePanelViewRoute
       || requestedToolUnavailable;
     // Invalid destinations belong to panel content, not the notification history.
@@ -4097,6 +4152,9 @@ export class PiWebApp extends LitElement {
     }];
   }
 
+  private readonly handleUseSuggestedInput = (machineId: string, sessionId: string): void => {
+    void this.sessions.useSuggestedInput(machineId, sessionId);
+  };
   private readonly emptyClientQueue: NonNullable<AppState["clientQueuedSessionMessages"][string]> = [];
 
   private readonly handleLoadEarlierMessages = () => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages());

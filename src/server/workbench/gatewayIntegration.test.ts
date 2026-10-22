@@ -29,7 +29,7 @@ describe("workbench management runtime", () => {
     vi.stubGlobal("fetch", fetchMock);
     const request = vi.fn<SessionProxyDaemon["request"]>(() => Promise.resolve({ statusCode: 204, headers: {}, body: "" }));
     const runtime = createWorkbenchManagementRuntime(base, { baseUrl: "http://backend", mcpUrl: "http://mcp" }, {
-      request, connectWebSocket: () => { throw new Error("not used"); },
+      request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); },
     }, { allowPrivileged });
     if (runtime === undefined) throw new Error("Expected a management runtime");
     const authenticated = await runtime.authenticate("entry-token");
@@ -63,7 +63,7 @@ describe("workbench management runtime", () => {
       .mockResolvedValueOnce(jsonResponse(200, { sessionId: "session-1", token: "private-token", expiresAt: "2026-09-08T03:00:00Z", authorizationRevision: 2, resources: [] })));
     const request = vi.fn<SessionProxyDaemon["request"]>(() => Promise.resolve({ statusCode: 204, headers: {}, body: "" }));
     const runtime = createWorkbenchManagementRuntime(base, { baseUrl: "http://backend", mcpUrl: "http://mcp" }, {
-      request, connectWebSocket: () => { throw new Error("not used"); },
+      request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); },
     });
     let cookie = "";
     const source = { headers: {}, query: { embed: "management", token } };
@@ -94,7 +94,7 @@ describe("workbench management runtime", () => {
       baseUrl: "http://backend:8787",
       mcpUrl: "http://mcp:8000/mcp",
       requestTimeoutMs: 10_000,
-    }, { request, connectWebSocket: () => { throw new Error("not used"); } });
+    }, { request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); } });
 
     const authenticated = await runtime?.authenticate("bootstrap-secret");
     const handle = authenticated === undefined ? undefined : runtime?.resourceHandle?.(authenticated);
@@ -125,7 +125,7 @@ describe("workbench management runtime", () => {
       baseUrl: "http://backend:8787",
       mcpUrl: "http://mcp:8000/mcp",
       requestTimeoutMs: 10_000,
-    }, { request, connectWebSocket: () => { throw new Error("not used"); } });
+    }, { request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); } });
 
     const contexts = await Promise.all([
       runtime?.authenticate("same-bootstrap-token"),
@@ -161,7 +161,7 @@ describe("workbench management runtime", () => {
       baseUrl: "http://backend:8787",
       mcpUrl: "http://mcp:8000/mcp",
       requestTimeoutMs: 10_000,
-    }, { request, connectWebSocket: () => { throw new Error("not used"); } });
+    }, { request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); } });
 
     const authenticated = await runtime?.authenticate("bootstrap-secret");
     if (authenticated === undefined) throw new Error("Expected an authenticated context");
@@ -198,7 +198,7 @@ describe("workbench management runtime", () => {
       baseUrl: "http://backend:8787",
       mcpUrl: "http://mcp:8000/mcp",
       requestTimeoutMs: 10_000,
-    }, { request, connectWebSocket: () => { throw new Error("not used"); } });
+    }, { request, requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), connectWebSocket: () => { throw new Error("not used"); } });
 
     const authenticated = await runtime?.authenticate("bootstrap-secret");
     if (authenticated === undefined) throw new Error("Expected an authenticated context");

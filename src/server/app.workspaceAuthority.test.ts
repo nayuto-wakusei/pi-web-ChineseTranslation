@@ -39,7 +39,7 @@ async function authorityApp(resolveProject: (projectId: string) => Promise<Works
       list: () => { throw new Error("Gateway must preserve the complete authority resolution"); },
       resolve: () => { throw new WorkspaceCatalogUnavailableError("daemon unavailable"); },
     },
-    sessionDaemon: { request: () => { throw new Error("daemon must not participate in Web readiness"); }, connectWebSocket: () => { throw new Error("unused socket"); } },
+    sessionDaemon: { requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")), request: () => { throw new Error("daemon must not participate in Web readiness"); }, connectWebSocket: () => { throw new Error("unused socket"); } },
     ...(pluginFailure === undefined ? {} : { piWebPlugins: { manifest: () => { throw pluginFailure; }, plugins: () => { throw pluginFailure; }, readAsset: () => { throw pluginFailure; } } }),
     clientDist: false,
     logger: false,

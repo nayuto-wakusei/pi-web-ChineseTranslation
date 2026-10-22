@@ -417,6 +417,7 @@ function fakeSessionDaemon(projects: ProjectService): SessionProxyDaemon & { clo
   const daemonApp = Fastify({ logger: false });
   registerProjectMutationRoutes(daemonApp, projects);
   return {
+    requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")),
     close: () => daemonApp.close(),
     request: async (method, path, body) => {
       const captured = { method, path, ...(body === undefined ? {} : { body }) } satisfies CapturedSessionDaemonRequest;

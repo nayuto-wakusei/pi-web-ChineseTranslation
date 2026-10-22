@@ -172,6 +172,7 @@ function statusWire() {
     isStreaming: true,
     isCompacting: false,
     isBashRunning: false,
+    recentlyActiveElsewhere: false,
     pendingMessageCount: 0,
     queuedMessages: [],
     tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 },

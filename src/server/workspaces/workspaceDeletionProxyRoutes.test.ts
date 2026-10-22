@@ -31,6 +31,7 @@ beforeEach(() => {
     return Promise.resolve({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });
   });
   const daemon: SessionProxyDaemon = {
+    requestStream: () => Promise.reject(new Error("Media requests are not configured for this test")),
     request: daemonRequest,
     connectWebSocket: () => { throw new Error("WebSocket not configured for test"); },
   };

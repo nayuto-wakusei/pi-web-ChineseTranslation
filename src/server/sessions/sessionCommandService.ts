@@ -1,3 +1,4 @@
+import type { ExtensionCommandContextActions } from "../../piSdk.js";
 import crypto from "node:crypto";
 import type { SessionUiEvent } from "../../shared/apiTypes.js";
 import type { ClientCommandResult, ClientSession, ClientSessionTreeSnapshot } from "../types.js";
@@ -35,7 +36,7 @@ export interface CommandSession {
 export interface CommandRuntime<TSession extends CommandSession = CommandSession> {
   cwd: string;
   session: TSession;
-  fork: (entryId: string, options?: { position?: "before" | "at" }) => Promise<{ cancelled: boolean; selectedText?: string }>;
+  fork: (entryId: string, options?: Parameters<ExtensionCommandContextActions["fork"]>[1]) => Promise<{ cancelled: boolean; selectedText?: string }>;
 }
 
 export interface CommandActiveSession<TSession extends CommandSession = CommandSession> {
@@ -64,6 +65,9 @@ export interface SessionCommandNaming {
 }
 
 export interface ForkEntryOptions {
+  position?: "before" | "at";
+  withSession?: NonNullable<Parameters<ExtensionCommandContextActions["fork"]>[1]>["withSession"];
+  expectedSession?: CommandSession;
   /** Rechecked inside the serialized replacement boundary when supplied by /tree. */
   expectedLeafId: string | null;
 }
@@ -110,7 +114,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
 
     if (name === "session") return { type: "done", message: formatSessionStats(session, this.t) };
     if (name === "name") return this.nameSession(active, rest, eventScope);
-    if (name === "compact") return this.compact(session, rest, eventScope);
+    if (name === "compact") return this.compact(session, rest);
     if (name === "reload") return this.reload(session);
     if (name === "clone") return this.clone(active, eventScope);
     if (name === "fork") return this.fork(active, eventScope);
@@ -137,10 +141,14 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork", this.t);
     const result = await this.runSessionReplacement(active.runtime, async () => {
       const session = active.runtime.session;
+      if (options?.expectedSession !== undefined && session !== options.expectedSession) throw new Error(this.t("session.forkRuntimeChanged", "The session runtime changed before forking. Try again from the current session."));
       if (options !== undefined && session.sessionManager.getLeafId() !== options.expectedLeafId) {
         throw new Error(t("session.treeStale", "The session changed since /tree was opened. Reopen /tree and try again."));
       }
-      const forkResult = await active.runtime.fork(entryId, { position: this.forkPosition(session, entryId) });
+      const forkResult = await active.runtime.fork(entryId, {
+        position: options?.position ?? this.forkPosition(session, entryId),
+        ...(options?.withSession === undefined ? {} : { withSession: options.withSession }),
+      });
       if (!forkResult.cancelled) this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
       return forkResult;
     });
@@ -154,25 +162,14 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     this.publishSessionName(active.runtime.session, eventScope);
     return { type: "done", message: this.t("command.named", "Session named: {value0}", { value0: name }), session: clientSessionFromRuntime(active.runtime) };
   }
-
-  private compact(session: TSession, instructions: string, eventScope: string | undefined): ClientCommandResult {
+  private compact(session: TSession, instructions: string): ClientCommandResult {
     this.lifecycle.onCompactionStart?.(session);
     void session.compact(instructions === "" ? undefined : instructions)
-      .then((result) => {
-        this.events.publish(session.sessionId, {
-          type: "command.output",
-          level: "success",
-          message: formatCompactionResult(result, this.t),
-        }, eventScope);
-        this.lifecycle.onCompactionEnd?.(session, "success");
-      })
+      .then(() => { this.lifecycle.onCompactionEnd?.(session, "success"); })
       .catch((error: unknown) => {
-        const message = userFacingErrorMessage(error, this.t);
-        this.events.publish(session.sessionId, { type: "command.output", level: "error", message: this.t("command.compactionFailed", "Compaction failed: {value0}", { value0: message }) }, eventScope);
-        this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
-        this.lifecycle.onCompactionEnd?.(session, "error", message);
+        this.lifecycle.onCompactionEnd?.(session, "error", userFacingErrorMessage(error, this.t));
       });
-    return { type: "done", message: this.t("command.compactionStarted", "Compaction started...") };
+    return { type: "done" };
   }
 
   private async reload(session: TSession, t: Translator = loadNodeTranslator("server")): Promise<ClientCommandResult> {
@@ -381,15 +378,6 @@ function formatSessionStats(session: CommandSession, t: Translator): string {
     t("stats.toolCalls", "Tool calls: {value0}", { value0: String(stats.toolCalls) }),
     t("stats.tokens", "Tokens: ↑{value0} ↓{value1} total {value2}", { value0: String(stats.tokens.input), value1: String(stats.tokens.output), value2: String(stats.tokens.total) }),
     t("stats.cost", "Cost: ${value0}", { value0: stats.cost.toFixed(4) }),
-  ].join("\n");
-}
-
-function formatCompactionResult(result: { summary: string; tokensBefore: number }, t: Translator): string {
-  return [
-    t("command.compacted", "Compaction complete."),
-    t("stats.tokensBefore", "Tokens before compaction: {value0}", { value0: String(result.tokensBefore) }),
-    "",
-    result.summary,
   ].join("\n");
 }
 

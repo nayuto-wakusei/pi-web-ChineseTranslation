@@ -90,7 +90,7 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
   // In-flight snapshot reads, deduplicated per path. Each entry removes itself
   // when its read settles, so this map only ever holds genuinely concurrent
   // reads and needs no bound of its own.
-  private readonly pendingTranscriptBranches = new Map<string, Promise<unknown[] | undefined>>();
+  private readonly pendingTranscriptBranches = new Map<string, Promise<TranscriptBranchSnapshot | undefined>>();
 
   constructor(private readonly resolver: SessionDirResolver) {}
 
@@ -125,6 +125,14 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
   }
 
   async readBranch(path: string): Promise<unknown[] | undefined> {
+    return (await this.readTranscriptSnapshot(path))?.branch;
+  }
+
+  async readEntries(path: string): Promise<readonly unknown[] | undefined> {
+    return (await this.readTranscriptSnapshot(path))?.entries;
+  }
+
+  private async readTranscriptSnapshot(path: string): Promise<TranscriptBranchSnapshot | undefined> {
     // A session whose path is known may still have no file on disk (created in
     // memory, never persisted) or be removed externally at any moment. Absence
     // is not a failure: it means there is no disk snapshot to serve.
@@ -132,13 +140,13 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
     if (file === undefined) return undefined;
     const signature = transcriptFileSignature(file);
     const cached = this.transcriptBranches.get(path, signature);
-    if (cached !== undefined) return cached.branch;
+    if (cached !== undefined) return cached;
     const pending = this.pendingTranscriptBranches.get(path);
     if (pending !== undefined) return pending;
     const read = this.readSnapshot(path, file, signature)
       .then((snapshot) => {
         this.transcriptBranches.set(path, snapshot);
-        return snapshot.branch;
+        return snapshot;
       })
       .catch((error: unknown) => {
         // Deleted between the stat above and the read: again, no snapshot.
@@ -327,17 +335,16 @@ export function filterSessionsForCwd(sessions: readonly PiSessionListEntry[], cw
  * Locate a session file by id without parsing transcripts.
  *
  * Session filenames embed the session id (`<timestamp>_<sessionId>.jsonl`), so
- * exact and prefix matches are normally found from the directory names alone
- * and confirmed by one header read. Filename candidates that fail header
+ * exact matches are normally found from the directory names alone and
+ * confirmed by one header read. Filename candidates that fail header
  * verification (a copy whose header holds a different session) do not end the
  * search: the remaining files are checked too, so sessions in renamed or
  * hand-named files still resolve. Headers decide: a file whose header id or cwd
  * does not match is not the session.
  *
- * Among matches, an exact header id wins over a prefix match wherever it
- * appears. Ambiguous prefix candidates are considered in two buckets: filename
- * matches before remaining files, with each bucket sorted by the creation time
- * embedded in SDK-style names (see `byNewestEmbeddedTimestamp`).
+ * Only full header id equality matches. Filename matches are checked before
+ * remaining files, with each bucket sorted by the creation time embedded in
+ * SDK-style names (see `byNewestEmbeddedTimestamp`).
  *
  * The header's cwd is returned canonicalized, matching what `list` reports.
  */
@@ -356,9 +363,6 @@ export async function resolveSessionFileInDir(
   fileNameMatches.sort(byNewestEmbeddedTimestamp);
   remainingFiles.sort(byNewestEmbeddedTimestamp);
 
-  // A prefix match is only provisional: an exact header id wins over it
-  // wherever it appears, so the search continues after one is found.
-  let prefixMatch: ResolvedSessionFile | undefined;
   // Filename matches first; the remaining files follow so a renamed file still
   // resolves when every filename candidate fails header verification.
   for (const sessionFile of [...fileNameMatches, ...remainingFiles]) {
@@ -368,11 +372,8 @@ export async function resolveSessionFileInDir(
     if (header.id === sessionId) {
       return { id: header.id, cwd: canonicalizeStoredCwd(header.cwd), path: sessionFile };
     }
-    if (prefixMatch === undefined && header.id.startsWith(sessionId)) {
-      prefixMatch = { id: header.id, cwd: canonicalizeStoredCwd(header.cwd), path: sessionFile };
-    }
   }
-  return prefixMatch;
+  return undefined;
 }
 
 /**
@@ -384,8 +385,8 @@ export async function resolveSessionFileInDir(
  * deterministic everywhere.
  *
  * This deliberately drifts from the listing, which orders by modified time:
- * the resolver never stats transcript files, so ambiguous prefix candidates
- * within each bucket are considered in this creation-time order instead.
+ * the resolver never stats transcript files, so candidates within each bucket
+ * are considered in this creation-time order instead.
  */
 function byNewestEmbeddedTimestamp(a: string, b: string): number {
   const timestampA = embeddedFileNameTimestamp(basename(a));
@@ -401,10 +402,10 @@ function embeddedFileNameTimestamp(fileName: string): string {
   return separatorIndex === -1 ? "" : stem.slice(0, separatorIndex);
 }
 
-/** Whether a `.jsonl` file name embeds `sessionId` (exactly or as a prefix). */
+/** Whether a `.jsonl` file name embeds the full `sessionId`. */
 function fileNameMatchesSessionId(fileName: string, sessionId: string): boolean {
   const embeddedId = embeddedFileNameSessionId(fileName);
-  return embeddedId !== undefined && (embeddedId === sessionId || embeddedId.startsWith(sessionId));
+  return embeddedId === sessionId;
 }
 
 /**

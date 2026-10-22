@@ -18,10 +18,11 @@ import {
   PluginBackendChannelProxyConnectionError,
 } from "../plugins/pluginBackendChannelProxyCoordinator.js";
 import { requestCancellation } from "../requestCancellation.js";
+import { isSessionImageMimeType } from "../sessions/sessionMediaIndex.js";
 import { bridgeSockets, markPluginBackendChannelUpgradeRequest } from "../webSocketBridge.js";
 import { applyWorkspaceFilePreviewErrorResponsePolicy, applyWorkspaceFilePreviewResponsePolicy } from "../workspaces/filePreviewResponseHeaders.js";
 import { workspaceFilePreviewErrorResponsePolicy, workspaceFilePreviewResponsePolicy, type WorkspaceFilePreviewResponsePolicy } from "../workspaces/filePreviewResponsePolicy.js";
-import { DEFAULT_REMOTE_REQUEST_TIMEOUT_MS, RemoteMachineRequestError, type MachineClient, type MachineJsonResponse, type MachineRequestOptions } from "./machineClient.js";
+import { DEFAULT_REMOTE_REQUEST_TIMEOUT_MS, RemoteMachineRequestError, type MachineClient, type MachineHttpResponse, type MachineJsonResponse, type MachineRequestOptions } from "./machineClient.js";
 import { MachineService } from "./machineService.js";
 
 export const REMOTE_HTTP_ROUTES = FEDERATED_HTTP_ROUTES;
@@ -133,6 +134,9 @@ async function proxyHttpRequest(
   signal?: AbortSignal,
   t: Translator = createTranslator("en", {}),
 ): Promise<FastifyReply> {
+  const sessionMedia = spec.path === "/sessions/:sessionId/media/:mediaId";
+  if (sessionMedia) applySessionMediaResponsePolicy(reply);
+
   if (machineId === "local") {
     return reply.code(501).send({ error: t("machineError.localRouteMissing", "Local machine route is not registered for this endpoint") });
   }
@@ -161,6 +165,8 @@ async function proxyHttpRequest(
     const upstream = requestOptions === undefined
       ? await client.request(method, remotePath, body)
       : await client.request(method, remotePath, body, requestOptions);
+    if (sessionMedia) return await proxySessionMediaResponse(reply, upstream);
+
     const responseBody = upstream.body === undefined || responseBodyLimit === undefined
       ? upstream.body
       : await readBoundedRemoteBody(
@@ -193,6 +199,30 @@ async function proxyHttpRequest(
     if (spec.path === WORKSPACE_FILE_PREVIEW_ROUTE_PATH) applyWorkspaceFilePreviewErrorResponsePolicy(reply);
     return sendGatewayError(reply, machineId, error, t);
   }
+}
+
+function applySessionMediaResponsePolicy(reply: FastifyReply): void {
+  reply
+    .header("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+    .header("X-Content-Type-Options", "nosniff")
+    .header("Content-Disposition", "inline");
+}
+
+function proxySessionMediaResponse(reply: FastifyReply, upstream: MachineHttpResponse): FastifyReply {
+  const successful = isSuccessfulStatus(upstream.statusCode);
+  const contentType = firstHeaderValue(upstream.headers["content-type"])?.split(";", 1)[0]?.trim().toLowerCase();
+  if ((successful && isSessionImageMimeType(contentType))
+    || (!successful && contentType === "application/json" && upstream.body !== undefined)) {
+    applySafeHeaders(reply, upstream.headers);
+    // Remote headers cannot weaken the gateway's media response policy.
+    applySessionMediaResponsePolicy(reply);
+    reply.type(successful ? contentType : "application/json; charset=utf-8");
+    return reply.code(upstream.statusCode).send(upstream.body);
+  }
+
+  if (upstream.body !== undefined) destroyReadable(upstream.body);
+  if (successful) throw new RemoteMachineRequestError("Remote machine returned an unsupported session image MIME type", 502);
+  return reply.code(upstream.statusCode).send({ error: "Remote session media request failed", statusCode: upstream.statusCode });
 }
 
 async function proxySelectedMachineConfigRequest(client: MachineClient, machineId: string, method: string, remotePath: string, body: unknown, reply: FastifyReply, t: Translator): Promise<FastifyReply> {
