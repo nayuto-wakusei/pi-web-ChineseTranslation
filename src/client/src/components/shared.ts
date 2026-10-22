@@ -145,6 +145,8 @@ export const chatStyles = css`
   .notification-row.warning .notification-severity { color: var(--pi-warning); }
   .notification-row.error .notification-severity { color: var(--pi-danger); }
   .notification-message { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; text-align: start; unicode-bidi: plaintext; }
+  .notification-message a { color: var(--pi-accent); text-decoration: underline; }
+  .notification-message a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
   .notification-truncated { margin: 0; color: var(--pi-muted); font-size: 11px; overflow-wrap: anywhere; }
   .notification-row-dismiss { position: absolute; top: 5px; right: 0; display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; }
   .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }

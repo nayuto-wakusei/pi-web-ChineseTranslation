@@ -1,3 +1,4 @@
+import { parseMcpAuthServersResponse } from "./parsers";
 import { parseWorkspaceProviderResolution } from "./parsers";
 import { parseSessionStreamEvent, parseRealtimeStreamEvent } from "./parsers";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,27 @@ import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOT
 import { parseAskUserOutcome, parseAskUserRequest, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it.each(["javascript:alert(1)", "data:text/html,unsafe", "file:///private", "/relative/authorization"])("rejects an unsafe MCP authorization link: %s", (url) => {
+    const flow = { flowId: "mcp-flow", providerId: "mcp", providerName: "MCP server", status: "running", progress: [], target: "mcp", auth: { url } };
+    expect(() => parseOAuthFlowState(flow)).toThrow();
+  });
+
+  it("preserves SDK MCP server descriptions without interpreting them as authentication status", () => {
+    const response = { servers: [{ name: "Budgeter", description: "connected" }, { name: "other" }] };
+    expect(parseMcpAuthServersResponse(response)).toEqual(response);
+    expect(() => parseMcpAuthServersResponse({ servers: [{ description: "missing name" }] })).toThrow();
+    const flow = { flowId: "mcp", providerId: "mcp", providerName: "Budgeter", target: "mcp", mcpMode: "logout", status: "running", progress: [] };
+    expect(parseOAuthFlowState(flow)).toEqual(flow);
+    expect(() => parseOAuthFlowState({ ...flow, mcpMode: "disconnect" })).toThrow("Invalid MCP authentication mode");
+  });
+
+  it("preserves MCP operation and cancellation state without treating completion as authentication", () => {
+    const flow = { flowId: "mcp-flow", providerId: "mcp", providerName: "MCP server", status: "complete", progress: ["Pi finished"], target: "mcp", cancelRequested: true };
+    expect(parseOAuthFlowState(flow)).toEqual(flow);
+    expect(() => parseOAuthFlowState({ ...flow, target: "unknown" })).toThrow("Invalid login flow target");
+    expect(() => parseOAuthFlowState({ ...flow, cancelRequested: "yes" })).toThrow();
+  });
+
   it("parses model catalog enabled state and rejects malformed rows", () => {
     const expected = {
       models: [

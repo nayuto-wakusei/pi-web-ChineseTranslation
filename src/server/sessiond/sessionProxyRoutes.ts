@@ -19,6 +19,8 @@ export type NormalProjectCwdResolver = (requestedCwds?: readonly string[]) => Pr
 
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver, t: Translator = createTranslator("en", {})): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
+    const path = new URL(stripPrefix(request.url, prefix), "http://local").pathname;
+    if (path.startsWith("/auth/mcp/") || /^\/sessions\/[^/]+\/mcp\/auth(?:\/|$)/u.test(path)) reply.header("cache-control", "no-store");
     try {
       return await withRequestCancellation(request, reply, async (signal) => {
         const managementContext = await managementContextForRequest(request, managementEmbed, reply);

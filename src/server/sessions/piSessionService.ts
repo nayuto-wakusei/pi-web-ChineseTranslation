@@ -27,6 +27,8 @@ import {
   hasTrustRequiringProjectResources,
   readStoredCredential,
   SessionManager,
+  VERSION,
+  type RegisteredCommand,
   type AgentSessionRuntimeDiagnostic,
   type AgentSessionServices,
   type CreateAgentSessionServicesOptions,
@@ -49,6 +51,8 @@ import { messageHistoryTargetId } from "./messageHistoryTarget.js";
 import { isSessionMediaId } from "../../shared/sessionMedia.js";
 import type { SessionMedia } from "./sessionMediaIndex.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
+import { McpAuthFlowService, type McpAuthFlowOwner } from "./mcpAuthFlowService.js";
+import { mcpOAuthStorageDirectory, type ScopedMcpOptions } from "./mcpOAuthCredentialAdapter.js";
 import { getBuiltinExtensionFactories } from "./builtinExtensionFactories.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { eventScopeFromManagementContext, managementContextKey, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
@@ -69,7 +73,7 @@ import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWe
 import type { PiWebConfigService } from "../configRoutes.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT, type PiWebAttachmentsConfig } from "../../shared/apiTypes.js";
-import type { AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
+import type { McpAuthServerOption, McpAuthServersResponse, OAuthFlowState, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";
 import { resolveWebProjectTrusted } from "./projectTrust.js";
@@ -503,7 +507,7 @@ export interface PiAgentSession {
   isBashRunning: boolean;
   pendingMessageCount: number;
   extensionRunner: {
-    getRegisteredCommands(): readonly { invocationName: string; description?: string }[];
+    getRegisteredCommands(): readonly ({ invocationName: string; description?: string; sourceInfo?: { path: string } } & Pick<RegisteredCommand, "getArgumentCompletions">)[];
     getUIContext(): ExtensionUIContext;
     setUIContext(uiContext?: ExtensionUIContext, mode?: "rpc"): void;
   };
@@ -517,7 +521,7 @@ export interface PiAgentSession {
   reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
   waitForIdle(): Promise<void>;
   getContextUsage(): ClientSessionStatus["contextUsage"] | undefined;
-  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] }): Promise<void>;
+  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[]; expandPromptTemplates?: boolean }): Promise<void>;
   sendCustomMessage(message: { customType: string; content: string; display: boolean; details?: unknown }, options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode: number | undefined; cancelled: boolean; truncated: boolean; fullOutputPath?: string }>;
   navigateTree?(targetId: string, options?: PiTreeNavigationOptions): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: unknown }>;
@@ -929,6 +933,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
   eventBus: ReturnType<typeof createEventBus>;
   agentsFilesOverride?: (base: AgentContextFilesResult) => AgentContextFilesResult;
   extensionFactories?: ExtensionFactory[];
+  mcpScope: ScopedMcpOptions;
 }) {
   const { cwd, agentDir, settingsManager, projectTrustRequiring } = options;
   const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
@@ -940,7 +945,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
     resourceLoaderOptions: {
       ...piWebResourceLoaderOptions(options.appendSystemPromptSections),
       eventBus: options.eventBus,
-      extensionFactories: [...await getBuiltinExtensionFactories(), ...(options.extensionFactories ?? [])],
+      extensionFactories: [...await getBuiltinExtensionFactories(options.mcpScope), ...(options.extensionFactories ?? [])],
       ...(options.agentsFilesOverride === undefined ? {} : { agentsFilesOverride: options.agentsFilesOverride }),
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     },
@@ -1012,6 +1017,7 @@ function createDefaultRuntimeFactory(
         projectTrustRequiring,
         appendSystemPromptSections,
         eventBus,
+        mcpScope: { directory: mcpOAuthStorageDirectory(await resolveSettingsScope(cwd, "normal")) },
         extensionFactories: [sessionDispatch, ...(subsessions === undefined ? [] : [createSubsessionCompletionDelivery(subsessions)])],
       });
       const modelOptions = await resolveSessionModelOptions({
@@ -1137,6 +1143,10 @@ function createManagementRuntimeFactory(
         projectTrustRequiring: false,
         appendSystemPromptSections,
         eventBus: createEventBus(),
+        mcpScope: (() => {
+          const directory = mcpOAuthStorageDirectory(settingsManager.piWebScopeKey, eventScopeFromManagementContext(managementContext));
+          return { directory, configAgentDir: directory };
+        })(),
         extensionFactories: managementFactories,
         agentsFilesOverride: (base) => filterPrivilegedManagementContextFiles(cwd, managementContext, base),
       }) : { services: await createAgentSessionServices({
@@ -1410,6 +1420,9 @@ export class PiSessionService {
   private readonly scopedUnreadStores = new Map<string, SessionUnreadStore>();
   private readonly sessionEventScopes = new WeakMap<PiAgentSession, string>();
   private readonly sessionManagementContexts = new WeakMap<PiAgentSession, ManagementEmbedContext>();
+  private readonly mcpAuthFlows = new McpAuthFlowService({ translator: (key, fallback, values) => this.t(key, fallback, values) });
+  private readonly mcpAuthOwners = new WeakMap<PiAgentSession, McpAuthFlowOwner>();
+  private readonly managementAllowPrivileged: boolean;
   private readonly notificationGenerationBySession = new WeakMap<PiAgentSession, SessionNotificationGeneration>();
   private readonly idleSessionFileResolutions = new WeakMap<PiAgentSession, { at: number; path: string | undefined }>();
   private readonly unreadStore: SessionUnreadStore;
@@ -1432,6 +1445,7 @@ export class PiSessionService {
 
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies) {
     this.t = deps.translator ?? loadNodeTranslator("server");
+    this.managementAllowPrivileged = deps.managementAllowPrivileged === true;
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.pinStore = deps.pinStore ?? new SessionPinStore(join(deps.dataDir ?? piWebDataDir(), "session-pins.json"));
     this.agentDir = deps.agentDir ?? getAgentDir();
@@ -1606,6 +1620,7 @@ export class PiSessionService {
   }
 
   async dispose(): Promise<void> {
+    this.mcpAuthFlows.dispose();
     this.unreadPublicationStopped = true;
     this.clearUnreadPublicationRetry();
     clearInterval(this.heartbeat);
@@ -2102,7 +2117,7 @@ export class PiSessionService {
 
   /** Reply to a durable request on the active branch; repeated answers remain ordinary replies. */
   async submitAsk(ref: PiSessionLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, this.t("session.action.answer", "answer questions"));
     const ask = resolveAskUserRequest(await this.readableSessionBranch(session), askId);
@@ -2112,7 +2127,7 @@ export class PiSessionService {
 
   /** Record a skip as a new reply without consuming the original request. */
   async cancelAsk(ref: PiSessionLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, this.t("session.action.dismiss", "skip questions"));
     const ask = resolveAskUserRequest(await this.readableSessionBranch(session), askId);
@@ -2126,7 +2141,7 @@ export class PiSessionService {
    * (or an idle handler), so no custom message and no turn are triggered.
    */
   async answerDialog(ref: PiSessionLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.sessionForStatusOrDialogClose(ref, managementContext);
     const result = this.pendingExtensionDialogStore.answer(this.dialogSessionKey(session), dialogId, value);
     if (result.status === "stale") return { result: "stale", sessionStatus: this.statusFromSession(session) };
@@ -2140,7 +2155,7 @@ export class PiSessionService {
 
   /** Close an open extension dialog without an answer; the extension's wait settles with its kind's cancel value. */
   async cancelDialog(ref: PiSessionLookup, dialogId: string, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.sessionForStatusOrDialogClose(ref, managementContext);
     const result = this.pendingExtensionDialogStore.cancel(this.dialogSessionKey(session), dialogId, "cancelled");
     if (result.status === "stale") return { result: "stale", sessionStatus: this.statusFromSession(session) };
@@ -2764,7 +2779,7 @@ export class PiSessionService {
 
   async setSessionDefaults(ref: PiSessionLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext): Promise<SessionDefaults> {
     const update = parseSessionDefaultsUpdate({ ...defaults });
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     return this.runModelScopeMutation(async () => {
       const settings = await this.freshSessionDefaultsSettings(session);
@@ -2824,7 +2839,7 @@ export class PiSessionService {
 
   async setModelEnabled(ref: PiSessionLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
     if (managementContext !== undefined) throw new Error(this.t("server.main.2a7cb0e35521", "Enabled model scope cannot be changed in management embed mode"));
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref);
     return this.runModelScopeMutation(async () => {
       const scope = this.modelScopeContext(session);
@@ -2846,7 +2861,7 @@ export class PiSessionService {
 
   async setModelScope(ref: PiSessionLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]> {
     if (managementContext !== undefined) throw new Error(this.t("server.main.2a7cb0e35521", "Enabled model scope cannot be changed in management embed mode"));
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref);
     return this.runModelScopeMutation(async () => {
       const scope = this.modelScopeContext(session);
@@ -2868,7 +2883,7 @@ export class PiSessionService {
   }
 
   async setModel(ref: PiSessionLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, this.t("server.main.130226a572df", "change models"));
     const candidates = await this.sessionModelCandidates(session);
@@ -2883,7 +2898,7 @@ export class PiSessionService {
   }
 
   async cycleModel(ref: PiSessionLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     const result = await this.runModelScopeMutation(async () => {
       await session.modelRuntime.refresh({ allowNetwork: false });
@@ -2902,7 +2917,7 @@ export class PiSessionService {
   }
 
   async setThinkingLevel(ref: PiSessionLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, this.t("session.action.changeThinking", "change the thinking level"));
     // pi owns the valid set; validate against the session's live levels rather
@@ -2920,7 +2935,7 @@ export class PiSessionService {
   }
 
   async cycleThinkingLevel(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     const level = await this.runSessionEntryMutation(session, this.t("session.action.changeThinking", "change the thinking level"), () => Promise.resolve(session.cycleThinkingLevel()));
     if (level === undefined) throw new Error(this.t("model.thinkingUnsupported", "The current model does not support thinking"));
@@ -2959,7 +2974,7 @@ export class PiSessionService {
     const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
     const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
     const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, options?.managementContext);
     const session = await this.getOrOpen(ref, options?.managementContext);
     this.assertTreeNavigationInactive(session, this.t("server.main.94306b2fc35c", "send a prompt"));
     this.maybeGenerateSessionName(session, promptText);
@@ -3091,7 +3106,7 @@ export class PiSessionService {
   async saveAttachments(ref: PiSessionLookup, attachments: unknown, folder?: string, managementContext?: ManagementEmbedContext): Promise<SavedPromptAttachment[]> {
     const parsed = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false, allowFileAttachments: true });
     if (parsed.length === 0) return [];
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     const cwd = active.runtime.cwd;
     const effectiveFolder = folder ?? (await this.workspaceAttachmentsConfig(cwd)).defaultFolder;
@@ -3104,7 +3119,7 @@ export class PiSessionService {
   }
 
   async shell(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<void> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     const { session } = active.runtime;
     this.assertTreeNavigationInactive(session, this.t("session.action.shell", "run a shell command"));
@@ -3141,13 +3156,13 @@ export class PiSessionService {
   }
 
   async runCommand(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     return this.commandService.run(active.runtime.session.sessionId, text, active.eventScope);
   }
 
   async respondToCommand(ref: PiSessionLookup, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     return this.commandService.respond(active.runtime.session.sessionId, requestId, value, active.eventScope);
   }
@@ -3161,7 +3176,7 @@ export class PiSessionService {
     if (this.isTreeExclusiveSessionIdentityActive(sessionIdFromLookup(ref))) {
       throw new Error(this.t("server.main.e39e6b98e072", "Stop current session activity before navigating the session tree"));
     }
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     if (expectedSession !== undefined && session !== expectedSession) throw new Error(this.t("session.extensionUnavailable", "This extension command belongs to an unavailable session runtime"));
     const navigateTree = session.navigateTree?.bind(session);
@@ -3247,7 +3262,7 @@ export class PiSessionService {
     if (this.isTreeExclusiveSessionIdentityActive(requestedSessionId)) {
       throw new Error(this.t("server.main.3f5b7f08e91c", "Stop current session activity before forking the session tree"));
     }
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     if (expectedSession !== undefined && session !== expectedSession) throw new Error(this.t("session.extensionUnavailable", "This extension command belongs to an unavailable session runtime"));
     if (this.hasActiveWork(session)) throw new Error(this.t("server.main.3f5b7f08e91c", "Stop current session activity before forking the session tree"));
@@ -3521,7 +3536,7 @@ export class PiSessionService {
   }
 
   async reload(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     const session = active.runtime.session;
     if (this.hasActiveWork(session)) throw new Error(this.t("session.stopBeforeReload", "Stop current session activity before reloading"));
@@ -3568,7 +3583,7 @@ export class PiSessionService {
   }
 
   async detachParent(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error(this.t("session.notPersisted", "Session has not been persisted"));
@@ -3583,6 +3598,8 @@ export class PiSessionService {
     const active = this.activeForLookup(ref, managementContext);
     if (active === undefined) return;
     this.subsessionStoppedParents.add(active.runtime.session);
+    const mcpOwner = this.mcpAuthOwners.get(active.runtime.session);
+    if (mcpOwner !== undefined) this.mcpAuthFlows.cancelSession(mcpOwner);
     this.clearCompactionPromptQueue(active.runtime.session);
     clearSessionQueue(active.runtime.session);
     this.abortRunScopedExtensionDialogs(active.runtime.session);
@@ -3599,7 +3616,7 @@ export class PiSessionService {
   }
 
   async clearQueue(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
-    await this.assertWritable(ref);
+    await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.clearCompactionPromptQueue(session);
     clearSessionQueue(session);
@@ -3779,6 +3796,8 @@ export class PiSessionService {
     }
     this.forgetUnreadActivity(active.runtime.session);
     this.endSessionExtensionDialogs(active.runtime.session);
+    const mcpOwner = this.mcpAuthOwners.get(active.runtime.session);
+    if (mcpOwner !== undefined) this.mcpAuthFlows.cancelSession(mcpOwner);
     this.rememberManagementMediaFile(active.runtime.session, active.eventScope);
     this.active.delete(activeSessionKey(sessionId, active.eventScope));
     this.suggestedInputs.delete(this.dialogSessionKey(active.runtime.session));
@@ -3823,8 +3842,11 @@ export class PiSessionService {
     if (branchSummaryAbortFailed) throw branchSummaryAbortError;
   }
 
-  private async assertWritable(ref: PiSessionLookup): Promise<void> {
+  private async assertWritable(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     if (await this.getArchived(ref) !== undefined) throw new Error(this.t("session.archiveReadOnly", "Archived sessions are read-only. Restore the session to continue."));
+    const session = this.activeForLookup(ref, managementContext)?.runtime.session;
+    const owner = session === undefined ? undefined : this.mcpAuthOwners.get(session);
+    if (owner !== undefined) this.mcpAuthFlows.assertSessionAvailable(owner);
   }
 
   private async getOrOpen(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<PiAgentSession> {
@@ -4051,6 +4073,8 @@ export class PiSessionService {
         commandContextActions: this.extensionCommandActions(session),
         onError: (error) => {
           const message = `${error.extensionPath}: ${error.error}`;
+          const operation = McpAuthFlowService.current(session);
+          if (operation !== undefined) { operation.error(message); return; }
           this.publishActivity(session, this.t("activity.extensionError", "Extension error"), "error", message);
           this.events.publish(session.sessionId, { type: "session.error", message }, owner.eventScope);
         },
@@ -4133,7 +4157,7 @@ export class PiSessionService {
   private runExtensionSessionControl<T>(session: PiAgentSession, operation: () => Promise<T>): Promise<T> {
     return this.extensionCommandExecution.run({ ...this.extensionCommandExecution.getStore(), sessionControl: true }, async () => {
       this.assertCurrentExtensionSession(session);
-      await this.assertWritable({ id: session.sessionId, cwd: session.sessionManager.getCwd() });
+      await this.assertWritable({ id: session.sessionId, cwd: session.sessionManager.getCwd() }, this.sessionManagementContexts.get(session));
       this.assertCurrentExtensionSession(session);
       return operation();
     });
@@ -4478,6 +4502,8 @@ export class PiSessionService {
   }
 
   private beginSessionEntryMutation(session: PiAgentSession, action: string): void {
+    const owner = this.mcpAuthOwners.get(session);
+    if (owner !== undefined) this.mcpAuthFlows.assertSessionAvailable(owner);
     this.assertTreeNavigationInactive(session, action);
     this.sessionEntryMutationCounts.set(session, (this.sessionEntryMutationCounts.get(session) ?? 0) + 1);
     this.observeUnreadActivityState(session);
@@ -5168,6 +5194,8 @@ private sessionUiContext(
     const eventScope = this.eventScopeForSession(session);
     const notificationStore = this.notificationsForScope(eventScope);
     const notify: ExtensionUIContext["notify"] = (message, type) => {
+      const operation = McpAuthFlowService.current(session);
+      if (operation !== undefined) { operation.notify(message); return; }
       if (generation === undefined) {
         this.events.publish(session.sessionId, {
           type: "command.output",
@@ -5190,15 +5218,18 @@ private sessionUiContext(
         if (property === "theme") return plainTextTheme;
         if (property === "confirm") {
           return (title: string, message: string, opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "confirm", title, message }, opts, startupDialogs.signal);
+            McpAuthFlowService.current(session)?.confirm(title, message, opts)
+              ?? this.openExtensionDialog(session, { kind: "confirm", title, message }, opts, startupDialogs.signal);
         }
         if (property === "select") {
           return (title: string, options: string[], opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "select", title, options }, opts, startupDialogs.signal);
+            McpAuthFlowService.current(session)?.select(title, options, opts)
+              ?? this.openExtensionDialog(session, { kind: "select", title, options }, opts, startupDialogs.signal);
         }
         if (property === "input") {
           return (title: string, placeholder: string | undefined, opts?: ExtensionUIDialogOptions) =>
-            this.openExtensionDialog(session, { kind: "input", title, placeholder }, opts, startupDialogs.signal);
+            McpAuthFlowService.current(session)?.input(title, placeholder, opts)
+              ?? this.openExtensionDialog(session, { kind: "input", title, placeholder }, opts, startupDialogs.signal);
         }
         const value: unknown = Reflect.get(target, property, receiver);
         return value;
@@ -5507,6 +5538,144 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
         this.logSubsessionNotificationFailure(session.sessionId, "inbox", error);
       });
     }, 0);
+  }
+
+  private assertMcpModeAllowed(managementContext?: ManagementEmbedContext): void {
+    if (VERSION !== "1.3.0") throw new UserFacingError("mcpAuth.sdkUnsupported", "Dedicated MCP authentication requires Pi 1.3.0");
+    if (managementContext !== undefined && !managementUsesNormalPermissions(managementContext, { allowPrivileged: this.managementAllowPrivileged })) {
+      throw new UserFacingError("mcpAuth.restrictedManagement", "MCP authentication is unavailable in restricted management mode");
+    }
+  }
+
+  private async mcpAuthSession(ref: PiSessionRef, managementContext?: ManagementEmbedContext): Promise<{ session: PiAgentSession; owner: McpAuthFlowOwner }> {
+    this.assertMcpModeAllowed(managementContext);
+    await this.assertWritable(ref, managementContext);
+    const session = await this.getOrOpen(ref, managementContext);
+    await this.assertWritable(ref, managementContext);
+    const projectPath = await this.projectPathForCwd?.(ref.cwd);
+    const owner: McpAuthFlowOwner = {
+      scope: eventScopeFromManagementContext(managementContext), sessionId: ref.id, cwd: canonicalizeStoredCwd(ref.cwd),
+      ...(projectPath === undefined ? {} : { projectPath: canonicalizeStoredCwd(projectPath) }),
+    };
+    await this.assertMcpAuthIdentity(ref, session, owner);
+    if (!session.extensionRunner.getRegisteredCommands().some((command) => command.invocationName === "mcp" && command.sourceInfo?.path === "builtin:mcp")) {
+      throw new UserFacingError("mcpAuth.builtinUnavailable", "Pi's built-in MCP command is not available for this session");
+    }
+    if (this.hasActiveWork(session)) throw new UserFacingError("mcpAuth.waitForIdle", "Wait for current session activity before authenticating MCP");
+    this.mcpAuthOwners.set(session, owner);
+    return { session, owner };
+  }
+
+  private async assertMcpAuthIdentity(ref: PiSessionRef, session: PiAgentSession, owner: McpAuthFlowOwner): Promise<void> {
+    this.assertCurrentExtensionSession(session);
+    if (session.sessionId !== ref.id || !cwdPathsEqual(ref.cwd, session.sessionManager.getCwd()) || this.eventScopeForSession(session) !== owner.scope) {
+      throw new UserFacingError("mcpAuth.workspaceChanged", "MCP authentication session workspace changed");
+    }
+    await this.assertMcpProjectOwner(owner);
+    this.assertCurrentExtensionSession(session);
+    if (session.sessionId !== ref.id || !cwdPathsEqual(ref.cwd, session.sessionManager.getCwd()) || this.eventScopeForSession(session) !== owner.scope) {
+      throw new UserFacingError("mcpAuth.workspaceChanged", "MCP authentication session workspace changed");
+    }
+    if (session.settingsManager.isProjectTrusted?.() !== true) throw new UserFacingError("mcpAuth.trustRequired", "MCP authentication requires a trusted workspace");
+  }
+
+  private async authorizedMcpFlowOwner(flowId: string, managementContext?: ManagementEmbedContext): Promise<McpAuthFlowOwner> {
+    const owner = this.mcpAuthFlows.owner(flowId, eventScopeFromManagementContext(managementContext));
+    this.assertMcpModeAllowed(managementContext);
+    // Polling never constructs a runtime. Revalidate the captured project even
+    // after the command ends, rather than trusting the browser's current cwd.
+    await this.assertMcpProjectOwner(owner);
+    return owner;
+  }
+
+  private async assertMcpProjectOwner(owner: McpAuthFlowOwner): Promise<void> {
+    const projectPath = await this.projectPathForCwd?.(owner.cwd);
+    if ((projectPath === undefined) !== (owner.projectPath === undefined)
+      || (projectPath !== undefined && owner.projectPath !== undefined && !cwdPathsEqual(projectPath, owner.projectPath))) {
+      throw new UserFacingError("mcpAuth.flowNotFound", "MCP authentication flow not found");
+    }
+    if (owner.scope === NORMAL_SESSION_EVENT_SCOPE) await this.normalModelRuntimeForCwd(owner.cwd);
+  }
+
+  async mcpAuthFlow(flowId: string, managementContext?: ManagementEmbedContext): Promise<OAuthFlowState> {
+    return this.mcpAuthFlows.get(flowId, await this.authorizedMcpFlowOwner(flowId, managementContext));
+  }
+
+  async respondToMcpAuthFlow(flowId: string, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<OAuthFlowState> {
+    return this.mcpAuthFlows.respond(flowId, requestId, value, await this.authorizedMcpFlowOwner(flowId, managementContext));
+  }
+
+  async cancelMcpAuthFlow(flowId: string, managementContext?: ManagementEmbedContext): Promise<OAuthFlowState> {
+    return this.mcpAuthFlows.cancel(flowId, await this.authorizedMcpFlowOwner(flowId, managementContext));
+  }
+
+  private async discoverMcpAuthServers(ref: PiSessionRef, session: PiAgentSession, owner: McpAuthFlowOwner, managementContext?: ManagementEmbedContext): Promise<McpAuthServerOption[]> {
+    return this.mcpAuthFlows.discover({
+      owner, identity: session,
+      isCurrent: () => this.isCurrentActiveSession(session) && cwdPathsEqual(ref.cwd, session.sessionManager.getCwd()) && session.settingsManager.isProjectTrusted?.() === true,
+      run: async () => {
+        // The SDK has no public MCP readiness promise. In RPC mode this supported
+        // status command awaits startup without reconnecting or touching tokens.
+        await session.prompt("/mcp", { expandPromptTemplates: true });
+        await this.assertWritable(ref, managementContext);
+        await this.assertMcpAuthIdentity(ref, session, owner);
+        const command = session.extensionRunner.getRegisteredCommands().find((candidate) => candidate.invocationName === "mcp" && candidate.sourceInfo?.path === "builtin:mcp");
+        if (!command) throw new UserFacingError("mcpAuth.builtinUnavailable", "Pi's built-in MCP command is not available for this session");
+        const completions = await command.getArgumentCompletions?.("login ") ?? [];
+        await this.assertWritable(ref, managementContext);
+        await this.assertMcpAuthIdentity(ref, session, owner);
+        if (completions.length > 200) throw new UserFacingError("mcpAuth.tooManyServers", "Too many MCP authentication servers");
+        const servers: McpAuthServerOption[] = [];
+        for (const item of completions) {
+          const name = item.value.startsWith("login ") ? item.value.slice(6) : "";
+          // Commands split on whitespace. Never forward an arbitrary suffix or
+          // a name that could change the builtin command's argument structure.
+          if (name.length === 0 || name.length > 256 || /\s/u.test(name) || Array.from(name).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) continue;
+          if ((item.description?.length ?? 0) > 32 * 1024) throw new UserFacingError("mcpAuth.descriptionTooLarge", "MCP server description is too large");
+          if (!servers.some((server) => server.name === name)) servers.push({ name, ...(item.description === undefined ? {} : { description: item.description }) });
+        }
+        return servers;
+      },
+    });
+  }
+
+  async mcpAuthServers(ref: PiSessionRef, managementContext?: ManagementEmbedContext): Promise<McpAuthServersResponse> {
+    const { session, owner } = await this.mcpAuthSession(ref, managementContext);
+    if (this.hasActiveWork(session)) throw new UserFacingError("mcpAuth.waitForIdleListing", "Wait for current session activity before listing MCP servers");
+    return this.runSessionEntryMutation(session, "list MCP authentication servers", async () => ({ servers: await this.discoverMcpAuthServers(ref, session, owner, managementContext) }));
+  }
+
+  async startMcpAuth(ref: PiSessionRef, mode: "login" | "logout", serverName?: string, managementContext?: ManagementEmbedContext): Promise<OAuthFlowState> {
+    const { session, owner } = await this.mcpAuthSession(ref, managementContext);
+    if (this.hasActiveWork(session)) throw new UserFacingError("mcpAuth.waitForIdle", "Wait for current session activity before authenticating MCP");
+    const servers = await this.runSessionEntryMutation(session, "discover MCP authentication servers", () => this.discoverMcpAuthServers(ref, session, owner, managementContext));
+    if (serverName !== undefined && !servers.some((server) => server.name === serverName)) throw new UserFacingError("mcpAuth.ineligibleServer", "Unknown or ineligible MCP authentication server");
+    await this.assertMcpAuthIdentity(ref, session, owner);
+    if (this.hasActiveWork(session)) throw new UserFacingError("mcpAuth.waitForIdle", "Wait for current session activity before authenticating MCP");
+    return this.mcpAuthFlows.start({
+      owner, mode,
+      identity: session,
+      isCurrent: () => this.isCurrentActiveSession(session) && session.sessionId === ref.id && cwdPathsEqual(ref.cwd, session.sessionManager.getCwd()) && session.settingsManager.isProjectTrusted?.() === true,
+      // This is an awaited extension command, not a model prompt submission.
+      // Avoid prompt echoes/activity and the fire-and-forget command receipt.
+      run: () => this.runSessionEntryMutation(session, "authenticate MCP", async () => {
+        const operation = McpAuthFlowService.current(session);
+        if (!operation) throw new UserFacingError("mcpAuth.sessionNotCurrent", "MCP authentication session is no longer current");
+        if (servers.length === 0) {
+          operation.notify(this.t("mcpAuth.noEligibleServers", "No eligible MCP servers are available for this action."));
+          return;
+        }
+        const selected = serverName ?? await operation.selectServer(servers);
+        if (selected === undefined || operation.isCancelled()) return;
+        await this.assertWritable(ref, managementContext);
+        await this.assertMcpAuthIdentity(ref, session, owner);
+        const fresh = await this.discoverMcpAuthServers(ref, session, owner, managementContext);
+        if (!fresh.some((server) => server.name === selected)) throw new UserFacingError("mcpAuth.serverNoLongerEligible", "MCP authentication server is no longer eligible");
+        if (operation.isCancelled()) return;
+        operation.setServer(selected);
+        await session.prompt(`/mcp ${mode} ${selected}`, { expandPromptTemplates: true });
+      }),
+    });
   }
 }
 

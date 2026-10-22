@@ -33,6 +33,16 @@ function installWindow(href: string): { pushed: string[]; replaced: string[] } {
 }
 
 describe("settings route helpers", () => {
+  it("round-trips the MCP section without losing application-relative session routing", () => {
+    const history = installWindow("https://example.test/nested/?machine=remote&session=session-a&settings=mcp#entry");
+    expect(parseSettingsSection("mcp")).toBe("mcp");
+    expect(readSettingsSection()).toBe("mcp");
+    writeSettingsSection("mcp");
+    expect(history.pushed).toEqual([]);
+    writeSettingsSection(undefined, { replace: true });
+    expect(history.replaced).toEqual(["https://example.test/nested/?machine=remote&session=session-a#entry"]);
+  });
+
   it("parses supported settings deep links and aliases", () => {
     expect(parseSettingsSection("general")).toBe("general");
     expect(parseSettingsSection("sessiond")).toBe("sessiond");

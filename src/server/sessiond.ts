@@ -21,6 +21,7 @@ import { ModelCatalogRefresher } from "./sessions/modelCatalogRefresher.js";
 import { SessionArchiveStore, defaultSessionArchiveFilePath } from "./sessions/sessionArchiveStore.js";
 import { SessionNotificationStore } from "./sessions/sessionNotificationStore.js";
 import { registerAuthRoutes } from "./sessions/authRoutes.js";
+import { registerMcpAuthRoutes } from "./sessions/mcpAuthRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
 import { createPiSessionManagerGateway } from "./sessions/piSessionManagerGateway.js";
 import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
@@ -470,6 +471,7 @@ await runSessionDaemonStartup({
     registerMachineStatusRoutes(app, machineStatus);
     registerServerNoticeRoutes(app, serverNotices);
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
+    registerMcpAuthRoutes(app, sessions);
     registerSessionRoutes(app, sessions, eventHub);
     registerManagementTerminalRoutes(app, managementTerminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);

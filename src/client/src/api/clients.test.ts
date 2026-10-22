@@ -57,6 +57,56 @@ afterEach(() => {
 });
 
 describe("machine-scoped runtime API", () => {
+  it.each(["normal", "management"] as const)("keeps MCP auth inside the nested app and %s request scope", async (mode) => {
+    setApiScope(mode);
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });
+    vi.stubGlobal("location", { href: "https://pi.example.test/nested/pi-web/?embed=management&token=test-entry" });
+    const flow = { flowId: "flow /1", target: "mcp", providerId: "mcp", providerName: "MCP server", status: "running", progress: [] };
+    const fetchMock = stubSequenceFetch([jsonResponse({ servers: [] }), ...Array.from({ length: 4 }, () => jsonResponse(flow))]);
+    const session = { id: "session /1", cwd: "/work repo" };
+    await sessionsApi.mcpAuthServers(session, "remote a");
+    await sessionsApi.startMcpAuth(session, "logout", "remote a");
+    await sessionsApi.mcpAuthFlow(flow.flowId, "remote a");
+    await sessionsApi.respondMcpAuthFlow(flow.flowId, "request-1", "private-answer", "remote a");
+    await sessionsApi.cancelMcpAuthFlow(flow.flowId, "remote a");
+    for (const call of fetchMock.mock.calls) {
+      const input = call[0];
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      expect(url.pathname).toMatch(/^\/nested\/pi-web\/api\/machines\/remote%20a\//u);
+      expect(url.searchParams.get("embed")).toBe(mode === "management" ? "management" : null);
+      expect(url.searchParams.get("token")).toBe(mode === "management" ? "test-entry" : null);
+      expect(url.href).not.toContain("private-answer");
+    }
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ cwd: "/work repo", mode: "logout" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 3)[1]))).toEqual({ requestId: "request-1", value: "private-answer" });
+  });
+
+  it("starts and controls a scoped MCP auth flow with encoded identifiers", async () => {
+    const flow = { flowId: "flow /1", target: "mcp", providerId: "mcp", providerName: "MCP server", status: "running", progress: [] };
+    const fetchMock = stubSequenceFetch(Array.from({ length: 4 }, () => jsonResponse(flow)));
+    const session = { id: "session /1", cwd: "/repo" };
+    await sessionsApi.startMcpAuth(session, "login", "remote a", "Budgeter");
+    await sessionsApi.mcpAuthFlow(flow.flowId, "remote a");
+    await sessionsApi.respondMcpAuthFlow(flow.flowId, "request-1", "http://localhost/callback?code=abc", "remote a");
+    await sessionsApi.cancelMcpAuthFlow(flow.flowId, "remote a");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/machines/remote%20a/sessions/session%20%2F1/mcp/auth",
+      "https://pi.example.test/api/machines/remote%20a/auth/mcp/flow%20%2F1",
+      "https://pi.example.test/api/machines/remote%20a/auth/mcp/flow%20%2F1/respond",
+      "https://pi.example.test/api/machines/remote%20a/auth/mcp/flow%20%2F1/cancel",
+    ]);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ cwd: "/repo", mode: "login", serverName: "Budgeter" });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 2)[1]))).toEqual({ requestId: "request-1", value: "http://localhost/callback?code=abc" });
+  });
+
+  it("lists MCP authentication candidates for the exact session and machine", async () => {
+    const response = { servers: [{ name: "Budgeter", description: "connected" }] };
+    const fetchMock = stubJsonFetch(response);
+    await expect(sessionsApi.mcpAuthServers({ id: "session /1", cwd: "/work repo" }, "remote a")).resolves.toEqual(response);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/session%20%2F1/mcp/auth/servers?cwd=%2Fwork+repo");
+  });
+
   it.each(["normal", "management"] as const)("forwards workspace read cancellation in %s mode", async (mode) => {
     setApiScope(mode);
     vi.stubEnv("BASE_URL", "./");

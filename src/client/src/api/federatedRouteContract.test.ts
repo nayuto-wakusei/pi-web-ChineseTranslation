@@ -32,6 +32,17 @@ afterEach(() => {
 });
 
 describe("federated route contract", () => {
+  it("allowlists dedicated MCP authentication without adding an OAuth callback or socket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("/mcp"))).toEqual([
+      { method: "GET", path: "/sessions/:sessionId/mcp/auth/servers" },
+      { method: "POST", path: "/sessions/:sessionId/mcp/auth" },
+      { method: "GET", path: "/auth/mcp/:flowId" },
+      { method: "POST", path: "/auth/mcp/:flowId/respond" },
+      { method: "POST", path: "/auth/mcp/:flowId/cancel" },
+    ]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("/mcp"))).toBe(false);
+  });
+
   it("routes Git changes through the revision-paired plugin boundary, not private core routes", () => {
     expect(FEDERATED_HTTP_ROUTES.some((route) => /\/git\/(?:status|diff)/u.test(route.path))).toBe(false);
     expect(FEDERATED_HTTP_ROUTES.find((route) => route.path === PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH)).toMatchObject({
@@ -277,6 +288,11 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.authProviders({ mode: "login", authType: "oauth", machineId })),
       ignoreParseFailure(sessionsApi.saveApiKey("openai", "key", { machineId })),
       ignoreParseFailure(sessionsApi.logoutProvider("openai", { machineId })),
+      ignoreParseFailure(sessionsApi.mcpAuthServers(session, machineId)),
+      ignoreParseFailure(sessionsApi.startMcpAuth(session, "login", machineId, "Budgeter")),
+      ignoreParseFailure(sessionsApi.mcpAuthFlow("flow 1", machineId)),
+      ignoreParseFailure(sessionsApi.respondMcpAuthFlow("flow 1", "req 1", "code", machineId)),
+      ignoreParseFailure(sessionsApi.cancelMcpAuthFlow("flow 1", machineId)),
       ignoreParseFailure(sessionsApi.startOAuthLogin("openai", { machineId })),
       ignoreParseFailure(sessionsApi.oauthFlow("flow 1", { machineId })),
       ignoreParseFailure(sessionsApi.respondOAuthFlow("flow 1", "req 1", "code", { machineId })),

@@ -20,7 +20,7 @@ describe("builtin extension factories load through DefaultResourceLoader", () =>
       // Create an empty mcp.json so MCP servers don't try to connect to the network.
       await writeFile(join(directory, "mcp.json"), JSON.stringify({ mcpServers: {} }), "utf-8");
 
-      const factories = await getBuiltinExtensionFactories();
+      const factories = await getBuiltinExtensionFactories({ directory: join(directory, "mcp-private"), configAgentDir: directory });
       expect(factories).toHaveLength(3);
 
       const eventBus = createEventBus();
@@ -57,7 +57,7 @@ describe("builtin extension factories load through DefaultResourceLoader", () =>
       const loader = new DefaultResourceLoader({
         cwd: directory,
         agentDir: directory,
-        extensionFactories: await getBuiltinExtensionFactories(),
+        extensionFactories: await getBuiltinExtensionFactories({ directory: join(directory, "mcp-private"), configAgentDir: directory }),
         noExtensions: disablement === "noExtensions",
         settingsManager: SettingsManager.inMemory(disablement === "settings" ? {
           extensions: ["-builtin:mcp", "-builtin:codemode", "-builtin:tool-search"],
@@ -92,7 +92,7 @@ describe("builtin extension factories load through DefaultResourceLoader", () =>
       });
       const loader = new DefaultResourceLoader({
         cwd: directory, agentDir: directory, settingsManager,
-        extensionFactories: await getBuiltinExtensionFactories(),
+        extensionFactories: await getBuiltinExtensionFactories({ directory: join(directory, "mcp-private"), configAgentDir: directory }),
         noSkills: true, noPromptTemplates: true, noThemes: true,
         agentsFilesOverride: () => ({ agentsFiles: [] }),
       });

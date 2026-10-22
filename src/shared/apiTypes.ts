@@ -1100,7 +1100,21 @@ export interface AuthProvidersResponse {
   providers: AuthProviderOption[];
 }
 
+export interface McpAuthServerOption {
+  name: string;
+  description?: string;
+}
+
+export interface McpAuthServersResponse {
+  servers: McpAuthServerOption[];
+}
+
 export interface OAuthFlowState {
+  mcpMode?: "login" | "logout";
+  /** MCP completion means the Pi command finished, not that authentication succeeded. */
+  target?: "mcp";
+  /** Cancellation may race credential storage; remains true after command completion. */
+  cancelRequested?: boolean;
   flowId: string;
   providerId: string;
   providerName: string;

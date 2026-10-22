@@ -113,9 +113,10 @@ export interface SessionSearchTarget {
 
 export type AuthDialogState =
   | { step: "method"; target: AuthDialogTarget }
+  | { step: "starting"; target: AuthDialogTarget; title: string; mcpSession: { id: string; cwd: string }; error?: string }
   | { step: "providers"; mode: "login"; authType?: "oauth" | "api_key"; providers: AuthProviderOption[]; target: AuthDialogTarget }
   | { step: "apiKey"; provider: AuthProviderOption; value: string; saving?: boolean; error?: string; target: AuthDialogTarget }
-  | { step: "oauth"; flow: OAuthFlowState; responding?: boolean; inputValue?: string; error?: string; target: AuthDialogTarget }
+  | { step: "oauth"; flow: OAuthFlowState; responding?: boolean; inputValue?: string; error?: string; target: AuthDialogTarget; mcpSession?: { id: string; cwd: string } }
   | { step: "logout"; providers: AuthProviderOption[]; target: AuthDialogTarget };
 
 export type WorkspaceScopedStateReset = Pick<AppState,

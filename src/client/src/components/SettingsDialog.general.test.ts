@@ -9,6 +9,10 @@ afterEach(() => {
 });
 
 describe("settings-dialog general settings machine targeting", () => {
+  it("routes MCP settings to its session-scoped panel", () => {
+    expect(activeSettingsPanelTag("mcp")).toBe("settings-mcp-panel");
+  });
+
   it("routes each section to a single settings panel with no per-tab scope-note wrapper", () => {
     // The old global "scope-note"/"This tab edits:" wrapper is gone: each section
     // now maps to exactly one panel element. Assert that public routing contract

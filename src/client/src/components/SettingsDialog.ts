@@ -4,9 +4,12 @@ import { t } from "../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import "./ModalSurface";
+import type { ModalSurface } from "./ModalSurface";
 import type { AppAction } from "../actions";
 import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineRuntime, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import type { SettingsSection } from "../settingsRoute";
+import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
+import "./settings/SettingsMcpPanel";
 import "./settings/SettingsGeneralPanel";
 import "./settings/SettingsThemePanel";
 import type { QualifiedThemeContribution } from "../plugins/types";
@@ -38,6 +41,8 @@ export class SettingsDialog extends LitElement {
   @property({ type: Boolean }) hasLocalThemeOverride = false;
   @property({ attribute: false }) onUseLocalTheme?: (preference: ThemePreference) => void;
   @property({ attribute: false }) onUseDefaultTheme?: () => void;
+  @property({ attribute: false }) mcpContext: McpAuthContext | undefined;
+  @property({ attribute: false }) onMcpAuth?: McpAuthHandler;
   @property({ attribute: false }) machine: Machine | undefined;
   @property({ attribute: false }) machineRuntime: MachineRuntime | undefined;
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
@@ -89,6 +94,12 @@ export class SettingsDialog extends LitElement {
   }
 
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("section")) {
+      const surface = this.renderRoot.querySelector<ModalSurface>("modal-surface");
+      void surface?.updateComplete.then(() => {
+        if (this.isConnected) this.renderRoot.querySelector(".settings-nav button.selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    }
     const currentTarget = this.settingsTarget();
     if (changed.has("machine")) {
       const previousTarget = settingsMachineTarget(changed.get("machine"));
@@ -139,6 +150,7 @@ export class SettingsDialog extends LitElement {
               ${this.renderNavButton("sessiond", t("bundled.updates.session.daemon.757666", "Session daemon"), t("ui.settingsDialog.selectedMachine", "Selected machine"))}
               ${this.renderNavButton("packages", t("bundled.updates.pi.package.feed18", "Pi package"), t("ui.settingsDialog.selectedMachine", "Selected machine"))}
               ${this.renderNavButton("plugins", t("client.machinePluginLoadCoordinator.pi.web.plugins.54b78f", "PI WEB plugins"), t("ui.settingsDialog.selectedMachine", "Selected machine"))}
+              ${this.renderNavButton("mcp", "MCP", t("ui.mcp.selectedSession", "Selected session"))}
               ${this.renderNavButton("shortcuts", t("ui.settingsDialog.keyboard", "Keyboard"), t("ui.settingsDialog.gatewayShortcuts", "Gateway shortcuts"))}
             </nav>
             <main class="settings-content">
@@ -153,6 +165,14 @@ export class SettingsDialog extends LitElement {
     // Keep the section -> panel routing in sync with the public
     // `activeSettingsPanelTag` seam below, which tests assert against instead of
     // scraping this template's markup.
+    if (this.section === "mcp") {
+      const target = this.settingsTarget();
+      return html`<settings-mcp-panel
+        .context=${this.mcpContext?.machineId === target.id ? this.mcpContext : undefined}
+        .targetLabel=${settingsMachineTargetLabel(target)}
+        .onMcpAuth=${this.onMcpAuth}
+      ></settings-mcp-panel>`;
+    }
     if (this.section === "sessiond") {
       return html`
         <settings-sessiond-panel
@@ -775,7 +795,8 @@ export type SettingsPanelTag =
   | "settings-sessiond-panel"
   | "settings-packages-panel"
   | "settings-plugins-panel"
-  | "settings-shortcuts-panel";
+  | "settings-shortcuts-panel"
+  | "settings-mcp-panel";
 
 /**
  * The single custom-element panel the settings dialog renders for a section.
@@ -795,6 +816,8 @@ export function activeSettingsPanelTag(section: SettingsSection): SettingsPanelT
       return "settings-plugins-panel";
     case "shortcuts":
       return "settings-shortcuts-panel";
+    case "mcp":
+      return "settings-mcp-panel";
     case "general":
       return "settings-general-panel";
   }

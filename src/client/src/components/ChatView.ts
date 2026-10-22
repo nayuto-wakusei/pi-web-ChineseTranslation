@@ -1,4 +1,5 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
+import { renderNotificationMessage } from "../notificationMessage";
 import type { DisplayedMessageActionAvailabilityContext, MessageActionAvailabilityContext, MessageActionFeedback, MessageActionResult } from "../../../plugin-api";
 import { displayedMessageActionMessage, messageActionMessage, MessageActionAvailabilityCache, type RegisteredMessageAction } from "../plugins/messageActions";
 import { clientLocale, t } from "../i18n.js";
@@ -596,7 +597,7 @@ export class ChatView extends LitElement {
                   <span aria-hidden="true">·</span>
                   <time datetime=${notification.receivedAt}>${notificationTimestampFormatter.format(new Date(notification.receivedAt))}</time>
                 </div>
-                <p class="notification-message" dir="auto">${notification.message}</p>
+                <p class="notification-message" dir="auto">${renderNotificationMessage(notification.message, notification.truncated)}</p>
                 ${truncationLabel === undefined ? null : html`<p class="notification-truncated">${truncationLabel}</p>`}
                 <button
                   type="button"

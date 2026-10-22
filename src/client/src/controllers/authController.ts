@@ -1,10 +1,15 @@
 import { t } from "../i18n";
-import { api as defaultApi, type ApiScope, type AuthProviderOption, type AuthRequestTarget, type AuthType, type OAuthFlowState, type SessionStatus } from "../api";
+import { api as defaultApi, type ApiScope, type AuthProviderOption, type AuthRequestTarget, type AuthType, type OAuthFlowState, type SessionRef, type SessionStatus } from "../api";
 import type { AuthDialogState, AuthDialogTarget } from "../appState";
 import { BrowserErrorReporter, machineBrowserErrorScope } from "../browserErrors";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 
 type OAuthDialogState = Extract<AuthDialogState, { step: "oauth" }>;
+
+export interface McpAuthContext {
+  session: SessionRef;
+  machineId: string;
+}
 
 export interface AuthControllerDependencies {
   api?: typeof defaultApi;
@@ -56,6 +61,24 @@ export class AuthController {
       return;
     }
     this.setState({ authDialog: { step: "method", target } });
+  }
+
+  async openMcpAuth(mode: "login" | "logout", serverName?: string, context?: McpAuthContext): Promise<void> {
+    const state = this.getState();
+    const session = context?.session ?? (state.selectedSession?.archived === true ? undefined : state.selectedSession);
+    const machineId = context?.machineId ?? selectedMachineId(state);
+    if (session === undefined) {
+      this.browserErrors.report(machineBrowserErrorScope(machineId), t("ui.mcp.selectSession", "Select a session to authenticate MCP servers."));
+      return;
+    }
+    const generation = this.advanceAuthOperation();
+    const target: AuthDialogTarget = { machineId };
+    const mcpSession = { id: session.id, cwd: session.cwd };
+    this.setState({ authDialog: { step: "starting", target, mcpSession, title: mode === "login"
+      ? t("ui.mcp.signInTitle", "Sign in to an MCP server") : t("ui.mcp.signOutTitle", "Sign out of an MCP server") } });
+    await this.startFlow(() => serverName === undefined
+      ? this.api.startMcpAuth(mcpSession, mode, machineId)
+      : this.api.startMcpAuth(mcpSession, mode, machineId, serverName), target, generation, mcpSession);
   }
 
   async chooseLoginMethod(authType: AuthType): Promise<void> {
@@ -178,7 +201,9 @@ export class AuthController {
     delete clean.error;
     this.setState({ authDialog: { ...clean, responding: true } });
     try {
-      const flow = await this.api.respondOAuthFlow(dialog.flow.flowId, request.requestId, responseValue, dialog.target);
+      const flow = dialog.flow.target === "mcp"
+        ? await this.api.respondMcpAuthFlow(flowId, requestId, responseValue, dialog.target.machineId)
+        : await this.api.respondOAuthFlow(flowId, requestId, responseValue, dialog.target);
       const current = this.currentOAuthDialog(operationGeneration, flowId);
       if (flow.flowId !== flowId || current === undefined || !sameAuthTarget(current.target, dialog.target) || oauthRequestId(current.flow) !== requestId) return;
       this.updateOAuthFlow(flow, dialog.target);
@@ -199,6 +224,31 @@ export class AuthController {
     }
     const flowId = dialog.flow.flowId;
     const target = dialog.target;
+    if (dialog.flow.target === "mcp") {
+      if (dialog.flow.status !== "running") {
+        this.closeDialog();
+        return;
+      }
+      if (dialog.flow.cancelRequested === true) return;
+      const generation = this.advanceAuthOperation();
+      // Pi may already be exchanging tokens. Do not equate cancellation with
+      // a guarantee that credentials were never saved.
+      this.setState({ authDialog: { ...dialog, flow: { ...dialog.flow, cancelRequested: true } } });
+      try {
+        const flow = await this.api.cancelMcpAuthFlow(flowId, target.machineId);
+        if (this.currentOAuthDialog(generation, flowId) !== undefined) {
+          this.updateOAuthFlow(flow, target);
+          if (flow.status === "running") this.startPolling(flowId, target);
+        }
+      } catch (error) {
+        const current = this.currentOAuthDialog(generation, flowId);
+        if (current !== undefined) {
+          this.setState({ authDialog: { ...current, flow: { ...current.flow, cancelRequested: false }, error: String(error) } });
+          this.startPolling(flowId, target);
+        }
+      }
+      return;
+    }
     this.closeDialog();
     try {
       await this.api.cancelOAuthFlow(flowId, target);
@@ -237,48 +287,58 @@ export class AuthController {
   }
 
   private async startOAuth(provider: AuthProviderOption, target: AuthDialogTarget): Promise<void> {
-    const operationGeneration = ++this.oauthOperationGeneration;
-    this.stopPolling();
+    const generation = this.advanceAuthOperation();
+    await this.startFlow(() => provider.authType === "oauth"
+      ? this.api.startOAuthLogin(provider.id, target)
+      : this.api.startInteractiveApiKeyLogin(provider.id, target), target, generation);
+  }
+
+  private async startFlow(start: () => Promise<OAuthFlowState>, target: AuthDialogTarget, operationGeneration: number, mcpSession?: SessionRef): Promise<void> {
+    if (operationGeneration !== this.oauthOperationGeneration) return;
     try {
-      const flow = provider.authType === "oauth"
-        ? await this.api.startOAuthLogin(provider.id, target)
-        : await this.api.startInteractiveApiKeyLogin(provider.id, target);
+      const flow = await start();
       if (operationGeneration !== this.oauthOperationGeneration) {
         if (flow.status === "running") {
           try {
-            await this.api.cancelOAuthFlow(flow.flowId, target);
+            if (flow.target === "mcp") await this.api.cancelMcpAuthFlow(flow.flowId, target.machineId);
+            else await this.api.cancelOAuthFlow(flow.flowId, target);
           } catch {
             // Best-effort cleanup for a stale UI operation.
           }
         }
         return;
       }
-      this.updateOAuthFlow(flow, target);
+      this.updateOAuthFlow(flow, target, mcpSession);
       if (flow.status === "running") this.startPolling(flow.flowId, target);
     } catch (error) {
-      if (operationGeneration === this.oauthOperationGeneration) this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
+      if (operationGeneration !== this.oauthOperationGeneration) return;
+      const dialog = this.getState().authDialog;
+      if (dialog?.step === "starting") this.setState({ authDialog: { ...dialog, error: String(error) } });
+      else this.browserErrors.report(machineBrowserErrorScope(target.machineId), String(error));
     }
   }
 
-  private updateOAuthFlow(flow: OAuthFlowState, target: AuthDialogTarget): void {
-    if (flow.status === "complete") {
+  private updateOAuthFlow(flow: OAuthFlowState, target: AuthDialogTarget, mcpSession?: SessionRef): void {
+    const existing = this.getState().authDialog;
+    mcpSession ??= flow.target === "mcp" && (existing?.step === "oauth" || existing?.step === "starting") ? existing.mcpSession : undefined;
+    if (flow.status === "complete" && flow.target !== "mcp") {
       this.stopPolling();
       this.closeDialog();
       void this.refreshStatus(target);
       return;
     }
-    if (flow.status === "error" || flow.status === "cancelled") {
+    if (flow.status !== "running") {
       this.oauthOperationGeneration += 1;
       this.stopPolling();
+      if (flow.target === "mcp" && mcpSession !== undefined) void this.refreshMcpStatus(target.machineId, mcpSession);
     }
-    const existing = this.getState().authDialog;
     const previousInput = existing?.step === "oauth" && existing.flow.flowId === flow.flowId ? existing.inputValue ?? "" : "";
     const previousRequestId = existing?.step === "oauth" ? oauthRequestId(existing.flow) : undefined;
     const newRequestId = oauthRequestId(flow);
     const sameRequest = previousRequestId !== undefined && previousRequestId === newRequestId;
     const inputValue = sameRequest ? previousInput : "";
     const responding = sameRequest && existing?.step === "oauth" ? existing.responding === true : false;
-    this.setState({ authDialog: { step: "oauth", flow, inputValue, responding, target } });
+    this.setState({ authDialog: { step: "oauth", flow, inputValue, responding, target, ...(mcpSession === undefined ? {} : { mcpSession }) } });
   }
 
   private startPolling(flowId: string, target: AuthDialogTarget): void {
@@ -304,7 +364,9 @@ export class AuthController {
     }
     const requestId = oauthRequestId(dialog.flow);
     try {
-      const flow = await this.api.oauthFlow(flowId, dialog.target);
+      const flow = dialog.flow.target === "mcp"
+        ? await this.api.mcpAuthFlow(flowId, dialog.target.machineId)
+        : await this.api.oauthFlow(flowId, dialog.target);
       const current = this.currentOAuthDialog(operationGeneration, flowId);
       if (flow.flowId !== flowId || pollGeneration !== this.pollGeneration || current === undefined || !sameAuthTarget(current.target, target) || oauthRequestId(current.flow) !== requestId) return;
       this.updateOAuthFlow(flow, dialog.target);
@@ -339,6 +401,20 @@ export class AuthController {
       this.applyStatus(status);
     } catch {
       // Status refresh is opportunistic after login completes.
+    }
+  }
+
+  private async refreshMcpStatus(machineId: string, session: SessionRef): Promise<void> {
+    const stillSelected = () => {
+      const current = this.selectedSessionForMachine(machineId);
+      return current?.id === session.id && current.cwd === session.cwd;
+    };
+    if (!stillSelected()) return;
+    try {
+      const status = await this.api.status(session, machineId);
+      if (stillSelected()) this.applyStatus(status);
+    } catch {
+      // MCP command output remains authoritative when status refresh fails.
     }
   }
 

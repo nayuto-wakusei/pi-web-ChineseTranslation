@@ -135,6 +135,8 @@ async function proxyHttpRequest(
   t: Translator = createTranslator("en", {}),
 ): Promise<FastifyReply> {
   const sessionMedia = spec.path === "/sessions/:sessionId/media/:mediaId";
+  const mcpAuth = spec.path.startsWith("/auth/mcp/") || spec.path.startsWith("/sessions/:sessionId/mcp/auth");
+  if (mcpAuth) reply.header("cache-control", "no-store");
   if (sessionMedia) applySessionMediaResponsePolicy(reply);
 
   if (machineId === "local") {
@@ -185,6 +187,7 @@ async function proxyHttpRequest(
     }
     reply.code(upstream.statusCode);
     applySafeHeaders(reply, upstream.headers);
+    if (mcpAuth) reply.header("cache-control", "no-store");
     if (previewPolicy !== undefined) {
       const enforcedPolicy = isSuccessfulStatus(upstream.statusCode) ? previewPolicy : workspaceFilePreviewErrorResponsePolicy();
       applyWorkspaceFilePreviewResponsePolicy(reply, enforcedPolicy);

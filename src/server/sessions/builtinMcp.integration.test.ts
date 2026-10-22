@@ -76,7 +76,7 @@ it("discovers a deferred MCP tool, preserves activation on reload, and disposes 
   try {
     await mkdir(agentDir);
     await mkdir(markers);
-    // MCP's default config/log paths use getAgentDir(), not the loader's agentDir.
+    // Isolate SDK process defaults as well as the injected MCP storage paths.
     vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
     vi.stubEnv("PI_OFFLINE", "1");
     await writeFile(join(directory, "mcp-fixture.mjs"), mcpFixture);
@@ -92,7 +92,7 @@ it("discovers a deferred MCP tool, preserves activation on reload, and disposes 
     const services = await createAgentSessionServices({
       cwd: directory, agentDir, settingsManager, modelRuntime,
       resourceLoaderOptions: {
-        extensionFactories: await getBuiltinExtensionFactories(),
+        extensionFactories: await getBuiltinExtensionFactories({ directory: join(directory, "private-mcp"), configAgentDir: agentDir }),
         noSkills: true, noPromptTemplates: true, noThemes: true,
         agentsFilesOverride: () => ({ agentsFiles: [] }),
       },

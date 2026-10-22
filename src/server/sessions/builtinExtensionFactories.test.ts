@@ -7,12 +7,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.doUnmock("../../piSdk.js");
+  vi.doUnmock("./mcpOAuthCredentialAdapter.js");
   vi.resetModules();
 });
 
 async function loadFactories(sdkExports: Record<string, unknown>) {
   vi.doMock("../../piSdk.js", () => ({ VERSION: "1.3.0", ...sdkExports }));
-  return (await import("./builtinExtensionFactories.js")).getBuiltinExtensionFactories;
+  vi.doMock("./mcpOAuthCredentialAdapter.js", () => ({ createMcpOAuthCredentialOptions: () => Promise.resolve({}) }));
+  const getFactories = (await import("./builtinExtensionFactories.js")).getBuiltinExtensionFactories;
+  return () => getFactories({ directory: "/wiring-private" });
 }
 
 function builtinCreators() {

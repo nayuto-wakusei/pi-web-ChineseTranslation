@@ -179,6 +179,7 @@ export interface WorkspacePanelTerminal {
 export interface PiWebUnstableRuntimeContext {
   terminalCommandRuns?: TerminalCommandRunsInternalRuntime;
   openSettings?: (section?: SettingsSection) => void;
+  openMcpAuth?: (mode: "login" | "logout") => void | Promise<void>;
 }
 
 export interface TerminalCommandRunsInternalRuntime {

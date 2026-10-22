@@ -93,6 +93,7 @@ export async function selectPiRuntimePackageDir(options: PiRuntimeSelectionOptio
 let packageDirPromise: Promise<string> | undefined;
 let sdkPromise: Promise<typeof import("@earendil-works/pi-coding-agent")> | undefined;
 let aiPromise: Promise<typeof import("@earendil-works/pi-ai")> | undefined;
+let runtimeDirectoryPromise: Promise<string> | undefined;
 
 function selectedPackageDir(): Promise<string> {
   // One identity per process. Children and installed services inherit the choice.
@@ -103,8 +104,24 @@ function selectedPackageDir(): Promise<string> {
 }
 
 export async function resolvePiRuntimeImport(specifier: string): Promise<string> {
-  const directory = await selectedPackageDir();
+  const directory = await runtimePackageDir();
   return resolveImport(specifier, pathToFileURL(join(directory, "package.json")).href);
+}
+
+function runtimePackageDir(): Promise<string> {
+  // Pin the loaded installation, not a package-manager symlink that can move.
+  return runtimeDirectoryPromise ??= selectedPackageDir().then((directory) => realpath(directory));
+}
+
+/** Identity of the already selected host, including narrowly versioned SDK adapters. */
+export async function piRuntimePackageInfo(): Promise<{ directory: string; version: string }> {
+  const directory = await runtimePackageDir();
+  const manifest: unknown = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
+  if (typeof manifest !== "object" || manifest === null || !("name" in manifest) || manifest.name !== SDK_PACKAGE
+    || !("version" in manifest) || typeof manifest.version !== "string") {
+    throw new Error("The selected Pi SDK has an invalid package identity");
+  }
+  return { directory, version: manifest.version };
 }
 
 export function loadPiSdk(): Promise<typeof import("@earendil-works/pi-coding-agent")> {
