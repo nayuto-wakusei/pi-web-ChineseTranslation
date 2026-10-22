@@ -182,8 +182,9 @@ describe("plugin delivery artifacts", () => {
       browserRoot: expect.objectContaining({ path: "browser" }),
     })]);
     const browserModule = snapshot.plugins[0].browserModule.filePath;
-    expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual([]);
-    expect((await import(pathToFileURL(browserModule).href)).default.name).toBe("Workflows");
+      expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual(["./worktreeDialog.js"]);
+      expect((await import(pathToFileURL(browserModule).href)).default).toMatchObject({ name: "Workflows", apiVersion: 5 });
+      expect(metadata.piWeb.plugins[0].serverModule).toBe("server-plugin.js");
     enabled = false;
     expect((await catalog.snapshot()).plugins[0].enabled).toBe(false);
     // Disabling web contributions leaves Pi prompt resources installed.

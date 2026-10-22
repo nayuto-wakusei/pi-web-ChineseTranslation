@@ -303,6 +303,7 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     messageCount: requireNumber(record, "messageCount"),
     firstMessage: requireString(record, "firstMessage"),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
+    ...optionalField("agentSubsession", optionalBoolean(record, "agentSubsession")),
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
   };
@@ -2291,7 +2292,7 @@ export function parseSessionStreamEvent(value: unknown): SessionUiEvent {
   }
 }
 type RealtimeStreamEvent =
-  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "notices.updated" }>
+  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "workspaces.changed" | "notices.updated" }>
   | MachineStatusUiEvent;
 export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
   const record = requireRecord(value);
@@ -2306,6 +2307,8 @@ export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
       return { type: "session.created", session: parseSessionInfo(record["session"]) };
     case "models.changed":
       return parseModelScopeChangedEvent(record);
+    case "workspaces.changed":
+      return { type: "workspaces.changed", projectId: requireNonEmptyString(record, "projectId") };
     case "notices.updated":
       return parseServerNoticeEvent(record);
     case "machine.status":

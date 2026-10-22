@@ -7,6 +7,8 @@ import type { BrowserErrorMap } from "./browserErrors";
 import type { MainView } from "./route";
 
 export interface AppState {
+  /** Latest authority result for the selected project; absent while resolving. */
+  workspaceResolution?: import("./api").WorkspaceProviderResolution | undefined;
   machines: Machine[];
   selectedMachine: Machine | undefined;
   isLoadingMachines: boolean;

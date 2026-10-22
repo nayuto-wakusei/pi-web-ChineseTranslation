@@ -3,11 +3,12 @@ import type { Project } from "../types.js";
 import type { WorkspaceProviderAuthorityResolution } from "../workspaces/workspaceProviderRegistry.js";
 import type { WorkspaceProviderRuntimeSnapshot } from "../workspaces/workspaceCatalog.js";
 import { sendWorkspaceRequestError } from "../workspaces/workspaceRouteErrors.js";
-import { resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
+import { managementContextFromSessiondHeaders, resolveSessiondProject, type SessiondProjectReader } from "./managementProjectResolver.js";
 import { createTranslator, type Translator } from "../../shared/i18n.js";
 
 export interface WorkspaceCatalogResolver {
   resolve(project: Project): Promise<WorkspaceProviderAuthorityResolution>;
+  reconcileProject(project: Project, resolution: WorkspaceProviderAuthorityResolution): Promise<void>;
 }
 
 export interface WorkspaceCatalogRouteDependencies {
@@ -30,7 +31,10 @@ export function registerWorkspaceCatalogRoutes(
   app.get<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId/workspaces`, async (request, reply) => {
     try {
       const project = await resolveSessiondProject(request.headers, request.params.projectId, dependencies);
-      return await dependencies.workspaces.resolve(project);
+      const resolution = await dependencies.workspaces.resolve(project);
+      // Ordinary provider integrations must not consume a managed project's id/path.
+      if (managementContextFromSessiondHeaders(request.headers) === undefined) await dependencies.workspaces.reconcileProject(project, resolution);
+      return resolution;
     } catch (error) {
       return sendWorkspaceRequestError(reply, error, projectErrorStatus(error), t);
     }

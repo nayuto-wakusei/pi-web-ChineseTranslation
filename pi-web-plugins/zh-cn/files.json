@@ -37,5 +37,14 @@
   "server.files.mainWorkspaceMissing": "找不到项目主工作区",
   "server.files.invalidCommandResponse": "终端命令运行响应无效",
   "server.files.inlinePreviewUnsupported": "此文件类型不支持内联预览",
-  "server.files.previewTooLarge": "文件过大，无法预览（上限 {limit}）"
+  "server.files.previewTooLarge": "文件过大，无法预览（上限 {limit}）",
+  "server.files.projectConfigRegular": "PI WEB 项目配置必须是普通文件：{path}",
+  "server.files.projectPluginsObject": "PI WEB 项目配置的 plugins 必须是对象：{path}",
+  "server.files.projectPluginId": "PI WEB 项目配置的插件 ID 必须符合 {pattern}：{path}",
+  "server.files.projectPluginObject": "PI WEB 项目配置的插件条目必须是对象：{path}",
+  "server.files.projectPluginEnabled": "PI WEB 项目配置不支持 plugins.{pluginId}.enabled；插件启用状态由全局配置管理：{path}",
+  "server.files.pluginSettingsObject": "{label} 必须是 JSON 对象",
+  "server.files.pluginSettingsCycle": "{label} 不能包含循环引用",
+  "server.files.pluginSettingsSparse": "{label} 不能包含稀疏数组",
+  "server.files.pluginSettingsJson": "{label} 只能包含 JSON 值"
 }

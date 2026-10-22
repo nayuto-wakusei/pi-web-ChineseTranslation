@@ -107,8 +107,8 @@ class GitUiController {
     private readonly route: GitDiffRoute,
   ) {}
 
-  isOwnedWorkspace(workspace: Workspace | undefined): boolean {
-    return workspace?.provider?.pluginId === this.sourcePluginId;
+  canInspectWorkspace(workspace: Workspace | undefined): boolean {
+    return workspace !== undefined && (workspace.provider === undefined || workspace.provider.pluginId === this.sourcePluginId);
   }
 
   state(context: WorkspacePanelContext): GitWorkspaceUiState {
@@ -150,7 +150,7 @@ class GitUiController {
   }
 
   invalidate(context: WorkspacePanelContext): Promise<void> {
-    if (!this.isOwnedWorkspace(context.workspace)) return Promise.resolve();
+    if (!this.canInspectWorkspace(context.workspace)) return Promise.resolve();
     const state = this.stateFor(context);
     state.stale = state.status !== undefined;
     this.requestRender(state);
@@ -396,7 +396,7 @@ class GitUiController {
 }
 
 function createGitActions(panelId: string, controller: GitUiController): PluginAction[] {
-  const hasGitWorkspace = (context: PluginRuntimeContext): boolean => controller.isOwnedWorkspace(context.state.selectedWorkspace);
+  const hasGitWorkspace = (context: PluginRuntimeContext): boolean => controller.canInspectWorkspace(context.state.selectedWorkspace);
   return [
     {
       id: "view.git",
@@ -441,7 +441,7 @@ function createGitPanel(
     order: 20,
     routeAliases: ["git", "core:workspace.git"],
     navigationAliases: ["core:workspace.git"],
-    visible: (context) => controller.isOwnedWorkspace(context.workspace),
+    visible: (context) => controller.canInspectWorkspace(context.workspace),
     onInvalidate: (context) => controller.invalidate(context),
     render: (context) => renderGitPanel(html, controller, context, stylesheetIntegration()),
   };

@@ -1,15 +1,46 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it } from "vitest";
+import componentMessages from "../../../../pi-web-plugins/zh-cn/components.json";
+import mainMessages from "../../../../pi-web-plugins/zh-cn/main.json";
 import type { SessionInfo } from "../api";
+import { setClientTranslations } from "../i18n";
 import { SessionList } from "./SessionList";
+
+const dictionary = { ...componentMessages, ...mainMessages };
 
 afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
+  setClientTranslations("zh-CN", dictionary);
 });
 
 describe("SessionList bulk selection toolbar", () => {
+  it.each([
+    { locale: "en", archived: false, visible: "Select visible", clear: "Clear selected (2)" },
+    { locale: "en", archived: true, visible: "Select visible", clear: "Clear selected (2)" },
+    { locale: "zh-CN", archived: false, visible: "选择可见", clear: "清除所选（2）" },
+    { locale: "zh-CN", archived: true, visible: "选择可见", clear: "清除所选（2）" },
+  ])("keeps bulk counts and clear actions localized in $locale (archived=$archived)", async ({ locale, archived, visible, clear }) => {
+    setClientTranslations(locale, locale === "en" ? {} : dictionary);
+    const list = await renderSessionList([session("a", { archived }), session("b", { archived })]);
+    if (archived) {
+      archivedSectionToggle(list)?.click();
+      await list.updateComplete;
+    }
+    (archived ? archivedSelectionToggle(list) : currentSelectionToggle(list)).click();
+    await list.updateComplete;
+    toolbarButton(list, visible)?.click();
+    await list.updateComplete;
+    expect(checkedBoxes(list)).toHaveLength(2);
+    const clearAction = toolbarButton(list, clear);
+    expect(clearAction).not.toBeNull();
+    clearAction?.click();
+    await list.updateComplete;
+    expect(checkedBoxes(list)).toHaveLength(0);
+    expect(toolbarButton(list, visible)).not.toBeNull();
+  });
+
   it("offers 选择可见 with an empty selection and no Clear or Done buttons", async () => {
     const list = await renderSessionList([session("a"), session("b"), session("c")]);
 

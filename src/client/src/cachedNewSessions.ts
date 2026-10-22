@@ -48,6 +48,7 @@ export function stripCachedNewSessionMarker(session: SessionInfo): SessionInfo {
     messageCount: session.messageCount,
     firstMessage: session.firstMessage,
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
+    ...(session.agentSubsession === true ? { agentSubsession: true } : {}),
     ...("machineId" in session && typeof session.machineId === "string" ? { machineId: session.machineId } : { machineId: defaultMachineId }),
     ...(session.archived === true ? { archived: true } : {}),
     ...(session.archivedAt === undefined ? {} : { archivedAt: session.archivedAt }),
@@ -98,6 +99,7 @@ function parseCachedSession(value: unknown): CachedNewSessionInfo[] {
     messageCount,
     firstMessage,
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
+    ...(value["agentSubsession"] === true ? { agentSubsession: true } : {}),
     machineId,
     browserCachedNew: true,
   }];

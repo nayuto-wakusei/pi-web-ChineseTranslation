@@ -19,7 +19,7 @@ describe("panel resize behavior", () => {
   });
 
   it("clamps panel widths to broad fallback bounds", () => {
-    expect(clampPanelWidth("navigation", 50)).toBe(180);
+    expect(clampPanelWidth("navigation", 50)).toBe(260);
     expect(clampPanelWidth("navigation", 9000)).toBe(4096);
     expect(clampPanelWidth("workspace", 50)).toBe(240);
     expect(clampPanelWidth("workspace", 9000)).toBe(4096);

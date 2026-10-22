@@ -1,6 +1,11 @@
 import type { Workspace } from "../api";
 import { browserSessionStorage, parseStoredString, PersistentValueMap, type KeyValueStorage } from "./sessionStorageMemory";
 
+/** Hide only a confirmed ordinary folder, never a provider or failed resolution. */
+export function shouldShowWorkspaceSelection(resolution: import("../api").WorkspaceProviderResolution | undefined): boolean {
+  return resolution?.status !== "folder";
+}
+
 export interface WorkspaceSelectionMemory {
   latestWorkspaceId(projectId: string): string | undefined;
   rememberWorkspace(workspace: Workspace): void;

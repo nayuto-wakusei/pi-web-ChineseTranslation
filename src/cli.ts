@@ -1393,6 +1393,10 @@ async function main(): Promise<void> {
     await runReadinessCliCommand(command, readinessCliCommandDependencies(t));
   } else if (command === "stop" || command === "status") await serviceAction(command, t);
   else if (command === "logs") logs(t);
+  else if (command === "workspaces") {
+    const { runWorkspaceNotificationCli } = await import("./workspaceNotificationCli.js");
+    await runWorkspaceNotificationCli(args);
+  }
    else if (command === "audit") {
      const { runNormalToolAuditCommand } = await import("./server/audit/normalToolAuditCli.js");
      runNormalToolAuditCommand(args);

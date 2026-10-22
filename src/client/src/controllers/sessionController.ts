@@ -69,8 +69,12 @@ export interface SessionControllerDependencies {
   transcripts?: ChatTranscriptStore;
   transcriptSnapshot?: typeof defaultApi.transcriptSnapshot;
   notifications?: SessionNotificationSessionBridge;
+  automaticSessionCandidates?: (sessions: SessionInfo[]) => SessionInfo[];
   replacePromptEditorText?: (replacement: PromptEditorTextReplacement) => void | Promise<void>;
   onSelectedSessionReady?: (selection: SelectedSessionReady) => void;
+  /** Capture before reading; publish only an accepted authoritative runtime snapshot. */
+  observeSessionSnapshot?: (machineId: string, sessionId: string) => (status: SessionStatus) => void;
+  isChatVisible?: () => boolean;
   isPendingSessionStartRouteCurrent?: (navigation: PendingSessionStartNavigation) => boolean;
   onPendingSessionStartCommitted?: (navigation: PendingSessionStartNavigation, session: SessionInfo) => void;
   onModelScopeChanged?: (revision: number) => void;
@@ -129,6 +133,7 @@ interface SelectedSessionRefreshTarget {
 }
 
 export interface SessionSelectionOptions {
+  deferChatLoading?: boolean | undefined;
   updateUrl?: boolean | undefined;
   preserveTreeDialog?: boolean | undefined;
   propagateRefreshError?: boolean | undefined;
@@ -141,8 +146,12 @@ export class SessionController {
   private readonly transcripts: ChatTranscriptStore;
   private readonly transcriptSnapshot: typeof defaultApi.transcriptSnapshot;
   private readonly notifications: SessionNotificationSessionBridge | undefined;
+  private readonly automaticSessionCandidates: (sessions: SessionInfo[]) => SessionInfo[];
   private readonly replacePromptEditorText: SessionControllerDependencies["replacePromptEditorText"];
   private readonly onSelectedSessionReady: SessionControllerDependencies["onSelectedSessionReady"];
+  private readonly observeSessionSnapshot: SessionControllerDependencies["observeSessionSnapshot"];
+  private readonly isChatVisible: () => boolean;
+  private selectedSessionLoadDeferred = false;
   private readonly isPendingSessionStartRouteCurrent: SessionControllerDependencies["isPendingSessionStartRouteCurrent"];
   private readonly onPendingSessionStartCommitted: SessionControllerDependencies["onPendingSessionStartCommitted"];
   private readonly onModelScopeChanged: SessionControllerDependencies["onModelScopeChanged"];
@@ -160,6 +169,7 @@ export class SessionController {
   private lastAppliedSelectedRefresh: { selectionSeq: number; partialJson: string } | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
   private refreshEventBuffer: SelectedSessionRefreshBuffer | undefined;
+  private initialSnapshotReady: { selectionSeq: number; complete: () => void } | undefined;
   private pendingStatusBySession = new Map<string, SessionStatus>();
   private pendingActivityBySession = new Map<string, SessionActivity>();
   private pendingFrame: number | undefined;
@@ -185,8 +195,11 @@ export class SessionController {
     this.transcripts = deps.transcripts ?? new ChatTranscriptStore();
     this.transcriptSnapshot = deps.transcriptSnapshot ?? ((...args) => this.api.transcriptSnapshot(...args));
     this.notifications = deps.notifications;
+    this.automaticSessionCandidates = deps.automaticSessionCandidates ?? ((sessions) => sessions);
     this.replacePromptEditorText = deps.replacePromptEditorText;
     this.onSelectedSessionReady = deps.onSelectedSessionReady;
+    this.observeSessionSnapshot = deps.observeSessionSnapshot;
+    this.isChatVisible = deps.isChatVisible ?? (() => true);
     this.isPendingSessionStartRouteCurrent = deps.isPendingSessionStartRouteCurrent;
     this.onPendingSessionStartCommitted = deps.onPendingSessionStartCommitted;
     this.onModelScopeChanged = deps.onModelScopeChanged;
@@ -207,6 +220,7 @@ export class SessionController {
 
   dispose() {
     this.disposed = true;
+    this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.searchSeq += 1;
     this.stopPolling();
@@ -230,6 +244,7 @@ export class SessionController {
   }
 
   clearActiveSession() {
+    this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;
     this.socket.close();
@@ -272,7 +287,7 @@ export class SessionController {
 
   async clearSelectionAfterArchivedCollapse(): Promise<void> {
     const state = this.getState();
-    if (!shouldDeselectAfterArchivedCollapse(state.sessions, state.selectedSession)) return;
+    if (!shouldDeselectAfterArchivedCollapse(this.automaticSessionCandidates(state.sessions), state.selectedSession)) return;
     await this.clearSessionAfterNavigation(this.navigationSelection());
   }
 
@@ -371,12 +386,23 @@ export class SessionController {
         ? pending.session
         : undefined;
     }
-    return selectPreferredSession(sessions, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
+    const candidates = targetSessionId === undefined || targetSessionId === "" ? this.automaticSessionCandidates(sessions) : sessions;
+    return selectPreferredSession(candidates, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
   }
 
   /** Reusing a selected row must not abandon a join retired by a newer URL. */
   canReuseSelectedSession(): boolean {
     return !this.disposed && navigationIsCurrent(this.selectedSessionJoinNavigation);
+  }
+
+  get isChatLoadDeferred(): boolean { return this.selectedSessionLoadDeferred; }
+
+  async loadSelectedSession(): Promise<void> {
+    if (this.disposed || !this.selectedSessionLoadDeferred || !this.isChatVisible()) return;
+    const session = this.getState().selectedSession;
+    if (session === undefined) return;
+    const navigation = this.beginNavigationOperation?.(SESSION_RESTORE_SCOPE);
+    await this.selectSession(session, { updateUrl: false, navigation });
   }
 
   async selectSession(session: SessionInfo, options?: SessionSelectionOptions) {
@@ -393,9 +419,13 @@ export class SessionController {
     this.socket.close();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
-    this.notifications?.prepareSelectedSession(session, machineId);
+    this.selectedSessionLoadDeferred = options?.deferChatLoading === true || !this.isChatVisible();
+    if (this.selectedSessionLoadDeferred) this.notifications?.clearSelectedSession();
+    else this.notifications?.prepareSelectedSession(session, machineId);
     const transcriptKey = this.sessionCacheKey(session.id);
-    const cached = this.transcripts.cachedView(transcriptKey);
+    const cached = this.selectedSessionLoadDeferred
+      ? { messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, messagePageLeafId: undefined }
+      : this.transcripts.cachedView(transcriptKey);
     this.setState({
       selectedSession: session,
       sessionSearchTarget: undefined,
@@ -408,11 +438,19 @@ export class SessionController {
       closedDialogs: [],
       availableThinkingLevels: [],
     });
+    if (this.selectedSessionLoadDeferred) {
+      this.selectedSessionJoinNavigation = undefined;
+      if (options?.updateUrl !== false) this.updateUrl();
+      return;
+    }
     let socketConnected = false;
     try {
       if (session.archived === true) {
         const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, machineId);
-        if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id || !navigationIsCurrent(options?.navigation)) return;
+        const selected = this.getState().selectedSession;
+        if (seq !== this.selectionSeq || selectedMachineId(this.getState()) !== machineId
+          || selected?.id !== session.id || selected.cwd !== session.cwd || selected.path !== session.path
+          || selected.archived !== session.archived || !navigationIsCurrent(options?.navigation)) return;
         const history = this.transcripts.mergeHistory(transcriptKey, page);
         this.setState({ ...history, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [] });
         this.onSelectedSessionReady?.({ machineId, session });
@@ -426,7 +464,11 @@ export class SessionController {
         },
         () => { void this.refreshSelectedSession(session.id, { silent: true }); },
         machineId,
-        () => { void this.notifications?.refreshSelectedSession(session, machineId); },
+        () => {
+          const selected = this.getState().selectedSession;
+          if (this.isCurrentSessionSelection(session.id, machineId, seq)
+            && selected?.cwd === session.cwd && selected.path === session.path) void this.refreshSessionNotifications(session, machineId);
+        },
       );
       socketConnected = true;
       const refreshTarget: SelectedSessionRefreshTarget = {
@@ -436,7 +478,8 @@ export class SessionController {
         errorOwner,
         ...(options?.navigation === undefined ? {} : { navigation: options.navigation }),
       };
-      await this.requestSelectedSessionRefresh(refreshTarget);
+      if (options?.propagateRefreshError === true) await this.requestSelectedSessionRefresh(refreshTarget);
+      else if (!await this.joinSelectedSessionSnapshot(refreshTarget)) return;
       if (!this.isCurrentRefreshTarget(refreshTarget) || !navigationIsCurrent(options?.navigation)) return;
       void this.refreshAvailableThinkingLevels();
       this.onSelectedSessionReady?.({ machineId, session });
@@ -928,7 +971,7 @@ export class SessionController {
       await this.api.archive(session, machineId, this.archiveScopeProjectId());
       const state = this.getState();
       const sessions = markSessionArchived(state.sessions, session.id, new Date().toISOString());
-      const selectionChange = selectionAfterArchivingSession(sessions, state.selectedSession?.id, session.id);
+      const selectionChange = selectionAfterArchivingSession(this.automaticSessionCandidates(sessions), state.selectedSession?.id, session.id);
       this.setState({ sessions });
       const expected = this.navigationSelection();
       if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
@@ -947,7 +990,7 @@ export class SessionController {
       const archivedIds = response.sessionIds !== undefined && response.sessionIds.length > 0 ? response.sessionIds : [session.id];
       const state = this.getState();
       const sessions = markSessionsArchived(state.sessions, archivedIds, new Date().toISOString());
-      const selectionChange = selectionAfterArchivingSessions(sessions, state.selectedSession?.id, archivedIds);
+      const selectionChange = selectionAfterArchivingSessions(this.automaticSessionCandidates(sessions), state.selectedSession?.id, archivedIds);
       this.setState({ sessions });
       const expected = this.navigationSelection();
       if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
@@ -972,7 +1015,7 @@ export class SessionController {
       if (archivedIds.length > 0) {
         const state = this.getState();
         const nextSessions = markSessionsArchived(state.sessions, archivedIds, generatedAt ?? new Date().toISOString());
-        const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
+        const selectionChange = selectionAfterArchivingSessions(this.automaticSessionCandidates(nextSessions), state.selectedSession?.id, archivedIds);
         this.setState({ sessions: nextSessions });
         const expected = this.navigationSelection();
         if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
@@ -1002,7 +1045,8 @@ export class SessionController {
         this.setState({ sessions: nextSessions });
         if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
           const expected = this.navigationSelection();
-          const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
+          const candidates = this.automaticSessionCandidates(nextSessions);
+          const next = candidates.find((session) => session.archived !== true) ?? candidates[0];
           if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
           else await this.clearSessionAfterNavigation(expected);
         }
@@ -1042,11 +1086,12 @@ export class SessionController {
       });
       const expected = this.navigationSelection();
       if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
-        const next = nextSessions.find((session) => session.archived !== true) ?? nextSessions[0];
+        const candidates = this.automaticSessionCandidates(nextSessions);
+        const next = candidates.find((session) => session.archived !== true) ?? candidates[0];
         if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
         else await this.clearSessionAfterNavigation(expected);
       } else {
-        const selectionChange = selectionAfterArchivingSessions(nextSessions, state.selectedSession?.id, archivedIds);
+        const selectionChange = selectionAfterArchivingSessions(this.automaticSessionCandidates(nextSessions), state.selectedSession?.id, archivedIds);
         if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
         else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
       }
@@ -1072,7 +1117,8 @@ export class SessionController {
         if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
         return;
       }
-      const next = sessions.find((session) => session.archived !== true) ?? sessions[0];
+      const candidates = this.automaticSessionCandidates(sessions);
+      const next = candidates.find((session) => session.archived !== true) ?? candidates[0];
       if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
       else await this.clearSessionAfterNavigation(expected);
     } catch (error) {
@@ -1116,7 +1162,8 @@ export class SessionController {
     });
     if (this.getState().selectedSession?.id !== session.id) return;
     const expected = this.navigationSelection();
-    const next = sessions.find((candidate) => candidate.archived !== true) ?? sessions[0];
+    const candidates = this.automaticSessionCandidates(sessions);
+    const next = candidates.find((candidate) => candidate.archived !== true) ?? candidates[0];
     if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
     else await this.clearSessionAfterNavigation(expected);
   }
@@ -1468,7 +1515,7 @@ export class SessionController {
 
   refreshSelectedSession(sessionId = this.getState().selectedSession?.id, options?: { silent?: boolean }): Promise<void> {
     const session = this.getState().selectedSession;
-    if (sessionId === undefined || session?.id !== sessionId || session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
+    if (sessionId === undefined || session?.id !== sessionId || this.selectedSessionLoadDeferred || session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
     const machineId = selectedMachineId(this.getState());
     const target: SelectedSessionRefreshTarget = {
       session,
@@ -1493,58 +1540,91 @@ export class SessionController {
     return buffer;
   }
 
+  private async refreshSessionNotifications(session: SessionInfo, machineId: string): Promise<void> {
+    try {
+      await this.notifications?.refreshSelectedSession(session, machineId);
+    } catch {
+      console.warn("Selected session notification refresh failed", { machineId, sessionId: session.id, errorCategory: "notification-refresh" });
+    }
+  }
+
+  private async joinSelectedSessionSnapshot(target: SelectedSessionRefreshTarget): Promise<boolean> {
+    let ready = false;
+    let complete!: () => void;
+    const snapshotReady = new Promise<boolean>((resolve) => {
+      complete = () => { ready = true; resolve(true); };
+    });
+    const join = { selectionSeq: target.selectionSeq, complete };
+    this.initialSnapshotReady = join;
+    const drained = this.requestSelectedSessionRefresh(target).then(() => ready, (error: unknown) => {
+      if (!ready) throw error;
+      this.reportSessionError(target.session, target.machineId, error, target.errorOwner);
+      return true;
+    });
+    try { return await Promise.race([snapshotReady, drained]); }
+    finally { if (this.initialSnapshotReady === join) this.initialSnapshotReady = undefined; }
+  }
+
   private requestSelectedSessionRefresh(target: SelectedSessionRefreshTarget): Promise<void> {
     if (!this.isCurrentRefreshTarget(target)) return Promise.resolve();
     const key = machineSessionKey(target.machineId, target.session.id);
-    // Start buffering synchronously, including the coordinator's queued phase.
     this.bufferRefreshEvents(target);
-    // The notification controller coalesces its own refreshes. Keep that work
-    // outside the transcript coordinator so a slow inbox never blocks replay
-    // or a subsequent snapshot, while callers still await both results.
-    const notificationsRefresh = Promise.resolve().then(() => {
-      if (!this.isCurrentRefreshTarget(target)) return;
-      return this.notifications?.refreshSelectedSession(target.session, target.machineId);
+    // Inbox completion and errors do not own transcript readiness.
+    void Promise.resolve().then(() => {
+      if (this.isCurrentRefreshTarget(target)) return this.refreshSessionNotifications(target.session, target.machineId);
+      return undefined;
     });
-    notificationsRefresh.catch(() => undefined);
-    const transcriptRefresh = this.selectedSessionRefreshes.request(key, async () => {
-      if (!this.isCurrentRefreshTarget(target)) return;
-      const buffer = this.bufferRefreshEvents(target);
-      const historyRevision = this.transcripts.historyRevision(key);
-      try {
-        const snapshot = await this.transcriptSnapshot(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId);
-        if (!this.isCurrentRefreshTarget(target) || this.transcripts.historyRevision(key) !== historyRevision) return;
-        const { page, status } = snapshot;
-        this.preserveBufferedDialogOutcomes(buffer, snapshot.seq);
-        if (!this.isUnchangedSelectedRefresh(target, key, page, status, snapshot)) {
-          // History, partial, and watermark describe the same daemon boundary.
-          // Replay only events newer than it; never overwrite an already-applied
-          // live event with a response that was captured before that event.
-          const history = this.transcripts.mergeSnapshot(key, page);
-          const messages = this.transcripts.seedStreamingPartial(history.messages, snapshot.partial);
-          this.streamWatermark = { sessionId: target.session.id, seq: snapshot.seq };
-          this.setState({
-            ...history,
-            messages,
-            status,
-            activity: this.getState().sessionActivities[target.session.id],
-          });
-          this.applyStatus(status);
-          this.lastAppliedSelectedRefresh = { selectionSeq: target.selectionSeq, partialJson: selectedRefreshPartialJson(snapshot) };
-        }
-      } finally {
-        if (this.refreshEventBuffer === buffer) this.refreshEventBuffer = undefined;
-        // A failed fetch leaves the previous baseline/watermark intact. Replay
-        // its events there too, so failure never strands or loses live output.
-        // A retired selection must not replay into the newly selected session.
-        if (this.isCurrentRefreshTarget(target)) {
-          for (const event of buffer.events) {
-            if (!this.isCurrentRefreshTarget(target)) break;
-            this.applyEvent(event);
-          }
+    return this.selectedSessionRefreshes.request(key, async () => {
+      if (this.isCurrentRefreshTarget(target)) await this.readSelectedSessionSnapshot(target, key);
+    });
+  }
+
+  private async readSelectedSessionSnapshot(target: SelectedSessionRefreshTarget, key: string): Promise<void> {
+    const buffer = this.bufferRefreshEvents(target);
+    const historyRevision = this.transcripts.historyRevision(key);
+    const observeRuntime = this.observeSessionSnapshot?.(target.machineId, target.session.id);
+    let appliedHistoryRevision: number;
+    try {
+      const snapshot = await this.transcriptSnapshot(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId);
+      if (!this.isCurrentRefreshTarget(target) || this.transcripts.historyRevision(key) !== historyRevision) return;
+      const { page, status } = snapshot;
+      this.preserveBufferedDialogOutcomes(buffer, snapshot.seq);
+      if (!this.isUnchangedSelectedRefresh(target, key, page, status, snapshot)) {
+        // History, partial, and watermark describe the same daemon boundary.
+        // Replay only events newer than it; never overwrite an already-applied
+        // live event with a response that was captured before that event.
+        const history = this.transcripts.mergeSnapshot(key, page);
+        const messages = this.transcripts.seedStreamingPartial(history.messages, snapshot.partial);
+        this.streamWatermark = { sessionId: target.session.id, seq: snapshot.seq };
+        this.setState({
+          ...history,
+          messages,
+          status,
+          activity: this.getState().sessionActivities[target.session.id],
+        });
+        this.applyStatus(status);
+        this.lastAppliedSelectedRefresh = { selectionSeq: target.selectionSeq, partialJson: selectedRefreshPartialJson(snapshot) };
+      }
+      appliedHistoryRevision = this.transcripts.historyRevision(key);
+      observeRuntime?.(status);
+    } finally {
+      if (this.refreshEventBuffer === buffer) this.refreshEventBuffer = undefined;
+      // A failed fetch leaves the previous baseline/watermark intact. Replay
+      // its events there too, so failure never strands or loses live output.
+      // A retired selection must not replay into the newly selected session.
+      if (this.isCurrentRefreshTarget(target)) {
+        for (const event of buffer.events) {
+          if (!this.isCurrentRefreshTarget(target)) break;
+          this.applyEvent(event);
         }
       }
-    });
-    return transcriptRefresh.then(() => notificationsRefresh);
+    }
+
+    if (this.transcripts.historyRevision(key) === appliedHistoryRevision
+      && this.isCurrentRefreshTarget(target)
+      && this.initialSnapshotReady?.selectionSeq === target.selectionSeq) {
+      this.initialSnapshotReady.complete();
+    }
   }
 
   private preserveBufferedDialogOutcomes(buffer: SelectedSessionRefreshBuffer, seq: number): void {
@@ -1584,7 +1664,10 @@ export class SessionController {
   }
 
   private isCurrentRefreshTarget(target: SelectedSessionRefreshTarget): boolean {
-    return this.isCurrentSessionSelection(target.session.id, target.machineId, target.selectionSeq) && navigationIsCurrent(target.navigation);
+    const selected = this.getState().selectedSession;
+    return this.isCurrentSessionSelection(target.session.id, target.machineId, target.selectionSeq)
+      && selected?.cwd === target.session.cwd && selected.path === target.session.path
+      && selected.archived === target.session.archived && navigationIsCurrent(target.navigation);
   }
 
   private isCurrentSessionSelection(sessionId: string, machineId: string, selectionSeq: number): boolean {
@@ -1706,6 +1789,7 @@ export class SessionController {
   }
 
   private selectClientPendingStartSession(session: ClientPendingStartSessionInfo, options?: { updateUrl?: boolean | undefined; activity?: SessionActivity | undefined; sessions?: SessionInfo[] | undefined }): void {
+    this.selectedSessionLoadDeferred = false;
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;

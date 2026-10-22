@@ -61,6 +61,7 @@ async function buildAll() {
       await buildMermaidPackage(mermaidPluginSourceDir, mermaidPluginOutputDir);
     } else {
       await buildCaptainsLogBrowserPackage(resolve(target.rootDir, "captains-log"), resolve(target.outDir, "captains-log"));
+      await buildWorkflowsServerPackage(resolve(target.rootDir, "workflows"), resolve(target.outDir, "workflows"));
     }
     const suffix = result.transpiled === 1 ? "file" : "files";
     const bundleSuffix = target.rootDir === bundledPluginsSourceDir ? " and the Files/Terminal/Mermaid browser bundles" : "";
@@ -79,6 +80,16 @@ export async function buildCaptainsLogBrowserPackage(sourceDir, targetDir, build
     configFile: resolve(sourceDir, "vite.config.mjs"),
     logLevel: "silent",
     build: { outDir: resolve(targetDir, "dist/browser") },
+  });
+}
+
+export async function buildWorkflowsServerPackage(sourceDir, targetDir, buildServer = viteBuild) {
+  await buildServer({
+    configFile: resolve(sourceDir, "vite.config.mjs"),
+    logLevel: "silent",
+    // Checkout builds must resolve the public API even before dist exists.
+    resolve: { alias: { "@chainingintention/pi-web-cn/server-plugin-api": resolve("src/server-plugin-api.ts") } },
+    build: { outDir: targetDir },
   });
 }
 

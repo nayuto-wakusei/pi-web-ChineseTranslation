@@ -52,6 +52,7 @@ export class MachineController {
       workspaces: [],
       isLoadingWorkspaces: false,
       selectedProject: undefined,
+      workspaceResolution: undefined,
       selectedWorkspace: undefined,
       selectedSession: undefined,
       messages: [],

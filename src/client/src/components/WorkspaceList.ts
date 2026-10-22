@@ -1,5 +1,6 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
+import { repeat } from "lit/directives/repeat.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { trustApi } from "../api";
 import { customElement, property, state } from "lit/decorators.js";
@@ -49,6 +50,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
+  @property({ attribute: false }) onMove?: (workspace: Workspace, direction: -1 | 1) => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -69,7 +71,22 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     super.disconnectedCallback();
   }
 
+  private focusedControl: HTMLElement | undefined;
+  private focusAfterReorder: HTMLElement | undefined;
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("workspaces")) this.focusAfterReorder = this.focusedControl;
+  }
+
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("workspaces") && this.focusAfterReorder?.isConnected === true) {
+      const control = this.focusAfterReorder;
+      const target = control instanceof HTMLButtonElement && control.disabled
+        ? control.closest(".action-menu-panel")?.querySelector<HTMLElement>("button[data-move]:not(:disabled)")
+        : control;
+      target?.focus({ preventScroll: true });
+    }
+    this.focusAfterReorder = undefined;
     const previousWorkspaces = changed.get("workspaces");
     const workspaceIdentityChanged = previousWorkspaces?.some((previous) => !this.workspaces.some((workspace) => workspace.id === previous.id && workspace.projectId === previous.projectId && workspace.path === previous.path)) === true;
     if (changed.has("machineId") || changed.has("managementMode") || workspaceIdentityChanged) {
@@ -105,13 +122,15 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
         <h2 class="ui-toolbar">${this.renderHeading()}</h2>
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${this.workspaces.map((workspace) => {
+            ${repeat(this.workspaces, (workspace) => workspace.id, (workspace) => {
               const label = workspacePrimaryLabel(workspace);
               const items = this.workspaceLabelItems(workspace);
               return html`
                 <div
                   class=${`action-row workspace-row ${this.selected?.id === workspace.id ? "selected" : ""}`}
                   tabindex="0"
+                @focusin=${(event: FocusEvent) => { this.focusedControl = event.target instanceof HTMLElement ? event.target : undefined; }}
+                @focusout=${() => { this.focusedControl = undefined; }}
                   title=${label}
                   @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(workspace)); }}
                   @keydown=${(event: KeyboardEvent) => { this.handleWorkspaceKeydown(event, workspace); }}
@@ -186,6 +205,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     const actionLabel = workspace.removal?.actionLabel ?? t("client.actions.delete.workspace.1bca7e", "Delete workspace");
     return html`
       <div class="workspace-menu-actions">
+        ${this.onMove === undefined || this.managementMode ? null : html`
+          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces[0]?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, -1); }}>${t("ui.navigation.moveUp", "Move up")}</button>
+          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces.at(-1)?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, 1); }}>${t("ui.navigation.moveDown", "Move down")}</button>
+        `}
         ${this.renderTrustToggle(workspace)}
         ${canDeleteWorkspace(workspace) ? html`<button class="ui-button ui-menu-item danger" title=${deleting ? t("ui.main.ebea1ecacc2f", "Workspace removal in progress") : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? t("ui.main.ce9fd54c50a3", "Removing…") : actionLabel}</button>` : null}
       </div>

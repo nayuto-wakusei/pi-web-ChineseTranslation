@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../api";
 import type { KeyValueStorage } from "./sessionStorageMemory";
-import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, SessionStorageWorkspaceSelectionMemory } from "./workspaceSelection";
+import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, shouldShowWorkspaceSelection, SessionStorageWorkspaceSelectionMemory } from "./workspaceSelection";
+
+describe("shouldShowWorkspaceSelection", () => {
+  it("hides only confirmed folder resolution, regardless of workspace count", () => {
+    expect(shouldShowWorkspaceSelection(undefined)).toBe(true);
+    for (const status of ["folder", "provider", "degraded"] as const) {
+      expect(shouldShowWorkspaceSelection({ projectId: "p", status, diagnostics: [], workspaces: [testWorkspace("single")] })).toBe(status !== "folder");
+    }
+  });
+});
 
 describe("selectPreferredWorkspace", () => {
   it("prefers an explicit target workspace", () => {

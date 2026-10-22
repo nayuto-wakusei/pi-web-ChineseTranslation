@@ -80,10 +80,13 @@ describe("brand visibility", () => {
 });
 
 describe("section sizing", () => {
-  it("shares available height equally and keeps collapsed sections at heading height", () => {
+  it("caps desktop sections, shares compact height equally, and keeps collapsed headings intrinsic", () => {
     const styles = AppNavigationPanel.styles.cssText;
 
-    expect(styles).toContain("machine-list, project-list, workspace-list, session-list { flex: 1 1 0px;");
+    expect(styles).toMatch(/machine-list, project-list, workspace-list, session-list \{[^}]*flex: 1 1 0px;/u);
+    expect(styles).toContain("project-list:not([collapsed]), workspace-list:not([collapsed]) { flex: 0 1 auto; max-height: calc(100% / 3); min-height: 44px;");
+    expect(styles).toContain("project-list[data-manual-size]:not([collapsed]), workspace-list[data-manual-size]:not([collapsed]) { flex-basis: var(--navigation-section-height); max-height: none;");
+    expect(styles).toContain(":host([compact]) project-list:not([collapsed]), :host([compact]) workspace-list:not([collapsed]) { flex: 1 1 0px; max-height: none;");
     expect(styles).toContain("session-list[collapsed] { flex: 0 0 auto; min-height: auto;");
     expect(styles).not.toContain("max-height: 26%");
   });

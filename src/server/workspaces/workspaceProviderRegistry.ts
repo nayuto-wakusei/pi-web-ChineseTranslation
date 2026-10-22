@@ -40,7 +40,7 @@ export type {
 const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
 
 type ProviderTier = WorkspaceProviderTier;
-type ProviderOperation = "probe" | "list" | "request" | "prepareRemove";
+type ProviderOperation = "probe" | "list" | "request" | "prepareRemove" | "reconcileIntegration" | "acceptNotification";
 
 export interface WorkspaceProviderRegistryLogger {
   warn(details: Record<string, unknown>, message: string): void;
@@ -182,6 +182,7 @@ export class WorkspaceProviderRegistry {
   private readonly requestTimeoutMs: number;
   private readonly pathInspector: WorkspacePathInspector;
   private readonly pendingResolutions = new Map<string, Promise<WorkspaceProviderAuthorityResolution>>();
+  private readonly pendingIntegrations = new Map<string, Promise<void>>();
   private readonly shutdown = new AbortController();
   private readonly providerOperations = new Set<Promise<unknown>>();
   private readonly providerCallbacks = new PluginCallbackDrain();
@@ -224,6 +225,56 @@ export class WorkspaceProviderRegistry {
     } finally {
       if (this.pendingResolutions.get(key) === pending) this.pendingResolutions.delete(key);
     }
+  }
+
+  async reconcileProject(project: Project, resolved?: WorkspaceProviderAuthorityResolution): Promise<void> {
+    this.assertAccepting();
+    const input = snapshotProject(project);
+    const key = workspaceResolutionKey(input);
+    const existing = this.pendingIntegrations.get(key);
+    if (existing !== undefined) {
+      await existing;
+      return;
+    }
+    const pending = this.reconcileIntegration(project, input, resolved);
+    this.pendingIntegrations.set(key, pending);
+    try {
+      await pending;
+    } finally {
+      if (this.pendingIntegrations.get(key) === pending) this.pendingIntegrations.delete(key);
+    }
+  }
+
+  private async reconcileIntegration(project: Project, input: ProjectInput, resolved?: WorkspaceProviderAuthorityResolution): Promise<void> {
+    try {
+      const resolution = resolved ?? await this.resolve(project);
+      const owner = this.integrationOwner(input, resolution);
+      const integration = owner?.provider.integration;
+      if (owner === undefined || integration === undefined) return;
+      await this.runProviderOperation(owner.pluginId, "reconcileIntegration", this.providerTimeoutMs,
+        (signal) => integration.reconcile(input, signal));
+    } catch {
+      this.throwIfShuttingDown();
+      this.options.logger.warn({ projectId: project.id, operation: "reconcileIntegration" }, "workspace provider integration reconciliation failed; discovery remains available");
+    }
+  }
+
+  async acceptNotification(project: Project, pluginId: string, signal?: AbortSignal): Promise<boolean> {
+    const input = snapshotProject(project);
+    const resolution = await this.resolve(project, signal);
+    const owner = this.integrationOwner(input, resolution);
+    const integration = owner?.provider.integration;
+    if (owner?.pluginId !== pluginId || integration === undefined) return false;
+    const accepted: unknown = await this.runProviderOperation(owner.pluginId, "acceptNotification", this.providerTimeoutMs,
+      (operationSignal) => integration.acceptNotification(input, operationSignal), signal);
+    if (typeof accepted !== "boolean") throw new WorkspaceProviderContractError(`Workspace provider ${pluginId} returned an invalid notification decision`);
+    return accepted;
+  }
+
+  private integrationOwner(input: ProjectInput, resolution: WorkspaceProviderAuthorityResolution): ServerPluginProviderContribution | undefined {
+    if (resolution.projectId !== input.id) throw new Error("Workspace integration resolution belongs to another project");
+    if (resolution.status !== "provider") return undefined;
+    return this.contributions.find(({ pluginId }) => pluginId === resolution.ownerPluginId);
   }
 
   private async resolveSnapshot(input: ProjectInput, signal?: AbortSignal): Promise<WorkspaceProviderAuthorityResolution> {

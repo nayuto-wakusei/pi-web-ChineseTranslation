@@ -215,6 +215,7 @@ describe("local management route isolation", () => {
       managementProjectRoot: projectRoot,
       providerRuntime: { protocolVersion: 2, terminalMode: "recovery-disabled", safeStart: "none", records: [], health: [], diagnostics: [] },
       workspaces: {
+        reconcileProject: () => Promise.resolve(),
         resolve: (project: Project): Promise<WorkspaceProviderAuthorityResolution> => {
           resolvedProject = project;
           return Promise.resolve({

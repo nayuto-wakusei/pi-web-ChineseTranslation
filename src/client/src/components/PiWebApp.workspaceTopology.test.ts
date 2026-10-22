@@ -2,6 +2,7 @@ import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
+import { NavigationOrderController } from "../controllers/navigationOrderController";
 import { RealtimeSocket } from "../sessionSocket";
 import { PiWebApp } from "./PiWebApp";
 
@@ -162,6 +163,9 @@ function stubBackgroundRefreshes(app: PiWebApp): void {
   if (typeof sessions !== "object" || sessions === null || !Reflect.set(sessions, "refreshSelectedSession", result)) {
     throw new Error("Could not replace the selected-session refresh");
   }
+  const navigationOrder: unknown = Reflect.get(app, "navigationOrder");
+  if (!(navigationOrder instanceof NavigationOrderController)) throw new Error("PiWebApp NavigationOrderController was unavailable");
+  vi.spyOn(navigationOrder, "load").mockResolvedValue();
 }
 
 function failBackgroundRefresh(app: PiWebApp, name: string, error: Error): void {

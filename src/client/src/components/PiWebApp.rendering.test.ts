@@ -21,6 +21,9 @@ import { loadNavigationPreferences, saveNavigationPreferences } from "../navigat
 import { NavigationDialog } from "./appShell/NavigationDialog";
 import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
+import { SessionController } from "../controllers/sessionController";
+import { PromptEditor } from "./PromptEditor";
+import { t } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsShortcutsPanel } from "./settings/SettingsShortcutsPanel";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
@@ -581,4 +584,172 @@ async function settle(element: LitElement): Promise<void> {
     if (child instanceof LitElement) await settle(child);
   }
   await element.updateComplete;
+}
+
+describe("upstream deferred chat rendering", () => {
+it("does not mount a restored mobile transcript until Chat is opened, and retains an already displayed chat across tabs", async () => {
+    const app = new RenderOnlyApp();
+    Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
+    Reflect.set(app, "normalAuthLoading", false);
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    const load = vi.spyOn(controller, "loadSelectedSession").mockResolvedValue(undefined);
+    patchState(app, {
+      selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session],
+      mainView: "navigation", messages: [{ role: "assistant", parts: [{ type: "text", text: "Deferred transcript" }] }],
+    });
+    document.body.append(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+    expect(app.shadowRoot?.querySelector("app-navigation-panel")?.shadowRoot?.querySelector("session-list")?.shadowRoot?.textContent).toContain("Current chat");
+
+    const selectTab = async (title: string) => {
+      const tab = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>(`.mobile-tabs button[title="${title}"]`);
+      if (tab == null) throw new Error(`Expected ${title} tab`);
+      tab.click();
+      await settle(app);
+    };
+    await selectTab(t("ui.piWebApp.chat", "Chat"));
+    const chat = app.shadowRoot?.querySelector("chat-view");
+    expect(chat).toBeInstanceOf(ChatView);
+    const editor = app.shadowRoot?.querySelector("prompt-editor");
+    expect(editor).toBeInstanceOf(PromptEditor);
+    await selectTab(t("ui.sessionSearchDialog.sessions", "Sessions"));
+    expect(app.shadowRoot?.querySelector("chat-view")).toBe(chat);
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBe(editor);
+    load.mockClear();
+
+    // Another workspace's remembered selection must not reuse the old chat's
+    // display permission while the user is still browsing the session list.
+    patchState(app, { selectedSession: { ...session, id: "another-session" } });
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+it.each([true, false])("lets the list paint before loading visible restored Chat (initially mobile: %s)", async (mobile) => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
+    Reflect.set(app, "normalAuthLoading", false);
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = mobile;
+    shell.isDesktopSideBySideLayout = !mobile;
+    let deferred = true;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockImplementation(() => deferred);
+    const load = vi.spyOn(controller, "loadSelectedSession").mockImplementation(() => {
+      deferred = false;
+      app.requestUpdate();
+      return Promise.resolve();
+    });
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, sessions: [session], mainView: "navigation" });
+    document.body.append(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    expect(app.shadowRoot?.querySelector("app-navigation-panel")?.shadowRoot?.querySelector("session-list")?.shadowRoot?.textContent).toContain("Current chat");
+    expect(load).not.toHaveBeenCalled();
+
+    if (mobile) {
+      runFrame();
+      runFrame();
+      expect(load).not.toHaveBeenCalled();
+      shell.isMobileNavigationLayout = false;
+      shell.isDesktopSideBySideLayout = true;
+      app.requestUpdate();
+      await settle(app);
+    }
+    expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(t("ui.piWebApp.loadingConversation", "Loading conversation..."));
+    runFrame();
+    await settle(app);
+    // rAF callbacks run before paint: the first frame must not begin Chat work.
+    expect(load).not.toHaveBeenCalled();
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    runFrame();
+    await settle(app);
+    expect(load).toHaveBeenCalledOnce();
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeInstanceOf(ChatView);
+  });
+
+it("focuses the composer after its deferred mount without waiting for the transcript response", async () => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
+    Reflect.set(app, "normalAuthLoading", false);
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    let deferred = true;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockImplementation(() => deferred);
+    vi.spyOn(controller, "loadSelectedSession").mockImplementation(() => {
+      deferred = false;
+      app.requestUpdate();
+      return Promise.resolve();
+    });
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "navigation" });
+    document.body.append(app);
+    await settle(app);
+    const focus: unknown = Reflect.get(app, "openChatAndFocusComposer");
+    if (typeof focus !== "function") throw new Error("Expected Chat navigation action");
+    const focusing: unknown = Reflect.apply(focus, app, []);
+    await settle(app);
+    runFrame();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    runFrame();
+    await focusing;
+    await settle(app);
+    const editor = app.shadowRoot?.querySelector("prompt-editor");
+    expect(editor).toBeInstanceOf(PromptEditor);
+    expect(deepActiveElement(document)).toBe(editor?.shadowRoot?.querySelector(".cm-content"));
+  });
+
+it.each(["hide", "disconnect"] as const)("cancels scheduled Chat loading when the shell changes before paint: %s", async (action) => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
+    Reflect.set(app, "normalAuthLoading", false);
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockReturnValue(true);
+    const load = vi.spyOn(controller, "loadSelectedSession").mockResolvedValue(undefined);
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "chat" });
+    document.body.append(app);
+    await settle(app);
+    runFrame();
+    if (action === "disconnect") app.remove();
+    else {
+      patchState(app, { mainView: "navigation" });
+      await settle(app);
+    }
+    runFrame();
+    expect(load).not.toHaveBeenCalled();
+  });
+});
+
+function manualAnimationFrames(): () => void {
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextId, callback);
+    return nextId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { frames.delete(id); });
+  return () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(0);
+  };
 }

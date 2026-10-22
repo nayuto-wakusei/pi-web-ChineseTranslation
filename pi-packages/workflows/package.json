@@ -15,6 +15,7 @@
         "defaultEnabled": true,
         "browserRoot": "browser",
         "module": "browser/pi-web-plugin.js",
+        "serverModule": "server-plugin.js",
         "machineSpecific": true
       }
     ]

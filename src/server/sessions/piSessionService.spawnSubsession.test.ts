@@ -53,6 +53,21 @@ describe("PiSessionService", () => {
       return { parent, child, children, service, events };
     }
 
+    it("announces verified agent subsessions after registering the exact live link", async () => {
+      const { service, events } = subsessionService({ allowed: true, cwd: "/workspace" });
+      try {
+        await service.start("/workspace");
+        await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice" });
+        const creations = events.globalEvents.filter((event) => event.type === "session.created");
+        expect(creations.filter((event) => event.session.id === "child-1")).toHaveLength(1);
+        expect(creations.find((event) => event.session.id === "child-1")?.session).toMatchObject({ agentSubsession: true });
+        expect(creations.find((event) => event.session.id === "parent-1")?.session).not.toHaveProperty("agentSubsession");
+        expect((await service.list("/workspace")).find((session) => session.id === "child-1")).toMatchObject({ agentSubsession: true });
+      } finally {
+        await service.dispose();
+      }
+    });
+
     it("records the parent, delivers the prompt, and lists the tracked child", async () => {
       const { child, service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace"); // bring the parent online so it can be notified

@@ -1,6 +1,7 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, html, type PropertyValues } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import { customElement, property } from "lit/decorators.js";
 import type { Project, Workspace, WorkspaceActivity } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
@@ -30,13 +31,29 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean }) managementMode = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
   @property({ attribute: false }) onClose?: (project: Project) => void;
+  @property({ attribute: false }) onMove?: (project: Project, direction: -1 | 1) => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
   private readonly menu = new ListMenuController(this);
 
+  private focusedControl: HTMLElement | undefined;
+  private focusAfterReorder: HTMLElement | undefined;
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("projects")) this.focusAfterReorder = this.focusedControl;
+  }
+
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("projects") && this.focusAfterReorder?.isConnected === true) {
+      const control = this.focusAfterReorder;
+      const target = control instanceof HTMLButtonElement && control.disabled
+        ? control.closest(".action-menu-panel")?.querySelector<HTMLElement>("button[data-move]:not(:disabled)")
+        : control;
+      target?.focus({ preventScroll: true });
+    }
+    this.focusAfterReorder = undefined;
     if (changed.has("projects")) this.menu.closeIfOpenIdMissing((projectId) => this.projects.some((project) => project.id === projectId));
     if (changed.has("collapsed")) this.menu.closeIf(this.collapsed);
   }
@@ -57,10 +74,12 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 <strong>${this.managementMode ? t("ui.projectList.noAccessibleProjects", "No accessible projects") : t("ui.main.a3dba20f21a7", "No projects")}</strong>
                 <small>${this.managementMode ? t("ui.projectList.createAProjectInTheAiPlatformThen", "Create a project in the AI platform, then refresh this page.") : t("ui.main.eb20389c7aba", "Add a project from the Actions menu.")}</small>
               </div>
-            ` : this.projects.map((project) => html`
+            ` : repeat(this.projects, (project) => project.id, (project, index) => html`
               <div
                 class=${`action-row ${this.selected?.id === project.id ? "selected" : ""}`}
                 tabindex="0"
+                @focusin=${(event: FocusEvent) => { this.focusedControl = event.target instanceof HTMLElement ? event.target : undefined; }}
+                @focusout=${() => { this.focusedControl = undefined; }}
                 title=${project.path}
                 @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(project)); }}
                 @keydown=${(event: KeyboardEvent) => { this.handleProjectKeydown(event, project); }}
@@ -73,6 +92,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                   <button class="ui-button ui-button--icon action-menu-toggle" title="${t("ui.projectList.projectActions", "Project actions")}" aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(project.id, event.currentTarget); }}>⋯</button>
                   ${this.menu.isOpen(project.id) ? html`
                     <div popover="auto" class="ui-menu action-menu-panel" style=${this.menu.menuStyle}>
+                      ${this.onMove === undefined || this.managementMode ? null : html`
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>${t("ui.navigation.moveUp", "Move up")}</button>
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${t("ui.navigation.moveDown", "Move down")}</button>
+                      `}
                       <button title="${t("ui.projectList.closeProject", "Close project")}" @click=${() => { this.close(project); }}>${t("ui.common.close", "Close")}</button>
                     </div>
                   ` : null}

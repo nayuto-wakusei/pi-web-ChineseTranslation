@@ -654,6 +654,8 @@ export interface SessionNotificationSummaryEvent {
 }
 
 export interface SessionInfo extends SessionRef {
+  /** Only true for positively verified tracked agent subsessions; absent otherwise. */
+  agentSubsession?: boolean;
   metadata?: import("./pluginApiTypes.js").SessionUiMetadata;
   path: string;
   /** True when the server has verified a backing session file exists; false when known transient. */
@@ -1442,12 +1444,18 @@ export interface ModelScopeChangedEvent {
   revision: number;
 }
 
+export interface WorkspaceChangedEvent {
+  type: "workspaces.changed";
+  projectId: string;
+}
+
 export type GlobalSessionEvent =
   | Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>
   | SessionNotificationSummaryEvent
   | SessionUnreadEvent
   | SessionStartupProgressEvent
   | ModelScopeChangedEvent
+  | WorkspaceChangedEvent
   | ServerNoticeEvent;
 export type RealtimeEvent = GlobalSessionEvent | TerminalUiEvent | WorkspaceActivityUiEvent | MachineStatusUiEvent;
 

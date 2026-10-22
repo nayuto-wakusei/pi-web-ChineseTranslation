@@ -6,6 +6,8 @@ import { isRecord, tryParseEntry } from "./sessionFileFormat.js";
 import type { PiSessionListEntry } from "./piSessionService.js";
 import type { SessionUiMetadata } from "../../shared/pluginApiTypes.js";
 import { sessionUiMetadataFromEntry } from "./sessionMetadata.js";
+import { cwdPathsEqual } from "../workingDirectory.js";
+import { parsePersistedChildSubsessionLink, parsePersistedParentSubsessionLink, type PersistedChildSubsessionLink, type PersistedParentSubsessionLink } from "./subsessionProvenance.js";
 
 /*
  * LISTING CONTRACT
@@ -147,7 +149,35 @@ export class SessionSummaryScanner {
     const files = await listSessionFilesInDir(sessionDir);
     this.pruneEntriesRemovedFrom(sessionDir, files);
     const summaries = await scanSessionFilesWithBoundedConcurrency(files, this.chunkBytes, (file, chunkBuffer) => this.scanFileWithMemo(file, chunkBuffer));
-    return sortedSessionSummaries(summaries);
+    const sessions = sortedSessionSummaries(summaries);
+    // Reuse this listing's folds and memoized parent scans; never open SDK
+    // managers (which parse entire transcripts) just to classify a list row.
+    const parents = new Map<string, Promise<PiSessionListEntry | undefined>>();
+    const listed = new Map(sessions.map((session) => [session.path, session]));
+    for (const session of sessions) {
+      const fold = this.memo.get(session.path)?.fold;
+      let marker: PersistedChildSubsessionLink | undefined;
+      for (const link of fold?.childLinks ?? []) {
+        if (link.spawnedSessionId === session.id) marker = link;
+      }
+      const parentPath = session.parentSessionPath;
+      if (marker === undefined || parentPath === undefined || parentPath === "") continue;
+      let parent = listed.get(parentPath);
+      if (parent === undefined) {
+        let pending = parents.get(parentPath);
+        if (pending === undefined) {
+          pending = this.scanFileWithMemo(parentPath, () => Buffer.allocUnsafe(this.chunkBytes));
+          parents.set(parentPath, pending);
+        }
+        parent = await pending;
+      }
+      if (parent?.id !== marker.spawnedBySessionId) continue;
+      const reciprocal = this.memo.get(parentPath)?.fold.parentLinks?.some((link) =>
+        link.spawnedBySessionId === parent.id && link.spawnedSessionId === session.id
+        && link.spawnedSessionFile !== undefined && cwdPathsEqual(link.spawnedSessionFile, session.path));
+      if (reciprocal === true) session.agentSubsession = true;
+    }
+    return sessions;
   }
 
   private pruneEntriesRemovedFrom(sessionDir: string, existingFiles: readonly string[]): void {
@@ -212,6 +242,8 @@ interface SummaryFoldState {
   firstMessageText: string | undefined;
   name: string | undefined;
   metadata?: SessionUiMetadata;
+  childLinks?: PersistedChildSubsessionLink[];
+  parentLinks?: PersistedParentSubsessionLink[];
 }
 
 function createEmptyFold(): SummaryFoldState {
@@ -371,7 +403,12 @@ function processLineBytes(data: Buffer, start: number, end: number, state: Summa
     return;
   }
   if (entryType === "custom") {
-    const metadata = sessionUiMetadataFromEntry(tryParseEntry(data.toString("utf8", start, end)));
+    const entry = tryParseEntry(data.toString("utf8", start, end));
+    const childLink = parsePersistedChildSubsessionLink(entry);
+    if (childLink !== undefined) (state.childLinks ??= []).push(childLink);
+    const parentLink = parsePersistedParentSubsessionLink(entry);
+    if (parentLink !== undefined) (state.parentLinks ??= []).push(parentLink);
+    const metadata = sessionUiMetadataFromEntry(entry);
     if (metadata !== undefined) state.metadata = metadata;
     return;
   }

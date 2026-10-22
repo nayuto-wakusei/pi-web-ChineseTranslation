@@ -16,6 +16,12 @@ export type SessionDaemonAgentProfileResult =
   | { status: "unavailable"; error: string }
   | { status: "invalid"; error: string };
 
+export interface SessionDaemonClientOptions {
+  baseUrl?: string;
+  /** Explicit sockets must not inherit a client URL for another daemon. */
+  socketPath?: string;
+}
+
 export interface SessionDaemonRequestOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
@@ -33,8 +39,13 @@ export interface SessionDaemonRequestClient {
 
 /** Talks to the local session daemon. A dead socket fails immediately, so there is no default request deadline; a busy agent turn is not a hang. Callers may still pass an AbortSignal. */
 export class SessionDaemonClient {
-  private readonly baseUrl = sessiondHttpUrl();
-  private readonly socketPath = sessiondSocketPath();
+  private readonly baseUrl: string | undefined;
+  private readonly socketPath: string;
+
+  constructor(options: SessionDaemonClientOptions = {}) {
+    this.baseUrl = options.baseUrl ?? (options.socketPath === undefined ? sessiondHttpUrl() : undefined);
+    this.socketPath = options.socketPath ?? sessiondSocketPath();
+  }
 
   async request(method: string, path: string, body?: unknown, headersOrOptions: Record<string, string> | SessionDaemonRequestOptions = {}, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     const options = requestOptions(headersOrOptions, signal);

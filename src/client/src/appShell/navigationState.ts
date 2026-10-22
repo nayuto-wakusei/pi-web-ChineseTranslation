@@ -5,18 +5,20 @@ export type NavigationSection = (typeof NAVIGATION_SECTION_ORDER)[number];
 export type ExpandedNavigationSection = NavigationSection | "none" | undefined;
 
 export interface NavigationSelectionState {
+  workspaceSelectionVisible?: boolean;
   selectedProject: object | undefined;
   selectedWorkspace: object | undefined;
 }
 
 export function defaultNavigationSection(state: NavigationSelectionState): NavigationSection {
   if (state.selectedProject === undefined) return "projects";
-  if (state.selectedWorkspace === undefined) return "workspaces";
+  if (state.selectedWorkspace === undefined && state.workspaceSelectionVisible !== false) return "workspaces";
   return "sessions";
 }
 
 export function expandedNavigationSection(expanded: ExpandedNavigationSection, state: NavigationSelectionState): NavigationSection | undefined {
   if (expanded === "none") return undefined;
+  if (expanded === "workspaces" && state.workspaceSelectionVisible === false) return "sessions";
   return expanded ?? defaultNavigationSection(state);
 }
 
@@ -92,7 +94,7 @@ export class NavigationSectionsController implements ReactiveController {
 
   advanceAfterSelection(section: NavigationSection): void {
     if (!this.isMobileLayout()) return;
-    const next = nextNavigationSection(section);
+    const next = section === "projects" && this.getState().workspaceSelectionVisible === false ? "sessions" : nextNavigationSection(section);
     if (next !== undefined) this.expand(next);
   }
 

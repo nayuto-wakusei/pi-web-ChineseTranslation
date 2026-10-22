@@ -8,6 +8,22 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+it("omits folder workspace selection while preserving project and session selection", async () => {
+  const selected: string[] = [];
+  const bar = new AppContextBar();
+  bar.workspaceSelectionVisible = false;
+  bar.onOpenSection = (section) => { selected.push(section); };
+  document.body.append(bar);
+  await bar.updateComplete;
+  const buttons = bar.shadowRoot?.querySelectorAll<HTMLButtonElement>(".context-items button");
+  expect(buttons).toHaveLength(2);
+  buttons?.forEach((button) => { button.click(); });
+  expect(selected).toEqual(["projects", "sessions"]);
+  bar.workspaceSelectionVisible = true;
+  await bar.updateComplete;
+  expect(bar.shadowRoot?.querySelectorAll(".context-items button")).toHaveLength(3);
+});
+
 describe("machineContextDetail", () => {
   it("uses the serving gateway for local machines and the remote host otherwise", () => {
     const remote = { ...machine("remote-a"), baseUrl: "https://fleet-a.example.com/pi-web/" };

@@ -86,6 +86,20 @@ describe("bundled Git browser plugin", () => {
     expect(selectWorkspaceTool).toHaveBeenCalledWith(`${runtimePluginId}:workspace.git`);
   });
 
+  it("inspects the repository from a folder workspace without requiring workspace ownership", async () => {
+    const folder: Workspace = { id: workspaceId, projectId, path: "/repo/app", label: "app", isMain: true };
+    const backend = backendFixture({ files: [changedFile("outside.txt")] });
+    const panel = requiredPanel(activate("git"));
+    const context = panelContext(backend.request, folder);
+    expect(panel.visible?.(context)).toBe(true);
+    await panel.onInvalidate?.(context);
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(panel.render(context), container);
+    expect(backend.request).toHaveBeenCalledWith("status", { refresh: true });
+    expect(container.textContent).toContain("outside.txt");
+  });
+
   it("keeps visibility checks free of route side effects", () => {
     window.history.replaceState({}, "", `/?project=${projectId}&workspace=${workspaceId}&core.workspace.git--diff=README.md`);
     const replaceState = vi.spyOn(window.history, "replaceState");

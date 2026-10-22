@@ -229,5 +229,16 @@
   "mcpAuth.ineligibleServer": "MCP 认证服务器未知或不符合条件",
   "mcpAuth.sessionNotCurrent": "MCP 认证会话已失效",
   "mcpAuth.noEligibleServers": "此操作没有可用的 MCP 服务器。",
-  "mcpAuth.serverNoLongerEligible": "此 MCP 服务器已不再符合认证条件"
+  "mcpAuth.serverNoLongerEligible": "此 MCP 服务器已不再符合认证条件",
+  "navigationPreference.managementUnavailable": "管理模式不支持普通导航排序",
+  "workspaceNotification.managementDenied": "工作区通知仅适用于普通注册项目",
+  "workspaceNotification.invalidInput": "工作区通知必须提供已注册项目 ID 和 pluginId",
+  "workspaceNotification.busy": "正在处理的工作区通知过多",
+  "workspaceNotification.projectUnavailable": "无法解析工作区通知所属项目",
+  "workspaceNotification.evaluationFailed": "无法处理工作区通知",
+  "navigationPreference.idsRequired": "导航偏好必须包含 ids 数组",
+  "navigationPreference.idsNonEmpty": "导航 ID 必须是非空字符串",
+  "navigationPreference.idsUnique": "导航 ID 不得重复",
+  "navigationPreference.revisionInvalid": "导航版本号必须是非负安全整数",
+  "navigationPreference.conflict": "导航偏好版本冲突"
 }

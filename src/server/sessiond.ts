@@ -67,6 +67,10 @@ import {
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
 } from "../server-plugin-api.js";
 import { createServerPluginRuntime } from "./plugins/serverPluginRuntime.js";
+import { ProjectPluginSettingsSnapshots } from "./plugins/projectPluginSettings.js";
+import { createWorkspaceNotificationCommandFactory } from "./workspaces/workspaceNotificationCommand.js";
+import { WorkspaceChangeNotifier } from "./workspaces/workspaceChangeNotifier.js";
+import { registerWorkspaceNotificationRoutes } from "./sessiond/workspaceNotificationRoutes.js";
 import { createServerPluginPiSessionEventsCapabilityFactory } from "./plugins/serverPluginPiSessionEventsCapability.js";
 import { createServerPluginPiSessionsCapabilityFactory } from "./plugins/serverPluginPiSessionsCapability.js";
 import { createServerPluginWorkspacesCapabilityFactory } from "./plugins/serverPluginWorkspacesCapability.js";
@@ -171,6 +175,8 @@ await runSessionDaemonStartup({
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore(projectStorePath(daemonEnvironment)));
+    const projectSettings = new ProjectPluginSettingsSnapshots(projects);
+    await projectSettings.initialize(await projects.list());
     const unreadStore = new SessionUnreadStore({
       persistence: new FileSessionUnreadPersistence(defaultSessionUnreadFilePath(daemonEnvironment)),
       onPersistenceError(operation, error) {
@@ -199,6 +205,14 @@ await runSessionDaemonStartup({
       ...(serverPluginRecovery.safeStart === undefined ? {} : { safeStart: serverPluginRecovery.safeStart }),
       logger: app.log,
       execFile: createServerPluginExecFile({ env: daemonEnvironment }),
+      projectSettingsResolver: (pluginId, settings, project, signal) => projectSettings.resolve(pluginId, settings, project, signal),
+      workspaceNotificationsFactory: createWorkspaceNotificationCommandFactory({
+        env: daemonEnvironment,
+        listeningPort: () => {
+          const address = app.server.address();
+          return typeof address === "object" && address !== null ? address.port : undefined;
+        },
+      }),
       noticeSink: (source, input) => { serverNotices.record({ ...input, source }); },
       lateHostCapabilities: [
         PI_WEB_HOST_WORKSPACES_CAPABILITY,
@@ -367,6 +381,11 @@ await runSessionDaemonStartup({
       logger: app.log,
     });
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
+    const workspaceChanges = new WorkspaceChangeNotifier({
+      attribution: statusAttribution,
+      status: machineStatus,
+      publish: (event) => { eventHub.publishRealtime(event, NORMAL_SESSION_EVENT_SCOPE); },
+    });
     await serverPlugins.resumeWithHostCapabilityFactories([
       createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
       createServerPluginCatalogCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
@@ -461,10 +480,10 @@ await runSessionDaemonStartup({
       });
       return shutdownPromise;
     };
-    return { eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects, shutdown };
+    return { eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects, shutdown };
   },
   disposeRuntime: ({ shutdown }) => shutdown(),
-  registerRoutes({ eventHub, machineStatus, statusAttribution, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
+  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }) {
     registerProjectMutationRoutes(app, projectLifecycle, translator);
     registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions });
     registerWorkspaceActivityRoutes(app, workspaceActivity);
@@ -479,6 +498,7 @@ await runSessionDaemonStartup({
       ? config.managementEmbed.projectRoot ?? join(homedir(), "PiWeb")
       : undefined;
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot, translator });
+    registerWorkspaceNotificationRoutes(app, { projects, workspaces: workspaceProviders, changes: workspaceChanges, translator });
     registerPluginBackendRoutes(app, { projects, backends: pluginBackends, managementProjectRoot, onWorkspacesMutated: (scope) => {
       statusAttribution.invalidate();
       machineStatus.notifyChanged(scope);
@@ -507,7 +527,7 @@ await runSessionDaemonStartup({
 
     app.get("/runtime", () => runtimeComponent);
   },
-  async listen({ shutdown }) {
+  async listen({ shutdown, projects, workspaceProviders }) {
     runtimeShutdown = shutdown;
     if (pendingShutdownSignal !== undefined) {
       await requestShutdown(pendingShutdownSignal);
@@ -526,6 +546,12 @@ await runSessionDaemonStartup({
       await rm(path, { force: true });
       await app.listen({ path });
       process.on("exit", () => void rm(path, { force: true }));
+    }
+    // Hooks need the actual bound endpoint, including ephemeral TCP listeners.
+    try {
+      await Promise.all((await projects.list()).map((project) => workspaceProviders.reconcileProject(project)));
+    } catch (error) {
+      if (!shutdownStarted) throw error;
     }
   },
 });

@@ -9,6 +9,8 @@ import { effectivePiWebConfig } from "../config.js";
 import { loadNodeTranslator } from "../localization.js";
 import { userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 import { ProjectStore } from "./storage/projectStore.js";
+import { NavigationPreferenceStore } from "./storage/navigationPreferenceStore.js";
+import { registerNavigationPreferenceRoutes } from "./navigationPreferenceRoutes.js";
 import { ProjectService } from "./projects/projectService.js";
 import { asWorkspaceCatalog, type WorkspaceCatalog, type WorkspaceCatalogInput, type WorkspaceCatalogRequestOptions, type WorkspaceListAdapter } from "./workspaces/workspaceCatalog.js";
 import { SessionDaemonWorkspaceCatalog } from "./workspaces/sessionDaemonWorkspaceCatalog.js";
@@ -65,6 +67,7 @@ import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration
 export interface AppDependencies {
   translator?: Translator;
   projects?: ProjectService;
+  navigationPreferences?: Pick<NavigationPreferenceStore, "get" | "put">;
   workspaces?: WorkspaceListAdapter;
   workspaceCatalog?: WorkspaceCatalog;
   machines?: MachineService;
@@ -345,6 +348,10 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const invalidatingConfigService = invalidatePiWebStatusOnWrite(configService, piWebStatusCache);
   registerConfigRoutes(app, invalidatingConfigService, t);
   registerLocalMachineConfigRoutes(app, invalidatingConfigService, t);
+
+  const navigationPreferences = deps.navigationPreferences ?? new NavigationPreferenceStore();
+  registerNavigationPreferenceRoutes(app, navigationPreferences, "/api", { ...(managementEmbed === undefined ? {} : { managementEmbed }), translator: t });
+  registerNavigationPreferenceRoutes(app, navigationPreferences, "/api/machines/local", { ...(managementEmbed === undefined ? {} : { managementEmbed }), translator: t });
 
   registerMachineRoutes(app, machines, managementEmbed, t);
   registerMachinePluginProxyRoutes(app, machines, t);
