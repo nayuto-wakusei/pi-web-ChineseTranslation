@@ -45,7 +45,7 @@ describe("ChatView conversation-first questions", () => {
     expect(card.open).toBe(true);
     expect(card.draftSessionId).toBe("remote-a:session-1");
     expect(card.closest(".event-group")).toBeNull();
-    expect(card.parentElement?.getAttribute("data-scroll-anchor-id")).toBe('ask:ask-open');
+    expect(card.parentElement?.getAttribute("data-scroll-anchor-id")).toBe('m:["ask-entry","tool","message"]');
     expect(card.shadowRoot?.querySelector("form")).not.toBeNull();
     expect(view.shadowRoot?.querySelectorAll("ask-user-card")).toHaveLength(1);
   });

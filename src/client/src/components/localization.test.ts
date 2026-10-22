@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import componentMessages from "../../../../pi-web-plugins/zh-cn/components.json";
 import clientMessages from "../../../../pi-web-plugins/zh-cn/client.json";
 import { setClientTranslations } from "../i18n";
@@ -8,6 +8,7 @@ import { chatActivityText, chatMessageMetadataLabel, chatMessageRoleLabel } from
 import { NormalAuthDialog } from "./NormalAuthDialog";
 import { PromptEditor } from "./PromptEditor";
 import { ToolExecutionView } from "./ToolExecutionView";
+import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 const dictionary = { ...componentMessages, ...clientMessages };
 
@@ -15,6 +16,8 @@ afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
   setClientTranslations("zh-CN", dictionary);
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("component localization", () => {
@@ -25,6 +28,7 @@ describe("component localization", () => {
     }
   });
   it.each(["en", "zh-CN"])("preserves tool names, paths, results and status values in %s", async (locale) => {
+    installDeferredContent();
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const execution = {
       type: "toolExecution" as const,
@@ -38,7 +42,14 @@ describe("component localization", () => {
     const view = new ToolExecutionView();
     view.execution = execution;
     document.body.append(view);
-    await view.updateComplete;
+    await settleDeferredContent(view);
+
+    const details = view.shadowRoot?.querySelector<HTMLDetailsElement>(".text-body");
+    if (details === undefined || details === null) throw new Error("Expected tool output disclosure");
+    expect(view.shadowRoot?.querySelector(".detail-result")).toBeNull();
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    await settleDeferredContent(view);
 
     expect(view.shadowRoot?.querySelector("strong")?.textContent).toBe(execution.toolName);
     expect(view.shadowRoot?.querySelector(".path")?.textContent).toBe(execution.args.path);

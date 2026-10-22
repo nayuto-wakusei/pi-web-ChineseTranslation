@@ -5,7 +5,7 @@ describe("chatStyles", () => {
   it("bounds the chat scroller to its flex-allocated wrapper", () => {
     const chatRule = /\.chat\s*\{([^}]*)\}/.exec(chatStyles.cssText)?.[1];
 
-    expect(chatStyles.cssText).toContain(".chat-wrap { position: relative;");
+    expect(chatStyles.cssText).toMatch(/\.chat-wrap\s*\{[^}]*position:\s*relative;/u);
     expect(chatRule).toContain("position: absolute");
     expect(chatRule).toContain("inset: 0");
     expect(chatRule).not.toContain("height: 100%");
@@ -15,21 +15,21 @@ describe("chatStyles", () => {
     const messageRule = /\.msg\s*\{([^}]*)\}/.exec(chatStyles.cssText)?.[1];
     const formattedTextRule = /formatted-text\.part\s*\{([^}]*)\}/.exec(chatStyles.cssText)?.[1];
 
-    expect(messageRule).toContain("width: 100%");
+    expect(messageRule).toContain("max-width: 100%");
     expect(formattedTextRule).toContain("display: block");
-    expect(formattedTextRule).toContain("width: 100%");
+    expect(chatStyles.cssText).toContain(".part { max-width: 100%;");
   });
 
   it("constrains uploaded chat images inside their figure wrapper", () => {
-    expect(chatStyles.cssText).toContain(".chat-image { display: block");
+    expect(chatStyles.cssText).toContain(".chat-image { --pi-image-max-height: 320px;");
     expect(chatStyles.cssText).toContain("max-width: 100%");
-    expect(chatStyles.cssText).toContain("max-height: 320px");
+    expect(chatStyles.cssText).toContain("--pi-image-max-height: 320px");
   });
 });
 
 describe("formattedTextStyles", () => {
   it("keeps markdown images within the message width", () => {
-    expect(formattedTextStyles.cssText).toContain("img { max-width: 100%; }");
+    expect(formattedTextStyles.cssText).toContain("img { max-width: 100%; height: auto; }");
   });
 });
 

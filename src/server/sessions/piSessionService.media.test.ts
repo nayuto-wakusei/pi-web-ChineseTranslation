@@ -49,7 +49,7 @@ describe("PiSessionService media", () => {
     const page = await service.messages(ref);
     expect(page.messages).toEqual([{ ...message, entryId: "selected" }]); // Service/Pi history stays inline.
     const projected = projectBrowserMessageResponse(page, (block) => hub.mediaIndex.reference(ref, block));
-    expect(projected.messages).toEqual([{ ...message, entryId: "selected", content: [{ type: "image", mediaId: idOf(png), mimeType: "image/png", byteSize: Buffer.from(png, "base64").byteLength }] }]);
+    expect(projected.messages).toEqual([{ ...message, entryId: "selected", content: [{ type: "image", mediaId: idOf(png), mimeType: "image/png", byteSize: Buffer.from(png, "base64").byteLength, width: 1, height: 1 }] }]);
     expect(await service.media(ref, idOf(png))).toEqual({ data: Buffer.from(png, "base64"), mimeType: "image/png" });
     expect(await service.media(ref, idOf(other.data))).toEqual({ data: Buffer.from(other.data, "base64"), mimeType: "image/png" });
     expect(hub.mediaIndex.get(ref, idOf(png))).toBeUndefined();

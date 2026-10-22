@@ -1,28 +1,38 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionStatus } from "../../../shared/apiTypes";
 import { ChatView } from "./ChatView";
+import { controlledChatViewport } from "./chatScroll.testSupport";
+import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 afterEach(() => {
   document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("ChatView queued messages", () => {
   it("keeps a newly queued server message visible while the live transcript is pinned to the bottom", async () => {
+    installDeferredContent();
     const view = new ChatView();
     view.sessionId = "session-1";
     document.body.append(view);
     await view.updateComplete;
 
-    let bottomScrolls = 0;
-    if (!Reflect.set(view, "scrollToBottom", () => { bottomScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToBottom");
+    const { metrics, write } = controlledChatViewport(view);
+    await settleDeferredContent(view);
+    write.mockClear();
+    metrics.height = 2400;
 
     view.status = queuedStatus("Continue after this response");
     view.pendingMessageCount = 1;
     await view.updateComplete;
 
-    expect(bottomScrolls).toBe(1);
+    await settleDeferredContent(view);
+    expect(write).toHaveBeenCalledExactlyOnceWith(2400);
+    expect(metrics.top).toBe(2100);
     const queuedText = view.shadowRoot?.querySelector("formatted-text");
     expect(queuedText).not.toBeNull();
     expect(Reflect.get(queuedText ?? {}, "text")).toBe("Continue after this response");

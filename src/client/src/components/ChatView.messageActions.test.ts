@@ -59,7 +59,7 @@ describe("chat message history shortcuts", () => {
     expect(view.renderRoot.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it("does not let an old history completion clear a new identity's pending action", async () => {
+  it("keeps an entry workflow locked across identities and releases it without leaking the old failure", async () => {
     const view = await mount();
     let rejectOld!: (error: Error) => void;
     let finishNew!: () => void;
@@ -72,15 +72,19 @@ describe("chat message history shortcuts", () => {
     await view.updateComplete;
     view.machineId = "remote";
     await view.updateComplete;
-    expect(button(view, 0).disabled).toBe(false);
+    expect(button(view, 0).disabled).toBe(true);
     button(view, 1).click();
     await view.updateComplete;
-    expect(action).toHaveBeenCalledTimes(2);
+    expect(action).toHaveBeenCalledTimes(1);
     rejectOld(new Error("Old action failed"));
     await Promise.resolve();
     await view.updateComplete;
-    expect(button(view, 0).disabled).toBe(true);
+    expect(button(view, 0).disabled).toBe(false);
     expect(view.renderRoot.querySelector('[role="alert"]')).toBeNull();
+    button(view, 1).click();
+    await view.updateComplete;
+    expect(action).toHaveBeenCalledTimes(2);
+    expect(button(view, 0).disabled).toBe(true);
     finishNew();
     await Promise.resolve();
     await view.updateComplete;

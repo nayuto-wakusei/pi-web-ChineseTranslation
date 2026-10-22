@@ -1,32 +1,30 @@
+import { TransientChoiceMemory } from "./transientChoiceMemory";
+
 export interface RenderIntent {
   rendererId: string;
   raw: boolean;
 }
 
-/** Tab-only, bounded intent memory. Reads never extend the explicit-choice TTL. */
+/** Tab-only intent memory: unavailable renderers invalidate their saved choice. */
 export class RenderIntentMemory {
-  private readonly entries = new Map<string, { source: string; intent: RenderIntent; chosenAt: number }>();
+  private readonly memory: TransientChoiceMemory<RenderIntent>;
 
-  constructor(private readonly now: () => number = () => Date.now(), private readonly limit = 128, private readonly ttl = 15 * 60_000) {}
+  constructor(now?: () => number, limit?: number, ttl?: number) {
+    this.memory = new TransientChoiceMemory(now, limit, ttl);
+  }
 
   read(key: string, source: string, availableIds: readonly string[]): RenderIntent | undefined {
-    const entry = this.entries.get(key);
-    if (entry === undefined) return undefined;
-    if (entry.source !== source || this.now() - entry.chosenAt >= this.ttl || !availableIds.includes(entry.intent.rendererId)) {
-      this.entries.delete(key);
+    const intent = this.memory.read(key, source);
+    if (intent === undefined) return undefined;
+    if (!availableIds.includes(intent.rendererId)) {
+      this.memory.delete(key);
       return undefined;
     }
-    return { ...entry.intent };
+    return { ...intent };
   }
 
   choose(key: string, source: string, intent: RenderIntent): void {
-    this.entries.delete(key);
-    this.entries.set(key, { source, intent: { ...intent }, chosenAt: this.now() });
-    while (this.entries.size > this.limit) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest === undefined) break;
-      this.entries.delete(oldest);
-    }
+    this.memory.choose(key, source, { ...intent });
   }
 }
 

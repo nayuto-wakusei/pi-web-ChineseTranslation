@@ -2,7 +2,7 @@
 import { t as translate } from "../../src/client/src/i18n";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, render, svg } from "lit";
-import type { PluginActivationContext } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PluginActivationContextV5, PluginActivationResultV5 } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
 import { MermaidPreview, mermaidFrameDocument } from "./MermaidPreview.js";
 import { sanitizeMermaidSvg } from "./mermaidSvg.js";
@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe("bundled Mermaid plugin", () => {
   it("renders its sandbox through the public TemplateResult contract", async () => {
-    const activation = plugin.activate(activationContext());
+    const activation: PluginActivationResultV5 = plugin.activate(activationContext());
     if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
     const renderer = activation.contributions.contentRenderers?.[0];
     if (renderer === undefined) throw new Error("Missing Mermaid renderer");
@@ -36,12 +36,12 @@ describe("bundled Mermaid plugin", () => {
   });
 
   it("activates as a browser-only manual renderer without a server plugin", () => {
-    expect(plugin.apiVersion).toBe(4);
+    expect(plugin.apiVersion).toBe(5);
     expect(plugin.requires).toEqual([
       expect.objectContaining({ pluginId: "pi-web", id: "stylesheet-integration", version: 1 }),
       expect.objectContaining({ pluginId: "pi-web", id: "content-rendering", version: 1 }),
     ]);
-    const activation = plugin.activate(activationContext());
+    const activation: PluginActivationResultV5 = plugin.activate(activationContext());
     if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
     const renderer = activation.contributions.contentRenderers?.[0];
     expect(renderer).toEqual(expect.objectContaining({
@@ -56,7 +56,7 @@ describe("bundled Mermaid plugin", () => {
 
   it("stays available in management embed", () => {
     vi.stubGlobal("location", { search: "?embed=management" });
-    const activation = plugin.activate(activationContext());
+    const activation: PluginActivationResultV5 = plugin.activate(activationContext());
     if (activation instanceof Promise) throw new Error("Mermaid activation must stay synchronous");
     expect(activation.contributions.contentRenderers).toEqual([expect.objectContaining({ id: "diagram" })]);
   });
@@ -73,9 +73,9 @@ describe("bundled Mermaid plugin", () => {
   });
 });
 
-function activationContext(): PluginActivationContext {
+function activationContext(): PluginActivationContextV5 {
   return {
-    apiVersion: 4, translate,
+    apiVersion: 5, translate,
     pluginId: "mermaid",
     runtimePluginId: "mermaid",
     html,

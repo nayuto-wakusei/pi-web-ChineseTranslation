@@ -33,8 +33,10 @@ export type WorkspaceLabelContextV5 = Omit<WorkspaceLabelContext, "backend"> & P
 export type SessionLabelContextV5 = SessionLabelContext & PluginDiscoveryContext;
 export type MessageActionContextV5 = MessageActionContext & PluginDiscoveryContext;
 export type DisplayedMessageActionContextV5 = DisplayedMessageActionContext & PluginDiscoveryContext;
-export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions" | "themes"> {
+export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions" | "contentRenderers" | "themes"> {
     stylesheets?: StylesheetContribution[];
+    syntaxHighlighters?: SyntaxHighlighterContribution[];
+    contentRenderers?: ContentRendererContributionV5[];
     themes?: ThemeContributionV5[];
     actions?: PluginActionV5[];
     applicationPanels?: ApplicationPanelContributionV5[];
@@ -140,6 +142,48 @@ export interface ContentRendererContribution {
     /** Synchronous Lit template; own async work and activation efficiency in a component and honor signal. */
     render(input: ContentRendererInput): TemplateResult;
 }
+export interface ContentRendererInputV5 extends ContentRendererInput {
+    readonly machineId?: string;
+    readonly language?: string;
+    readonly filePath?: string;
+}
+export interface ContentRendererContributionV5 extends Omit<ContentRendererContribution, "render"> {
+    /** Human-readable name used for renderer view buttons. */
+    title?: string;
+    /** Synchronous eligibility; replaces absent selectors or further restricts declared selectors. */
+    supports?(request: Readonly<ContentRenderRequest>): boolean;
+    render(input: ContentRendererInputV5): TemplateResult;
+}
+export type SyntaxHighlightTokenKind = "keyword" | "string" | "number" | "comment" | "type" | "function" | "variable" | "operator" | "punctuation" | "property" | "literal" | "meta";
+export interface SyntaxHighlightToken {
+    /** UTF-16 code-unit offsets: inclusive start, exclusive end. Sorted and nonoverlapping. */
+    readonly from: number;
+    readonly to: number;
+    readonly kind: SyntaxHighlightTokenKind;
+}
+export interface SyntaxHighlighterContribution {
+    id: LocalContributionId;
+    languages?: readonly string[];
+    /** Extensions without a leading dot, matched case-insensitively. */
+    fileExtensions?: readonly string[];
+    highlight(input: {
+        readonly text: string;
+        readonly signal: AbortSignal;
+    }): readonly SyntaxHighlightToken[] | Promise<readonly SyntaxHighlightToken[]>;
+}
+export interface SyntaxHighlightRequest {
+    machineId: string;
+    text: string;
+    language?: string;
+    filePath?: string;
+    signal: AbortSignal;
+}
+/** Host capability token: { pluginId: "pi-web", id: "syntax-highlighting", version: 1, parse }. */
+export interface SyntaxHighlightingCapability {
+    supports(request: Pick<ContentRenderRequest, "machineId" | "language" | "filePath">): boolean;
+    /** Last discovered match; undefined when no match or over 100,000 UTF-16 units. Errors reject. */
+    highlight(request: SyntaxHighlightRequest): Promise<readonly SyntaxHighlightToken[] | undefined>;
+}
 export interface ContentRenderRequest {
     machineId: string;
     text: string;
@@ -150,6 +194,7 @@ export interface ContentRenderRequest {
 export interface ContentRendererOption {
     readonly id: string;
     readonly label: string;
+    readonly title?: string;
     readonly renderMode: "manual" | "automatic";
 }
 export type ContentTextRenderRequest = ContentRenderRequest & {
@@ -172,12 +217,12 @@ export interface ContentMarkdownRenderRequest {
 }
 /** Host capability token: { pluginId: "pi-web", id: "content-rendering", version: 1, parse }. */
 export interface ContentRenderingCapability {
-    /** Eligible choices in source plugin ID order, then local contribution ID order. */
+    /** Eligible choices in plugin discovery order, then contribution declaration order. */
     listRenderers(request: ContentRenderRequest): readonly ContentRendererOption[];
     /**
      * Undefined when no renderer claims the complete text file.
      * External controls require the caller to provide raw-source access, mode switching and a renderer chooser.
-     * Only external controls accept rendererId; absent or unavailable IDs use the first match.
+     * Only external controls accept rendererId; absent or unavailable IDs use the last automatic match, otherwise the first manual match.
      * Consumers authorize manual previews according to their own user-intent policy.
      * Listing and creating templates never call render.
      */

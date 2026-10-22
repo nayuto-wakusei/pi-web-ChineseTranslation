@@ -9,7 +9,8 @@ import { availableDisplayedMessageActions, availableMessageActions, type Registe
 import { PluginSelectionHost } from "./selection";
 import { PromptChipStore, type PromptChipTarget } from "../promptChips";
 import type { PluginPromptEditor } from "../../../plugin-api";
-import { compareContentRenderers, contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
+import { contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
+import { createSyntaxHighlightingCapability, runSyntaxHighlighter, snapshotSyntaxHighlighter, syntaxHighlightingCapabilityToken, type RegisteredSyntaxHighlighter } from "../formatting/syntaxHighlighting";
 import { createContentRenderingCapability, createContentRenderingService, contentRenderingCapabilityToken, type ChatContentRendering } from "../formatting/contentRendering";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import type { ApplicationPanelContext, ApplicationPanelContribution, QualifiedApplicationPanelContribution, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration, PluginAction, PluginActivationContext, PluginActivationResult, PluginCapability, PluginCapabilityProvision, PluginContributions, PluginRuntimeContext, PluginStartContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, QualifiedSessionLabelContribution, SessionLabelContext, SessionLabelContribution, SessionLabelItem, ThemeContribution, ThemePairContribution, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding, WorkspaceResource } from "./types";
@@ -88,6 +89,7 @@ interface NormalizedPluginDeclaration {
 interface PreparedPluginContributions {
   readonly stylesheets: readonly QualifiedStylesheetContribution[];
   readonly contentRenderers: readonly RegisteredContentRenderer[];
+  readonly syntaxHighlighters: readonly RegisteredSyntaxHighlighter[];
   readonly ids: ReadonlySet<QualifiedContributionId>;
   readonly actions: readonly RegisteredPluginAction[];
   readonly messageActions: readonly RegisteredMessageAction[];
@@ -153,23 +155,43 @@ export class PluginRegistry {
   }
 
   private readonly contentRenderers: RegisteredContentRenderer[] = [];
-  readonly chatContentRendering = createContentRenderingService((request) => this.matchContentRenderers(request));
+  private readonly syntaxHighlighters: RegisteredSyntaxHighlighter[] = [];
+  readonly syntaxHighlighting = createSyntaxHighlightingCapability((request) => this.syntaxHighlightingRevision(request.machineId)
+    .filter((highlighter) => contentRendererMatches(highlighter, { ...request, text: "" })).at(-1));
+  readonly chatContentRendering = createContentRenderingService((request) => this.matchContentRenderers(request), (request) => this.syntaxHighlightingRevision(request.machineId));
   private contentRendererRevision = 0;
   get contentRendererVersion(): number { return this.contentRendererRevision; }
-  private readonly chatContentRenderingViews = new Map<string, { choices: readonly ContentRendererChoice[]; rendering: ChatContentRendering }>();
+  private readonly syntaxHighlightingViews = new Map<string, readonly RegisteredSyntaxHighlighter[]>();
+  private readonly chatContentRenderingViews = new Map<string, { choices: readonly ContentRendererChoice[]; grammars: readonly RegisteredSyntaxHighlighter[]; rendering: ChatContentRendering }>();
+
+  private compareDiscoveryOrder(a: { pluginId: string }, b: { pluginId: string }): number {
+    const ids = [...this.declarationsById.keys()];
+    return ids.indexOf(a.pluginId) - ids.indexOf(b.pluginId);
+  }
+
+  private syntaxHighlightingRevision(machineId: string): readonly RegisteredSyntaxHighlighter[] {
+    const active = this.syntaxHighlighters
+      .filter((highlighter) => this.isContributionActive(highlighter.pluginId, highlighter.machineId, machineId, highlighter.sourcePluginId))
+      .sort((a, b) => this.compareDiscoveryOrder(a, b));
+    const previous = this.syntaxHighlightingViews.get(machineId);
+    if (previous?.length === active.length && active.every((highlighter, index) => highlighter === previous[index])) return previous;
+    this.syntaxHighlightingViews.set(machineId, active);
+    return active;
+  }
   // Plugins retain one live capability; chat receives a reactive rendering snapshot.
-  readonly contentRendering = createContentRenderingCapability((request) => this.matchContentRenderers(request));
+  readonly contentRendering = createContentRenderingCapability((request) => this.matchContentRenderers(request), (request) => this.syntaxHighlightingRevision(request.machineId));
 
   /** Stable input while this machine's eligible renderers are unchanged. */
   getChatContentRendering(machineId: string): ChatContentRendering {
     const choices = this.activeContentRendererChoices(machineId);
+    const grammars = this.syntaxHighlightingRevision(machineId);
     const previous = this.chatContentRenderingViews.get(machineId);
-    if (previous?.choices.length === choices.length
+    if (previous?.grammars === grammars && previous.choices.length === choices.length
       && choices.every((choice, index) => choice.renderer === previous.choices[index]?.renderer)) return previous.rendering;
     const rendering = createContentRenderingService((request) => request.machineId === machineId
       ? choices.filter(({ renderer }) => contentRendererMatches(renderer, request))
-      : []);
-    this.chatContentRenderingViews.set(machineId, { choices, rendering });
+      : [], () => grammars);
+    this.chatContentRenderingViews.set(machineId, { choices, grammars, rendering });
     return rendering;
   }
 
@@ -179,7 +201,7 @@ export class PluginRegistry {
 
   private activeContentRendererChoices(machineId: string): readonly ContentRendererChoice[] {
     return this.contentRenderers.filter((renderer) => this.isContributionActive(renderer.pluginId, renderer.machineId, machineId, renderer.sourcePluginId))
-      .sort(compareContentRenderers)
+      .sort((a, b) => this.compareDiscoveryOrder(a, b))
       .map((renderer) => ({ id: renderer.id, label: renderer.label, renderer }));
   }
   private readonly messageActions: RegisteredMessageAction[] = [];
@@ -246,7 +268,7 @@ export class PluginRegistry {
     this.promptChips = new PromptChipStore(options.onPromptChipsChanged);
     this.selection = new PluginSelectionHost(options.getSelection ?? (() => ({})));
     this.lifecycleTimeoutMs = positiveInteger(options.lifecycleTimeoutMs, DEFAULT_LIFECYCLE_TIMEOUT_MS, "lifecycleTimeoutMs");
-    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
+    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
       const internal = internalCapabilityProvision(provision);
       if (this.hostCapabilitiesByKey.has(internal.key)) {
         throw new BrowserPluginIncompatibleError(`Browser capability ${formatCapability(internal.capability)} is provided more than once by the host`);
@@ -312,9 +334,11 @@ export class PluginRegistry {
     this.hostCapabilitySnapshotsByRegistration.clear();
     this.pluginIds.clear();
     this.actions.splice(0);
-    if (this.contentRenderers.length > 0) this.contentRendererRevision += 1;
+    if (this.contentRenderers.length > 0 || this.syntaxHighlighters.length > 0) this.contentRendererRevision += 1;
     this.messageActions.splice(0);
     this.contentRenderers.splice(0);
+    this.syntaxHighlighters.splice(0);
+    this.syntaxHighlightingViews.clear();
     this.chatContentRenderingViews.clear();
     this.workspacePanels.splice(0);
     this.applicationPanels.splice(0);
@@ -513,12 +537,14 @@ export class PluginRegistry {
     const contributionIds = new Set<QualifiedContributionId>();
     const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
       const snapshot = snapshotContentRenderer(renderer);
+      const supports = snapshot.supports?.bind(snapshot);
       return {
         ...snapshot,
         id: this.qualify(runtimePluginId, renderer.id, contributionIds),
         pluginId: runtimePluginId,
         localId: renderer.id,
-        label: `${registration.sourcePluginId ?? runtimePluginId} / ${renderer.id}`,
+        label: snapshot.title ?? `${registration.sourcePluginId ?? runtimePluginId} / ${renderer.id}`,
+        ...(supports === undefined ? {} : { supports: (request: Readonly<ContentRenderRequest>) => !lifetimeSignal.aborted && supports(request) }),
         ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
         ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
         render: (input) => {
@@ -526,6 +552,19 @@ export class PluginRegistry {
           return snapshot.render({ ...input, signal, fail: (error) => { if (!signal.aborted) input.fail(error); } });
         },
       };
+    });
+    const syntaxHighlighters = (contributions.syntaxHighlighters ?? []).map((contribution): RegisteredSyntaxHighlighter => {
+      const snapshot = snapshotSyntaxHighlighter(contribution);
+      const id = this.qualify(runtimePluginId, snapshot.id, contributionIds);
+      return Object.freeze({
+        ...snapshot, id, pluginId: runtimePluginId, localId: snapshot.id,
+        label: `${registration.sourcePluginId ?? runtimePluginId} / ${snapshot.id}`,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+        highlight: (input: { text: string; signal: AbortSignal }) => runSyntaxHighlighter(
+          { ...snapshot, id }, input.text, AbortSignal.any([input.signal, lifetimeSignal]),
+        ),
+      });
     });
     const messageActions = (contributions.messageActions ?? []).map((action): RegisteredMessageAction => Object.freeze({
       ...action,
@@ -549,7 +588,7 @@ export class PluginRegistry {
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, contentRenderers, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
+    return Object.freeze({ ids: contributionIds, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
   }
 
   private dependencyFailure(
@@ -654,7 +693,8 @@ export class PluginRegistry {
     this.pluginIds.add(staged.registration.id);
     for (const contributionId of staged.contributions.ids) this.contributionIds.add(contributionId);
     this.contentRenderers.push(...staged.contributions.contentRenderers);
-    if (staged.contributions.contentRenderers.length > 0) this.contentRendererRevision += 1;
+    this.syntaxHighlighters.push(...staged.contributions.syntaxHighlighters);
+    if (staged.contributions.contentRenderers.length > 0 || staged.contributions.syntaxHighlighters.length > 0) this.contentRendererRevision += 1;
     this.actions.push(...staged.contributions.actions);
     this.messageActions.push(...staged.contributions.messageActions);
     this.workspacePanels.push(...staged.contributions.workspacePanels);
@@ -1677,7 +1717,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "messageActions"];
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "syntaxHighlighters", "messageActions"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;

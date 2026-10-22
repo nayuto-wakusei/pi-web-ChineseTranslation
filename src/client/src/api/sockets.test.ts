@@ -24,7 +24,7 @@ describe("machine-scoped socket urls", () => {
     realtimeEvents();
 
     expect(webSocketUrls).toEqual([
-      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo",
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&media=reference",
       "wss://pi.example.test/api/machines/local/sessions/events",
       "wss://pi.example.test/api/machines/local/events",
     ]);
@@ -42,7 +42,7 @@ describe("machine-scoped socket urls", () => {
     sessionEvents({ id: "s?1", cwd: "/repo" }, "remote / a");
 
     expect(webSocketUrls).toEqual([
-      "wss://pi.example.test/api/machines/remote%20%2F%20a/sessions/s%3F1/events?cwd=%2Frepo",
+      "wss://pi.example.test/api/machines/remote%20%2F%20a/sessions/s%3F1/events?cwd=%2Frepo&media=reference",
     ]);
   });
 
@@ -54,7 +54,7 @@ describe("machine-scoped socket urls", () => {
     realtimeEvents("local", "management");
 
     expect(webSocketUrls).toEqual([
-      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&embed=management&token=launch-token",
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&media=reference&embed=management&token=launch-token",
       "wss://pi.example.test/api/machines/local/sessions/events?embed=management&token=launch-token",
       "wss://pi.example.test/api/machines/local/events?embed=management&token=launch-token",
     ]);
@@ -67,7 +67,7 @@ describe("machine-scoped socket urls", () => {
     realtimeEvents("local", "normal");
 
     expect(webSocketUrls).toEqual([
-      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo",
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&media=reference",
       "wss://pi.example.test/api/machines/local/events",
     ]);
   });
@@ -79,7 +79,7 @@ describe("machine-scoped socket urls", () => {
     realtimeEvents("local", "management");
 
     expect(webSocketUrls).toEqual([
-      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&embed=management",
+      "wss://pi.example.test/api/machines/local/sessions/s1/events?cwd=%2Frepo&media=reference&embed=management",
       "wss://pi.example.test/api/machines/local/events?embed=management",
     ]);
   });

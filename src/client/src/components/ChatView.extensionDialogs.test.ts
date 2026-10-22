@@ -4,10 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingExtensionDialog } from "../api";
 import type { ClosedExtensionDialog } from "../appState";
 import { ChatView } from "./ChatView";
+import { controlledChatViewport, manualChatFrames } from "./chatScroll.testSupport";
 import { ExtensionDialogCard } from "./ExtensionDialogCard";
 
 afterEach(() => {
   document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("ChatView open extension dialogs", () => {
@@ -34,17 +38,21 @@ describe("ChatView open extension dialogs", () => {
   });
 
   it("scrolls a newly opened dialog to its start", async () => {
+    const flushFrames = manualChatFrames();
     const view = await mountView();
-    let dialogStartScrolls = 0;
-    let bottomScrolls = 0;
-    if (!Reflect.set(view, "scrollToOpenDialog", () => { dialogStartScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToOpenDialog");
-    if (!Reflect.set(view, "scrollToBottom", () => { bottomScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToBottom");
+    const { metrics, write } = controlledChatViewport(view);
+    flushFrames();
+    write.mockClear();
+    metrics.height = 4000;
 
     view.pendingDialogs = [openDialog("dlg-1", "Allow file writes?")];
     await view.updateComplete;
 
-    expect(dialogStartScrolls).toBe(1);
-    expect(bottomScrolls).toBe(0);
+    const card = requiredElement(view.renderRoot.querySelector("extension-dialog-card.open-dialog-card"), "open dialog card");
+    card.getBoundingClientRect = () => new DOMRect(0, 600, 600, 500);
+    flushFrames();
+    expect(write).toHaveBeenCalledExactlyOnceWith(2200);
+    expect(metrics.top).toBe(2200);
   });
 
   it("forwards the answer and cancel callbacks to the open dialog card", async () => {

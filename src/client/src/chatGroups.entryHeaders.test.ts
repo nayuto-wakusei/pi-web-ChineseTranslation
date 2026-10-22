@@ -55,7 +55,14 @@ describe("canonicalEntryActionHeaders", () => {
     ]);
     const slices = renderedMessages(groups);
 
-    expect([...canonicalEntryActionHeaders(groups)]).toEqual([slices[2], slices[5], slices[7]]);
+    const selected = [...canonicalEntryActionHeaders(groups)];
+    expect(selected).toHaveLength(3);
+    expect(selected[0]).toBe(slices[1]);
+    expect(selected[0]).toMatchObject({ entryId: "assistant", parts: [{ type: "text", text: "reply" }] });
+    expect(selected[1]).toBe(slices[4]);
+    expect(selected[1]).toMatchObject({ entryId: "user", parts: [{ type: "text", text: "request" }] });
+    expect(selected[2]).toBe(slices[6]);
+    expect(selected[2]).toMatchObject({ entryId: "skill-only", role: "skill" });
   });
 
   it("selects the rendered tool-image header over its technical result", () => {

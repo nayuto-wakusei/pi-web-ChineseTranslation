@@ -69,7 +69,7 @@ import {
   parseWorkspaceDeleteResponse,
   parseWorkspacePathOperationResponse,
 } from "./parsers";
-import { messagePath, workspaceFileDownloadUrl } from "./urls";
+import { messagePath, streamSnapshotPath, transcriptSnapshotPath, workspaceFileDownloadUrl } from "./urls";
 import { currentApiScope } from "./managementEmbed";
 import { parseWorkspaceProviderResolution } from "./parsers";
 import type { WorkspaceProviderResolution } from "../../../shared/apiTypes";
@@ -108,10 +108,6 @@ function sessionQueryPath(session: SessionRef, endpoint: string, machineId = "lo
 
 function sessionBaseQueryPath(session: SessionRef, machineId = "local", scopeProjectId?: string): string {
   return `${sessionBasePath(session, machineId)}${sessionQuery(session, scopeProjectId === undefined ? {} : { scopeProjectId })}`;
-}
-
-function transcriptSnapshotPath(session: SessionLookup, options?: { limit?: number }, machineId = "local"): string {
-  return `${sessionPath(session, "transcript-snapshot", machineId)}${sessionQuery(session, options?.limit === undefined ? {} : { limit: String(options.limit) })}`;
 }
 
 function sessionQuery(session: SessionRef, fields: Record<string, string> = {}): string {
@@ -313,7 +309,7 @@ export const sessionsApi = {
   deleteArchivedMany: (sessions: readonly SessionLookup[], machineId = "local", scopeProjectId?: string) => request(`${machinePrefix(machineId)}/sessions/bulk/delete-archived`, parseSessionBulkDeleteArchivedResponse, { method: "POST", body: sessionBulkMutationBody(sessions, scopeProjectId) }),
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messagePath(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
-  streamSnapshot: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "stream-snapshot", machineId), parseSessionStreamSnapshot),
+  streamSnapshot: (session: SessionLookup, machineId = "local") => request(streamSnapshotPath(session, machineId), parseSessionStreamSnapshot),
   transcriptSnapshot: (session: SessionLookup, options?: { limit?: number }, machineId = "local") => request(transcriptSnapshotPath(session, options, machineId), parseSessionTranscriptSnapshot),
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
   modelCatalog: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models/catalog", machineId), parseSessionModelCatalogResponse),

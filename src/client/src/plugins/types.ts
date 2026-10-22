@@ -82,7 +82,8 @@ export interface PluginActivationResult {
 export interface PluginContributions {
   stylesheets?: StylesheetContribution[];
   localizations?: LocalizationContribution[];
-  contentRenderers?: import("../../../plugin-api").ContentRendererContribution[];
+  contentRenderers?: import("../../../plugin-api").ContentRendererContributionV5[];
+  syntaxHighlighters?: import("../../../plugin-api").SyntaxHighlighterContribution[];
   messageActions?: import("../../../plugin-api").MessageActionContribution[];
   actions?: PluginAction[];
   applicationPanels?: ApplicationPanelContribution[];

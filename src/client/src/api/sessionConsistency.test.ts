@@ -70,7 +70,7 @@ it("reads a consistent transcript snapshot through a nested encoded machine rout
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("https://pi.example.test/nested/pi-web/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/transcript-snapshot?cwd=%2Frepo+with+spaces&limit=25");
+    expect(url).toBe("https://pi.example.test/nested/pi-web/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/transcript-snapshot?cwd=%2Frepo+with+spaces&limit=25&media=reference");
     expect(init?.method ?? "GET").toBe("GET");
   });
 
@@ -79,7 +79,7 @@ it.each([undefined, {}])("defaults transcript snapshots to local without an unsp
 
     await sessionsApi.transcriptSnapshot({ id: "s-1", cwd: "/repo" }, options);
 
-    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo");
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&media=reference");
   });
 
 it("rejects an incomplete transcript snapshot instead of returning a partial response", async () => {
@@ -96,6 +96,7 @@ it("rejects an incomplete transcript snapshot instead of returning a partial res
     const url = new URL(fetchCall(fetchMock, 0)[0]);
     expect(url.pathname).toBe("/api/machines/remote/sessions/Case-Sensitive/transcript-snapshot");
     expect(url.searchParams.get("cwd")).toBe("/repo");
+    expect(url.searchParams.get("media")).toBe("reference");
     expect(url.searchParams.get("embed")).toBe(mode === "management" ? "management" : null);
     expect(result.page.leafId).toBe("leaf");
   });

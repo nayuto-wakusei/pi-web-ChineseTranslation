@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 import { type TemplateResult } from "lit";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus, SessionWarning } from "../api";
 import { parseSessionStatus } from "../api/parsers";
-import type { ChatGroup } from "../chatGroups";
 import {
   notificationTargetKey,
   notificationTrayIsCollapsed,
@@ -316,9 +315,12 @@ describe("chat event-group content seams", () => {
   // content/structure derived from pure exported seams rather than scraped from
   // rendered markup.
   it("derives stable group and event scroll-anchor keys and marker ids", () => {
-    expect(chatGroupAnchorKey(40)).toBe("g:40");
-    expect(chatEventAnchorKey(40)).toBe("e:40");
-    expect(chatEventAnchorKey(41)).toBe("e:41");
+    const message: ChatLine = { entryId: "durable-event", role: "assistant", parts: [] };
+    expect(chatGroupAnchorKey(40, message)).toBe('g:["durable-event","assistant","message"]');
+    expect(chatEventAnchorKey(40, message)).toBe('e:["durable-event","assistant","message"]');
+    expect(chatEventAnchorKey(41, message)).toBe(chatEventAnchorKey(40, message));
+    expect(chatGroupAnchorKey(40)).toBeUndefined();
+    expect(chatEventAnchorKey(40)).toBeUndefined();
     expect(chatGroupScrollMarkerId(41)).toBe("g:41");
   });
 
@@ -331,80 +333,67 @@ describe("chat event-group content seams", () => {
 });
 
 describe("ChatView event-group disclosure wiring", () => {
+  afterEach(() => { document.body.replaceChildren(); localStorage.clear(); });
+
   const messages: ChatLine[] = [
-    { role: "assistant", parts: [{ type: "toolCall", toolName: "read", summary: "inspect a file" }] },
-    { role: "tool", parts: [{ type: "toolExecution", toolName: "read", summary: "inspect a file", status: "success", resultText: "large result" }] },
+    { role: "assistant", entryId: "call", parts: [{ type: "toolCall", toolName: "read", summary: "inspect a file" }] },
+    { role: "tool", entryId: "result", parts: [{ type: "toolExecution", toolName: "read", summary: "inspect a file", status: "success", resultText: "large result" }] },
   ];
 
-  it("defers a closed group body until it is opened", () => {
+  async function mountGroup(live = false) {
     const view = new ChatView();
     view.sessionId = "session-1";
-    const bodyCalls = observeGroupBodyRenders(view);
+    view.messageStart = 40;
+    view.messages = messages;
+    view.status = { ...warningStatus([]), isStreaming: live };
+    document.body.append(view);
+    await view.updateComplete;
+    const group = view.renderRoot.querySelector<HTMLDetailsElement>("details.event-group");
+    if (group === null) throw new Error("Expected event group");
+    return { view, group };
+  }
 
-    renderMessageGroup(view, messages, 40, 41, false);
-
-    expect(bodyCalls).toEqual([]);
+  it("defers a closed group body until it is opened", async () => {
+    const { group } = await mountGroup();
+    expect(group.open).toBe(false);
+    expect(group.querySelector(".group-body, tool-execution-view")).toBeNull();
   });
 
-  it("renders a live tail body by default", () => {
-    const view = new ChatView();
-    view.sessionId = "session-1";
-    const bodyCalls = observeGroupBodyRenders(view);
-
-    renderMessageGroup(view, messages, 40, 41, true);
-
-    expect(bodyCalls).toEqual([{ messages, startIndex: 40 }]);
+  it("renders a live tail body by default", async () => {
+    const { group } = await mountGroup(true);
+    expect(group.open).toBe(true);
+    expect(group.querySelector(".group-body")).not.toBeNull();
+    expect(Array.from(group.querySelectorAll<HTMLElement>("section.group-msg"), (section) => section.dataset["index"])).toEqual(["40", "41"]);
   });
 
-  // Escape hatch: this case verifies the native `<details>` `@toggle` wiring,
-  // whose observable effect is that a re-render renders (or defers) the group
-  // body. No DOM environment is available for a real disclosure interaction, so
-  // handler extraction anchored to the stable `@toggle=` attribute marker plus
-  // an injected details-toggle event is proportionate.
-  it("renders the body after a toggle-open and removes it when closed again", () => {
-    const view = new ChatView();
-    view.sessionId = "session-1";
-    const bodyCalls = observeGroupBodyRenders(view);
-    const initiallyClosed = renderMessageGroup(view, messages, 40, 41, false);
-
-    dispatchDetailsToggle(templateEventHandlerAfterMarker(initiallyClosed, "@toggle="), true);
-    renderMessageGroup(view, messages, 40, 41, false);
-
-    expect(bodyCalls).toEqual([{ messages, startIndex: 40 }]);
-
-    bodyCalls.length = 0;
-    dispatchDetailsToggle(templateEventHandlerAfterMarker(initiallyClosed, "@toggle="), false);
-    renderMessageGroup(view, messages, 40, 41, false);
-
-    expect(bodyCalls).toEqual([]);
+  it("renders the body after a toggle-open and detaches it when closed again", async () => {
+    const { view, group } = await mountGroup();
+    group.open = true;
+    group.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
+    const body = group.querySelector(".group-body");
+    expect(body).not.toBeNull();
+    group.open = false;
+    group.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
+    expect(group.querySelector(".group-body")).toBeNull();
+    expect(body?.isConnected).toBe(false);
+    group.open = true;
+    group.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
+    expect(group.querySelector(".group-body")).toBe(body);
   });
 });
 
-interface GroupBodyRenderCall {
-  messages: ChatLine[];
-  startIndex: number;
-}
-
 type RenderQueuedMessages = (this: ChatView) => TemplateResult;
-type EventMessageGroup = Extract<ChatGroup, { kind: "group" }>;
-type RenderMessageGroup = (this: ChatView, group: EventMessageGroup, defaultOpen: boolean) => TemplateResult;
-type RenderMessageGroupBody = (this: ChatView, group: EventMessageGroup, entryActionHeaders?: ReadonlySet<ChatLine>) => TemplateResult;
+
 type RenderWarnings = (this: ChatView) => TemplateResult | null;
 type RenderNotificationTray = (this: ChatView) => TemplateResult | null;
 type FocusPendingNotificationTarget = (this: ChatView) => void;
-type TemplateEventHandler = (event: Event) => void;
-
 function renderQueuedMessages(view: ChatView): TemplateResult {
   const method: unknown = Reflect.get(view, "renderQueuedMessages");
   if (!isRenderQueuedMessages(method)) throw new Error("ChatView.renderQueuedMessages is not callable");
   return method.call(view);
-}
-
-function renderMessageGroup(view: ChatView, messages: ChatLine[], startIndex: number, endIndex: number, defaultOpen: boolean): TemplateResult {
-  const method: unknown = Reflect.get(view, "renderMessageGroup");
-  if (!isRenderMessageGroup(method)) throw new Error("ChatView.renderMessageGroup is not callable");
-  const group: EventMessageGroup = { kind: "group", messages: messages.map((message, offset) => ({ message, index: startIndex + offset })), startIndex, endIndex };
-  return method.call(view, group, defaultOpen);
 }
 
 function renderWarnings(view: ChatView): TemplateResult | null {
@@ -425,27 +414,7 @@ function focusPendingNotificationTarget(view: ChatView): void {
   method.call(view);
 }
 
-function observeGroupBodyRenders(view: ChatView): GroupBodyRenderCall[] {
-  const method: unknown = Reflect.get(view, "renderMessageGroupBody");
-  if (!isRenderMessageGroupBody(method)) throw new Error("ChatView.renderMessageGroupBody is not callable");
-  const calls: GroupBodyRenderCall[] = [];
-  const observed: RenderMessageGroupBody = function (group, entryActionHeaders) {
-    calls.push({ messages: group.messages.map(({ message }) => message), startIndex: group.startIndex });
-    return method.call(this, group, entryActionHeaders);
-  };
-  if (!Reflect.set(view, "renderMessageGroupBody", observed)) throw new Error("Could not observe ChatView.renderMessageGroupBody");
-  return calls;
-}
-
 function isRenderQueuedMessages(value: unknown): value is RenderQueuedMessages {
-  return typeof value === "function";
-}
-
-function isRenderMessageGroup(value: unknown): value is RenderMessageGroup {
-  return typeof value === "function";
-}
-
-function isRenderMessageGroupBody(value: unknown): value is RenderMessageGroupBody {
   return typeof value === "function";
 }
 
@@ -459,25 +428,6 @@ function isRenderNotificationTray(value: unknown): value is RenderNotificationTr
 
 function isFocusPendingNotificationTarget(value: unknown): value is FocusPendingNotificationTarget {
   return typeof value === "function";
-}
-
-function dispatchDetailsToggle(handler: TemplateEventHandler, open: boolean): void {
-  const hadDetailsElement = Reflect.has(globalThis, "HTMLDetailsElement");
-  const previousDetailsElement = Reflect.get(globalThis, "HTMLDetailsElement");
-  class StubDetailsElement extends EventTarget {
-    constructor(readonly open: boolean) {
-      super();
-    }
-  }
-  Reflect.set(globalThis, "HTMLDetailsElement", StubDetailsElement);
-  try {
-    const details = new StubDetailsElement(open);
-    details.addEventListener("toggle", (event) => { handler(event); });
-    details.dispatchEvent(new Event("toggle"));
-  } finally {
-    if (hadDetailsElement) Reflect.set(globalThis, "HTMLDetailsElement", previousDetailsElement);
-    else Reflect.deleteProperty(globalThis, "HTMLDetailsElement");
-  }
 }
 
 function requireSection(section: ReturnType<typeof chatQueuedMessageSections>[number] | undefined): ReturnType<typeof chatQueuedMessageSections>[number] {

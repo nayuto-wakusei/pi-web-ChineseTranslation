@@ -9,7 +9,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("ChatView transcript element index", () => {
+describe("ChatView transcript rendering", () => {
   it("reports transcript coverage only after the corresponding messages have rendered", async () => {
     const view = await renderView([message("user", "old question")]);
     const onTranscriptRendered = vi.fn(() => {
@@ -26,11 +26,12 @@ describe("ChatView transcript element index", () => {
     expect(onTranscriptRendered).toHaveBeenCalledWith({ sessionId: "session-1", messages, start: 200, end: 350 });
   });
 
-  it("reuses the DOM index for text-only updates and rebuilds it for structural changes", async () => {
+  it("avoids transcript scans for text-only updates and retains existing articles on append", async () => {
     const user = message("user", "question");
     const view = await renderView([user, message("assistant", "partial")]);
     const root = view.shadowRoot;
     if (root === null) throw new Error("Missing ChatView shadow root");
+    const original = root.querySelector("article.user");
     const querySelectorAll = vi.spyOn(root, "querySelectorAll");
 
     view.messages = [user, message("assistant", "partial answer")];
@@ -39,22 +40,27 @@ describe("ChatView transcript element index", () => {
 
     view.messages = [user, message("assistant", "partial answer"), message("user", "next")];
     await view.updateComplete;
-    expect(querySelectorAll).toHaveBeenCalled();
+    expect(root.querySelector("article.user")).toBe(original);
+    expect(root.querySelectorAll("article.user")).toHaveLength(2);
   });
 
-  it("looks up prepend markers from the cached map without querying the transcript", async () => {
-    const view = await renderView([message("user", "question"), message("assistant", "answer")]);
-    const root = view.shadowRoot;
-    if (root === null) throw new Error("Missing ChatView shadow root");
-    const querySelectorAll = vi.spyOn(root, "querySelectorAll");
-    const lookup: unknown = Reflect.get(view, "scrollMarkerAt");
-    if (!isMarkerLookup(lookup)) throw new Error("ChatView.scrollMarkerAt is unavailable");
-
-    const marker = lookup.call(view, "m:0");
-
-    expect(marker).toBeInstanceOf(HTMLElement);
-    expect(querySelectorAll).not.toHaveBeenCalled();
+  it("retains durable article anchors through prepend without synthetic scroll markers", async () => {
+    const messages = [message("user", "question"), message("assistant", "answer")];
+    const view = await renderView(messages);
+    view.messageStart = 10;
+    await view.updateComplete;
+    const article = view.renderRoot.querySelector<HTMLElement>("article.user");
+    if (article === null) throw new Error("Missing user article");
+    const anchor = article.dataset["scrollAnchorId"];
+    expect(anchor).toBe('m:["user:question","user","message"]');
+    view.messages = [message("user", "earlier"), ...messages];
+    view.messageStart = 9;
+    await view.updateComplete;
+    expect(view.renderRoot.querySelector('article[data-index="10"]')).toBe(article);
+    expect(article.dataset["scrollAnchorId"]).toBe(anchor);
+    expect(view.renderRoot.querySelector(".scroll-marker")).toBeNull();
   });
+
 });
 
 async function renderView(messages: ChatLine[]): Promise<ChatView> {
@@ -68,11 +74,5 @@ async function renderView(messages: ChatLine[]): Promise<ChatView> {
 }
 
 function message(role: ChatLine["role"], text: string): ChatLine {
-  return { role, parts: [{ type: "text", text }] };
-}
-
-type MarkerLookup = (this: ChatView, markerId: string) => HTMLElement | undefined;
-
-function isMarkerLookup(value: unknown): value is MarkerLookup {
-  return typeof value === "function";
+  return { role, entryId: `${role}:${text}`, parts: [{ type: "text", text }] };
 }

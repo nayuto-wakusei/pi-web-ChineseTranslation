@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatScrollController, captureScrollPosition, chatScrollStorageKey, findFirstVisibleArticle, findVisibleScrollAnchor, type ChatScrollElement, type ChatScrollScheduler, type ChatScrollStorage, type ChatScrollViewport } from "./chatScrollPosition";
+import { ChatScrollController, captureScrollPosition, chatScrollStorageKey, findFirstVisibleArticle, findScrollAnchor as findVisibleScrollAnchor, type ChatScrollElement, type ChatScrollScheduler, type ChatScrollStorage, type ChatScrollViewport } from "./chatScrollPosition";
 
 class MemoryScrollStorage implements ChatScrollStorage {
   readonly values = new Map<string, string>();

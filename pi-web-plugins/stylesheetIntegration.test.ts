@@ -26,6 +26,11 @@ function activationContext(pluginId: string): PluginActivationContext {
   };
 }
 
+function activatePlugin(pluginId: string, plugin: PiWebPlugin) {
+  if (plugin.apiVersion === 4) return plugin.activate(activationContext(pluginId));
+  return plugin.activate({ ...activationContext(pluginId), apiVersion: 5 });
+}
+
 function isParticipatingElement(element: HTMLElement): element is ParticipatingElement {
   return "stylesheetIntegration" in element;
 }
@@ -54,8 +59,7 @@ describe("bundled stylesheet capability participation", () => {
     for (const invalid of [undefined, {}, { registerRoot: () => undefined }]) {
       expect(() => token?.parse(invalid)).toThrow("Stylesheet integration capability v1");
     }
-    if (plugin.apiVersion !== 4) throw new Error("Expected a bundled v4 plugin");
-    const result = await plugin.activate(activationContext(id));
+    const result = await activatePlugin(id, plugin);
     const requests: string[] = [];
     await result.start?.({ signal: new AbortController().signal, capabilities: {
       resolve<Value>(requirement: PluginCapability<Value>): Value {
@@ -78,8 +82,7 @@ describe("bundled stylesheet capability participation", () => {
     defineFilesCustomElements();
     defineTerminalCustomElements();
     for (const [id, plugin] of plugins) {
-      if (plugin.apiVersion !== 4) throw new Error("Expected a bundled v4 plugin");
-      await plugin.activate(activationContext(id));
+      await activatePlugin(id, plugin);
     }
     const panel = document.createElement(tag);
     if (!isParticipatingElement(panel)) throw new Error(`Missing integration property on ${tag}`);

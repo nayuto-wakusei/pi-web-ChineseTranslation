@@ -45,7 +45,7 @@ describe("content renderer registry", () => {
     expect(registry.matchContentRenderers(request)).toEqual([]);
   });
 
-  it("orders by stable source plugin ID, then local ID, not remote prefix or registration order", async () => {
+  it("orders by discovery and contribution declaration, not qualified IDs", async () => {
     const registry = new PluginRegistry();
     await registry.register({ id: "aaa-runtime", sourcePluginId: "z-plugin", machineId: "remote", plugin: plugin() });
     await registry.register({ id: "zzz-runtime", sourcePluginId: "a-plugin", machineId: "remote", plugin: {
@@ -54,9 +54,9 @@ describe("content renderer registry", () => {
       ] } }),
     } });
     expect(registry.contentRendering.listRenderers(request)).toEqual([
-      { id: "zzz-runtime:a-first", label: "a-plugin / a-first", renderMode: "manual" },
-      { id: "zzz-runtime:z-last", label: "a-plugin / z-last", renderMode: "manual" },
       { id: "aaa-runtime:diagram", label: "z-plugin / diagram", renderMode: "manual" },
+      { id: "zzz-runtime:z-last", label: "a-plugin / z-last", renderMode: "manual" },
+      { id: "zzz-runtime:a-first", label: "a-plugin / a-first", renderMode: "manual" },
     ]);
   });
 

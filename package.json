@@ -104,6 +104,8 @@
     "css-tree": "^3.2.1",
     "diff": "^9.0.0",
     "fastify": "^5.12.7",
+    "highlight.js": "^11.12.0",
+    "image-size": "^2.0.4",
     "import-meta-resolve": "^4.2.0",
     "lit": "^3.3.3",
     "marked": "^18.1.1",

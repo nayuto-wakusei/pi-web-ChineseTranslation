@@ -25,7 +25,7 @@ describe("SessionMediaIndex", () => {
     const projected = projectBrowserMessageResponse(page, (part) => index.reference(scope, part));
     const id = sha256(`image/png\0${png}`);
     expect(projected.messages).toEqual([{ role: "user", content: [
-      { type: "image", mediaId: id, mimeType: "image/png", byteSize: decodeBase64(png).byteLength },
+      { type: "image", mediaId: id, mimeType: "image/png", byteSize: decodeBase64(png).byteLength, width: 1, height: 1 },
       { type: "image", mediaId: sha256("image/png\0AQID"), mimeType: "image/png", byteSize: 3 },
     ] }]);
     expect(decode).not.toHaveBeenCalled();

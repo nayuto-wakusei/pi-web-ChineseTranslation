@@ -116,7 +116,7 @@ describe("workspace Markdown downloads", () => {
   it("keeps unsafe schemes, images and literal HTML out of download resolution", () => {
     const result = render('[bad](javascript:alert%281%29) [bad](data:text/plain,hi) ![image](report.png) <a href="report.zip">raw</a>', workspace);
     expect([...result.querySelectorAll("a")].every((a) => !a.hasAttribute("href"))).toBe(true);
-    expect(result.querySelector("img")?.hasAttribute("src")).toBe(false);
+    expect(result.querySelector("pi-web-markdown-image")?.getAttribute("path")).toBe("report.png");
     expect(result.textContent).toContain('<a href="report.zip">raw</a>');
     expect(link("[bad](bad%ZZ.zip)", workspace).hasAttribute("href")).toBe(false);
   });

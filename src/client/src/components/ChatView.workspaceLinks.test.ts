@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
 import type { FormattedText } from "./FormattedText";
+import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
-afterEach(() => { document.body.replaceChildren(); localStorage.clear(); });
+afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it("passes workspace context to queued, text, thinking, skill and tool-result Markdown and updates it on navigation", async () => {
+  installDeferredContent();
   const view = new ChatView();
   const text = "[file](result.zip)";
   view.sessionId = "session";
@@ -19,16 +21,20 @@ it("passes workspace context to queued, text, thinking, skill and tool-result Ma
   ] }];
   document.body.append(view);
   await view.updateComplete;
-  for (const details of view.renderRoot.querySelectorAll<HTMLDetailsElement>("details")) {
-    details.open = true;
-    details.dispatchEvent(new Event("toggle"));
+  // Activity mounts nested Markdown disclosures only after the group opens.
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const details of view.renderRoot.querySelectorAll<HTMLDetailsElement>("details")) {
+      details.open = true;
+      details.dispatchEvent(new Event("toggle"));
+    }
+    await view.updateComplete;
   }
-  await view.updateComplete;
 
   async function hrefs() {
     const formatted = [...view.renderRoot.querySelectorAll<FormattedText>("formatted-text")];
     expect(formatted).toHaveLength(5);
     await Promise.all(formatted.map((element) => element.updateComplete));
+    await settleDeferredContent(view);
     return formatted.map((element) => element.renderRoot.querySelector("a")?.getAttribute("href"));
   }
 

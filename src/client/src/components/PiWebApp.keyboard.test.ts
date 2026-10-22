@@ -11,6 +11,9 @@ import { ChatView } from "./ChatView";
 import { ModalSurface } from "./ModalSurface";
 import { PiWebApp } from "./PiWebApp";
 import { PromptEditor } from "./PromptEditor";
+import { ImageGalleryDialog } from "./ImageGalleryDialog";
+import { TranscriptImage } from "./TranscriptImage";
+import { imageButton, settleImage } from "./imagePresentation.testSupport";
 
 const IMAGE_DATA = "iVBORw0KGgo=";
 
@@ -196,11 +199,14 @@ async function openImageZoom(app: PiWebApp): Promise<HTMLElement> {
   const container = renderApp(app);
   const view = requiredElement(container.querySelector<ChatView>("chat-view"), "chat view");
   await view.updateComplete;
-  const image = requiredElement(view.shadowRoot?.querySelector<HTMLElement>(".chat-image"), "chat image");
+  const transcriptImage = requiredElement(view.shadowRoot?.querySelector<TranscriptImage>("pi-web-transcript-image"), "transcript image");
+  const image = imageButton(await settleImage(transcriptImage));
   image.focus();
   image.click();
   await view.updateComplete;
-  const dialog = requiredElement(view.shadowRoot?.querySelector<HTMLDialogElement>("dialog.image-zoom"), "image zoom dialog");
+  const gallery = requiredElement(view.shadowRoot?.querySelector<ImageGalleryDialog>("pi-web-image-gallery-dialog"), "image gallery");
+  await gallery.updateComplete;
+  const dialog = requiredElement(gallery.shadowRoot?.querySelector<HTMLDialogElement>("dialog"), "image zoom dialog");
   expect(dialog.open).toBe(true);
   return requiredElement(dialog.querySelector<HTMLElement>(".image-zoom-close"), "image zoom close button");
 }

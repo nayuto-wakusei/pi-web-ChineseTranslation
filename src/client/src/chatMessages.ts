@@ -1,6 +1,7 @@
 import { t } from "./i18n";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes";
 import { parseAskUserOutcome, parseAskUserRequest } from "./api/parsers";
+import { isSessionMediaId, validImageDimensions } from "../../shared/sessionMedia";
 import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
 
 export function normalizeMessages(messages: unknown[], transcriptStart?: number): ChatLine[] {
@@ -42,7 +43,7 @@ export function appendText(messages: ChatLine[], role: ChatLine["role"], text: s
   if (last?.role === role && lastPart?.type === "text") {
     return [
       ...messages.slice(0, -1),
-      { ...last, parts: [...last.parts.slice(0, -1), { ...lastPart, text: lastPart.text + text }] },
+      { ...last, parts: [...last.parts.slice(0, -1), { type: "text", text: lastPart.text + text }] },
     ];
   }
   if (last?.role === role) return [...messages.slice(0, -1), { ...last, parts: [...last.parts, { type: "text", text }] }];
@@ -56,7 +57,7 @@ export function appendThinking(messages: ChatLine[], text: string): ChatLine[] {
   if (last?.role === "assistant" && lastPart?.type === "thinking") {
     return [
       ...messages.slice(0, -1),
-      { ...last, parts: [...last.parts.slice(0, -1), { ...lastPart, text: lastPart.text + text }] },
+      { ...last, parts: [...last.parts.slice(0, -1), { type: "thinking", text: lastPart.text + text }] },
     ];
   }
   if (last?.role === "assistant") return [...messages.slice(0, -1), { ...last, parts: [...last.parts, { type: "thinking", text }] }];
@@ -64,7 +65,10 @@ export function appendThinking(messages: ChatLine[], text: string): ChatLine[] {
 }
 
 export function normalizeMessage(message: unknown): ChatLine[] {
-  if (isChatLine(message)) return [message];
+  if (isChatLine(message)) {
+    if (!message.parts.some((part) => getString(part, "type") === "image")) return [message];
+    return [{ ...message, parts: message.parts.flatMap((part) => getString(part, "type") === "image" ? normalizeImage(part) : [part]) }];
+  }
   if (getString(message, "role") === "bashExecution") return [withMessageMeta(normalizeBashExecution(message), message)];
   const rawRole = getString(message, "role");
   const role = normalizeRole(rawRole);
@@ -190,16 +194,21 @@ function normalizeRole(role: unknown): ChatLine["role"] {
 function normalizeContent(content: unknown, message: unknown): ChatPart[] {
   const askUserRecord = askUserRecordPart(message);
   if (askUserRecord !== undefined) return [askUserRecord];
-  if (typeof content === "string") return content !== "" ? [{ type: "text", text: content }] : [];
+  if (typeof content === "string") {
+    const displayText = getString(message, "displayText");
+    return content !== "" ? [{ type: "text", text: content, ...(displayText === undefined ? {} : { displayText }) }] : [];
+  }
   if (!Array.isArray(content)) return objectFallback(content);
 
   return content.flatMap((part): ChatPart[] => {
     const type = getString(part, "type");
     const text = getString(part, "text");
-    if (type === "text") return text !== undefined && text !== "" ? [{ type: "text", text }] : [];
+    const displayText = getString(part, "displayText");
+    const display = displayText === undefined ? {} : { displayText };
+    if (type === "text") return text !== undefined && text !== "" ? [{ type: "text", text, ...display }] : [];
     if (type === "thinking") {
       const thinking = getString(part, "thinking") ?? text;
-      return thinking !== undefined && thinking !== "" ? [{ type: "thinking", text: thinking }] : [];
+      return thinking !== undefined && thinking !== "" ? [{ type: "thinking", text: thinking, ...display }] : [];
     }
     if (type === "toolCall") {
       const toolName = getString(part, "name") ?? "tool";
@@ -210,15 +219,30 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
       return [{ type: "toolCall", ...(toolCallId === undefined ? {} : { toolCallId }), toolName, summary: summarizeArgs(args), ...(args === undefined ? {} : { args }) }];
     }
     if (type === "image") {
-      const data = getString(part, "data");
-      const mimeType = getString(part, "mimeType");
-      if (data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "") return [{ type: "image", mimeType, data }];
-      return [{ type: "text", text: "[image]" }];
+      return normalizeImage(part);
     }
     return objectFallback(part);
   }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
     ? toolResultPartFromText(part.text, message)
     : part);
+}
+
+function normalizeImage(part: unknown): ChatPart[] {
+  const mimeType = getString(part, "mimeType");
+  const mediaId = getProperty(part, "mediaId");
+  const dimensions = validImageDimensions(getProperty(part, "width"), getProperty(part, "height"));
+  if (mediaId !== undefined) {
+    const byteSize = getNumber(part, "byteSize");
+    if (isSessionMediaId(mediaId)
+      && mimeType !== undefined && /^image\/[a-z0-9][a-z0-9.+-]*$/iu.test(mimeType)
+      && byteSize !== undefined && Number.isSafeInteger(byteSize) && byteSize >= 0) {
+      return [{ type: "image", mediaId, mimeType, byteSize, ...dimensions }];
+    }
+  } else {
+    const data = getString(part, "data");
+    if (data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "") return [{ type: "image", mimeType, data, ...dimensions }];
+  }
+  return [{ type: "text", text: "[image]" }];
 }
 
 function askUserRecordPart(message: unknown): Extract<ChatPart, { type: "askUserRecord" }> | undefined {

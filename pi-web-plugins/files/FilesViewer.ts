@@ -83,6 +83,7 @@ export class WorkspaceFileViewer extends LitElement {
   private failedPreviewToken: number | undefined;
   private customPreview: TemplateResult | undefined;
   private rendererId: string | undefined;
+  private rendererChosen = false;
   private preference: WorkspaceFileViewMode | undefined;
   private rendererOptions: readonly ContentRendererOption[] = [];
 
@@ -97,6 +98,7 @@ export class WorkspaceFileViewer extends LitElement {
     if (nextKey === this.activeFileKey) return;
     this.activeFileKey = nextKey;
     this.rendererId = undefined;
+    this.rendererChosen = false;
     this.selectionToken += 1;
     // The mode deliberately survives a new selection; only failure state, which
     // belongs to the bytes that failed, is per selection.
@@ -131,8 +133,9 @@ export class WorkspaceFileViewer extends LitElement {
     const request = { machineId: this.machineId, text: file.content, filePath: file.path, ...(file.language === undefined ? {} : { language: file.language }) };
     const eligible = kind === "code" && !file.truncated && file.size > 0 && file.size <= this.maxInlinePreviewBytes;
     this.rendererOptions = eligible ? this.contentRendering?.listRenderers(request) ?? [] : [];
-    if (!this.rendererOptions.some(({ id }) => id === this.rendererId)) {
-      this.rendererId = this.rendererOptions[0]?.id;
+    if (!this.rendererChosen || !this.rendererOptions.some(({ id }) => id === this.rendererId)) {
+      this.rendererChosen = false;
+      this.rendererId = (this.rendererOptions.filter(({ renderMode }) => renderMode === "automatic").at(-1) ?? this.rendererOptions[0])?.id;
     }
     this.mode = this.preference ?? (this.rendererOptions.find(({ id }) => id === this.rendererId)?.renderMode === "automatic" ? "preview" : DEFAULT_WORKSPACE_FILE_VIEW_MODE);
     this.customPreview = eligible
@@ -169,7 +172,6 @@ export class WorkspaceFileViewer extends LitElement {
         <strong title=${file.path}>${file.path}</strong>
         <div class="viewer-actions">
           <small>${metadata}</small>
-          ${this.renderRendererChooser(this.selectionToken)}
           ${this.selectionHasRawAndPreviewModes() ? this.renderModeControls(file, this.selectionToken) : null}
           ${canOpen ? html`
             <a
@@ -187,29 +189,20 @@ export class WorkspaceFileViewer extends LitElement {
     `;
   }
 
-  private renderRendererChooser(token: number): TemplateResult | null {
-    if (this.rendererOptions.length < 2) return null;
-    return html`<select aria-label="${t("ui.main.e48f017e0872", "File renderer")}" @change=${(event: Event) => {
-      if (token !== this.selectionToken) return;
-      if (!(event.target instanceof HTMLSelectElement)) return;
-      this.rendererId = event.target.value;
-      this.failedPreviewToken = undefined;
-      this.requestUpdate();
-    }}>
-      ${this.rendererOptions.map(({ id, label }) => html`<option value=${id} .selected=${id === this.rendererId}>${label}</option>`)}
-    </select>`;
-  }
-
   private renderModeControls(file: FileContentResponse, token: number): TemplateResult {
-    const manual = this.rendererOptions.find(({ id }) => id === this.rendererId)?.renderMode === "manual";
     const showingPreview = this.mode === "preview";
     return html`
       <div class="viewer-mode" role="group" aria-label=${t("ui.main.e510d27cdd82", "View {arg0}", { arg0: file.path })}>
-        <button
-          type="button"
-          aria-pressed=${showingPreview ? "true" : "false"}
-          @click=${() => { this.setMode("preview", token); }}
-        >${manual ? t("ui.main.0d2759cbee0c", "Render") : t("ui.sessionCleanupDialog.preview", "Preview")}</button>
+        ${this.rendererOptions.length === 0 ? html`
+          <button type="button" aria-pressed=${String(showingPreview)} @click=${() => { this.setMode("preview", token); }}>${t("ui.sessionCleanupDialog.preview", "Preview")}</button>
+        ` : this.rendererOptions.map(({ id, label }) => html`
+          <button type="button" aria-pressed=${String(showingPreview && id === this.rendererId)} @click=${() => {
+            if (token !== this.selectionToken) return;
+            this.rendererId = id;
+            this.rendererChosen = true;
+            this.setMode("preview", token);
+          }}>${label}</button>
+        `)}
         <button
           type="button"
           aria-pressed=${showingPreview ? "false" : "true"}
@@ -366,19 +359,18 @@ export class WorkspaceFileViewer extends LitElement {
       :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
       .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 0 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
       .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
-      .viewer-actions { align-self: stretch; display: flex; align-items: center; gap: 0; flex: 0 0 auto; }
+      .viewer-actions { align-self: stretch; display: flex; align-items: center; gap: 0; flex: 0 1 auto; min-width: 0; max-width: 100%; }
       .viewer-actions > small { padding-inline: 8px; }
-      select { max-width: 100%; border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); padding: 3px 8px; font: 12px var(--pi-font, system-ui, sans-serif); }
-      select:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
       small { color: var(--pi-muted); }
       .viewer-action, .download-link { flex: 0 0 auto; border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); text-decoration: none; white-space: nowrap; }
       .viewer-action { padding: 3px 8px; font-size: 12px; }
       .viewer-action:hover, .download-link:hover { border-color: var(--pi-border); background: var(--pi-bg); }
-      .viewer-mode { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 4px; }
+      .viewer-mode { align-self: stretch; flex: 0 1 auto; min-width: 0; display: flex; gap: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+      .viewer-mode button { flex: 0 0 auto; white-space: nowrap; }
       .viewer-mode button, .preview-state button { border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); padding: 4px 9px; cursor: pointer; font: inherit; }
-      .viewer-mode button, .viewer-actions select, .viewer-actions .viewer-action { box-sizing: border-box; align-self: stretch; display: inline-flex; align-items: center; min-height: 32px; border: 0; border-radius: 0; background: transparent; color: var(--pi-muted); font: 12px/20px var(--pi-font, system-ui, sans-serif); padding: 6px 8px; }
+      .viewer-mode button, .viewer-actions .viewer-action { box-sizing: border-box; align-self: stretch; display: inline-flex; align-items: center; min-height: 32px; border: 0; border-radius: 0; background: transparent; color: var(--pi-muted); font: 12px/20px var(--pi-font, system-ui, sans-serif); padding: 6px 8px; }
       .viewer-actions > :not(small) + *, .viewer-mode button + button { border-inline-start: 1px solid var(--pi-border-muted); }
-      .viewer-mode button:hover, .viewer-actions .viewer-action:hover, .viewer-actions select:hover { background: var(--pi-surface-hover); color: var(--pi-text); }
+      .viewer-mode button:hover, .viewer-actions .viewer-action:hover { background: var(--pi-surface-hover); color: var(--pi-text); }
       .viewer-mode button[aria-pressed="true"] { background: var(--pi-surface-hover); color: var(--pi-text); }
       .viewer-actions button:focus-visible, .viewer-actions a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
       .preview-state button:focus-visible, a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
@@ -394,8 +386,9 @@ export class WorkspaceFileViewer extends LitElement {
       .preview-state p { margin: 0; }
       .download-link { display: inline-block; padding: 8px 16px; font-size: 13px; }
       @media (max-width: 640px) {
-        .viewer-header { align-items: flex-start; flex-direction: column; }
-        .viewer-actions { width: 100%; flex-wrap: wrap; }
+        .viewer-header { align-items: flex-start; flex-direction: column; gap: 0; padding-inline: 0; }
+        .viewer-header strong { box-sizing: border-box; max-width: 100%; padding: 6px 10px; }
+        .viewer-actions { width: 100%; }
       }
 
     }

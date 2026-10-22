@@ -123,6 +123,12 @@ describe("plugin-defined transcript message actions", () => {
     view.messages = [{ role: "assistant", entryId: "skill-entry", parts: [{ type: "skillRead", name: "example", path: "/skills/example/SKILL.md" }] }];
     view.onMessageAction = vi.fn(() => Promise.resolve());
     await settle(view);
+    const group = view.renderRoot.querySelector<HTMLDetailsElement>("details.event-group");
+    if (group === null) throw new Error("Missing skill activity");
+    expect(group.open).toBe(false);
+    group.open = true;
+    group.dispatchEvent(new Event("toggle"));
+    await settle(view);
     expect(buttons(view).map((button) => button.title)).toEqual(["Inspect skill"]);
     button(view, "Inspect skill").click();
     await settle(view);
@@ -350,7 +356,7 @@ it("targets the real entry and anchor when an event group spans invisible conver
     await settle(view);
     const sections = Array.from(groups[0]?.querySelectorAll<HTMLElement>("section.group-msg") ?? []);
     expect(sections.map((section) => section.dataset["index"])).toEqual(["20", "23"]);
-    expect(sections.map((section) => section.dataset["scrollAnchorId"])).toEqual(["e:20", "e:23"]);
+    expect(sections.map((section) => section.dataset["scrollAnchorId"])).toEqual(['e:["first","assistant","message"]', 'e:["last","assistant","message"]']);
     const action = sections[1]?.querySelector<HTMLButtonElement>('button[title="Inspect entry"]');
     if (action === null || action === undefined) throw new Error("Missing last entry action");
     action.click();

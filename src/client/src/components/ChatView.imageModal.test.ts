@@ -5,7 +5,11 @@ installNativeDialogFake();
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
 import { ModalSurface } from "./ModalSurface";
-import { hasRenderedModal } from "./modalLayerRegistry";
+import { deepActiveElement, hasRenderedModal } from "./modalLayerRegistry";
+import { ImageGalleryDialog } from "./ImageGalleryDialog";
+import type { ImagePresentation } from "./ImagePresentation";
+import { TranscriptImage } from "./TranscriptImage";
+import { imageButton, settleImage } from "./imagePresentation.testSupport";
 
 const IMAGE_DATA = "iVBORw0KGgo=";
 
@@ -22,28 +26,28 @@ describe("ChatView native image modal", () => {
 
     image.focus();
     image.click();
-    await view.updateComplete;
+    await settleGallery(view);
     const firstDialog = imageDialog(view);
     expect(firstDialog.open).toBe(true);
-    expect(view.shadowRoot?.activeElement).toBe(imageCloseButton(firstDialog));
+    expect(deepActiveElement(document)).toBe(imageCloseButton(firstDialog));
     expect(hasRenderedModal(document)).toBe(true);
 
     const cancel = new Event("cancel", { cancelable: true });
     firstDialog.dispatchEvent(cancel);
-    await view.updateComplete;
+    await settleGallery(view);
     expect(cancel.defaultPrevented).toBe(false);
     expect(firstDialog.open).toBe(false);
-    expect(view.shadowRoot?.activeElement).toBe(image);
+    expect(deepActiveElement(document)).toBe(image);
     expect(hasRenderedModal(document)).toBe(false);
 
     image.click();
-    await view.updateComplete;
+    await settleGallery(view);
     const secondDialog = imageDialog(view);
     secondDialog.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true }));
-    await view.updateComplete;
+    await settleGallery(view);
 
     expect(secondDialog.open).toBe(false);
-    expect(view.shadowRoot?.activeElement).toBe(image);
+    expect(deepActiveElement(document)).toBe(image);
     expect(hasRenderedModal(document)).toBe(false);
   });
 
@@ -60,17 +64,17 @@ describe("ChatView native image modal", () => {
 
     const view = await mountImageView();
     chatImage(view).click();
-    await view.updateComplete;
+    await settleGallery(view);
     await lower.updateComplete;
     const dialog = imageDialog(view);
 
     expect(dialog.open).toBe(true);
     expect(lowerDialogSection(lower).getAttribute("aria-modal")).toBe("false");
     expect(lowerDialogSection(lower).getAttribute("aria-hidden")).toBe("true");
-    expect(view.shadowRoot?.activeElement).toBe(imageCloseButton(dialog));
+    expect(deepActiveElement(document)).toBe(imageCloseButton(dialog));
 
     dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
-    await view.updateComplete;
+    await settleGallery(view);
     await lower.updateComplete;
 
     expect(dialog.open).toBe(false);
@@ -88,16 +92,21 @@ async function mountImageView(): Promise<ChatView> {
   view.sessionId = "session-image";
   view.messages = [{ role: "user", parts: [{ type: "image", mimeType: "image/png", data: IMAGE_DATA }] }];
   document.body.append(view);
-  await view.updateComplete;
+  await settleGallery(view);
+  const image = requiredElement(view.renderRoot.querySelector<TranscriptImage>(".chat-image"), "transcript image");
+  await settleImage(image);
   return view;
 }
 
 function chatImage(view: ChatView): HTMLElement {
-  return requiredElement(view.shadowRoot?.querySelector<HTMLElement>(".chat-image"), "chat image");
+  const image = requiredElement(view.renderRoot.querySelector<TranscriptImage>(".chat-image"), "transcript image");
+  const presentation = requiredElement(image.renderRoot.querySelector<ImagePresentation>("pi-web-image-presentation"), "image presentation");
+  return imageButton(presentation);
 }
 
 function imageDialog(view: ChatView): HTMLDialogElement {
-  return requiredElement(view.shadowRoot?.querySelector<HTMLDialogElement>("dialog.image-zoom"), "image zoom dialog");
+  const gallery = requiredElement(view.renderRoot.querySelector<ImageGalleryDialog>("pi-web-image-gallery-dialog"), "image gallery");
+  return requiredElement(gallery.renderRoot.querySelector<HTMLDialogElement>("dialog.image-zoom"), "image zoom dialog");
 }
 
 function imageCloseButton(dialog: HTMLDialogElement): HTMLButtonElement {
@@ -118,4 +127,10 @@ function appendButton(text: string): HTMLButtonElement {
 function requiredElement<T>(value: T | null | undefined, label: string): T {
   if (value === null || value === undefined) throw new Error(`Expected ${label}`);
   return value;
+}
+
+async function settleGallery(view: ChatView): Promise<void> {
+  await view.updateComplete;
+  const gallery = requiredElement(view.renderRoot.querySelector<ImageGalleryDialog>("pi-web-image-gallery-dialog"), "image gallery");
+  await gallery.updateComplete;
 }

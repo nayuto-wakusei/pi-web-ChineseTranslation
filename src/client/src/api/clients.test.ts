@@ -425,7 +425,7 @@ describe("session API compatibility", () => {
 
     await expect(sessionsApi.streamSnapshot({ id: "s 1", cwd: "/repo" }, "remote a")).resolves.toEqual({ seq: 7, partial });
 
-    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo");
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo&media=reference");
   });
 
   it("includes cwd context in session mutations", async () => {
@@ -578,7 +578,7 @@ describe("session API compatibility", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchCall(fetchMock, 0);
-    expect(url).toBe("https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/stream-snapshot?cwd=%2Frepo+with+spaces");
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/stream-snapshot?cwd=%2Frepo+with+spaces&media=reference");
     expect(init?.method ?? "GET").toBe("GET");
   });
 
@@ -588,7 +588,7 @@ describe("session API compatibility", () => {
     await expect(sessionsApi.streamSnapshot({ id: "s 1", cwd: "/repo" }, "remote a")).resolves.toEqual({ seq: 0, partial: null });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo");
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%201/stream-snapshot?cwd=%2Frepo&media=reference");
   });
 
   it("uses encoded selected-session notification routes, cwd queries, and authoritative mutation cutoffs", async () => {

@@ -1,24 +1,30 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AskUserOutcome } from "../../../shared/apiTypes";
 import { AskUserCard } from "./AskUserCard";
 import { ChatView } from "./ChatView";
+import { controlledChatViewport, manualChatFrames } from "./chatScroll.testSupport";
 
 afterEach(() => {
   document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("ChatView open ask_user form", () => {
   it("scrolls a newly opened form to its start and gives it a stable chat-scroll anchor", async () => {
+    const flushFrames = manualChatFrames();
     const view = new ChatView();
     view.sessionId = "session-1";
     document.body.append(view);
     await view.updateComplete;
-    let askStartScrolls = 0;
-    let bottomScrolls = 0;
-    if (!Reflect.set(view, "scrollToOpenAsk", () => { askStartScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToOpenAsk");
-    if (!Reflect.set(view, "scrollToBottom", () => { bottomScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToBottom");
+    const { metrics, write } = controlledChatViewport(view);
+    flushFrames();
+    write.mockClear();
+    metrics.height = 4000;
+    view.historyReady = true;
 
     view.onSubmitAsk = () => undefined;
     view.messages = [{ role: "tool", entryId: "question-entry", parts: [{ type: "askUserQuestion", ask: {
@@ -28,9 +34,12 @@ describe("ChatView open ask_user form", () => {
     } }] }];
     await view.updateComplete;
 
-    expect(askStartScrolls).toBe(1);
-    expect(bottomScrolls).toBe(0);
-    expect(view.shadowRoot?.querySelector("ask-user-card")?.parentElement?.getAttribute("data-scroll-anchor-id")).toBe('ask:ask-open');
+    const card = requiredElement(view.renderRoot.querySelector("ask-user-card"), "open ask form");
+    card.getBoundingClientRect = () => new DOMRect(0, 600, 600, 500);
+    flushFrames();
+    expect(write).toHaveBeenCalledExactlyOnceWith(2200);
+    expect(metrics.top).toBe(2200);
+    expect(view.shadowRoot?.querySelector("ask-user-card")?.parentElement?.getAttribute("data-scroll-anchor-id")).toBe('m:["question-entry","tool","message"]');
   });
 });
 

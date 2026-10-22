@@ -27,6 +27,7 @@ import { t } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsShortcutsPanel } from "./settings/SettingsShortcutsPanel";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
+import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -489,6 +490,7 @@ describe("application rendering boundaries", () => {
   });
 
   it("opens chat file links through generic panel navigation and rejects stale workspace requests", async () => {
+    installDeferredContent();
     const app = await mountApp({
       selectedProject: { id: "project", name: "Project", path: "/repo", createdAt: "now" },
       selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session],
@@ -508,6 +510,7 @@ describe("application rendering boundaries", () => {
     const chat = app.shadowRoot?.querySelector("chat-view");
     const formatted = chat?.shadowRoot?.querySelector("formatted-text");
     if (!(formatted instanceof FormattedText)) throw new Error("Expected formatted chat text");
+    await settleDeferredContent(formatted);
     const anchor = formatted.shadowRoot?.querySelector("a");
     if (!(anchor instanceof HTMLAnchorElement)) throw new Error("Expected file link");
     const detail = { machineId: "local", projectId: "project", workspaceId: "workspace", root: "/repo", path: "reports/a #1.txt" };
