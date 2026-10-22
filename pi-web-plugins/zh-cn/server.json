@@ -1,4 +1,8 @@
 {
+  "status.updateReviewCommand": "PI WEB {latestVersion} 已可用{installed}。运行更新命令可查看适用于当前安装的计划并确认。更新可能中断活动会话；若此终端无法安全执行，CLI 会给出后续指引。",
+  "startup.ready": "PI WEB 已就绪",
+  "startup.local": "本机",
+  "startup.open": "访问地址",
   "queueControls.incompatible": "当前 Pi SDK 的队列接口不兼容，无法操作单条排队消息。",
   "queueControls.mutationRequired": "缺少队列操作请求",
   "queueControls.invalidAction": "无效的队列操作",

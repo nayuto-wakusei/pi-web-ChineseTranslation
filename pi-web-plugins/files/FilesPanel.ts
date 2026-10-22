@@ -1,6 +1,6 @@
 import { t } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1, ContentRenderingCapability, FileTreeEntry, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
-import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import {
@@ -249,14 +249,14 @@ export class WorkspaceFilesPanel extends LitElement {
     const hasChildren = children !== undefined;
     const selected = (scope.selectedDirectoryPath ?? scope.selectedFilePath) === entry.path;
     return html`
-      <button class=${selected ? "row ui-button ui-file-row selected" : "row ui-button ui-file-row"} style=${`--depth:${String(depth)}`} @click=${() => {
+      <button type="button" class=${selected ? "row ui-button ui-file-row selected" : "row ui-button ui-file-row"} style=${`--depth:${String(depth)}`} title=${entry.path} aria-current=${selected ? "page" : nothing} aria-expanded=${entry.type === "directory" ? String(hasChildren) : nothing} @click=${() => {
         if (entry.type === "directory") {
           runtime.selectDirectory(context, entry.path);
           void runtime.expandDir(context, entry.path);
         }
         else void runtime.selectFile(context, entry.path);
       }}>
-        <span class="ui-file-leading">${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : "·"}</span>
+        <span class="ui-file-leading" aria-hidden="true">${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>`}</span>
         <span class="ui-file-label">${entry.name}</span>
       </button>
     `;

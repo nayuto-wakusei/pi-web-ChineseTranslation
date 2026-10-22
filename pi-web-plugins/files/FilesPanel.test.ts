@@ -16,6 +16,26 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("exposes compact file-row semantics while retaining selected directories", async () => {
+    const context = createContext({ files: createFiles({ listFiles: (path) => Promise.resolve(treeResponse(path,
+      path === "" ? [{ name: "src", path: "src", type: "directory" }, { name: "README.md", path: "README.md", type: "file" }] : [])) }) });
+    const panel = await mountPanel(context);
+    await vi.waitFor(() => { expect(panel.shadowRoot?.querySelectorAll(".row")).toHaveLength(2); });
+    const directory = requiredElement(panel.shadowRoot?.querySelector<HTMLButtonElement>('[title="src"]'), "directory row");
+    const file = requiredElement(panel.shadowRoot?.querySelector<HTMLButtonElement>('[title="README.md"]'), "file row");
+    expect(directory.type).toBe("button");
+    expect(directory.getAttribute("aria-expanded")).toBe("false");
+    expect(file.hasAttribute("aria-expanded")).toBe(false);
+    expect(file.querySelector('.ui-file-leading[aria-hidden="true"] svg')).not.toBeNull();
+    directory.click();
+    await vi.waitFor(() => { expect(directory.getAttribute("aria-expanded")).toBe("true"); });
+    expect(directory.getAttribute("aria-current")).toBe("page");
+    expect(panel.runtime?.snapshot(context).selectedDirectoryPath).toBe("src");
+    file.click();
+    await vi.waitFor(() => { expect(file.getAttribute("aria-current")).toBe("page"); });
+    expect(directory.hasAttribute("aria-current")).toBe(false);
+  });
+
   it("reveals a selected file beyond the current 200-row render budget", async () => {
     const context = createContext({ files: createFiles({ listFiles: (path) => Promise.resolve(treeResponse(path,
       Array.from({ length: 1000 }, (_, index) => ({ name: `file-${String(index)}.txt`, path: `file-${String(index)}.txt`, type: "file" })))) }) });

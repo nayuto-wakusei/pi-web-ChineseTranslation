@@ -115,6 +115,7 @@ export class TerminalPanel extends LitElement {
   private requestedAutoStartRequest: string | undefined;
   private routedTerminalId: string | undefined;
   private requestedTerminalId: string | undefined;
+  private requestedTerminalReloadKey: string | undefined;
   private pendingTerminalNavigation: { context: WorkspacePanelContext; terminalId: string | undefined } | undefined;
   private commandRunPollTimer: number | undefined;
   private readonly softKeysDefaultEnvironmentMedia = createTerminalSoftKeysDefaultEnvironmentMedia();
@@ -193,6 +194,7 @@ export class TerminalPanel extends LitElement {
       this.requestedAutoStartRequest = requestedAutoStart;
       this.routedTerminalId = routedTerminalId;
       this.requestedTerminalId = requestedTerminalId;
+      this.requestedTerminalReloadKey = undefined;
       this.pendingTerminalNavigation = undefined;
       this.terminals = [];
       this.commandRuns = [];
@@ -224,7 +226,11 @@ export class TerminalPanel extends LitElement {
     }
     if (this.hasPendingCommandRuns()) this.updateCommandRunPolling(true);
     this.loadVisibleWorkspaceTerminals();
-    if (this.shouldReloadForRequestedTerminal()) void this.loadTerminals();
+    if (this.shouldReloadForRequestedTerminal()) {
+      // List writes trigger updated() too; a missing selection gets one reload per navigation intent.
+      this.requestedTerminalReloadKey = this.requestedTerminalReloadKeyFor();
+      void this.loadTerminals();
+    }
     // A list can settle before the host finishes resolving the workspace URL.
     // Its selection write is correctly rejected then; reconcile with the latest
     // context even when the routed/remembered terminal IDs have not changed.
@@ -334,13 +340,20 @@ export class TerminalPanel extends LitElement {
   }
 
   private shouldReloadForRequestedTerminal(): boolean {
+    const reloadKey = this.requestedTerminalReloadKeyFor();
     return this.visible
-      && this.observedWorkspaceScope !== undefined
+      && reloadKey !== undefined
       && this.observedWorkspaceScope === this.loadedWorkspaceScope
-      && this.requestedTerminalId !== undefined
       && !this.loading
       && this.loadRetryTimer === undefined
+      && this.requestedTerminalReloadKey !== reloadKey
       && !this.terminals.some((terminal) => terminal.id === this.requestedTerminalId);
+  }
+
+  private requestedTerminalReloadKeyFor(): string | undefined {
+    const scope = this.observedWorkspaceScope;
+    if (scope === undefined || this.requestedTerminalId === undefined) return undefined;
+    return JSON.stringify([scope, this.terminalNavigationGeneration, this.requestedTerminalId]);
   }
 
   private scheduleWorkspaceLoadRetry(scope: string, generation: number, runtime: TerminalBrowserRuntime): void {

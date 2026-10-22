@@ -2,10 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import type { PiWebAgentDirEnvSource, PiWebConfigValues, PiWebDeprecatedAgentInput } from "./shared/apiTypes.js";
-import { isPiCompanionCommand, usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
+import { usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
 import { parsePiWebConfig as parseBasePiWebConfig, piWebConfigRecord as basePiWebConfigRecord } from "./shared/piWebConfigParsing.js";
-
-export { isPiCompanionCommand };
 
 export type PiWebConfig = PiWebConfigValues;
 

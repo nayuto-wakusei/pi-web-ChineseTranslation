@@ -100,8 +100,8 @@ export class PiWebTasksPanel extends HTMLElement {
       <section class="toolbar ui-toolbar">
         <strong class="ui-toolbar-title toolbar-title">${escapeHtml(t("bundled.workspace-tasks.workspace.tasks.b4ef49", "Workspace tasks"))}</strong>
         <span class="ui-toolbar-group">
-          <button class="ui-button" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>${escapeHtml(t("bundled.workspace-tasks.refresh.aee887", "Refresh"))}</button>
-          <button class="ui-button" data-open-terminal>${escapeHtml(t("bundled.workspace-tasks.open.terminal.b89a0e", "Open terminal"))}</button>
+          <button type="button" class="ui-button" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>${escapeHtml(t("bundled.workspace-tasks.refresh.aee887", "Refresh"))}</button>
+          <button type="button" class="ui-button" data-open-terminal>${escapeHtml(t("bundled.workspace-tasks.open.terminal.b89a0e", "Open terminal"))}</button>
         </span>
       </section>
       ${this.renderStatus()}
@@ -292,7 +292,7 @@ function renderTask(task: WorkspaceTask, runningTaskId: string | undefined): str
         ${description}
         <code>${escapeHtml(task.command)}</code>
       </div>
-      <button class="ui-button ui-button--primary" data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${escapeHtml(running ? t("bundled.workspace-tasks.dispatching.f0ad17", "Dispatching...") : t("bundled.workspace-tasks.run.75b269", "Run"))}</button>
+      <button type="button" class="ui-button ui-button--primary" data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${escapeHtml(running ? t("bundled.workspace-tasks.dispatching.f0ad17", "Dispatching...") : t("bundled.workspace-tasks.run.75b269", "Run"))}</button>
     </article>
   `;
 }

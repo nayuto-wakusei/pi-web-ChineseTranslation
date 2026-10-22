@@ -90,8 +90,8 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
 function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <span class="updates-command-actions">
-      <button @click=${(event?: Event) => { void copyCommandToClipboard(command, event?.currentTarget); }}>${t("bundled.updates.copy.63d90d", "Copy")}</button>
-      ${terminal === undefined ? null : html`<button class="primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>${t("bundled.workspace-tasks.run.75b269", "Run")}</button>`}
+      <button type="button" class="ui-button ui-button--action ui-button--compact" @click=${(event?: Event) => { void copyCommandToClipboard(command, event?.currentTarget); }}>${t("bundled.updates.copy.63d90d", "Copy")}</button>
+      ${terminal === undefined ? null : html`<button type="button" class="ui-button ui-button--action ui-button--compact ui-button--primary" @click=${() => { runCommandInTerminal(terminal, label, command); }}>${t("bundled.workspace-tasks.run.75b269", "Run")}</button>`}
     </span>
   `;
 }
@@ -134,7 +134,7 @@ function renderRecommended(html: HtmlTemplateTag, terminal: WorkspacePanelTermin
   return html`
     <section class="updates-recommended">
       <strong>${t("bundled.updates.recommended.1452de", "Recommended")}</strong>
-      ${messages.length === 0 ? html`<p class="muted">${t("bundled.updates.run.this.command.to.bring.the.current.installation.up.to.date.no..99197c", "Run this command to bring the current installation up to date. No other steps are required.")}</p>` : messages.map((message) => renderNotice(html, message))}
+      ${messages.length === 0 ? html`<p class="muted">${t("bundled.updates.confirmationAndSafeExecution", "Run the recommended command. Updates require confirmation in the terminal and may interrupt active sessions; the CLI will provide instructions if this terminal cannot safely run the update.")}</p>` : messages.map((message) => renderNotice(html, message))}
       ${renderCommand(html, terminal, recommended.label, recommended.command)}
     </section>
   `;
@@ -155,7 +155,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
   const status = statusFor(state) ?? fallbackDockerStatus(runtimeHint);
   if (status === undefined) {
     return html`
-      <section class="toolbar"><strong>${t("bundled.updates.updates.3055a0", "Updates")}</strong></section>
+      <section class="ui-toolbar updates-toolbar"><strong class="ui-toolbar-title">${t("bundled.updates.updates.3055a0", "Updates")}</strong></section>
       <section class="viewer"><p class="muted">${t("bundled.updates.checking.pi.web.update.status.24e243", "Checking PI WEB update status...")}</p></section>
     `;
   }
@@ -165,6 +165,7 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
   const additional = additionalCommands(status, recommended);
   return html`
     <style>
+      .updates-toolbar { flex: 0 0 auto; padding-inline: 12px; border-bottom: 1px solid var(--pi-border-muted); }
       .viewer.updates-status { flex: 1 1 auto; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 12px; overflow-y: auto; overflow-x: hidden; }
       .viewer.updates-status section { flex: 0 0 auto; min-width: 0; display: grid; gap: 8px; }
       .updates-message { display: grid; gap: 5px; border: 1px solid var(--pi-border); border-radius: 8px; padding: 10px; background: var(--pi-surface); }
@@ -173,21 +174,20 @@ function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTermi
       .updates-message-title { display: flex; gap: 8px; align-items: baseline; }
       .updates-message-title span { color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
       .updates-version-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; border-bottom: 1px solid var(--pi-border-muted); padding: 6px 0; }
-      .updates-version-row small { grid-column: 1 / -1; color: var(--pi-muted); }
-      .updates-command { min-width: 0; display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+      .updates-version-row small { grid-column: 1 / -1; color: var(--pi-muted); overflow-wrap: anywhere; }
+      .updates-command { min-width: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
       .updates-command code { overflow: auto; border: 1px solid var(--pi-border-muted); border-radius: 6px; background: var(--pi-bg); padding: 5px 7px; white-space: nowrap; }
       .updates-command-actions { display: inline-flex; gap: 6px; }
-      .updates-command-actions button.primary { border-color: var(--pi-accent-border); color: var(--pi-text-bright); }
       .updates-recommended { border: 1px solid var(--pi-accent-border); border-radius: 8px; padding: 10px; background: var(--pi-surface); }
       .updates-recommended > strong { color: var(--pi-text-bright); }
       .updates-recommended .updates-message { border: none; background: none; padding: 0; }
-      .updates-meta { display: grid; gap: 2px; color: var(--pi-muted); font-size: 12px; }
-      @media (max-width: 520px) {
-        .updates-command { grid-template-columns: minmax(0, 1fr) auto; }
-        .updates-command > span { grid-column: 1 / -1; }
+      .updates-meta { display: grid; gap: 2px; color: var(--pi-muted); font-size: 12px; overflow-wrap: anywhere; }
+      @container (max-width: 520px) {
+        .updates-command { grid-template-columns: minmax(0, 1fr); }
+        .updates-command-actions { justify-self: start; }
       }
     </style>
-    <section class="toolbar"><strong>${t("bundled.updates.updates.3055a0", "Updates")}</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
+    <section class="ui-toolbar updates-toolbar"><strong class="ui-toolbar-title">${t("bundled.updates.updates.3055a0", "Updates")}</strong>${messages.length > 0 ? html`<span class="stale">${String(messages.length)}</span>` : null}</section>
     <section class="viewer updates-status">
       ${recommended === undefined ? renderNotices(html, messages) : renderRecommended(html, terminal, recommended, messages)}
 
@@ -232,7 +232,7 @@ const plugin = {
           run: (context) => context.checkForPiWebUpdates?.(),
         },
       ],
-      workspacePanels: [
+      applicationPanels: [
         {
           id: "workspace.updates",
           title: t("bundled.updates.updates.3055a0", "Updates"),

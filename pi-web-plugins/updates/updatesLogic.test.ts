@@ -39,12 +39,12 @@ function stateWith(value: PiWebStatusResponse | undefined): PluginRuntimeState {
 }
 
 describe("recommendedCommand", () => {
-  it("recommends update & restart when an update is available", () => {
+  it("recommends the installation-aware update command when an update is available", () => {
     const result = recommendedCommand(status({
       release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
       commands: { update: "pi-web update && pi-web restart", restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "更新并重启全部服务", command: "pi-web update && pi-web restart" });
+    expect(result).toEqual({ label: "更新 PI WEB", command: "pi-web update && pi-web restart" });
   });
 
   it("falls through to restart when an update is available but the update command is empty", () => {
@@ -100,7 +100,7 @@ describe("recommendedCommand", () => {
     expect(recommendedCommand(status({
       release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
       commands: { update: "pi-web-docker update", restart: "pi-web-docker restart" },
-    }))).toEqual({ label: "更新并重启全部服务", command: "pi-web-docker update" });
+    }))).toEqual({ label: "更新 PI WEB", command: "pi-web-docker update" });
     expect(recommendedCommand(status({
       components: {
         web: component({ stale: true, installation: { kind: "docker", dockerMode: "dev" } }),
@@ -174,7 +174,7 @@ describe("additionalCommands", () => {
         restartSessiond: "pi-web-docker --dev restart-sessiond",
         status: "pi-web-docker --dev status",
       },
-    }), { label: "更新并重启全部服务", command: "pi-web-docker --dev update" })).toEqual([
+    }), { label: "更新 PI WEB", command: "pi-web-docker --dev update" })).toEqual([
       { label: "全部重启", command: "pi-web-docker --dev restart" },
       { label: "重启 Web/界面", command: "pi-web-docker --dev restart-web" },
       { label: "重启会话守护进程", command: "pi-web-docker --dev restart-sessiond" },
@@ -250,7 +250,7 @@ describe("fallbackDockerStatus", () => {
     expect(fallback?.generatedAt).toBe("generated");
     expect(fallback?.components.web.installation).toEqual({ kind: "docker", dockerMode: "dev" });
     expect(fallback?.commands).toEqual({
-      update: "pi-web-docker --dev update",
+      update: "node /workspace/dist/cli.js update",
       restart: "pi-web-docker --dev restart",
       restartWeb: "pi-web-docker --dev restart-web",
       restartSessiond: "pi-web-docker --dev restart-sessiond",
@@ -263,7 +263,7 @@ describe("fallbackDockerStatus", () => {
     const fallback = fallbackDockerStatus({ dockerMode: "runtime" });
     expect(fallback?.components.sessiond.installation).toEqual({ kind: "docker", dockerMode: "runtime" });
     expect(fallback?.commands).toEqual({
-      update: "pi-web-docker update",
+      update: "pi-web update",
       restart: "pi-web-docker restart",
       restartWeb: "pi-web-docker restart-web",
       restartSessiond: "pi-web-docker restart-sessiond",

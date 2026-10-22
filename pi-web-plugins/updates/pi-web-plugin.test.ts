@@ -4,10 +4,14 @@ import { setTranslator } from "./i18n.js";
 import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { html, svg } from "lit";
-import type { PiWebStatusResponse, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
+import type { ApplicationPanelContext, PiWebStatusResponse, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
 import { runtimeContext } from "../../src/client/src/plugins/pluginRuntime.testSupport.js";
 import { createWorkspacePanelContext, serializeTemplate } from "../../src/testSupport/plugin";
 import plugin from "./pi-web-plugin";
+
+function createApplicationPanelContext(patch: Partial<ApplicationPanelContext> = {}): ApplicationPanelContext {
+  return { ...createWorkspacePanelContext(), state: {}, ...patch };
+}
 
 beforeEach(() => { setTranslator(translateChinese); });
 
@@ -21,17 +25,17 @@ describe("updates plugin Chinese display text", () => {
     const activation = await activatePlugin();
 
     expect(plugin.name).toBe("更新");
-    expect(activation.contributions.workspacePanels?.[0]?.title).toBe("更新");
+    expect(activation.contributions.applicationPanels?.[0]?.title).toBe("更新");
   });
 
   it("renders Chinese loading and status copy", async () => {
     const activation = await activatePlugin();
-    const panel = activation.contributions.workspacePanels?.[0];
+    const panel = activation.contributions.applicationPanels?.[0];
 
-    expect(serializeTemplate(panel?.render(createWorkspacePanelContext()))).toContain("正在检查 PI WEB 更新状态");
-    expect(serializeTemplate(panel?.badge?.(createWorkspacePanelContext()))).toBe("");
+    expect(serializeTemplate(panel?.render(createApplicationPanelContext()))).toContain("正在检查 PI WEB 更新状态");
+    expect(serializeTemplate(panel?.badge?.(createApplicationPanelContext()))).toBe("");
 
-    const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
+    const rendered = serializeTemplate(panel?.render(createApplicationPanelContext({
       state: {
         piWebStatus: {
           packageName: "@chainingintention/pi-web-cn",
@@ -69,24 +73,24 @@ describe("updates plugin Chinese display text", () => {
   it("keeps run buttons available in management embed mode", async () => {
     vi.stubGlobal("location", { search: "?embed=management&token=launch-token" });
     const activation = await activatePlugin();
-    const panel = activation.contributions.workspacePanels?.[0];
+    const panel = activation.contributions.applicationPanels?.[0];
 
-    const rendered = serializeTemplate(panel?.render(createWorkspacePanelContext({
+    const rendered = serializeTemplate(panel?.render(createApplicationPanelContext({
       state: {
         piWebStatus: statusWithCommands(),
       },
     })));
 
     expect(rendered).toContain("复制");
-    expect(rendered).toContain("class=\"primary\"");
+    expect(rendered).toContain("class=\"ui-button ui-button--action ui-button--compact ui-button--primary\"");
   });
 
   it("shows the checked release timestamp only when a remote check was performed", async () => {
-    const panel = (await activatePlugin()).contributions.workspacePanels?.[0];
+    const panel = (await activatePlugin()).contributions.applicationPanels?.[0];
     const status = statusWithCommands();
     status.release.checkedAt = "2026-09-30T10:00:00.000Z";
     status.release.skipped = false;
-    const renderStatus = () => serializeTemplate(panel?.render(createWorkspacePanelContext({ state: { piWebStatus: status } })));
+    const renderStatus = () => serializeTemplate(panel?.render(createApplicationPanelContext({ state: { piWebStatus: status } })));
     expect(renderStatus()).toContain("发布检查时间 2026-09-30T10:00:00.000Z");
     status.release.skipped = true;
     expect(renderStatus()).not.toContain("发布检查时间");
@@ -95,8 +99,8 @@ describe("updates plugin Chinese display text", () => {
   it("does not throw when the clipboard API is unavailable", async () => {
     vi.stubGlobal("navigator", {});
     const activation = await activatePlugin();
-    const panel = activation.contributions.workspacePanels?.[0];
-    const panelContext = createWorkspacePanelContext({ state: { piWebStatus: statusWithCommands() } });
+    const panel = activation.contributions.applicationPanels?.[0];
+    const panelContext = createApplicationPanelContext({ state: { piWebStatus: statusWithCommands() } });
     Reflect.set(panelContext, "terminal", undefined);
     const rendered = panel?.render(panelContext);
     const container = document.createElement("div");

@@ -23,6 +23,7 @@ export class FilesCodeViewer extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot);
+    if (this.hasUpdated) void this.recreateEditor();
   }
 
   @property() content = "";

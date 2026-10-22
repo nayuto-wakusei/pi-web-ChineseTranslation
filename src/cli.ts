@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadNodeTranslator } from "./localization.js";
+import { runPiWebUpdate } from "./piWebUpdate.js";
 import { createTranslator, type Translator } from "./shared/i18n.js";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -1112,7 +1113,13 @@ export async function runReadinessCliCommand(
   });
 }
 
-function readinessCliCommandDependencies(t: Translator = createTranslator("en", {})): ReadinessCliCommandDependencies {
+export function parseVersionOptions(args: readonly string[], t: Translator = createTranslator("en", {})): PiWebVersionReportOptions {
+  if (args.length === 0) return {};
+  if (args.length === 1 && args[0] === "--check") return { check: true };
+  throw new Error(t("version.usage", "Usage: pi-web version [--check]"));
+}
+
+function readinessCliCommandDependencies(t: Translator = createTranslator("en", {}), versionOptions: PiWebVersionReportOptions = {}): ReadinessCliCommandDependencies {
   return {
     environment: process.env,
     currentBackend: currentServiceBackend,
@@ -1125,7 +1132,10 @@ function readinessCliCommandDependencies(t: Translator = createTranslator("en", 
     ),
     runLifecycle: performLifecycleServiceAction,
     runDoctor: (context) => doctor(context, t),
-    printVersion: async () => { await printPiWebVersionReport(); },
+    printVersion: async () => {
+      const report = await printPiWebVersionReport({ ...versionOptions, translator: t });
+      if (report.release?.status === "error") process.exitCode = 1;
+    },
   };
 }
 
@@ -1370,7 +1380,8 @@ Usage:
   pi-web plugins safe-start show|clear|set <bundled-only|none> [--config <path>] [--restart]
   pi-web audit <command> [options]
   pi-web doctor
-  pi-web version
+  pi-web update [--yes] [--force]
+  pi-web version [--check]
 
 Audit commands:
   pi-web audit list|stats|export|prune|vacuum
@@ -1389,8 +1400,9 @@ async function main(): Promise<void> {
   const [command = "help", ...args] = process.argv.slice(2);
   if (command === "install") await install(args, t);
   else if (command === "uninstall") await uninstall(t);
+  else if (command === "update") await runPiWebUpdate(args);
   else if (command === "start" || command === "restart" || command === "doctor" || command === "version") {
-    await runReadinessCliCommand(command, readinessCliCommandDependencies(t));
+    await runReadinessCliCommand(command, readinessCliCommandDependencies(t, command === "version" ? parseVersionOptions(args, t) : {}));
   } else if (command === "stop" || command === "status") await serviceAction(command, t);
   else if (command === "logs") logs(t);
   else if (command === "workspaces") {

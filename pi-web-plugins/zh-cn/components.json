@@ -1,4 +1,7 @@
 {
+  "bundled.updates.updatePiWeb": "更新 PI WEB",
+  "bundled.updates.confirmationAndSafeExecution": "运行推荐命令。更新需要在终端确认，可能中断活动会话；若此终端无法安全执行更新，CLI 会给出后续指引。",
+  "ui.settingsPackagesPanel.findCommunityPlugins": "查找社区插件",
   "ui.promptEditor.attachmentSource": "附件来源",
   "ui.promptEditor.chooseFromPhotoLibrary": "从照片图库选择",
   "ui.promptEditor.photos": "照片",
